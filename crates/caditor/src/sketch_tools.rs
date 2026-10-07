@@ -965,7 +965,7 @@ mod tests {
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Horizontal, &[EntityId::HORIZONTAL_AXIS]),
-            Err("It only uses reference geometry, which never moves.".to_owned())
+            Err("It only uses reference or projected geometry, which never moves.".to_owned())
         );
     }
 
@@ -1197,7 +1197,7 @@ mod tests {
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Fix, &[EntityId::ORIGIN]),
-            Err("It only uses reference geometry, which never moves.".to_owned())
+            Err("It only uses reference or projected geometry, which never moves.".to_owned())
         );
     }
 

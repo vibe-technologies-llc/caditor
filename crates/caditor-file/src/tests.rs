@@ -4383,3 +4383,124 @@ fn a_scale_with_a_damaged_factor_loads_as_one_and_says_so() {
         ["The scale factor of “Scale 1” could not be read, so it was set to 1."]
     );
 }
+
+#[test]
+fn projected_geometry_and_its_sources_survive_saving_and_the_journal() {
+    let mut document = sample();
+    let plain = encode(&document).unwrap();
+    let base = named(&document, "Base sketch");
+    let side = named(&document, "Side sketch");
+    let edge = caditor_kernel::EdgeReference::new(
+        caditor_kernel::EdgeName::from_digest(5),
+        [
+            caditor_kernel::FaceName::from_digest(1),
+            caditor_kernel::FaceName::from_digest(2),
+        ],
+        [
+            caditor_kernel::VertexName::from_digest(3),
+            caditor_kernel::VertexName::from_digest(4),
+        ],
+    );
+    let mut transaction = document.transaction("Project");
+    let line = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::SketchEntity {
+            sketch: base,
+            entity: EntityId::from_raw(2),
+        },
+        &caditor_document::Outline::Line {
+            start: Point2::ZERO,
+            end: Point2::new(4.0, 1.0),
+        },
+    );
+    let arc = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::Edge {
+            body: FeatureId::from_raw(90),
+            edge,
+        },
+        &caditor_document::Outline::Arc {
+            center: Point2::ZERO,
+            start: Point2::new(2.0, 0.0),
+            end: Point2::new(0.0, 2.0),
+        },
+    );
+    let corner = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::Vertex {
+            body: FeatureId::from_raw(90),
+            vertex: caditor_kernel::VertexName::from_digest(7),
+        },
+        &caditor_document::Outline::Point(Point2::new(-1.0, 3.0)),
+    );
+    let change = transaction.finish();
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+    let sketch = loaded
+        .document
+        .feature(side)
+        .and_then(|feature| feature.kind.sketch())
+        .unwrap();
+
+    assert!(!plain.contains("projections"));
+    assert!(text.contains("\"projections\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(
+        [line, arc, corner]
+            .iter()
+            .all(|id| sketch.is_projected(*id))
+    );
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+}
+
+#[test]
+fn an_unreadable_projection_leaves_ordinary_geometry_and_is_reported() {
+    let mut document = sample();
+    let side = named(&document, "Side sketch");
+    let mut transaction = document.transaction("Project");
+    let line = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::SketchEntity {
+            sketch: FeatureId::from_raw(0),
+            entity: EntityId::from_raw(2),
+        },
+        &caditor_document::Outline::Line {
+            start: Point2::ZERO,
+            end: Point2::new(4.0, 1.0),
+        },
+    );
+    document.apply(transaction.finish()).unwrap();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("\"sketch_entity\"", "\"hologram\"", 1);
+
+    let loaded = decode_text(&text);
+    let sketch = loaded
+        .document
+        .feature(side)
+        .and_then(|feature| feature.kind.sketch())
+        .unwrap();
+
+    assert!(issues_mention(
+        &loaded,
+        "the source of projected geometry could not be read"
+    ));
+    assert!(sketch.entity(line).is_some());
+    assert!(!sketch.is_projected(line));
+}
+
+fn named(document: &Document, name: &str) -> FeatureId {
+    document
+        .features()
+        .find(|feature| feature.name == name)
+        .map(|feature| feature.id())
+        .unwrap()
+}

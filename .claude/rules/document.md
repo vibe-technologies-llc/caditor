@@ -98,6 +98,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   undoing a removal restores them; `SetSketchConstraintActive` changes one constraint's flag and
   `reshape_sketch` emits it for kept constraints whose flag differs.
   Setting an entity changes only its value, never its kind or points.
+- `Edit::SetSketchProjection` gives an entity a `ProjectionSource` (or none) and sets the projected
+  flag on it and its points in one step; its inverse holds the previous source. A projected entity
+  is never removed while flagged (`StillProjected`), so `remove_sketch_items` first takes the
+  projection off every doomed projected entity, and takes a projected curve's points with it,
+  which undo puts back in the opposite order.
 - `reshape_sketch(feature, before, after)` turns a sketch edited as a whole (trim, extend) into
   edits; an entity whose kind or points changed is removed and added again under its ID with
   everything using it.
@@ -248,6 +253,20 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   plane; a lost, split or curved face fails the sketch alone with a fix pointing at it.
   `SetSketchPlacement` sets plane and attachment together. A body with attached sketches cannot
   stop making a body.
+- A sketch's `projections` (`projection.rs`) map a projected entity to its `ProjectionSource`: an
+  edge of a body (an `EdgeReference`), a corner (its `VertexName`) or an entity of an earlier
+  sketch. Before solving, recompute places each in the sketch plane from the source as it stands at
+  the sketch (`refreshed`, in the body's state at that point): a line, a circle or arc lying in a
+  parallel plane (turned to stay counter-clockwise), a point, or otherwise a spline through
+  `PROJECTED_SPLINE_POINTS` samples; another sketch's spline maps its control points exactly. The
+  entity keeps the kind and point count it was made with, so a source that now projects to another
+  kind, is missing, was split ambiguously (pieces of one line merge) or is unavailable fails the
+  sketch alone, naming the entity and the source. Source bodies count in `bodies_used`, source
+  sketches in `features()` and edge origins in `origin_features`, so recompute reuses the sketch
+  only while they are unchanged and a source stays above it. `TransactionBuilder::add_projection`
+  adds an `Outline` (`edge_outline`, `vertex_outline`, `sketch_outline`) as points, a curve and
+  its source in one transaction. A sketch's evaluation records every body standing at it
+  (`Evaluation::body_result_seen_by`), so the app projects from that state.
 - Datums are planes and axes with a `DatumResult`, referring to model geometry in each body's state
   at the feature's place in the tree. Edits refuse a sketch or plane based on a non-datum-plane
   (`NotAPlane`) or an axis reference to a non-datum-axis (`NotAnAxis`).

@@ -20,6 +20,14 @@ paths:
   conflicts or counts as redundant, and a new one is not refused for restating it. A dimension
   left inactive is a reference: its displayed value is `Sketch::measured` of the solved geometry.
   Removing a constraint forgets the flag; trim keeps it on the constraints it rebuilds.
+- Projected geometry (`Sketch::set_projected`, a set beside the entities, part of
+  `same_geometry`) is a curve and its points, or a lone point, whose position the document
+  supplies. The solver holds it fixed like the origin: its points are `PointHandle::Fixed` and a
+  projected circle's radius `RadiusHandle::Fixed`, so it adds no freedom and reads as fully
+  constrained, and every fixed value is part of each `SolveMemo` key. A constraint on projected or
+  reference geometry alone is `OnlyReference`. Trim, extend and the sketch fillet refuse a
+  projected curve (`Projected`); it still cuts, offsets, mirrors and takes constraints. It is
+  ordinary profile geometry unless made construction.
 - `Sketch::free_points` lists the points no curve uses (a constraint using one does not count), in one
   pass; the hole feature drills at them.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.

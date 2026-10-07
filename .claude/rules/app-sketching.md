@@ -124,6 +124,20 @@ paths:
   sketches and documents; it is not a preference, as no tool state is. The prompt's key line leads
   with the way in use and what the key does next.
 
+## Projecting model geometry
+
+- Project (`Tool::Project`, Alt+P, the sketch bar's Edit group, palette) brings model geometry into
+  the edited sketch: while it is active `Context::projecting` draws bodies and other sketches as
+  background but pickable (`Presence::Projectable`) and `Pickable::is_available` lets their faces,
+  edges, corners and curves be hovered. A click or Activate on one runs `projecting::project`: an
+  edge, a corner, every boundary edge of a face not seen end-on, or a curve or point of a sketch
+  above it, each as one undoable transaction from the body's state at the sketch
+  (`body_result_seen_by`). Geometry made later in the tree, a corner shared by two vertices of one
+  name and anything already projected are refused in words. The highlight commands step only
+  through projectable items, and the hover says what a click projects.
+- Projected geometry is drawn in the `PROJECTED` palette, is never grabbed or dragged and follows
+  its source on every recompute (`document.md`).
+
 ## Construction geometry
 
 - Construction makes the selected curves construction in one transaction

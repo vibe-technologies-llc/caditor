@@ -198,7 +198,7 @@ pub fn tangent_faces_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
         .collect()
 }
 
-fn face_boundary(solid: &Solid, face: caditor_kernel::FaceId) -> Vec<EdgeId> {
+pub fn face_boundary(solid: &Solid, face: caditor_kernel::FaceId) -> Vec<EdgeId> {
     let Some(face) = solid.face(face) else {
         return Vec::new();
     };

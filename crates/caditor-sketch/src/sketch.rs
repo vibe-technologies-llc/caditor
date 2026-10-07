@@ -53,7 +53,7 @@ pub enum SketchError {
         first: String,
         second: String,
     },
-    #[error("it only uses reference geometry, which never moves")]
+    #[error("it only uses reference or projected geometry, which never moves")]
     OnlyReference,
     #[error("{point} is part of {curve}")]
     OwnPoint { point: String, curve: String },
@@ -107,6 +107,7 @@ pub struct Sketch {
     constraints: BTreeMap<ConstraintId, Constraint>,
     inactive: BTreeSet<ConstraintId>,
     construction: BTreeSet<EntityId>,
+    projected: BTreeSet<EntityId>,
     uses: BTreeMap<EntityId, usize>,
     next_id: u64,
 }
@@ -119,6 +120,7 @@ impl Sketch {
             constraints: BTreeMap::new(),
             inactive: BTreeSet::new(),
             construction: BTreeSet::new(),
+            projected: BTreeSet::new(),
             uses: BTreeMap::new(),
             next_id: 0,
         }
@@ -406,6 +408,7 @@ impl Sketch {
         self.plane == other.plane
             && self.entities == other.entities
             && self.construction == other.construction
+            && self.projected == other.projected
     }
 
     pub fn same_content(&self, other: &Self) -> bool {
@@ -466,6 +469,28 @@ impl Sketch {
             !self.construction.insert(id)
         } else {
             self.construction.remove(&id)
+        };
+        Ok(was)
+    }
+
+    pub fn is_projected(&self, id: EntityId) -> bool {
+        self.projected.contains(&id)
+    }
+
+    pub fn projected(&self) -> impl ExactSizeIterator<Item = EntityId> + '_ {
+        self.projected.iter().copied()
+    }
+
+    pub fn is_fixed(&self, id: EntityId) -> bool {
+        id.is_reference() || self.projected.contains(&id)
+    }
+
+    pub fn set_projected(&mut self, id: EntityId, projected: bool) -> Result<bool, SketchError> {
+        self.check_editable(id)?;
+        let was = if projected {
+            !self.projected.insert(id)
+        } else {
+            self.projected.remove(&id)
         };
         Ok(was)
     }
@@ -720,6 +745,7 @@ impl Sketch {
             .remove(&id)
             .ok_or(SketchError::NoSuchEntity(id))?;
         self.construction.remove(&id);
+        self.projected.remove(&id);
         self.count_uses(&removed.points(), false);
         Ok(removed)
     }
@@ -898,7 +924,7 @@ impl Sketch {
     }
 
     fn check_not_only_reference(&self, entities: &[EntityId]) -> Result<(), SketchError> {
-        if entities.iter().all(|entity| entity.is_reference()) {
+        if entities.iter().all(|entity| self.is_fixed(*entity)) {
             Err(SketchError::OnlyReference)
         } else {
             Ok(())
@@ -1349,7 +1375,7 @@ mod tests {
         );
         assert_eq!(
             refused(Constraint::Horizontal(EntityId::HORIZONTAL_AXIS)),
-            "it only uses reference geometry, which never moves"
+            "it only uses reference or projected geometry, which never moves"
         );
         assert_eq!(
             refused(Constraint::Angle {
@@ -1505,7 +1531,7 @@ mod tests {
                 point: EntityId::ORIGIN,
                 at: Point2::ZERO
             }),
-            "it only uses reference geometry, which never moves"
+            "it only uses reference or projected geometry, which never moves"
         );
         assert_eq!(
             refused(Constraint::Fix {

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, CircularPattern, Combine,
@@ -6,8 +6,8 @@ use caditor_document::{
     ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleStyle,
     Import, LinearDirection, MAX_MATERIAL_NAME_CHARS, Mirror, Move, Parameter, Pattern,
     PatternKind, PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    RegionChoice, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction, material_name,
+    ProjectionSource, RegionChoice, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale,
+    Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -527,7 +527,23 @@ pub(crate) struct SketchRecord {
     pub datum: Option<u64>,
     pub entities: Vec<Lenient<EntityRecord>>,
     pub constraints: Vec<Lenient<ConstraintRecord>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub projections: Vec<Lenient<ProjectionRecord>>,
     pub next_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ProjectionRecord {
+    pub entity: u64,
+    pub source: ProjectionSourceRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ProjectionSourceRecord {
+    Edge { body: u64, edge: EdgeRecord },
+    Vertex { body: u64, vertex: String },
+    SketchEntity { sketch: u64, entity: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -776,6 +792,12 @@ pub(crate) enum EditRecord {
         feature: u64,
         id: u64,
         construction: bool,
+    },
+    SetSketchProjection {
+        feature: u64,
+        id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source: Option<ProjectionSourceRecord>,
     },
     AddSketchConstraint {
         feature: u64,
@@ -1517,8 +1539,93 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
                 Lenient::Read(constraint_record(id, constraint, !sketch.is_active(id)))
             })
             .collect(),
+        projections: feature
+            .projections
+            .iter()
+            .map(|(entity, source)| {
+                Lenient::Read(ProjectionRecord {
+                    entity: entity.raw(),
+                    source: projection_source_record(source),
+                })
+            })
+            .collect(),
         next_id: sketch.next_id(),
     }
+}
+
+fn projection_source_record(source: &ProjectionSource) -> ProjectionSourceRecord {
+    match source {
+        ProjectionSource::Edge { body, edge } => ProjectionSourceRecord::Edge {
+            body: body.raw(),
+            edge: edge_record(edge),
+        },
+        ProjectionSource::Vertex { body, vertex } => ProjectionSourceRecord::Vertex {
+            body: body.raw(),
+            vertex: hex(vertex.digest()),
+        },
+        ProjectionSource::SketchEntity { sketch, entity } => ProjectionSourceRecord::SketchEntity {
+            sketch: sketch.raw(),
+            entity: entity.raw(),
+        },
+    }
+}
+
+fn restore_projection_source(record: &ProjectionSourceRecord) -> Option<ProjectionSource> {
+    Some(match record {
+        ProjectionSourceRecord::Edge { body, edge } => ProjectionSource::Edge {
+            body: FeatureId::from_raw(*body),
+            edge: restore_edge(edge)?,
+        },
+        ProjectionSourceRecord::Vertex { body, vertex } => ProjectionSource::Vertex {
+            body: FeatureId::from_raw(*body),
+            vertex: VertexName::from_digest(restore_digest(vertex)?),
+        },
+        ProjectionSourceRecord::SketchEntity { sketch, entity } => ProjectionSource::SketchEntity {
+            sketch: FeatureId::from_raw(*sketch),
+            entity: EntityId::from_raw(*entity),
+        },
+    })
+}
+
+fn restore_projections(
+    record: &SketchRecord,
+    sketch: &mut Sketch,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> BTreeMap<EntityId, ProjectionSource> {
+    let mut projections = BTreeMap::new();
+    for projection in &record.projections {
+        let Lenient::Read(projection) = projection else {
+            issues.push(format!(
+                "In “{feature}”, the source of projected geometry could not be read, so it stays \
+                 where it was saved as ordinary geometry."
+            ));
+            continue;
+        };
+        let id = EntityId::from_raw(projection.entity);
+        let label = sketch.entity_label(id);
+        let Some(entity) = sketch.entity(id) else {
+            continue;
+        };
+        let Some(source) = restore_projection_source(&projection.source) else {
+            issues.push(format!(
+                "In “{feature}”, the source {label} was projected from could not be read, so it \
+                 stays where it was saved as ordinary geometry."
+            ));
+            continue;
+        };
+        let marked: Vec<EntityId> = entity.points().into_iter().chain([id]).collect();
+        for each in marked {
+            if sketch.set_projected(each, true).is_err() {
+                issues.push(format!(
+                    "In “{feature}”, part of {label} is missing, so it may move away from the \
+                     geometry it was projected from."
+                ));
+            }
+        }
+        projections.insert(id, source);
+    }
+    projections
 }
 
 fn entity_record(id: EntityId, entity: &Entity, construction: bool) -> EntityRecord {
@@ -1772,6 +1879,15 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id: id.raw(),
             construction: *construction,
         },
+        Edit::SetSketchProjection {
+            feature,
+            id,
+            source,
+        } => EditRecord::SetSketchProjection {
+            feature: feature.raw(),
+            id: id.raw(),
+            source: source.as_ref().map(projection_source_record),
+        },
         Edit::AddSketchConstraint {
             feature,
             id,
@@ -1948,6 +2064,18 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             id: EntityId::from_raw(id),
             construction,
         },
+        EditRecord::SetSketchProjection {
+            feature,
+            id,
+            source,
+        } => Edit::SetSketchProjection {
+            feature: FeatureId::from_raw(feature),
+            id: EntityId::from_raw(id),
+            source: match source {
+                Some(record) => Some(restore_projection_source(&record)?),
+                None => None,
+            },
+        },
         EditRecord::AddSketchConstraint {
             feature,
             constraint,
@@ -2011,9 +2139,12 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
                     .datum
                     .map(|datum| SketchAttachment::Datum(FeatureId::from_raw(datum)))
             });
+            let mut restored = restore_sketch(sketch, name, issues);
+            let projections = restore_projections(sketch, &mut restored, name, issues);
             FeatureKind::Sketch(SketchFeature {
-                sketch: restore_sketch(sketch, name, issues),
+                sketch: restored,
                 attachment,
+                projections,
             })
         }
         FeatureKindRecord::Extrude(extrude) => {

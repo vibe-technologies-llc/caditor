@@ -32,9 +32,10 @@ pub enum Tool {
     Offset,
     Mirror,
     Fillet,
+    Project,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, Fillet);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, Fillet, Project);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -55,6 +56,7 @@ impl Tool {
             Self::Offset => "Offset",
             Self::Mirror => "Mirror",
             Self::Fillet => "Sketch fillet",
+            Self::Project => "Project",
         }
     }
 
@@ -94,6 +96,10 @@ impl Tool {
             Self::Fillet => {
                 "Round the corner where two lines or arcs meet with an arc tangent to both"
             }
+            Self::Project => {
+                "Click an edge, corner or face of a body, or a curve of another sketch, to bring \
+                 it into this sketch; it follows the original as the model changes"
+            }
         }
     }
 
@@ -104,7 +110,8 @@ impl Tool {
             | Self::Extend
             | Self::Offset
             | Self::Mirror
-            | Self::Fillet => false,
+            | Self::Fillet
+            | Self::Project => false,
             Self::Point
             | Self::Line
             | Self::Rectangle
@@ -128,6 +135,10 @@ impl Tool {
 
     pub fn reshapes(self) -> bool {
         matches!(self, Self::Offset | Self::Mirror | Self::Fillet)
+    }
+
+    pub fn projects(self) -> bool {
+        self == Self::Project
     }
 }
 
@@ -161,6 +172,7 @@ pub struct Context {
     pub sketch: Option<FeatureId>,
     pub solid: Option<FeatureId>,
     pub choosing_plane: bool,
+    pub projecting: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -195,6 +207,7 @@ impl SketchEditing {
             sketch: self.feature(),
             solid: self.solid,
             choosing_plane: self.choosing_plane,
+            projecting: self.active.is_some_and(|active| active.tool.projects()),
         }
     }
 

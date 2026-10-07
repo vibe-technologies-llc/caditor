@@ -590,6 +590,7 @@ impl Command {
                 Tool::Offset => "sketch.offset",
                 Tool::Mirror => "sketch.mirror",
                 Tool::Fillet => "sketch.fillet",
+                Tool::Project => "sketch.project",
             },
             Self::ShapeMode(mode) => mode.id(),
             Self::Filter(filter) => filter.id(),
@@ -750,6 +751,7 @@ impl Command {
             Self::SketchTool(Tool::Offset) => "Offset sketch curves",
             Self::SketchTool(Tool::Mirror) => "Mirror sketch geometry",
             Self::SketchTool(Tool::Fillet) => "Fillet a sketch corner",
+            Self::SketchTool(Tool::Project) => "Project model geometry into the sketch",
             Self::SketchTool(tool) => return format!("Draw {}", tool.label().to_lowercase()),
             Self::ShapeMode(mode) => return mode.title(),
             Self::Constraint(tool) => return tool.label().to_owned(),
@@ -1140,6 +1142,7 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::Offset => plain(Key::W),
         Tool::Mirror => plain(Key::Y),
         Tool::Fillet => plain(Key::B),
+        Tool::Project => Some(KeyboardShortcut::new(Modifiers::ALT, Key::P)),
     }
 }
 

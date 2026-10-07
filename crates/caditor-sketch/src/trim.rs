@@ -23,6 +23,8 @@ pub enum TrimError {
     Spline { entity: EntityId, label: String },
     #[error("{label} has no length to trim")]
     NoLength { entity: EntityId, label: String },
+    #[error("{label} follows the geometry it was projected from, so it cannot be trimmed")]
+    Projected { entity: EntityId, label: String },
     #[error(transparent)]
     Edit(SketchError),
 }
@@ -49,6 +51,8 @@ pub enum ExtendError {
     },
     #[error("this end of {label} is fixed, so it cannot move")]
     Fixed { entity: EntityId, label: String },
+    #[error("{label} follows the geometry it was projected from, so it cannot be extended")]
+    Projected { entity: EntityId, label: String },
     #[error(transparent)]
     Edit(SketchError),
 }
@@ -351,6 +355,12 @@ impl Sketch {
             entity: curve,
             label: label(),
         };
+        if self.is_projected(curve) {
+            return Err(ExtendError::Projected {
+                entity: curve,
+                label: label(),
+            });
+        }
         let (end, from, direction, reach) = match *entity {
             Entity::Point(_) => {
                 return Err(ExtendError::NotACurve {
@@ -453,6 +463,12 @@ impl Sketch {
             label: label(),
         };
         let entity = self.entity(curve).ok_or(TrimError::NoSuchCurve(curve))?;
+        if self.is_projected(curve) {
+            return Err(TrimError::Projected {
+                entity: curve,
+                label: label(),
+            });
+        }
         let course = match entity {
             Entity::Point(_) => {
                 return Err(TrimError::NotACurve {

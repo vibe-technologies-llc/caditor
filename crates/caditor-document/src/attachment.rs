@@ -1,13 +1,14 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_geometry::Plane;
 use caditor_kernel::{FaceId, FaceReference, ReferenceError, Solid, Surface};
-use caditor_sketch::Sketch;
+use caditor_sketch::{EntityId, Sketch};
 
 use crate::{
     datum::DatumResult,
     document::{Feature, FeatureId},
     origins,
+    projection::ProjectionSource,
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     tolerance,
 };
@@ -107,6 +108,7 @@ impl SketchAttachment {
 pub struct SketchFeature {
     pub sketch: Sketch,
     pub attachment: Option<SketchAttachment>,
+    pub projections: BTreeMap<EntityId, ProjectionSource>,
 }
 
 impl SketchFeature {
@@ -114,6 +116,7 @@ impl SketchFeature {
         Self {
             sketch,
             attachment: Some(SketchAttachment::Face(attachment)),
+            projections: BTreeMap::new(),
         }
     }
 
@@ -121,7 +124,34 @@ impl SketchFeature {
         Self {
             sketch,
             attachment: Some(SketchAttachment::Datum(datum)),
+            projections: BTreeMap::new(),
         }
+    }
+}
+
+impl SketchFeature {
+    pub fn projected_bodies(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        self.projections.values().filter_map(ProjectionSource::body)
+    }
+
+    pub fn projected_sketches(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        self.projections
+            .values()
+            .filter_map(ProjectionSource::sketch)
+    }
+
+    pub fn projection(&self, entity: EntityId) -> Option<&ProjectionSource> {
+        self.projections.get(&entity)
+    }
+
+    pub fn projection_of(&self, entity: EntityId) -> Option<(EntityId, &ProjectionSource)> {
+        if let Some(source) = self.projections.get(&entity) {
+            return Some((entity, source));
+        }
+        self.sketch
+            .entities_using(entity)
+            .into_iter()
+            .find_map(|user| Some((user, self.projections.get(&user)?)))
     }
 }
 
@@ -130,6 +160,7 @@ impl From<Sketch> for SketchFeature {
         Self {
             sketch,
             attachment: None,
+            projections: BTreeMap::new(),
         }
     }
 }

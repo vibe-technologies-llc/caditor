@@ -141,7 +141,8 @@ impl Shape {
             | Tool::Extend
             | Tool::Offset
             | Tool::Mirror
-            | Tool::Fillet => None,
+            | Tool::Fillet
+            | Tool::Project => None,
         }
     }
 

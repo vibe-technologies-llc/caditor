@@ -74,6 +74,7 @@ mod pattern_tools;
 mod portal;
 mod preferences;
 mod principal_tree;
+mod projecting;
 mod reference_picking;
 mod reference_rows;
 mod ribbon;

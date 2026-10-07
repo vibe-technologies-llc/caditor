@@ -143,8 +143,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Sketching
 
-- [high · hard] No projection of model edges or other sketches into a sketch, and bodies and other
-  sketches are unpickable while editing.
 - [medium · medium] Typed lengths and angles (`@40, 20`, `25 < 30`, `width / 2, 10`) are evaluated
   once and place free points, keeping neither a dimension nor the parameter link; offer to create
   the dimensions.

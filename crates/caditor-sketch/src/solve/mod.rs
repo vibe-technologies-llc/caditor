@@ -6,6 +6,8 @@ mod equation;
 mod kind_tests;
 mod memo;
 mod numeric;
+#[cfg(test)]
+mod projection_tests;
 mod sparse;
 mod spline;
 mod system;

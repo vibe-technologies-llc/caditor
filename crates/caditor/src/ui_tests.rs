@@ -12701,3 +12701,66 @@ fn the_input_mode_is_chosen_in_preferences_and_remembered() {
         )
     );
 }
+
+#[test]
+fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboard() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let sketch = harness.draw_on_new_sketch();
+
+    harness.use_tool_with(Key::P, Modifiers::ALT);
+    let top = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            matches!(pickable, Pickable::Face { body, .. } if *body == extrude)
+                && pickable.describe(harness.document(), harness.model.evaluation())
+                    == "Extrude 1 › Extrude 1 end face"
+        })
+        .expect("the top face is pickable while projecting");
+
+    assert_eq!(harness.tool(), Some(Tool::Project));
+    assert!(harness.shows(
+        "Click an edge, corner or face of a body, or a curve of another sketch, to project it"
+    ));
+
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.settle();
+    let projected: Vec<EntityId> = harness.sketch(sketch).projected().collect();
+    let shown = harness.shown(sketch);
+    let lines: Vec<EntityId> = projected
+        .iter()
+        .copied()
+        .filter(|id| matches!(shown.entity(*id), Some(Entity::Line { .. })))
+        .collect();
+
+    assert_eq!(lines.len(), 4);
+    assert!(
+        harness
+            .model
+            .undo_label()
+            .is_some_and(|label| label.starts_with("Project the edges of"))
+    );
+    for line in &lines {
+        let (start, end) = shown.line_endpoints(*line).unwrap();
+        for end in [start, end] {
+            assert!(
+                [0.0, 40.0].iter().any(|edge| (end.x - edge).abs() < 1e-9)
+                    && [0.0, 40.0].iter().any(|edge| (end.y - edge).abs() < 1e-9),
+                "{end} is not a corner of the plate"
+            );
+        }
+    }
+
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.settle();
+
+    assert!(harness.shows_containing("already projected into it"));
+    assert_eq!(harness.sketch(sketch).projected().count(), projected.len());
+
+    harness.key(Key::N, Modifiers::NONE);
+    harness.frame();
+
+    assert!(harness.shows_containing("Project "));
+}

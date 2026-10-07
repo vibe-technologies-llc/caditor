@@ -19,6 +19,7 @@ mod parameter_list;
 mod pattern;
 mod pieces;
 mod presenting;
+mod projection;
 mod recompute;
 mod scaling;
 mod shell;
@@ -58,6 +59,10 @@ pub use crate::{
     origins::complete_origins,
     pattern::{CircularPattern, LinearDirection, MAX_PATTERN_INSTANCES, Pattern, PatternKind},
     pieces::{Resolution, Unresolved},
+    projection::{
+        Outline, PROJECTED_SPLINE_POINTS, ProjectionSource, edge_outline, sketch_outline,
+        vertex_outline,
+    },
     recompute::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
         FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,
@@ -97,6 +102,8 @@ mod parameter_tests;
 mod pattern_tests;
 #[cfg(test)]
 mod presenting_tests;
+#[cfg(test)]
+mod projection_tests;
 #[cfg(test)]
 mod scaling_tests;
 #[cfg(test)]

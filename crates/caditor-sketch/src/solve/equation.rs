@@ -88,6 +88,7 @@ impl LineHandle {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum RadiusHandle {
     Variable(usize),
+    Fixed(f64),
     ToArcStart {
         start: PointHandle,
         fallback: Vector2,
@@ -104,6 +105,7 @@ impl CircleHandle {
     pub fn radius(&self, values: &[f64]) -> f64 {
         match self.radius {
             RadiusHandle::Variable(index) => value(values, index),
+            RadiusHandle::Fixed(radius) => radius,
             RadiusHandle::ToArcStart { start, .. } => {
                 start.at(values).distance(self.center.at(values))
             }
@@ -113,6 +115,7 @@ impl CircleHandle {
     fn push_radius(&self, values: &[f64], context: &Context, gradient: &mut Gradient, factor: f64) {
         match self.radius {
             RadiusHandle::Variable(index) => gradient.push((index, factor)),
+            RadiusHandle::Fixed(_) => {}
             RadiusHandle::ToArcStart { start, fallback } => {
                 let direction =
                     Direction::of(start.at(values) - self.center.at(values), fallback, context);

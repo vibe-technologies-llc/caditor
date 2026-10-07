@@ -29,7 +29,7 @@ use crate::{
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome, Value},
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
-    reference_picking,
+    projecting, reference_picking,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     selection::{Pickable, Selection, SelectionFilter},
@@ -66,6 +66,8 @@ const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
 const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or leave them out";
 const CHOOSE_REGIONS_HINT: &str = "Esc: done";
 const CHOOSE_EDGES_PROMPT: &str = "Click edges to add them or leave them out";
+const PROJECT_PROMPT: &str =
+    "Click an edge, corner or face of a body, or a curve of another sketch, to project it";
 const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
 const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
 const CHOOSE_MOVE_PROMPT: &str = "Enter the turns and distances in the feature's panel";
@@ -178,7 +180,7 @@ pub struct ImageView {
 pub struct ViewportState {
     camera: Camera,
     selection: Selection,
-    hovered: Option<Pickable>,
+    pub(crate) hovered: Option<Pickable>,
     hover_source: Option<PickSource>,
     pending_click: Option<Click>,
     pointer_hit: Option<PointerHit>,
@@ -1070,14 +1072,17 @@ impl ViewportState {
                 return Some(PrimaryDrag::Trim { feature, from });
             }
             Tool::Offset | Tool::Fillet => return Some(PrimaryDrag::Pull { feature }),
-            Tool::Extend | Tool::Mirror => return None,
+            Tool::Extend | Tool::Mirror | Tool::Project => return None,
             _ => {}
         }
+        let projected = |entity: EntityId| {
+            edited_sketch(model, editing).is_some_and(|sketch| sketch.is_projected(entity))
+        };
         let grabbed = match press.hovered {
             Some(Pickable::SketchEntity {
                 feature: owner,
                 entity,
-            }) if owner == feature && !entity.is_reference() => Some(entity),
+            }) if owner == feature && !entity.is_reference() && !projected(entity) => Some(entity),
             _ => None,
         };
         let Some(grabbed) = grabbed else {
@@ -1411,7 +1416,7 @@ impl ViewportState {
                 match &targets {
                     Some(sketch) if trims => self.trimming.step(sketch, step),
                     Some(sketch) => self.modifying.step(sketch, step),
-                    None => self.step_highlight(step),
+                    None => self.step_highlight(step, editing),
                 }
             }
         }
@@ -1550,14 +1555,21 @@ impl ViewportState {
         }
     }
 
-    fn step_highlight(&mut self, step: isize) {
+    fn step_highlight(&mut self, step: isize, editing: &SketchEditing) {
         let filter = self.active_filter();
+        let projecting = editing
+            .active()
+            .filter(|active| active.tool.projects())
+            .map(|active| active.feature);
         let highlightable: Vec<Pickable> = self
             .scenes
             .highlightable()
             .iter()
             .copied()
             .filter(|pickable| filter.allows(*pickable))
+            .filter(|pickable| {
+                projecting.is_none_or(|sketch| projecting::projectable(*pickable, sketch))
+            })
             .collect();
         let count = highlightable.len();
         if count == 0 {
@@ -2110,6 +2122,11 @@ impl ViewportState {
                 _ => CHOOSE_REGIONS_PROMPT,
             };
             Some((prompt.to_owned(), CHOOSE_REGIONS_HINT.to_owned()))
+        } else if editing
+            .active()
+            .is_some_and(|active| active.tool.projects())
+        {
+            Some((PROJECT_PROMPT.to_owned(), key_hints.targets.clone()))
         } else if let Some(prompt) = self.trimming.prompt() {
             Some((prompt.to_owned(), key_hints.targets.clone()))
         } else if let Some(prompt) = self.modifying.prompt() {
@@ -2170,7 +2187,12 @@ impl ViewportState {
         prompt: Option<Rect>,
     ) {
         let hovered = self.annotations.hovered().or(self.highlighted());
-        let description = if self.trimming.is_active() {
+        let projecting = editing.active().filter(|active| active.tool.projects());
+        let description = if let Some(active) = projecting {
+            hovered
+                .filter(|hovered| projecting::projectable(*hovered, active.feature))
+                .and_then(|hovered| projecting::describe(model, active.feature, hovered))
+        } else if self.trimming.is_active() {
             edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
         } else if self.modifying.is_active() {
             edited_sketch(model, editing)
@@ -2311,6 +2333,16 @@ fn pick_action(
                 .map(|pickable| reference_picking::click(model, picking, pickable))
                 .unwrap_or_default(),
         );
+    }
+    if let Some(active) = editing.active().filter(|active| active.tool.projects()) {
+        let target = pickable.filter(|pickable| projecting::projectable(*pickable, active.feature));
+        return Some(match target {
+            Some(target) => match projecting::project(model, active.feature, target) {
+                Ok(transaction) => vec![Action::Apply(transaction)],
+                Err(reason) => vec![Action::Inform(Notice::info(format!("{reason}.")))],
+            },
+            None => Vec::new(),
+        });
     }
     let toggled = match pickable {
         Some(Pickable::Region { feature, region }) => {

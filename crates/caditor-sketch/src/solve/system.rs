@@ -24,7 +24,9 @@ pub(crate) struct System {
     pub values: Vec<f64>,
     pub equations: Vec<Equation>,
     pub points: BTreeMap<EntityId, usize>,
+    pub fixed_points: BTreeMap<EntityId, Point2>,
     pub radii: BTreeMap<EntityId, usize>,
+    pub fixed_radii: BTreeMap<EntityId, f64>,
     pub radius_variables: BTreeSet<usize>,
     pub parameters: BTreeMap<ConstraintId, usize>,
     pub parameter_variables: BTreeSet<usize>,
@@ -37,12 +39,20 @@ impl System {
     pub fn build(sketch: &Sketch, dimensions: &DimensionValues) -> Result<Self, SketchError> {
         let mut values = Vec::new();
         let mut points = BTreeMap::new();
+        let mut fixed_points = BTreeMap::new();
         let mut radii = BTreeMap::new();
+        let mut fixed_radii = BTreeMap::new();
         for (id, entity) in sketch.entities() {
             match *entity {
+                Entity::Point(position) if sketch.is_projected(id) => {
+                    fixed_points.insert(id, position);
+                }
                 Entity::Point(position) => {
                     points.insert(id, values.len());
                     values.extend([position.x, position.y]);
+                }
+                Entity::Circle { radius, .. } if sketch.is_projected(id) => {
+                    fixed_radii.insert(id, radius);
                 }
                 Entity::Circle { radius, .. } => {
                     radii.insert(id, values.len());
@@ -56,7 +66,9 @@ impl System {
             values,
             equations: Vec::new(),
             points,
+            fixed_points,
             radii,
+            fixed_radii,
             parameters: BTreeMap::new(),
             parameter_variables: BTreeSet::new(),
             entity_variables: BTreeMap::new(),
@@ -122,6 +134,15 @@ impl System {
         Ok(system)
     }
 
+    pub fn anchor_bits(&self) -> Vec<u64> {
+        self.fixed_points
+            .values()
+            .flat_map(|position| [position.x, position.y])
+            .chain(self.fixed_radii.values().copied())
+            .map(f64::to_bits)
+            .collect()
+    }
+
     pub fn context_of(&self, component: &Component) -> Context {
         let coordinates = component
             .variables
@@ -151,6 +172,9 @@ impl System {
     pub(super) fn point(&self, id: EntityId) -> Result<PointHandle, SketchError> {
         if id == EntityId::ORIGIN {
             return Ok(PointHandle::Fixed(Point2::ZERO));
+        }
+        if let Some(position) = self.fixed_points.get(&id) {
+            return Ok(PointHandle::Fixed(*position));
         }
         self.points
             .get(&id)
@@ -188,9 +212,12 @@ impl System {
         match sketch.entity(id) {
             Some(&Entity::Circle { center, .. }) => Ok(CircleHandle {
                 center: self.point(center)?,
-                radius: RadiusHandle::Variable(
-                    *self.radii.get(&id).ok_or(SketchError::MissingEntity(id))?,
-                ),
+                radius: match self.fixed_radii.get(&id) {
+                    Some(radius) => RadiusHandle::Fixed(*radius),
+                    None => RadiusHandle::Variable(
+                        *self.radii.get(&id).ok_or(SketchError::MissingEntity(id))?,
+                    ),
+                },
             }),
             Some(&Entity::Arc { center, start, .. }) => {
                 let (center, start) = (self.point(center)?, self.point(start)?);

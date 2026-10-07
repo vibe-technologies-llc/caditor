@@ -1,11 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::Expression;
+use caditor_geometry::Plane;
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError};
 
 use crate::{
-    document::{Document, FeatureId, list_names},
+    attachment::SketchFeature,
+    document::{Document, FeatureId, FeatureKind, list_names},
     edit::{Edit, EditError, TransactionBuilder},
+    projection::ProjectionSource,
 };
 
 impl TransactionBuilder<'_> {
@@ -64,8 +67,32 @@ impl TransactionBuilder<'_> {
         entities: impl IntoIterator<Item = EntityId>,
         constraints: impl IntoIterator<Item = ConstraintId>,
     ) -> &mut Self {
-        let edits = match self.sketch(feature) {
-            Some(sketch) => Removal::plan(sketch, entities, constraints).edits(feature),
+        let edits = match self.sketch_feature(feature) {
+            Some(definition) => {
+                let mut entities: BTreeSet<EntityId> = entities.into_iter().collect();
+                let projected_points: Vec<EntityId> = entities
+                    .iter()
+                    .filter(|id| definition.projections.contains_key(id))
+                    .filter_map(|id| definition.sketch.entity(*id))
+                    .flat_map(Entity::points)
+                    .collect();
+                entities.extend(projected_points);
+                let removal = Removal::plan(&definition.sketch, entities, constraints);
+                let unprojected = removal
+                    .entities
+                    .iter()
+                    .filter(|id| definition.projections.contains_key(id))
+                    .map(|id| Edit::SetSketchProjection {
+                        feature,
+                        id: *id,
+                        source: None,
+                    })
+                    .collect::<Vec<_>>();
+                unprojected
+                    .into_iter()
+                    .chain(removal.edits(feature))
+                    .collect()
+            }
             None => Removal {
                 constraints: constraints.into_iter().collect(),
                 entities: entities.into_iter().collect(),
@@ -116,11 +143,22 @@ impl TransactionBuilder<'_> {
     }
 
     fn sketch(&self, feature: FeatureId) -> Option<&Sketch> {
+        self.sketch_feature(feature)
+            .map(|definition| &definition.sketch)
+    }
+
+    fn sketch_feature(&self, feature: FeatureId) -> Option<&SketchFeature> {
+        fn sketch_of(kind: &FeatureKind) -> Option<&SketchFeature> {
+            match kind {
+                FeatureKind::Sketch(definition) => Some(definition),
+                _ => None,
+            }
+        }
         match self.document.feature(feature) {
-            Some(existing) => existing.kind.sketch(),
+            Some(existing) => sketch_of(&existing.kind),
             None => self.edits.iter().find_map(|edit| match edit {
                 Edit::InsertFeature { feature: added, .. } if added.id() == feature => {
-                    added.kind.sketch()
+                    sketch_of(&added.kind)
                 }
                 _ => None,
             }),
@@ -429,6 +467,55 @@ impl Document {
         })
     }
 
+    pub(super) fn set_sketch_projection(
+        &mut self,
+        feature: FeatureId,
+        id: EntityId,
+        source: Option<ProjectionSource>,
+    ) -> Result<Edit, EditError> {
+        let index = self.feature_position(feature)?;
+        if let Some(source) = &source {
+            let probe = FeatureKind::Sketch(SketchFeature {
+                sketch: Sketch::new(Plane::XY),
+                attachment: None,
+                projections: BTreeMap::from([(id, source.clone())]),
+            });
+            self.check_feature_references(&probe, index)?;
+            self.reserve_past_references(&probe);
+        }
+        let existing = self.feature_mut(feature)?;
+        let name = existing.name.clone();
+        let FeatureKind::Sketch(definition) = &mut existing.kind else {
+            return Err(EditError::NotASketch(name));
+        };
+        let points = definition
+            .sketch
+            .entity(id)
+            .ok_or_else(|| EditError::Sketch {
+                name: name.clone(),
+                error: SketchError::NoSuchEntity(id),
+            })?
+            .points();
+        for marked in points.into_iter().chain([id]) {
+            definition
+                .sketch
+                .set_projected(marked, source.is_some())
+                .map_err(|error| EditError::Sketch {
+                    name: name.clone(),
+                    error,
+                })?;
+        }
+        let previous = match source {
+            Some(source) => definition.projections.insert(id, source),
+            None => definition.projections.remove(&id),
+        };
+        Ok(Edit::SetSketchProjection {
+            feature,
+            id,
+            source: previous,
+        })
+    }
+
     pub(super) fn remove_sketch_entity(
         &mut self,
         feature: FeatureId,
@@ -452,6 +539,12 @@ impl Document {
             });
         }
         let (name, sketch) = self.sketch_mut(feature)?;
+        if sketch.is_projected(id) {
+            return Err(EditError::StillProjected {
+                feature: name,
+                name: sketch.entity_label(id),
+            });
+        }
         let construction = sketch.is_construction(id);
         match sketch.remove_unused_entity(id) {
             Ok(entity) => Ok(Edit::AddSketchEntity {

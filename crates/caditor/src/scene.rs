@@ -57,6 +57,8 @@ const CONFLICTING_CURVE: Color = Color::from_rgb8(238, 78, 70);
 const CONFLICTING_POINT: Color = Color::from_rgb8(250, 108, 100);
 const REDUNDANT_CURVE: Color = Color::from_rgb8(236, 132, 40);
 const REDUNDANT_POINT: Color = Color::from_rgb8(246, 158, 78);
+const PROJECTED_CURVE: Color = Color::from_rgb8(196, 136, 238);
+const PROJECTED_POINT: Color = Color::from_rgb8(214, 166, 246);
 const BACKGROUND_SKETCH_CURVE: Color = Color::from_rgb8(104, 108, 118);
 const BACKGROUND_SKETCH_POINT: Color = Color::from_rgb8(118, 122, 132);
 const SKETCH_HORIZONTAL_AXIS: Color = Color::from_rgb8(226, 84, 84);
@@ -144,6 +146,10 @@ const REDUNDANT: Palette = Palette {
 const FAILED: Palette = Palette {
     curve: FAILED_SKETCH_CURVE,
     point: FAILED_SKETCH_POINT,
+};
+const PROJECTED: Palette = Palette {
+    curve: PROJECTED_CURVE,
+    point: PROJECTED_POINT,
 };
 const BACKGROUND: Palette = Palette {
     curve: BACKGROUND_SKETCH_CURVE,
@@ -446,7 +452,7 @@ pub fn build(
             }
         }
     }
-    for (feature, presence) in drawn_sketches(document, editing) {
+    for (feature, presence) in drawn_sketches(document, editing, context.projecting) {
         if let Some(shapes) = shapes.of(sources, feature) {
             builder.sketch(feature.id(), shapes, presence);
         }
@@ -462,7 +468,7 @@ pub fn build(
             Some(_) => None,
             None => Some(body_color(document, evaluation, body)),
         };
-        builder.body(body, mesh, color);
+        builder.body(body, mesh, color, editing.is_none() || context.projecting);
     }
     if let Some(open) = open {
         builder.open_before(document, evaluation, open);
@@ -507,12 +513,14 @@ pub fn build(
 fn drawn_sketches(
     document: &Document,
     editing: Option<FeatureId>,
+    projecting: bool,
 ) -> impl Iterator<Item = (&Feature, Presence)> {
     document.active_features().filter_map(move |feature| {
         let presence = match editing {
             Some(edited) if edited == feature.id() => Presence::Edited,
             _ if feature.hidden => return None,
             None => Presence::Normal,
+            Some(_) if projecting => Presence::Projectable,
             Some(_) => Presence::Background,
         };
         feature
@@ -546,7 +554,7 @@ fn sketch_segments_within(
         sketches,
         ..
     } = *sources;
-    drawn_sketches(document, context.sketch)
+    drawn_sketches(document, context.sketch, context.projecting)
         .filter_map(|(feature, _)| sketches.get(evaluation, feature))
         .try_fold(0usize, |total, sketch| {
             sketch
@@ -564,13 +572,14 @@ enum Presence {
     Normal,
     Edited,
     Background,
+    Projectable,
 }
 
 impl Presence {
     fn layer(self) -> Layer {
         match self {
             Self::Edited => Layer::Front,
-            Self::Normal | Self::Background => Layer::Model,
+            Self::Normal | Self::Background | Self::Projectable => Layer::Model,
         }
     }
 }
@@ -579,6 +588,7 @@ struct ConstraintStates<'a> {
     solution: Option<&'a SketchSolution>,
     conflicting: BTreeSet<EntityId>,
     redundant: BTreeSet<EntityId>,
+    projected: BTreeSet<EntityId>,
     failed: bool,
 }
 
@@ -589,6 +599,7 @@ impl<'a> ConstraintStates<'a> {
             solution: None,
             conflicting: BTreeSet::new(),
             redundant: BTreeSet::new(),
+            projected: definition.projected().collect(),
             failed: false,
         };
         let Some(status) = evaluation.feature(feature.id()) else {
@@ -630,6 +641,8 @@ impl<'a> ConstraintStates<'a> {
             FAILED
         } else if self.redundant.contains(&entity) {
             REDUNDANT
+        } else if self.projected.contains(&entity) {
+            PROJECTED
         } else if self
             .solution
             .and_then(|solution| solution.entity_state(entity))
@@ -743,7 +756,7 @@ impl Builder<'_> {
         }
     }
 
-    fn body(&mut self, body: FeatureId, mesh: &BodyMesh, color: Option<Color>) {
+    fn body(&mut self, body: FeatureId, mesh: &BodyMesh, color: Option<Color>, pickable: bool) {
         let style = match color {
             Some(_) => self.style,
             None => DisplayStyle::default(),
@@ -776,6 +789,16 @@ impl Builder<'_> {
                             pick: self.picks.register(pickable, PickPriority::Surface),
                         }
                     }
+                    None if pickable => {
+                        let pickable = Pickable::Face {
+                            body,
+                            face: face.key,
+                        };
+                        FaceStyle {
+                            color: self.highlight.color(pickable, BACKGROUND_BODY),
+                            pick: self.picks.register(pickable, PickPriority::Surface),
+                        }
+                    }
                     None => FaceStyle {
                         color: BACKGROUND_BODY,
                         pick: None,
@@ -792,6 +815,7 @@ impl Builder<'_> {
         } else {
             BODY_EDGE.with_alpha(0.0)
         };
+        let pickable_edges = pickable;
         for edge in &mesh.edges {
             let pickable = Pickable::Edge {
                 body,
@@ -800,6 +824,11 @@ impl Builder<'_> {
             let (color, width, pick) = match color {
                 Some(_) => (
                     self.highlight.color(pickable, edge_color),
+                    BODY_EDGE_WIDTH + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
+                    self.picks.register(pickable, PickPriority::Curve),
+                ),
+                None if pickable_edges => (
+                    self.highlight.color(pickable, BACKGROUND_BODY_EDGE),
                     BODY_EDGE_WIDTH + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
                     self.picks.register(pickable, PickPriority::Curve),
                 ),
@@ -819,7 +848,7 @@ impl Builder<'_> {
             });
             self.scene.lines.extend(segments);
         }
-        if color.is_none() {
+        if color.is_none() && !pickable_edges {
             return;
         }
         for vertex in &mesh.vertices {
@@ -1113,6 +1142,11 @@ impl Builder<'_> {
             };
             let (palette, emphasis, pickable) = match presence {
                 Presence::Background => (BACKGROUND, 0.0, None),
+                Presence::Projectable => (
+                    BACKGROUND,
+                    self.highlight.emphasis(pickable),
+                    (!shape.entity.is_reference()).then_some(pickable),
+                ),
                 Presence::Normal | Presence::Edited => (
                     shape.palette,
                     self.highlight.emphasis(pickable),

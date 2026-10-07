@@ -18,6 +18,7 @@ use crate::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
         list_names,
     },
+    projection::ProjectionSource,
     solid::BodyOperation,
 };
 
@@ -116,6 +117,11 @@ pub enum Edit {
         id: EntityId,
         construction: bool,
     },
+    SetSketchProjection {
+        feature: FeatureId,
+        id: EntityId,
+        source: Option<ProjectionSource>,
+    },
     AddSketchConstraint {
         feature: FeatureId,
         id: ConstraintId,
@@ -201,7 +207,8 @@ impl Transaction {
                 Edit::AddSketchEntity { feature, id, .. }
                 | Edit::RemoveSketchEntity { feature, id }
                 | Edit::SetSketchEntity { feature, id, .. }
-                | Edit::SetSketchConstruction { feature, id, .. } => {
+                | Edit::SetSketchConstruction { feature, id, .. }
+                | Edit::SetSketchProjection { feature, id, .. } => {
                     touched.features.insert(*feature);
                     touched.entities.insert((*feature, *id));
                 }
@@ -255,6 +262,7 @@ impl Transaction {
                 | Edit::SetSketchPlacement { .. }
                 | Edit::RemoveSketchEntity { .. }
                 | Edit::SetSketchConstruction { .. }
+                | Edit::SetSketchProjection { .. }
                 | Edit::SetSketchConstraintActive { .. }
                 | Edit::RemoveSketchConstraint { .. } => 0,
             })
@@ -267,6 +275,8 @@ impl Transaction {
 pub enum EditError {
     #[error("That parameter no longer exists")]
     MissingParameter,
+    #[error("{name} in {feature} still follows the geometry it was projected from")]
+    StillProjected { feature: String, name: String },
     #[error("That feature no longer exists")]
     MissingFeature,
     #[error("That item already exists")]
@@ -407,7 +417,7 @@ pub struct Touched {
 pub struct TransactionBuilder<'a> {
     document: &'a Document,
     label: String,
-    edits: Vec<Edit>,
+    pub(crate) edits: Vec<Edit>,
     added_parameters: Vec<(String, ParameterId)>,
     next_parameter_id: u64,
     next_feature_id: u64,
@@ -554,6 +564,11 @@ impl Document {
                 id,
                 construction,
             } => self.set_sketch_construction(feature, id, construction),
+            Edit::SetSketchProjection {
+                feature,
+                id,
+                source,
+            } => self.set_sketch_projection(feature, id, source),
             Edit::AddSketchConstraint {
                 feature,
                 id,
@@ -618,6 +633,16 @@ impl Document {
         {
             if !body.makes_body() {
                 return Err(EditError::NotABody(body.name.clone()));
+            }
+        }
+        if let FeatureKind::Sketch(sketch) = kind {
+            for source in sketch
+                .projected_sketches()
+                .filter_map(|id| self.feature(id))
+            {
+                if source.kind.sketch().is_none() {
+                    return Err(EditError::NotASketch(source.name.clone()));
+                }
             }
         }
         for plane in kind

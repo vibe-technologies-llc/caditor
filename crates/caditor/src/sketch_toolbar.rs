@@ -613,6 +613,7 @@ impl Bar<'_, '_> {
         let second = ui.horizontal_top(|ui| {
             self.compact_tool_button(ui, Tool::Offset);
             self.compact_tool_button(ui, Tool::Mirror);
+            self.compact_tool_button(ui, Tool::Project);
             let moving = self.moving.clone();
             if self.command_button(ui, Command::MoveGeometry, MOVE_LABEL, MOVE_HELP, &moving) {
                 self.commands.trigger(Command::MoveGeometry);

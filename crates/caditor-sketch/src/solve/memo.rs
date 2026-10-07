@@ -24,6 +24,7 @@ struct Key {
     entities: Vec<EntityId>,
     constraints: Vec<(ConstraintId, Option<u64>)>,
     start: Vec<(Variable, u64)>,
+    anchors: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -276,6 +277,7 @@ impl Key {
                 })
                 .collect(),
             start,
+            anchors: system.anchor_bits(),
         })
     }
 }

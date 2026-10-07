@@ -21,6 +21,7 @@ use crate::{
     movement::Move,
     parameter_list::ParameterList,
     pattern::Pattern,
+    projection::ProjectionSource,
     scaling::Scale,
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
@@ -131,6 +132,8 @@ impl FeatureKind {
                     + constraints * (size_of::<ConstraintId>() + size_of::<Constraint>())
                     + owned_by_entities
                     + owned_by_constraints
+                    + sketch.projections.len()
+                        * (size_of::<EntityId>() + size_of::<ProjectionSource>())
             }
             Self::Solid(solid) => solid.heap_size(),
             Self::Blend(blend) => size_of_val(blend.edges.as_slice()) + blend.size.heap_size(),
@@ -237,8 +240,8 @@ impl FeatureKind {
                 used.insert(combine.tool);
             }
             Self::Mirror(mirror) => used.extend(mirror.plane.body()),
-            Self::Sketch(_)
-            | Self::Blend(_)
+            Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
+            Self::Blend(_)
             | Self::Shell(_)
             | Self::Move(_)
             | Self::Scale(_)
@@ -535,7 +538,9 @@ impl FeatureKind {
     pub fn same_content(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Sketch(own), Self::Sketch(theirs)) => {
-                own.sketch.same_content(&theirs.sketch) && own.attachment == theirs.attachment
+                own.sketch.same_content(&theirs.sketch)
+                    && own.attachment == theirs.attachment
+                    && own.projections == theirs.projections
             }
             _ => self == other,
         }
@@ -543,7 +548,7 @@ impl FeatureKind {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = match self {
-            Self::Sketch(_) => BTreeSet::new(),
+            Self::Sketch(sketch) => sketch.projected_sketches().collect(),
             Self::Solid(solid) => solid.features(),
             Self::Blend(blend) => blend.features(),
             Self::Shell(shell) => shell.features(),
@@ -569,7 +574,15 @@ impl FeatureKind {
                 .as_ref()
                 .and_then(SketchAttachment::face)
                 .map(FaceAttachment::origin_features)
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .into_iter()
+                .chain(
+                    sketch
+                        .projections
+                        .values()
+                        .flat_map(ProjectionSource::origin_features),
+                )
+                .collect(),
             Self::Solid(solid) => solid.origin_features(),
             Self::Blend(blend) => blend.origin_features(),
             Self::Shell(shell) => shell.origin_features(),

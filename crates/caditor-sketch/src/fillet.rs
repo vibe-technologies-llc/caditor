@@ -44,6 +44,8 @@ pub enum FilletError {
     TooLarge { entity: EntityId, label: String },
     #[error("no arc of this radius touches both {first} and {second} near their corner")]
     NoFit { first: String, second: String },
+    #[error("{label} follows the geometry it was projected from, so its corner cannot be rounded")]
+    Projected { entity: EntityId, label: String },
     #[error(transparent)]
     Edit(SketchError),
 }
@@ -247,6 +249,12 @@ impl Sketch {
         for (curve, _) in [first, second] {
             if matches!(self.entity(curve), Some(Entity::Spline { .. })) {
                 return Err(FilletError::NotLineOrArc {
+                    entity: curve,
+                    label: self.entity_label(curve),
+                });
+            }
+            if self.is_projected(curve) {
+                return Err(FilletError::Projected {
                     entity: curve,
                     label: self.entity_label(curve),
                 });

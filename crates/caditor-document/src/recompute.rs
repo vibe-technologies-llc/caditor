@@ -20,7 +20,7 @@ use crate::{
     healing::{self, Healing},
     hole, import, mirror, movement, pattern,
     presenting::{Glimpse, Presentation, SettledBody},
-    scaling, shell,
+    projection, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult},
     values::ParameterValues,
 };
@@ -349,13 +349,13 @@ impl Evaluation {
     }
 
     pub fn body_seen_by(&self, feature: FeatureId, body: FeatureId) -> Option<&Solid> {
-        let state = self.seen_bodies.get(&feature)?.get(&body)?;
-        self.features
-            .get(state)?
-            .result
-            .as_deref()?
-            .solid()
+        self.body_result_seen_by(feature, body)
             .map(|result| &result.solid)
+    }
+
+    pub fn body_result_seen_by(&self, feature: FeatureId, body: FeatureId) -> Option<&SolidResult> {
+        let state = self.seen_bodies.get(&feature)?.get(&body)?;
+        self.features.get(state)?.result.as_deref()?.solid()
     }
 
     pub fn is_stale(&self, body: FeatureId) -> bool {
@@ -719,6 +719,14 @@ impl Recompute {
                 .into_iter()
                 .map(|used| (used, walk.current.get(&used).cloned()))
                 .collect();
+            if feature.kind.sketch().is_some() {
+                let standing: Vec<(FeatureId, FeatureId)> = walk
+                    .bodies
+                    .iter()
+                    .map(|(body, (state, _))| (*body, *state))
+                    .collect();
+                walk.seen_bodies.entry(id).or_default().extend(standing);
+            }
             for body in feature.kind.bodies_used() {
                 if let Some((state, result)) = walk.bodies.get(&body) {
                     upstream.push((*state, Some(Arc::clone(result))));
@@ -1175,7 +1183,12 @@ impl Evaluator for ModelEvaluator {
                     .as_ref()
                     .map(|attachment| attachment::attached_plane(feature, attachment, inputs))
                     .transpose()?;
-                let sketch = &definition.sketch;
+                let sketch = &*projection::refreshed(
+                    feature,
+                    definition,
+                    &plane.unwrap_or_else(|| definition.sketch.plane()),
+                    inputs,
+                )?;
                 let memo = inputs
                     .previous
                     .and_then(FeatureResult::sketch)

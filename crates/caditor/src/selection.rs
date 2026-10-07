@@ -320,9 +320,11 @@ impl Pickable {
         context: Context,
     ) -> bool {
         let editing = context.sketch;
+        let outside_sketch = editing.is_none() || context.projecting;
         match self {
             Self::SketchEntity { feature, entity } => {
-                let in_context = editing.is_none_or(|edited| edited == feature);
+                let in_context = editing.is_none_or(|edited| edited == feature)
+                    || (context.projecting && !entity.is_reference());
                 let exists = document
                     .feature(feature)
                     .and_then(|owner| owner.kind.sketch())
@@ -360,19 +362,19 @@ impl Pickable {
                         .is_some_and(|geometry| visibility::is_principal_shown(document, geometry))
             }
             Self::Face { body, face } => {
-                editing.is_none()
+                outside_sketch
                     && visibility::is_shown(document, body)
                     && bodies::shown(evaluation, body)
                         .is_some_and(|solid| bodies::find_face(solid, face).is_some())
             }
             Self::Edge { body, edge } => {
-                editing.is_none()
+                outside_sketch
                     && visibility::is_shown(document, body)
                     && bodies::shown(evaluation, body)
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
             }
             Self::Vertex { body, vertex } => {
-                editing.is_none()
+                outside_sketch
                     && visibility::is_shown(document, body)
                     && bodies::shown(evaluation, body)
                         .is_some_and(|solid| bodies::find_vertex(solid, vertex).is_some())

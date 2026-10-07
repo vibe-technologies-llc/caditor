@@ -159,6 +159,13 @@ paths:
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
   means active, so older files read unchanged); the journal's `add_sketch_constraint` carries the
   same flag and `set_sketch_constraint_active` is its own record.
+- A sketch record carries `projections` only when it has projected geometry: each the projected
+  entity's `entity` and its `source` (`edge` with `body` and an edge record, `vertex` with `body`
+  and the vertex name's digest, or `sketch_entity` with `sketch` and `entity`). The projected flags
+  of the entity and its points are not stored; loading derives them from this list after the
+  constraints, so stored constraints between projected geometry still load. An unreadable source
+  leaves its geometry as ordinary geometry where it was saved, reported. The journal's
+  `set_sketch_projection` holds the same source, absent for none.
 - Loading is partial: each record and sketch item is read on its own (`Lenient`) and assembled
   through `Document::apply`, so a loaded model satisfies the document invariants.
 - Reported repairs: damaged or unknown records left out; a lost parameter still used becomes a
