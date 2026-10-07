@@ -36,7 +36,7 @@ use crate::{
     shape_modes::ShapeMode,
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenBox},
-    sketch_placement::FaceChoice,
+    sketch_placement::{self, FaceChoice},
     sketch_tools,
     snap::{Pointer, Screen},
     solid_tools,
@@ -206,6 +206,7 @@ pub struct ViewportState {
     problems: Vec<Problem>,
     interference: Vec<Mark>,
     framed_place: Option<Point3>,
+    look_from: Option<Vector3>,
     scenes: SceneCache,
     filter: SelectionFilter,
     filter_applies: bool,
@@ -287,6 +288,7 @@ impl ViewportState {
             problems: Vec::new(),
             interference: Vec::new(),
             framed_place: None,
+            look_from: None,
             scenes: SceneCache::default(),
             filter: SelectionFilter::default(),
             filter_applies: true,
@@ -598,6 +600,10 @@ impl ViewportState {
                 self.camera.animate_to(facing(&view, &sketch));
             }
             self.face_edited_sketch = false;
+        } else if let Some(direction) = self.look_from {
+            if let Some(bounds) = built.bounds_of(&sources, self.selection.iter()) {
+                self.camera.animate_to(looking_at(&view, direction, bounds));
+            }
         } else if let Some(place) = self.framed_place {
             let reach = (built.fit_all().bounding_radius() * PLACE_SHARE).max(MIN_PLACE_REACH);
             let around = Aabb::from_point(place).expanded(reach);
@@ -615,6 +621,7 @@ impl ViewportState {
         }
         self.fit_requested = false;
         self.framed_place = None;
+        self.look_from = None;
         Some(built)
     }
 
@@ -1316,6 +1323,12 @@ impl ViewportState {
                     self.camera.animate_to(viewpoint);
                 }
             }
+        }
+        let looking = sketch_placement::face_to_look_at(model, &self.selection);
+        if commands.invoke(Command::LookAtFace, &looking)
+            && let Ok(direction) = looking
+        {
+            self.look_from = Some(direction);
         }
         for step in CameraMove::ALL {
             if commands.available(Command::Camera(step)) {
@@ -2233,6 +2246,16 @@ fn facing(view: &View, sketch: &EditedSketch) -> Viewpoint {
     View::new(facing, size.x, size.y)
         .with_projection(view.projection())
         .fitted(sketch.bounds)
+}
+
+fn looking_at(view: &View, direction: Vector3, bounds: Aabb) -> Viewpoint {
+    let size = view.size();
+    let destination =
+        Viewpoint::looking_from(direction, bounds.center(), view.viewpoint().distance)
+            .unwrap_or(*view.viewpoint());
+    View::new(destination, size.x, size.y)
+        .with_projection(view.projection())
+        .fitted(bounds)
 }
 
 struct KeyHints {

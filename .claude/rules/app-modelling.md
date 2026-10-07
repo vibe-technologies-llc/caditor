@@ -140,7 +140,8 @@ paths:
 - Sketches, datums and body-making features can be hidden (a body through its feature); hidden
   ones are not drawn, picked, kept selected or counted in fitting, except the edited sketch and
   open datum. Extrude and Revolve hide their sketch in the same transaction. Every hide control
-  is also a command.
+  is also a command. Hide everything but the selection (`visibility::hide_others`) hides in one
+  transaction every other shown hideable feature and principal item, except the edited sketch.
 - Principal planes, axes and origin hide the same way through a group row (`principal_tree.rs`)
   with an eye for the group and one per item. Hidden ones are drawn and offered anyway while a
   sketch's plane is chosen (`Context::choosing_plane`).

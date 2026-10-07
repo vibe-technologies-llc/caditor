@@ -117,6 +117,8 @@ pub enum Command {
     HighlightPrevious,
     ActivateHighlighted,
     HideSelection,
+    HideOthers,
+    LookAtFace,
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
@@ -438,6 +440,8 @@ plain_commands! {
     HighlightPrevious,
     ActivateHighlighted,
     HideSelection,
+    HideOthers,
+    LookAtFace,
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
@@ -626,6 +630,8 @@ impl Command {
             Self::HighlightPrevious => "view.highlight_previous",
             Self::ActivateHighlighted => "view.activate_highlighted",
             Self::HideSelection => "view.hide_selection",
+            Self::HideOthers => "view.hide_others",
+            Self::LookAtFace => "view.look_at_face",
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
@@ -748,6 +754,8 @@ impl Command {
             Self::HighlightPrevious => "Highlight the previous item in the view",
             Self::ActivateHighlighted => "Select the highlighted item",
             Self::HideSelection => "Hide selection",
+            Self::HideOthers => "Hide everything but the selection",
+            Self::LookAtFace => "Look straight at the selected face",
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
@@ -843,6 +851,8 @@ impl Command {
             | Self::HighlightPrevious
             | Self::ActivateHighlighted
             | Self::HideSelection
+            | Self::HideOthers
+            | Self::LookAtFace
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
@@ -956,6 +966,8 @@ impl Command {
             Self::HighlightPrevious => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::N)],
             Self::ActivateHighlighted => vec![plain(Key::Space)],
             Self::HideSelection => vec![plain(Key::H)],
+            Self::HideOthers => vec![alt_shift(Key::H)],
+            Self::LookAtFace => vec![alt(Key::V)],
             Self::ShowAll => vec![KeyboardShortcut::new(Modifiers::ALT, Key::H)],
             Self::SketchTool(tool) => tool_shortcut(tool).into_iter().collect(),
             Self::Constraint(tool) => vec![KeyboardShortcut::new(

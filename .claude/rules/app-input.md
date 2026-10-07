@@ -82,7 +82,9 @@ paths:
   suppressed or rolled-back feature with the reason.
 - Window commands (minimize, maximize or restore, full screen) are egui viewport commands
   (`window_frame::commands`); closing the window is Quit.
-- Viewport commands cover measure, standard views, projection, orbit, pan and zoom. The view cube
+- Viewport commands cover measure, standard views, looking straight at the one selected flat face
+  (outward normal from `sketch_placement::face_to_look_at`, framed on the face like Fit view),
+  projection, orbit, pan and zoom. The view cube
   takes focus like a button and arrows step to the neighbouring view while it has it
   (`app-look.md`). Sketch commands (move, select all, tool keys and the ways of drawing a shape)
   are in `app-sketching.md`.

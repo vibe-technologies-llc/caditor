@@ -9436,6 +9436,50 @@ fn swept_sketches_hide_and_bodies_and_sketches_hide_and_show_again() {
     assert!(hidden(&harness, plate));
 }
 
+#[test]
+fn hiding_others_keeps_only_the_selected_body_and_undoes_in_one_step() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let sketch = feature_named(&harness, "Plate");
+    harness.click_beside(crate::icons::HIDE, "Plate");
+    harness.settle();
+    let sketch_shown = !hidden(&harness, sketch);
+
+    harness.select([top]);
+    harness.key(Key::H, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+
+    assert!(sketch_shown);
+    assert!(hidden(&harness, sketch));
+    assert!(!hidden(&harness, plate));
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Hide everything but Extrude 1")
+    );
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert!(!hidden(&harness, sketch));
+}
+
+#[test]
+fn looking_at_a_flat_face_turns_the_view_to_face_it_head_on() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+
+    harness.key(Key::V, Modifiers::ALT);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+
+    let toward_eye =
+        harness.workspace.viewport.viewpoint().orientation * caditor_geometry::Vector3::Z;
+    assert!(
+        (toward_eye - caditor_geometry::Vector3::Z).length() < 1e-6,
+        "{toward_eye}"
+    );
+}
+
 fn rows_named(harness: &Harness, label: &str) -> Vec<Rect> {
     let mut rows: Vec<Rect> = harness
         .texts

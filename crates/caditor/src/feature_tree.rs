@@ -1533,6 +1533,12 @@ fn feature_commands(
     {
         actions.push(Action::Apply(transaction));
     }
+    let others = visibility::hide_others(document, selection, editing.feature());
+    if commands.invoke(Command::HideOthers, &others)
+        && let Ok(transaction) = others
+    {
+        actions.push(Action::Apply(transaction));
+    }
     let show = visibility::show_all(document);
     if commands.invoke(Command::ShowAll, &show)
         && let Ok(transaction) = show

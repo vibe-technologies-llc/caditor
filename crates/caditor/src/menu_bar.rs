@@ -408,6 +408,7 @@ impl Menus<'_, '_> {
                 ui,
                 [
                     Command::HideSelection,
+                    Command::HideOthers,
                     Command::ToggleVisibility,
                     Command::ShowAll,
                     Command::TogglePrincipal,

@@ -333,7 +333,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
 ## Viewer
 
 - [medium · medium] Display styles stop at shaded with edges, without edges and wireframe: no hidden
-  line style, and no isolate or hide others or look normal to a face.
+  line style.
 - [medium · medium] Transparency is all or nothing: the X-ray style draws every body translucent with
   unpickable faces, and no body can be translucent or hidden on its own except by hiding its
   feature. A body's colour is one for all its faces: no face can be coloured apart.

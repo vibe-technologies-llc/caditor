@@ -143,6 +143,8 @@ pub fn command(command: Command) -> &'static str {
         Command::HighlightPrevious => phosphor::ARROW_LEFT,
         Command::ActivateHighlighted => phosphor::CURSOR_CLICK,
         Command::HideSelection | Command::ToggleVisibility => HIDE,
+        Command::HideOthers => phosphor::EYE_CLOSED,
+        Command::LookAtFace => phosphor::CUBE_FOCUS,
         Command::ShowAll => SHOW,
         Command::TogglePrincipal => PRINCIPAL_GROUP,
         Command::OpenSample(_) => SAMPLE,
