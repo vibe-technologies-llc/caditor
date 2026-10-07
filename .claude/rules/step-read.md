@@ -13,7 +13,10 @@ paths:
   found by binary search.
 - Damage is survived and reported as notes, never refused: a damaged header is skipped (never
   used), a missing `END-ISO-10303-21;` is accepted, an unreadable entry is skipped and counted, a
-  repeated entity id keeps its first definition.
+  repeated entity id keeps its first definition. A file ending inside `DATA` (no `ENDSEC;`, or cut
+  mid-entity, as an interrupted download leaves it) keeps every entity read before the end and is
+  `cut_short`, noted as such; whether its solids are complete is left to `NoSolids` and
+  `NotRebuilt`.
 
 ## `read_step`
 

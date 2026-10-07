@@ -407,7 +407,13 @@ fn damage_notes(exchange: &Exchange) -> Vec<String> {
     if exchange.header_damaged {
         notes.push("The header of the file is damaged and was ignored.".to_owned());
     }
-    if exchange.trailer_missing {
+    if exchange.cut_short {
+        notes.push(
+            "The file ends in the middle of its data, so it is cut short (an interrupted download \
+             or copy leaves it so); everything before the end was read."
+                .to_owned(),
+        );
+    } else if exchange.trailer_missing {
         notes.push(
             "The file ends without its closing line, so it may be cut short; everything before \
              the end was read."

@@ -76,8 +76,38 @@ fn files_without_solids_are_refused_in_words() {
     assert_eq!(read_step(empty), Err(ReadError::NoSolids(Held::default())));
     assert_eq!(
         read_step("ISO-10303-21;\nDATA;\n#1=X(;"),
-        Err(ReadError::Damaged(3))
+        Err(ReadError::NoSolids(Held::default()))
     );
+}
+
+#[test]
+fn a_file_cut_short_inside_its_data_reads_the_solids_before_the_cut() {
+    let solid = fixtures::plate_with_hole();
+    let written = write_step(
+        &[StepBody {
+            name: "plate",
+            solid: &solid,
+        }],
+        "plate",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    let (data, _) = written.split_once("ENDSEC;\nEND-ISO-10303-21;").unwrap();
+    let interrupted = format!("{data}#999999=CARTESIAN_POINT('',(1.,2.");
+
+    let model = read_step(&interrupted).unwrap();
+
+    assert_eq!(model.solids.len(), 1);
+    assert!(
+        model.notes.iter().any(|note| note.contains("cut short")),
+        "{:?}",
+        model.notes
+    );
+    let halved = written.get(..written.len() / 2).unwrap();
+    assert!(matches!(
+        read_step(halved),
+        Err(ReadError::NoSolids(_) | ReadError::NotRebuilt { .. })
+    ));
 }
 
 #[test]

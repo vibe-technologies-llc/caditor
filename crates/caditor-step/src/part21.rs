@@ -139,9 +139,17 @@ pub(crate) struct Exchange<'a> {
     pub repeated: Vec<u64>,
     pub header_damaged: bool,
     pub trailer_missing: bool,
+    pub cut_short: bool,
 }
 
 impl<'a> Exchange<'a> {
+    fn cut_short(mut self, entries: Vec<(u64, Instance<'a>)>) -> Self {
+        self.cut_short = true;
+        self.trailer_missing = true;
+        self.index(entries);
+        self
+    }
+
     pub fn instance(&self, id: u64) -> Option<&Instance<'a>> {
         let index = self
             .data
@@ -724,13 +732,24 @@ pub(crate) fn parse(text: &str) -> Result<Exchange<'_>, SyntaxError> {
                 parser.expect(&Token::Semicolon)?;
                 loop {
                     let line = parser.next_line();
-                    match parser.statement() {
-                        Ok(Statement::Instance(id, instance)) => entries.push((id, instance)),
-                        Ok(Statement::End) => break,
-                        Err(_) => {
-                            exchange.unreadable.push(line);
-                            parser.recover()?;
+                    let ended = matches!(parser.peek(), Ok(None));
+                    let statement = if ended {
+                        None
+                    } else {
+                        Some(parser.statement())
+                    };
+                    match statement {
+                        Some(Ok(Statement::Instance(id, instance))) => {
+                            entries.push((id, instance));
                         }
+                        Some(Ok(Statement::End)) => break,
+                        Some(Err(_)) => {
+                            exchange.unreadable.push(line);
+                            if parser.recover().is_err() {
+                                return Ok(exchange.cut_short(entries));
+                            }
+                        }
+                        None => return Ok(exchange.cut_short(entries)),
                     }
                 }
             }
@@ -895,10 +914,20 @@ mod tests {
         let unterminated =
             parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=LINE('',#2,#3;\nENDSEC;");
         assert_eq!(unterminated.unwrap().unreadable, [5]);
-        assert_eq!(
-            parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=LINE('',#2,'#3);\n"),
-            Err(SyntaxError::Damaged { line: 6 })
-        );
+        let mid_entity =
+            parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=A(1);\n#2=LINE('',#2,'#3);\n")
+                .unwrap();
+        assert!(mid_entity.cut_short && mid_entity.trailer_missing);
+        assert_eq!(mid_entity.ids(), [1]);
+        assert_eq!(mid_entity.unreadable, [6]);
+        let without_endsec =
+            parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=A(1);\n#2=A(2);\n").unwrap();
+        assert!(without_endsec.cut_short);
+        assert_eq!(without_endsec.ids(), [1, 2]);
+        assert!(without_endsec.unreadable.is_empty());
+        let mid_record = parse("ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n#1=A(1);\n#2=A(").unwrap();
+        assert!(mid_record.cut_short);
+        assert_eq!(mid_record.ids(), [1]);
         let deep = format!(
             "ISO-10303-21;DATA;#1=A({}{});ENDSEC;END-ISO-10303-21;",
             "(".repeat(200),

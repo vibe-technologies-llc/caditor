@@ -270,12 +270,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   declares 0.01 mm. Project the vertices onto lines, circles and ellipses within the declared
   precision instead. Faces that meet only within a coarse declared precision are refused rather than
   refitted to each other.
-- [medium · easy] A STEP file cut off inside its `DATA` section (no `ENDSEC;`, or cut mid-entity,
-  as an interrupted download leaves it) is refused whole as damaged: at end of input
-  `Parser::recover` fails hard and every entity already read is dropped, though `step-read.md` says
-  damage is survived and reported. Return what was read with `trailer_missing` and a note that the
-  file is cut short, leaving the refusal to `NoSolids` or `NotRebuilt` when the solids themselves
-  are incomplete; `damage_is_located_and_other_files_are_refused` pins the refusal today.
 - [medium · medium] Import canonicalises each placement by writing and re-reading it, and stores
   every placement of a product as its own STEP text. Build each representation once and store each
   product once with placements.
