@@ -329,11 +329,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   from existing geometry.
 - [medium · medium] High contrast reaches neither the scene colours nor the colour-only sketch
   states.
-- [medium · medium] The side panels keep fixed minimum widths in points (the model panel 270,
-  Measure and Interference 220 each), so at 200% the 3D view is squeezed to a sliver: about 30
-  points with all three open on a 1920 px screen, about 50 with the model panel and Measure on a
-  1366 px one. Cap the panels' combined share, or dock the inspect panels together, so the view
-  keeps a usable width, with a UI test at 200%.
 
 ## Viewer
 

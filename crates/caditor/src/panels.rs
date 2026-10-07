@@ -29,6 +29,7 @@ const FEATURES_SECTION: &str = "features";
 const PARAMETERS_SECTION: &str = "parameters";
 const FOCUS_ATTEMPT_FRAMES: u8 = 30;
 const REVEAL_FRAMES: u8 = 20;
+const CAPPED_SLACK: f32 = 1.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -160,9 +161,13 @@ impl PanelState {
         widgets::set_section_open(ctx, PARAMETERS_SECTION, self.layout.parameters_open);
     }
 
-    fn observe_layout(&mut self, ctx: &egui::Context, width: f32) {
+    fn observe_layout(&mut self, ctx: &egui::Context, width: f32, capped: bool) {
         self.layout = PanelLayout {
-            side_width: layout::side_width(width),
+            side_width: if capped {
+                self.layout.side_width
+            } else {
+                layout::side_width(width)
+            },
             features_open: widgets::is_section_open(ctx, FEATURES_SECTION),
             parameters_open: widgets::is_section_open(ctx, PARAMETERS_SECTION),
         };
@@ -312,6 +317,7 @@ pub fn show(
     selection: &Selection,
     editing: &SketchEditing,
     state: &mut PanelState,
+    room: f32,
     actions: &mut Vec<Action>,
 ) {
     state.begin_frame();
@@ -321,10 +327,11 @@ pub fn show(
         state.dragging = None;
     }
     state.restore_layout(ui.ctx());
+    let widths = layout::panel_widths(room, MIN_SIDE_WIDTH);
     let panel = egui::Panel::left("model")
         .resizable(true)
         .default_size(state.layout.side_width)
-        .min_size(MIN_SIDE_WIDTH)
+        .size_range(widths)
         .show(ui, |ui| {
             if state.wants_features() {
                 widgets::reveal_section(ui.ctx(), FEATURES_SECTION);
@@ -366,7 +373,8 @@ pub fn show(
                     }
                 });
         });
-    state.observe_layout(ui.ctx(), panel.response.rect.width());
+    let width = panel.response.rect.width();
+    state.observe_layout(ui.ctx(), width, width >= widths.max - CAPPED_SLACK);
 }
 
 pub fn commands(

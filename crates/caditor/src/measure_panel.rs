@@ -7,7 +7,7 @@ use egui::{Label, ScrollArea, TextWrapMode, Ui};
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::{BodyMass, BodyMeshes, MassAccuracy},
-    field, icons,
+    field, icons, layout,
     measure::{Freshness, MeasureTool, MeasuredLine, Readout, Value},
     model::Model,
     selection::{Pickable, Selection},
@@ -312,7 +312,7 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> (Vec<Card>, bool) {
     (cards, everything)
 }
 
-pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool) {
+pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, room: f32) {
     tool.measurements.refresh(context.model, context.selection);
     let unit = context.model.units();
     let shown = tool.measurements.shown();
@@ -324,7 +324,7 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool) {
     egui::Panel::right("measure")
         .resizable(true)
         .default_size(PANEL_WIDTH)
-        .min_size(MIN_PANEL_WIDTH)
+        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
         .show(ui, |ui| {
             ui.add_space(SPACE_S);
             widgets::panel_header(ui, icons::MEASURE, TITLE, |ui| {

@@ -33,7 +33,7 @@ use crate::{
     interference::InterferenceTool,
     interference_panel::{self, InterferenceContext},
     layout::{
-        LogicalSize, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MonitorArea, PanelLayout, Position,
+        self, LogicalSize, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MonitorArea, PanelLayout, Position,
         WindowPlacement,
     },
     logo,
@@ -424,7 +424,17 @@ pub fn show(
     drawing_export::face_commands(model, viewport.selection(), &mut commands, actions);
     route_dimension_focus(panels, editing, viewport);
     reference_picking::publish(ui.ctx(), editing.picking());
-    panels::show(ui, model, viewport.selection(), editing, panels, actions);
+    let open_panels = 1 + usize::from(measure.open) + usize::from(interference.open);
+    let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
+    panels::show(
+        ui,
+        model,
+        viewport.selection(),
+        editing,
+        panels,
+        room,
+        actions,
+    );
     preferences.panels = panels.layout();
     route_dimension_focus(panels, editing, viewport);
     if let Some(chosen) = panels.chosen_in_tree.take() {
@@ -441,7 +451,7 @@ pub fn show(
             bodies: viewport.bodies(),
             tree_selected: panels.selected,
         };
-        measure_panel::show(ui, &context, measure);
+        measure_panel::show(ui, &context, measure, room);
     }
     let measured = measure
         .open
@@ -460,7 +470,7 @@ pub fn show(
             tree_selected: panels.selected,
         };
         interference_panel::refresh(&context, interference);
-        if let Some(place) = interference_panel::show(ui, model, interference) {
+        if let Some(place) = interference_panel::show(ui, model, interference, room) {
             viewport.show_place(place);
         }
         interference

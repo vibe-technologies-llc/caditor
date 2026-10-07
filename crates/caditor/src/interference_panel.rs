@@ -9,6 +9,7 @@ use crate::{
     bodies::MassAccuracy,
     icons,
     interference::{Bodies, Finding, InterferenceTool, Pair, Report, Scope},
+    layout,
     measure_panel::{self, Card, Row},
     model::Model,
     selection::Selection,
@@ -280,7 +281,7 @@ pub fn refresh(context: &InterferenceContext<'_>, tool: &mut InterferenceTool) {
     tool.report = Some(tool.interference.refresh(context.model, bodies));
 }
 
-pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool) -> Option<Point3> {
+pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) -> Option<Point3> {
     let report = tool.report.as_ref()?;
     let document = model.document();
     let unit = model.length_unit();
@@ -293,7 +294,7 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool) -> Option<P
     egui::Panel::right("interference")
         .resizable(true)
         .default_size(PANEL_WIDTH)
-        .min_size(MIN_PANEL_WIDTH)
+        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
         .show(ui, |ui| {
             ui.add_space(SPACE_S);
             widgets::panel_header(ui, icons::INTERFERENCE, TITLE, |ui| {

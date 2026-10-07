@@ -5628,6 +5628,25 @@ fn the_canvas_says_how_far_apart_the_grid_lines_are_and_names_it_for_screen_read
 }
 
 #[test]
+fn at_200_percent_the_side_panels_leave_the_view_a_usable_width() {
+    let mut harness = Harness::new();
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Scale(2.0),
+    )));
+    harness.workspace.measure.toggle();
+    harness.workspace.interference.toggle();
+    for _ in 0..4 {
+        harness.frame();
+    }
+
+    let window = SCREEN.width() / 2.0;
+    let view = harness.workspace.viewport.rect().unwrap().width();
+
+    assert!(harness.workspace.measure.open && harness.workspace.interference.open);
+    assert!(view >= window * 0.39, "{view} of {window}");
+}
+
+#[test]
 fn the_sketch_bar_fits_one_row_wraps_at_200_percent_and_names_every_button() {
     let mut harness = Harness::new();
     harness.context.enable_accesskit();
@@ -6141,10 +6160,11 @@ fn a_use_selected_offer_is_worked_out_once_per_selection_and_model_change() {
     let first = offer(&selection);
     let again = offer(&selection);
     selection.clear();
-    offer(&selection);
+    let cleared = offer(&selection);
 
     assert_eq!(first, Err("nothing usable".to_owned()));
     assert_eq!(again, first);
+    assert_eq!(cleared, first);
     assert_eq!(computed, 2);
 }
 

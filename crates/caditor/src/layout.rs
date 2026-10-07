@@ -1,4 +1,5 @@
 use caditor_file::Settings;
+use egui::Rangef;
 
 const WIDTH_KEY: &str = "window.width";
 const HEIGHT_KEY: &str = "window.height";
@@ -16,6 +17,7 @@ const VISIBLE_CORNER: i64 = 48;
 pub const DEFAULT_SIDE_WIDTH: f32 = 330.0;
 pub const MIN_SIDE_WIDTH: f32 = 270.0;
 const MAX_SIDE_WIDTH: f32 = 1_600.0;
+const MAX_PANELS_SHARE: f32 = 0.6;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LogicalSize {
@@ -178,6 +180,16 @@ impl PanelLayout {
         settings.set_flag(FEATURES_OPEN_KEY, self.features_open);
         settings.set_flag(PARAMETERS_OPEN_KEY, self.parameters_open);
     }
+}
+
+pub fn panel_room(window: f32, open_panels: usize) -> f32 {
+    let open = open_panels.max(1) as f32;
+    (window * MAX_PANELS_SHARE / open).max(0.0)
+}
+
+pub fn panel_widths(room: f32, least: f32) -> Rangef {
+    let min = least.min(room);
+    Rangef::new(min, room.max(min))
 }
 
 pub fn side_width(width: f32) -> f32 {
