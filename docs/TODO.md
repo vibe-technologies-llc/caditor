@@ -480,11 +480,11 @@ Linux is the primary platform and Windows the only other one; macOS is not a goa
 - [low · medium] On Windows, hovering caditor's own maximize button does not offer Snap Layouts:
   that needs the button to answer `WM_NCHITTEST` with `HTMAXBUTTON`, which winit does not expose,
   so it would be another `caditor-windows` subclass hook.
-- [low · medium] Windows paths compare case-sensitively: the recent files list can hold one model
-  twice under different casing, and journal markers and fallback journals hash the path as spelled
+- [low · medium] On Windows, journal markers and fallback journals hash the path as spelled
   (`paths::path_hash`), so the same file reached as `C:\A\m.caditor` and `c:\a\M.caditor` gets
-  two fallback journals. Normalising needs the final path (`GetFinalPathNameByHandleW`) without
-  showing users `\\?\` names.
+  two fallback journals; changing the hash must still find journals written under the old one.
+  Normalising needs the final path (`GetFinalPathNameByHandleW`) without showing users `\\?\`
+  names.
 - [low · medium] On Windows, saving writes every kept version from memory: ReFS block cloning
   (`FSCTL_DUPLICATE_EXTENTS_TO_FILE`) would give `os::clone_range` what `copy_file_range` gives on
   Linux.

@@ -72,7 +72,8 @@ paths:
 - `Settings`: JSON key/value `preferences.json` in `config_dir`, read leniently (`load` falls back
   to the defaults), written atomically; unknown keys are kept, so an older caditor never erases a
   newer one's settings. Recent files are the same design in the state directory; non-UTF-8 paths
-  are stored as byte arrays.
+  are stored as byte arrays. One file is listed once, compared with `os::same_file_path`: exactly on
+  Unix, by component and ignoring case on Windows, the latest spelling kept.
 - Windows save only what they changed (`save_changes`), re-reading the file under an advisory lock
   (`lock::locked_update`: polled up to `UPDATE_LOCK_WAIT`, then the update goes ahead unlocked with
   a warning rather than losing the change), so windows keep each other's changes.

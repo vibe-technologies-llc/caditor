@@ -133,7 +133,8 @@ impl RecentFiles {
     }
 
     pub fn add(&mut self, path: PathBuf) {
-        self.paths.retain(|existing| *existing != path);
+        self.paths
+            .retain(|existing| !os::same_file_path(existing, &path));
         self.paths.insert(0, path);
         self.paths.truncate(RECENT_LIMIT);
     }
@@ -143,7 +144,8 @@ impl RecentFiles {
     }
 
     pub fn remove(&mut self, path: &Path) {
-        self.paths.retain(|existing| existing != path);
+        self.paths
+            .retain(|existing| !os::same_file_path(existing, path));
     }
 }
 
@@ -182,6 +184,38 @@ mod tests {
         recent.add(plain.clone());
         recent.save(dir.path()).unwrap();
         assert_eq!(RecentFiles::load(dir.path()).paths(), [plain, odd]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn one_file_reached_under_other_casing_or_separators_is_listed_once() {
+        let mut recent = RecentFiles::default();
+
+        recent.add(PathBuf::from(r"C:\Models\Plate.caditor"));
+        recent.add(PathBuf::from(r"c:/models/PLATE.caditor"));
+        recent.add(PathBuf::from(r"C:\Models\Ärmel.caditor"));
+        recent.add(PathBuf::from(r"C:\models\ärmel.caditor"));
+
+        assert_eq!(
+            recent.paths(),
+            [
+                PathBuf::from(r"C:\models\ärmel.caditor"),
+                PathBuf::from(r"c:/models/PLATE.caditor")
+            ]
+        );
+        recent.remove(Path::new(r"C:\MODELS\plate.CADITOR"));
+        assert_eq!(recent.paths(), [PathBuf::from(r"C:\models\ärmel.caditor")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn paths_differing_only_in_case_are_different_files_on_unix() {
+        let mut recent = RecentFiles::default();
+
+        recent.add(PathBuf::from("/models/Plate.caditor"));
+        recent.add(PathBuf::from("/models/plate.caditor"));
+
+        assert_eq!(recent.paths().len(), 2);
     }
 
     #[test]

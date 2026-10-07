@@ -192,6 +192,10 @@ pub(crate) fn boot_ids() -> Vec<String> {
     fs::read_to_string(BOOT_ID).into_iter().collect()
 }
 
+pub(crate) fn same_file_path(first: &Path, second: &Path) -> bool {
+    first == second
+}
+
 pub(crate) fn path_bytes(path: &OsStr) -> Vec<u8> {
     path.as_bytes().to_vec()
 }

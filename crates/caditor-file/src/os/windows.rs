@@ -151,6 +151,28 @@ pub(crate) fn boot_ids() -> Vec<String> {
         .collect()
 }
 
+pub(crate) fn same_file_path(first: &Path, second: &Path) -> bool {
+    let mut first = first.components();
+    let mut second = second.components();
+    loop {
+        match (first.next(), second.next()) {
+            (None, None) => return true,
+            (Some(one), Some(other)) if same_ignoring_case(one.as_os_str(), other.as_os_str()) => {}
+            _ => return false,
+        }
+    }
+}
+
+fn same_ignoring_case(first: &OsStr, second: &OsStr) -> bool {
+    match (first.to_str(), second.to_str()) {
+        (Some(first), Some(second)) => first
+            .chars()
+            .flat_map(char::to_lowercase)
+            .eq(second.chars().flat_map(char::to_lowercase)),
+        _ => first == second,
+    }
+}
+
 pub(crate) fn path_bytes(path: &OsStr) -> Vec<u8> {
     path.as_encoded_bytes().to_vec()
 }
