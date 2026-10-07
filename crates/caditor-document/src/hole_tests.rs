@@ -662,10 +662,27 @@ fn metric_sizes_give_clearance_and_tap_drill_diameters_and_name_the_thread() {
         .as_deref(),
         Some("M8 × 1.25")
     );
+    let fine = HoleStandard {
+        size: MetricSize::M10,
+        fit: HoleFit::TappedFine,
+    };
+    assert_eq!(fine.diameter(), 8.75);
+    assert_eq!(fine.label(), "M10 × 1.25 tapped");
+    assert_eq!(
+        HoleStandard {
+            size: MetricSize::M2_5,
+            fit: HoleFit::TappedFine
+        }
+        .diameter(),
+        2.15
+    );
+    assert_eq!(HoleFit::from_id("tapped_fine"), Some(HoleFit::TappedFine));
     assert!(MetricSize::ALL.iter().all(|size| {
         let fits = HoleFit::ALL.map(|fit| HoleStandard { size: *size, fit }.diameter());
-        let [close, normal, loose, tap] = fits;
-        tap < size.major_diameter()
+        let [close, normal, loose, tap, fine] = fits;
+        tap < fine
+            && fine < size.major_diameter()
+            && size.fine_pitch() < size.pitch()
             && size.major_diameter() < close
             && close < normal
             && normal < loose

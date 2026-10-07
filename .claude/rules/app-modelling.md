@@ -105,7 +105,8 @@ paths:
   selected, opened or last) and needs at least one free point or circle in it (`hole_centres`);
   its body is the one the sketch is attached to, else the last body standing. It creates a plain
   blind hole of 6 mm by 10 mm, hides the sketch and opens the panel: Size (Custom or a metric
-  screw), Fit when sized (Close, Normal, Loose, Tapped, with the thread named for Tapped), Style
+  screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, with the thread named for the
+  tapped ones), Style
   (Plain, Counterbore, Countersink; switching takes the size's head dimensions, else the
   defaults), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
   (Blind with its field, or Through all), Reverse direction, and the Sketch and Body rows (the body

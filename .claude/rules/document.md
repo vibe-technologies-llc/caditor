@@ -217,8 +217,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`slot side`, `slot end`) and 11 to 14 for the counterbore, so a slot's names never collide with a
   round hole's. A countersunk slot fails alone, saying so.
 - `standard` (`hole_standard.rs`) is the ISO metric size and fit the sizes were taken from
-  (`HoleStandard`: `MetricSize` M1.6 to M20; `HoleFit` close, normal, loose clearance per ISO 273
-  or tapped at the coarse-thread tap drill), with counterbore and countersink sizes for socket and
+  (`HoleStandard`: `MetricSize` M1.6 to M20; `HoleFit` close, normal, loose clearance per ISO 273,
+  tapped at the coarse-thread tap drill, or tapped fine at the first-choice ISO 261 fine pitch,
+  drilled at the major diameter less the pitch), with counterbore and countersink sizes for socket and
   countersunk heads. It names the thread of a tapped hole for the user and changes nothing
   computed: the expressions alone drive the hole.
 - It fails alone, naming the point, when a size is not positive, the counterbore or countersink is

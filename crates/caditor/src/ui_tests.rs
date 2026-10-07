@@ -13412,6 +13412,16 @@ fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_fro
     );
     assert!(harness.shows_containing("Thread M3 × 0.5"));
 
+    harness.click("Tapped");
+    harness.click("Fine");
+    harness.settle();
+
+    assert_eq!(
+        open_hole(&harness, hole).diameter.to_stored_text(),
+        "2.65 mm"
+    );
+    assert!(harness.shows_containing("Thread M3 × 0.35"));
+
     harness.click("Plain");
     harness.click("Counterbore");
     harness.settle();

@@ -151,7 +151,7 @@ paths:
   `blind` with its text), `style` (`plain`, or `counterbore` or `countersink` with their texts) and
   `reversed` when set; an unreadable size loads as a default (5 mm, 10 mm, 3 mm, 90 deg), reported.
   A slot adds `slot` (`length`, `angle` texts; 10 mm and 0 deg when unreadable) and a standard
-  size `standard` (`size` as `M3`, `fit` as `close`, `normal`, `loose` or `tapped`); a standard
+  size `standard` (`size` as `M3`, `fit` as `close`, `normal`, `loose`, `tapped` or `tapped_fine`); a standard
   this version does not know loads as none, keeping the typed sizes, reported.
 - A datum point is a `point` record (`base`, a point reference: `origin`, `datum`, `vertex` with
   `body` and the vertex name's digest, `centre` with `body` and an edge record, or `sketch` with
