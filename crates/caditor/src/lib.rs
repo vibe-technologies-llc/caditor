@@ -62,6 +62,7 @@ mod mirroring;
 mod model;
 mod model_properties;
 mod modifying;
+mod move_manipulator;
 mod move_panel;
 mod move_tools;
 mod offers;

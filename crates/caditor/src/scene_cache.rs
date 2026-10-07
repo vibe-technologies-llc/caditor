@@ -10,6 +10,7 @@ use crate::{
     editing::Context,
     faceting::FacetLevel,
     interference_panel::Mark,
+    move_manipulator::Drawn,
     scene::{self, BuiltScene, Highlight, SketchShapes, Sources},
     selection::{Pickable, Selection},
 };
@@ -38,6 +39,7 @@ pub struct Overlay {
     pub measured: Option<[Point3; 2]>,
     pub problems: Vec<Point3>,
     pub interference: Vec<Mark>,
+    pub manipulator: Option<Drawn>,
 }
 
 impl Overlay {
@@ -56,6 +58,9 @@ impl Overlay {
         }
         for mark in &self.interference {
             scene::add_interference(&mut batch, mark);
+        }
+        if let Some(manipulator) = &self.manipulator {
+            manipulator.add_to(&mut batch);
         }
         (!batch.is_empty()).then(|| Arc::new(batch))
     }

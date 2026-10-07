@@ -54,7 +54,7 @@ impl MoveAxis {
         }
     }
 
-    fn direction(self) -> Vector3 {
+    pub fn direction(self) -> Vector3 {
         match self {
             Self::X => Vector3::X,
             Self::Y => Vector3::Y,

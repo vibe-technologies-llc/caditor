@@ -12,6 +12,7 @@ paths:
   - "crates/caditor/src/hole_tools.rs"
   - "crates/caditor/src/hole_panel.rs"
   - "crates/caditor/src/move_panel.rs"
+  - "crates/caditor/src/move_manipulator.rs"
   - "crates/caditor/src/mirror_tools.rs"
   - "crates/caditor/src/mirror_panel.rs"
   - "crates/caditor/src/scale_tools.rs"
@@ -170,6 +171,21 @@ paths:
   between the two. The panel has a field for the turn about each axis
   and the distance along each, all expressions (key `move-field`, `offset` or `turn`, axis index).
   Nothing is chosen in the view while it is open.
+- While a move is open (and nothing is being chosen in the view) a manipulator stands at the centre
+  of the moved body's box, following its preview (`move_manipulator.rs`): an arrow along each
+  world axis in the axis colours (`selection::Axis::rgb`) and a square for each plane, drawn on the
+  front layer in the overlay batch at a constant size in points (`ARROW_POINTS`), an arrow pointing
+  at the eye or a square seen edge-on left out. Hit-testing is on the UI thread in screen space
+  (`Manipulator::hit`, arrows within `HIT_POINTS` winning over squares), so it needs no pick; the
+  hovered or dragged handle turns `canvas::HOVERED`, the hover says what a drag does, and a click
+  on a handle selects nothing.
+- A primary drag on a handle (`PrimaryDrag::Manipulate`, `Manipulating`) follows the point of its
+  axis nearest the pointer's ray (`Ray::closest_along_line`) or where the ray meets its plane,
+  from where it was grabbed, in steps of 1, 2 or 5 of a power of ten about `STEP_POINTS` on screen
+  (Ctrl drags freely). Each change is a preview of the move (`Action::Preview`, drawn as typing
+  draws it) with a readout of the distances beside the pointer; release commits one edit setting
+  the dragged distances to measured values, Escape or leaving the feature drops it. Turning is
+  typed only, since a move turns about the origin's axes and a ring at the body would mislead.
 
 ## Mirror and scale
 

@@ -1,5 +1,7 @@
 use crate::{Plane, Point3, Vector3};
 
+const PARALLEL_TOLERANCE: f64 = 1e-12;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Ray {
     origin: Point3,
@@ -22,6 +24,17 @@ impl Ray {
 
     pub fn at(&self, distance: f64) -> Point3 {
         self.origin + self.direction * distance
+    }
+
+    pub fn closest_along_line(&self, through: Point3, along: Vector3) -> Option<f64> {
+        let along = along.try_normalize()?;
+        let across = along.dot(self.direction);
+        let apart = 1.0 - across * across;
+        if apart < PARALLEL_TOLERANCE {
+            return None;
+        }
+        let offset = through - self.origin;
+        Some((across * offset.dot(self.direction) - offset.dot(along)) / apart)
     }
 
     pub fn intersect_plane(&self, plane: &Plane) -> Option<f64> {
@@ -54,5 +67,16 @@ mod tests {
     #[test]
     fn rejects_a_zero_direction() {
         assert!(Ray::new(Point3::ZERO, Vector3::ZERO).is_none());
+    }
+
+    #[test]
+    fn finds_the_point_of_a_line_nearest_a_ray_and_none_along_it() {
+        let ray = Ray::new(Point3::new(3.0, 0.0, 10.0), Vector3::NEG_Z).unwrap();
+
+        let along = ray.closest_along_line(Point3::new(-1.0, 0.0, 0.0), Vector3::X * 2.0);
+        assert!((along.unwrap() - 4.0).abs() < 1e-12);
+        let skew = ray.closest_along_line(Point3::new(0.0, 5.0, 1.0), Vector3::Y);
+        assert!((skew.unwrap() + 5.0).abs() < 1e-12);
+        assert_eq!(ray.closest_along_line(Point3::ZERO, Vector3::Z), None);
     }
 }

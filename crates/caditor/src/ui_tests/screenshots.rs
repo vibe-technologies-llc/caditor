@@ -331,6 +331,11 @@ fn screenshots() {
         drop(sketching);
 
         let dir = TempDir::new().expect("a temporary directory");
+        let mut moving = Harness::styled(look, dir.path(), false);
+        move_scene(&mut moving, &gpu, &out, look);
+        drop(moving);
+
+        let dir = TempDir::new().expect("a temporary directory");
         let mut model = Harness::styled(look, dir.path(), false);
         model.open_sample(Sample::Bracket);
         shoot(&mut model, &gpu, &out, "model", look);
@@ -530,6 +535,27 @@ fn inference_scenes(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     harness.click_at(Point2::new(10.0, 5.0));
     harness.point_at(Point2::new(25.0, 30.02));
     shoot(harness, gpu, out, "tracking", look);
+}
+
+fn move_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    let (_, top) = extruded_plate(harness);
+    harness.select([top]);
+    harness.click("Move body");
+    harness.settle();
+    harness
+        .events
+        .push(Event::PointerMoved(egui::pos2(900.0, 500.0)));
+    harness.key(Key::F, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    if let Some(movement) = harness.workspace.editing.solid() {
+        harness.draft_into_field(
+            egui::Id::new(("move-field", "offset", 0usize, movement)),
+            "25 mm",
+        );
+    }
+    shoot(harness, gpu, out, "move-arrows", look);
 }
 
 fn interference(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {

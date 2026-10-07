@@ -31,7 +31,7 @@ use crate::{
     visibility,
 };
 
-const fn opaque(color: egui::Color32) -> Color {
+pub const fn opaque(color: egui::Color32) -> Color {
     Color::from_rgb8(color.r(), color.g(), color.b())
 }
 

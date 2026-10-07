@@ -7,7 +7,7 @@ use std::{
 
 use caditor_document::{
     BodyOperation, Document, Edit, Editor, ExtrudeExtent, Feature, FeatureId, FeatureKind,
-    RegionChoice, RollbackBar, SolidFeature, SolidResult, Transaction,
+    MoveAxis, RegionChoice, RollbackBar, SolidFeature, SolidResult, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Unit};
 use caditor_file::{DrawingUnit, ExportFormat, JournalEntry, Start, Storage, StorageConfig};
@@ -44,6 +44,7 @@ use crate::{
     import_options::{Arrangement, ImportOptionsCommand, PlaneChoice},
     logo, menu_bar, mirror_panel, mirroring,
     model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
+    move_manipulator::Handle,
     offsetting,
     onboarding::Hint,
     palette::{Choice, State},
@@ -7299,6 +7300,71 @@ fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
             .iter()
             .all(|mesh| mesh.placement.is_none())
     );
+}
+
+#[test]
+fn dragging_a_move_arrow_moves_the_body_along_it_in_one_change() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Move body");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let movement = harness.workspace.editing.solid().expect("the move is open");
+    let along_x = Handle::Along(MoveAxis::X);
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(along_x, 0.0)
+        .expect("the X arrow is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(along_x, 15.0)
+        .unwrap();
+    let step = harness.workspace.viewport.manipulator_step().unwrap();
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+    assert!(harness.shows("Drag to move the body along X"));
+
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+    let Some(FeatureKind::Move(moved)) = harness
+        .document()
+        .feature(movement)
+        .map(|feature| feature.kind.clone())
+    else {
+        panic!("the move is still a move");
+    };
+    let parameters = harness.model.parameters();
+    let value = |expression: &Expression| {
+        expression
+            .evaluate_as(caditor_expression::Dimension::LENGTH, &|id| {
+                parameters.value(id)
+            })
+            .unwrap()
+    };
+    let x = value(&moved.offset[0]);
+    assert!((x - 15.0).abs() <= step, "{x} with steps of {step}");
+    assert!(((x / step).round() * step - x).abs() < 1e-9);
+    assert_eq!(value(&moved.offset[1]), 0.0);
+    assert_eq!(value(&moved.offset[2]), 0.0);
+    let bounds = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!((bounds.min().x - x).abs() < 1e-6);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Create Move body 1"));
 }
 
 #[test]

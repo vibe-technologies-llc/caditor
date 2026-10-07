@@ -30,6 +30,7 @@ use crate::{
     measure::MeasuredLine,
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome, Value},
+    move_manipulator::{Handle, Manipulating, Manipulator},
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
     projecting, reference_picking,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
@@ -76,7 +77,8 @@ const PROJECT_PROMPT: &str =
     "Click an edge, corner or face of a body, or a curve of another sketch, to project it";
 const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
 const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
-const CHOOSE_MOVE_PROMPT: &str = "Enter the turns and distances in the feature's panel";
+const CHOOSE_MOVE_PROMPT: &str =
+    "Drag an arrow or a square, or enter the turns and distances in the feature's panel";
 const CHOOSE_SCALE_PROMPT: &str = "Enter the factor and the centre in the feature's panel";
 const CHOOSE_MIRROR_PROMPT: &str =
     "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
@@ -164,6 +166,7 @@ enum PrimaryDrag {
     ModelBox { area: ScreenBox },
     Trim { feature: FeatureId, from: Point2 },
     Pull { feature: FeatureId },
+    Manipulate(Manipulating),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -236,6 +239,8 @@ pub struct ViewportState {
     style: DisplayStyle,
     snapping: bool,
     glyphs_shown: bool,
+    manipulator: Option<Manipulator>,
+    manipulator_hover: Option<Handle>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -321,6 +326,8 @@ impl ViewportState {
             style: DisplayStyle::default(),
             snapping: true,
             glyphs_shown: true,
+            manipulator: None,
+            manipulator_hover: None,
         }
     }
 
@@ -507,6 +514,7 @@ impl ViewportState {
                 .accesskit_node_builder(response.id, |node| node.set_description(described));
 
             self.track_cursor(ui, &response, rect);
+            self.track_manipulator(model, editing);
             self.track_sketch_cursor(model, editing);
             self.track_drawing(model, editing);
             self.type_points(ui, rect, model, editing, keys_free, actions);
@@ -643,6 +651,9 @@ impl ViewportState {
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
             problems: self.problems.iter().map(|problem| problem.place).collect(),
             interference: self.interference.clone(),
+            manipulator: self
+                .manipulator
+                .map(|manipulator| manipulator.drawn(self.manipulator_hover)),
         });
         if let Some(highlight) = self.keyboard_highlight
             && !self.scenes.highlightable().contains(&highlight)
@@ -811,6 +822,18 @@ impl ViewportState {
     pub fn screen_position(&self, plane: Plane, point: Point2) -> Option<egui::Pos2> {
         let pixel = self.view()?.project(plane.to_world(point))? / f64::from(self.pixels_per_point);
         Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
+    }
+
+    #[cfg(test)]
+    pub fn handle_position(&self, handle: Handle, along: f64) -> Option<egui::Pos2> {
+        let world = self.manipulator?.grip(handle, along)?;
+        let pixel = self.view()?.project(world)? / f64::from(self.pixels_per_point);
+        Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
+    }
+
+    #[cfg(test)]
+    pub fn manipulator_step(&self) -> Option<f64> {
+        self.manipulator.map(|manipulator| manipulator.step())
     }
 
     #[cfg(test)]
@@ -1057,7 +1080,28 @@ impl ViewportState {
             Some(PrimaryDrag::Grab(grab)) => self.grab_snap(model, grab),
             _ => None,
         };
+        let ray = cursor.and_then(|cursor| self.view()?.ray_through(cursor));
+        let free = self.placing_freely;
         match &mut self.primary {
+            Some(PrimaryDrag::Manipulate(manipulating))
+                if editing.solid() != Some(manipulating.feature) =>
+            {
+                actions.push(Action::Preview {
+                    feature: manipulating.feature,
+                    draft: None,
+                });
+                self.primary = None;
+            }
+            Some(PrimaryDrag::Manipulate(manipulating)) => {
+                if let Some(ray) = ray
+                    && manipulating.follow(ray, free)
+                {
+                    actions.push(Action::Preview {
+                        feature: manipulating.feature,
+                        draft: manipulating.transaction(model),
+                    });
+                }
+            }
             Some(PrimaryDrag::Grab(grab)) if Some(grab.feature()) != edited => {
                 self.primary = None;
                 actions.push(Action::Drag(DragCommand::Cancel));
@@ -1106,9 +1150,46 @@ impl ViewportState {
                     };
                     self.modify(editing, outcome, actions);
                 }
+                Some(PrimaryDrag::Manipulate(manipulating)) => {
+                    match manipulating
+                        .transaction(model)
+                        .filter(|_| manipulating.has_moved())
+                    {
+                        Some(transaction) => actions.push(Action::Apply(transaction)),
+                        None => actions.push(Action::Preview {
+                            feature: manipulating.feature,
+                            draft: None,
+                        }),
+                    }
+                }
                 Some(PrimaryDrag::Grab(_)) | None => {}
             }
         }
+    }
+
+    fn track_manipulator(&mut self, model: &Model, editing: &SketchEditing) {
+        let open = editing
+            .solid()
+            .filter(|_| !editing.context().choosing_in_view);
+        let pixels_per_point = f64::from(self.pixels_per_point);
+        self.manipulator = self
+            .view()
+            .and_then(|view| Manipulator::of(model, open, &view, pixels_per_point));
+        self.manipulator_hover = match &self.primary {
+            Some(PrimaryDrag::Manipulate(manipulating)) => Some(manipulating.handle),
+            Some(_) => None,
+            None => self.manipulator.zip(self.view()).zip(self.cursor).and_then(
+                |((manipulator, view), cursor)| manipulator.hit(&view, cursor, pixels_per_point),
+            ),
+        };
+    }
+
+    fn manipulate_from(&self, press: Press, model: &Model) -> Option<Manipulating> {
+        let manipulator = self.manipulator?;
+        let view = self.view()?;
+        let handle = manipulator.hit(&view, press.cursor, f64::from(self.pixels_per_point))?;
+        let ray = view.ray_through(press.cursor)?;
+        Manipulating::begin(model, &manipulator, handle, ray)
     }
 
     fn grab_preview(&self) -> Preview {
@@ -1160,6 +1241,9 @@ impl ViewportState {
             return Some(PrimaryDrag::ModelBox {
                 area: ScreenBox { from: at, to: at },
             });
+        }
+        if let Some(manipulating) = self.manipulate_from(press, model) {
+            return Some(PrimaryDrag::Manipulate(manipulating));
         }
         let active = editing.active().filter(|active| !active.tool.draws())?;
         let feature = active.feature;
@@ -1354,7 +1438,7 @@ impl ViewportState {
             primary: response.clicked_by(PointerButton::Primary) || placed_by_dragging,
             toggle: ui.input(|input| input.modifiers.shift || input.modifiers.command),
         };
-        if !click.double && !click.primary {
+        if (!click.double && !click.primary) || self.manipulator_hover.is_some() {
             return;
         }
         if drawing || self.hover_is_current() {
@@ -2027,6 +2111,10 @@ impl ViewportState {
             match primary {
                 PrimaryDrag::Grab(_) => actions.push(Action::Drag(DragCommand::Cancel)),
                 PrimaryDrag::Trim { .. } => self.trimming.cancel_path(),
+                PrimaryDrag::Manipulate(manipulating) => actions.push(Action::Preview {
+                    feature: manipulating.feature,
+                    draft: None,
+                }),
                 PrimaryDrag::Box { .. }
                 | PrimaryDrag::ModelBox { .. }
                 | PrimaryDrag::Pull { .. } => {}
@@ -2208,7 +2296,15 @@ impl ViewportState {
             );
             canvas::announce(ui, shown, "snap", &label, None);
         }
-        if let (Some(size), Some(cursor)) = (self.drawing.readout(model.units()), self.cursor) {
+        let moved = match &self.primary {
+            Some(PrimaryDrag::Manipulate(manipulating)) => {
+                Some(manipulating.readout(model.units()))
+            }
+            _ => None,
+        };
+        if let (Some(size), Some(cursor)) =
+            (self.drawing.readout(model.units()).or(moved), self.cursor)
+        {
             let position = rect.min
                 + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
             let shown = canvas::label(
@@ -2401,20 +2497,23 @@ impl ViewportState {
     ) {
         let hovered = self.annotations.hovered().or(self.highlighted());
         let projecting = editing.active().filter(|active| active.tool.projects());
-        let description = if let Some(active) = projecting {
-            hovered
-                .filter(|hovered| projecting::projectable(*hovered, active.feature))
-                .and_then(|hovered| projecting::describe(model, active.feature, hovered))
-        } else if self.trimming.is_active() {
-            edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
-        } else if self.modifying.is_active() {
-            edited_sketch(model, editing)
-                .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
-        } else {
-            hovered
-                .filter(|_| !self.drawing.is_active())
-                .map(|hovered| hovered.describe(model.document(), model.evaluation()))
-        };
+        let description =
+            if let Some(handle) = self.manipulator_hover.filter(|_| self.primary.is_none()) {
+                Some(handle.words())
+            } else if let Some(active) = projecting {
+                hovered
+                    .filter(|hovered| projecting::projectable(*hovered, active.feature))
+                    .and_then(|hovered| projecting::describe(model, active.feature, hovered))
+            } else if self.trimming.is_active() {
+                edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
+            } else if self.modifying.is_active() {
+                edited_sketch(model, editing)
+                    .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
+            } else {
+                hovered
+                    .filter(|_| !self.drawing.is_active())
+                    .map(|hovered| hovered.describe(model.document(), model.evaluation()))
+            };
         let Some(description) = description else {
             return;
         };
