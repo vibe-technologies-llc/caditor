@@ -187,6 +187,11 @@ paths:
   bodies' result `Arc`s and reused while those are unchanged, so editing one body rechecks only its
   pairs; entries for results that are gone are dropped. Closing the panel or a new session forgets
   everything. A panic becomes an unchecked finding.
+- `Interference::refresh` works out the pairs only when the selection's generation, the tree's
+  chosen body, the revision or the evaluation changes, and returns a new `Report` only when the
+  basis changed or a finding arrived, so an open panel over a thousand bodies does nothing per
+  frame. The panel lists and marks at most `MAX_LISTED` contacts, Measure at most
+  `MAX_MASS_CARDS` bodies' masses, each saying how many more were left out.
 - An overlap is meshed at the model's mesh quality for its volume, size and centroid
   (`BodyMass::of`, approximate on curved faces) and its mesh edges drawn on the front layer; every
   finding with a place gets a marker and a label in the view (error for overlaps, the measure

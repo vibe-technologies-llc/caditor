@@ -25,6 +25,7 @@ pub const EMPTY_HINT: &str = "Select a vertex, edge, face or sketch point to mea
                               them to measure between them. Shift or Ctrl adds to the selection.";
 const PANEL_WIDTH: f32 = 300.0;
 const MIN_PANEL_WIDTH: f32 = 220.0;
+const MAX_MASS_CARDS: usize = 50;
 const MASS_SECTION: &str = "measure-mass";
 const STALE_OPACITY: f32 = 0.5;
 const APPROXIMATELY: &str = "≈ ";
@@ -285,12 +286,20 @@ fn measured_bodies(context: &MeasureContext<'_>) -> (Vec<FeatureId>, bool) {
     (shown, true)
 }
 
-pub fn mass_cards(context: &MeasureContext<'_>) -> (Vec<Card>, bool) {
+pub struct Masses {
+    pub cards: Vec<Card>,
+    pub everything: bool,
+    pub bodies: usize,
+}
+
+pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
     let unit = context.model.length_unit();
     let (bodies, everything) = measured_bodies(context);
+    let count = bodies.len();
     let parameters = context.model.parameters();
     let cards = bodies
         .into_iter()
+        .take(MAX_MASS_CARDS)
         .map(|body| {
             let feature = context.model.document().feature(body);
             let name = feature.map_or_else(
@@ -309,7 +318,11 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> (Vec<Card>, bool) {
             )
         })
         .collect();
-    (cards, everything)
+    Masses {
+        cards,
+        everything,
+        bodies: count,
+    }
 }
 
 pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, room: f32) {
@@ -319,7 +332,7 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
     let measuring = tool.measurements.is_measuring();
     let cards =
         shown.map(|(readout, freshness)| (readout, readout_cards(readout, unit), freshness));
-    let (masses, everything) = mass_cards(context);
+    let masses = mass_cards(context);
     let mut close = false;
     egui::Panel::right("measure")
         .resizable(true)
@@ -332,7 +345,7 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
                 let everything_text = cards
                     .iter()
                     .flat_map(|(_, cards, _)| cards)
-                    .chain(&masses)
+                    .chain(&masses.cards)
                     .map(Card::text)
                     .collect::<Vec<_>>()
                     .join("\n");
@@ -361,7 +374,7 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
                         readings(ui, readout, cards);
                     });
                 }
-                mass_section(ui, &masses, everything);
+                mass_section(ui, &masses);
             });
         });
     if close {
@@ -380,23 +393,30 @@ fn readings(ui: &mut Ui, readout: &Readout, cards: &[Card]) {
     }
 }
 
-fn mass_section(ui: &mut Ui, masses: &[Card], everything: bool) {
+fn mass_section(ui: &mut Ui, masses: &Masses) {
     widgets::section(
         ui,
         MASS_SECTION,
         MASS_TITLE,
-        Some(masses.len()),
+        Some(masses.bodies),
         None,
         |ui| {
-            if everything && !masses.is_empty() {
+            if masses.everything && !masses.cards.is_empty() {
                 ui.label(widgets::muted(ALL_BODIES, ui));
             }
-            if masses.is_empty() {
+            if masses.cards.is_empty() {
                 ui.label(widgets::muted("There are no bodies yet.", ui));
             }
-            for (index, card) in masses.iter().enumerate() {
+            for (index, card) in masses.cards.iter().enumerate() {
                 show_card(ui, ("mass", index), card);
                 ui.add_space(SPACE_S);
+            }
+            let unlisted = masses.bodies.saturating_sub(masses.cards.len());
+            if unlisted > 0 {
+                ui.label(widgets::muted(
+                    format!("{unlisted} more not listed. Select bodies to see theirs."),
+                    ui,
+                ));
             }
         },
     );

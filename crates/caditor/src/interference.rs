@@ -341,37 +341,63 @@ impl Report {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Inputs {
+    selection: u64,
+    tree_selected: Option<FeatureId>,
+    revision: u64,
+    evaluation: u64,
+}
+
 #[derive(Default)]
 pub struct Interference {
     worker: Option<Worker>,
     current: Arc<AtomicU64>,
+    inputs: Option<Inputs>,
     basis: Option<Basis>,
     ticket: u64,
     submitted: BTreeMap<Pair, [Arc<FeatureResult>; 2]>,
     checked: BTreeMap<Pair, Checked>,
+    changed: bool,
 }
 
 impl Interference {
-    pub fn refresh(&mut self, model: &Model, bodies: Bodies) -> Report {
-        let basis = Basis {
-            bodies,
+    pub fn refresh(
+        &mut self,
+        model: &Model,
+        selection: &Selection,
+        tree_selected: Option<FeatureId>,
+    ) -> Option<Report> {
+        let inputs = Inputs {
+            selection: selection.generation(),
+            tree_selected,
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
-            quality: model.mesh_quality(),
         };
-        if self.basis.as_ref() != Some(&basis) {
-            if self
-                .basis
-                .as_ref()
-                .is_some_and(|before| before.quality != basis.quality)
-            {
-                self.checked.clear();
+        let quality = model.mesh_quality();
+        let same_quality = self
+            .basis
+            .as_ref()
+            .is_some_and(|basis| basis.quality == quality);
+        if self.inputs != Some(inputs) || !same_quality {
+            self.inputs = Some(inputs);
+            let basis = Basis {
+                bodies: Bodies::of(model, selection, tree_selected),
+                revision: inputs.revision,
+                evaluation: inputs.evaluation,
+                quality,
+            };
+            if self.basis.as_ref() != Some(&basis) {
+                if !same_quality {
+                    self.checked.clear();
+                }
+                self.start(model, &basis);
+                self.basis = Some(basis);
+                self.changed = true;
             }
-            self.start(model, &basis);
-            self.basis = Some(basis);
         }
         self.poll();
-        self.report(model)
+        std::mem::take(&mut self.changed).then(|| self.report(model))
     }
 
     fn start(&mut self, model: &Model, basis: &Basis) {
@@ -451,10 +477,11 @@ impl Interference {
             } if ticket == self.ticket => {
                 if let Some(results) = self.submitted.remove(&pair) {
                     self.checked.insert(pair, Checked { results, finding });
+                    self.changed = true;
                 }
             }
             Message::Stopped { ticket, pair } if ticket == self.ticket => {
-                self.submitted.remove(&pair);
+                self.changed |= self.submitted.remove(&pair).is_some();
             }
             Message::Found { .. } | Message::Stopped { .. } => {}
         }
@@ -502,9 +529,11 @@ impl Interference {
     pub fn forget(&mut self) {
         self.ticket = self.ticket.wrapping_add(1);
         self.current.store(self.ticket, Ordering::SeqCst);
+        self.inputs = None;
         self.basis = None;
         self.submitted.clear();
         self.checked.clear();
+        self.changed = false;
     }
 }
 

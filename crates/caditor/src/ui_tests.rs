@@ -6169,6 +6169,39 @@ fn a_use_selected_offer_is_worked_out_once_per_selection_and_model_change() {
 }
 
 #[test]
+fn the_interference_report_is_rebuilt_only_when_its_inputs_or_findings_change() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    add_peg(&mut harness);
+    let selection = crate::selection::Selection::default();
+    let mut interference = crate::interference::Interference::default();
+
+    let mut report = interference
+        .refresh(&harness.model, &selection, None)
+        .expect("the first refresh reports");
+    let deadline = Instant::now() + FILE_TIMEOUT;
+    while report.is_checking() {
+        assert!(Instant::now() < deadline, "the check never finished");
+        std::thread::sleep(Duration::from_millis(2));
+        if let Some(newer) = interference.refresh(&harness.model, &selection, None) {
+            report = newer;
+        }
+    }
+
+    assert_eq!(report.checked(), 1);
+    assert!(
+        interference
+            .refresh(&harness.model, &selection, None)
+            .is_none()
+    );
+    assert!(
+        interference
+            .refresh(&harness.model, &selection, None)
+            .is_none()
+    );
+}
+
+#[test]
 fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     let mut harness = Harness::new();
     let (extrude, top) = extruded_plate(&mut harness);

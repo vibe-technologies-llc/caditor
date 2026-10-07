@@ -371,11 +371,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   constrained lines costs hundreds of milliseconds, and since the offers key on the displayed
   sketch's generation, dragging that selection pays it every frame. Index the constraints by
   subject once per revision and build a tool's candidates only when its selection shape can match.
-- [medium · medium] The Measure and Interference panels redo work per body or pair each frame while
-  open: `Interference::refresh` rebuilds and compares every pair and `report` looks each up again,
-  and both panels format and lay out a card per contact or shown body with no virtualisation, so a
-  STEP import of a thousand bodies means half a million pairs a frame. Cache the pairs and the
-  report per basis, and virtualise or cap the cards.
 - [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of

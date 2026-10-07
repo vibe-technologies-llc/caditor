@@ -30,6 +30,7 @@ pub const UNCHECKED: &str = "Whether these bodies overlap could not be worked ou
 pub const EVERYTHING: &str = "Every body shown, pair by pair. Select faces, edges or vertices of \
                               bodies to check those alone.";
 pub const CHOSEN: &str = "The selected bodies, pair by pair.";
+pub const MAX_LISTED: usize = 50;
 const UNMESHED: &str = "The shared volume could not be meshed, so its size is not known.";
 const PANEL_WIDTH: f32 = 300.0;
 const MIN_PANEL_WIDTH: f32 = 220.0;
@@ -237,13 +238,19 @@ pub fn cards(
 ) -> Vec<(Card, Option<Point3>)> {
     ranked(report)
         .into_iter()
+        .take(MAX_LISTED)
         .map(|(pair, finding)| (card_of(document, *pair, finding, unit), finding.place()))
         .collect()
+}
+
+pub fn unlisted(report: &Report) -> usize {
+    report.contacts().count().saturating_sub(MAX_LISTED)
 }
 
 pub fn marks(document: &Document, report: &Report) -> Vec<Mark> {
     ranked(report)
         .into_iter()
+        .take(MAX_LISTED)
         .filter_map(|(pair, finding)| {
             let place = finding.place()?;
             let name = pair_name(document, *pair);
@@ -277,8 +284,12 @@ pub struct InterferenceContext<'a> {
 }
 
 pub fn refresh(context: &InterferenceContext<'_>, tool: &mut InterferenceTool) {
-    let bodies = Bodies::of(context.model, context.selection, context.tree_selected);
-    tool.report = Some(tool.interference.refresh(context.model, bodies));
+    let refreshed =
+        tool.interference
+            .refresh(context.model, context.selection, context.tree_selected);
+    if let Some(report) = refreshed {
+        tool.report = Some(report);
+    }
 }
 
 pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) -> Option<Point3> {
@@ -286,6 +297,7 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) 
     let document = model.document();
     let unit = model.length_unit();
     let cards = cards(document, report, unit);
+    let unlisted = unlisted(report);
     let summary = summary(report);
     let progress = progress(report);
     let scope = scope_text(document, &report.bodies);
@@ -335,6 +347,14 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) 
                         }
                     }
                     ui.add_space(SPACE_M);
+                }
+                if unlisted > 0 {
+                    ui.label(widgets::muted(
+                        format!(
+                            "{unlisted} more not listed. Select bodies to check fewer at a time."
+                        ),
+                        ui,
+                    ));
                 }
             });
         });
