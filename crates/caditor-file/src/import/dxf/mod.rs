@@ -807,12 +807,15 @@ impl<'a> Interpreter<'a> {
         dashed: bool,
         layer: &str,
     ) -> Result<(), ImportError> {
+        self.visited = self.visited.saturating_add(shapes.len());
+        if self.visited > MAX_EXPANDED_OBJECTS {
+            return Err(ImportError::TooManyObjects);
+        }
         let layer = self.layer_index(layer);
-        for shape in shapes {
-            if self.shapes.len() >= MAX_DRAWING_CURVES {
-                self.beyond_the_limit += 1;
-                continue;
-            }
+        let room = MAX_DRAWING_CURVES.saturating_sub(self.shapes.len());
+        let (kept, beyond) = shapes.split_at(room.min(shapes.len()));
+        self.beyond_the_limit = self.beyond_the_limit.saturating_add(beyond.len());
+        for shape in kept {
             self.points = self.points.saturating_add(shape.size());
             if self.points > MAX_DRAWING_POINTS {
                 return Err(ImportError::TooDetailed);

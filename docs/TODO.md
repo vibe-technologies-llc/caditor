@@ -289,12 +289,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Drawing import and export
 
-- [medium · easy] DXF block expansion counts objects (`MAX_EXPANDED_OBJECTS`) but not the shapes
-  they decode to, and once `MAX_DRAWING_CURVES` is reached `Interpreter::push` still walks every
-  shape of every further instance to count it as left out: a 3 MB file with a block of one
-  100,000-vertex polyline inserted as a 700 × 700 array keeps the files worker busy for minutes,
-  and an import cannot be cancelled. Count the rest of an item in one step once the limit is
-  reached, and charge the visit budget per shape so a hostile file ends in `TooManyObjects`.
 - [medium · medium] Drawing export takes one sketch or one flat face at a time: several faces (the
   parts of a nest) cannot go into one file, construction geometry is left out with no option to keep
   it on a layer, and the files hold no text or dimensions. A face's intersection edges are written

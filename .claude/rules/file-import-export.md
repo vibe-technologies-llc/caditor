@@ -13,8 +13,10 @@ paths:
 - Text is UTF-8 when valid, else in the header's `$DWGCODEPAGE` (`code_page.rs`; unknown reads as
   1252).
 - Hostile-input limits, each an `ImportError` naming it: `MAX_DRAWING_VALUES`,
-  `MAX_EXPANDED_OBJECTS` (block expansion), `MAX_DRAWING_POINTS`. Curves past `MAX_DRAWING_CURVES`
-  are left out with a note and the first ones import.
+  `MAX_EXPANDED_OBJECTS` (block expansion, charged per object and per decoded shape, so a long
+  polyline repeated in a huge array ends there), `MAX_DRAWING_POINTS`. Curves past
+  `MAX_DRAWING_CURVES` are left out with a note and the first ones import; the rest of an item
+  past the limit is counted in one step, never walked shape by shape.
 - Units: `$INSUNITS` converts to millimetres with a note; an unknown or missing unit reads as
   millimetres with a note, except missing with imperial `$MEASUREMENT`, which reads as inches.
 - Damage ends reading where it is found: earlier records are interpreted and a note says where, so

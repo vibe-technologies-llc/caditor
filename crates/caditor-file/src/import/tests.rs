@@ -1458,6 +1458,87 @@ fn blocks_that_fan_out_into_millions_of_objects_are_refused_quickly() {
     assert!(started.elapsed().as_secs() < 10);
 }
 
+fn zigzag(vertices: usize) -> Pairs {
+    let mut polyline = vec![
+        pair(0, "LWPOLYLINE"),
+        pair(8, "0"),
+        pair(90, vertices),
+        pair(70, 0),
+    ];
+    for index in 0..vertices {
+        polyline.extend([pair(10, index as f64), pair(20, (index % 2) as f64)]);
+    }
+    polyline
+}
+
+#[test]
+fn a_long_polyline_in_a_huge_array_runs_out_of_its_budget_quickly() {
+    let bytes = text(vec![
+        header(Some(4)),
+        section(
+            "BLOCKS",
+            vec![block("Zigzag", (0.0, 0.0), vec![zigzag(20_000)])],
+        ),
+        section(
+            "ENTITIES",
+            vec![insert(
+                "Zigzag",
+                "0",
+                &[
+                    (10, 0.0),
+                    (20, 0.0),
+                    (70, 700.0),
+                    (71, 700.0),
+                    (44, 1.0),
+                    (45, 1.0),
+                ],
+            )],
+        ),
+    ]);
+
+    let started = std::time::Instant::now();
+    assert_eq!(parse_dxf(&bytes), Err(ImportError::TooManyObjects));
+    assert!(started.elapsed().as_secs() < 10);
+}
+
+#[test]
+fn curves_past_the_limit_are_counted_whole_items_at_a_time() {
+    let bytes = text(vec![
+        header(Some(4)),
+        section(
+            "BLOCKS",
+            vec![block("Zigzag", (0.0, 0.0), vec![zigzag(301)])],
+        ),
+        section(
+            "ENTITIES",
+            vec![insert(
+                "Zigzag",
+                "0",
+                &[
+                    (10, 0.0),
+                    (20, 0.0),
+                    (70, 10.0),
+                    (71, 10.0),
+                    (44, 400.0),
+                    (45, 2.0),
+                ],
+            )],
+        ),
+    ]);
+
+    let drawing = parse_dxf(&bytes).unwrap();
+
+    assert_eq!(drawing.curves.len(), MAX_DRAWING_CURVES);
+    assert!(
+        drawing
+            .notes
+            .iter()
+            .any(|note| note.contains("10000 more were left out")),
+        "{:?}",
+        drawing.notes
+    );
+}
+
 #[test]
 fn a_heavy_spline_repeated_in_a_large_array_is_refused_by_its_points() {
     const POINTS: usize = 1000;
