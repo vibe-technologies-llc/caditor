@@ -3799,6 +3799,53 @@ fn a_line_drawn_to_the_side_of_one_circle_and_touching_another_keeps_both() {
 }
 
 #[test]
+fn an_arc_starting_level_with_its_centre_and_a_spline_point_above_the_last_stay_so() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::A);
+    harness.click_at(Point2::new(20.0, 20.0));
+    harness.point_at(Point2::new(30.0, 20.02));
+    assert!(harness.shows("Horizontal"));
+    harness.click_at(Point2::new(30.0, 20.02));
+    harness.point_at(Point2::new(20.0, 30.0));
+    harness.click_at(Point2::new(20.0, 30.0));
+
+    let sketch = harness.sketch(feature);
+    let [arc] = entities_of_kind(sketch, "Arc")[..] else {
+        panic!("one arc should be drawn");
+    };
+    let Some(Entity::Arc { center, start, .. }) = sketch.entity(arc).cloned() else {
+        panic!("the arc is an arc");
+    };
+    let pairs = aligned_point_pairs(sketch);
+    assert!(
+        pairs.contains(&Constraint::HorizontalPoints(center, start)),
+        "{pairs:?}"
+    );
+
+    harness.use_tool(Key::S);
+    harness.click_at(Point2::new(50.0, 5.0));
+    harness.click_at(Point2::new(50.02, 25.0));
+    harness.click_at(Point2::new(70.0, 30.0));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+
+    let sketch = harness.sketch(feature);
+    let [spline] = entities_of_kind(sketch, "Spline")[..] else {
+        panic!("one spline should be drawn");
+    };
+    let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+        panic!("the spline is a spline");
+    };
+    assert!(
+        aligned_point_pairs(sketch).contains(&Constraint::VerticalPoints(
+            control_points[0],
+            control_points[1]
+        ))
+    );
+}
+
+#[test]
 fn one_press_drag_release_draws_a_whole_line_rectangle_or_circle() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

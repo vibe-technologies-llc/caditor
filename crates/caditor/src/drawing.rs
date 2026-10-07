@@ -280,6 +280,14 @@ impl Direction {
         with_reference(words.to_lowercase(), reference, sketch)
     }
 
+    fn between(self, from: EntityId, to: EntityId) -> Option<Constraint> {
+        match self {
+            Self::Horizontal => Some(Constraint::HorizontalPoints(from, to)),
+            Self::Vertical => Some(Constraint::VerticalPoints(from, to)),
+            Self::Parallel(_) | Self::Perpendicular(_) | Self::Tangent(_) => None,
+        }
+    }
+
     fn constraint(self, line: EntityId) -> Constraint {
         match self {
             Self::Horizontal => Constraint::Horizontal(line),
@@ -1713,6 +1721,22 @@ impl Drawing {
                 .map(|tracked| Placement::tracked(tracked, Snap::Free))
                 .unwrap_or(Placement::free(pointer.sketch))
         };
+        if let Some(from) = self.levelled_from(shape) {
+            return match snapped {
+                Some(snapped) => aligned_on(
+                    sketch,
+                    screen,
+                    pointer,
+                    from.position,
+                    snapped,
+                    &LEVEL_AND_UPRIGHT,
+                )
+                .or_else(|| tracked_on(snapped))
+                .unwrap_or(Placement::snapped(snapped)),
+                None => align(from.position, screen, pointer, &LEVEL_AND_UPRIGHT)
+                    .unwrap_or_else(tracked_alone),
+            };
+        }
         let Some(start) = self.aligned_from(shape) else {
             return match snapped {
                 Some(snapped) => tracked_on(snapped).unwrap_or(Placement::snapped(snapped)),
@@ -1761,6 +1785,17 @@ impl Drawing {
     fn aligned_from(&self, shape: Shape) -> Option<Placement> {
         match self.placed.as_slice() {
             &[start] if shape.aligns_second_point() => Some(start),
+            _ => None,
+        }
+    }
+
+    fn levelled_from(&self, shape: Shape) -> Option<Placement> {
+        match (shape, self.placed.as_slice()) {
+            (
+                Shape::Arc | Shape::Slot(SlotMode::Arc) | Shape::Polygon(PolygonMode::Corner),
+                &[from],
+            )
+            | (Shape::Spline, &[.., from]) => Some(from),
             _ => None,
         }
     }
@@ -2159,6 +2194,16 @@ impl<'a> Draft<'a> {
         point
     }
 
+    fn level(&mut self, from: EntityId, to: EntityId, placed: Placement) {
+        if let Some(constraint) = placed
+            .snap
+            .direction()
+            .and_then(|direction| direction.between(from, to))
+        {
+            self.constrain(constraint);
+        }
+    }
+
     fn line(&mut self, start: Placement, end: Placement) -> (EntityId, EntityId) {
         let start = self.point(start);
         let end_point = self.point(end);
@@ -2302,11 +2347,16 @@ impl<'a> Draft<'a> {
         end: Placement,
         counter_clockwise: bool,
     ) {
-        let center = self.point(center);
-        let start = self.point(start);
+        let center_point = self.point(center);
+        let start_point = self.point(start);
+        self.level(center_point, start_point, start);
         let end = self.point(end);
-        let (start, end) = arc_ends(counter_clockwise, start, end);
-        self.entity(Entity::Arc { center, start, end });
+        let (first, last) = arc_ends(counter_clockwise, start_point, end);
+        self.entity(Entity::Arc {
+            center: center_point,
+            start: first,
+            end: last,
+        });
     }
 
     fn arc_through(&mut self, center: EntityId, start: Point2, end: Point2) -> DrawnCurve {
@@ -2425,6 +2475,8 @@ impl<'a> Draft<'a> {
             position: last_position,
             ..last
         });
+        self.level(center, first_center, first);
+        self.level(center, last_center, last);
         let [outer_first, outer_last, inner_first, inner_last] = slot.corners();
         let outer = self.arc_through(center, outer_first, outer_last);
         let inner = self.arc_through(center, inner_first, inner_last);
@@ -2462,7 +2514,12 @@ impl<'a> Draft<'a> {
     }
 
     fn polygon(&mut self, center: Placement, corners: &[Placement]) {
-        self.regular_polygon(center, corners);
+        let Some(polygon) = self.regular_polygon(center, corners) else {
+            return;
+        };
+        if let Some(corner) = corners.first() {
+            self.level(polygon.center, polygon.first.start, *corner);
+        }
     }
 
     fn polygon_around_side_middle(
@@ -2507,10 +2564,17 @@ impl<'a> Draft<'a> {
     }
 
     fn spline(&mut self, placed: &[Placement]) {
-        let control_points = placed
+        let control_points: Vec<EntityId> = placed
             .iter()
             .map(|placement| self.point(*placement))
             .collect();
+        for ((from, to), placement) in control_points
+            .iter()
+            .zip(control_points.iter().skip(1))
+            .zip(placed.iter().skip(1))
+        {
+            self.level(*from, *to, *placement);
+        }
         self.entity(Entity::Spline { control_points });
     }
 }

@@ -215,6 +215,10 @@ paths:
   to one of the `NEARBY_LINES` lines of the edited sketch (construction lines included) nearest on
   screen (`drawing::guides`), the smallest offset winning. A line is never inferred parallel to a
   line through its start point (that only continues it), though perpendicular to it is offered.
+- An arc's start (and an arc slot's ends) from its centre, a polygon's corner from its centre and
+  each spline control point from the one before take horizontal or vertical the same way
+  (`Drawing::levelled_from`, `LEVEL_AND_UPRIGHT` only), kept by a horizontal or vertical points
+  constraint between the two points (`Direction::between`).
 - Snapping to geometry wins over a direction, which joins it only where compatible
   (`Snap::AlignedOn`): a point snap keeps a direction that already holds (`HELD_TOLERANCE`) and
   never moves the point; a curve snap moves to where the direction's ray crosses the curve, within
