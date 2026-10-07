@@ -79,9 +79,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   classification), so a sequence of hole features is quadratic: in release the 144th hole of a block
   takes about 70 ms against 1 ms for the first. Carry untouched faces through by id, and return
   disjoint operands without the pipeline: a few hundred separated unions take seconds.
-- [low · medium] Blending scales worse than linearly: `crosses_boundary` tests every boundary edge
-  with no box filter and recounts uses inside the loop, and tools are unioned pairwise even when
-  disjoint.
+- [low · medium] Blending unions its tools pairwise even when they are disjoint, each union a full
+  boolean; a disjoint pair could be joined as two lumps without the pipeline (see the item on
+  rebuilding every face above).
 - [low · medium] Marched curves' `closest_parameter` and `length` reseed over all nodes on every
   call, from loops over nearby vertices in `imprint.rs`.
 - [low · medium] Tracing a boolean measures the shortest piece leaving a vertex in full, unpolled:

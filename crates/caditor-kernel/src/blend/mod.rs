@@ -21,7 +21,7 @@ use crate::{
     build::{AngularExtent, Axis2, LinearExtent, SweepError, extrude, revolve},
     curve::{Circle, Curve, Line},
     interrupt::{self, Interrupted},
-    intersect::intersect_curves,
+    intersect::{boxes_overlap, intersect_curves},
     interval::Interval,
     naming::{EdgeNaming, EdgeReference, FaceName, FaceOrigin, ReferenceError},
     profile::{Profile, ProfileCurve, ProfileError, ProfileShape, Selection},
@@ -718,22 +718,31 @@ fn crosses_boundary(solid: &Solid, face: FaceId, edge: EdgeId, foot: &(Curve, In
             .iter()
             .all(|end| end.distance(point) > CROSSING_CLEARANCE)
     };
-    let boundary: Vec<EdgeId> = solid
+    let mut uses: BTreeMap<EdgeId, usize> = BTreeMap::new();
+    for used in solid
         .face(face)
         .into_iter()
         .flat_map(|face| face.loops())
         .filter_map(|id| solid.face_loop(*id))
         .flat_map(|face_loop| face_loop.coedges())
         .filter_map(|coedge| solid.coedge(*coedge).map(|coedge| coedge.edge()))
-        .collect();
-    let uses = |other: EdgeId| boundary.iter().filter(|used| **used == other).count();
-    boundary.iter().any(|other| {
+    {
+        *uses.entry(used).or_default() += 1;
+    }
+    let reach = path.bounding_box(*range);
+    uses.iter().any(|(other, used)| {
         let Some(other_definition) = solid.edge(*other) else {
             return false;
         };
         let incident =
             ends.contains(&other_definition.start()) || ends.contains(&other_definition.end());
-        if *other == edge || incident || uses(*other) > 1 {
+        if *other == edge || incident || *used > 1 {
+            return false;
+        }
+        let other_reach = other_definition
+            .curve()
+            .bounding_box(other_definition.interval());
+        if !boxes_overlap(&reach, &other_reach, CROSSING_CLEARANCE) {
             return false;
         }
         let Ok(found) = intersect_curves(
