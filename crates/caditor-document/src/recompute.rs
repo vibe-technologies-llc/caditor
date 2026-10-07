@@ -357,6 +357,14 @@ impl Evaluation {
         self.features.get(state)?.result.as_ref()
     }
 
+    pub fn cuts(&self, feature: FeatureId) -> &[Arc<FeatureResult>] {
+        self.features
+            .get(&feature)
+            .and_then(|status| status.result.as_deref())
+            .and_then(FeatureResult::solid)
+            .map_or(&[], SolidResult::cuts)
+    }
+
     pub fn bodies(&self) -> impl Iterator<Item = (FeatureId, FeatureId)> + '_ {
         self.bodies.iter().map(|(body, state)| (*body, *state))
     }

@@ -38,6 +38,10 @@ paths:
   turns solid when the feature closes, so a pattern, hole, extrusion or move reads as a preview
   until confirmed. It is drawn solid while choosing in the view, and blends and shells keep
   showing the body before them for choosing.
+- A feature that removes material (an extrusion or revolve removing from a body, a hole) shows
+  instead the body solid as cut and only its tools (`Evaluation::cuts`, the swept profile or each
+  drill) in `CUT_PREVIEW` over everything (`Scene::overlay_meshes`, edges on the front layer),
+  never picked, so the cut reads through the material around it.
 
 ## Where new features go
 

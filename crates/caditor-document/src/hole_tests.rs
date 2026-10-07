@@ -88,7 +88,7 @@ fn each_point_of_the_sketch_gets_a_hole_and_curve_ends_do_not() {
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(3.0, 3.0));
     let mut transaction = pair.document.transaction("Drill");
     let sketch_id = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
-    transaction.add_feature(
+    let hole = transaction.add_feature(
         "Hole 1",
         FeatureKind::Hole(Hole {
             sketch: sketch_id,
@@ -108,6 +108,7 @@ fn each_point_of_the_sketch_gets_a_hole_and_curve_ends_do_not() {
     let evaluation = evaluate(&pair.document, &mut engine);
 
     assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(evaluation.cuts(hole).len(), 2);
     let removed = 2.0 * PI * 1.0 * 4.0;
     let found = volume(&evaluation, pair.plate);
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");

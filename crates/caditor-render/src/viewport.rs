@@ -87,6 +87,7 @@ impl Uniform {
 struct Pipelines {
     meshes: wgpu::RenderPipeline,
     translucent_meshes: wgpu::RenderPipeline,
+    overlay_meshes: wgpu::RenderPipeline,
     flat_meshes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     markers: wgpu::RenderPipeline,
@@ -516,6 +517,7 @@ pub struct ViewportRenderer {
     work: Work,
     meshes: MeshCache,
     translucent: MeshCache,
+    overlay: MeshCache,
     flat: MeshCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
@@ -567,6 +569,7 @@ impl ViewportRenderer {
             work: Work::default(),
             meshes,
             translucent: MeshCache::new(device),
+            overlay: MeshCache::new(device),
             flat: MeshCache::new(device),
             staging: Bytes::default(),
             targets: None,
@@ -785,6 +788,7 @@ impl ViewportRenderer {
         self.flat.draw(pass, &self.pipelines.flat_meshes);
         self.translucent
             .draw(pass, &self.pipelines.translucent_meshes);
+        self.overlay.draw(pass, &self.pipelines.overlay_meshes);
         for batch in &self.batches {
             batch.draw_lines(pass, &self.pipelines.lines);
         }
@@ -939,6 +943,10 @@ impl ViewportRenderer {
                 &scene.translucent_meshes,
                 view.eye(),
             ))
+            .saturating_add(
+                self.overlay
+                    .prepare(device, queue, &scene.overlay_meshes, view.eye()),
+            )
             .saturating_add(
                 self.flat
                     .prepare(device, queue, &scene.flat_meshes, view.eye()),
@@ -1183,6 +1191,7 @@ impl Pipelines {
                     fragment,
                     targets: &color_target,
                     depth_write,
+                    depth_compare: wgpu::CompareFunction::GreaterEqual,
                     sample_count,
                 },
             )
@@ -1199,6 +1208,7 @@ impl Pipelines {
                     fragment,
                     targets: &pick_targets,
                     depth_write,
+                    depth_compare: wgpu::CompareFunction::GreaterEqual,
                     sample_count: 1,
                 },
             )
@@ -1220,6 +1230,21 @@ impl Pipelines {
                 &meshes,
                 "fs_mesh",
                 false,
+            ),
+            overlay_meshes: build_pipeline(
+                device,
+                &PipelineSpec {
+                    label: "overlay meshes",
+                    layout: &mesh_pipeline_layout,
+                    module: &module,
+                    vertex: "vs_mesh",
+                    buffers: &meshes,
+                    fragment: "fs_mesh",
+                    targets: &color_target,
+                    depth_write: false,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    sample_count,
+                },
             ),
             flat_meshes: color(
                 "flat meshes",
@@ -1308,6 +1333,7 @@ struct PipelineSpec<'a> {
     fragment: &'a str,
     targets: &'a [Option<wgpu::ColorTargetState>],
     depth_write: bool,
+    depth_compare: wgpu::CompareFunction,
     sample_count: u32,
 }
 
@@ -1325,7 +1351,7 @@ fn build_pipeline(device: &wgpu::Device, spec: &PipelineSpec<'_>) -> wgpu::Rende
         depth_stencil: Some(wgpu::DepthStencilState {
             format: DEPTH_FORMAT,
             depth_write_enabled: Some(spec.depth_write),
-            depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
+            depth_compare: Some(spec.depth_compare),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),

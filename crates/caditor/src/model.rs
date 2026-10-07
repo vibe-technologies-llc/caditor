@@ -174,9 +174,9 @@ pub struct Model {
     length_unit: LengthUnit,
     angle_unit: AngleUnit,
     mesh_quality: MeshQuality,
-    mesh_requested: Option<Arc<FeatureResult>>,
+    mesh_requested: Vec<Arc<FeatureResult>>,
     display: Display,
-    shown_before: Option<Arc<FeatureResult>>,
+    shown_before: Vec<Arc<FeatureResult>>,
     evaluation_generation: u64,
 }
 
@@ -209,9 +209,9 @@ impl Model {
             length_unit: LengthUnit::default(),
             angle_unit: AngleUnit::default(),
             mesh_quality: MeshQuality::default(),
-            mesh_requested: None,
+            mesh_requested: Vec::new(),
             display: Display::default(),
-            shown_before: None,
+            shown_before: Vec::new(),
             evaluation_generation: 0,
         };
         model.start_storage(None, None);
@@ -431,38 +431,46 @@ impl Model {
     }
 
     pub fn mesh_before(&mut self, feature: Option<FeatureId>) {
-        let open = feature.and_then(|feature| {
-            self.evaluation
-                .body_before(feature)
-                .map(|result| (feature, Arc::clone(result)))
-        });
-        self.shown_before = open.as_ref().map(|(_, result)| Arc::clone(result));
-        let Some((feature, result)) = open else {
+        let open: Vec<Arc<FeatureResult>> = feature
+            .map(|feature| {
+                self.evaluation
+                    .body_before(feature)
+                    .into_iter()
+                    .chain(self.evaluation.cuts(feature))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        self.mesh_requested
+            .retain(|requested| open.iter().any(|result| Arc::ptr_eq(result, requested)));
+        self.shown_before = open.clone();
+        let Some(feature) = feature else {
             return;
         };
-        let meshed = result.solid().is_none_or(|solid| solid.is_meshed());
-        if meshed {
-            self.display
-                .meshing
-                .request(&result, || (self.services.make_waker)());
-        }
-        let requested = self
-            .mesh_requested
-            .as_ref()
-            .is_some_and(|requested| Arc::ptr_eq(requested, &result));
-        if meshed || requested {
-            return;
-        }
         let name = self
             .document()
             .feature(feature)
             .map_or_else(String::new, |feature| feature.name.clone());
-        let sent = self
-            .recomputer
-            .as_ref()
-            .is_some_and(|recomputer| recomputer.mesh(Arc::clone(&result), name).is_ok());
-        if sent {
-            self.mesh_requested = Some(result);
+        for result in open {
+            if result.solid().is_none_or(|solid| solid.is_meshed()) {
+                self.display
+                    .meshing
+                    .request(&result, || (self.services.make_waker)());
+                continue;
+            }
+            let requested = self
+                .mesh_requested
+                .iter()
+                .any(|requested| Arc::ptr_eq(requested, &result));
+            if requested {
+                continue;
+            }
+            let sent = self.recomputer.as_ref().is_some_and(|recomputer| {
+                recomputer.mesh(Arc::clone(&result), name.clone()).is_ok()
+            });
+            if sent {
+                self.mesh_requested.push(result);
+            }
         }
     }
 
@@ -813,7 +821,8 @@ impl Model {
         self.display.sketches.forget();
         self.display.dragging.cancel();
         self.display.sketches.stop_showing_dragged();
-        self.shown_before = None;
+        self.shown_before.clear();
+        self.mesh_requested.clear();
         if let Some(recomputer) = &mut self.recomputer
             && let Err(error) = recomputer.forget()
         {
@@ -830,7 +839,7 @@ impl Model {
             .evaluation
             .bodies()
             .filter_map(|(body, _)| self.evaluation.body_result(body))
-            .chain(self.shown_before.as_ref())
+            .chain(&self.shown_before)
             .cloned()
             .collect();
         self.display

@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     panic::{self, AssertUnwindSafe},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
@@ -431,6 +431,7 @@ impl SolidFeature {
 pub struct SolidResult {
     pub body: FeatureId,
     pub solid: Solid,
+    cuts: Vec<Arc<FeatureResult>>,
     mesh: OnceLock<Option<Mesh>>,
     bounds: OnceLock<Option<Aabb>>,
     names: OnceLock<NameIndex>,
@@ -489,10 +490,24 @@ impl SolidResult {
         Self {
             body,
             solid,
+            cuts: Vec::new(),
             mesh: OnceLock::new(),
             bounds: OnceLock::new(),
             names: OnceLock::new(),
         }
+    }
+
+    pub fn cutting(mut self, tools: impl IntoIterator<Item = Solid>) -> Self {
+        let body = self.body;
+        self.cuts = tools
+            .into_iter()
+            .map(|tool| Arc::new(FeatureResult::Solid(SolidResult::new(body, tool))))
+            .collect();
+        self
+    }
+
+    pub fn cuts(&self) -> &[Arc<FeatureResult>] {
+        &self.cuts
     }
 
     pub fn names(&self) -> &NameIndex {
@@ -716,8 +731,8 @@ pub(crate) fn evaluate(
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
-    let (body, solid) = match solid.operation() {
-        BodyOperation::NewBody => (feature.id(), tool),
+    let (body, solid, cut) = match solid.operation() {
+        BodyOperation::NewBody => (feature.id(), tool, None),
         operation @ (BodyOperation::Add(body)
         | BodyOperation::Remove(body)
         | BodyOperation::Intersect(body)) => {
@@ -730,10 +745,13 @@ pub(crate) fn evaluate(
             let combined = boolean(current, &tool, kernel_operation).map_err(|error| {
                 boolean_failure(&context, inputs, [current, &tool], body, operation, &error)
             })?;
-            (body, combined)
+            let cut = matches!(operation, BodyOperation::Remove(_)).then_some(tool);
+            (body, combined, cut)
         }
     };
-    Ok(FeatureResult::Solid(SolidResult::new(body, solid)))
+    Ok(FeatureResult::Solid(
+        SolidResult::new(body, solid).cutting(cut),
+    ))
 }
 
 fn resolve_target(

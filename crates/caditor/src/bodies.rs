@@ -356,12 +356,18 @@ pub struct BodyBefore {
 pub struct BodyMeshes {
     bodies: BTreeMap<FeatureId, Arc<BodyMesh>>,
     open: Option<BodyBefore>,
+    cuts: Vec<Arc<BodyMesh>>,
+    cuts_of: Option<FeatureId>,
     generation: u64,
 }
 
 impl BodyMeshes {
     pub fn body_before(&self) -> Option<&BodyBefore> {
         self.open.as_ref()
+    }
+
+    pub fn cuts(&self) -> &[Arc<BodyMesh>] {
+        &self.cuts
     }
 
     pub fn generation(&self) -> u64 {
@@ -408,6 +414,31 @@ impl BodyMeshes {
                 choice,
             })
         });
+        let wanted = feature.map_or(&[][..], |feature| evaluation.cuts(feature));
+        let pending = wanted
+            .iter()
+            .any(|cut| matches!(meshing.lookup(cut), Converted::Pending));
+        let cuts: Vec<Arc<BodyMesh>> = if pending && self.cuts_of == feature {
+            self.cuts.clone()
+        } else {
+            wanted
+                .iter()
+                .filter_map(|cut| match meshing.lookup(cut) {
+                    Converted::Ready(mesh) => Some(Arc::clone(mesh)),
+                    Converted::Pending | Converted::Missing => None,
+                })
+                .collect()
+        };
+        let same_cuts = cuts.len() == self.cuts.len()
+            && cuts
+                .iter()
+                .zip(&self.cuts)
+                .all(|(new, old)| Arc::ptr_eq(new, old));
+        self.cuts = cuts;
+        self.cuts_of = feature;
+        if !same_cuts {
+            self.changed();
+        }
         let same = match (&shown_before, &self.open) {
             (Some(shown), Some(open)) => {
                 shown.feature == open.feature

@@ -690,6 +690,7 @@ pub(crate) fn evaluate(
         ));
     }
     let body_name = context.name(definition.body);
+    let mut tools = Vec::new();
     let mut body = inputs
         .body(definition.body)
         .ok_or_else(|| inputs.missing_body(definition.body))?
@@ -772,10 +773,10 @@ pub(crate) fn evaluate(
                 ));
             }
             body = cut;
+            tools.push(drill);
         }
     }
-    Ok(FeatureResult::Solid(SolidResult::new(
-        definition.body,
-        body,
-    )))
+    Ok(FeatureResult::Solid(
+        SolidResult::new(definition.body, body).cutting(tools),
+    ))
 }

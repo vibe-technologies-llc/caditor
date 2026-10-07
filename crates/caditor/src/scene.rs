@@ -74,6 +74,8 @@ const CHOSEN_REGION_ALPHA: u8 = 90;
 const PREVIEW_CURVE: Color = Color::from_rgb8(190, 150, 255);
 const PREVIEW_POINT: Color = Color::from_rgb8(214, 190, 255);
 const TRIMMED_CURVE: Color = Color::from_rgb8(255, 96, 84);
+const CUT_PREVIEW: Color = Color::from_rgb8(232, 92, 80);
+const CUT_PREVIEW_EDGE: Color = Color::from_rgb8(255, 132, 120);
 const SNAP_MARKER: Color = opaque(canvas::SNAP);
 const MEASURED: Color = opaque(canvas::MEASURE);
 const PROBLEM: Color = opaque(canvas::ERROR);
@@ -108,6 +110,7 @@ const OPENED_DATUM_EXTRA_WIDTH: f32 = 1.0;
 const CURVE_WIDTH: f32 = 2.0;
 const XRAY_FACE_ALPHA: f32 = 0.18;
 const PREVIEW_ALPHA: f32 = 0.45;
+const CUT_PREVIEW_ALPHA: f32 = 0.35;
 const BODY_EDGE_WIDTH: f32 = 1.5;
 const REVOLVE_AXIS_WIDTH: f32 = 2.5;
 const CHOSEN_EDGE_EXTRA_WIDTH: f32 = 1.5;
@@ -373,6 +376,15 @@ fn previewed_body(evaluation: &Evaluation, context: Context) -> Option<FeatureId
     }
 }
 
+fn cutting_feature(evaluation: &Evaluation, context: Context) -> Option<FeatureId> {
+    if context.choosing_in_view || context.sketch.is_some() {
+        return None;
+    }
+    context
+        .solid
+        .filter(|feature| !evaluation.cuts(*feature).is_empty())
+}
+
 fn sketch_shapes(
     sketch: &Sketch,
     states: &ConstraintStates<'_>,
@@ -431,6 +443,7 @@ pub fn build(
         scene: Batch::default(),
         meshes: Vec::new(),
         translucent_meshes: Vec::new(),
+        overlay_meshes: Vec::new(),
         flat_meshes: Vec::new(),
         picks: PickTable::default(),
         highlight,
@@ -473,10 +486,11 @@ pub fn build(
             builder.sketch(feature.id(), shapes, presence);
         }
     }
-    let open = bodies
-        .body_before()
-        .filter(|open| context.solid == Some(open.feature) && editing.is_none());
-    let previewed = previewed_body(evaluation, context);
+    let cutting = cutting_feature(evaluation, context).filter(|_| editing.is_none());
+    let open = bodies.body_before().filter(|open| {
+        context.solid == Some(open.feature) && editing.is_none() && cutting.is_none()
+    });
+    let previewed = previewed_body(evaluation, context).filter(|_| cutting.is_none());
     for (body, mesh) in bodies.iter() {
         if open.is_some_and(|open| open.body == body) || !visibility::is_shown(document, body) {
             continue;
@@ -504,6 +518,11 @@ pub fn build(
     if let Some(open) = open {
         builder.open_before(document, evaluation, open);
     }
+    if cutting.is_some() {
+        for cut in bodies.cuts() {
+            builder.cut_preview(cut);
+        }
+    }
     if let Some(feature) = context.solid {
         builder.swept(sources, feature, reference_size);
     }
@@ -520,6 +539,7 @@ pub fn build(
         scene: Scene {
             meshes: builder.meshes,
             translucent_meshes: builder.translucent_meshes,
+            overlay_meshes: builder.overlay_meshes,
             flat_meshes: builder.flat_meshes,
             batches: vec![Arc::new(builder.scene)],
             grid: Some(Grid {
@@ -699,6 +719,7 @@ struct Builder<'a> {
     scene: Batch,
     meshes: Vec<MeshInstance>,
     translucent_meshes: Vec<MeshInstance>,
+    overlay_meshes: Vec<MeshInstance>,
     flat_meshes: Vec<MeshInstance>,
     picks: PickTable,
     highlight: &'a Highlight<'a>,
@@ -952,6 +973,34 @@ impl Builder<'_> {
                 layer: Layer::Model,
                 pick: self.picks.register(pickable, PickPriority::Point),
             });
+        }
+    }
+
+    fn cut_preview(&mut self, cut: &BodyMesh) {
+        self.overlay_meshes.push(MeshInstance {
+            mesh: Arc::clone(&cut.mesh),
+            faces: vec![
+                FaceStyle {
+                    color: CUT_PREVIEW.with_alpha(CUT_PREVIEW_ALPHA),
+                    pick: None,
+                };
+                cut.faces.len()
+            ],
+        });
+        for edge in &cut.edges {
+            let segments = edge.points.windows(2).filter_map(|pair| match pair {
+                [start, end] => Some(Line {
+                    start: *start,
+                    end: *end,
+                    color: CUT_PREVIEW_EDGE,
+                    width: BODY_EDGE_WIDTH,
+                    layer: Layer::Front,
+                    pick: None,
+                    stroke: Stroke::Solid,
+                }),
+                _ => None,
+            });
+            self.scene.lines.extend(segments);
         }
     }
 

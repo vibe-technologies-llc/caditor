@@ -127,7 +127,7 @@ paths:
   Curve smoothness preference reaches it through `Model::set_mesh_quality` at startup and on each
   change (`app::apply_preferences`), followed by a new submission so every body is meshed again.
 - `BodyMeshing` (`bodies.rs`) converts each body's final mesh (and the state before the open blend
-  or shell, `Model::mesh_before`) into a `ShadedMesh` with edge polylines on its own worker, once
+  or shell and the open cut's tools, `Model::mesh_before`) into a `ShadedMesh` with edge polylines on its own worker, once
   per result keyed by its `Arc`. A panic leaves that body meshless; without a worker it runs on
   the UI thread. `BodyMeshes` takes each conversion on arrival, keeping the previous mesh until
   then, so the UI thread only uploads buffers.

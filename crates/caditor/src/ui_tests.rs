@@ -799,6 +799,22 @@ impl Harness {
         }
     }
 
+    fn built_with_overlays(&mut self, count: usize) -> scene::BuiltScene {
+        let deadline = Instant::now() + FILE_TIMEOUT;
+        loop {
+            let built = self.built();
+            if built.scene.overlay_meshes.len() == count {
+                return built;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the scene never held {count} overlays"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+            self.frame();
+        }
+    }
+
     fn built(&mut self) -> scene::BuiltScene {
         self.workspace
             .viewport
@@ -6491,6 +6507,54 @@ fn a_sketch_started_on_a_selected_face_follows_it_when_the_body_changes() {
     assert_eq!(plane_height(&harness, sketch), 25.0);
     assert!((harness.body_volume(extrude) - (40000.0 - 2000.0)).abs() < 1.0);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn an_open_cut_shows_the_body_solid_and_only_the_material_it_removes_see_through() {
+    let mut harness = Harness::new();
+    let (extrude, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("New sketch");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.use_tool(Key::R);
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(20.0, 30.0));
+    harness.settle();
+    harness.click("Extrude");
+    harness.settle();
+    let cut = harness.workspace.editing.solid().expect("the cut is open");
+    assert_eq!(
+        harness.solid(cut).operation(),
+        BodyOperation::Remove(extrude)
+    );
+
+    let open = harness.built_with_overlays(1);
+
+    assert_eq!(open.scene.meshes.len(), 1);
+    assert!(open.scene.translucent_meshes.is_empty());
+    assert!(
+        open.scene.meshes[0]
+            .faces
+            .iter()
+            .all(|face| face.color.alpha >= 1.0 && face.pick.is_some())
+    );
+    assert_eq!(open.scene.overlay_meshes[0].mesh.face_count(), 6);
+    assert!(
+        open.scene.overlay_meshes[0]
+            .faces
+            .iter()
+            .all(|face| face.color.alpha < 1.0 && face.pick.is_none())
+    );
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert_eq!(harness.workspace.editing.solid(), None);
+    let closed = harness.built();
+    assert!(closed.scene.overlay_meshes.is_empty());
+    assert_eq!(closed.scene.meshes.len(), 1);
 }
 
 #[test]

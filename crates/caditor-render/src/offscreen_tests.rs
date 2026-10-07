@@ -59,6 +59,7 @@ fn scene() -> Scene {
     Scene {
         meshes: Vec::new(),
         translucent_meshes: Vec::new(),
+        overlay_meshes: Vec::new(),
         flat_meshes: Vec::new(),
         grid: None,
         batches: vec![Arc::new(Batch {
@@ -688,6 +689,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
             ],
         }],
         translucent_meshes: Vec::new(),
+        overlay_meshes: Vec::new(),
         flat_meshes: Vec::new(),
         grid: None,
         batches: vec![Arc::new(Batch {
@@ -1229,6 +1231,56 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
     );
     assert_eq!(through.pick.hits[0].id, solid_pick);
     assert_eq!(at_rim.pick.hits.len(), 0);
+}
+
+#[test]
+fn an_overlay_mesh_shows_through_whatever_covers_it_and_is_never_picked() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
+    let cover_pick = PickId::from_index(0).unwrap();
+    let cover = MeshInstance {
+        mesh: Arc::new(box_mesh(40.0)),
+        faces: vec![
+            FaceStyle {
+                color: Color::from_rgb8(255, 0, 0),
+                pick: Some(cover_pick),
+            };
+            6
+        ],
+    };
+    let inside = MeshInstance {
+        mesh: Arc::new(box_mesh(10.0)),
+        faces: vec![
+            FaceStyle {
+                color: Color::from_rgba8(0, 255, 0, 120),
+                pick: None,
+            };
+            6
+        ],
+    };
+    let both = Scene {
+        meshes: vec![cover.clone()],
+        overlay_meshes: vec![inside],
+        ..Scene::default()
+    };
+    let alone = Scene {
+        meshes: vec![cover],
+        ..Scene::default()
+    };
+    let middle = view.project(Point3::ZERO).unwrap();
+
+    let through = render(&device, &queue, &view, &both, middle);
+    let bare = render(&device, &queue, &view, &alone, middle);
+
+    let [_, green, ..] = pixel(&through, middle);
+    let [_, bare_green, ..] = pixel(&bare, middle);
+    assert!(
+        green > bare_green + 40,
+        "the covered overlay added {green} over {bare_green}"
+    );
+    assert_eq!(through.pick.hits[0].id, cover_pick);
 }
 
 #[test]

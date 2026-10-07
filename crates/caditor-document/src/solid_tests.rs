@@ -115,6 +115,31 @@ fn features_chain_through_the_body() {
 }
 
 #[test]
+fn a_cut_keeps_its_tool_for_showing_while_other_features_keep_none() {
+    let model = model();
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    let tools = evaluation.cuts(model.pocket);
+    let tool = tools
+        .first()
+        .and_then(|tool| tool.solid())
+        .expect("the pocket keeps its tool");
+
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tool.body, model.base);
+    assert!(!tool.is_meshed());
+    let tool_volume = tool
+        .solid
+        .tessellate(&caditor_kernel::SamplingTolerance::new(1e-3, 0.1).unwrap())
+        .unwrap()
+        .mass_properties()
+        .volume;
+    assert!((tool_volume - 8.0).abs() < 0.05);
+    assert!(evaluation.cuts(model.base).is_empty());
+    assert!(evaluation.cuts(model.boss).is_empty());
+}
+
+#[test]
 fn only_the_final_state_of_each_body_is_meshed_on_the_worker() {
     let model = model();
     let evaluation = evaluate(&model.document, &mut Recompute::default());
