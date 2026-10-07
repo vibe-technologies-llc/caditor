@@ -307,7 +307,7 @@ fn hits(first: Geometry, second: Geometry) -> Vec<Point2> {
 }
 
 fn intersections(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Vec<Snapped> {
-    let mut near: Vec<(f64, EntityId, Geometry)> = curves(sketch, pointer.sketch)
+    let mut near: Vec<(f64, EntityId, Option<Geometry>)> = curves(sketch, pointer.sketch)
         .into_iter()
         .filter_map(|candidate| {
             let Target::Curve(id) = candidate.target else {
@@ -316,7 +316,7 @@ fn intersections(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Vec
             let distance = screen
                 .to_screen(candidate.position)?
                 .distance(pointer.screen);
-            (distance <= NEAR_CURVE_PIXELS).then_some((distance, id, geometry(sketch, id)?))
+            (distance <= NEAR_CURVE_PIXELS).then_some((distance, id, geometry(sketch, id)))
         })
         .collect();
     near.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -329,14 +329,18 @@ fn intersections(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Vec
             } else {
                 (*second, *first)
             };
-            found.extend(
-                hits(*first_geometry, *second_geometry)
-                    .into_iter()
-                    .map(|position| Snapped {
-                        position,
-                        target: Target::Intersection(low, high),
-                    }),
-            );
+            let crossed = match (first_geometry, second_geometry) {
+                (Some(first_geometry), Some(second_geometry)) => {
+                    hits(*first_geometry, *second_geometry)
+                }
+                (None, Some(_)) => sketch.spline_crossings(*first, *second),
+                (Some(_), None) => sketch.spline_crossings(*second, *first),
+                (None, None) => Vec::new(),
+            };
+            found.extend(crossed.into_iter().map(|position| Snapped {
+                position,
+                target: Target::Intersection(low, high),
+            }));
         }
     }
     found
@@ -458,23 +462,38 @@ struct OutlineLine {
     id: EntityId,
     start: (EntityId, Point2),
     end: (EntityId, Point2),
+    round: Option<(Point2, f64)>,
+}
+
+fn outline_pieces(sketch: &Sketch) -> Vec<OutlineLine> {
+    sketch
+        .entities()
+        .filter_map(|(id, entity)| match *entity {
+            Entity::Line { start, end } => {
+                let (from, to) = sketch.line_endpoints(id)?;
+                Some(OutlineLine {
+                    id,
+                    start: (start, from),
+                    end: (end, to),
+                    round: None,
+                })
+            }
+            Entity::Arc { start, end, .. } => {
+                let arc = sketch.arc(id)?;
+                Some(OutlineLine {
+                    id,
+                    start: (start, sketch.point(start)?),
+                    end: (end, sketch.point(end)?),
+                    round: Some((arc.center, arc.radius)),
+                })
+            }
+            Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => None,
+        })
+        .collect()
 }
 
 fn centres(sketch: &Sketch) -> Vec<Snapped> {
-    let lines: Vec<OutlineLine> = sketch
-        .entities()
-        .filter_map(|(id, entity)| {
-            let Entity::Line { start, end } = *entity else {
-                return None;
-            };
-            let (from, to) = sketch.line_endpoints(id)?;
-            Some(OutlineLine {
-                id,
-                start: (start, from),
-                end: (end, to),
-            })
-        })
-        .collect();
+    let lines = outline_pieces(sketch);
     let extent = lines
         .iter()
         .flat_map(|line| [line.start.1, line.end.1])
@@ -494,7 +513,7 @@ fn centres(sketch: &Sketch) -> Vec<Snapped> {
             continue;
         };
         found.extend(
-            symmetric_centre(&outline, tolerance).map(|(position, corners)| Snapped {
+            symmetric_centre(&lines, &outline, tolerance).map(|(position, corners)| Snapped {
                 position,
                 target: Target::Centre {
                     outline: id,
@@ -560,25 +579,28 @@ fn closed_outline(
     partners: &[Option<(usize, bool)>],
     first: usize,
     visited: &mut [bool],
-) -> Option<Vec<(EntityId, Point2)>> {
-    let mut corners = Vec::new();
+) -> Option<Vec<OutlineStep>> {
+    let mut steps = Vec::new();
     let (mut line, mut leaving_end) = (first, true);
     loop {
         if let Some(seen) = visited.get_mut(line) {
             *seen = true;
         }
         let current = lines.get(line)?;
-        corners.push(if leaving_end {
-            current.end
-        } else {
-            current.start
+        steps.push(OutlineStep {
+            corner: if leaving_end {
+                current.end
+            } else {
+                current.start
+            },
+            piece: line,
         });
-        if corners.len() > MAX_OUTLINE_LINES {
+        if steps.len() > MAX_OUTLINE_LINES {
             return None;
         }
         let (next, arriving_end) = (*partners.get(2 * line + usize::from(leaving_end))?)?;
         if next == first {
-            return (!arriving_end).then_some(corners);
+            return (!arriving_end).then_some(steps);
         }
         if visited.get(next).copied().unwrap_or(true) {
             return None;
@@ -587,21 +609,39 @@ fn closed_outline(
     }
 }
 
+struct OutlineStep {
+    corner: (EntityId, Point2),
+    piece: usize,
+}
+
 fn symmetric_centre(
-    corners: &[(EntityId, Point2)],
+    lines: &[OutlineLine],
+    steps: &[OutlineStep],
     tolerance: f64,
 ) -> Option<(Point2, (EntityId, EntityId))> {
-    let count = corners.len();
+    let count = steps.len();
     if count < 4 || !count.is_multiple_of(2) {
         return None;
     }
     let half = count / 2;
-    let (first, opposite) = (corners.first()?, corners.get(half)?);
+    let (first, opposite) = (steps.first()?.corner, steps.get(half)?.corner);
     let centre = first.1.midpoint(opposite.1);
-    let symmetric = corners
+    let mirrored = |a: Point2, b: Point2| a.midpoint(b).distance(centre) <= tolerance;
+    let symmetric = steps
         .iter()
-        .zip(corners.iter().skip(half))
-        .all(|(corner, across)| corner.1.midpoint(across.1).distance(centre) <= tolerance);
+        .zip(steps.iter().skip(half))
+        .all(|(step, across)| {
+            let pieces = lines.get(step.piece).zip(lines.get(across.piece));
+            let rounds_match =
+                pieces.is_some_and(|(piece, other)| match (piece.round, other.round) {
+                    (None, None) => true,
+                    (Some((centre_a, radius_a)), Some((centre_b, radius_b))) => {
+                        mirrored(centre_a, centre_b) && (radius_a - radius_b).abs() <= tolerance
+                    }
+                    (Some(_), None) | (None, Some(_)) => false,
+                });
+            mirrored(step.corner.1, across.corner.1) && rounds_match
+        });
     let spread = first.1.distance(opposite.1) > tolerance;
     (symmetric && spread).then_some((centre, (first.0, opposite.0)))
 }
@@ -670,7 +710,8 @@ fn closest_on(sketch: &Sketch, id: EntityId, entity: &Entity, at: Point2) -> Opt
             let position = closest_on_circle(arc.center, arc.radius, at)?;
             within_sweep(&arc, position).then_some(position)
         }
-        Entity::Point(_) | Entity::Spline { .. } => None,
+        Entity::Spline { .. } => sketch.closest_on_curve(id, at),
+        Entity::Point(_) => None,
     }
 }
 
@@ -829,7 +870,22 @@ pub fn crossing_along(
                     .filter(|position| within_sweep(&arc, *position))
                     .collect()
             }
-            Entity::Point(_) | Entity::Spline { .. } => Vec::new(),
+            Entity::Spline { .. } => {
+                let reach = sketch.spline(curve).map_or(0.0, |spline| {
+                    spline
+                        .control_points()
+                        .iter()
+                        .map(|point| point.distance(through))
+                        .fold(0.0, f64::max)
+                });
+                let along = along.try_normalize()?;
+                sketch.segment_crossings(
+                    curve,
+                    through - along * 2.0 * reach,
+                    through + along * 2.0 * reach,
+                )
+            }
+            Entity::Point(_) => Vec::new(),
         }
     };
     crossings.into_iter().min_by(|a, b| {
@@ -1439,5 +1495,101 @@ pub mod tests {
             from,
         );
         assert_eq!(far, None);
+    }
+
+    #[test]
+    fn a_slot_and_a_rounded_rectangle_have_centres_but_a_lopsided_one_does_not() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let joined = |sketch: &mut Sketch, pieces: &[(Point2, Point2, Option<Point2>)]| {
+            let ids: Vec<EntityId> = pieces
+                .iter()
+                .map(|(from, to, centre)| match centre {
+                    Some(centre) => sketch.add_arc(*centre, *from, *to),
+                    None => sketch.add_line(*from, *to),
+                })
+                .collect();
+            ids
+        };
+        let slot = joined(
+            &mut sketch,
+            &[
+                (Point2::new(0.0, -5.0), Point2::new(20.0, -5.0), None),
+                (
+                    Point2::new(20.0, -5.0),
+                    Point2::new(20.0, 5.0),
+                    Some(Point2::new(20.0, 0.0)),
+                ),
+                (Point2::new(20.0, 5.0), Point2::new(0.0, 5.0), None),
+                (
+                    Point2::new(0.0, 5.0),
+                    Point2::new(0.0, -5.0),
+                    Some(Point2::new(0.0, 0.0)),
+                ),
+            ],
+        );
+
+        let centre = resolve_at(&sketch, Point2::new(10.2, 0.3)).unwrap();
+        assert!(matches!(centre.target, Target::Centre { outline, .. } if outline == slot[0]));
+        assert!(centre.position.distance(Point2::new(10.0, 0.0)) < 1e-12);
+
+        let mut lopsided = Sketch::new(Plane::XY);
+        joined(
+            &mut lopsided,
+            &[
+                (Point2::new(0.0, -5.0), Point2::new(20.0, -5.0), None),
+                (
+                    Point2::new(20.0, -5.0),
+                    Point2::new(20.0, 5.0),
+                    Some(Point2::new(20.0, 0.0)),
+                ),
+                (Point2::new(20.0, 5.0), Point2::new(0.0, 5.0), None),
+                (Point2::new(0.0, 5.0), Point2::new(0.0, -5.0), None),
+            ],
+        );
+        assert!(!matches!(
+            resolve_at(&lopsided, Point2::new(10.2, 0.3)).map(|snapped| snapped.target),
+            Some(Target::Centre { .. })
+        ));
+    }
+
+    #[test]
+    fn splines_take_points_and_cross_other_curves() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let spline = sketch.add_spline(&[
+            Point2::new(0.0, -20.0),
+            Point2::new(10.0, 0.0),
+            Point2::new(20.0, 20.0),
+        ]);
+        let line = sketch.add_line(Point2::new(-10.0, 5.0), Point2::new(30.0, 5.0));
+        let on = sketch
+            .closest_on_curve(spline, Point2::new(5.0, -9.0))
+            .unwrap();
+
+        let snapped = resolve_at(&sketch, on + Vector2::new(0.2, -0.2)).unwrap();
+        assert_eq!(snapped.target, Target::Curve(spline));
+        let resnapped = sketch.closest_on_curve(spline, snapped.position).unwrap();
+        assert!(snapped.position.distance(resnapped) < 1e-9);
+        assert!(snapped.position.distance(on) < 0.5);
+
+        let crossing = sketch.spline_crossings(spline, line);
+        let [crossing] = crossing[..] else {
+            panic!("the line crosses the spline once");
+        };
+        let at = resolve_at(&sketch, crossing + Vector2::new(0.3, 0.2)).unwrap();
+        assert_eq!(
+            at.target.min_ordered(),
+            Target::Intersection(spline, line).min_ordered()
+        );
+        assert!(at.position.distance(crossing) < 1e-9);
+
+        let upward = crossing_along(
+            &sketch,
+            Target::Curve(spline),
+            Point2::new(crossing.x, -40.0),
+            Vector2::Y,
+            crossing,
+        )
+        .unwrap();
+        assert!(upward.distance(crossing) < 1e-6);
     }
 }

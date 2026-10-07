@@ -6,7 +6,7 @@ use crate::{
     constraint::Constraint,
     curve::{ArcGeometry, Faceting, direction_angle},
     entity::Entity,
-    id::{ConstraintId, EntityId},
+    id::{ConstraintId, EntityId, Reference},
     intersect::{self, Carrier, Shape},
     sketch::{Sketch, SketchError},
 };
@@ -257,6 +257,47 @@ enum Joint {
 impl Sketch {
     pub fn closest_on_curve(&self, curve: EntityId, to: Point2) -> Option<Point2> {
         Some(self.shape_of(curve)?.closest(to))
+    }
+
+    pub fn spline_crossings(&self, spline: EntityId, other: EntityId) -> Vec<Point2> {
+        let Some(shape @ Shape::Spline(_)) = self.shape_of(spline) else {
+            return Vec::new();
+        };
+        let tolerance = TOLERANCE * shape.extent().max(1.0);
+        let axis = |direction: Vector2| {
+            intersect::crossings(
+                Carrier::Line {
+                    through: Point2::ZERO,
+                    direction,
+                },
+                &shape,
+                tolerance,
+            )
+        };
+        match other.reference() {
+            Some(Reference::HorizontalAxis) => return axis(Vector2::X),
+            Some(Reference::VerticalAxis) => return axis(Vector2::Y),
+            Some(Reference::Origin) => return Vec::new(),
+            None => {}
+        }
+        match self.shape_of(other) {
+            Some(Shape::Segment { start, end }) => self.segment_crossings(spline, start, end),
+            Some(Shape::Circle { center, radius }) => {
+                intersect::crossings(Carrier::Circle { center, radius }, &shape, tolerance)
+            }
+            Some(Shape::Arc(arc)) => intersect::crossings(
+                Carrier::Circle {
+                    center: arc.center,
+                    radius: arc.radius,
+                },
+                &shape,
+                tolerance,
+            )
+            .into_iter()
+            .filter(|point| intersect::on_arc(&arc, *point, tolerance))
+            .collect(),
+            Some(Shape::Spline(_)) | None => Vec::new(),
+        }
     }
 
     pub fn segment_crossings(&self, curve: EntityId, from: Point2, to: Point2) -> Vec<Point2> {
