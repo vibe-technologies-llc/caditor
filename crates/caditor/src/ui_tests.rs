@@ -8590,6 +8590,20 @@ fn a_parameter_that_cannot_be_deleted_names_what_uses_it() {
     harness.hover_button("Delete width");
 
     assert!(harness.shows("width is used by height and Base sketch. Remove those uses first."));
+
+    let mut transaction = harness.document().transaction("Add spare");
+    transaction.add_parameter("spare", transaction.parse("3 mm").unwrap());
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.frame();
+    harness.hover_button("Delete spare");
+    let spare_free = !harness.shows_containing("spare is used by");
+    let height = harness.parameter("height");
+    harness.type_into(Focus::ParameterValue(height), "spare * 10");
+    harness.frame();
+    harness.hover_button("Delete spare");
+
+    assert!(spare_free);
+    assert!(harness.shows("spare is used by height. Remove those uses first."));
 }
 
 #[test]

@@ -421,9 +421,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   that to upload for a sketch of 24,000 curves in a release build. A batch per feature, with pick
   ids of its own, would limit both to what changed. Face styles are likewise rewritten whole on
   every highlight change.
-- [low · easy] The parameter table calls `Document::can_remove_parameter` for every row each
-  frame, which scans every feature through `parameter_users`, though `app-look.md` says that scan
-  runs only for the hovered row; check once per revision.
 - [low · medium] A pick or image readback in flight redraws full frames until polled complete;
   vertex records repeat per-layer data and both ends of shared segments; invisible vertex markers go
   through the colour pass; each mesh's placement uniform is written every frame; resizing recreates

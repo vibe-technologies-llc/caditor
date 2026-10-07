@@ -1,4 +1,7 @@
+use std::collections::BTreeSet;
+
 use caditor_document::{Document, Edit, Parameter, Transaction};
+use caditor_expression::ParameterId;
 use egui::{Grid, Id, Label, Rect, Ui, Vec2, vec2};
 
 use crate::{
@@ -190,7 +193,8 @@ fn row(
         name.response.rect.expand(SPACING.y / 2.0).y_range(),
     );
     let hovered = ui.rect_contains_pointer(band);
-    delete_button(ui, document, actions, parameter, hovered);
+    let used = state.parameter_uses.of(model).contains(&id);
+    delete_button(ui, document, actions, parameter, hovered, used);
     name.error.or(expression.error)
 }
 
@@ -253,15 +257,32 @@ fn delete_transaction(parameter: &Parameter) -> Transaction {
     )
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ParameterUses {
+    revision: Option<u64>,
+    used: BTreeSet<ParameterId>,
+}
+
+impl ParameterUses {
+    fn of(&mut self, model: &Model) -> &BTreeSet<ParameterId> {
+        let revision = model.revision();
+        if self.revision != Some(revision) {
+            self.used = model.document().used_parameters();
+            self.revision = Some(revision);
+        }
+        &self.used
+    }
+}
+
 fn delete_button(
     ui: &mut Ui,
     document: &Document,
     actions: &mut Vec<Action>,
     parameter: &Parameter,
     row_hovered: bool,
+    used: bool,
 ) {
     let delete = delete_transaction(parameter);
-    let check = document.can_remove_parameter(parameter.id());
     let hover = format!("Delete {}", parameter.name);
     let focus_key = Id::new(("parameter-delete-focused", parameter.id()));
     let focused = ui.data(|data| data.get_temp::<bool>(focus_key).unwrap_or(false));
@@ -269,19 +290,18 @@ fn delete_button(
         if !row_hovered && !focused {
             ui.set_opacity(0.0);
         }
-        ui.add_enabled_ui(check.is_ok(), |ui| {
-            widgets::icon_button(ui, icons::DELETE, &hover)
-        })
-        .inner
+        ui.add_enabled_ui(!used, |ui| widgets::icon_button(ui, icons::DELETE, &hover))
+            .inner
     });
     if response.has_focus() != focused {
         ui.data_mut(|data| data.insert_temp(focus_key, response.has_focus()));
         ui.ctx().request_repaint();
     }
-    let response = match check {
-        Ok(()) => response,
-        Err(reason) => response.on_disabled_hover_text(reason.to_string()),
-    };
+    let response = response.on_disabled_hover_ui(|ui| {
+        if let Err(reason) = document.can_remove_parameter(parameter.id()) {
+            ui.label(reason.to_string());
+        }
+    });
     if response.clicked() {
         actions.push(Action::Apply(delete));
     }

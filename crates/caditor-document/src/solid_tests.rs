@@ -1108,4 +1108,5 @@ fn a_start_offset_follows_the_parameter_it_uses() {
         (7.0, 11.0)
     );
     assert_eq!(document.parameter_users(lift), vec!["Base".to_owned()]);
+    assert!(document.used_parameters().contains(&lift));
 }

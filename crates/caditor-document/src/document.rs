@@ -900,6 +900,18 @@ impl Document {
         expression.to_text(&|id| self.parameter_name(id))
     }
 
+    pub fn used_parameters(&self) -> BTreeSet<ParameterId> {
+        let by_parameters = self
+            .parameters
+            .iter()
+            .flat_map(|parameter| parameter.expression.parameters());
+        let by_features = self
+            .features
+            .iter()
+            .flat_map(|feature| feature.kind.parameters());
+        by_parameters.chain(by_features).collect()
+    }
+
     pub fn parameter_users(&self, parameter: ParameterId) -> Vec<String> {
         let parameters = self
             .parameters
