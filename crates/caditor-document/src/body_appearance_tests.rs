@@ -14,6 +14,7 @@ fn steel(pair: &Pair, density: &str) -> BodyAppearance {
         density: Some(pair.document.parse(density).unwrap()),
         name: None,
         opacity: None,
+        faces: Vec::new(),
     }
 }
 
@@ -245,4 +246,65 @@ fn a_body_may_be_see_through_down_to_a_tenth_and_full_opacity_is_stored_as_none(
     assert_eq!(kept, Some(40));
     assert_eq!(solid, None);
     assert_eq!(refused, Err(EditError::OpacityTooLow(5)));
+}
+
+#[test]
+fn a_face_colour_follows_the_face_into_every_fragment_a_later_cut_leaves() {
+    use caditor_geometry::Vector3;
+    use caditor_kernel::{FaceReference, Surface};
+
+    use crate::combine_tests::{evaluate, rectangle};
+
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+    let before = evaluate(&pair.document, &mut engine);
+    let solid = before.body(pair.plate).unwrap();
+    let top = solid
+        .faces()
+        .find(|(_, face)| match face.surface() {
+            Surface::Plane(plane) => {
+                (plane.frame().normal() * face.sense().sign()).distance(Vector3::Z) < 1e-9
+            }
+            _ => false,
+        })
+        .map(|(id, _)| id)
+        .unwrap();
+    let red = Rgb::new(200, 64, 52);
+    let appearance = BodyAppearance {
+        faces: vec![FaceColour {
+            face: FaceReference::capture(solid, top).unwrap(),
+            colour: red,
+        }],
+        ..BodyAppearance::default()
+    };
+    pair.document.apply(set(&pair, appearance)).unwrap();
+    let mut transaction = pair.document.transaction("Slot");
+    let slot = transaction.add_feature(
+        "Slot sketch",
+        FeatureKind::from(rectangle((8.0, -1.0), (12.0, 11.0))),
+    );
+    transaction.add_feature(
+        "Slot",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: slot,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("10 mm").unwrap(), false),
+            operation: BodyOperation::Remove(pair.plate),
+            start: None,
+            other_bodies: Vec::new(),
+        })),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+
+    let after = evaluate(&pair.document, &mut engine);
+    let coloured = pair
+        .document
+        .feature(pair.plate)
+        .unwrap()
+        .appearance
+        .face_colours(after.body(pair.plate).unwrap());
+
+    assert_eq!(after.failed_count(), 0);
+    assert_eq!(coloured.len(), 2);
+    assert!(coloured.values().all(|colour| *colour == red));
 }

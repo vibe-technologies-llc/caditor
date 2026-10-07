@@ -2164,6 +2164,7 @@ fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
         density: Some(document.parse("depth / 1 mm * 2.5").unwrap()),
         name: Some("Base plate".to_owned()),
         opacity: Some(40),
+        faces: Vec::new(),
     }
 }
 
@@ -2197,6 +2198,58 @@ fn a_body_appearance_survives_saving_and_the_journal() {
     assert_eq!(loaded.document, document);
     assert_eq!(format::restore_transaction(journaled), Some(paint));
     assert_eq!(format::restore_transaction(undone), Some(unpainted));
+}
+
+#[test]
+fn face_colours_are_saved_and_a_damaged_one_is_left_out_in_words() {
+    use caditor_document::{FaceColour, Rgb};
+    use caditor_kernel::{FaceName, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let face = |digest: u128| FaceReference::new(FaceName::from_digest(digest), None, []);
+    let appearance = caditor_document::BodyAppearance {
+        faces: vec![
+            FaceColour {
+                face: face(0xface),
+                colour: Rgb::new(200, 64, 52),
+            },
+            FaceColour {
+                face: face(0xbeef),
+                colour: Rgb::new(38, 150, 150),
+            },
+        ],
+        ..Default::default()
+    };
+    document
+        .apply(Transaction::single(
+            "Paint faces",
+            Edit::SetBodyAppearance {
+                id: base,
+                appearance,
+            },
+        ))
+        .unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let damaged = decode_text(&text.replace("#269696", "teal"));
+
+    assert!(text.contains("\"colour\":\"#c84034\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(
+        damaged.issues,
+        ["The colour of a face of “Base” could not be read, so it shows in the body's colour."]
+    );
+    assert_eq!(
+        damaged
+            .document
+            .feature(base)
+            .unwrap()
+            .appearance
+            .faces
+            .len(),
+        1
+    );
 }
 
 #[test]

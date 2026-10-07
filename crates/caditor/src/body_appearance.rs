@@ -1,20 +1,26 @@
 use caditor_document::{
-    BodyAppearance, Document, Edit, Feature, FeatureId, MAX_BODY_NAME_CHARS,
+    BodyAppearance, Document, Edit, FaceColour, Feature, FeatureId, MAX_BODY_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, Rgb, Transaction, density_of, material_name,
 };
 use caditor_expression::{Dimension, Expression};
-use egui::{Color32, Id, Ui};
+use caditor_kernel::FaceReference;
+use egui::{Color32, Id, Ui, Widget};
 
 use crate::{
     appearance::SPACE_S,
+    bodies,
     feature_fields::{self, Choice},
     field::{self, Expected},
+    icons,
     model::{Action, Model},
+    selection::{Pickable, Selection},
     widgets::{self, FIELD_WIDTH},
 };
 
 pub const DEFAULT_COLOUR: Rgb = Rgb::new(150, 162, 180);
 pub const DEFAULT_COLOUR_NAME: &str = "Default colour";
+pub const BODY_COLOUR_NAME: &str = "The body's colour";
+pub const CLEAR_FACE_COLOURS: &str = "Clear face colours";
 pub const DENSITY_UNIT: &str = "g/cm³";
 pub const NO_MATERIAL: &str = "None";
 pub const COLOUR_CAPTION: &str = "Colour";
@@ -199,6 +205,48 @@ pub fn with_colour(appearance: &BodyAppearance, colour: Option<Rgb>) -> BodyAppe
     }
 }
 
+pub fn with_face_colours(
+    appearance: &BodyAppearance,
+    faces: &[FaceReference],
+    colour: Option<Rgb>,
+) -> BodyAppearance {
+    let mut faces_coloured: Vec<FaceColour> = appearance
+        .faces
+        .iter()
+        .filter(|coloured| faces.iter().all(|face| face.name() != coloured.face.name()))
+        .cloned()
+        .collect();
+    if let Some(colour) = colour {
+        faces_coloured.extend(faces.iter().map(|face| FaceColour {
+            face: face.clone(),
+            colour,
+        }));
+    }
+    BodyAppearance {
+        faces: faces_coloured,
+        ..appearance.clone()
+    }
+}
+
+pub fn face_swatch_name(colour: &str) -> String {
+    format!("{colour} for the selected faces")
+}
+
+pub fn selected_faces(model: &Model, selection: &Selection, body: FeatureId) -> Vec<FaceReference> {
+    let Some(shown) = bodies::shown(model.evaluation(), body) else {
+        return Vec::new();
+    };
+    selection
+        .iter()
+        .filter_map(|pickable| match pickable {
+            Pickable::Face { body: owner, face } if owner == body => {
+                FaceReference::capture(&shown.solid, bodies::find_face(shown, face)?)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 pub fn with_material(appearance: &BodyAppearance, material: Option<&Material>) -> BodyAppearance {
     match material {
         None => BodyAppearance {
@@ -212,6 +260,7 @@ pub fn with_material(appearance: &BodyAppearance, material: Option<&Material>) -
             density: Some(Expression::number(material.density)),
             name: appearance.name.clone(),
             opacity: appearance.opacity,
+            faces: appearance.faces.clone(),
         },
     }
 }
@@ -280,6 +329,70 @@ impl Panel<'_> {
             self.apply(with_colour(self.appearance, colour), "colour");
         }
         focused
+    }
+
+    fn face_swatches(&mut self, ui: &mut Ui, faces: &[FaceReference]) {
+        if !faces.is_empty() {
+            let caption = match faces.len() {
+                1 => "Colour the selected face".to_owned(),
+                count => format!("Colour the {count} selected faces"),
+            };
+            ui.label(widgets::muted(caption, ui));
+            let current: Vec<Option<Rgb>> = faces
+                .iter()
+                .map(|face| {
+                    self.appearance
+                        .faces
+                        .iter()
+                        .rev()
+                        .find(|coloured| coloured.face.name() == face.name())
+                        .map(|coloured| coloured.colour)
+                })
+                .collect();
+            let shared = current
+                .first()
+                .copied()
+                .filter(|first| current.iter().all(|colour| colour == first));
+            let chosen = ui
+                .horizontal_wrapped(|ui| {
+                    let mut chosen = None;
+                    let default = widgets::swatch(
+                        ui,
+                        color32(self.appearance.colour.unwrap_or(DEFAULT_COLOUR)),
+                        &face_swatch_name(BODY_COLOUR_NAME),
+                        shared == Some(None),
+                    );
+                    if default.clicked() {
+                        chosen = Some(None);
+                    }
+                    for swatch in &SWATCHES {
+                        let picked = shared == Some(Some(swatch.colour));
+                        let name = face_swatch_name(swatch.name);
+                        if widgets::swatch(ui, color32(swatch.colour), &name, picked).clicked() {
+                            chosen = Some(Some(swatch.colour));
+                        }
+                    }
+                    chosen
+                })
+                .inner;
+            if let Some(colour) = chosen {
+                self.apply(
+                    with_face_colours(self.appearance, faces, colour),
+                    "face colours",
+                );
+            }
+        }
+        if !self.appearance.faces.is_empty()
+            && widgets::small_button(ui, icons::REMOVE, CLEAR_FACE_COLOURS)
+                .ui(ui)
+                .clicked()
+        {
+            let cleared = BodyAppearance {
+                faces: Vec::new(),
+                ..self.appearance.clone()
+            };
+            self.apply(cleared, "face colours");
+        }
     }
 
     fn name_row(&mut self, ui: &mut Ui, feature: &Feature, focus: bool) -> bool {
@@ -509,10 +622,10 @@ impl Panel<'_> {
 pub fn show(
     ui: &mut Ui,
     model: &Model,
+    selection: &Selection,
     actions: &mut Vec<Action>,
     feature: &Feature,
-    focus: bool,
-    naming: bool,
+    (focus, naming): (bool, bool),
 ) -> bool {
     let mut panel = Panel {
         model,
@@ -522,6 +635,11 @@ pub fn show(
     };
     let swatch_focused = panel.swatches(ui, focus && !naming);
     ui.add_space(SPACE_S);
+    let faces = selected_faces(model, selection, feature.id());
+    if !faces.is_empty() || !feature.appearance.faces.is_empty() {
+        panel.face_swatches(ui, &faces);
+        ui.add_space(SPACE_S);
+    }
     let name_focused = widgets::properties(ui, ("body-appearance", feature.id()), |ui| {
         let landed = panel.name_row(ui, feature, focus && naming);
         panel.colour_row(ui);

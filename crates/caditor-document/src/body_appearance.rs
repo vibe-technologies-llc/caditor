@@ -1,6 +1,7 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, format_number};
+use caditor_kernel::{FaceId, FaceName, FaceReference, Solid};
 
 use crate::values::ParameterValues;
 
@@ -53,6 +54,13 @@ pub struct BodyAppearance {
     pub density: Option<Expression>,
     pub name: Option<String>,
     pub opacity: Option<u8>,
+    pub faces: Vec<FaceColour>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FaceColour {
+    pub face: FaceReference,
+    pub colour: Rgb,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -87,6 +95,37 @@ impl BodyAppearance {
         self.material.as_ref().map_or(0, String::len)
             + self.density.as_ref().map_or(0, Expression::heap_size)
             + self.name.as_ref().map_or(0, String::len)
+            + size_of_val(self.faces.as_slice())
+            + self
+                .faces
+                .iter()
+                .map(|face| face.face.heap_size())
+                .sum::<usize>()
+    }
+
+    pub fn face_colours(&self, solid: &Solid) -> BTreeMap<FaceId, Rgb> {
+        let mut named: BTreeMap<FaceName, Vec<FaceId>> = BTreeMap::new();
+        if !self.faces.is_empty() {
+            for (id, face) in solid.faces() {
+                named.entry(face.name()).or_default().push(id);
+            }
+        }
+        let mut colours = BTreeMap::new();
+        for coloured in &self.faces {
+            match named.get(&coloured.face.name()) {
+                Some(faces) => {
+                    for face in faces {
+                        colours.insert(*face, coloured.colour);
+                    }
+                }
+                None => {
+                    if let Ok(face) = coloured.face.resolve(solid) {
+                        colours.insert(face, coloured.colour);
+                    }
+                }
+            }
+        }
+        colours
     }
 
     pub fn density_value(&self, values: &ParameterValues) -> Option<Result<f64, DensityError>> {

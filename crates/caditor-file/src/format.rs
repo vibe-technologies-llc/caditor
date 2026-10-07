@@ -3,8 +3,8 @@ use std::{collections::BTreeMap, sync::Arc};
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, CircularPattern, Combine,
     CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, Edit, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth,
-    HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle, Import, LinearDirection,
+    ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour, Feature, FeatureId, FeatureKind, Hole,
+    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle, Import, LinearDirection,
     LinearSpacing, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
     MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty, Move, OPAQUE_PERCENT,
     ORIGINAL_INSTANCE, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
@@ -108,6 +108,15 @@ pub(crate) struct AppearanceRecord {
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opacity: Option<u8>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub faces: Vec<Lenient<FaceColourRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FaceColourRecord {
+    #[serde(flatten)]
+    pub face: FaceRecord,
+    pub colour: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1051,6 +1060,16 @@ fn appearance_record(appearance: &BodyAppearance) -> AppearanceRecord {
         density: appearance.density.as_ref().map(Expression::to_stored_text),
         name: appearance.name.clone(),
         opacity: appearance.opacity,
+        faces: appearance
+            .faces
+            .iter()
+            .map(|coloured| {
+                Lenient::Read(FaceColourRecord {
+                    face: face_record(&coloured.face),
+                    colour: coloured.colour.hex(),
+                })
+            })
+            .collect(),
     }
 }
 
@@ -1114,12 +1133,39 @@ fn restore_appearance(
         }
         usable.then_some(opacity)
     });
+    let faces: Vec<FaceColour> = record
+        .faces
+        .iter()
+        .filter_map(|coloured| match coloured {
+            Lenient::Read(coloured) => Some(FaceColour {
+                face: restore_face(
+                    &coloured.face.face,
+                    coloured.face.origin,
+                    coloured.face.copy,
+                    &coloured.face.neighbours,
+                )?,
+                colour: Rgb::from_hex(&coloured.colour)?,
+            }),
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    match record.faces.len() - faces.len() {
+        0 => {}
+        1 => issues.push(format!(
+            "The colour of a face of “{name}” could not be read, so it shows in the body's colour."
+        )),
+        lost => issues.push(format!(
+            "The colour of {lost} faces of “{name}” could not be read, so they show in the \
+             body's colour."
+        )),
+    }
     BodyAppearance {
         colour,
         material,
         density,
         name: body_name,
         opacity,
+        faces,
     }
 }
 

@@ -304,7 +304,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Viewer
 
-- [medium · medium] A body's colour is one for all its faces: no face can be coloured apart.
 - [medium · medium] No lasso selection, a box in the 3D view takes edges and vertices hidden behind
   the body (faces only count where they face the camera) and no command selects a hole's wall.
 - [medium · medium] Edge lines can be eaten by faces at grazing angles, since depth bias is a

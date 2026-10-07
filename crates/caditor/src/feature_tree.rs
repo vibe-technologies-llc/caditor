@@ -118,7 +118,7 @@ fn rows(
 ) {
     let document = model.document();
     principal_tree::show(ui, model, selection, state, actions);
-    bodies_tree::show(ui, model, state, actions);
+    bodies_tree::show(ui, model, selection, state, actions);
     let count = document.features().len();
     if count == 0 {
         tree_row::content(ui, |ui| empty_tree(ui, actions));

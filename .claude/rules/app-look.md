@@ -236,7 +236,10 @@ paths:
   colour, their colour; None clears both), Name and Density (g/cm³, an expression), under a Body
   name field (empty: named after its feature) and above them Opacity (`OPACITIES`: Solid, 75%,
   50%, 25%, a combo box; a see-through body is drawn in the translucent pass like X-ray,
-  its faces and edges picked as usual). Each change is
+  its faces and edges picked as usual). With faces of the body selected in the view, a second row
+  of swatches (named "<colour> for the selected faces", the first the body's own colour, which
+  removes theirs) colours those faces (`with_face_colours`), and Clear face colours drops them
+  all; the scene draws a face's colour unless the body is failed or outdated. Each change is
   one undoable `SetBodyAppearance`; a refused value is an `error_row`.
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar" for
   screen readers), at the end of the tree when nothing is rolled back. It and every row name drag

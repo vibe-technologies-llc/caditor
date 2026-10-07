@@ -20,7 +20,7 @@ use caditor_sketch::{
 };
 
 use crate::{
-    bodies::{BodyBefore, BodyMesh, BodyMeshes, OpenChoice},
+    bodies::{self, BodyBefore, BodyFace, BodyMesh, BodyMeshes, FaceKey, OpenChoice},
     body_appearance, canvas, datum_tools,
     display::DisplayedSketches,
     display_style::DisplayStyle,
@@ -514,10 +514,16 @@ pub fn build(
             true => Some(opacity.map_or(PREVIEW_ALPHA, |opacity| opacity.min(PREVIEW_ALPHA))),
             false => opacity,
         };
+        let faces = match color {
+            Some(color) if color == painted(document, body) => {
+                face_colours(document, evaluation, body)
+            }
+            Some(_) | None => BTreeMap::new(),
+        };
         builder.body(
             body,
             mesh,
-            color,
+            (color, &faces),
             opacity,
             editing.is_none() || context.projecting,
         );
@@ -837,10 +843,12 @@ impl Builder<'_> {
         &mut self,
         body: FeatureId,
         mesh: &BodyMesh,
-        color: Option<Color>,
+        (color, face_colours): (Option<Color>, &BTreeMap<FaceKey, Color>),
         opacity: Option<f32>,
         pickable: bool,
     ) {
+        let own =
+            |face: &BodyFace, base: Color| face_colours.get(&face.key).copied().unwrap_or(base);
         let style = match color {
             Some(_) => self.style,
             None => DisplayStyle::default(),
@@ -861,6 +869,7 @@ impl Builder<'_> {
                         body,
                         face: face.key,
                     };
+                    let base = own(face, base);
                     match picked {
                         true => FaceStyle {
                             color: self.highlight.color(pickable, base).with_alpha(alpha),
@@ -890,7 +899,7 @@ impl Builder<'_> {
                 .iter()
                 .map(|face| match color {
                     Some(base) => {
-                        let base = face_base(base);
+                        let base = face_base(own(face, base));
                         let pickable = Pickable::Face {
                             body,
                             face: face.key,
@@ -1504,6 +1513,31 @@ pub fn region_references(
         .iter()
         .filter(|region| keys.contains(&region.region.key()))
         .map(SketchRegion::reference)
+        .collect()
+}
+
+fn face_colours(
+    document: &Document,
+    evaluation: &Evaluation,
+    body: FeatureId,
+) -> BTreeMap<FaceKey, Color> {
+    let Some(appearance) = document
+        .feature(body)
+        .map(|feature| &feature.appearance)
+        .filter(|appearance| !appearance.faces.is_empty())
+    else {
+        return BTreeMap::new();
+    };
+    let Some(shown) = bodies::shown(evaluation, body) else {
+        return BTreeMap::new();
+    };
+    let coloured = appearance.face_colours(&shown.solid);
+    bodies::face_keys(&shown.solid)
+        .into_iter()
+        .filter_map(|(id, key)| {
+            let colour = coloured.get(&id)?;
+            Some((key, Color::from_rgb8(colour.red, colour.green, colour.blue)))
+        })
         .collect()
 }
 

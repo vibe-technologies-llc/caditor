@@ -11,7 +11,7 @@ use crate::{
     move_tools,
     panels::{Painting, PanelState},
     removal,
-    selection::Pickable,
+    selection::{Pickable, Selection},
     split_tools,
     tree_row::{self, CHILD_INDENT, Look},
     visibility, widgets,
@@ -25,7 +25,13 @@ fn group_title(count: usize) -> String {
     format!("{GROUP_TITLE} ({count})")
 }
 
-pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
+pub fn show(
+    ui: &mut Ui,
+    model: &Model,
+    selection: &Selection,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+) {
     let document = model.document();
     let bodies: Vec<FeatureId> = model
         .evaluation()
@@ -90,7 +96,7 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
     }
     collapsing.show_body_unindented(ui, |ui| {
         for body in bodies {
-            item(ui, model, state, actions, body);
+            item(ui, model, selection, state, actions, body);
         }
     });
     collapsing.store(ui.ctx());
@@ -99,6 +105,7 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
 fn item(
     ui: &mut Ui,
     model: &Model,
+    selection: &Selection,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     body: FeatureId,
@@ -176,10 +183,10 @@ fn item(
             body_appearance::show(
                 ui,
                 model,
+                selection,
                 actions,
                 feature,
-                painting.focus_pending,
-                painting.naming,
+                (painting.focus_pending, painting.naming),
             )
         })
     });

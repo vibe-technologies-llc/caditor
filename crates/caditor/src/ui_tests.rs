@@ -12238,6 +12238,50 @@ fn a_body_drawn_half_see_through_goes_to_the_translucent_pass() {
 }
 
 #[test]
+fn selected_faces_take_a_colour_of_their_own_from_the_body_card() {
+    use crate::body_appearance::{CLEAR_FACE_COLOURS, face_swatch_name};
+
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let red = caditor_render::Color::from_rgb8(200, 64, 52);
+
+    harness.select([top]);
+    run_from_palette(&mut harness, "body colour and material");
+    harness.settle();
+    assert!(harness.shows("Colour the selected face"));
+    harness
+        .events
+        .push(Event::PointerMoved(Pos2::new(150.0, 400.0)));
+    scroll_in_view(&mut harness, egui::vec2(0.0, 400.0));
+    harness.click_button(&face_swatch_name("Red"));
+    harness.settle();
+
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Change the face colours of Extrude 1")
+    );
+    let appearance = &harness.document().feature(plate).unwrap().appearance;
+    assert_eq!(appearance.faces.len(), 1);
+    assert_eq!(appearance.colour, None);
+    harness.select([]);
+    harness.frame();
+    assert_eq!(painted_faces(&mut harness, red), 1);
+    assert!(!harness.shows("Colour the selected face"));
+    harness.click(CLEAR_FACE_COLOURS);
+    harness.settle();
+    assert!(
+        harness
+            .document()
+            .feature(plate)
+            .unwrap()
+            .appearance
+            .faces
+            .is_empty()
+    );
+    assert_eq!(painted_faces(&mut harness, red), 0);
+}
+
+#[test]
 fn a_body_takes_a_colour_and_a_material_whose_density_gives_its_mass() {
     use crate::body_appearance::{DENSITY_CAPTION, NO_MATERIAL};
 
