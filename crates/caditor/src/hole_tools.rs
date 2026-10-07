@@ -1,12 +1,18 @@
 use caditor_document::{
-    Document, Edit, FeatureId, FeatureKind, Hole, HoleDepth, HoleStyle, Transaction, hole_centres,
+    Document, Edit, FeatureId, FeatureKind, Hole, HoleDepth, HoleShape, HoleStandard, HoleStyle,
+    SketchFeature, Transaction, hole_centres,
 };
-use caditor_expression::Expression;
+use caditor_expression::{Expression, Unit};
+use caditor_geometry::{Plane, Point2};
+use caditor_sketch::Sketch;
 
 use crate::{
+    bodies,
+    body_selection::face_boundary,
     editing::{self, EditingCommand, SketchEditing},
-    model::{Action, Model},
+    model::{Action, Model, Notice},
     selection::Selection,
+    sketch_placement::{self, FaceChoice},
     solid_tools,
     units::LengthUnit,
     visibility,
@@ -21,7 +27,10 @@ pub const DEFAULT_COUNTERBORE_DIAMETER: f64 = 10.0;
 pub const DEFAULT_COUNTERBORE_DEPTH: f64 = 3.0;
 pub const DEFAULT_COUNTERSINK_DIAMETER: f64 = 10.0;
 pub const DEFAULT_COUNTERSINK_ANGLE: f64 = 90.0;
-const NO_SKETCH: &str = "Draw a sketch on a face of a body and place points where the holes go";
+pub const DEFAULT_SLOT_LENGTH: f64 = 10.0;
+const NO_SKETCH: &str =
+    "Select a flat face of a body, or draw a sketch on one and place points where the holes go";
+const FACE_SAMPLES: u32 = 8;
 const NO_POINTS: &str = "Place points or circles in the sketch where the holes go";
 const NO_BODY: &str = "Make a body to drill into first";
 
@@ -29,6 +38,12 @@ const NO_BODY: &str = "Make a body to drill into first";
 pub struct HoleSource {
     pub sketch: FeatureId,
     pub body: FeatureId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoleStart {
+    Sketch(HoleSource),
+    Face(FaceChoice),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +80,26 @@ impl Kind {
         }
     }
 
+    pub fn style_for(self, standard: Option<HoleStandard>, unit: LengthUnit) -> HoleStyle {
+        let Some(standard) = standard else {
+            return self.default_style(unit);
+        };
+        match self {
+            Self::Plain => HoleStyle::Plain,
+            Self::Counterbore => {
+                let (diameter, depth) = standard.counterbore();
+                HoleStyle::Counterbore {
+                    diameter: millimetres(diameter),
+                    depth: millimetres(depth),
+                }
+            }
+            Self::Countersink => HoleStyle::Countersink {
+                diameter: millimetres(standard.countersink()),
+                angle: solid_tools::degrees(DEFAULT_COUNTERSINK_ANGLE),
+            },
+        }
+    }
+
     pub fn default_style(self, unit: LengthUnit) -> HoleStyle {
         match self {
             Self::Plain => HoleStyle::Plain,
@@ -82,6 +117,40 @@ impl Kind {
 
 pub fn default_depth(unit: LengthUnit) -> Expression {
     unit.default_length(DEFAULT_DEPTH)
+}
+
+pub fn millimetres(value: f64) -> Expression {
+    Expression::measure(value, Unit::Millimetre)
+}
+
+pub fn with_standard(hole: &Hole, standard: HoleStandard, unit: LengthUnit) -> Hole {
+    Hole {
+        diameter: millimetres(standard.diameter()),
+        style: Kind::of(&hole.style).style_for(Some(standard), unit),
+        standard: Some(standard),
+        ..hole.clone()
+    }
+}
+
+pub fn default_slot(unit: LengthUnit) -> HoleShape {
+    HoleShape::Slot {
+        length: unit.default_length(DEFAULT_SLOT_LENGTH),
+        angle: solid_tools::degrees(0.0),
+    }
+}
+
+pub fn start(
+    model: &Model,
+    selection: &Selection,
+    editing: &SketchEditing,
+) -> Result<HoleStart, &'static str> {
+    let face = sketch_placement::selected_face(selection)
+        .filter(|_| editing.feature().is_none() && editing.solid().is_none());
+    match face {
+        Some(face) if sketch_placement::is_flat(model, face) => Ok(HoleStart::Face(face)),
+        Some(_) => Err(sketch_placement::NOT_FLAT),
+        None => source(model, selection, editing).map(HoleStart::Sketch),
+    }
 }
 
 pub fn source(
@@ -107,6 +176,73 @@ pub fn source(
     Ok(HoleSource { sketch, body })
 }
 
+fn new_hole(sketch: FeatureId, body: FeatureId, unit: LengthUnit) -> FeatureKind {
+    FeatureKind::Hole(Hole {
+        sketch,
+        body,
+        diameter: unit.default_length(DEFAULT_DIAMETER),
+        depth: HoleDepth::Blind(default_depth(unit)),
+        style: HoleStyle::Plain,
+        reversed: false,
+        shape: HoleShape::Round,
+        standard: None,
+    })
+}
+
+pub fn create_on_face(
+    model: &Model,
+    face: FaceChoice,
+) -> Result<(Transaction, FeatureId, String), &'static str> {
+    let document = model.document();
+    let (attachment, plane) = sketch_placement::attachment_at(model, face, document.bar_index())?;
+    let middle = face_middle(model, face, &plane).ok_or(sketch_placement::NOT_FLAT)?;
+    let sketch_name = editing::next_sketch_name(document);
+    let name = editing::next_feature_name(document, TITLE);
+    let mut sketch = Sketch::new(plane);
+    sketch.add_point(middle);
+    let mut transaction = document.transaction(format!("Create {name}"));
+    let placed = transaction.add_feature(
+        sketch_name.clone(),
+        FeatureKind::Sketch(SketchFeature::on_face(sketch, attachment)),
+    );
+    transaction.edit(Edit::SetFeatureHidden {
+        id: placed,
+        hidden: true,
+    });
+    let feature = transaction.add_feature(
+        name.clone(),
+        new_hole(placed, face.body, model.length_unit()),
+    );
+    let told = format!(
+        "{name} is drilled at the middle of the face. Edit {sketch_name} to move or dimension \
+         its point, or add more points for more holes."
+    );
+    Ok((transaction.finish(), feature, told))
+}
+
+fn face_middle(model: &Model, face: FaceChoice, plane: &Plane) -> Option<Point2> {
+    let body = bodies::shown(model.evaluation(), face.body)?;
+    let id = bodies::find_face(body, face.face)?;
+    let samples: Vec<Point2> = face_boundary(&body.solid, id)
+        .into_iter()
+        .filter_map(|edge| body.solid.edge(edge))
+        .flat_map(|edge| {
+            let interval = edge.interval();
+            (0..=FACE_SAMPLES).map(move |step| {
+                let t = f64::from(step) / f64::from(FACE_SAMPLES);
+                edge.curve()
+                    .point(interval.start() + (interval.end() - interval.start()) * t)
+            })
+        })
+        .map(|point| plane.to_local(point))
+        .collect();
+    let first = *samples.first()?;
+    let (low, high) = samples.iter().fold((first, first), |(low, high), point| {
+        (low.min(*point), high.max(*point))
+    });
+    Some((low + high) / 2.0)
+}
+
 pub fn create(
     document: &Document,
     source: HoleSource,
@@ -114,17 +250,7 @@ pub fn create(
 ) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
-    let feature = transaction.add_feature(
-        name,
-        FeatureKind::Hole(Hole {
-            sketch: source.sketch,
-            body: source.body,
-            diameter: unit.default_length(DEFAULT_DIAMETER),
-            depth: HoleDepth::Blind(default_depth(unit)),
-            style: HoleStyle::Plain,
-            reversed: false,
-        }),
-    );
+    let feature = transaction.add_feature(name, new_hole(source.sketch, source.body, unit));
     if visibility::is_shown(document, source.sketch) {
         transaction.edit(Edit::SetFeatureHidden {
             id: source.sketch,
@@ -134,12 +260,24 @@ pub fn create(
     (transaction.finish(), feature)
 }
 
-pub fn create_actions(model: &Model, source: HoleSource) -> Vec<Action> {
-    let (transaction, feature) = create(model.document(), source, model.length_unit());
-    vec![
-        Action::Apply(transaction),
-        Action::Editing(EditingCommand::OpenSolid(feature)),
-    ]
+pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
+    match start {
+        HoleStart::Sketch(source) => {
+            let (transaction, feature) = create(model.document(), source, model.length_unit());
+            vec![
+                Action::Apply(transaction),
+                Action::Editing(EditingCommand::OpenSolid(feature)),
+            ]
+        }
+        HoleStart::Face(face) => match create_on_face(model, face) {
+            Ok((transaction, feature, told)) => vec![
+                Action::Apply(transaction),
+                Action::Editing(EditingCommand::OpenSolid(feature)),
+                Action::Inform(Notice::info(told)),
+            ],
+            Err(reason) => vec![Action::Inform(Notice::info(format!("{TITLE}: {reason}.")))],
+        },
+    }
 }
 
 pub fn edit(document: &Document, feature: FeatureId, hole: Hole) -> Option<Transaction> {

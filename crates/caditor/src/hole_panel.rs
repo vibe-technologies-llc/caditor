@@ -1,4 +1,7 @@
-use caditor_document::{Feature, FeatureId, Hole, HoleDepth, HoleStyle, Transaction};
+use caditor_document::{
+    Feature, FeatureId, Hole, HoleDepth, HoleFit, HoleShape, HoleStandard, HoleStyle, MetricSize,
+    Transaction,
+};
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
@@ -12,6 +15,7 @@ use crate::{
 
 pub const DESCRIPTION: &str = "Drills a hole at every point of the sketch";
 const NOT_A_BODY: &str = "A body that is no longer there";
+pub const CUSTOM_SIZE: &str = "Custom";
 
 #[derive(Clone, Copy)]
 struct Field {
@@ -40,9 +44,144 @@ impl Panel<'_> {
         field::checked(document, transaction)
     }
 
+    fn size_row(&mut self, ui: &mut Ui) {
+        let unit = self.model.length_unit();
+        let current = self.hole.standard;
+        widgets::caption(ui, "Size");
+        let selected = current.map_or(CUSTOM_SIZE, |standard| standard.size.name());
+        let name = self.feature.name.clone();
+        let chosen = feature_fields::combo(ui, Id::new(("hole-size", self.id())), selected, || {
+            let custom = Choice {
+                label: CUSTOM_SIZE.to_owned(),
+                selected: current.is_none(),
+                change: self
+                    .change(Hole {
+                        standard: None,
+                        ..self.hole.clone()
+                    })
+                    .map(|transaction| feature_fields::applied(&name, Ok(transaction))),
+            };
+            let sizes = MetricSize::ALL.into_iter().map(|size| {
+                let fit = current.map_or(HoleFit::Normal, |standard| standard.fit);
+                let standard = HoleStandard { size, fit };
+                Choice {
+                    label: size.name().to_owned(),
+                    selected: current.is_some_and(|current| current.size == size),
+                    change: self
+                        .change(hole_tools::with_standard(self.hole, standard, unit))
+                        .map(|transaction| feature_fields::applied(&name, Ok(transaction))),
+                }
+            });
+            std::iter::once(custom).chain(sizes).collect()
+        });
+        self.actions.extend(chosen);
+        ui.end_row();
+    }
+
+    fn fit_row(&mut self, ui: &mut Ui, standard: HoleStandard) {
+        let unit = self.model.length_unit();
+        let segments = HoleFit::ALL
+            .into_iter()
+            .map(|fit| Segment {
+                label: fit.label(),
+                hover: fit.description(),
+                change: (fit != standard.fit).then(|| {
+                    self.change(hole_tools::with_standard(
+                        self.hole,
+                        HoleStandard { fit, ..standard },
+                        unit,
+                    ))
+                }),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, "Fit", &self.feature.name, segments);
+        self.actions.extend(chosen);
+        if let Some(thread) = standard.thread() {
+            feature_fields::description_row(
+                ui,
+                &format!(
+                    "Thread {thread}: printed at the tap drill size, then cut with a tap or by a \
+                     self-tapping screw"
+                ),
+            );
+        }
+    }
+
+    fn shape_row(&mut self, ui: &mut Ui) {
+        let unit = self.model.length_unit();
+        let slot = matches!(self.hole.shape, HoleShape::Slot { .. });
+        let options = [
+            (
+                "Round",
+                "A round hole at each point",
+                HoleShape::Round,
+                !slot,
+            ),
+            (
+                "Slot",
+                "A slot centred on each point, for a part that must slide into place",
+                hole_tools::default_slot(unit),
+                slot,
+            ),
+        ];
+        let segments = options
+            .into_iter()
+            .map(|(label, hover, shape, current)| Segment {
+                label,
+                hover,
+                change: (!current).then(|| {
+                    self.change(Hole {
+                        shape,
+                        ..self.hole.clone()
+                    })
+                }),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, "Shape", &self.feature.name, segments);
+        self.actions.extend(chosen);
+        if let HoleShape::Slot { length, angle } = self.hole.shape.clone() {
+            let turned = angle.clone();
+            self.length_row(
+                ui,
+                Field {
+                    caption: "Slot length",
+                    key: "slot-length",
+                    dimension: Dimension::LENGTH,
+                    rule: Rule::AboveZero,
+                },
+                &length,
+                |hole, value| Hole {
+                    shape: HoleShape::Slot {
+                        length: value,
+                        angle: turned.clone(),
+                    },
+                    ..hole.clone()
+                },
+            );
+            self.length_row(
+                ui,
+                Field {
+                    caption: "Slot angle",
+                    key: "slot-angle",
+                    dimension: Dimension::ANGLE,
+                    rule: Rule::Any,
+                },
+                &angle,
+                |hole, value| Hole {
+                    shape: HoleShape::Slot {
+                        length: length.clone(),
+                        angle: value,
+                    },
+                    ..hole.clone()
+                },
+            );
+        }
+    }
+
     fn style_row(&mut self, ui: &mut Ui) {
         let current = Kind::of(&self.hole.style);
         let unit = self.model.length_unit();
+        let standard = self.hole.standard;
         let segments = Kind::ALL
             .into_iter()
             .map(|kind| Segment {
@@ -50,7 +189,7 @@ impl Panel<'_> {
                 hover: kind.description(),
                 change: (kind != current).then(|| {
                     self.change(Hole {
-                        style: kind.default_style(unit),
+                        style: kind.style_for(standard, unit),
                         ..self.hole.clone()
                     })
                 }),
@@ -167,6 +306,7 @@ impl Panel<'_> {
                             diameter: value,
                             depth: depth.clone(),
                         },
+                        standard: None,
                         ..hole.clone()
                     },
                 );
@@ -185,6 +325,7 @@ impl Panel<'_> {
                             diameter: wide.clone(),
                             depth: value,
                         },
+                        standard: None,
                         ..hole.clone()
                     },
                 );
@@ -204,6 +345,7 @@ impl Panel<'_> {
                             diameter: value,
                             angle: angle.clone(),
                         },
+                        standard: None,
                         ..hole.clone()
                     },
                 );
@@ -222,6 +364,7 @@ impl Panel<'_> {
                             diameter: wide.clone(),
                             angle: value,
                         },
+                        standard: None,
                         ..hole.clone()
                     },
                 );
@@ -239,6 +382,10 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Fea
     };
     widgets::properties(ui, ("hole-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
+        panel.size_row(ui);
+        if let Some(standard) = hole.standard {
+            panel.fit_row(ui, standard);
+        }
         panel.style_row(ui);
         panel.length_row(
             ui,
@@ -251,10 +398,12 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Fea
             &hole.diameter,
             |hole, value| Hole {
                 diameter: value,
+                standard: None,
                 ..hole.clone()
             },
         );
         panel.style_rows(ui);
+        panel.shape_row(ui);
         panel.depth_row(ui);
         if let HoleDepth::Blind(depth) = &hole.depth {
             panel.length_row(

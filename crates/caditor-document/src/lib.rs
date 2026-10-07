@@ -10,6 +10,7 @@ mod edit;
 mod editor;
 mod healing;
 mod hole;
+mod hole_standard;
 mod import;
 mod inlining;
 mod mirror;
@@ -52,7 +53,11 @@ pub use crate::{
     edit::{Edit, EditError, MAX_PARAMETER_NOTE_CHARS, Touched, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},
     healing::Healing,
-    hole::{Hole, HoleDepth, HoleStyle, MAX_COUNTERSINK_ANGLE, MAX_HOLES, centres as hole_centres},
+    hole::{
+        Hole, HoleDepth, HoleShape, HoleStyle, MAX_COUNTERSINK_ANGLE, MAX_HOLES,
+        centres as hole_centres,
+    },
+    hole_standard::{HoleFit, HoleStandard, MetricSize},
     import::Import,
     mirror::{MIRROR_IMAGE, Mirror},
     movement::{Move, MoveAxis},

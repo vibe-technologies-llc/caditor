@@ -37,6 +37,8 @@ fn drilled(
         depth: depth(&pair.document),
         style: style(&pair.document),
         reversed,
+        shape: HoleShape::Round,
+        standard: None,
     };
     let mut transaction = pair.document.transaction("Drill");
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
@@ -94,6 +96,8 @@ fn each_point_of_the_sketch_gets_a_hole_and_curve_ends_do_not() {
             depth: HoleDepth::ThroughAll,
             style: HoleStyle::Plain,
             reversed: false,
+            shape: HoleShape::Round,
+            standard: None,
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -329,6 +333,8 @@ fn a_hole_that_misses_the_body_or_a_sketch_without_points_fails_in_words() {
             depth: HoleDepth::ThroughAll,
             style: HoleStyle::Plain,
             reversed: false,
+            shape: HoleShape::Round,
+            standard: None,
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -502,6 +508,8 @@ fn a_circle_drawn_where_a_hole_goes_drills_at_its_centre() {
         depth: HoleDepth::Blind(expression(&pair.document, "2 mm")),
         style: HoleStyle::Plain,
         reversed: false,
+        shape: HoleShape::Round,
+        standard: None,
     };
     let mut transaction = pair.document.transaction("Drill");
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
@@ -517,4 +525,156 @@ fn a_circle_drawn_where_a_hole_goes_drills_at_its_centre() {
     let removed = PI * 4.0 * 2.0;
     let found = volume(&evaluation, pair.plate);
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
+}
+
+fn slotted(
+    pair: &mut Pair,
+    at: (f64, f64),
+    style: HoleStyle,
+    length: &str,
+    angle: &str,
+) -> FeatureId {
+    let hole = drilled(
+        pair,
+        &[at],
+        |_| style,
+        |document| HoleDepth::Blind(expression(document, "2 mm")),
+        false,
+    );
+    let kind = pair.document.feature(hole).unwrap().kind.clone();
+    let FeatureKind::Hole(definition) = kind else {
+        panic!("a hole");
+    };
+    let slot = Hole {
+        shape: HoleShape::Slot {
+            length: expression(&pair.document, length),
+            angle: expression(&pair.document, angle),
+        },
+        ..definition
+    };
+    pair.document
+        .apply(Transaction::single(
+            "Slot",
+            Edit::SetFeatureKind {
+                id: hole,
+                kind: FeatureKind::Hole(slot),
+            },
+        ))
+        .unwrap();
+    hole
+}
+
+fn stadium(length: f64, diameter: f64) -> f64 {
+    length * diameter + PI * (diameter / 2.0).powi(2)
+}
+
+#[test]
+fn a_slot_removes_a_stadium_of_its_length_and_diameter() {
+    let mut pair = pair();
+    slotted(&mut pair, (10.0, 5.0), HoleStyle::Plain, "6 mm", "0 deg");
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let removed = stadium(6.0, 4.0) * 2.0;
+    let found = volume(&evaluation, pair.plate);
+    assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
+}
+
+#[test]
+fn a_counterbored_slot_steps_out_to_the_counterbore_at_its_mouth() {
+    let mut pair = pair();
+    let style = HoleStyle::Counterbore {
+        diameter: expression(&pair.document, "6 mm"),
+        depth: expression(&pair.document, "1 mm"),
+    };
+    slotted(&mut pair, (10.0, 5.0), style, "6 mm", "0 deg");
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let removed = stadium(6.0, 4.0) * 2.0 + (stadium(6.0, 6.0) - stadium(6.0, 4.0)) * 1.0;
+    let found = volume(&evaluation, pair.plate);
+    assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
+}
+
+#[test]
+fn a_slot_turns_by_its_angle_in_the_sketch_plane() {
+    let mut along = pair();
+    slotted(&mut along, (2.5, 5.0), HoleStyle::Plain, "4 mm", "0 deg");
+    let mut across = pair();
+    slotted(&mut across, (2.5, 5.0), HoleStyle::Plain, "4 mm", "90 deg");
+    let mut engine = Recompute::default();
+
+    let clipped = PLATE - volume(&evaluate(&along.document, &mut engine), along.plate);
+    let mut engine = Recompute::default();
+    let whole = PLATE - volume(&evaluate(&across.document, &mut engine), across.plate);
+
+    let full = stadium(4.0, 4.0) * 2.0;
+    assert!((whole - full).abs() < 0.01 * full, "{whole}");
+    assert!(clipped < whole - 0.5, "{clipped} {whole}");
+}
+
+#[test]
+fn a_countersunk_slot_is_refused_in_words() {
+    let mut pair = pair();
+    let style = HoleStyle::Countersink {
+        diameter: expression(&pair.document, "6 mm"),
+        angle: expression(&pair.document, "90 deg"),
+    };
+    let hole = slotted(&mut pair, (10.0, 5.0), style, "6 mm", "0 deg");
+    let mut engine = Recompute::default();
+
+    let error = failure(&evaluate(&pair.document, &mut engine), hole);
+
+    assert_eq!(
+        error.reason,
+        "A slot can be plain or counterbored, but not countersunk."
+    );
+}
+
+#[test]
+fn metric_sizes_give_clearance_and_tap_drill_diameters_and_name_the_thread() {
+    let normal = HoleStandard {
+        size: MetricSize::M3,
+        fit: HoleFit::Normal,
+    };
+    let tapped = HoleStandard {
+        fit: HoleFit::Tapped,
+        ..normal
+    };
+
+    assert_eq!(normal.diameter(), 3.4);
+    assert_eq!(normal.counterbore(), (6.5, 3.4));
+    assert_eq!(normal.thread(), None);
+    assert_eq!(normal.label(), "M3 normal fit");
+    assert_eq!(tapped.diameter(), 2.5);
+    assert_eq!(tapped.thread().as_deref(), Some("M3 × 0.5"));
+    assert_eq!(tapped.label(), "M3 × 0.5 tapped");
+    assert_eq!(
+        HoleStandard {
+            size: MetricSize::M8,
+            fit: HoleFit::Tapped
+        }
+        .thread()
+        .as_deref(),
+        Some("M8 × 1.25")
+    );
+    assert!(MetricSize::ALL.iter().all(|size| {
+        let fits = HoleFit::ALL.map(|fit| HoleStandard { size: *size, fit }.diameter());
+        let [close, normal, loose, tap] = fits;
+        tap < size.major_diameter()
+            && size.major_diameter() < close
+            && close < normal
+            && normal < loose
+            && HoleStandard {
+                size: *size,
+                fit: HoleFit::Loose,
+            }
+            .counterbore()
+            .0 > loose
+            && MetricSize::from_name(size.name()) == Some(*size)
+    }));
 }

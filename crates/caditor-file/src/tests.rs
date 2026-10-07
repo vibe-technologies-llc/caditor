@@ -4192,6 +4192,8 @@ fn holed_model(style: caditor_document::HoleStyle, through: bool) -> (Document, 
             depth,
             style,
             reversed: through,
+            shape: caditor_document::HoleShape::Round,
+            standard: None,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -4503,4 +4505,58 @@ fn named(document: &Document, name: &str) -> FeatureId {
         .find(|feature| feature.name == name)
         .map(|feature| feature.id())
         .unwrap()
+}
+
+#[test]
+fn a_slotted_hole_of_a_standard_size_is_saved_journaled_and_loaded() {
+    use caditor_document::{HoleFit, HoleShape, HoleStandard, HoleStyle, MetricSize};
+    let (mut document, hole) = holed_model(HoleStyle::Plain, false);
+    let plain = encode(&document).unwrap();
+    let FeatureKind::Hole(definition) = document.feature(hole).unwrap().kind.clone() else {
+        panic!("a hole");
+    };
+    let change = Transaction::single(
+        "Slot",
+        Edit::SetFeatureKind {
+            id: hole,
+            kind: FeatureKind::Hole(caditor_document::Hole {
+                shape: HoleShape::Slot {
+                    length: Expression::parse_stored("12 mm").unwrap(),
+                    angle: Expression::parse_stored("30 deg").unwrap(),
+                },
+                standard: Some(HoleStandard {
+                    size: MetricSize::M2_5,
+                    fit: HoleFit::Tapped,
+                }),
+                ..definition
+            }),
+        },
+    );
+    document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+
+    assert!(!plain.contains("slot") && !plain.contains("standard"));
+    assert!(
+        text.contains("\"standard\":{\"fit\":\"tapped\",\"size\":\"M2.5\"}"),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+
+    let unknown = decode_text(&text.replace("\"M2.5\"", "\"M2.6\""));
+
+    assert!(issues_mention(
+        &unknown,
+        "(M2.6 tapped) is not one this version"
+    ));
+    let FeatureKind::Hole(read) = &unknown.document.feature(hole).unwrap().kind else {
+        panic!("a hole");
+    };
+    assert_eq!(read.standard, None);
+    assert!(matches!(read.shape, HoleShape::Slot { .. }));
 }

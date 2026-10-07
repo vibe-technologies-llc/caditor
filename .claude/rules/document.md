@@ -191,6 +191,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   wall 1 and bottom 2 as a plain hole always had, counterbore wall 4 and floor 5, countersink 6),
   never its place in the outline, so a style change keeps the wall and bottom and references to
   them; `describe_origin` words them through `Hole::part_name`.
+- `shape` is `Round` or `Slot { length, angle }`: each point gets a slot of that centre-to-centre
+  length, turned from the sketch's X axis by the angle in its plane, cut as an extruded stadium
+  (and a wider, shallower one for a counterbore) rather than a revolve. Its walls are parts 7 to 10
+  (`slot side`, `slot end`) and 11 to 14 for the counterbore, so a slot's names never collide with a
+  round hole's. A countersunk slot fails alone, saying so.
+- `standard` (`hole_standard.rs`) is the ISO metric size and fit the sizes were taken from
+  (`HoleStandard`: `MetricSize` M1.6 to M20; `HoleFit` close, normal, loose clearance per ISO 273
+  or tapped at the coarse-thread tap drill), with counterbore and countersink sizes for socket and
+  countersunk heads. It names the thread of a tapped hole for the user and changes nothing
+  computed: the expressions alone drive the hole.
 - It fails alone, naming the point, when a size is not positive, the counterbore or countersink is
   not wider than the hole or as deep as it, the angle is outside 0° to `MAX_COUNTERSINK_ANGLE`
   (179°, also the Hole panel's field rule), the sketch has no

@@ -145,6 +145,9 @@ paths:
 - A `hole` feature record holds `sketch`, `body`, `diameter`, `depth` (`through_all` or
   `blind` with its text), `style` (`plain`, or `counterbore` or `countersink` with their texts) and
   `reversed` when set; an unreadable size loads as a default (5 mm, 10 mm, 3 mm, 90 deg), reported.
+  A slot adds `slot` (`length`, `angle` texts; 10 mm and 0 deg when unreadable) and a standard
+  size `standard` (`size` as `M3`, `fit` as `close`, `normal`, `loose` or `tapped`); a standard
+  this version does not know loads as none, keeping the typed sizes, reported.
 - A `move` feature record holds `body` and the stored text of its three distances (`offset`) and
   three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported.
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as

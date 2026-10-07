@@ -3,13 +3,14 @@ use std::collections::BTreeSet;
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
-    AngularExtent, Axis2, BooleanOperation, LINEAR_RESOLUTION, MAX_SIZE, Profile, ProfileCurve,
-    Solid, boolean, revolve,
+    AngularExtent, Axis2, BooleanOperation, LINEAR_RESOLUTION, LinearExtent, MAX_SIZE, Profile,
+    ProfileCurve, Solid, boolean, extrude, revolve,
 };
 use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
     document::{Feature, FeatureId},
+    hole_standard::HoleStandard,
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
     trouble::boolean_trouble,
@@ -47,6 +48,15 @@ impl HoleStyle {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum HoleShape {
+    Round,
+    Slot {
+        length: Expression,
+        angle: Expression,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Hole {
     pub sketch: FeatureId,
     pub body: FeatureId,
@@ -54,6 +64,8 @@ pub struct Hole {
     pub depth: HoleDepth,
     pub style: HoleStyle,
     pub reversed: bool,
+    pub shape: HoleShape,
+    pub standard: Option<HoleStandard>,
 }
 
 impl Hole {
@@ -66,6 +78,25 @@ impl Hole {
             HoleStyle::Plain => {}
             HoleStyle::Counterbore { diameter, depth } => expressions.extend([diameter, depth]),
             HoleStyle::Countersink { diameter, angle } => expressions.extend([diameter, angle]),
+        }
+        if let HoleShape::Slot { length, angle } = &self.shape {
+            expressions.extend([length, angle]);
+        }
+        expressions
+    }
+
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        let mut expressions = vec![&mut self.diameter];
+        if let HoleDepth::Blind(depth) = &mut self.depth {
+            expressions.push(depth);
+        }
+        match &mut self.style {
+            HoleStyle::Plain => {}
+            HoleStyle::Counterbore { diameter, depth } => expressions.extend([diameter, depth]),
+            HoleStyle::Countersink { diameter, angle } => expressions.extend([diameter, angle]),
+        }
+        if let HoleShape::Slot { length, angle } = &mut self.shape {
+            expressions.extend([length, angle]);
         }
         expressions
     }
@@ -111,10 +142,18 @@ enum HolePart {
     CounterboreWall = 4,
     CounterboreFloor = 5,
     Countersink = 6,
+    SlotSide = 7,
+    SlotEnd = 8,
+    SlotOtherSide = 9,
+    SlotOtherEnd = 10,
+    CounterboreSide = 11,
+    CounterboreEnd = 12,
+    CounterboreOtherSide = 13,
+    CounterboreOtherEnd = 14,
 }
 
 impl HolePart {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 15] = [
         Self::Top,
         Self::Wall,
         Self::Bottom,
@@ -122,15 +161,28 @@ impl HolePart {
         Self::CounterboreWall,
         Self::CounterboreFloor,
         Self::Countersink,
+        Self::SlotSide,
+        Self::SlotEnd,
+        Self::SlotOtherSide,
+        Self::SlotOtherEnd,
+        Self::CounterboreSide,
+        Self::CounterboreEnd,
+        Self::CounterboreOtherSide,
+        Self::CounterboreOtherEnd,
     ];
 
     fn name(self) -> &'static str {
         match self {
             Self::Wall => "wall",
             Self::Bottom => "bottom",
-            Self::CounterboreWall => "counterbore wall",
+            Self::CounterboreWall | Self::CounterboreSide | Self::CounterboreOtherSide => {
+                "counterbore wall"
+            }
             Self::CounterboreFloor => "counterbore floor",
             Self::Countersink => "countersink",
+            Self::SlotSide | Self::SlotOtherSide => "slot side",
+            Self::SlotEnd | Self::SlotOtherEnd => "slot end",
+            Self::CounterboreEnd | Self::CounterboreOtherEnd => "counterbore end",
             Self::Top | Self::Axis => "face",
         }
     }
@@ -152,6 +204,13 @@ struct Values {
     diameter: f64,
     depth: Option<f64>,
     style: StyleValues,
+    slot: Option<SlotValues>,
+}
+
+#[derive(Clone, Copy)]
+struct SlotValues {
+    length: f64,
+    angle: f64,
 }
 
 enum StyleValues {
@@ -312,10 +371,28 @@ impl Context<'_> {
                 }
             }
         };
+        let slot = match &definition.shape {
+            HoleShape::Round => None,
+            HoleShape::Slot { length, angle } => {
+                if matches!(style, StyleValues::Countersink { .. }) {
+                    return Err(self.error(
+                        "A slot can be plain or counterbored, but not countersunk.".to_owned(),
+                        "Choose a plain or counterbored slot, or a round hole.".to_owned(),
+                    ));
+                }
+                Some(SlotValues {
+                    length: self.length(length, "slot length")?,
+                    angle: self
+                        .value(angle, Dimension::ANGLE, "slot angle")?
+                        .to_radians(),
+                })
+            }
+        };
         Ok(Values {
             diameter,
             depth,
             style,
+            slot,
         })
     }
 }
@@ -400,6 +477,120 @@ fn tool(
     .map_err(|_| unusable())
 }
 
+struct SlotCut {
+    radius: f64,
+    depth: f64,
+    parts: [HolePart; 4],
+}
+
+fn slot_tool(
+    context: &Context<'_>,
+    frame: &Plane,
+    centre: Point3,
+    up: Vector3,
+    slot: SlotValues,
+    cut: SlotCut,
+    base: u64,
+) -> Result<Solid, Failure> {
+    let unusable = || {
+        context.error(
+            "The slot cannot be shaped at this point.".to_owned(),
+            "Move the point or change the slot's sizes.".to_owned(),
+        )
+    };
+    let (sin, cos) = slot.angle.sin_cos();
+    let along = frame.x_axis() * cos + frame.y_axis() * sin;
+    let plane = Plane::from_frame(centre, up, along).ok_or_else(unusable)?;
+    let SlotCut {
+        radius,
+        depth,
+        parts,
+    } = cut;
+    let half = slot.length / 2.0;
+    let [side, end, other_side, other_end] = parts.map(|part| base + part as u64);
+    let first = Point2::new(-half, -radius);
+    let second = Point2::new(half, -radius);
+    let third = Point2::new(half, radius);
+    let fourth = Point2::new(-half, radius);
+    let curves = [
+        ProfileCurve::line(side, first, second),
+        ProfileCurve::arc(end, Point2::new(half, 0.0), second, third),
+        ProfileCurve::line(other_side, third, fourth),
+        ProfileCurve::arc(other_end, Point2::new(-half, 0.0), fourth, first),
+    ];
+    let profile = Profile::new(&curves).map_err(|_| unusable())?;
+    let extent = LinearExtent::new(MARGIN, -depth).map_err(|_| unusable())?;
+    extrude(
+        &plane,
+        profile.regions(),
+        extent,
+        context.feature.id().raw(),
+    )
+    .map_err(|_| unusable())
+}
+
+fn drills(
+    context: &Context<'_>,
+    values: &Values,
+    frame: &Plane,
+    centre: Point3,
+    up: Vector3,
+    depth: f64,
+    base: u64,
+) -> Result<Vec<Solid>, Failure> {
+    let Some(slot) = values.slot else {
+        let outline = outline(values, depth);
+        let feature = context.feature.id().raw();
+        return Ok(vec![tool(
+            context, frame, centre, up, &outline, base, feature,
+        )?]);
+    };
+    let narrow = slot_tool(
+        context,
+        frame,
+        centre,
+        up,
+        slot,
+        SlotCut {
+            radius: values.diameter / 2.0,
+            depth,
+            parts: [
+                HolePart::SlotSide,
+                HolePart::SlotEnd,
+                HolePart::SlotOtherSide,
+                HolePart::SlotOtherEnd,
+            ],
+        },
+        base,
+    )?;
+    let mut tools = vec![narrow];
+    if let StyleValues::Counterbore {
+        diameter: wide,
+        depth: shallow,
+    } = values.style
+    {
+        tools.push(slot_tool(
+            context,
+            frame,
+            centre,
+            up,
+            slot,
+            SlotCut {
+                radius: wide / 2.0,
+                depth: shallow,
+                parts: [
+                    HolePart::CounterboreSide,
+                    HolePart::CounterboreEnd,
+                    HolePart::CounterboreOtherSide,
+                    HolePart::CounterboreOtherEnd,
+                ],
+            },
+            base,
+        )?);
+    }
+    Ok(tools)
+}
+
 fn reach(body: &Solid, centre: Point3, down: Vector3) -> Option<f64> {
     let bounds = body.bounding_box()?;
     let farthest = bounds
@@ -475,58 +666,50 @@ pub(crate) fn evaluate(
                 )
             })?,
         };
-        let outline = outline(&values, depth);
         let base = point.raw().wrapping_mul(PARTS);
-        let drill = tool(
-            &context,
-            &frame,
-            centre,
-            up,
-            &outline,
-            base,
-            feature.id().raw(),
-        )?;
-        let cut = boolean(&body, &drill, BooleanOperation::Difference).map_err(|error| {
-            use caditor_kernel::BooleanError;
-            match error {
-                BooleanError::Cancelled(_) => Failure::Cancelled,
-                BooleanError::Empty => context.error(
+        for drill in drills(&context, &values, &frame, centre, up, depth, base)? {
+            let cut = boolean(&body, &drill, BooleanOperation::Difference).map_err(|error| {
+                use caditor_kernel::BooleanError;
+                match error {
+                    BooleanError::Cancelled(_) => Failure::Cancelled,
+                    BooleanError::Empty => context.error(
+                        format!(
+                            "The hole at {} would remove all of {body_name}.",
+                            sketch.geometry.entity_label(point)
+                        ),
+                        "Make the hole smaller or move the point.".to_owned(),
+                    ),
+                    other => {
+                        log::warn!("{} could not drill: {other}", feature.name);
+                        let trouble = boolean_trouble(
+                            inputs.document,
+                            [&body, &drill],
+                            &other,
+                            "Move the point or change the sizes",
+                        );
+                        context
+                            .error(
+                                trouble.reason(format!(
+                                    "The hole at {} could not be cut into {body_name}.",
+                                    sketch.geometry.entity_label(point)
+                                )),
+                                trouble.remedy,
+                            )
+                            .placed(trouble.place)
+                    }
+                }
+            })?;
+            if cut.faces().count() <= body.faces().count() {
+                return Err(context.error(
                     format!(
-                        "The hole at {} would remove all of {body_name}.",
+                        "The hole at {} does not reach {body_name}.",
                         sketch.geometry.entity_label(point)
                     ),
-                    "Make the hole smaller or move the point.".to_owned(),
-                ),
-                other => {
-                    log::warn!("{} could not drill: {other}", feature.name);
-                    let trouble = boolean_trouble(
-                        inputs.document,
-                        [&body, &drill],
-                        &other,
-                        "Move the point or change the sizes",
-                    );
-                    context
-                        .error(
-                            trouble.reason(format!(
-                                "The hole at {} could not be cut into {body_name}.",
-                                sketch.geometry.entity_label(point)
-                            )),
-                            trouble.remedy,
-                        )
-                        .placed(trouble.place)
-                }
+                    "Move the point onto the body, or turn the hole around.".to_owned(),
+                ));
             }
-        })?;
-        if cut.faces().count() <= body.faces().count() {
-            return Err(context.error(
-                format!(
-                    "The hole at {} does not reach {body_name}.",
-                    sketch.geometry.entity_label(point)
-                ),
-                "Move the point onto the body, or turn the hole around.".to_owned(),
-            ));
+            body = cut;
         }
-        body = cut;
     }
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,

@@ -3,11 +3,12 @@ use std::{collections::BTreeMap, sync::Arc};
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, CircularPattern, Combine,
     CombineOperation, Datum, DatumAxis, DatumPlane, Document, Edit, Extrude, ExtrudeEnd,
-    ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleStyle,
-    Import, LinearDirection, MAX_MATERIAL_NAME_CHARS, Mirror, Move, Parameter, Pattern,
-    PatternKind, PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    ProjectionSource, RegionChoice, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale,
-    Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction, material_name,
+    ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleFit,
+    HoleShape, HoleStandard, HoleStyle, Import, LinearDirection, MAX_MATERIAL_NAME_CHARS,
+    MetricSize, Mirror, Move, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Revolve,
+    RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment, SketchFeature,
+    SolidFeature, SolidStart, Transaction, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -251,6 +252,22 @@ pub(crate) struct HoleRecord {
     pub style: HoleStyleRecord,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub reversed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<SlotRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standard: Option<HoleStandardRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SlotRecord {
+    pub length: String,
+    pub angle: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HoleStandardRecord {
+    pub size: String,
+    pub fit: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1048,6 +1065,17 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 },
             },
             reversed: hole.reversed,
+            slot: match &hole.shape {
+                HoleShape::Round => None,
+                HoleShape::Slot { length, angle } => Some(SlotRecord {
+                    length: length.to_stored_text(),
+                    angle: angle.to_stored_text(),
+                }),
+            },
+            standard: hole.standard.map(|standard| HoleStandardRecord {
+                size: standard.size.name().to_owned(),
+                fit: standard.fit.id().to_owned(),
+            }),
         }),
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
         FeatureKind::Import(import) => FeatureKindRecord::Import(ImportRecord {
@@ -2650,6 +2678,26 @@ fn restore_hole(record: &HoleRecord, feature: &str, issues: &mut Vec<String>) ->
             angle: value(angle, "countersink angle", "90 deg"),
         },
     };
+    let shape = match &record.slot {
+        None => HoleShape::Round,
+        Some(slot) => HoleShape::Slot {
+            length: value(&slot.length, "slot length", "10 mm"),
+            angle: value(&slot.angle, "slot angle", "0 deg"),
+        },
+    };
+    let standard = record.standard.as_ref().and_then(|standard| {
+        let read = MetricSize::from_name(&standard.size)
+            .zip(HoleFit::from_id(&standard.fit))
+            .map(|(size, fit)| HoleStandard { size, fit });
+        if read.is_none() {
+            issues.push(format!(
+                "The standard size of “{feature}” ({} {}) is not one this version of caditor \
+                 knows, so its sizes are kept as typed values.",
+                standard.size, standard.fit
+            ));
+        }
+        read
+    });
     Hole {
         sketch: FeatureId::from_raw(record.sketch),
         body: FeatureId::from_raw(record.body),
@@ -2657,6 +2705,8 @@ fn restore_hole(record: &HoleRecord, feature: &str, issues: &mut Vec<String>) ->
         depth,
         style,
         reversed: record.reversed,
+        shape,
+        standard,
     }
 }
 

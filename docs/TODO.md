@@ -178,10 +178,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 - [medium · medium] A cut affects only one body: no extrusion or revolve cut removes material from
   several bodies at once, only a Combine of two.
-- [medium · medium] Holes are drilled only at the free points and circle centres of a sketch the user
-  draws first, with no standard sizes, no tapped or threaded holes, no hole on a face by clicking
-  it, no slot and no hole of several diameters (stepped); each hole of a feature shares the
-  feature's sizes, whatever the circle's.
+- [medium · medium] Holes have no several diameters (stepped), no inch or fine-pitch sizes and
+  no heat-set insert sizes, and each hole of a feature shares the feature's sizes, whatever the
+  circle's. A hole on a face lands at the middle of the face's bounds, which can lie outside an L-
+  or U-shaped face.
 - [high · hard] Bodies cannot be edited directly: no moving, offsetting, deleting or replacing a
   face (push and pull) and no deleting a fillet or chamfer by its faces. An imported STEP body has
   no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a
@@ -230,11 +230,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
   refer to measured values or sketch dimensions.
 - [low · medium] The measure tool cannot take planes, axes, datums or sketch curves, so a hole axis
   to a datum or a circle's radius cannot be measured.
-- [medium · hard · blocked by: the sweep feature, and the hole feature for thread sizes and cosmetic
-  threads] No helix or spiral curve and no threads: springs, coils and threaded holes and shafts
-  cannot be modelled, and the hole feature (listed under the missing feature kinds) has no ISO
-  metric thread sizes or cosmetic thread to show a thread without modelling it. The sweep feature
-  (same list) needs the helix for modelled threads.
+- [medium · hard · blocked by: the sweep feature] No helix or spiral curve and no threads: springs, coils and threaded holes and shafts
+  cannot be modelled, and a tapped hole names its ISO thread only in its panel, with no cosmetic
+  thread drawn in the view or carried into exports. The sweep feature (same list) needs the helix
+  for modelled threads.
 - [medium · hard · blocked by: direct face edits ("Bodies cannot be edited directly")] Draft angle
   on existing faces.
 - [medium · hard · blocked by: thin-wall extrusion ("Extrusions and revolves have no taper angle or thin wall")]

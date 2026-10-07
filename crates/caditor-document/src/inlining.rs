@@ -4,7 +4,6 @@ use crate::{
     datum::Datum,
     document::{Document, FeatureKind},
     edit::{Edit, EditError, Transaction},
-    hole::{HoleDepth, HoleStyle},
     pattern::PatternKind,
     solid::{ExtrudeEnd, ExtrudeExtent, RevolveExtent, SolidFeature, SolidStart},
 };
@@ -107,18 +106,7 @@ fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::Scale(scale) => std::iter::once(&mut scale.factor)
             .chain(scale.center.iter_mut())
             .collect(),
-        FeatureKind::Hole(hole) => {
-            let mut expressions = vec![&mut hole.diameter];
-            if let HoleDepth::Blind(depth) = &mut hole.depth {
-                expressions.push(depth);
-            }
-            match &mut hole.style {
-                HoleStyle::Plain => {}
-                HoleStyle::Counterbore { diameter, depth } => expressions.extend([diameter, depth]),
-                HoleStyle::Countersink { diameter, angle } => expressions.extend([diameter, angle]),
-            }
-            expressions
-        }
+        FeatureKind::Hole(hole) => hole.expressions_mut(),
         FeatureKind::Pattern(pattern) => match &mut pattern.kind {
             PatternKind::Linear { first, second } => std::iter::once(first)
                 .chain(second.as_mut())

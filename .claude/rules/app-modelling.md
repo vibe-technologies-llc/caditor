@@ -96,12 +96,19 @@ paths:
 
 ## Hole
 
-- Hole (Alt+O, in the Solid group) takes the sketch the way Extrude does (edited, selected, opened
-  or last) and needs at least one free point or circle in it (`hole_centres`); its body is the one the sketch
-  is attached to, else the last body standing. It creates a plain blind hole of 6 mm by 10 mm,
-  hides the sketch and opens the panel: Style (Plain, Counterbore, Countersink; switching takes the
-  defaults of the new style), Diameter, the style's sizes, Depth (Blind with its field, or Through
-  all), Reverse direction, and the Sketch and Body rows (the body a list of `bodies_before`).
+- Hole (Alt+O, in the Solid group) with one flat face selected (and no sketch edited or feature
+  open) creates in one transaction a hidden sketch on that face holding one point at the middle of
+  its outline's bounds and the hole, with a notice saying how to move the point
+  (`hole_tools::create_on_face`). Otherwise it takes the sketch the way Extrude does (edited,
+  selected, opened or last) and needs at least one free point or circle in it (`hole_centres`);
+  its body is the one the sketch is attached to, else the last body standing. It creates a plain
+  blind hole of 6 mm by 10 mm, hides the sketch and opens the panel: Size (Custom or a metric
+  screw), Fit when sized (Close, Normal, Loose, Tapped, with the thread named for Tapped), Style
+  (Plain, Counterbore, Countersink; switching takes the size's head dimensions, else the
+  defaults), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
+  (Blind with its field, or Through all), Reverse direction, and the Sketch and Body rows (the body
+  a list of `bodies_before`). A size sets exact millimetre values; typing any hole, counterbore or
+  countersink size makes it Custom again.
 
 ## Combine
 

@@ -289,7 +289,7 @@ fn hole_button(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let source = hole_tools::source(model, context.selection, context.editing);
+    let source = hole_tools::start(model, context.selection, context.editing);
     let invoked = commands.invoke(Command::Hole, &source);
     let help = match &source {
         Ok(_) => Ok(commands.with_keys(Command::Hole, hole_tools::DESCRIPTION)),

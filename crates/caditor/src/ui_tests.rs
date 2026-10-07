@@ -12764,3 +12764,94 @@ fn the_project_tool_brings_a_face_outline_into_the_sketch_and_follows_the_keyboa
 
     assert!(harness.shows_containing("Project "));
 }
+
+fn open_hole(harness: &Harness, hole: FeatureId) -> caditor_document::Hole {
+    harness
+        .document()
+        .feature(hole)
+        .unwrap()
+        .kind
+        .hole()
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_from_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let definition = open_hole(&harness, hole);
+    let sketch = harness.sketch(definition.sketch).clone();
+
+    assert_eq!(harness.model.undo_label(), Some("Create Hole 1"));
+    assert_eq!(definition.body, plate);
+    assert_eq!(
+        sketch
+            .entities()
+            .map(|(_, entity)| entity.clone())
+            .collect::<Vec<_>>(),
+        vec![Entity::Point(Point2::new(20.0, 20.0))]
+    );
+    assert!(attached_body(&harness, definition.sketch) == Some(plate));
+    assert!(harness.shows_containing("Hole 1 is drilled at the middle of the face"));
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 9.0 * 10.0
+    ));
+
+    choose(&mut harness, crate::hole_panel::CUSTOM_SIZE, "M3");
+
+    assert_eq!(
+        open_hole(&harness, hole).diameter.to_stored_text(),
+        "3.4 mm"
+    );
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 1.7 * 1.7 * 10.0
+    ));
+    assert!(harness.shows("Normal"));
+
+    harness.click("Normal");
+    harness.click("Tapped");
+    harness.settle();
+
+    assert_eq!(
+        open_hole(&harness, hole).diameter.to_stored_text(),
+        "2.5 mm"
+    );
+    assert!(harness.shows_containing("Thread M3 × 0.5"));
+
+    harness.click("Plain");
+    harness.click("Counterbore");
+    harness.settle();
+
+    assert!(matches!(
+        open_hole(&harness, hole).style,
+        caditor_document::HoleStyle::Counterbore { ref diameter, .. } if diameter.to_stored_text() == "6.5 mm"
+    ));
+
+    harness.type_into_field(Id::new(("hole-field", "diameter", hole)), "2.6 mm");
+    harness.settle();
+
+    assert_eq!(open_hole(&harness, hole).standard, None);
+    assert!(!harness.shows("Tapped"));
+
+    harness.click("Round");
+    harness.click("Slot");
+    harness.settle();
+
+    assert!(matches!(
+        open_hole(&harness, hole).shape,
+        caditor_document::HoleShape::Slot { .. }
+    ));
+    assert!(harness.shows("Slot length"));
+    assert!(harness.shows("Slot angle"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
