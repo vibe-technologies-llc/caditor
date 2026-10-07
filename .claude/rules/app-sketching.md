@@ -181,12 +181,22 @@ paths:
 - `snap.rs` runs on the UI thread against the displayed sketch in screen space. Priority: the
   shape's pending point; points and the origin within `POINT_TOLERANCE`; then, only where any snap
   is accepted and within the same tolerance, the middle of a line or arc (`Target::Midpoint`), the
-  centre of a closed outline (`Target::Centre`) and the crossing of two of the up to
+  centre of a closed outline (`Target::Centre`), the crossing of two of the up to
   `MAX_CROSSING_CURVES` curves nearest the pointer, axes included (`Target::Intersection`; lines,
-  circles and arcs, not splines); lines, circles, arcs and axes within `CURVE_TOLERANCE`,
-  projecting onto the curve. A snapped point gets a `Coincident` with its target (with both curves
-  at a crossing), a `Midpoint` constraint for a middle, or a `Symmetric` about it of two opposite
-  corners for a centre.
+  circles and arcs, not splines) and the right, top, left and bottom of a circle or of an arc
+  sweeping through them (`Target::Quadrant`); lines, circles, arcs and axes within
+  `CURVE_TOLERANCE`, projecting onto the curve. A snapped point gets a `Coincident` with its
+  target (with both curves at a crossing), a `Midpoint` constraint for a middle, a `Symmetric`
+  about it of two opposite corners for a centre, or for a side a `Coincident` with the curve and
+  a horizontal or vertical points constraint with its centre.
+- A line's end within `POINT_TOLERANCE` of where a line from its start would touch a circle or arc
+  (`snap::tangents_from`, the two tangent points from outside it, within an arc's sweep) lands
+  there (`Target::Tangent`): a `Coincident` with the curve and a `Tangent` between it and the line.
+  It wins over curve snaps, not over point-like ones (`Target::is_point_like`).
+- A line starting on a circle or arc (on its rim, a side, a tangent point or a point ending an
+  arc), and the first side of a three-point rectangle or a polygon drawn by its side, is offered
+  the direction tangent to it there (`Direction::Tangent`, a `Tangent` constraint), ranked with
+  parallel and perpendicular.
 - An outline has a centre when its lines join end to end into one closed loop (ends within
   `JOINED_CORNER_TOLERANCE` of the sketch's extent, each corner meeting exactly one other line, at
   most `MAX_OUTLINE_LINES` lines) of an even count whose opposite corners all share one midpoint: a

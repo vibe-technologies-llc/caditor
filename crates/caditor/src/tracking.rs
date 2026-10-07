@@ -25,7 +25,11 @@ impl Acquired {
                     self.line(line);
                 }
             }
-            Target::Midpoint(curve) | Target::Curve(curve) | Target::Extension(curve) => {
+            Target::Quadrant { centre, .. } => self.point(centre),
+            Target::Midpoint(curve)
+            | Target::Curve(curve)
+            | Target::Extension(curve)
+            | Target::Tangent(curve) => {
                 if let Some(Entity::Circle { center, .. } | Entity::Arc { center, .. }) =
                     sketch.entity(curve)
                 {

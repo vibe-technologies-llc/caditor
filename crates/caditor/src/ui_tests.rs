@@ -3754,6 +3754,51 @@ fn a_point_hovered_while_drawing_guides_later_points_into_line_with_it() {
 }
 
 #[test]
+fn a_line_drawn_to_the_side_of_one_circle_and_touching_another_keeps_both() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::C);
+    harness.click_at(Point2::new(20.0, 20.0));
+    harness.click_at(Point2::new(30.0, 20.0));
+    let sketch = harness.sketch(feature);
+    let [circle] = entities_of_kind(sketch, "Circle")[..] else {
+        panic!("one circle should be drawn");
+    };
+    let (centre, radius) = sketch.circle(circle).unwrap();
+    let top = centre + Vector2::new(0.0, radius);
+    let from = Point2::new(70.0, top.y);
+    let away = from - centre;
+    let touch = centre + away * (radius * radius / away.length_squared())
+        - away.perp()
+            * (radius * (away.length_squared() - radius * radius).sqrt() / away.length_squared());
+    harness.use_tool(Key::L);
+
+    harness.point_at(top + Vector2::new(0.02, 0.02));
+    assert!(harness.shows(&format!("Top of Circle {circle}")));
+    harness.click_at(from);
+    harness.point_at(touch + Vector2::new(0.02, 0.02));
+    assert!(harness.shows(&format!("Tangent to Circle {circle}")));
+    harness.click_at(touch + Vector2::new(0.02, 0.02));
+    harness.key(Key::Escape, Modifiers::NONE);
+
+    let sketch = harness.sketch(feature);
+    let [line] = entities_of_kind(sketch, "Line")[..] else {
+        panic!("one line should be drawn");
+    };
+    let (start, end) = line_ends(sketch, line);
+    let (start_at, end_at) = sketch.line_endpoints(line).unwrap();
+    assert!(constraints_of_kind(sketch, "Tangent").contains(&Constraint::Tangent(line, circle)));
+    assert!(
+        sketch
+            .constraints()
+            .any(|(_, constraint)| *constraint == Constraint::Coincident(end, circle))
+    );
+    assert!(((end_at - centre).length() - radius).abs() < 1e-9);
+    assert!((end_at - centre).dot(end_at - start_at).abs() < 1e-6);
+    assert_ne!(start, end);
+}
+
+#[test]
 fn one_press_drag_release_draws_a_whole_line_rectangle_or_circle() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

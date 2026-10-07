@@ -195,6 +195,15 @@ impl Shape {
         }
     }
 
+    fn starts_its_line(self) -> bool {
+        matches!(
+            self,
+            Self::Line
+                | Self::Rectangle(RectangleMode::ThreePoints)
+                | Self::Polygon(PolygonMode::Side)
+        )
+    }
+
     fn aligns_second_point(self) -> bool {
         match self {
             Self::Line
@@ -243,6 +252,7 @@ pub enum Direction {
     Vertical,
     Parallel(EntityId),
     Perpendicular(EntityId),
+    Tangent(EntityId),
 }
 
 impl Direction {
@@ -252,6 +262,7 @@ impl Direction {
             Self::Vertical => ("Vertical", None),
             Self::Parallel(line) => ("Parallel to", Some(line)),
             Self::Perpendicular(line) => ("Perpendicular to", Some(line)),
+            Self::Tangent(curve) => ("Tangent to", Some(curve)),
         }
     }
 
@@ -275,6 +286,7 @@ impl Direction {
             Self::Vertical => Constraint::Vertical(line),
             Self::Parallel(reference) => Constraint::Parallel(line, reference),
             Self::Perpendicular(reference) => Constraint::Perpendicular(line, reference),
+            Self::Tangent(curve) => Constraint::Tangent(line, curve),
         }
     }
 }
@@ -452,6 +464,8 @@ fn point_target(snap: Snap) -> Option<EntityId> {
         | Target::Curve(_)
         | Target::Extension(_)
         | Target::Midpoint(_)
+        | Target::Quadrant { .. }
+        | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. } => None,
     }
@@ -1492,6 +1506,10 @@ impl Drawing {
             }
             Target::Point(EntityId::ORIGIN) => "Origin".to_owned(),
             Target::Midpoint(line) => format!("Midpoint of {}", sketch.entity_label(line)),
+            Target::Quadrant { curve, side, .. } => {
+                format!("{} of {}", side.name(), sketch.entity_label(curve))
+            }
+            Target::Tangent(curve) => format!("Tangent to {}", sketch.entity_label(curve)),
             Target::Centre { outline, .. } => {
                 format!("Centre of the outline of {}", sketch.entity_label(outline))
             }
@@ -1651,7 +1669,7 @@ impl Drawing {
         }
         let pending = self.pending(shape);
         let accept = self.accept(shape);
-        let snapped = snap::resolve(
+        let resolved = snap::resolve(
             sketch,
             screen,
             pointer,
@@ -1659,6 +1677,15 @@ impl Drawing {
             accept,
             self.acquired.lines(),
         );
+        let touching = match (shape, self.placed.as_slice()) {
+            (Shape::Line, &[start]) => snap::tangents_from(sketch, screen, pointer, start.position),
+            _ => None,
+        };
+        let snapped = match (resolved, touching) {
+            (Some(resolved), Some(touching)) if !resolved.target.is_point_like() => Some(touching),
+            (None, touching) => touching,
+            (resolved, _) => resolved,
+        };
         let tracks = match accept {
             Accept::Anything => {
                 let placed: Vec<EntityId> = self
@@ -1696,7 +1723,12 @@ impl Drawing {
             Shape::Line => point_target(start.snap),
             _ => None,
         };
-        let guides = guides(sketch, screen, pointer, start.position, continued);
+        let rounded = if shape.starts_its_line() {
+            round_under(sketch, start)
+        } else {
+            None
+        };
+        let guides = guides(sketch, screen, pointer, start.position, continued, rounded);
         match snapped {
             Some(snapped) => aligned_on(sketch, screen, pointer, start.position, snapped, &guides)
                 .or_else(|| tracked_on(snapped))
@@ -1769,12 +1801,30 @@ impl Drawing {
         .collect()
     }
 }
+fn round_under(sketch: &Sketch, start: Placement) -> Option<(EntityId, Point2)> {
+    let curve = match start.snap.target()? {
+        Target::Curve(curve) | Target::Quadrant { curve, .. } | Target::Tangent(curve) => curve,
+        Target::Point(point) => sketch.entities().find_map(|(id, entity)| match entity {
+            Entity::Arc { start, end, .. } if *start == point || *end == point => Some(id),
+            _ => None,
+        })?,
+        Target::Pending(_)
+        | Target::Extension(_)
+        | Target::Midpoint(_)
+        | Target::Intersection(..)
+        | Target::Centre { .. } => return None,
+    };
+    let (centre, _) = sketch.circle(curve)?;
+    Some((curve, centre))
+}
+
 fn guides(
     sketch: &Sketch,
     screen: &impl Screen,
     pointer: Pointer,
     start: Point2,
     continued: Option<EntityId>,
+    rounded: Option<(EntityId, Point2)>,
 ) -> Vec<Guide> {
     let start_on_screen = screen.to_screen(start);
     let mut nearby: Vec<NearbyLine> = sketch
@@ -1819,7 +1869,17 @@ fn guides(
         };
         parallel.into_iter().chain(std::iter::once(perpendicular))
     });
-    LEVEL_AND_UPRIGHT.into_iter().chain(referenced).collect()
+    let tangent = rounded.and_then(|(curve, centre)| {
+        Some(Guide {
+            direction: Direction::Tangent(curve),
+            along: (start - centre).try_normalize()?.perp(),
+        })
+    });
+    LEVEL_AND_UPRIGHT
+        .into_iter()
+        .chain(tangent)
+        .chain(referenced)
+        .collect()
 }
 
 fn alignments(
@@ -1882,6 +1942,8 @@ fn aligned_on(
         Target::Pending(_) => None,
         Target::Point(_)
         | Target::Midpoint(_)
+        | Target::Quadrant { .. }
+        | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. } => {
             held(start, snapped.position, guides).map(|direction| on(snapped.position, direction))
@@ -2061,6 +2123,18 @@ impl<'a> Draft<'a> {
         let point = self.entity(Entity::Point(placement.position));
         match placement.snap.target() {
             Some(Target::Midpoint(curve)) => self.constrain(Constraint::Midpoint { point, curve }),
+            Some(Target::Quadrant {
+                curve,
+                centre,
+                side,
+            }) => {
+                self.constrain(Constraint::Coincident(point, curve));
+                self.constrain(if side.is_level() {
+                    Constraint::HorizontalPoints(point, centre)
+                } else {
+                    Constraint::VerticalPoints(point, centre)
+                });
+            }
             Some(Target::Centre {
                 corners: (first, second),
                 ..
@@ -2094,6 +2168,9 @@ impl<'a> Draft<'a> {
         });
         if let Some(direction) = end.snap.direction() {
             self.constrain(direction.constraint(line));
+        }
+        if let Some(Target::Tangent(curve)) = end.snap.target() {
+            self.constrain(Constraint::Tangent(line, curve));
         }
         (start, end_point)
     }
@@ -2743,6 +2820,72 @@ mod tests {
         assert_eq!(
             drawing.preview(Faceting::within(0.01)).guides,
             vec![[Point2::new(40.0, 30.0), Point2::new(40.0, 60.0)]]
+        );
+    }
+
+    #[test]
+    fn a_line_end_near_where_it_would_touch_a_circle_lands_there_tangent() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let circle = sketch.add_circle(Point2::ZERO, 10.0);
+        let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(20.0, 0.0)));
+        let touch = Point2::new(5.0, 75.0_f64.sqrt());
+
+        let end = hovered_at(&mut drawing, &sketch, touch + Vector2::new(0.3, 0.3)).unwrap();
+
+        assert_eq!(end.snap, Snap::Target(Target::Tangent(circle)));
+        assert!(end.position.distance(touch) < 1e-12);
+        assert_eq!(
+            drawing.snap_label(&sketch),
+            Some(format!("Tangent to Circle {circle}"))
+        );
+
+        let on_rim = hovered_at(&mut drawing, &sketch, Point2::new(-8.0, -6.3)).unwrap();
+        assert_eq!(on_rim.snap, Snap::Target(Target::Curve(circle)));
+    }
+
+    #[test]
+    fn a_line_starting_on_a_circle_turns_tangent_to_it() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let circle = sketch.add_circle(Point2::ZERO, 10.0);
+        let start = Point2::new(6.0, 8.0);
+        let mut drawing = drawing_a_line(
+            &sketch,
+            Placement::at(start, Snap::Target(Target::Curve(circle))),
+        );
+        let along = Vector2::new(-8.0, 6.0) / 10.0;
+
+        let end = hovered_at(
+            &mut drawing,
+            &sketch,
+            start + along * 30.0 + Vector2::new(0.2, 0.3),
+        )
+        .unwrap();
+
+        assert_eq!(end.snap, Snap::Aligned(Direction::Tangent(circle)));
+        assert!(crosses(end.position - start, along).abs() < 1e-12);
+        assert_eq!(drawing.snap_entities(), vec![circle]);
+    }
+
+    #[test]
+    fn the_side_of_a_circle_is_a_target_any_point_can_take() {
+        let mut sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let circle = sketch.add_circle(Point2::new(30.0, 30.0), 10.0);
+        let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::ZERO));
+        drawing.placed.clear();
+
+        let right = hovered_at(&mut drawing, &sketch, Point2::new(40.3, 30.2)).unwrap();
+
+        assert_eq!(right.position, Point2::new(40.0, 30.0));
+        assert!(matches!(
+            right.snap,
+            Snap::Target(Target::Quadrant {
+                side: snap::Side::Right,
+                ..
+            })
+        ));
+        assert_eq!(
+            drawing.snap_label(&sketch),
+            Some(format!("Right of Circle {circle}"))
         );
     }
 }

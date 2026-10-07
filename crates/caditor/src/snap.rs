@@ -13,12 +13,52 @@ pub trait Screen {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Side {
+    Right,
+    Top,
+    Left,
+    Bottom,
+}
+
+impl Side {
+    const ALL: [Self; 4] = [Self::Right, Self::Top, Self::Left, Self::Bottom];
+
+    fn outward(self) -> Vector2 {
+        match self {
+            Self::Right => Vector2::X,
+            Self::Top => Vector2::Y,
+            Self::Left => -Vector2::X,
+            Self::Bottom => -Vector2::Y,
+        }
+    }
+
+    pub fn is_level(self) -> bool {
+        matches!(self, Self::Right | Self::Left)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Right => "Right",
+            Self::Top => "Top",
+            Self::Left => "Left",
+            Self::Bottom => "Bottom",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Pending(usize),
     Point(EntityId),
     Curve(EntityId),
     Extension(EntityId),
     Midpoint(EntityId),
+    Quadrant {
+        curve: EntityId,
+        centre: EntityId,
+        side: Side,
+    },
+    Tangent(EntityId),
     Intersection(EntityId, EntityId),
     Centre {
         outline: EntityId,
@@ -35,6 +75,19 @@ impl Target {
         }
     }
 
+    pub fn is_point_like(self) -> bool {
+        match self {
+            Self::Curve(_) | Self::Extension(_) => false,
+            Self::Pending(_)
+            | Self::Point(_)
+            | Self::Midpoint(_)
+            | Self::Quadrant { .. }
+            | Self::Tangent(_)
+            | Self::Intersection(..)
+            | Self::Centre { .. } => true,
+        }
+    }
+
     pub fn second_entity(self) -> Option<EntityId> {
         match self {
             Self::Intersection(_, second) => Some(second),
@@ -43,6 +96,8 @@ impl Target {
             | Self::Curve(_)
             | Self::Extension(_)
             | Self::Midpoint(_)
+            | Self::Quadrant { .. }
+            | Self::Tangent(_)
             | Self::Centre { .. } => None,
         }
     }
@@ -54,6 +109,8 @@ impl Target {
             | Self::Curve(entity)
             | Self::Extension(entity)
             | Self::Midpoint(entity)
+            | Self::Quadrant { curve: entity, .. }
+            | Self::Tangent(entity)
             | Self::Intersection(entity, _)
             | Self::Centre {
                 outline: entity, ..
@@ -120,7 +177,8 @@ pub fn resolve(
         .or_else(|| match accept {
             Accept::Anything => nearest(midpoints(sketch), POINT_TOLERANCE)
                 .or_else(|| nearest(centres(sketch), POINT_TOLERANCE))
-                .or_else(|| nearest(intersections(sketch, screen, pointer), POINT_TOLERANCE)),
+                .or_else(|| nearest(intersections(sketch, screen, pointer), POINT_TOLERANCE))
+                .or_else(|| nearest(quadrants(sketch), POINT_TOLERANCE)),
             Accept::Points | Accept::OnCircle { .. } => None,
         })
         .or_else(|| match accept {
@@ -306,6 +364,89 @@ fn midpoints(sketch: &Sketch) -> Vec<Snapped> {
         })
         .collect()
 }
+
+fn quadrants(sketch: &Sketch) -> Vec<Snapped> {
+    sketch
+        .entities()
+        .flat_map(|(curve, entity)| {
+            let (centre, arc) = match *entity {
+                Entity::Circle { center, .. } => (center, None),
+                Entity::Arc { center, .. } => (center, sketch.arc(curve)),
+                Entity::Point(_) | Entity::Line { .. } | Entity::Spline { .. } => {
+                    return Vec::new();
+                }
+            };
+            let Some((position, radius)) = sketch.circle(curve) else {
+                return Vec::new();
+            };
+            Side::ALL
+                .into_iter()
+                .map(|side| (side, position + side.outward() * radius))
+                .filter(|(_, at)| arc.is_none_or(|arc| within_sweep(&arc, *at)))
+                .map(|(side, at)| Snapped {
+                    position: at,
+                    target: Target::Quadrant {
+                        curve,
+                        centre,
+                        side,
+                    },
+                })
+                .collect()
+        })
+        .collect()
+}
+
+pub fn tangents_from(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    from: Point2,
+) -> Option<Snapped> {
+    let pointed = |at: Point2| Some(screen.to_screen(at)?.distance(pointer.screen));
+    sketch
+        .entities()
+        .filter_map(|(curve, entity)| {
+            let arc = match entity {
+                Entity::Circle { .. } => None,
+                Entity::Arc { .. } => Some(sketch.arc(curve)?),
+                Entity::Point(_) | Entity::Line { .. } | Entity::Spline { .. } => return None,
+            };
+            let (centre, radius) = sketch.circle(curve)?;
+            Some((curve, centre, radius, arc))
+        })
+        .flat_map(|(curve, centre, radius, arc)| {
+            touching(from, centre, radius)
+                .into_iter()
+                .filter(move |at| arc.is_none_or(|arc| within_sweep(&arc, *at)))
+                .map(move |position| Snapped {
+                    position,
+                    target: Target::Tangent(curve),
+                })
+        })
+        .filter_map(|candidate| {
+            let offset = pointed(candidate.position)?;
+            (offset <= POINT_TOLERANCE).then_some((offset, candidate))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, candidate)| candidate)
+}
+
+fn touching(from: Point2, centre: Point2, radius: f64) -> Vec<Point2> {
+    let away = from - centre;
+    let distance = away.length();
+    if radius <= 0.0 || distance <= radius * (1.0 + TANGENT_CLEARANCE) {
+        return Vec::new();
+    }
+    let toward = away / distance;
+    let along = radius * radius / distance;
+    let across = radius * (1.0 - (radius / distance).powi(2)).sqrt();
+    [1.0, -1.0]
+        .into_iter()
+        .map(|sign| centre + toward * along + toward.perp() * across * sign)
+        .collect()
+}
+
+const TANGENT_CLEARANCE: f64 = 1e-6;
 
 struct Corner {
     position: Point2,
@@ -647,6 +788,8 @@ pub fn crossing_along(
         Target::Pending(_)
         | Target::Point(_)
         | Target::Midpoint(_)
+        | Target::Quadrant { .. }
+        | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. } => return None,
     };
@@ -732,6 +875,8 @@ pub fn closest_on_circle(center: Point2, radius: f64, at: Point2) -> Option<Poin
 
 #[cfg(test)]
 pub mod tests {
+    use std::f64::consts::PI;
+
     use caditor_geometry::Plane;
 
     use super::*;
@@ -994,9 +1139,14 @@ pub mod tests {
             Point2::new(-40.0, 50.0),
         );
 
-        let on_circle = resolve_at(&sketch, Point2::new(40.0, 29.6)).unwrap();
+        let rim = Point2::new(40.0, 40.0) + Vector2::from_angle(1.0) * 10.0;
+        let on_circle = resolve_at(
+            &sketch,
+            Point2::new(40.0, 40.0) + Vector2::from_angle(1.0) * 9.6,
+        )
+        .unwrap();
         assert_eq!(on_circle.target, Target::Curve(circle));
-        assert!(on_circle.position.distance(Point2::new(40.0, 30.0)) < 1e-12);
+        assert!(on_circle.position.distance(rim) < 1e-12);
 
         let off_middle = Point2::new(-40.0, 40.0) + Vector2::from_angle(0.2) * 10.3;
         let on_arc = resolve_at(&sketch, off_middle).unwrap();
@@ -1198,5 +1348,96 @@ pub mod tests {
             beyond,
         );
         assert_eq!(inside, None);
+    }
+
+    #[test]
+    fn the_four_sides_of_a_circle_are_snap_targets_and_an_arc_keeps_those_it_sweeps() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let circle = sketch.add_circle(Point2::new(50.0, 0.0), 10.0);
+        let centre = point_of(&sketch, circle, 0);
+        let arc_centre = Point2::new(-50.0, 30.0);
+        sketch.add_arc(
+            arc_centre,
+            arc_centre + Vector2::from_angle(-PI / 4.0) * 10.0,
+            arc_centre + Vector2::from_angle(3.0 * PI / 4.0) * 10.0,
+        );
+
+        let top = resolve_at(&sketch, Point2::new(50.4, 10.3)).unwrap();
+        assert_eq!(
+            top.target,
+            Target::Quadrant {
+                curve: circle,
+                centre,
+                side: Side::Top,
+            }
+        );
+        assert_eq!(top.position, Point2::new(50.0, 10.0));
+        assert!(matches!(
+            resolve_at(&sketch, Point2::new(-50.3, 39.8)).map(|snapped| snapped.target),
+            Some(Target::Quadrant {
+                side: Side::Top,
+                ..
+            })
+        ));
+        assert_eq!(
+            resolve_at(&sketch, Point2::new(-50.3, 20.2)).map(|snapped| snapped.target),
+            None
+        );
+        assert!(matches!(
+            resolve_at(&sketch, Point2::new(-39.8, 30.1)).map(|snapped| snapped.target),
+            Some(Target::Quadrant {
+                side: Side::Right,
+                ..
+            })
+        ));
+        assert_eq!(
+            resolve_at(&sketch, Point2::new(-60.3, 30.1)).map(|snapped| snapped.target),
+            None
+        );
+        assert_eq!(
+            resolve(
+                &sketch,
+                &Scaled(10.0),
+                pointer_at(Point2::new(50.4, 10.3)),
+                &[],
+                Accept::Points,
+                &[],
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_line_from_outside_a_circle_finds_where_it_would_touch_it() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let circle = sketch.add_circle(Point2::ZERO, 10.0);
+        let from = Point2::new(20.0, 0.0);
+        let expected = Point2::new(5.0, 75.0_f64.sqrt());
+
+        let touch = tangents_from(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(expected + Vector2::new(0.3, 0.2)),
+            from,
+        )
+        .unwrap();
+        assert_eq!(touch.target, Target::Tangent(circle));
+        assert!(touch.position.distance(expected) < 1e-12);
+        assert!((touch.position - from).dot(touch.position).abs() < 1e-9);
+
+        let inside = tangents_from(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(expected),
+            Point2::new(1.0, 0.0),
+        );
+        assert_eq!(inside, None);
+        let far = tangents_from(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(Point2::new(5.0, 6.0)),
+            from,
+        );
+        assert_eq!(far, None);
     }
 }
