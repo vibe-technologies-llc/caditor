@@ -400,7 +400,7 @@ fn an_obj_holds_each_body_as_a_named_closed_object_in_millimetres() {
         mesh_of(&pin, MeshResolution::Standard),
     ];
 
-    let bytes = obj::encode(&meshes).unwrap();
+    let bytes = obj::encode(&meshes, None).unwrap();
     let text = String::from_utf8(bytes).unwrap();
     let objects = obj_objects(&text);
 
@@ -435,13 +435,133 @@ fn an_obj_names_a_body_without_line_breaks_or_emptiness() {
     let mut second = mesh_of(&block, MeshResolution::Coarse);
     second.name = "  ";
 
-    let text = String::from_utf8(obj::encode(&[first, second]).unwrap()).unwrap();
+    let text = String::from_utf8(obj::encode(&[first, second], None).unwrap()).unwrap();
     let names: Vec<&str> = text
         .lines()
         .filter_map(|line| line.strip_prefix("o "))
         .collect();
 
     assert_eq!(names, ["Top plate", "body"]);
+}
+
+fn export_obj(path: &std::path::Path, bodies: &[ExportBody<'_>]) {
+    export_bodies(
+        path,
+        ExportFormat::Obj,
+        MeshResolution::Coarse,
+        bodies,
+        &CancelToken::never(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let pin = pin();
+    let path = dir.path().join("part.obj");
+    let bodies = [
+        ExportBody {
+            name: "Base plate",
+            solid: &block,
+            look: Some(Look {
+                colour: Rgb::new(255, 0, 51),
+                material: None,
+            }),
+        },
+        ExportBody {
+            name: "Pin",
+            solid: &pin,
+            look: None,
+        },
+        ExportBody {
+            name: "Cap",
+            solid: &block,
+            look: Some(Look {
+                colour: Rgb::new(0, 0, 255),
+                material: Some("Cast iron"),
+            }),
+        },
+    ];
+
+    export_obj(&path, &bodies);
+    let obj = std::fs::read_to_string(&path).unwrap();
+    let library = std::fs::read_to_string(dir.path().join("part.mtl")).unwrap();
+    let used: Vec<&str> = obj
+        .lines()
+        .filter(|line| line.starts_with("o ") || line.starts_with("usemtl "))
+        .collect();
+
+    assert!(obj.lines().nth(1) == Some("mtllib part.mtl"));
+    assert_eq!(
+        used,
+        [
+            "o Base plate",
+            "usemtl 1_Base_plate",
+            "o Pin",
+            "o Cap",
+            "usemtl 3_Cast_iron"
+        ]
+    );
+    assert!(library.starts_with("# caditor "));
+    assert!(library.contains("newmtl 1_Base_plate\nKd 1.0000 0.0000 0.2000\n"));
+    assert!(library.contains("newmtl 3_Cast_iron\nKd 0.0000 0.0000 1.0000\n"));
+}
+
+#[test]
+fn an_obj_never_replaces_a_material_library_it_did_not_write() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("part.obj");
+    let foreign = dir.path().join("part.mtl");
+    std::fs::write(&foreign, "newmtl hand_made\nKd 1 1 1\n").unwrap();
+    let coloured = [ExportBody {
+        name: "Block",
+        solid: &block,
+        look: Some(Look {
+            colour: Rgb::new(10, 20, 30),
+            material: None,
+        }),
+    }];
+
+    export_obj(&path, &coloured);
+    let obj = std::fs::read_to_string(&path).unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(&foreign).unwrap(),
+        "newmtl hand_made\nKd 1 1 1\n"
+    );
+    assert!(!obj.contains("mtllib") && !obj.contains("usemtl"));
+
+    std::fs::remove_file(&foreign).unwrap();
+    export_obj(&path, &coloured);
+    export_obj(&path, &coloured);
+
+    assert!(
+        std::fs::read_to_string(&foreign)
+            .unwrap()
+            .contains("newmtl 1_Block")
+    );
+}
+
+#[test]
+fn an_obj_of_plain_bodies_writes_no_material_library() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("part.obj");
+
+    export_obj(
+        &path,
+        &[ExportBody {
+            name: "Block",
+            solid: &block,
+            look: None,
+        }],
+    );
+
+    assert!(!dir.path().join("part.mtl").exists());
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("mtllib"));
 }
 
 struct Glb {

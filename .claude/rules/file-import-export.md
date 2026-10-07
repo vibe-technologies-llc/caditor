@@ -69,7 +69,10 @@ paths:
   surface), 3MF (one named object per body, millimetres; a body with a colour or material points
   into one `basematerials` group, its `base` named after the material or else the body and coloured
   with the body's colour or the app's default, via `ExportBody::look`), OBJ (one named object per body, global
-  1-based indices, millimetres, Z up, no normals) or binary glTF (`.glb`: one node and mesh per
+  1-based indices, millimetres, Z up, no normals; bodies with a look name a material, `<index>_<material
+  or body>` with whitespace as `_`, from a `.mtl` of the same stem written first beside it, whose
+  `Kd` is the colour; an existing `.mtl` that does not start with caditor's header is never
+  replaced, and the OBJ then goes without colours) or binary glTF (`.glb`: one node and mesh per
   body, f32 positions in metres with Y up, `x, z, -y` of the model's, so winding is kept, and the
   position bounds glTF requires; no normals, which the format defines as flat; a body with a look
   gets a material named like its 3MF base, its colour as a linear `baseColorFactor`).

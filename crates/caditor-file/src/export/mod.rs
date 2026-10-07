@@ -310,9 +310,20 @@ pub fn export_bodies(
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
     }
-    let contents = encode(format, &meshes)?;
+    let library = (format == ExportFormat::Obj)
+        .then(|| obj::Library::beside(path, &meshes))
+        .flatten();
+    let contents = encode(format, &meshes, library.as_ref())?;
+    let materials = match library {
+        Some(library) => Some((library.path, obj::encode_library(&meshes)?)),
+        None => None,
+    };
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
+    }
+    if let Some((library, materials)) = materials {
+        write_atomically(&library, &materials)
+            .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
     }
     write_atomically(path, &contents)
         .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
@@ -394,11 +405,15 @@ fn export_step(
     })
 }
 
-fn encode(format: ExportFormat, bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
+fn encode(
+    format: ExportFormat,
+    bodies: &[MeshBody<'_>],
+    library: Option<&obj::Library>,
+) -> Result<Vec<u8>, ExportError> {
     match format {
         ExportFormat::Stl => stl::encode(bodies),
         ExportFormat::ThreeMf => three_mf::encode(bodies),
-        ExportFormat::Obj => obj::encode(bodies),
+        ExportFormat::Obj => obj::encode(bodies, library),
         ExportFormat::Gltf => gltf::encode(bodies),
         ExportFormat::Step => Err(ExportError::Encoding),
     }
