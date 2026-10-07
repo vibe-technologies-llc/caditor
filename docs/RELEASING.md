@@ -65,8 +65,8 @@ fresh checksums; commit its diff once CI passes on it.
 ## Making a release
 
 1. On an up-to-date `master`, run the checks:
-   `rust-formatter --check`, `cargo clippy --workspace --all-targets -- -D warnings` and
-   `cargo test --workspace`.
+   `rust-formatter --check`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings` (as CI runs it,
+   so the `fuzzing` modules are linted) and `cargo test --workspace --locked`.
 2. Set the version in `[workspace.package]` in the root `Cargo.toml` if it is not already the
    one being released, then `cargo build` so `Cargo.lock` follows.
 3. Preview the archive with `packaging/build-release.sh --snapshot` (it needs

@@ -579,27 +579,11 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Checks and CI
 
-- [high · easy] `fuzz/Cargo.lock` is behind the root lock: it lacks `dunce` (now a dependency of
-  `caditor`) and pins `jiff` 0.2.37 against 0.2.38, so `cargo metadata --locked` and
-  `cargo deny --locked` fail in `fuzz/`. That fails the `check` job and every `fuzz` job of
-  `ci.yml`, and with them the `checks` job a release waits for. Update the fuzz lock with every
-  root dependency change, and check it locally (a command in `CLAUDE.md` or a hook) so it cannot
-  fall behind again.
-- [high · easy] A release cannot get through its checks: `release.yml` calls `ci.yml`, whose
-  concurrency group `${{ github.workflow }}-${{ github.ref }}` takes the caller's name inside a
-  called workflow and becomes `Release-refs/tags/v…`, which GitHub compares without case to the
-  release's own `release-refs/tags/v…` and cancels as a deadlock. No tag has been pushed, so it has
-  never run. Give the CI group a prefix of its own (`ci-…`) or skip it under `workflow_call`.
 - [medium · medium] `tests/crash_flush.rs` runs the crash protection with a real storage worker in a
   child process, not the app itself. `check-install.sh` only runs `--version`; start the packaged
   binary to a first frame under Xvfb and lavapipe, kill it there and recover its journal, check its
   linked libraries and highest glibc symbol against `docs/RELEASING.md`, and run the offscreen tests
   once more on the GL backend that `packaging/INSTALL.md` promises.
-- [low · easy] `ci.md` names a stress-test failure threshold, `RANDOM_PLACEMENT_FAILURES_ALLOWED`,
-  that no code reads (`random_placements_of_every_fixture` asserts no failures); the
-  `libfuzzer-sys` licence exception in `deny.toml` gives no reason though `ci.md` says every
-  exception has one; and step 1 of `docs/RELEASING.md` runs clippy without the
-  `--all-features --locked` CI uses, so it skips the `fuzzing` modules.
 - [low · medium] Slow tests to keep an eye on: about a third of the UI tests (75 of 219) take over a
   second each in a debug build, and the UI suite takes about 3.5 minutes on one thread.
 

@@ -12,7 +12,9 @@ paths:
 
 - `ci.yml` runs on every push to `master` and every pull request, and the release workflow calls it
   before building. Linux jobs run in Ubuntu 22.04 containers, Windows jobs on `windows-2025`, all
-  with a timeout; a newer push to a pull request cancels its older run.
+  with a timeout; a newer push to a pull request cancels its older run. The concurrency group is
+  `ci-<ref>`, not the workflow's name: inside a called workflow `github.workflow` is the caller's,
+  and GitHub would take the release's own group as a deadlock and cancel it.
 - `windows` tests every crate even after one fails (`--no-fail-fast`, with `CADITOR_REQUIRE_GPU=1`
   on the runner's software adapter), checks the tree stays clean and lints on Windows, the only
   place `cfg(windows)` code is compiled in CI.
@@ -25,8 +27,8 @@ paths:
   linted. Also: `rust-formatter --check`, `cargo deny` on the root and fuzz workspaces, a snapshot
   archive checked by `packaging/check-install.sh`, and a minute of fuzzing per target.
 - The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the ignored
-  kernel and sketch stress tests in release, with a failure threshold
-  (`RANDOM_PLACEMENT_FAILURES_ALLOWED`) that is lowered as kernel fixes land.
+  kernel and sketch stress tests in release. `random_placements_of_every_fixture` asserts that every
+  boolean of its seed succeeds, so a kernel change that breaks one fails the job.
 - The check job runs cargo as the unprivileged `builder` user (`as-builder`), since root ignores the
   file modes the unreadable-file tests rely on. It fails if the tests leave any change or untracked
   file in the checkout, so a test writing beside the sources instead of a `TempDir` is caught.
@@ -51,6 +53,8 @@ paths:
 - `deny.toml` covers licences, sources, advisories and bans, each exception with its reason.
   Duplicate versions are denied except upstream-caused ones; C-backed crates with a Rust
   alternative are banned. The fuzz workspace is checked with the same file (`--config deny.toml`).
+  Licence exceptions take no `reason` key, so theirs are here: `libfuzzer-sys` may be NCSA, since
+  it is LLVM's libFuzzer, linked only into the fuzz workspace and never into a release.
 
 ## Fuzzing
 
@@ -71,5 +75,6 @@ paths:
   shared by targets reading the same kind of input. The model, journal and zstd seeds are written by
   `CADITOR_WRITE_FUZZ_SEEDS=1 cargo test -p caditor-file write_fuzz_seeds -- --ignored`; tests keep
   every seed loading. `fuzz/corpus` is not committed; CI caches it.
-- `fuzz/Cargo.lock` is committed and CI fails when it is stale: after changing a dependency the
-  fuzz targets use, run `cargo update -w` in `fuzz/`.
+- `fuzz/Cargo.lock` is committed and CI fails when it is stale: after any change to the root
+  dependencies, run `cargo update -w` in `fuzz/`. A Stop hook in `.claude/settings.json` runs
+  `cargo metadata --locked` on the fuzz workspace and refuses to finish while the lock is stale.
