@@ -9749,6 +9749,60 @@ fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it(
     );
 }
 
+#[test]
+fn an_orthographic_preference_survives_the_first_fit_and_o_switches_back() {
+    let mut preferences = Preferences::default();
+    preferences.onboarding = crate::onboarding::Onboarding::finished();
+    preferences.navigation.projection = caditor_render::Projection::Orthographic;
+    let mut harness = Harness::starting(
+        None,
+        sample_document().unwrap(),
+        Workspace::with_preferences(preferences),
+    );
+    harness.settle();
+    let started = harness.workspace.viewport.current_view().unwrap();
+
+    harness.key(Key::O, Modifiers::NONE);
+    harness.settle();
+
+    assert!(started.is_orthographic());
+    assert!(
+        !harness
+            .workspace
+            .viewport
+            .current_view()
+            .unwrap()
+            .is_orthographic()
+    );
+    assert_eq!(
+        harness.workspace.preferences.navigation.projection,
+        caditor_render::Projection::Perspective
+    );
+}
+
+#[test]
+fn a_suppressed_sketch_counts_toward_fitting_the_view_no_more() {
+    let mut harness = Harness::new();
+    harness.settle();
+    let mut far = Sketch::new(Plane::XY);
+    far.add_line(Point2::new(900.0, 900.0), Point2::new(1000.0, 1000.0));
+    let sketch = harness.add_sketch(far);
+    harness.settle();
+    let reaching = harness.built().fit_all().max().x;
+
+    harness.perform(Action::Apply(Transaction::single(
+        "Suppress",
+        Edit::SetFeatureSuppressed {
+            id: sketch,
+            suppressed: true,
+        },
+    )));
+    harness.settle();
+
+    assert!(reaching >= 1000.0, "{reaching}");
+    assert!(harness.built().fit_all().max().x < 900.0);
+}
+
 fn edit_free_sketch(harness: &mut Harness, sketch: Sketch) -> FeatureId {
     let feature = harness.add_sketch(sketch);
     harness.edit(feature);

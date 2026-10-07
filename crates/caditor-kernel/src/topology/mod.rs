@@ -33,10 +33,10 @@ pub(crate) use self::{
 use crate::{
     curve::Curve,
     error::GeometryError,
+    intersect::patch_bounds,
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin, VertexName, occurrence_order},
     sense::Sense,
-    intersect::patch_bounds,
     surface::{Surface, Torus},
     tessellation::{self, Mesh, TessellationError},
     tolerance::{MeshQuality, SamplingTolerance},

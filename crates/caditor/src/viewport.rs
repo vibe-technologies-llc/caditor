@@ -594,6 +594,7 @@ impl ViewportState {
         };
         if self.needs_initial_fit {
             self.camera = Camera::new(view.fitted(built.fit_all()));
+            self.camera.set_projection(self.navigation.projection);
             self.needs_initial_fit = false;
         } else if self.face_edited_sketch {
             if let Some(sketch) = built.edited {

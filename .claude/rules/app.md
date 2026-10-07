@@ -82,7 +82,9 @@ paths:
 - Release builds unwind (`panic = "unwind"`), since containment relies on it; `recompute.rs`
   fails to compile otherwise.
 - The viewport fits once the first recompute of a newly opened model (new `Model::session`) is up
-  to date and its bodies are meshed (`Model::bodies_pending`).
+  to date and its bodies are meshed (`Model::bodies_pending`), keeping the projection of the
+  preferences. Fitting and the reference size count only what is drawn: sketches among
+  `active_features` (not suppressed or past the bar) and not hidden, and shown bodies.
 - IDs restart per document, so a new session clears everything holding them: viewport selection,
   hover, highlight and drawing state (`Workspace::sync`), the tree's selection and rename, the
   export dialog's left-out bodies. Anything new that holds IDs must be cleared there.

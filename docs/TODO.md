@@ -359,10 +359,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Viewer
 
-- [medium · easy] An Orthographic projection kept in the preferences is lost at startup: the first
-  fit replaces the camera with `Camera::new`, which is always perspective, so the view and the
-  preference disagree and the first O changes only the preference. Keep the projection when
-  fitting, with a UI test starting from an Orthographic preference.
 - [medium · medium] Display styles stop at shaded with edges, without edges and wireframe: no hidden
   line style.
 - [medium · medium] Transparency is all or nothing: the X-ray style draws every body translucent with
@@ -376,9 +372,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   constant factor with no slope term, and the grid and reference fills share the mesh's bias, so a
   face on the XY plane can speckle with the grid. Neither has a test.
 - [medium · hard] Section planes.
-- [low · easy] Fit all, the first fit and the size of the principal planes and axes count every
-  unhidden sketch (`scene::model_bounds` walks `features()`), including suppressed ones and those
-  past the rollback bar, which are neither drawn nor picked; walk `active_features` instead.
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
 - [low · medium] Lighting and the MSAA resolve happen in gamma space; the model keeps no saved view.

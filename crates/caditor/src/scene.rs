@@ -1486,7 +1486,7 @@ fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {
         ..
     } = *sources;
     let sketches = document
-        .features()
+        .active_features()
         .filter(|feature| !feature.hidden)
         .filter_map(|feature| sketches.bounds(evaluation, feature, sketch_points_bounds))
         .reduce(Aabb::union);
