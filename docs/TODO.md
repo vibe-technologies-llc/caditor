@@ -234,12 +234,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Modelling features
 
-- [high · easy] New extrusions, revolves and patterns default to a body a Combine consumed:
-  `solid_tools::last_body` and `pattern_tools::last_body` take the last body-making feature, and
-  the Extrude panel's Body list (`solid_tools::bodies_before`) offers consumed bodies too. After a
-  Join, the next Extrude adds to the tool body and fails with "The body made by Extrude 2 has no
-  shape. Fix Extrude 2 first." Take them from `Document::bodies_standing` and `bodies_before`, as
-  Combine and Hole already do.
 - [medium · medium] A cut affects only one body: no extrusion or revolve cut removes material from
   several bodies at once, only a Combine of two.
 - [medium · medium] Holes are drilled only at the free points of a sketch the user draws first, with

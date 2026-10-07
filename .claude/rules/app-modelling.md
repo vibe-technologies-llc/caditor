@@ -67,7 +67,8 @@ paths:
 - They take the edited sketch, else the selection's, else the last. The revolve axis (also the
   panel's axis picker) is a selected line or sketch axis, else a principal axis, datum axis,
   straight edge or round face.
-- A new feature adds to the last body (a new one if none) and opens. `SketchEditing` holds at most
+- A new feature adds to the last body standing (`Document::bodies_standing`, so never one a Combine
+  consumed; a new one if none) and opens; the panel's Body list is `Document::bodies_before`. `SketchEditing` holds at most
   one open solid feature, never together with an edited sketch; `editing::Context` carries both to
   the scene and to availability checks.
 - An open feature's tree row is its property panel; every change is one `SetFeatureKind`, checked
@@ -131,7 +132,7 @@ paths:
 ## Patterns
 
 - Linear and Circular pattern take the body of the selected faces or edges (all of one body),
-  else the last body, and the first selected axis, straight edge or round face as direction or
+  else the last body standing, and the first selected axis, straight edge or round face as direction or
   axis, else a principal axis. While open the patterned body is shown with its directions or axis
   drawn like a revolve's axis.
 

@@ -124,25 +124,11 @@ pub fn axis_name(document: &Document, sketch: FeatureId, axis: &RevolveAxis) -> 
 }
 
 fn last_body(document: &Document, before: Option<FeatureId>) -> Option<FeatureId> {
-    let end = before
-        .and_then(|feature| document.feature_index(feature))
-        .unwrap_or(document.bar_index());
-    document
-        .features()
-        .take(end)
-        .rev()
-        .find(|feature| feature.makes_body() && !feature.suppressed)
-        .map(|feature| feature.id())
-}
-
-pub fn bodies_before(document: &Document, feature: FeatureId) -> Vec<FeatureId> {
-    let end = document.feature_index(feature).unwrap_or(0);
-    document
-        .features()
-        .take(end)
-        .filter(|candidate| candidate.makes_body())
-        .map(|candidate| candidate.id())
-        .collect()
+    let standing = match before.filter(|feature| document.feature_index(*feature).is_some()) {
+        Some(feature) => document.bodies_before(feature),
+        None => document.bodies_standing(),
+    };
+    standing.last().copied()
 }
 
 pub fn default_operation(document: &Document, before: Option<FeatureId>) -> BodyOperation {
@@ -349,5 +335,47 @@ mod tests {
         let second = document.feature(second).unwrap().kind.solid().unwrap();
         assert_eq!(second.operation(), BodyOperation::Add(first.id()));
         assert_eq!(second.axis_line(), Some(line));
+    }
+
+    #[test]
+    fn new_features_skip_a_body_a_combine_consumed() {
+        let (mut document, base, side, _) = document_with_sketches();
+        let mut transaction = document.transaction("Two bodies joined");
+        let mut extrude = |name: &str, sketch| {
+            transaction.add_feature(
+                name,
+                FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+                    sketch,
+                    regions: RegionChoice::All,
+                    extent: ExtrudeExtent::one_side(
+                        Expression::measure(5.0, Unit::Millimetre),
+                        false,
+                    ),
+                    operation: BodyOperation::NewBody,
+                    start: None,
+                })),
+            )
+        };
+        let target = extrude("Block", base);
+        let tool = extrude("Peg", side);
+        let combine = transaction.add_feature(
+            "Combine 1",
+            FeatureKind::Combine(caditor_document::Combine {
+                body: target,
+                tool,
+                operation: caditor_document::CombineOperation::Join,
+            }),
+        );
+        document.apply(transaction.finish()).unwrap();
+
+        assert_eq!(
+            default_operation(&document, None),
+            BodyOperation::Add(target)
+        );
+        assert_eq!(document.bodies_standing(), vec![target]);
+        assert_eq!(
+            default_operation(&document, Some(combine)),
+            BodyOperation::Add(tool)
+        );
     }
 }

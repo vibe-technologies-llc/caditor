@@ -728,7 +728,7 @@ impl Panel<'_> {
 
     fn operation_rows(&mut self, ui: &mut Ui) {
         let operation = self.solid.operation();
-        let bodies = solid_tools::bodies_before(self.document(), self.id());
+        let bodies = self.document().bodies_before(self.id());
         let fallback = bodies.last().copied();
         widgets::caption(ui, "Result");
         self.combo(ui, "operation", operation_name(operation), |panel| {
