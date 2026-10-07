@@ -632,9 +632,19 @@ pub fn pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
 }
 
 pub fn status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
+    status_pill_parts(ui, tone, text).0
+}
+
+pub fn announced_status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
+    let (pill, label) = status_pill_parts(ui, tone, text);
+    announced(ui, &label, tone == Tone::Error);
+    pill
+}
+
+fn status_pill_parts(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> (Response, Response) {
     let tokens = appearance::tokens(ui);
     let color = tone.color(tokens);
-    Frame::new()
+    let shown = Frame::new()
         .fill(tone.fill(tokens))
         .corner_radius(CornerRadius::same(PILL_RADIUS))
         .inner_margin(PILL_MARGIN)
@@ -657,10 +667,11 @@ pub fn status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response
                             .color(color),
                     )
                     .selectable(false),
-                );
-            });
-        })
-        .response
+                )
+            })
+            .inner
+        });
+    (shown.response, shown.inner)
 }
 
 pub fn callout<R>(ui: &mut Ui, tone: Tone, add: impl FnOnce(&mut Ui) -> R) -> R {

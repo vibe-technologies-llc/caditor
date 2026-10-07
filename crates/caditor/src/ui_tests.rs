@@ -8067,6 +8067,32 @@ fn the_view_and_the_tool_prompt_are_named_for_screen_readers() {
 }
 
 #[test]
+fn a_cancelled_or_stopped_recompute_is_announced() {
+    let mut harness = Harness::new();
+    harness.settle();
+    harness.context.enable_accesskit();
+    let live_of = |harness: &Harness, text: &str| {
+        harness
+            .accessible
+            .iter()
+            .find(|(_, node)| node.role() == Role::Label && node.value() == Some(text))
+            .map(|(_, node)| node.live())
+    };
+
+    harness.model.set_status(RecomputeStatus::Cancelled);
+    harness.frame();
+    harness.frame();
+    let cancelled = live_of(&harness, crate::status_bar::CANCELLED);
+    harness.model.set_status(RecomputeStatus::Stopped);
+    harness.frame();
+    harness.frame();
+    let stopped = live_of(&harness, crate::status_bar::STOPPED);
+
+    assert_eq!(cancelled, Some(Some(egui::accesskit::Live::Polite)));
+    assert_eq!(stopped, Some(Some(egui::accesskit::Live::Assertive)));
+}
+
+#[test]
 fn notices_are_live_regions_so_a_screen_reader_announces_them() {
     let mut harness = Harness::new();
     harness.context.enable_accesskit();

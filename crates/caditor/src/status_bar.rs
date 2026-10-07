@@ -240,7 +240,7 @@ fn recompute_status(
         }
         RecomputeStatus::UpToDate => summary(ui, model, panels),
         RecomputeStatus::Cancelled => {
-            widgets::status_pill(ui, Tone::Warning, CANCELLED)
+            widgets::announced_status_pill(ui, Tone::Warning, CANCELLED)
                 .on_hover_text("Some features are outdated until the model is recomputed");
             let recompute = ui
                 .add(widgets::button("Recompute"))
@@ -250,7 +250,7 @@ fn recompute_status(
             }
         }
         RecomputeStatus::Stopped => {
-            widgets::status_pill(ui, Tone::Error, STOPPED)
+            widgets::announced_status_pill(ui, Tone::Error, STOPPED)
                 .on_hover_text("Recompute stopped unexpectedly. Your model is safe.");
             let restart = ui
                 .add(widgets::button("Restart"))

@@ -308,6 +308,11 @@ impl Model {
         self.status
     }
 
+    #[cfg(test)]
+    pub fn set_status(&mut self, status: RecomputeStatus) {
+        self.status = status;
+    }
+
     pub fn progress(&self) -> Option<Progress> {
         self.recomputer.as_ref().and_then(Recomputer::progress)
     }

@@ -139,7 +139,8 @@ paths:
   selection | unit | size. Recompute is progress (the feature running, and for how long once past
   two seconds, from `Progress`) with Cancel, Up to date, or a failed
   `status_pill` that is a button focusing the first failed feature; a cancelled or stopped recompute
-  is a warning or error pill with a Recompute or Restart button. The unit opens Preferences; the
+  is a warning or error pill with a Recompute or Restart button, its text a live region
+  (`widgets::announced_status_pill`: polite for a warning, assertive for an error). The unit opens Preferences; the
   interface size, when not 100%, goes back to it.
 - Notices: an edit clears info and refused-edit notices, never a `Notice::failure` from saving,
   opening, importing, exporting or the journal. The bar shows only the newest, but
