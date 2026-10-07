@@ -39,7 +39,7 @@ impl Panel<'_> {
             rule: Rule::Any,
         };
         let model = self.model;
-        let committed = feature_fields::expression_row(
+        let drafting = feature_fields::expression_row_drafting(
             ui,
             model,
             &format!("Move along {}", axis.name()),
@@ -50,7 +50,7 @@ impl Panel<'_> {
                 change(model, id, changed)
             },
         );
-        self.actions.extend(committed.map(Action::Apply));
+        self.actions.extend(drafting.into_actions(id));
     }
 
     fn turn_row(&mut self, ui: &mut Ui, axis: MoveAxis) {
@@ -63,7 +63,7 @@ impl Panel<'_> {
             rule: Rule::Any,
         };
         let model = self.model;
-        let committed = feature_fields::expression_row(
+        let drafting = feature_fields::expression_row_drafting(
             ui,
             model,
             &format!("Turn about {}", axis.name()),
@@ -74,7 +74,7 @@ impl Panel<'_> {
                 change(model, id, changed)
             },
         );
-        self.actions.extend(committed.map(Action::Apply));
+        self.actions.extend(drafting.into_actions(id));
     }
 }
 

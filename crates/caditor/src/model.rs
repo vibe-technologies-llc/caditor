@@ -6,14 +6,15 @@ use std::{
 };
 
 use caditor_document::{
-    Base, Document, Editor, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
-    ModelEvaluator, Outcome, ParameterValues, Prepared, Progress, Recomputer, SketchResult, Stale,
-    Transaction,
+    Base, Document, Editor, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult,
+    FeatureState, ModelEvaluator, Outcome, ParameterValues, Prepared, Progress, Recomputer,
+    SketchResult, Stale, Transaction,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, JournalEntry, JournalFailure, Recovered, Report, SaveRequest,
     Start, Storage, StorageConfig,
 };
+use caditor_geometry::RigidTransform;
 use caditor_kernel::MeshQuality;
 use caditor_sketch::{Constraint, Sketch, SketchSolution};
 use parking_lot::Mutex;
@@ -44,6 +45,10 @@ pub enum Action {
     DismissNotice,
     Inform(Notice),
     Drag(DragCommand),
+    Preview {
+        feature: FeatureId,
+        draft: Option<Transaction>,
+    },
     File(FileCommand),
     Editing(EditingCommand),
     Preferences(PreferencesCommand),
@@ -179,6 +184,8 @@ pub struct Model {
     display: Display,
     shown_before: Vec<Arc<FeatureResult>>,
     evaluation_generation: u64,
+    draft: Option<DraftPreview>,
+    drafts: u64,
 }
 
 impl Model {
@@ -214,6 +221,8 @@ impl Model {
             display: Display::default(),
             shown_before: Vec::new(),
             evaluation_generation: 0,
+            draft: None,
+            drafts: 0,
         };
         model.start_storage(None, None);
         model.recompute(Retry::Nothing);
@@ -275,6 +284,127 @@ impl Model {
 
     pub fn evaluation_generation(&self) -> u64 {
         self.evaluation_generation
+    }
+
+    pub fn draft_evaluation(&self) -> Option<&Evaluation> {
+        self.draft.as_ref()?.evaluation.as_ref()
+    }
+
+    pub fn draft_placement(&self) -> Option<(FeatureId, RigidTransform)> {
+        let draft = self.draft.as_ref()?;
+        let FeatureKind::Move(drafted) = &draft.kind else {
+            return None;
+        };
+        let committed = draft.shown?;
+        let body = if drafted.copy {
+            draft.feature
+        } else {
+            drafted.body
+        };
+        let placement = drafted.placement(&self.parameters)?;
+        Some((body, committed.inverse().then(&placement)))
+    }
+
+    fn preview(&mut self, feature: FeatureId, draft: Option<Transaction>) {
+        let Some(transaction) = draft else {
+            if self
+                .draft
+                .as_ref()
+                .is_some_and(|draft| draft.feature == feature)
+            {
+                self.drop_draft();
+            }
+            return;
+        };
+        let revision = self.revision();
+        let mut document = self.editor.document().clone();
+        let kind = document
+            .apply(transaction)
+            .ok()
+            .and_then(|_| Some(document.feature(feature)?.kind.clone()));
+        let Some(kind) = kind else {
+            self.drop_draft();
+            return;
+        };
+        let same = self.draft.as_ref().is_some_and(|draft| {
+            draft.feature == feature && draft.revision == revision && draft.kind == kind
+        });
+        if same {
+            return;
+        }
+        self.drafts += 1;
+        let previewed = !matches!(kind, FeatureKind::Move(_));
+        let shown = self.shown_placement(feature);
+        self.draft = Some(DraftPreview {
+            feature,
+            kind,
+            revision,
+            serial: self.drafts,
+            evaluation: None,
+            shown,
+            held: false,
+        });
+        if previewed
+            && let Some(recomputer) = &mut self.recomputer
+            && let Err(error) = recomputer.submit_draft(document, self.drafts)
+        {
+            log::warn!("the preview was not computed: {error}");
+        }
+    }
+
+    fn shown_placement(&self, feature: FeatureId) -> Option<RigidTransform> {
+        let up_to_date = self.status == RecomputeStatus::UpToDate
+            && self
+                .evaluation
+                .feature(feature)
+                .is_some_and(|status| status.state == FeatureState::UpToDate);
+        match &self.document().feature(feature)?.kind {
+            FeatureKind::Move(committed) if up_to_date => committed.placement(&self.parameters),
+            _ => None,
+        }
+    }
+
+    fn settle_held_draft(&mut self) -> bool {
+        let settled = !matches!(self.status, RecomputeStatus::Running { .. })
+            && !self.bodies_pending()
+            && self.draft.as_ref().is_some_and(|draft| draft.held);
+        if settled {
+            self.drop_draft();
+        }
+        settled
+    }
+
+    fn hold_draft(&mut self) {
+        if let Some(draft) = &mut self.draft {
+            draft.held = true;
+        }
+    }
+
+    fn drop_draft(&mut self) {
+        if self.draft.take().is_some() {
+            self.drafts += 1;
+        }
+    }
+
+    fn take_draft_result(&mut self) -> bool {
+        let Some(update) = self
+            .recomputer
+            .as_mut()
+            .and_then(|recomputer| recomputer.take_draft())
+        else {
+            return false;
+        };
+        let revision = self.revision();
+        let Some(draft) = self
+            .draft
+            .as_mut()
+            .filter(|draft| draft.serial == update.revision && draft.revision == revision)
+        else {
+            return false;
+        };
+        draft.evaluation = Some(update.evaluation);
+        self.drafts += 1;
+        true
     }
 
     pub fn display(&self) -> &Display {
@@ -432,12 +562,21 @@ impl Model {
     }
 
     pub fn mesh_before(&mut self, feature: Option<FeatureId>) {
+        if self
+            .draft
+            .as_ref()
+            .is_some_and(|draft| Some(draft.feature) != feature)
+        {
+            self.drop_draft();
+        }
+        let drafted = self.draft_body_result();
         let open: Vec<Arc<FeatureResult>> = feature
             .map(|feature| {
                 self.evaluation
                     .body_before(feature)
                     .into_iter()
                     .chain(self.evaluation.cuts(feature))
+                    .chain(drafted.as_ref())
                     .cloned()
                     .collect()
             })
@@ -473,6 +612,12 @@ impl Model {
                 self.mesh_requested.push(result);
             }
         }
+    }
+
+    pub fn draft_body_result(&self) -> Option<Arc<FeatureResult>> {
+        let draft = self.draft.as_ref()?;
+        let body = self.evaluation.body_before(draft.feature)?.solid()?.body;
+        draft.evaluation.as_ref()?.body_result(body).cloned()
     }
 
     pub fn take_file_events(&mut self) -> Vec<FileEvent> {
@@ -524,6 +669,10 @@ impl Model {
             }
             Action::Drag(command) => {
                 self.drag(command);
+                Ok(None)
+            }
+            Action::Preview { feature, draft } => {
+                self.preview(feature, draft);
                 Ok(None)
             }
             Action::File(command) => {
@@ -655,6 +804,7 @@ impl Model {
     }
 
     fn changed(&mut self, entry: JournalEntry) {
+        self.hold_draft();
         self.display.sketches.forget();
         self.display.sketches.stop_showing_dragged();
         self.notice.take_if(|notice| !notice.outlasts_edits);
@@ -665,8 +815,16 @@ impl Model {
     }
 
     pub fn poll(&mut self) -> bool {
+        let recomputed = self.poll_recompute();
+        recomputed | self.settle_held_draft()
+    }
+
+    fn poll_recompute(&mut self) -> bool {
         let polled = self.display.dragging.poll();
-        let stored = self.poll_storage() | self.display.meshing.poll() | self.dragged(polled);
+        let stored = self.poll_storage()
+            | self.display.meshing.poll()
+            | self.dragged(polled)
+            | self.take_draft_result();
         let Some(recomputer) = &mut self.recomputer else {
             return stored;
         };
@@ -1085,4 +1243,15 @@ fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {
                 && sketch.contradicting(constraint).is_none()
         })
         .collect()
+}
+
+#[derive(Debug, Clone)]
+struct DraftPreview {
+    feature: FeatureId,
+    kind: FeatureKind,
+    revision: u64,
+    serial: u64,
+    evaluation: Option<Evaluation>,
+    shown: Option<RigidTransform>,
+    held: bool,
 }

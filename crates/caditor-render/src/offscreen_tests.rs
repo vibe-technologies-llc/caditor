@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 use glam::DVec2;
 
 use crate::{
@@ -525,6 +525,7 @@ fn draws_and_picks_a_box(device: &wgpu::Device, queue: &wgpu::Queue) {
         meshes: vec![MeshInstance {
             mesh,
             faces: styles,
+            placement: None,
         }],
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
@@ -589,6 +590,7 @@ fn face_colours_and_the_eye_follow_every_frame_with_one_renderer() {
         meshes: vec![MeshInstance {
             mesh: Arc::clone(&mesh),
             faces: vec![FaceStyle { color, pick: None }; 6],
+            placement: None,
         }],
         ..Scene::default()
     };
@@ -645,6 +647,7 @@ fn faces_that_cannot_be_picked_still_hide_what_is_behind_them_from_picking() {
                 };
                 6
             ],
+            placement: None,
         }],
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
@@ -687,6 +690,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
                 };
                 6
             ],
+            placement: None,
         }],
         translucent_meshes: Vec::new(),
         overlay_meshes: Vec::new(),
@@ -783,6 +787,7 @@ fn reference_fills_are_picked_only_where_nothing_else_is() {
         meshes: vec![MeshInstance {
             mesh: Arc::new(box_mesh(20.0)),
             faces: styles,
+            placement: None,
         }],
         batches: vec![Arc::new(Batch {
             fills: vec![
@@ -943,6 +948,7 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
                 };
                 6
             ],
+            placement: None,
         }],
         ..Scene::default()
     };
@@ -1191,6 +1197,7 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
             };
             6
         ],
+        placement: None,
     };
     let glass = MeshInstance {
         mesh: Arc::new(box_mesh(40.0)),
@@ -1201,6 +1208,7 @@ fn a_translucent_mesh_blends_over_what_is_behind_it_and_is_never_picked() {
             };
             6
         ],
+        placement: None,
     };
     let both = Scene {
         meshes: vec![solid.clone()],
@@ -1249,6 +1257,7 @@ fn an_overlay_mesh_shows_through_whatever_covers_it_and_is_never_picked() {
             };
             6
         ],
+        placement: None,
     };
     let inside = MeshInstance {
         mesh: Arc::new(box_mesh(10.0)),
@@ -1259,6 +1268,7 @@ fn an_overlay_mesh_shows_through_whatever_covers_it_and_is_never_picked() {
             };
             6
         ],
+        placement: None,
     };
     let both = Scene {
         meshes: vec![cover.clone()],
@@ -1300,6 +1310,7 @@ fn a_flat_mesh_shows_its_colour_unlit_hides_what_is_behind_it_and_is_picked() {
             };
             6
         ],
+        placement: None,
     };
     let scene = Scene {
         flat_meshes: vec![flat],
@@ -1468,6 +1479,7 @@ fn faces_that_cannot_be_picked_hide_faces_and_reference_fills_as_pickable_ones_d
             };
             6
         ],
+        placement: None,
     };
     let behind = MeshInstance {
         mesh: Arc::new(box_mesh(10.0)),
@@ -1477,6 +1489,7 @@ fn faces_that_cannot_be_picked_hide_faces_and_reference_fills_as_pickable_ones_d
                 pick: PickId::from_index(10 + index),
             })
             .collect(),
+        placement: None,
     };
     let scene = Scene {
         meshes: vec![unpickable, behind],
@@ -1624,6 +1637,7 @@ fn a_scene_larger_than_a_buffer_draws_what_fits_and_splits_its_meshes() {
         meshes: vec![MeshInstance {
             mesh: Arc::clone(&mesh),
             faces: styles,
+            placement: None,
         }],
         batches: vec![Arc::new(Batch {
             lines,
@@ -1700,6 +1714,7 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
         meshes: vec![MeshInstance {
             mesh: Arc::new(box_mesh(20.0)),
             faces: styles,
+            placement: None,
         }],
         batches: vec![Arc::new(Batch {
             lines: vec![
@@ -1802,6 +1817,7 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
                 };
                 6
             ],
+            placement: None,
         }],
         batches: vec![Arc::new(Batch {
             lines: vec![diagonal_line(Layer::Front)],
@@ -1867,6 +1883,7 @@ fn enhanced_shading_sets_faces_apart_keeps_their_tint_and_keeps_dimmed_bodies_da
                     pick: PickId::from_index(10 + index),
                 })
                 .collect(),
+            placement: None,
         }],
         ..Scene::default()
     };
@@ -1970,6 +1987,7 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
                 };
                 6
             ],
+            placement: None,
         }],
         ..Scene::default()
     };
@@ -2083,6 +2101,7 @@ fn a_window_less_renderer_draws_an_image_without_a_surface() {
                 };
                 6
             ],
+            placement: None,
         }],
         ..Scene::default()
     };
@@ -2676,4 +2695,41 @@ fn viewport_targets_the_device_refuses_are_reported_once_and_the_frame_is_still_
     assert!(refused.targets);
     assert!(!repeated.any());
     assert!(!fitting.any());
+}
+
+#[test]
+fn a_placed_mesh_draws_and_picks_where_its_placement_puts_it() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let mesh = Arc::new(strip_mesh(1, 10.0));
+    let turned = RigidTransform::rotation_about(Point3::ZERO, Vector3::Z, 0.5).unwrap();
+    let placement =
+        turned.then(&RigidTransform::translation(Vector3::new(20.0, 0.0, 0.0)).unwrap());
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh,
+            faces: vec![FaceStyle {
+                color: Color::from_rgb8(255, 40, 40),
+                pick: PickId::from_index(0),
+            }],
+            placement: Some(placement),
+        }],
+        ..Scene::default()
+    };
+    let moved_to = view.project(Point3::new(20.0, 0.0, 0.0)).unwrap();
+    let left_behind = view.project(Point3::new(-4.0, -4.5, 0.0)).unwrap();
+    let rendered = render(&device, &queue, &view, &scene, moved_to);
+
+    assert!(pixel(&rendered, moved_to)[0] > 128);
+    assert!(pixel(&rendered, left_behind)[0] < 128);
+    assert!(
+        rendered
+            .pick
+            .hits
+            .iter()
+            .any(|hit| Some(hit.id) == PickId::from_index(0) && hit.offset_points < 1.0)
+    );
 }

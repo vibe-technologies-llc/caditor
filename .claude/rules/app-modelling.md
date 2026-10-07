@@ -46,6 +46,17 @@ paths:
   outside the rounded surface, and hidden ones stay hidden since unpicked faces still write depth
   in the pick pass. A failed or pending blend and a shell show the body before them instead
   (`OpenView::Before`).
+- Typing in an open fillet's or chamfer's size field or a move's fields previews the value before
+  it is entered: `commit_field` reports the text as edited (`FieldResponse::edited`) and
+  `feature_fields::expression_row_drafting` turns valid text into `Action::Preview` with the
+  transaction it would commit, never applied. `Model` applies it to a copy of the document
+  (`DraftPreview`, dropped when the feature closes, the text turns invalid, Escape or leaving the
+  field without a change). A blend's copy is computed as a draft (`document-recompute.md`) and its
+  body drawn in the result's place once meshed (`BodyMeshes::draft`, `OpenDraft`); a move is not
+  recomputed: `Model::draft_placement` (the draft's `Move::placement` after undoing the one shown)
+  places the drawn body (`MeshInstance::placement`, its edges and vertices moved on the CPU).
+  Entering the value commits as before, and the draft stays shown (held) until the model has
+  recomputed and meshed, so the body never jumps back.
 - A feature that removes material (an extrusion or revolve removing from a body, a hole) shows
   instead the body solid as cut and only its tools (`Evaluation::cuts`, the swept profile or each
   drill) in `CUT_PREVIEW` over everything (`Scene::overlay_meshes`, edges on the front layer),

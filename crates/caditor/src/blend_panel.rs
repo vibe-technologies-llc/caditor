@@ -78,7 +78,7 @@ fn size_row(
         rule: Rule::AboveZero,
     };
     let caption = size_caption(blend.kind);
-    let committed = feature_fields::expression_row(ui, model, caption, quantity, |size| {
+    let drafting = feature_fields::expression_row_drafting(ui, model, caption, quantity, |size| {
         change(
             model,
             feature,
@@ -88,7 +88,7 @@ fn size_row(
             },
         )
     });
-    actions.extend(committed.map(Action::Apply));
+    actions.extend(drafting.into_actions(feature));
 }
 
 const NO_SHAPE_YET: &str = "An edge of a body that has no shape yet";

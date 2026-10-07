@@ -96,6 +96,14 @@ paths:
   count at submission, so a `cancel` after a job finished (or while idle) trips nothing later.
   Requested meshes run after the queued recompute, newest first (asking again moves a result to the
   front), so the state on screen is meshed before stale ones.
+- A draft (`Recomputer::submit_draft`, a document with a change the user has not committed, under
+  a serial of the app's) runs on the same worker against a copy of the cache
+  (`Recompute::draft_copy`, cheap since entries hold `Arc`s), so upstream results are reused while
+  the cache, the last reported evaluation and the model's reports are never touched. Its finished,
+  complete evaluation is kept apart (`Recomputer::take_draft`); an unfinished or cancelled one is
+  dropped. A draft never pre-empts the model: submitted while a model submission is unanswered it
+  waits until that is reported, and any model submission drops a waiting draft and stops a running
+  one.
 - `Progress` carries the feature running and when it began; the status bar shows it, and the log
   line of a replaced worker names it.
 - A worker that does not stop is replaced: once a `cancel` or newer submission has gone unanswered

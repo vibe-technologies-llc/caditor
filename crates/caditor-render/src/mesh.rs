@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use caditor_geometry::{Aabb, Point3, Vector3};
+use caditor_geometry::{Aabb, Point3, RigidTransform, Vector3};
 use glam::Vec3;
 use wgpu::util::DeviceExt;
 
@@ -14,7 +14,7 @@ pub const MESH_VERTEX_STRIDE: u64 = 28;
 const INDEX_BYTES: u64 = 4;
 const STYLE_BINDING: u32 = 1;
 const PLACEMENT_BINDING: u32 = 2;
-const PLACEMENT_BYTES: u64 = 32;
+const PLACEMENT_BYTES: u64 = 80;
 const STYLE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg32Uint;
 const STYLE_TEXEL_BYTES: u32 = 8;
 const UNSTYLED_FACE: FaceStyle = FaceStyle {
@@ -110,11 +110,14 @@ pub struct FaceStyle {
 pub struct MeshInstance {
     pub mesh: Arc<ShadedMesh>,
     pub faces: Vec<FaceStyle>,
+    pub placement: Option<RigidTransform>,
 }
 
 impl PartialEq for MeshInstance {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.mesh, &other.mesh) && self.faces == other.faces
+        Arc::ptr_eq(&self.mesh, &other.mesh)
+            && self.faces == other.faces
+            && self.placement == other.placement
     }
 }
 
@@ -350,13 +353,21 @@ impl GpuMesh {
         instance: &MeshInstance,
         eye: Point3,
     ) {
+        let placement = instance.placement.unwrap_or(RigidTransform::IDENTITY);
+        let turn = |axis: Vector3| placement.apply_vector(axis).as_vec3();
         bytes.clear();
         bytes
-            .vec4(relative_to_eye(self.mesh.origin, eye), 0.0)
+            .vec4(
+                relative_to_eye(placement.apply_point(self.mesh.origin), eye),
+                0.0,
+            )
             .u32(self.layout.faces)
             .u32(self.layout.columns)
             .u32(0)
-            .u32(0);
+            .u32(0)
+            .vec4(turn(Vector3::X), 0.0)
+            .vec4(turn(Vector3::Y), 0.0)
+            .vec4(turn(Vector3::Z), 0.0);
         queue.write_buffer(&self.placement, 0, bytes.as_slice());
         if self.written.as_deref() == Some(instance.faces.as_slice()) {
             return;

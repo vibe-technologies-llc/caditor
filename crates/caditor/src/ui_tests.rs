@@ -823,6 +823,15 @@ impl Harness {
             .expect("the viewport has a scene")
     }
 
+    fn draft_into_field(&mut self, id: Id, text: &str) {
+        self.context.memory_mut(|memory| memory.request_focus(id));
+        self.frame();
+        self.key(Key::A, Modifiers::COMMAND);
+        self.events.push(Event::Text(text.to_owned()));
+        self.frame();
+        self.frame();
+    }
+
     fn type_into_field(&mut self, id: Id, text: &str) {
         self.context.memory_mut(|memory| memory.request_focus(id));
         self.frame();
@@ -7185,6 +7194,111 @@ fn blend_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Blend {
         .feature(feature)
         .and_then(|feature| feature.kind.blend())
         .unwrap()
+}
+
+fn draft_volume(harness: &Harness, body: FeatureId) -> Option<f64> {
+    let result = harness.model.draft_evaluation()?.body_result(body)?;
+    Some(result.solid()?.mesh()?.mass_properties().volume)
+}
+
+#[test]
+fn a_fillet_radius_being_typed_is_previewed_before_it_is_entered() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    let spandrel = |radius: f64| (1.0 - std::f64::consts::PI / 4.0) * radius * radius;
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Fillet");
+    harness.settle();
+    let fillet = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the fillet is open");
+    let field = Id::new(("blend-size", fillet));
+
+    harness.draft_into_field(field, "3 mm");
+    harness.wait_until("the typed radius is previewed", |harness| {
+        draft_volume(harness, plate).is_some()
+    });
+
+    let removed = 16000.0 - draft_volume(&harness, plate).unwrap();
+    assert!((removed - 40.0 * spandrel(3.0)).abs() < 0.1 * 40.0 * spandrel(3.0));
+    assert_eq!(harness.model.undo_label(), Some("Create Fillet 1"));
+    assert!(removed_about(&harness, plate, 40.0 * spandrel(1.0)));
+    let built = harness.built_with_meshes(1);
+    assert!(built.scene.meshes.iter().any(|mesh| {
+        mesh.mesh.face_count() == 7 && mesh.faces.iter().all(|face| face.pick.is_none())
+    }));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert!(harness.model.draft_evaluation().is_none());
+    assert_eq!(harness.model.undo_label(), Some("Create Fillet 1"));
+
+    harness.draft_into_field(field, "2 mm");
+    harness.wait_until("the typed radius is previewed", |harness| {
+        draft_volume(harness, plate).is_some()
+    });
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Fillet 1"));
+    assert!(removed_about(&harness, plate, 40.0 * spandrel(2.0)));
+    harness.wait_until("the preview gives way to the result", |harness| {
+        harness.model.draft_evaluation().is_none()
+    });
+}
+
+#[test]
+fn a_move_being_typed_moves_the_drawn_body_before_it_is_entered() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Move body");
+    harness.settle();
+    let movement = harness.workspace.editing.solid().expect("the move is open");
+
+    harness.draft_into_field(Id::new(("move-field", "offset", 0usize, movement)), "12 mm");
+
+    let (body, placement) = harness
+        .model
+        .draft_placement()
+        .expect("the move is previewed");
+    assert_eq!(body, plate);
+    assert!(
+        placement
+            .apply_point(caditor_geometry::Point3::ZERO)
+            .distance(caditor_geometry::Point3::new(12.0, 0.0, 0.0))
+            < 1e-9
+    );
+    assert_eq!(harness.model.undo_label(), Some("Create Move body 1"));
+    let built = harness.built_with_meshes(2);
+    let moved = built
+        .scene
+        .meshes
+        .iter()
+        .find_map(|mesh| mesh.placement)
+        .expect("the drawn body carries the preview's placement");
+    assert_eq!(moved, placement);
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+    assert!(harness.model.draft_placement().is_none());
+    assert!(
+        harness
+            .built()
+            .scene
+            .meshes
+            .iter()
+            .all(|mesh| mesh.placement.is_none())
+    );
 }
 
 #[test]

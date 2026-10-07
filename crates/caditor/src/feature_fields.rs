@@ -83,13 +83,53 @@ pub fn expression_row(
     model: &Model,
     caption: &str,
     quantity: Quantity<'_>,
-    change: impl FnOnce(Expression) -> Result<Transaction, String>,
+    change: impl Fn(Expression) -> Result<Transaction, String>,
 ) -> Option<Transaction> {
+    expression_row_drafting(ui, model, caption, quantity, change).committed
+}
+
+pub struct Drafting {
+    pub committed: Option<Transaction>,
+    pub draft: Option<Option<Transaction>>,
+}
+
+impl Drafting {
+    pub fn into_actions(self, feature: FeatureId) -> impl Iterator<Item = Action> {
+        let preview = self.draft.map(|draft| Action::Preview { feature, draft });
+        preview.into_iter().chain(self.committed.map(Action::Apply))
+    }
+}
+
+pub fn expression_row_drafting(
+    ui: &mut Ui,
+    model: &Model,
+    caption: &str,
+    quantity: Quantity<'_>,
+    change: impl Fn(Expression) -> Result<Transaction, String>,
+) -> Drafting {
     widgets::caption(ui, caption);
     let document = model.document();
     let parameters = model.parameters();
     let unit = model.units();
-    let (committed, error) = ui
+    let validate = |text: &str| {
+        let parsed = field::parse_expression(
+            document,
+            parameters,
+            text,
+            Expected {
+                dimension: Some(quantity.dimension),
+                non_negative: false,
+            },
+            unit,
+        )?;
+        let value = parameters
+            .evaluate_expression(&parsed)
+            .map_err(|error| field::sentence(&error.to_string()))?
+            .value;
+        quantity.rule.check(value)?;
+        change(parsed)
+    };
+    let (committed, error, draft) = ui
         .horizontal(|ui| {
             let field = field::commit_field(
                 ui,
@@ -97,38 +137,26 @@ pub fn expression_row(
                 &document.expression_text(quantity.expression),
                 FIELD_WIDTH,
                 false,
-                |text| {
-                    let parsed = field::parse_expression(
-                        document,
-                        parameters,
-                        text,
-                        Expected {
-                            dimension: Some(quantity.dimension),
-                            non_negative: false,
-                        },
-                        unit,
-                    )?;
-                    let value = parameters
-                        .evaluate_expression(&parsed)
-                        .map_err(|error| field::sentence(&error.to_string()))?
-                        .value;
-                    quantity.rule.check(value)?;
-                    change(parsed)
-                },
+                validate,
             );
             if field.error.is_none()
                 && let Some(preview) = field::value_preview(parameters, quantity.expression, unit)
             {
                 ui.label(widgets::muted(preview, ui));
             }
-            (field.committed, field.error)
+            let draft = match (field.committed.is_some(), field.left, field.edited) {
+                (true, _, _) | (false, false, None) => None,
+                (false, true, _) => Some(None),
+                (false, false, Some(text)) => Some(validate(&text).ok()),
+            };
+            (field.committed, field.error, draft)
         })
         .inner;
     ui.end_row();
     if let Some(error) = error {
         widgets::error_row(ui, &error);
     }
-    committed
+    Drafting { committed, draft }
 }
 
 pub fn refusal(feature: &str, reason: &str) -> Action {

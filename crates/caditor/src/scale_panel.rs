@@ -31,7 +31,7 @@ impl Panel<'_> {
         caption: &str,
         salt: (&str, usize),
         (expression, dimension, rule): (&Expression, Dimension, Rule),
-        rebuild: impl FnOnce(Expression) -> Scale,
+        rebuild: impl Fn(Expression) -> Scale,
     ) {
         let id = self.feature.id();
         let quantity = Quantity {

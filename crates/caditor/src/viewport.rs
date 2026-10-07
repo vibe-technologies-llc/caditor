@@ -14,7 +14,7 @@ use egui::{
 use crate::{
     annotations::{Annotations, Surface},
     blend_tools,
-    bodies::{self, BodyMeshes},
+    bodies::{self, BodyMeshes, OpenDraft},
     body_selection,
     box_selection::{self, Catch},
     canvas,
@@ -535,8 +535,18 @@ impl ViewportState {
             self.last_pick = None;
         }
         self.bodies.update(evaluation, &display.meshing);
-        self.bodies
-            .update_open(document, evaluation, &display.meshing, context.solid);
+        let drafted = model.draft_body_result();
+        self.bodies.update_open(
+            document,
+            evaluation,
+            &display.meshing,
+            context.solid,
+            OpenDraft {
+                evaluation: model.draft_evaluation(),
+                result: drafted.as_ref(),
+                moved: model.draft_placement(),
+            },
+        );
         let availability = Availability {
             selection: self.selection.generation(),
             revision: model.revision(),

@@ -135,7 +135,7 @@ impl Panel<'_> {
         salt: &str,
         expression: &Expression,
         (dimension, rule): (Dimension, Rule),
-        rebuild: impl FnOnce(Expression) -> SolidFeature,
+        rebuild: impl Fn(Expression) -> SolidFeature,
     ) {
         let model = self.model;
         let id = self.id();

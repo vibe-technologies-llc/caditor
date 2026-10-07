@@ -8,7 +8,7 @@ use caditor_document::{
     PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, SolidResult,
     body_parts, displayed_axis,
 };
-use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{RegionKey, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
@@ -390,11 +390,16 @@ enum OpenView {
 }
 
 impl OpenView {
-    fn of(evaluation: &Evaluation, open: &BodyBefore) -> Self {
-        let computed = !evaluation.is_pending(open.feature)
-            && evaluation
-                .feature(open.feature)
-                .is_some_and(|status| matches!(status.state, FeatureState::UpToDate));
+    fn of(evaluation: &Evaluation, bodies: &BodyMeshes, open: &BodyBefore) -> Self {
+        let computed = match bodies.draft() {
+            Some(draft) => draft.computed,
+            None => {
+                !evaluation.is_pending(open.feature)
+                    && evaluation
+                        .feature(open.feature)
+                        .is_some_and(|status| matches!(status.state, FeatureState::UpToDate))
+            }
+        };
         match open.choice {
             OpenChoice::Nothing => Self::Ghost,
             OpenChoice::Edges { .. } if computed => Self::Result,
@@ -521,7 +526,8 @@ pub fn build(
         Some(_) => Vec::new(),
         None => previewed_bodies(evaluation, context),
     };
-    let open_view = open.map(|open| (open, OpenView::of(evaluation, open)));
+    let open_view = open.map(|open| (open, OpenView::of(evaluation, bodies, open)));
+    let moved = bodies.moved();
     for (body, mesh) in bodies.iter() {
         if !visibility::is_shown(document, body) {
             continue;
@@ -529,7 +535,8 @@ pub fn build(
         match open_view {
             Some((open, OpenView::Before)) if open.body == body => continue,
             Some((open, OpenView::Result)) if open.body == body => {
-                builder.open_result(document, evaluation, open, mesh);
+                let shown = bodies.draft().map_or(mesh, |draft| &draft.mesh);
+                builder.open_result(document, evaluation, open, shown);
                 continue;
             }
             Some(_) | None => {}
@@ -559,6 +566,9 @@ pub fn build(
             (color, &faces),
             opacity,
             editing.is_none() || context.projecting,
+            moved
+                .filter(|(moved, _)| *moved == body)
+                .map(|(_, placement)| placement),
         );
     }
     match open_view {
@@ -881,7 +891,10 @@ impl Builder<'_> {
         (color, face_colours): (Option<Color>, &BTreeMap<FaceKey, Color>),
         opacity: Option<f32>,
         pickable: bool,
+        placement: Option<RigidTransform>,
     ) {
+        let placed =
+            |point: Point3| placement.map_or(point, |placement| placement.apply_point(point));
         let own =
             |face: &BodyFace, base: Color| face_colours.get(&face.key).copied().unwrap_or(base);
         let style = match color {
@@ -920,6 +933,7 @@ impl Builder<'_> {
             self.translucent_meshes.push(MeshInstance {
                 mesh: Arc::clone(&mesh.mesh),
                 faces,
+                placement,
             });
         } else if style.shows_faces() {
             let face_base = |base: Color| {
@@ -963,6 +977,7 @@ impl Builder<'_> {
             let instance = MeshInstance {
                 mesh: Arc::clone(&mesh.mesh),
                 faces,
+                placement,
             };
             if style.is_drawing() {
                 self.flat_meshes.push(instance);
@@ -996,8 +1011,8 @@ impl Builder<'_> {
             };
             let segments = edge.points.windows(2).filter_map(|pair| match pair {
                 [start, end] => Some(Line {
-                    start: *start,
-                    end: *end,
+                    start: placed(*start),
+                    end: placed(*end),
                     color,
                     width,
                     layer: Layer::Model,
@@ -1017,7 +1032,7 @@ impl Builder<'_> {
                 vertex: vertex.key,
             };
             self.scene.markers.push(Marker {
-                position: vertex.position,
+                position: placed(vertex.position),
                 color: self.highlight.color(pickable, UNMARKED_VERTEX),
                 diameter: POINT_DIAMETER
                     + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
@@ -1037,6 +1052,7 @@ impl Builder<'_> {
                 };
                 cut.faces.len()
             ],
+            placement: None,
         });
         for edge in &cut.edges {
             let segments = edge.points.windows(2).filter_map(|pair| match pair {
@@ -1070,6 +1086,7 @@ impl Builder<'_> {
                 .iter()
                 .map(|_| FaceStyle { color, pick: None })
                 .collect(),
+            placement: None,
         });
         for edge in &mesh.edges {
             self.scene
@@ -1100,6 +1117,7 @@ impl Builder<'_> {
                 .iter()
                 .map(|_| FaceStyle { color, pick: None })
                 .collect(),
+            placement: None,
         });
     }
 
@@ -1148,6 +1166,7 @@ impl Builder<'_> {
             self.meshes.push(MeshInstance {
                 mesh: Arc::clone(&open.before.mesh),
                 faces,
+                placement: None,
             });
         }
         for edge in &open.before.edges {

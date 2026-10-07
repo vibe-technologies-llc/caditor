@@ -7,6 +7,7 @@ use crate::{
     document::{Feature, FeatureId},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
+    values::ParameterValues,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -93,6 +94,19 @@ impl Move {
     pub fn heap_size(&self) -> usize {
         self.expressions().map(Expression::heap_size).sum()
     }
+
+    pub fn placement(&self, parameters: &ParameterValues) -> Option<RigidTransform> {
+        placed(
+            self,
+            |expression, dimension, _| {
+                expression
+                    .evaluate_as(dimension, &|id| parameters.value(id))
+                    .map_err(|_| ())
+            },
+            || (),
+        )
+        .ok()
+    }
 }
 
 struct Context<'a> {
@@ -150,22 +164,32 @@ impl Context<'_> {
 }
 
 fn transform(context: &Context<'_>, definition: &Move) -> Result<RigidTransform, Failure> {
+    placed(
+        definition,
+        |expression, dimension, what| context.value(expression, dimension, what),
+        || unusable(context),
+    )
+}
+
+fn placed<E>(
+    definition: &Move,
+    value: impl Fn(&Expression, Dimension, &str) -> Result<f64, E>,
+    unusable: impl Fn() -> E,
+) -> Result<RigidTransform, E> {
     let mut placed = RigidTransform::IDENTITY;
     for axis in MoveAxis::ALL {
         let what = format!("turn about {}", axis.name());
-        let turn = axis.of(&definition.turn);
-        let angle = context.value(turn, Dimension::ANGLE, &what)?.to_radians();
+        let angle = value(axis.of(&definition.turn), Dimension::ANGLE, &what)?.to_radians();
         let turned = RigidTransform::rotation_about(Point3::ZERO, axis.direction(), angle)
-            .ok_or_else(|| unusable(context))?;
+            .ok_or_else(&unusable)?;
         placed = placed.then(&turned);
     }
     let mut offset = Vector3::ZERO;
     for axis in MoveAxis::ALL {
         let what = format!("distance along {}", axis.name());
-        let distance = axis.of(&definition.offset);
-        offset += axis.direction() * context.value(distance, Dimension::LENGTH, &what)?;
+        offset += axis.direction() * value(axis.of(&definition.offset), Dimension::LENGTH, &what)?;
     }
-    let shifted = RigidTransform::translation(offset).ok_or_else(|| unusable(context))?;
+    let shifted = RigidTransform::translation(offset).ok_or_else(&unusable)?;
     Ok(placed.then(&shifted))
 }
 

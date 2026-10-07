@@ -8,9 +8,11 @@ use std::{
     thread,
 };
 
-use caditor_document::{Document, Evaluation, FeatureId, FeatureKind, FeatureResult, SolidResult};
+use caditor_document::{
+    Document, Evaluation, FeatureId, FeatureKind, FeatureResult, FeatureState, SolidResult,
+};
 pub use caditor_document::{describe_origin, origin_feature};
-use caditor_geometry::{Aabb, Point3};
+use caditor_geometry::{Aabb, Point3, RigidTransform};
 use caditor_kernel::{
     Curve, EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference,
     MassProperties, Mesh, Solid, Surface, VertexId, VertexName,
@@ -356,12 +358,27 @@ pub struct BodyBefore {
     pub choice: OpenChoice,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OpenDraft<'a> {
+    pub evaluation: Option<&'a Evaluation>,
+    pub result: Option<&'a Arc<FeatureResult>>,
+    pub moved: Option<(FeatureId, RigidTransform)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DraftShown {
+    pub mesh: Arc<BodyMesh>,
+    pub computed: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BodyMeshes {
     bodies: BTreeMap<FeatureId, Arc<BodyMesh>>,
     open: Option<BodyBefore>,
     cuts: Vec<Arc<BodyMesh>>,
     cuts_of: Option<FeatureId>,
+    draft: Option<DraftShown>,
+    moved: Option<(FeatureId, RigidTransform)>,
     generation: u64,
 }
 
@@ -372,6 +389,14 @@ impl BodyMeshes {
 
     pub fn cuts(&self) -> &[Arc<BodyMesh>] {
         &self.cuts
+    }
+
+    pub fn draft(&self) -> Option<&DraftShown> {
+        self.draft.as_ref()
+    }
+
+    pub fn moved(&self) -> Option<(FeatureId, RigidTransform)> {
+        self.moved
     }
 
     pub fn generation(&self) -> u64 {
@@ -388,7 +413,9 @@ impl BodyMeshes {
         evaluation: &Evaluation,
         meshing: &BodyMeshing,
         feature: Option<FeatureId>,
+        draft: OpenDraft<'_>,
     ) {
+        self.show_draft(meshing, feature, draft);
         let shown_before = self.open.clone();
         let previous = self
             .open
@@ -454,6 +481,43 @@ impl BodyMeshes {
             (Some(_), None) | (None, Some(_)) => false,
         };
         if !same {
+            self.changed();
+        }
+    }
+
+    fn show_draft(
+        &mut self,
+        meshing: &BodyMeshing,
+        feature: Option<FeatureId>,
+        draft: OpenDraft<'_>,
+    ) {
+        let computed = feature.is_some_and(|feature| {
+            draft.evaluation.is_some_and(|evaluation| {
+                !evaluation.is_pending(feature)
+                    && evaluation
+                        .feature(feature)
+                        .is_some_and(|status| status.state == FeatureState::UpToDate)
+            })
+        });
+        let shown = match draft.result.map(|result| meshing.lookup(result)) {
+            Some(Converted::Ready(mesh)) => Some(DraftShown {
+                mesh: Arc::clone(mesh),
+                computed,
+            }),
+            Some(Converted::Pending) => self.draft.clone(),
+            Some(Converted::Missing) | None => None,
+        };
+        let same_draft = match (&shown, &self.draft) {
+            (Some(new), Some(old)) => {
+                Arc::ptr_eq(&new.mesh, &old.mesh) && new.computed == old.computed
+            }
+            (None, None) => true,
+            (Some(_), None) | (None, Some(_)) => false,
+        };
+        self.draft = shown;
+        let same_move = self.moved == draft.moved;
+        self.moved = draft.moved;
+        if !same_draft || !same_move {
             self.changed();
         }
     }

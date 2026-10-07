@@ -18,6 +18,9 @@ struct Grid {
 struct MeshPlacement {
     offset: vec4<f32>,
     faces_columns: vec4<u32>,
+    turn_x: vec4<f32>,
+    turn_y: vec4<f32>,
+    turn_z: vec4<f32>,
 }
 
 @group(0) @binding(0) var<uniform> view: View;
@@ -252,9 +255,13 @@ fn unpack_color(packed: u32) -> vec4<f32> {
     return vec4<f32>(channels) / 255.0;
 }
 
+fn turned(vector: vec3<f32>) -> vec3<f32> {
+    return mesh.turn_x.xyz * vector.x + mesh.turn_y.xyz * vector.y + mesh.turn_z.xyz * vector.z;
+}
+
 @vertex
 fn vs_mesh(vertex: MeshVertex) -> Varyings {
-    let relative = vertex.position + mesh.offset.xyz;
+    let relative = turned(vertex.position) + mesh.offset.xyz;
     let face = min(vertex.face, max(mesh.faces_columns.x, 1u) - 1u);
     let columns = max(mesh.faces_columns.y, 1u);
     let style = textureLoad(face_styles, vec2<u32>(face % columns, face / columns), 0);
@@ -265,7 +272,7 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     out.pick = style.y;
     out.depth = view_depth(relative);
     out.relative = relative;
-    out.normal = vertex.normal;
+    out.normal = turned(vertex.normal);
     return out;
 }
 

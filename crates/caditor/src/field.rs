@@ -22,6 +22,8 @@ struct Draft {
 pub struct FieldResponse<T> {
     pub committed: Option<T>,
     pub error: Option<String>,
+    pub edited: Option<String>,
+    pub left: bool,
     pub response: Response,
 }
 
@@ -54,6 +56,7 @@ pub fn commit_field<T>(
         response.request_focus();
         response.scroll_to_me(Some(Align::Center));
     }
+    let edited = response.changed().then(|| text.trim().to_owned());
     if response.changed() {
         draft = Some(Draft {
             text: text.clone(),
@@ -99,9 +102,12 @@ pub fn commit_field<T>(
         }
         None => data.remove::<Draft>(id),
     });
+    let left = response.lost_focus();
     FieldResponse {
         committed,
         error,
+        edited,
+        left,
         response,
     }
 }

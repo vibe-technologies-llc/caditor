@@ -58,7 +58,13 @@ struct Job {
     cancels: u64,
     revision: u64,
     retry_failures: bool,
+    draft: bool,
     document: Document,
+}
+
+struct Report {
+    draft: bool,
+    update: Update,
 }
 
 enum Message {
@@ -115,7 +121,7 @@ type SharedWake = Arc<Mutex<Box<dyn Fn() + Send>>>;
 
 struct Handle {
     jobs: mpsc::Sender<Message>,
-    updates: mpsc::Receiver<Update>,
+    updates: mpsc::Receiver<Report>,
     shared: Arc<Shared>,
 }
 
@@ -133,6 +139,8 @@ pub struct Recomputer {
     next_sequence: u64,
     quality: Option<MeshQuality>,
     newest: Option<Submitted>,
+    waiting_draft: Option<(Document, u64)>,
+    draft: Option<Update>,
     reported: Evaluation,
     grace: Duration,
 }
@@ -152,6 +160,8 @@ impl Recomputer {
             next_sequence: 0,
             quality: None,
             newest: None,
+            waiting_draft: None,
+            draft: None,
             reported: Evaluation::default(),
             grace: STOP_GRACE,
         })
@@ -185,13 +195,27 @@ impl Recomputer {
             self.replace_worker()?;
         }
         self.handle.shared.ask_to_stop();
+        self.waiting_draft = None;
         self.newest = Some(Submitted {
             document: document.clone(),
             revision,
             retry_failures,
             cancelled: false,
         });
-        self.send_job(document, revision, retry_failures)
+        self.send_job(document, revision, retry_failures, false)
+    }
+
+    pub fn submit_draft(&mut self, document: Document, serial: u64) -> Result<(), WorkerStopped> {
+        if self.newest.is_some() {
+            self.waiting_draft = Some((document, serial));
+            return Ok(());
+        }
+        self.handle.shared.ask_to_stop();
+        self.send_job(document, serial, false, true)
+    }
+
+    pub fn take_draft(&mut self) -> Option<Update> {
+        self.draft.take()
     }
 
     fn send_job(
@@ -199,6 +223,7 @@ impl Recomputer {
         document: Document,
         revision: u64,
         retry_failures: bool,
+        draft: bool,
     ) -> Result<(), WorkerStopped> {
         let sequence = self.next_sequence;
         self.next_sequence += 1;
@@ -210,6 +235,7 @@ impl Recomputer {
                 cancels: self.handle.shared.cancels.load(Ordering::SeqCst),
                 revision,
                 retry_failures,
+                draft,
                 document,
             }))
             .map_err(|_| WorkerStopped)
@@ -295,7 +321,12 @@ impl Recomputer {
                 evaluation: self.reported.clone().outdating_pending(),
             }));
         }
-        self.send_job(newest.document, newest.revision, newest.retry_failures)?;
+        self.send_job(
+            newest.document,
+            newest.revision,
+            newest.retry_failures,
+            false,
+        )?;
         Ok(None)
     }
 
@@ -308,7 +339,14 @@ impl Recomputer {
         let mut latest = None;
         loop {
             match self.handle.updates.try_recv() {
-                Ok(update) => latest = Some(update),
+                Ok(Report {
+                    draft: true,
+                    update,
+                }) => self.draft = Some(update),
+                Ok(Report {
+                    draft: false,
+                    update,
+                }) => latest = Some(update),
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     return latest.map(Some).ok_or(WorkerStopped);
@@ -326,18 +364,24 @@ impl Recomputer {
                 self.newest = None;
             }
         }
+        if self.newest.is_none()
+            && let Some((document, serial)) = self.waiting_draft.take()
+        {
+            self.handle.shared.ask_to_stop();
+            self.send_job(document, serial, false, true)?;
+        }
         Ok(latest)
     }
 
     #[cfg(test)]
     pub(crate) fn wait(&self) -> Update {
         loop {
-            let update = self
+            let Report { draft, update } = self
                 .handle
                 .updates
                 .recv()
                 .expect("the worker should report before it stops");
-            if update.outcome != Outcome::FeaturesDone {
+            if !draft && update.outcome != Outcome::FeaturesDone {
                 return update;
             }
         }
@@ -372,7 +416,7 @@ struct PendingMesh {
 fn work(
     evaluator: &dyn Evaluator,
     queue: &mpsc::Receiver<Message>,
-    updates: &mpsc::Sender<Update>,
+    updates: &mpsc::Sender<Report>,
     shared: &Arc<Shared>,
     wake: &(dyn Fn() + Sync),
 ) {
@@ -405,6 +449,27 @@ fn work(
                 }
             }
         }
+        if let Some(job) = latest.take_if(|job| job.draft) {
+            let mut draft = recompute.draft_copy();
+            let ran = run_contained(&mut draft, &job, evaluator, shared, &|_| {});
+            if let Some(Ok(evaluation)) =
+                ran.filter(|_| !shared.is_cancelled(job.sequence, job.cancels))
+                && evaluation.is_complete()
+            {
+                let report = Report {
+                    draft: true,
+                    update: Update {
+                        revision: job.revision,
+                        outcome: Outcome::Finished,
+                        evaluation,
+                    },
+                };
+                if updates.send(report).is_err() {
+                    break;
+                }
+                wake();
+            }
+        }
         if let Some(job) = latest {
             if job.retry_failures {
                 recompute.retry_failures();
@@ -415,7 +480,13 @@ fn work(
                     outcome: Outcome::FeaturesDone,
                     evaluation,
                 };
-                if updates.send(update).is_ok() {
+                if updates
+                    .send(Report {
+                        draft: false,
+                        update,
+                    })
+                    .is_ok()
+                {
                     wake();
                 }
             };
@@ -441,7 +512,13 @@ fn work(
                 outcome,
                 evaluation,
             };
-            if updates.send(update).is_err() {
+            if updates
+                .send(Report {
+                    draft: false,
+                    update,
+                })
+                .is_err()
+            {
                 break;
             }
             wake();
@@ -1018,5 +1095,52 @@ mod tests {
         assert_eq!(after_first, 2);
         assert_eq!(after_plain, after_first);
         assert_eq!(after_retry, after_plain + 2);
+    }
+
+    fn poll_until_draft(worker: &mut Recomputer) -> Update {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            worker.poll().unwrap();
+            if let Some(update) = worker.take_draft() {
+                return update;
+            }
+            assert!(Instant::now() < deadline, "no draft arrived");
+            thread::sleep(Duration::from_millis(2));
+        }
+    }
+
+    #[test]
+    fn a_draft_waits_for_the_model_and_reports_apart_from_it() {
+        let mut worker = Recomputer::spawn(ModelEvaluator, || {}).unwrap();
+        let (document, _) = sample();
+
+        worker.submit(document.clone(), 1).unwrap();
+        worker.submit_draft(document.clone(), 40).unwrap();
+        let model = poll_until_update(&mut worker);
+        assert_eq!((model.revision, model.outcome), (1, Outcome::Finished));
+
+        let draft = poll_until_draft(&mut worker);
+        assert_eq!((draft.revision, draft.outcome), (40, Outcome::Finished));
+        assert!(draft.evaluation.is_complete());
+        thread::sleep(Duration::from_millis(20));
+        assert_eq!(worker.poll().unwrap().map(|update| update.revision), None);
+    }
+
+    #[test]
+    fn a_newer_model_submission_drops_a_waiting_draft() {
+        let mut worker = Recomputer::spawn(ModelEvaluator, || {}).unwrap();
+        let (document, _) = sample();
+
+        worker.submit(document.clone(), 1).unwrap();
+        worker.submit_draft(document.clone(), 40).unwrap();
+        worker.submit(document, 2).unwrap();
+        let mut finished = poll_until_update(&mut worker);
+        while finished.revision != 2 || finished.outcome != Outcome::Finished {
+            finished = poll_until_update(&mut worker);
+        }
+        thread::sleep(Duration::from_millis(50));
+        worker.poll().unwrap();
+
+        assert_eq!(worker.take_draft().map(|update| update.revision), None);
     }
 }

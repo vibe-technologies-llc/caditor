@@ -587,6 +587,14 @@ impl Recompute {
         self.features_done_after = delay;
     }
 
+    pub(crate) fn draft_copy(&self) -> Self {
+        Self {
+            cache: self.cache.clone(),
+            mesh_quality: self.mesh_quality,
+            features_done_after: self.features_done_after,
+        }
+    }
+
     pub fn mesh_quality(&self) -> MeshQuality {
         self.mesh_quality
     }
