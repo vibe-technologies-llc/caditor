@@ -31,6 +31,14 @@ paths:
 
 # Modelling tools in the app
 
+## Preview while open
+
+- While a feature that makes or changes a body is open (its result is a solid), that body is drawn
+  see-through at `PREVIEW_ALPHA` in its colour (`scene::previewed_body`), faces still picked, and
+  turns solid when the feature closes, so a pattern, hole, extrusion or move reads as a preview
+  until confirmed. It is drawn solid while choosing in the view, and blends and shells keep
+  showing the body before them for choosing.
+
 ## Where new features go
 
 - Every tool creates its feature through `TransactionBuilder::add_feature`, so with the rollback

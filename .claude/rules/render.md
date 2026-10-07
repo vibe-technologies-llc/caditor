@@ -92,8 +92,9 @@ paths:
 - `Scene::flat_meshes` draw right after the opaque meshes with the same depth writes and pick pass
   but `fs_color`, so each face shows its style's colour exactly, unlit (the hidden-line style).
 - `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and
-  no depth write (`translucent_meshes` pipeline), so edges and what lies behind show through; they
-  are not drawn in the pick pass, so they never occlude or take a pick.
+  no depth write (`translucent_meshes` pipeline), so edges and what lies behind show through. The
+  pick pass draws them with `fs_pick`, which discards faces without a pick id, so an unpickable
+  see-through face (X-ray) never occludes or takes a pick while one carrying an id picks as usual.
 
 ## Lines, markers and sizes
 

@@ -787,7 +787,7 @@ impl Harness {
         let deadline = Instant::now() + FILE_TIMEOUT;
         loop {
             let built = self.built();
-            if built.scene.meshes.len() == count {
+            if built.scene.meshes.len() + built.scene.translucent_meshes.len() == count {
                 return built;
             }
             assert!(
@@ -5936,8 +5936,15 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     assert!(harness.shows("Click regions of the sketch to include or leave them out"));
 
     let built = harness.built_with_meshes(1);
-    assert_eq!(built.scene.meshes.len(), 1);
-    assert_eq!(built.scene.meshes[0].mesh.face_count(), 6);
+    assert!(built.scene.meshes.is_empty());
+    assert_eq!(built.scene.translucent_meshes.len(), 1);
+    assert_eq!(built.scene.translucent_meshes[0].mesh.face_count(), 6);
+    assert!(
+        built.scene.translucent_meshes[0]
+            .faces
+            .iter()
+            .all(|face| face.color.alpha < 1.0 && face.pick.is_some())
+    );
     let pickables: Vec<Pickable> = built.picks.pickables().collect();
     assert_eq!(
         pickables
@@ -5982,13 +5989,15 @@ fn extruding_a_drawn_rectangle_makes_a_shaded_body_that_follows_its_distance() {
     harness.frame();
     harness.frame();
     assert_eq!(harness.workspace.editing.solid(), None);
+    let closed = harness.built();
     assert!(
-        harness
-            .built()
+        closed
             .picks
             .pickables()
             .all(|pickable| !matches!(pickable, Pickable::Region { .. }))
     );
+    assert_eq!(closed.scene.meshes.len(), 1);
+    assert!(closed.scene.translucent_meshes.is_empty());
 }
 
 #[test]
@@ -11829,7 +11838,7 @@ fn a_body_drawn_half_see_through_goes_to_the_translucent_pass() {
         built.scene.translucent_meshes[0]
             .faces
             .iter()
-            .all(|face| (face.color.alpha - 0.5).abs() < 1e-6 && face.pick.is_none())
+            .all(|face| (face.color.alpha - 0.5).abs() < 1e-6 && face.pick.is_some())
     );
 }
 

@@ -305,9 +305,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Viewer
 
-- [medium · medium] A body's colour is one for all its faces: no face can be coloured apart. Faces
-  drawn see-through (the X-ray style, a body's opacity) cannot be picked, since the translucent pass
-  is not drawn into the pick buffer.
+- [medium · medium] A body's colour is one for all its faces: no face can be coloured apart.
 - [medium · medium] No box or lasso selection in the 3D view (only inside a sketch) and no
   selecting a hole's wall, so choosing many faces for a pattern, shell or export still means
   clicking most of them.

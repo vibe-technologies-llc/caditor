@@ -236,7 +236,7 @@ paths:
   colour, their colour; None clears both), Name and Density (g/cm³, an expression), under a Body
   name field (empty: named after its feature) and above them Opacity (`OPACITIES`: Solid, 75%,
   50%, 25%, a combo box; a see-through body is drawn in the translucent pass like X-ray,
-  its faces not picked, its edges drawn and picked as usual). Each change is
+  its faces and edges picked as usual). Each change is
   one undoable `SetBodyAppearance`; a refused value is an `error_row`.
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar" for
   screen readers), at the end of the tree when nothing is rolled back. It and every row name drag

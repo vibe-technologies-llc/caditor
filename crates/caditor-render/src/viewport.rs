@@ -97,6 +97,7 @@ struct Pipelines {
     pick_fills: wgpu::RenderPipeline,
     pick_reference_fills: wgpu::RenderPipeline,
     pick_meshes: wgpu::RenderPipeline,
+    pick_translucent_meshes: wgpu::RenderPipeline,
 }
 
 struct ImageTargets {
@@ -833,6 +834,8 @@ impl ViewportRenderer {
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
         self.meshes.draw(&mut pass, &self.pipelines.pick_meshes);
         self.flat.draw(&mut pass, &self.pipelines.pick_meshes);
+        self.translucent
+            .draw(&mut pass, &self.pipelines.pick_translucent_meshes);
         for batch in &self.batches {
             batch.draw_pick_fills(
                 &mut pass,
@@ -1282,6 +1285,14 @@ impl Pipelines {
                 "vs_mesh",
                 &meshes,
                 "fs_mesh_pick",
+                true,
+            ),
+            pick_translucent_meshes: pick(
+                "pick translucent meshes",
+                &mesh_pipeline_layout,
+                "vs_mesh",
+                &meshes,
+                "fs_pick",
                 true,
             ),
         }

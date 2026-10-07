@@ -107,6 +107,7 @@ const OPENED_DATUM_EXTRA_WIDTH: f32 = 1.0;
 
 const CURVE_WIDTH: f32 = 2.0;
 const XRAY_FACE_ALPHA: f32 = 0.18;
+const PREVIEW_ALPHA: f32 = 0.45;
 const BODY_EDGE_WIDTH: f32 = 1.5;
 const REVOLVE_AXIS_WIDTH: f32 = 2.5;
 const CHOSEN_EDGE_EXTRA_WIDTH: f32 = 1.5;
@@ -361,6 +362,17 @@ impl SketchShapes {
     }
 }
 
+fn previewed_body(evaluation: &Evaluation, context: Context) -> Option<FeatureId> {
+    if context.choosing_in_view || context.sketch.is_some() {
+        return None;
+    }
+    let result = evaluation.feature(context.solid?)?.result.as_deref()?;
+    match result {
+        FeatureResult::Solid(solid) => Some(solid.body),
+        _ => None,
+    }
+}
+
 fn sketch_shapes(
     sketch: &Sketch,
     states: &ConstraintStates<'_>,
@@ -464,6 +476,7 @@ pub fn build(
     let open = bodies
         .body_before()
         .filter(|open| context.solid == Some(open.feature) && editing.is_none());
+    let previewed = previewed_body(evaluation, context);
     for (body, mesh) in bodies.iter() {
         if open.is_some_and(|open| open.body == body) || !visibility::is_shown(document, body) {
             continue;
@@ -476,6 +489,10 @@ pub fn build(
             .feature(body)
             .and_then(|feature| feature.appearance.opacity)
             .map(|percent| f32::from(percent) / 100.0);
+        let opacity = match previewed == Some(body) {
+            true => Some(opacity.map_or(PREVIEW_ALPHA, |opacity| opacity.min(PREVIEW_ALPHA))),
+            false => opacity,
+        };
         builder.body(
             body,
             mesh,
@@ -807,15 +824,30 @@ impl Builder<'_> {
             (false, _) => None,
         };
         if let (Some(alpha), Some(base)) = (see_through, color) {
+            let picked = pickable && !style.is_translucent();
+            let faces = mesh
+                .faces
+                .iter()
+                .map(|face| {
+                    let pickable = Pickable::Face {
+                        body,
+                        face: face.key,
+                    };
+                    match picked {
+                        true => FaceStyle {
+                            color: self.highlight.color(pickable, base).with_alpha(alpha),
+                            pick: self.picks.register(pickable, PickPriority::Surface),
+                        },
+                        false => FaceStyle {
+                            color: base.with_alpha(alpha),
+                            pick: None,
+                        },
+                    }
+                })
+                .collect();
             self.translucent_meshes.push(MeshInstance {
                 mesh: Arc::clone(&mesh.mesh),
-                faces: vec![
-                    FaceStyle {
-                        color: base.with_alpha(alpha),
-                        pick: None,
-                    };
-                    mesh.faces.len()
-                ],
+                faces,
             });
         } else if style.shows_faces() {
             let face_base = |base: Color| {
