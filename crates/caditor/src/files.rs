@@ -194,7 +194,7 @@ impl NativeDialogs {
 
 impl Dialogs for NativeDialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond) {
-        let filters = vec![Filter::new(MODEL_KIND, &[FILE_EXTENSION])];
+        let filters = vec![Filter::new(MODEL_KIND, &[FILE_EXTENSION]), Filter::any()];
         let request = Self::request(Mode::Open, "Open model", directory, None, filters);
         Self::spawn(respond, request);
     }
@@ -238,6 +238,7 @@ impl Dialogs for NativeDialogs {
             Filter::new(IMPORTABLE_KIND, &every),
             Filter::new(DRAWING_KIND, &[DXF_EXTENSION]),
             Filter::new(MODEL_EXCHANGE_KIND, &STEP_IMPORT_EXTENSIONS),
+            Filter::any(),
         ];
         let request = Self::request(Mode::Open, "Import", directory, None, filters);
         Self::spawn(respond, request);

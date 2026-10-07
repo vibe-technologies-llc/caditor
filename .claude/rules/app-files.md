@@ -25,6 +25,10 @@ paths:
   through the XDG desktop portal over `zbus` (pure Rust, no `libdbus`) and falls back to `zenity`,
   `portal/windows.rs` through rfd, owned by the main window. A dialog that cannot be shown is a
   `DialogError` whose `notice` says what to install, never a silent Cancel.
+- Filters on Unix match either case (`*.[sS][tT][eE][pP]`), since GTK's portal matches globs
+  case-sensitively, and Open and Import end with All files (`Filter::any`), leaving the decision
+  to the content check. Every save dialog confirms replacing a file itself: the portals and rfd
+  do, and zenity is passed `--confirm-overwrite` (needed by zenity 3, a no-op in zenity 4).
 - The unsaved-changes prompt precedes every action that replaces or ends the document: Save
   primary and rightmost, Cancel beside it, the discarding choice a `danger_button` at the far left
   (`widgets::footer_split`). Quit waits for the storage worker in a "Closing…" modal without

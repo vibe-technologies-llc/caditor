@@ -441,16 +441,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Application
 
-- [medium · easy] Without a desktop portal the file dialogs fall back to zenity, started with
-  `--save` but not `--confirm-overwrite`, which zenity 3 leaves off, and `Files::check_output` and
-  `check_save_target` ask before replacing only a name caditor completed with an extension, so an
-  export, image or drawing saved there over an existing file of the same name replaces it without
-  a question. Pass the flag, or ask through the "Replace …?" dialog whatever the dialog did.
-- [medium · easy] The Linux file dialogs filter by lowercase globs (`*.step`, `*.dxf` from
-  `portal/xdg.rs` `patterns`) with no All files choice, so on portals that match globs
-  case-sensitively (GTK's) a `PART.STEP` or `PLAN.DXF` cannot be picked for Import, though
-  dropping it works. Emit case-insensitive patterns (`*.[sS][tT][eE][pP]`) and add All files to
-  Open and Import, leaving the decision to the content check.
 - [medium · medium] One files worker runs everything and Import cannot be cancelled (cancelling Open
   only drops its result while the worker reads on), so a slow STEP import blocks Open behind a
   modal, and the opening modal is drawn before the unsaved-changes prompt, so closing the window

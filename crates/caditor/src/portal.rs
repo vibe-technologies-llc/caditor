@@ -11,6 +11,8 @@ pub use self::windows::{choose, own_dialogs};
 pub use self::xdg::choose;
 
 const TRY_AGAIN: &str = " Try again, or choose a file on this computer.";
+const ANY_EXTENSION: &str = "*";
+const ALL_FILES: &str = "All files";
 
 #[derive(Debug, thiserror::Error)]
 pub enum DialogError {
@@ -69,6 +71,10 @@ impl Filter {
                 .map(|&extension| extension.to_owned())
                 .collect(),
         }
+    }
+
+    pub fn any() -> Self {
+        Self::new(ALL_FILES, &[ANY_EXTENSION])
     }
 }
 

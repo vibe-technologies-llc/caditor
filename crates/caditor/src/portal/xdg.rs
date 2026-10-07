@@ -14,7 +14,7 @@ use zbus::{
     zvariant::{OwnedObjectPath, OwnedValue, Value},
 };
 
-use super::{DialogError, FileRequest, Filter, Mode};
+use super::{ANY_EXTENSION, DialogError, FileRequest, Filter, Mode};
 
 const DESKTOP: &str = "org.freedesktop.portal.Desktop";
 const DESKTOP_PATH: &str = "/org/freedesktop/portal/desktop";
@@ -40,7 +40,27 @@ fn patterns(filter: &Filter) -> Vec<String> {
     filter
         .extensions
         .iter()
-        .map(|extension| format!("*.{extension}"))
+        .map(|extension| match extension.as_str() {
+            ANY_EXTENSION => ANY_EXTENSION.to_owned(),
+            extension => format!("*.{}", either_case(extension)),
+        })
+        .collect()
+}
+
+fn either_case(extension: &str) -> String {
+    extension
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphabetic() {
+                format!(
+                    "[{}{}]",
+                    character.to_ascii_lowercase(),
+                    character.to_ascii_uppercase()
+                )
+            } else {
+                character.to_string()
+            }
+        })
         .collect()
 }
 
@@ -189,7 +209,7 @@ fn through_zenity(request: &FileRequest) -> Option<Result<Option<PathBuf>, Dialo
         .arg("--file-selection")
         .arg(format!("--title={}", request.title));
     if request.mode == Mode::Save {
-        command.arg("--save");
+        command.arg("--save").arg("--confirm-overwrite");
     }
     let start = zenity_start(request.directory.as_deref(), request.file_name.as_deref());
     if let Some(start) = start {
@@ -286,9 +306,18 @@ mod tests {
             options["filters"],
             Value::from(vec![(
                 "caditor model".to_owned(),
-                vec![(0_u32, "*.caditor".to_owned())]
+                vec![(0_u32, "*.[cC][aA][dD][iI][tT][oO][rR]".to_owned())]
             )])
         );
+    }
+
+    #[test]
+    fn filters_match_either_case_and_all_files_match_anything() {
+        assert_eq!(
+            patterns(&Filter::new("Drawings and models", &["dxf", "3mf", "stp"])),
+            ["*.[dD][xX][fF]", "*.3[mM][fF]", "*.[sS][tT][pP]"]
+        );
+        assert_eq!(patterns(&Filter::any()), ["*"]);
     }
 
     #[test]
