@@ -209,6 +209,38 @@ fn a_plane_cuts_a_cone_in_every_conic() {
 }
 
 #[test]
+fn a_plane_between_the_half_angle_and_its_complement_is_an_ellipse_or_hyperbola_by_the_sine() {
+    let tilt = 0.7f64.acos();
+    let tilted = |through: Point3| plane(through, Vector3::new(tilt.sin(), 0.0, tilt.cos()));
+
+    let narrow: Surface = Cone::new(Plane::XY, 2.0, FRAC_PI_6).unwrap().into();
+    let side = around(&narrow, (-4.0, 30.0));
+    let ellipse = tilted(Point3::new(0.0, 0.0, 5.0));
+    let result = intersect_surfaces(&square(&ellipse, 60.0), &side).unwrap();
+    check_all(&result, &ellipse, &narrow);
+    assert!(
+        matches!(curves_of(&result)[..], [Curve::Ellipse(_)]),
+        "{result:?}"
+    );
+    assert!(result.branches()[0].closed);
+
+    let drill_point: Surface = Cone::new(Plane::XY, 2.0, 59f64.to_radians())
+        .unwrap()
+        .into();
+    let apex = match &drill_point {
+        Surface::Cone(cone) => cone.apex(),
+        _ => panic!("expected a cone"),
+    };
+    let side = around(&drill_point, (-2.0, 10.0));
+    let hyperbola = tilted(apex - Vector3::Z);
+    let result = intersect_surfaces(&square(&hyperbola, 60.0), &side).unwrap();
+    check_all(&result, &hyperbola, &drill_point);
+    assert_eq!(result.branches().len(), 1, "{result:?}");
+    assert!(!result.branches()[0].closed);
+    assert!(total_length(&result) > 5.0);
+}
+
+#[test]
 fn spheres_meet_in_circles_or_touch() {
     let first = sphere(Point3::ZERO, 5.0);
     let second = sphere(Point3::new(3.0, 4.0, 0.0), 4.0);

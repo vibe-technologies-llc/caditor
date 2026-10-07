@@ -221,7 +221,7 @@ fn plane_cone(plane: &PlaneSurface, cone: &Cone, window: &Aabb) -> Option<Raw> {
         }
         return Some(raw);
     }
-    if along.abs() <= cosine {
+    if along.abs() <= sine {
         return None;
     }
     let crossing = -height / along;

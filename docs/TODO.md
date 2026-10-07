@@ -35,14 +35,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   (`tori_touching_along_their_equators_cannot_be_split`), and a lump too thin for the validation
   mesh is refused as invalid: the difference of a torus and its copy shifted 1e-5 along each axis
   is `Invalid(VoidOutside)`, with no test pinning it.
-- [medium · easy] `plane_cone` (`intersect/surface_surface/analytic.rs`) takes the exact ellipse
-  when `|n·axis| > cos α`, but a plane cuts a cone in a closed ellipse only when
-  `|n·axis| > sin α`, and the two agree only at a half-angle of 45°. On a wider cone (a 118° drill
-  point) a plane tilted between the two, crossing the axis behind the apex, is a hyperbola cut, yet
-  the `crossing <= 0` guard returns no intersection and marching is never tried, so a boolean of
-  that plane face with the cone misses the cut; on a narrower cone true ellipses are marched
-  instead. Compare with the sine, with tests either side of 45° checked by `check_all` (the stress
-  test draws half-angles up to 1 rad but passes an empty result).
 - [medium · easy] `Solid::bounding_box` is not a bound: only spheres add their axis extremes, and
   other doubly curved faces (tori, revolutions, splines) add a 12×12 uv grid (`BOUNDS_GRID`) that
   falls short wherever the extreme lies between samples (a torus of radii 20 and 5 tilted 45° is

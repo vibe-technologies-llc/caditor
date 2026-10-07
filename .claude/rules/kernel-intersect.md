@@ -53,6 +53,10 @@ paths:
   rotational surfaces by intersecting meridians in (r, z) as 2D curves (a cylinder's reaching well
   past the window, so no crossing is pulled onto its end): each point is a circle, tangent points
   tangent circles, points on the axis isolated points.
+- A plane cuts a cone in the exact ellipse (or circle) only when `|n·axis| > sin α`: then the plane
+  meets every ruling of one nappe, and crossing the axis behind the apex means it misses the cone.
+  Planes at `|n·axis| <= sin α` (parabolas and hyperbolas) are marched; through the apex they are
+  rulings or the apex alone.
 - Everything else is marched (`march.rs`):
   - Seeds come from paired subdivision of both patches, each solved by Gauss–Newton, then a sign
     scan of the distance for tiny loops. Near-coincident patches (tori a tenth of a millimetre
