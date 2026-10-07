@@ -237,15 +237,27 @@ pub enum InputMode {
     #[default]
     Caditor,
     Laptop,
+    Fusion360,
+    FreeCad,
+    Blender,
 }
 
 impl InputMode {
-    pub const ALL: [Self; 2] = [Self::Caditor, Self::Laptop];
+    pub const ALL: [Self; 5] = [
+        Self::Caditor,
+        Self::Laptop,
+        Self::Fusion360,
+        Self::FreeCad,
+        Self::Blender,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Caditor => "caditor",
             Self::Laptop => "Laptop",
+            Self::Fusion360 => "Fusion 360",
+            Self::FreeCad => "FreeCAD",
+            Self::Blender => "Blender",
         }
     }
 
@@ -259,6 +271,18 @@ impl InputMode {
                 "For a touchpad: two fingers orbit, Alt and two fingers pan, and pinching or \
                  Ctrl and two fingers zoom; Alt-drag orbits and Shift+Alt-drag pans"
             }
+            Self::Fusion360 => {
+                "As in Fusion 360: middle-drag pans, Shift+middle-drag orbits and the wheel \
+                 zooms; right-drag still orbits"
+            }
+            Self::FreeCad => {
+                "As FreeCAD's CAD style: middle-drag pans, holding the middle button with the left \
+                 or right one orbits and the wheel zooms; right-drag still orbits"
+            }
+            Self::Blender => {
+                "As in Blender: middle-drag orbits, Shift+middle-drag pans, Ctrl+middle-drag and \
+                 the wheel zoom; right-drag still orbits"
+            }
         }
     }
 
@@ -266,6 +290,12 @@ impl InputMode {
         match self {
             Self::Caditor => "Right-drag to orbit, middle-drag to pan and scroll to zoom.",
             Self::Laptop => "Slide two fingers to orbit, hold Alt to pan and pinch to zoom.",
+            Self::Fusion360 => "Shift+middle-drag to orbit, middle-drag to pan and scroll to zoom.",
+            Self::FreeCad => {
+                "Hold the middle button with the left or right one to orbit, middle-drag to pan \
+                 and scroll to zoom."
+            }
+            Self::Blender => "Middle-drag to orbit, Shift+middle-drag to pan and scroll to zoom.",
         }
     }
 
@@ -273,6 +303,9 @@ impl InputMode {
         match self {
             Self::Caditor => "caditor",
             Self::Laptop => "laptop",
+            Self::Fusion360 => "fusion360",
+            Self::FreeCad => "freecad",
+            Self::Blender => "blender",
         }
     }
 
@@ -921,6 +954,9 @@ fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
                 change(command, PreferenceChange::InputMode(mode));
             }
         });
+        ui.label("");
+        ui.add(Label::new(widgets::muted(navigation.input_mode.description(), ui)).wrap());
+        ui.end_row();
     });
     section(ui, "Movement", "navigation", None, |ui| {
         widgets::property(ui, "Orbit speed", |ui| {

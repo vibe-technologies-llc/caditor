@@ -164,4 +164,8 @@ paths:
   mouse scheme above, or Laptop, for a touchpad: two-finger scroll orbits, Alt and scroll pans (egui
   turns Shift and scroll into horizontal-only scrolling, so Alt keeps both axes), pinch and
   Ctrl+scroll zoom, and Alt-drag orbits and Shift+Alt-drag pans, the Alt press never starting a
-  selection. The right and middle buttons keep working in both modes.
+  selection. Fusion 360 (middle-drag pans, Shift+middle-drag orbits), FreeCAD (its CAD style:
+  middle-drag pans, the middle button held with the left or right one orbits) and Blender
+  (middle-drag orbits, Shift+middle-drag pans, Ctrl+middle-drag zooms) follow those programs;
+  every mode keeps right-drag orbiting and Shift+right-drag panning, the wheel zooms, and a primary
+  drag with the middle button held never starts a selection (`viewport::drag_motion`).

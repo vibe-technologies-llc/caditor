@@ -873,20 +873,34 @@ impl ViewportState {
             self.drag_anchor = self.cursor.and_then(|cursor| self.hit_under(cursor));
         }
 
-        let (shift, alt) = ui.input(|input| (input.modifiers.shift, input.modifiers.alt));
-        let alt_drag = self.navigation.input_mode == InputMode::Laptop && alt;
+        let (shift, alt, ctrl, primary_down, secondary_down) = ui.input(|input| {
+            (
+                input.modifiers.shift,
+                input.modifiers.alt,
+                input.modifiers.command,
+                input.pointer.primary_down(),
+                input.pointer.secondary_down(),
+            )
+        });
         let drag = self.to_pixels(response.drag_delta());
-        let orbiting = (response.dragged_by(PointerButton::Secondary)
-            || (alt_drag && response.dragged_by(PointerButton::Primary)))
-            && !shift;
-        let panning = response.dragged_by(PointerButton::Middle)
-            || ((response.dragged_by(PointerButton::Secondary)
-                || (alt_drag && response.dragged_by(PointerButton::Primary)))
-                && shift);
-        if orbiting && drag != Vector2::ZERO {
-            self.orbit_by(&view, drag, rect, self.drag_anchor);
-        } else if panning && drag != Vector2::ZERO {
-            self.pan_by(&view, drag, self.drag_anchor);
+        let buttons = DragButtons {
+            primary: response.dragged_by(PointerButton::Primary),
+            secondary: response.dragged_by(PointerButton::Secondary),
+            middle: response.dragged_by(PointerButton::Middle),
+            chorded: primary_down || secondary_down,
+        };
+        let motion = drag_motion(self.navigation.input_mode, buttons, shift, alt, ctrl);
+        if drag != Vector2::ZERO {
+            match motion {
+                Some(DragMotion::Orbit) => self.orbit_by(&view, drag, rect, self.drag_anchor),
+                Some(DragMotion::Pan) => self.pan_by(&view, drag, self.drag_anchor),
+                Some(DragMotion::Zoom) => {
+                    let rate = ZOOM_PER_SCROLL_POINT * self.navigation.zoom_speed;
+                    let pivot = self.drag_anchor.unwrap_or(view.viewpoint().target);
+                    self.camera.zoom(pivot, (drag.y * rate).exp());
+                }
+                None => {}
+            }
         }
 
         if !response.hovered() && !response.dragged() {
@@ -995,8 +1009,10 @@ impl ViewportState {
             press.current = true;
         }
         if response.drag_started_by(PointerButton::Primary) {
-            let navigating =
-                self.navigation.input_mode == InputMode::Laptop && ui.input(|i| i.modifiers.alt);
+            let navigating = ui.input(|input| {
+                (self.navigation.input_mode == InputMode::Laptop && input.modifiers.alt)
+                    || input.pointer.middle_down()
+            });
             let press = self.press.take().filter(|_| !navigating);
             self.draw_press = press
                 .filter(|_| {
@@ -2361,6 +2377,64 @@ fn paint_box(painter: &egui::Painter, rect: Rect, area: ScreenBox) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DragMotion {
+    Orbit,
+    Pan,
+    Zoom,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DragButtons {
+    primary: bool,
+    secondary: bool,
+    middle: bool,
+    chorded: bool,
+}
+
+fn drag_motion(
+    mode: InputMode,
+    buttons: DragButtons,
+    shift: bool,
+    alt: bool,
+    ctrl: bool,
+) -> Option<DragMotion> {
+    let right = buttons.secondary && !buttons.middle;
+    let alt_drag = mode == InputMode::Laptop && alt && buttons.primary;
+    let middle = buttons.middle;
+    let (orbit, pan, zoom) = match mode {
+        InputMode::Caditor | InputMode::Laptop => (
+            (right || alt_drag) && !shift,
+            middle || ((right || alt_drag) && shift),
+            false,
+        ),
+        InputMode::Fusion360 => (
+            (middle && shift) || (right && !shift),
+            (middle && !shift) || (right && shift),
+            false,
+        ),
+        InputMode::FreeCad => (
+            (middle && buttons.chorded) || (right && !shift),
+            (middle && !buttons.chorded) || (right && shift),
+            false,
+        ),
+        InputMode::Blender => (
+            (middle && !shift && !ctrl) || (right && !shift),
+            (middle && shift) || (right && shift),
+            middle && ctrl && !shift,
+        ),
+    };
+    if zoom {
+        Some(DragMotion::Zoom)
+    } else if orbit {
+        Some(DragMotion::Orbit)
+    } else if pan {
+        Some(DragMotion::Pan)
+    } else {
+        None
+    }
+}
+
 fn edited_sketch<'a>(model: &'a Model, editing: &SketchEditing) -> Option<Displayed<'a>> {
     let feature = model.document().feature(editing.feature()?)?;
     model.displayed_sketch(feature)
@@ -3105,5 +3179,77 @@ mod timing {
         scenario.time("model, hover changing", |state, frame| {
             hover(state, faces[frame as usize % faces.len()]);
         });
+    }
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    const NONE: DragButtons = DragButtons {
+        primary: false,
+        secondary: false,
+        middle: false,
+        chorded: false,
+    };
+    const MIDDLE: DragButtons = DragButtons {
+        middle: true,
+        ..NONE
+    };
+    const RIGHT: DragButtons = DragButtons {
+        secondary: true,
+        ..NONE
+    };
+    const MIDDLE_WITH_LEFT: DragButtons = DragButtons {
+        middle: true,
+        chorded: true,
+        ..NONE
+    };
+
+    #[test]
+    fn each_navigation_profile_maps_its_drags_like_the_program_it_follows() {
+        let motion = |mode, buttons, shift, ctrl| drag_motion(mode, buttons, shift, false, ctrl);
+
+        assert_eq!(
+            motion(InputMode::Caditor, RIGHT, false, false),
+            Some(DragMotion::Orbit)
+        );
+        assert_eq!(
+            motion(InputMode::Caditor, MIDDLE, false, false),
+            Some(DragMotion::Pan)
+        );
+        assert_eq!(
+            motion(InputMode::Fusion360, MIDDLE, false, false),
+            Some(DragMotion::Pan)
+        );
+        assert_eq!(
+            motion(InputMode::Fusion360, MIDDLE, true, false),
+            Some(DragMotion::Orbit)
+        );
+        assert_eq!(
+            motion(InputMode::FreeCad, MIDDLE, false, false),
+            Some(DragMotion::Pan)
+        );
+        assert_eq!(
+            motion(InputMode::FreeCad, MIDDLE_WITH_LEFT, false, false),
+            Some(DragMotion::Orbit)
+        );
+        assert_eq!(
+            motion(InputMode::Blender, MIDDLE, false, false),
+            Some(DragMotion::Orbit)
+        );
+        assert_eq!(
+            motion(InputMode::Blender, MIDDLE, true, false),
+            Some(DragMotion::Pan)
+        );
+        assert_eq!(
+            motion(InputMode::Blender, MIDDLE, false, true),
+            Some(DragMotion::Zoom)
+        );
+        assert_eq!(
+            motion(InputMode::Blender, RIGHT, false, false),
+            Some(DragMotion::Orbit)
+        );
+        assert_eq!(motion(InputMode::Blender, NONE, false, false), None);
     }
 }
