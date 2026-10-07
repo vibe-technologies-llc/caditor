@@ -15,7 +15,7 @@ use crate::{
     annotations::{Annotations, Surface},
     blend_tools,
     bodies::{self, BodyMeshes},
-    canvas,
+    body_selection, canvas,
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools,
     display::Displayed,
@@ -1330,6 +1330,7 @@ impl ViewportState {
         {
             self.look_from = Some(direction);
         }
+        self.selection_commands(model, editing, commands, actions);
         for step in CameraMove::ALL {
             if commands.available(Command::Camera(step)) {
                 self.nudge(step);
@@ -1420,6 +1421,51 @@ impl ViewportState {
             match pick_action(Some(highlight), model, editing) {
                 Some(action) => actions.extend(action),
                 None => self.selection.toggle(highlight),
+            }
+        }
+    }
+
+    fn selection_commands(
+        &mut self,
+        model: &Model,
+        editing: &SketchEditing,
+        commands: &mut CommandFrame<'_>,
+        actions: &mut Vec<Action>,
+    ) {
+        let in_sketch = editing.feature().is_some();
+        let everything = body_selection::outside_sketch(
+            in_sketch,
+            body_selection::offer_select_all(model, &self.selection, self.active_filter()),
+        );
+        if commands.invoke(Command::SelectAllShapes, &everything)
+            && let Ok(kind) = everything
+        {
+            self.selection
+                .replace_with_all(body_selection::select_all(model, kind));
+        }
+        let tangent = body_selection::outside_sketch(
+            in_sketch,
+            body_selection::offer_tangent_edges(&self.selection),
+        );
+        if commands.invoke(Command::SelectTangentEdges, &tangent) && tangent.is_ok() {
+            let followed = body_selection::tangent_edges(model, &self.selection);
+            if followed.is_empty() {
+                actions.push(Action::Inform(Notice::info(
+                    body_selection::NO_TANGENT_EDGES,
+                )));
+            }
+            self.selection.extend(followed);
+        }
+        let boundary = body_selection::outside_sketch(
+            in_sketch,
+            body_selection::offer_face_edges(&self.selection),
+        );
+        if commands.invoke(Command::SelectFaceEdges, &boundary) && boundary.is_ok() {
+            let around = body_selection::face_edges(model, &self.selection);
+            if around.is_empty() {
+                actions.push(Action::Inform(Notice::info(body_selection::NO_FACE_EDGES)));
+            } else {
+                self.selection.replace_with_all(around);
             }
         }
     }

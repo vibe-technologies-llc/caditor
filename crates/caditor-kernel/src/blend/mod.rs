@@ -544,6 +544,17 @@ fn propagate(
     if let (true, Some(edge)) = (chosen.is_empty(), smooth) {
         return Err(BlendError::Smooth(edge));
     }
+    follow(solid, topology, &mut chosen, queue, is_sharp);
+    Ok(chosen.into_iter().collect())
+}
+
+fn follow(
+    solid: &Solid,
+    topology: &Topology,
+    chosen: &mut BTreeSet<EdgeId>,
+    mut queue: Vec<EdgeId>,
+    admits: impl Fn(&Solid, EdgeId, Point3) -> bool,
+) {
     while let Some(edge) = queue.pop() {
         let Some(definition) = solid.edge(edge) else {
             continue;
@@ -555,7 +566,7 @@ fn propagate(
             for other in topology.edges_at(vertex) {
                 if !chosen.contains(other)
                     && continues(solid, edge, *other, vertex)
-                    && is_sharp(solid, *other, point)
+                    && admits(solid, *other, point)
                 {
                     chosen.insert(*other);
                     queue.push(*other);
@@ -563,7 +574,6 @@ fn propagate(
             }
         }
     }
-    Ok(chosen.into_iter().collect())
 }
 
 struct Ends {
@@ -918,6 +928,23 @@ fn tool(
 
 pub fn blend_chain(solid: &Solid, edges: &[EdgeId]) -> Vec<EdgeId> {
     propagate(solid, &Topology::new(solid), edges).unwrap_or_default()
+}
+
+pub fn tangent_chain(solid: &Solid, edges: &[EdgeId]) -> Vec<EdgeId> {
+    let mut chosen: BTreeSet<EdgeId> = edges
+        .iter()
+        .copied()
+        .filter(|edge| solid.edge(*edge).is_some())
+        .collect();
+    let queue = chosen.iter().copied().collect();
+    follow(
+        solid,
+        &Topology::new(solid),
+        &mut chosen,
+        queue,
+        |_, _, _| true,
+    );
+    chosen.into_iter().collect()
 }
 
 pub fn blend(

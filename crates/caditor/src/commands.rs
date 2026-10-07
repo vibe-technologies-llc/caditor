@@ -119,6 +119,9 @@ pub enum Command {
     HideSelection,
     HideOthers,
     LookAtFace,
+    SelectAllShapes,
+    SelectTangentEdges,
+    SelectFaceEdges,
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
@@ -442,6 +445,9 @@ plain_commands! {
     HideSelection,
     HideOthers,
     LookAtFace,
+    SelectAllShapes,
+    SelectTangentEdges,
+    SelectFaceEdges,
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
@@ -632,6 +638,9 @@ impl Command {
             Self::HideSelection => "view.hide_selection",
             Self::HideOthers => "view.hide_others",
             Self::LookAtFace => "view.look_at_face",
+            Self::SelectAllShapes => "select.all",
+            Self::SelectTangentEdges => "select.tangent_edges",
+            Self::SelectFaceEdges => "select.face_edges",
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
@@ -756,6 +765,9 @@ impl Command {
             Self::HideSelection => "Hide selection",
             Self::HideOthers => "Hide everything but the selection",
             Self::LookAtFace => "Look straight at the selected face",
+            Self::SelectAllShapes => "Select all faces, edges or vertices",
+            Self::SelectTangentEdges => "Select the edges tangent to the selected edges",
+            Self::SelectFaceEdges => "Select the edges around the selected faces",
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
@@ -836,6 +848,9 @@ impl Command {
             | Self::UndoHistory
             | Self::Redo
             | Self::DeleteSelection
+            | Self::SelectAllShapes
+            | Self::SelectTangentEdges
+            | Self::SelectFaceEdges
             | Self::DismissNotice => Category::Edit,
             Self::FitView
             | Self::Measure
@@ -968,6 +983,9 @@ impl Command {
             Self::HideSelection => vec![plain(Key::H)],
             Self::HideOthers => vec![alt_shift(Key::H)],
             Self::LookAtFace => vec![alt(Key::V)],
+            Self::SelectAllShapes => vec![command_shift(Key::A)],
+            Self::SelectTangentEdges => vec![alt(Key::T)],
+            Self::SelectFaceEdges => vec![alt_shift(Key::E)],
             Self::ShowAll => vec![KeyboardShortcut::new(Modifiers::ALT, Key::H)],
             Self::SketchTool(tool) => tool_shortcut(tool).into_iter().collect(),
             Self::Constraint(tool) => vec![KeyboardShortcut::new(

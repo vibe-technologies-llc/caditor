@@ -9480,6 +9480,127 @@ fn looking_at_a_flat_face_turns_the_view_to_face_it_head_on() {
     );
 }
 
+fn selected_of(harness: &Harness, wanted: fn(&Pickable) -> bool) -> usize {
+    harness
+        .workspace
+        .viewport
+        .selection()
+        .iter()
+        .filter(wanted)
+        .count()
+}
+
+fn is_edge(pickable: &Pickable) -> bool {
+    matches!(pickable, Pickable::Edge { .. })
+}
+
+fn is_face(pickable: &Pickable) -> bool {
+    matches!(pickable, Pickable::Face { .. })
+}
+
+#[test]
+fn select_all_takes_every_face_or_edge_of_the_shown_bodies_by_the_selection_filter() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Faces);
+    harness.key(Key::A, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.frame();
+
+    assert_eq!(selected_of(&harness, is_face), 6);
+    assert_eq!(harness.workspace.viewport.selection().iter().count(), 6);
+
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Edges);
+    harness.key(Key::A, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.frame();
+
+    assert_eq!(selected_of(&harness, is_edge), 12);
+    assert_eq!(harness.workspace.viewport.selection().iter().count(), 12);
+}
+
+#[test]
+fn select_all_without_a_kind_to_take_says_what_to_choose() {
+    let mut harness = Harness::new();
+    let (_, _) = extruded_plate(&mut harness);
+    harness.select([]);
+
+    harness.key(Key::A, Modifiers::COMMAND | Modifiers::SHIFT);
+    harness.frame();
+
+    harness.frame();
+
+    assert!(harness.workspace.viewport.selection().is_empty());
+    assert!(harness.shows_containing(crate::body_selection::NO_KIND_TO_SELECT));
+}
+
+#[test]
+fn the_edges_around_a_face_replace_the_selected_face() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+
+    harness.key(Key::E, Modifiers::ALT | Modifiers::SHIFT);
+    harness.frame();
+
+    assert_eq!(selected_of(&harness, is_edge), 4);
+    assert_eq!(selected_of(&harness, is_face), 0);
+}
+
+#[test]
+fn tangent_edges_join_the_selection_along_smooth_joins_and_a_corner_says_there_are_none() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0));
+    sketch.add_arc(
+        Point2::new(20.0, 5.0),
+        Point2::new(20.0, 0.0),
+        Point2::new(20.0, 10.0),
+    );
+    sketch.add_line(Point2::new(20.0, 10.0), Point2::new(0.0, 10.0));
+    sketch.add_arc(
+        Point2::new(0.0, 5.0),
+        Point2::new(0.0, 10.0),
+        Point2::new(0.0, 0.0),
+    );
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let edges: Vec<Pickable> = harness.built().picks.pickables().filter(is_edge).collect();
+    let rim: Vec<Pickable> = edges
+        .iter()
+        .copied()
+        .filter(|edge| {
+            edge.describe(harness.document(), harness.model.evaluation())
+                .contains("end face")
+        })
+        .collect();
+    assert_eq!(rim.len(), 4);
+
+    harness.select([rim[0]]);
+    harness.key(Key::T, Modifiers::ALT);
+    harness.frame();
+
+    assert_eq!(selected_of(&harness, is_edge), 4);
+
+    harness.key(Key::T, Modifiers::ALT);
+    harness.frame();
+
+    harness.frame();
+
+    assert!(harness.shows_containing(crate::body_selection::NO_TANGENT_EDGES));
+}
+
 fn rows_named(harness: &Harness, label: &str) -> Vec<Rect> {
     let mut rows: Vec<Rect> = harness
         .texts

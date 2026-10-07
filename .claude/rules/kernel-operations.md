@@ -119,6 +119,9 @@ paths:
   sweeping a tool per edge: valid or a `BlendError` naming the edge. A failing tool's `Profile`,
   `Sweep` or `Boolean` carries the edge it was built for, except when the failing step is the
   pairwise union of tools or a corner's, which name none.
+- `tangent_chain(solid, edges)` follows tangent-continuous edges sharing a face through their end
+  vertices, smooth or sharp, for selection; it shares `follow` with `blend_chain`, which admits only
+  sharp edges.
 - Chosen edges grow along tangent-continuous chains (`blend_chain`); smooth edges are dropped, and
   only when every chosen edge is smooth is it `Smooth`. Tools are united pairwise in rounds (a
   pair that cannot be united stays apart) and each group is applied in one boolean, or tool by tool

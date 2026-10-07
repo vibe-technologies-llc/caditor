@@ -767,3 +767,24 @@ fn a_size_within_the_resolution_is_refused_in_words() {
     assert_eq!(refusal, BlendError::InvalidSize);
     assert!(refusal.to_string().contains("0.000001 mm"));
 }
+
+#[test]
+fn a_tangent_chain_runs_along_smooth_joins_and_stops_at_corners() {
+    let stadium = [
+        line(1, (0.0, 0.0), (10.0, 0.0)),
+        arc(2, (10.0, 2.0), (10.0, 0.0), (10.0, 4.0)),
+        line(3, (10.0, 4.0), (0.0, 4.0)),
+        arc(4, (0.0, 2.0), (0.0, 4.0), (0.0, 0.0)),
+    ];
+    let slot = swept(Plane::XY, &stadium, 3.0);
+    let top = edge_through(&slot, (5.0, 0.0, 3.0));
+    let upright = edge_through(&slot, (10.0, 0.0, 1.5));
+
+    assert_eq!(tangent_chain(&slot, &[top]).len(), 4);
+    assert_eq!(tangent_chain(&slot, &[upright]), vec![upright]);
+    assert_eq!(tangent_chain(&slot, &[]), Vec::new());
+
+    let block = cuboid(Vector3::new(4.0, 4.0, 4.0));
+    let edge = edge_through(&block, (2.0, 0.0, 4.0));
+    assert_eq!(tangent_chain(&block, &[edge]), vec![edge]);
+}

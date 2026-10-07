@@ -431,6 +431,15 @@ impl Selection {
         self.items.insert(pickable);
     }
 
+    pub fn replace_with_all(&mut self, pickables: impl IntoIterator<Item = Pickable>) {
+        self.items.clear();
+        self.items.extend(pickables);
+    }
+
+    pub fn extend(&mut self, pickables: impl IntoIterator<Item = Pickable>) {
+        self.items.extend(pickables);
+    }
+
     pub fn toggle(&mut self, pickable: Pickable) {
         if !self.items.remove(&pickable) {
             self.items.insert(pickable);

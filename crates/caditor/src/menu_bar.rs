@@ -352,6 +352,15 @@ impl Menus<'_, '_> {
             ui.separator();
             self.item(ui, Command::DeleteSelection);
             ui.separator();
+            self.items(
+                ui,
+                [
+                    Command::SelectAllShapes,
+                    Command::SelectTangentEdges,
+                    Command::SelectFaceEdges,
+                ],
+            );
+            ui.separator();
             self.item(ui, Command::Palette);
         });
     }

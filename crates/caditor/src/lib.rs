@@ -8,6 +8,7 @@ mod blend_tools;
 mod bodies;
 mod bodies_tree;
 mod body_appearance;
+mod body_selection;
 mod canvas;
 mod cli;
 mod combine_panel;

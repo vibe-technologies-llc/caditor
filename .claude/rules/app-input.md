@@ -101,6 +101,15 @@ paths:
   picking what they need; the status bar names an active filter and its button clears it. It is
   kept for the session, not saved.
 
+- Select all (`select.all`), Select tangent edges and Select edges around faces
+  (`body_selection.rs`) work on the shown bodies outside sketch editing and refuse inside one.
+  Select all takes every face, edge or vertex by the selection filter, or by the kind already
+  selected while the filter is Everything, and says what to choose when neither names one; seam
+  edges, which cannot be picked, are never taken. Tangent edges add what `tangent_chain` reaches
+  from the selected edges (smooth or sharp alike, unlike a blend's `blend_chain`); the edges around
+  faces replace the faces with every loop's edges. An empty result is an info notice. Their
+  availability is a cheap check on the selection, and the work runs only when triggered.
+
 - The display style (`DisplayStyle`, commands `view.style_*`, View › Display style) is shaded with
   edges, shaded without edges (edges drawn with no alpha, so they stay pickable and appear when
   hovered or selected) wireframe (no faces in the scene, so none is drawn or picked and edges

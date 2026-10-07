@@ -110,7 +110,7 @@ fn edge_faces(solid: &Solid, edge: EdgeId) -> Vec<FaceId> {
     faces
 }
 
-fn is_seam(solid: &Solid, edge: EdgeId) -> bool {
+pub fn is_seam(solid: &Solid, edge: EdgeId) -> bool {
     edge_faces(solid, edge).len() == 1
 }
 
