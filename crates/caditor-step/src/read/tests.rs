@@ -7,7 +7,16 @@ use crate::{
 };
 
 fn round_trip(name: &str, solid: &caditor_kernel::Solid) -> caditor_kernel::Solid {
-    let text = write_step(&[StepBody { name, solid }], name, SystemTime::UNIX_EPOCH).unwrap();
+    let text = write_step(
+        &[StepBody {
+            name,
+            solid,
+            colour: None,
+        }],
+        name,
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
     let mut model = read_step(&text).unwrap_or_else(|error| panic!("{name}: {error}"));
     assert!(model.notes.is_empty(), "{name}: {:?}", model.notes);
     assert_eq!(model.solids.len(), 1, "{name}");
@@ -87,6 +96,7 @@ fn a_file_cut_short_inside_its_data_reads_the_solids_before_the_cut() {
         &[StepBody {
             name: "plate",
             solid: &solid,
+            colour: None,
         }],
         "plate",
         SystemTime::UNIX_EPOCH,
@@ -117,6 +127,7 @@ fn a_file_with_a_damaged_header_and_no_closing_line_still_reads_its_solids() {
         &[StepBody {
             name: "plate",
             solid: &solid,
+            colour: None,
         }],
         "plate",
         SystemTime::UNIX_EPOCH,
@@ -259,6 +270,7 @@ fn lengths_follow_the_unit_of_the_file() {
         &[StepBody {
             name: "Plate",
             solid: &solid,
+            colour: None,
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -276,6 +288,7 @@ fn lengths_follow_the_unit_of_the_file() {
         &[StepBody {
             name: "Plate",
             solid: &solid,
+            colour: None,
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -306,6 +319,7 @@ fn lengths_follow_the_unit_of_the_file() {
         &[StepBody {
             name: "Plate",
             solid: &solid,
+            colour: None,
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -401,6 +415,7 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
         &[StepBody {
             name: "Body1",
             solid: &solid,
+            colour: None,
         }],
         "Bracket",
         SystemTime::UNIX_EPOCH,
@@ -420,10 +435,12 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
             StepBody {
                 name: "Left",
                 solid: &solid,
+                colour: None,
             },
             StepBody {
                 name: "Right",
                 solid: &solid,
+                colour: None,
             },
         ],
         "Bracket",
@@ -436,6 +453,36 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
         .map(|solid| solid.name)
         .collect();
     assert_eq!(names, ["Left", "Right"]);
+}
+
+#[test]
+fn coloured_bodies_read_back_as_the_same_solids() {
+    let solid = fixtures::plate_with_hole();
+    let step = write_step(
+        &[
+            StepBody {
+                name: "Red",
+                solid: &solid,
+                colour: Some([200, 30, 30]),
+            },
+            StepBody {
+                name: "Plain",
+                solid: &solid,
+                colour: None,
+            },
+        ],
+        "Bracket",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+
+    let names: Vec<String> = sample(&step)
+        .solids
+        .into_iter()
+        .map(|solid| solid.name)
+        .collect();
+
+    assert_eq!(names, ["Red", "Plain"]);
 }
 
 fn faceted_cube(top: &str, missing_face: bool) -> String {
@@ -699,6 +746,7 @@ fn offset_of(
         &[StepBody {
             name: "Offset",
             solid,
+            colour: None,
         }],
         "Offset",
         SystemTime::UNIX_EPOCH,
@@ -797,6 +845,7 @@ fn only_repairs_beyond_the_precision_of_the_file_are_reported() {
         &[StepBody {
             name: "Plate",
             solid: &solid,
+            colour: None,
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -881,6 +930,7 @@ fn a_surface_of_revolution_whose_profile_is_not_in_a_meridian_plane_is_refused()
         &[StepBody {
             name: "Vase",
             solid: &vase,
+            colour: None,
         }],
         "Vase",
         SystemTime::UNIX_EPOCH,

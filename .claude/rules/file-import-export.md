@@ -64,7 +64,7 @@ paths:
 
 ## Export (`export/`)
 
-- `export_bodies` writes STEP, or tessellates at a `MeshResolution` (a chord fraction of the
+- `export_bodies` writes STEP (a body with a look styled with its colour), or tessellates at a `MeshResolution` (a chord fraction of the
   largest body's diagonal plus an angle between triangles) into binary STL (all bodies in one
   surface), 3MF (one named object per body, millimetres; a body with a colour or material points
   into one `basematerials` group, its `base` named after the material or else the body and coloured

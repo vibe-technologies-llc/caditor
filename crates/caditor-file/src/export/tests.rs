@@ -667,6 +667,34 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
 }
 
 #[test]
+fn a_step_export_styles_a_coloured_body_with_its_colour() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("part.step");
+    let bodies = [ExportBody {
+        name: "Extrude 1",
+        solid: &block,
+        look: Some(Look {
+            colour: Rgb::new(255, 0, 0),
+            material: Some("Steel"),
+        }),
+    }];
+
+    export_bodies(
+        &path,
+        ExportFormat::Step,
+        MeshResolution::Standard,
+        &bodies,
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let step = std::fs::read_to_string(&path).unwrap();
+
+    assert!(step.contains("=COLOUR_RGB('',1.0,0.0,0.0);"));
+    assert_eq!(step.matches("=STYLED_ITEM('color',").count(), 1);
+}
+
+#[test]
 fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept() {
     let block = block();
     let bodies = [

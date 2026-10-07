@@ -356,6 +356,9 @@ fn export_step(
         .map(|body| StepBody {
             name: body.name,
             solid: body.solid,
+            colour: body
+                .look
+                .map(|look| [look.colour.red, look.colour.green, look.colour.blue]),
         })
         .collect();
     let model_name = path

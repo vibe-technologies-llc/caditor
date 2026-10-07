@@ -17,6 +17,7 @@ const SECONDS_PER_DAY: u64 = 86_400;
 pub struct StepBody<'a> {
     pub name: &'a str,
     pub solid: &'a Solid,
+    pub colour: Option<[u8; 3]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -224,6 +225,7 @@ pub fn write_step_keeping_what_can_be(
     let mut items = vec![Shapes::origin(&mut data)];
     let mut shapes = Shapes::new(&mut data);
     let mut left_out = Vec::new();
+    let mut coloured = Vec::new();
     for (index, body) in bodies.iter().enumerate() {
         let checkpoint = shapes.data().checkpoint();
         let solids = shapes.body(body.solid, body.name);
@@ -234,7 +236,12 @@ pub fn write_step_keeping_what_can_be(
             Err(shape::Unsupported::Shells) => Err(WriteError::Shells(body.name.to_owned())),
         };
         match outcome {
-            Ok(solids) => items.extend(solids),
+            Ok(solids) => {
+                if let Some(colour) = body.colour {
+                    coloured.extend(solids.iter().map(|solid| (*solid, colour)));
+                }
+                items.extend(solids);
+            }
             Err(error) => {
                 shapes.data().roll_back(checkpoint);
                 left_out.push((index, error));
@@ -251,10 +258,45 @@ pub fn write_step_keeping_what_can_be(
     data.add(format!(
         "SHAPE_DEFINITION_REPRESENTATION({shape},{representation})"
     ));
+    styles(&mut data, &coloured, context);
     Ok(StepWritten {
         text: document(&data, model_name, written),
         left_out,
     })
+}
+
+fn styles(data: &mut Data, coloured: &[(Ref, [u8; 3])], context: Ref) {
+    if coloured.is_empty() {
+        return;
+    }
+    let mut assignments = BTreeMap::new();
+    let mut styled = Vec::new();
+    for (solid, colour) in coloured {
+        let assignment = *assignments
+            .entry(*colour)
+            .or_insert_with(|| style_assignment(data, *colour));
+        styled.push(data.add(format!("STYLED_ITEM('color',({assignment}),{solid})")));
+    }
+    data.add(format!(
+        "MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION('',{},{context})",
+        list(styled)
+    ));
+}
+
+fn style_assignment(data: &mut Data, [red, green, blue]: [u8; 3]) -> Ref {
+    let channel = |value: u8| real(f64::from(value) / 255.0);
+    let colour = data.add(format!(
+        "COLOUR_RGB('',{},{},{})",
+        channel(red),
+        channel(green),
+        channel(blue)
+    ));
+    let fill_colour = data.add(format!("FILL_AREA_STYLE_COLOUR('',{colour})"));
+    let fill = data.add(format!("FILL_AREA_STYLE('',({fill_colour}))"));
+    let area = data.add(format!("SURFACE_STYLE_FILL_AREA({fill})"));
+    let side = data.add(format!("SURFACE_SIDE_STYLE('',({area}))"));
+    let usage = data.add(format!("SURFACE_STYLE_USAGE(.BOTH.,{side})"));
+    data.add(format!("PRESENTATION_STYLE_ASSIGNMENT(({usage}))"))
 }
 
 fn representation_context(data: &mut Data) -> Ref {

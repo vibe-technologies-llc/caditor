@@ -268,8 +268,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
   other faces and say which were lost. Colours and layers are not read.
 - [low · medium] The parse tree still holds several times the file size (a boxed slice per record
   and per list); a flat arena of values would bring it near the file size.
-- [low · medium] The writer puts all bodies in one product without their colours (bodies have one,
-  `BodyAppearance`), holding the output twice in memory.
+- [low · medium] The STEP writer puts all bodies in one product rather than an assembly of parts,
+  and holds the output twice in memory (the entity list, then the text).
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
 

@@ -10,7 +10,11 @@ use crate::{
 
 fn written(name: &str, solid: &caditor_kernel::Solid) -> String {
     write_step(
-        &[StepBody { name, solid }],
+        &[StepBody {
+            name,
+            solid,
+            colour: None,
+        }],
         "part",
         SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_000_000),
     )
@@ -104,10 +108,12 @@ fn several_bodies_share_one_representation() {
             StepBody {
                 name: "Plate",
                 solid: &plate,
+                colour: None,
             },
             StepBody {
                 name: "Turned",
                 solid: &turned,
+                colour: None,
             },
         ],
         "model",
@@ -116,6 +122,75 @@ fn several_bodies_share_one_representation() {
     .unwrap();
     assert_eq!(count(&step, "MANIFOLD_SOLID_BREP"), 2);
     assert_eq!(count(&step, "ADVANCED_BREP_SHAPE_REPRESENTATION"), 1);
+}
+
+#[test]
+fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
+    let plate = fixtures::plate_with_hole();
+    let turned = fixtures::turned();
+    let other = fixtures::plate_with_hole();
+    let step = write_step(
+        &[
+            StepBody {
+                name: "Plate",
+                solid: &plate,
+                colour: Some([255, 0, 51]),
+            },
+            StepBody {
+                name: "Turned",
+                solid: &turned,
+                colour: None,
+            },
+            StepBody {
+                name: "Other",
+                solid: &other,
+                colour: Some([255, 0, 51]),
+            },
+        ],
+        "model",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+
+    assert_eq!(count(&step, "COLOUR_RGB"), 1);
+    assert_eq!(count(&step, "PRESENTATION_STYLE_ASSIGNMENT"), 1);
+    assert_eq!(count(&step, "STYLED_ITEM"), 2);
+    assert_eq!(
+        count(
+            &step,
+            "MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION"
+        ),
+        1
+    );
+    assert!(step.contains("=COLOUR_RGB('',1.0,0.0,0.2);"));
+
+    let styled: Vec<&str> = step
+        .lines()
+        .filter_map(|line| line.split_once("=STYLED_ITEM('color',("))
+        .filter_map(|(_, rest)| rest.split_once("),"))
+        .map(|(_, solid)| solid.trim_end_matches(");"))
+        .collect();
+    let breps: Vec<(&str, &str)> = step
+        .lines()
+        .filter_map(|line| line.split_once("=MANIFOLD_SOLID_BREP('"))
+        .filter_map(|(id, rest)| Some((id, rest.split_once('\'')?.0)))
+        .collect();
+    let named = |name: &str| breps.iter().find(|brep| brep.1 == name).unwrap().0;
+    assert_eq!(styled, [named("Plate"), named("Other")]);
+}
+
+#[test]
+fn uncoloured_bodies_write_no_presentation() {
+    let step = written("Plate", &fixtures::plate_with_hole());
+
+    assert_eq!(count(&step, "STYLED_ITEM"), 0);
+    assert_eq!(
+        count(
+            &step,
+            "MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION"
+        ),
+        0
+    );
 }
 
 #[test]

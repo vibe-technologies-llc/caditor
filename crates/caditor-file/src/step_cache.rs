@@ -111,6 +111,7 @@ mod tests {
             &[StepBody {
                 name: "Block",
                 solid: &solid,
+                colour: None,
             }],
             "Block",
             SystemTime::UNIX_EPOCH,

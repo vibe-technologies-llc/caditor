@@ -168,7 +168,16 @@ fn canonical(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)>> {
 }
 
 fn written_and_read(name: &str, solid: &Solid) -> Option<(String, Vec<Solid>)> {
-    let step = write_step(&[StepBody { name, solid }], name, SystemTime::UNIX_EPOCH).ok()?;
+    let step = write_step(
+        &[StepBody {
+            name,
+            solid,
+            colour: None,
+        }],
+        name,
+        SystemTime::UNIX_EPOCH,
+    )
+    .ok()?;
     let again = read_step(&step).ok()?;
     Some((
         step,

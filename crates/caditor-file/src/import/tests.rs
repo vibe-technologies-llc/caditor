@@ -1132,6 +1132,7 @@ mod step {
             &[StepBody {
                 name: "Block",
                 solid: &solid,
+                colour: None,
             }],
             "block",
             SystemTime::UNIX_EPOCH,
@@ -1236,6 +1237,7 @@ mod step {
             &[StepBody {
                 name: "Pair",
                 solid: &pair,
+                colour: None,
             }],
             "pair",
             SystemTime::UNIX_EPOCH,
@@ -1280,6 +1282,7 @@ mod step {
             &[StepBody {
                 name: "Part",
                 solid: &solid,
+                colour: None,
             }],
             "parts",
             SystemTime::UNIX_EPOCH,
@@ -1317,6 +1320,7 @@ mod step {
             &[StepBody {
                 name: "Part",
                 solid: &solid,
+                colour: None,
             }],
             "Part",
             SystemTime::UNIX_EPOCH,
@@ -1400,10 +1404,12 @@ mod step {
                 StepBody {
                     name: "Part",
                     solid: &solid,
+                    colour: None,
                 },
                 StepBody {
                     name: "Part",
                     solid: &solid,
+                    colour: None,
                 },
             ],
             "parts",

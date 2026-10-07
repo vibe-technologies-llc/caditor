@@ -12,6 +12,11 @@ paths:
   there is only one): one `MANIFOLD_SOLID_BREP` per lump, or a `BREP_WITH_VOIDS` whose voids are
   `ORIENTED_CLOSED_SHELL`s of inverted faces. Millimetres and radians, uncertainty
   `LINEAR_RESOLUTION`, no author or organisation, the application named by name and version only.
+- A `StepBody` with a `colour` gets one `STYLED_ITEM` per solid, each pointing at a
+  `PRESENTATION_STYLE_ASSIGNMENT` (surface fill of `COLOUR_RGB`, the 0–255 channels over 255,
+  `.BOTH.` sides) written once per distinct colour, all gathered in one
+  `MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION` on the shape's context; uncoloured
+  bodies write no presentation at all. The reader ignores it, since its items are styled items.
 - `write_step_keeping_what_can_be` writes every body it can, rolls a failed one back out and lists
   it in `left_out`; `write_step` fails on the first such error. Only when no body is writable is
   it an error.
