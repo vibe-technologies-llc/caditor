@@ -57,6 +57,7 @@ const SIZE_READOUT_OFFSET: egui::Vec2 = vec2(14.0, 26.0);
 const VIEWPORT_NAME: &str = "3D view";
 const NOT_IN_A_SKETCH: &str = "Edit a sketch to look straight at it";
 pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
+pub const DRAG_CONFLICT: &str = "Nothing moves while constraints conflict";
 const READOUT_GAP: f32 = 4.0;
 const NAVIGATION_HINT: &str =
     "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom";
@@ -1978,15 +1979,22 @@ impl ViewportState {
         {
             let position = rect.min
                 + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
+            let cue = editing
+                .feature()
+                .and_then(|feature| model.sketch_conflict(feature))
+                .map_or_else(
+                    || DRAG_BLOCKED.to_owned(),
+                    |conflict| format!("{DRAG_CONFLICT}: {conflict}"),
+                );
             let shown = canvas::label(
                 painter,
                 position + SNAP_LABEL_OFFSET,
                 Align2::LEFT_TOP,
-                DRAG_BLOCKED,
+                &cue,
                 canvas::small(),
                 canvas::WARNING,
             );
-            canvas::announce(ui, shown, "drag blocked", DRAG_BLOCKED, Some(Live::Polite));
+            canvas::announce(ui, shown, "drag blocked", &cue, Some(Live::Polite));
         }
         let readout_left = rect.left() + view_cube::TRIAD_WIDTH;
         let bottom_left = pos2(readout_left, rect.bottom() - canvas::MARGIN);

@@ -70,6 +70,7 @@ pub struct RecordedNotice {
     pub at: SystemTime,
 }
 
+const NAMED_CONFLICTS: usize = 2;
 const MAX_RECORDED_NOTICES: usize = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -349,6 +350,26 @@ impl Model {
         self.drag_blocked
     }
 
+    pub fn sketch_conflict(&self, feature: FeatureId) -> Option<String> {
+        let FeatureState::Failed(error) = &self.evaluation.feature(feature)?.state else {
+            return None;
+        };
+        let sketch = self.editor.document().feature(feature)?.kind.sketch()?;
+        let named: Vec<String> = error
+            .constraints
+            .iter()
+            .take(NAMED_CONFLICTS)
+            .map(|constraint| sketch.describe_constraint(*constraint))
+            .collect();
+        let more = error.constraints.len().saturating_sub(NAMED_CONFLICTS);
+        match (named.as_slice(), more) {
+            ([], _) => None,
+            ([only], _) => Some(only.clone()),
+            ([first, second], 0) => Some(format!("{first} and {second}")),
+            (named, more) => Some(format!("{} and {more} more", named.join(", "))),
+        }
+    }
+
     pub fn recorded_notices(&self) -> impl Iterator<Item = &RecordedNotice> {
         self.recorded_notices.iter()
     }
@@ -586,8 +607,15 @@ impl Model {
         } = finished;
         let Some(sketch) = sketch else {
             self.display.sketches.stop_showing_dragged();
+            let reason = match self.sketch_conflict(feature) {
+                Some(conflict) => format!(
+                    "the sketch's constraints conflict ({conflict}); remove or turn one of them off \
+                     first"
+                ),
+                None => "the sketch could not be solved with it moved there".to_owned(),
+            };
             self.set_notice(Notice::info(format!(
-                "{label} did nothing, because the sketch could not be solved with it moved there."
+                "{label} did nothing, because {reason}."
             )));
             return;
         };

@@ -10082,6 +10082,71 @@ fn dragging_a_sketch_point_moves_it_as_its_constraints_allow_in_one_undoable_cha
 }
 
 #[test]
+fn a_drag_in_a_conflicting_sketch_names_the_conflict() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    for constraint in [
+        Constraint::Coincident(start, EntityId::ORIGIN),
+        Constraint::Horizontal(line),
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::parse_stored("40 mm").unwrap(),
+        },
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::parse_stored("50 mm").unwrap(),
+        },
+    ] {
+        sketch.add_constraint(constraint).unwrap();
+    }
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.settle();
+    let conflict = harness.model.sketch_conflict(feature);
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(40.0, 0.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: end,
+        },
+    );
+    harness.events.push(Event::PointerButton {
+        pos: grabbed,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    let target = harness.on_screen(Point2::new(30.0, 12.0));
+    for step in 1..=4 {
+        harness.events.push(Event::PointerMoved(
+            grabbed + (target - grabbed) * (step as f32 / 4.0),
+        ));
+        harness.frame();
+    }
+    harness.wait_until("the cue shows", |harness| {
+        harness.shows_containing(crate::viewport::DRAG_CONFLICT)
+    });
+    harness.events.push(Event::PointerButton {
+        pos: target,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.wait_until("the drag ends", |harness| !harness.model.drag_blocked());
+    harness.frame();
+
+    let conflict = conflict.expect("the sketch conflicts");
+    assert!(conflict.contains("Distance"), "{conflict}");
+    assert!(harness.shows_containing(&conflict));
+}
+
+#[test]
 fn a_drag_the_constraints_cannot_follow_says_so_until_it_ends() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
@@ -10118,9 +10183,11 @@ fn a_drag_the_constraints_cannot_follow_says_so_until_it_ends() {
         ));
         harness.frame();
     }
-    harness.wait_until("the cue shows", |harness| {
+    let cued = |harness: &Harness| {
         harness.shows(crate::viewport::DRAG_BLOCKED)
-    });
+            || harness.shows_containing(crate::viewport::DRAG_CONFLICT)
+    };
+    harness.wait_until("the cue shows", cued);
     assert!(harness.model.drag_blocked());
 
     harness.events.push(Event::PointerButton {
@@ -10131,7 +10198,7 @@ fn a_drag_the_constraints_cannot_follow_says_so_until_it_ends() {
     });
     harness.wait_until("the drag ends", |harness| !harness.model.drag_blocked());
     harness.frame();
-    assert!(!harness.shows(crate::viewport::DRAG_BLOCKED));
+    assert!(!cued(&harness));
 }
 
 #[test]

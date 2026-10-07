@@ -54,7 +54,9 @@ paths:
   or a drag begun on an older revision drops it.
 - When the worker cannot solve its newest frame (`Polled::blocked`, `Model::drag_blocked`), the
   viewport says `DRAG_BLOCKED` beside the pointer as a polite live region and the geometry stays
-  where the last good frame put it.
+  where the last good frame put it. In a sketch whose constraints conflict it says `DRAG_CONFLICT`
+  with the conflict named (`Model::sketch_conflict`, the first two constraints and how many
+  more), and the notice when the drag ends names them too.
 - A primary drag elsewhere draws a box: left to right a window taking what lies inside (curves
   faceted as drawn, `app.md`), right to left a crossing box taking what it touches. It replaces
   the selection (Shift or Ctrl adds); a point is left out when a curve it belongs to was taken.
