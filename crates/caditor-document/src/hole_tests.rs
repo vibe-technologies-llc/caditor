@@ -1,4 +1,4 @@
-use std::f64::consts::PI;
+use std::{collections::BTreeSet, f64::consts::PI};
 
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -426,4 +426,63 @@ fn a_hole_modifies_its_body_and_depends_on_the_body_and_its_sketch() {
     assert_eq!(feature.body(), Some(pair.plate));
     assert_eq!(pair.document.dependents_of(&[pair.plate]), vec![hole]);
     assert_eq!(pair.document.dependents_of(&[sketch]), vec![hole]);
+}
+
+#[test]
+fn a_reference_to_the_wall_keeps_the_wall_when_the_style_changes() {
+    let mut pair = pair();
+    let hole = plain(&mut pair, &[(5.0, 5.0)], "3 mm");
+    let mut engine = Recompute::default();
+    let plain_body = evaluate(&pair.document, &mut engine)
+        .body(pair.plate)
+        .unwrap()
+        .clone();
+    let wall = plain_body
+        .faces()
+        .find(|(_, face)| describe_origin(&pair.document, face.origin()) == "Hole 1 wall")
+        .map(|(id, _)| id)
+        .unwrap();
+    let reference = caditor_kernel::FaceReference::capture(&plain_body, wall).unwrap();
+    let FeatureKind::Hole(definition) = pair.document.feature(hole).unwrap().kind.clone() else {
+        panic!("a hole");
+    };
+    let style = HoleStyle::Counterbore {
+        diameter: expression(&pair.document, "7 mm"),
+        depth: expression(&pair.document, "1 mm"),
+    };
+    pair.document
+        .apply(Transaction::single(
+            "Counterbore",
+            Edit::SetFeatureKind {
+                id: hole,
+                kind: FeatureKind::Hole(Hole {
+                    style,
+                    ..definition
+                }),
+            },
+        ))
+        .unwrap();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    let bored = evaluation.body(pair.plate).unwrap();
+    let resolved = reference.resolve(bored).unwrap();
+    let described = describe_origin(&pair.document, bored.face(resolved).unwrap().origin());
+    assert_eq!(described, "Hole 1 wall");
+    let parts: BTreeSet<String> = bored
+        .faces()
+        .map(|(_, face)| describe_origin(&pair.document, face.origin()))
+        .filter(|name| name.starts_with("Hole 1"))
+        .collect();
+    assert_eq!(
+        parts,
+        [
+            "Hole 1 bottom",
+            "Hole 1 counterbore floor",
+            "Hole 1 counterbore wall",
+            "Hole 1 wall",
+        ]
+        .map(str::to_owned)
+        .into()
+    );
 }

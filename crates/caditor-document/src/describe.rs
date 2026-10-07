@@ -1,7 +1,10 @@
 use caditor_kernel::{EdgeId, FaceId, FaceOrigin, Solid};
 use caditor_sketch::EntityId;
 
-use crate::document::{Document, FeatureId};
+use crate::{
+    document::{Document, FeatureId},
+    hole::Hole,
+};
 
 pub fn origin_feature(origin: FaceOrigin) -> FeatureId {
     FeatureId::from_raw(origin.copy().map_or(origin.feature(), |copy| copy.pattern))
@@ -42,10 +45,7 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
     let name = &feature.name;
     match origin {
         FaceOrigin::Side { entity, .. } if feature.kind.hole().is_some() => {
-            let part = feature
-                .kind
-                .hole()
-                .map_or("face", |hole| hole.part_name(entity));
+            let part = Hole::part_name(entity);
             format!("{name} {part}")
         }
         FaceOrigin::Side { entity, .. } => {

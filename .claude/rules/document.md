@@ -173,10 +173,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - Each hole is a half-section polygon revolved a full turn about the hole axis (kernel `revolve`),
   starting `MARGIN` above the plane so the cut is clean, then subtracted from the body. Curve
   entities are `point id * 16 + part`, so every hole's faces are named by their sketch point and
-  survive adding, moving or removing the other points; `describe_origin` words them as the hole's
-  wall, bottom, counterbore wall and floor, or countersink (`Hole::part_name`).
+  survive adding, moving or removing the other points. The part is the segment's role (`HolePart`:
+  wall 1 and bottom 2 as a plain hole always had, counterbore wall 4 and floor 5, countersink 6),
+  never its place in the outline, so a style change keeps the wall and bottom and references to
+  them; `describe_origin` words them through `Hole::part_name`.
 - It fails alone, naming the point, when a size is not positive, the counterbore or countersink is
-  not wider than the hole or as deep as it, the angle is outside 0° to 179°, the sketch has no
+  not wider than the hole or as deep as it, the angle is outside 0° to `MAX_COUNTERSINK_ANGLE`
+  (179°, also the Hole panel's field rule), the sketch has no
   points, more than `MAX_HOLES`, or a hole does not cut into the body (it adds no face).
 
 ### Move (`movement.rs`)

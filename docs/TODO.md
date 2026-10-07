@@ -111,12 +111,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Document and recompute
 
-- [medium · easy] A hole's face names follow its outline's segments, so changing its style renames
-  its faces: the wall is side 1 of a plain hole, 3 of a counterbored one and 2 of a countersunk one
-  (`Hole::part_name`), and a reference to a plain hole's wall resolves to the counterbore's wall
-  once the style changes, instead of keeping the wall or being reported missing. Name the parts by
-  role (wall, bottom, counterbore wall and floor, countersink) so a style change keeps the faces
-  that remain.
 - [medium · hard] The cache keeps one result per feature, so changing a depth and undoing recomputes
   everything after it; it also has no byte budget, holding every intermediate `Solid`. Keep a small,
   size-bounded history per feature.
@@ -268,10 +262,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   revolution, so both need new kernel operations first.
 - [medium · hard] Extrusions and revolves have no taper angle or thin wall (an open profile given a
   thickness), which needs a tapered sweep and a wall of an open profile in the kernel.
-- [low · easy] The Hole panel's countersink angle takes any value (`Rule::Any`), so 0°, a negative
-  angle or one over 179° is committed and fails at recompute, where every other size is refused in
-  the field with the old value kept. Add a rule bounded by the document's limit, exported from the
-  document crate so the two cannot drift.
 - [low · medium] Revolve cannot keep the part of a region on one side of the axis.
 - [low · medium] Parameters cannot be reordered or given a note, show what uses them only in the
   value's tooltip and mark no unused one in the table, cannot be deleted by inlining their value,

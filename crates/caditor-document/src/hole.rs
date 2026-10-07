@@ -19,7 +19,7 @@ pub const MAX_HOLES: usize = 100;
 const PARTS: u64 = 16;
 const MARGIN: f64 = 1.0;
 const THROUGH_ALL_REACH: f64 = 0.05;
-const MAX_COUNTERSINK_ANGLE: f64 = 179.0;
+pub const MAX_COUNTERSINK_ANGLE: f64 = 179.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HoleDepth {
@@ -94,17 +94,44 @@ impl Hole {
             .sum()
     }
 
-    pub fn part_name(&self, part: u64) -> &'static str {
-        let part = part % PARTS;
-        match (&self.style, part) {
-            (HoleStyle::Plain, 1) | (HoleStyle::Counterbore { .. }, 3) => "wall",
-            (HoleStyle::Plain, 2) | (HoleStyle::Counterbore { .. }, 4) => "bottom",
-            (HoleStyle::Counterbore { .. }, 1) => "counterbore wall",
-            (HoleStyle::Counterbore { .. }, 2) => "counterbore floor",
-            (HoleStyle::Countersink { .. }, 1) => "countersink",
-            (HoleStyle::Countersink { .. }, 2) => "wall",
-            (HoleStyle::Countersink { .. }, 3) => "bottom",
-            _ => "face",
+    pub fn part_name(part: u64) -> &'static str {
+        HolePart::ALL
+            .into_iter()
+            .find(|candidate| *candidate as u64 == part % PARTS)
+            .map_or("face", HolePart::name)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HolePart {
+    Top = 0,
+    Wall = 1,
+    Bottom = 2,
+    Axis = 3,
+    CounterboreWall = 4,
+    CounterboreFloor = 5,
+    Countersink = 6,
+}
+
+impl HolePart {
+    const ALL: [Self; 7] = [
+        Self::Top,
+        Self::Wall,
+        Self::Bottom,
+        Self::Axis,
+        Self::CounterboreWall,
+        Self::CounterboreFloor,
+        Self::Countersink,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Wall => "wall",
+            Self::Bottom => "bottom",
+            Self::CounterboreWall => "counterbore wall",
+            Self::CounterboreFloor => "counterbore floor",
+            Self::Countersink => "countersink",
+            Self::Top | Self::Axis => "face",
         }
     }
 }
@@ -262,7 +289,7 @@ impl Context<'_> {
                 }
                 if angle <= 0.0 || angle > MAX_COUNTERSINK_ANGLE {
                     return Err(self.error(
-                        "The countersink angle must be above 0° and at most 179°.".to_owned(),
+                        format!("The countersink angle must be above 0° and at most {MAX_COUNTERSINK_ANGLE}°."),
                         "Enter a countersink angle such as 90 deg.".to_owned(),
                     ));
                 }
@@ -289,26 +316,29 @@ impl Context<'_> {
     }
 }
 
-fn outline(values: &Values, depth: f64) -> Vec<Point2> {
+fn outline(values: &Values, depth: f64) -> Vec<(Point2, HolePart)> {
     let radius = values.diameter / 2.0;
     let top = MARGIN;
     match values.style {
         StyleValues::Plain => vec![
-            Point2::new(0.0, top),
-            Point2::new(radius, top),
-            Point2::new(radius, -depth),
-            Point2::new(0.0, -depth),
+            (Point2::new(0.0, top), HolePart::Top),
+            (Point2::new(radius, top), HolePart::Wall),
+            (Point2::new(radius, -depth), HolePart::Bottom),
+            (Point2::new(0.0, -depth), HolePart::Axis),
         ],
         StyleValues::Counterbore {
             diameter: wide,
             depth: shallow,
         } => vec![
-            Point2::new(0.0, top),
-            Point2::new(wide / 2.0, top),
-            Point2::new(wide / 2.0, -shallow),
-            Point2::new(radius, -shallow),
-            Point2::new(radius, -depth),
-            Point2::new(0.0, -depth),
+            (Point2::new(0.0, top), HolePart::Top),
+            (Point2::new(wide / 2.0, top), HolePart::CounterboreWall),
+            (
+                Point2::new(wide / 2.0, -shallow),
+                HolePart::CounterboreFloor,
+            ),
+            (Point2::new(radius, -shallow), HolePart::Wall),
+            (Point2::new(radius, -depth), HolePart::Bottom),
+            (Point2::new(0.0, -depth), HolePart::Axis),
         ],
         StyleValues::Countersink {
             diameter: wide,
@@ -316,11 +346,17 @@ fn outline(values: &Values, depth: f64) -> Vec<Point2> {
         } => {
             let slope = half_angle.tan();
             vec![
-                Point2::new(0.0, top),
-                Point2::new(wide / 2.0 + top * slope, top),
-                Point2::new(radius, -(wide / 2.0 - radius) / slope),
-                Point2::new(radius, -depth),
-                Point2::new(0.0, -depth),
+                (Point2::new(0.0, top), HolePart::Top),
+                (
+                    Point2::new(wide / 2.0 + top * slope, top),
+                    HolePart::Countersink,
+                ),
+                (
+                    Point2::new(radius, -(wide / 2.0 - radius) / slope),
+                    HolePart::Wall,
+                ),
+                (Point2::new(radius, -depth), HolePart::Bottom),
+                (Point2::new(0.0, -depth), HolePart::Axis),
             ]
         }
     }
@@ -331,7 +367,7 @@ fn tool(
     frame: &Plane,
     centre: Point3,
     up: Vector3,
-    outline: &[Point2],
+    outline: &[(Point2, HolePart)],
     base: u64,
     feature: u64,
 ) -> Result<Solid, Failure> {
@@ -346,8 +382,7 @@ fn tool(
     let curves: Vec<ProfileCurve> = outline
         .iter()
         .zip(outline.iter().cycle().skip(1))
-        .enumerate()
-        .map(|(index, (start, end))| ProfileCurve::line(base + index as u64, *start, *end))
+        .map(|((start, part), (end, _))| ProfileCurve::line(base + *part as u64, *start, *end))
         .collect();
     let profile = Profile::new(&curves).map_err(|_| unusable())?;
     let axis = Axis2::new(Point2::ZERO, Vector2::Y).map_err(|_| unusable())?;

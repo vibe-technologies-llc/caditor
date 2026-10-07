@@ -214,7 +214,7 @@ impl Panel<'_> {
                         caption: "Countersink angle",
                         key: "countersink-angle",
                         dimension: Dimension::ANGLE,
-                        rule: Rule::Any,
+                        rule: Rule::Countersink,
                     },
                     &angle.clone(),
                     |hole, value| Hole {

@@ -6882,6 +6882,13 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     harness.settle();
     assert_eq!(rows_named(&harness, "Depth").len(), 1);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+    let label = harness.model.undo_label().map(str::to_owned);
+    harness.type_into_field(
+        Id::new(("hole-field", "countersink-angle", hole)),
+        "180 deg",
+    );
+    assert!(harness.shows("Enter an angle above 0° and up to 179°"));
+    assert_eq!(harness.model.undo_label().map(str::to_owned), label);
 
     harness.perform(Action::Undo);
     harness.perform(Action::Undo);

@@ -50,7 +50,7 @@ pub use crate::{
     edit::{Edit, EditError, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},
     healing::Healing,
-    hole::{Hole, HoleDepth, HoleStyle, MAX_HOLES, centres as hole_centres},
+    hole::{Hole, HoleDepth, HoleStyle, MAX_COUNTERSINK_ANGLE, MAX_HOLES, centres as hole_centres},
     import::Import,
     mirror::{MIRROR_IMAGE, Mirror},
     movement::{Move, MoveAxis},
