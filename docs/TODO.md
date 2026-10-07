@@ -334,8 +334,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
   unpickable faces, and no body can be translucent or hidden on its own except by hiding its
   feature. A body's colour is one for all its faces: no face can be coloured apart.
 - [medium · medium] No box or lasso selection in the 3D view (only inside a sketch), no select
-  all of a body's faces or edges (Select all takes every shown body's), and no selecting a face's
-  tangent neighbours or a hole's wall, so choosing many faces for a pattern, shell or export
+  all of a body's faces or edges (Select all takes every shown body's), and no selecting a hole's
+  wall, so choosing many faces for a pattern, shell or export
   still means clicking most of them.
 - [medium · medium] Edge lines can be eaten by faces at grazing angles, since depth bias is a
   constant factor with no slope term, and the grid and reference fills share the mesh's bias, so a

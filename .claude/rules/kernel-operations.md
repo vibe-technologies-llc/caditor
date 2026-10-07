@@ -122,6 +122,9 @@ paths:
 - `tangent_chain(solid, edges)` follows tangent-continuous edges sharing a face through their end
   vertices, smooth or sharp, for selection; it shares `follow` with `blend_chain`, which admits only
   sharp edges.
+- `tangent_faces(solid, faces)` spreads from the given faces across every edge where the two faces'
+  normals agree within `TANGENT_FACE_ANGLE` (0.01 rad, looser than blending's test so fitted
+  imported blends count) at a quarter, half and three quarters along it, for selection.
 - Chosen edges grow along tangent-continuous chains (`blend_chain`); smooth edges are dropped, and
   only when every chosen edge is smooth is it `Smooth`. Tools are united pairwise in rounds (a
   pair that cannot be united stays apart) and each group is applied in one boolean, or tool by tool

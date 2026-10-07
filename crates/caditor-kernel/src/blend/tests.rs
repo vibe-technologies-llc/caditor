@@ -230,6 +230,48 @@ fn smooth_chains_are_followed_from_one_edge() {
     assert_eq!(blend_faces(&result).len(), 4);
 }
 
+fn face_through(solid: &Solid, point: (f64, f64, f64)) -> FaceId {
+    let point = Point3::new(point.0, point.1, point.2);
+    solid
+        .faces()
+        .find(|(_, face)| {
+            let uv = face.surface().project(point, None);
+            face.surface().point(uv.x, uv.y).distance(point) < 1e-6
+        })
+        .map(|(id, _)| id)
+        .unwrap_or_else(|| panic!("no face passes through {point}"))
+}
+
+#[test]
+fn tangent_faces_spread_across_smooth_edges_only() {
+    let stadium = [
+        line(1, (0.0, 0.0), (10.0, 0.0)),
+        arc(2, (10.0, 2.0), (10.0, 0.0), (10.0, 4.0)),
+        line(3, (10.0, 4.0), (0.0, 4.0)),
+        arc(4, (0.0, 2.0), (0.0, 4.0), (0.0, 0.0)),
+    ];
+    let slot = swept(Plane::XY, &stadium, 3.0);
+    let side = face_through(&slot, (5.0, 0.0, 1.5));
+    let top = face_through(&slot, (5.0, 2.0, 3.0));
+    let block = cuboid(Vector3::splat(10.0));
+    let rounded = run(
+        &block,
+        &[edge_through(&block, (5.0, 0.0, 10.0))],
+        fillet(2.0),
+    );
+    let round = blend_faces(&rounded);
+
+    let around = tangent_faces(&slot, &[side]);
+    let alone = tangent_faces(&slot, &[top]);
+    let beside_round = tangent_faces(&rounded, &round);
+
+    assert_eq!(around.len(), 4);
+    assert!(!around.contains(&top));
+    assert_eq!(alone, [top]);
+    assert_eq!(beside_round.len(), 3);
+    assert_eq!(tangent_faces(&block, &[]), []);
+}
+
 #[test]
 fn slanted_ends_follow_the_face_they_meet() {
     let wedge = swept(

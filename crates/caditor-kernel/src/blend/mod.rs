@@ -33,6 +33,8 @@ use crate::{
 const DIRECTION_TOLERANCE: f64 = 1e-7;
 const SMOOTH_TOLERANCE: f64 = 1e-6;
 const TANGENT_CONTINUITY: f64 = 1e-6;
+const TANGENT_FACE_ANGLE: f64 = 0.01;
+const TANGENT_FACE_SAMPLES: [f64; 3] = [0.25, 0.5, 0.75];
 const PERPENDICULAR_END: f64 = 1e-9;
 const SHALLOWEST_END: f64 = 0.1;
 const END_MARGIN: f64 = 0.25;
@@ -954,6 +956,61 @@ pub fn tangent_chain(solid: &Solid, edges: &[EdgeId]) -> Vec<EdgeId> {
         |_, _, _| true,
     );
     chosen.into_iter().collect()
+}
+
+pub fn tangent_faces(solid: &Solid, faces: &[FaceId]) -> Vec<FaceId> {
+    let mut chosen: BTreeSet<FaceId> = faces
+        .iter()
+        .copied()
+        .filter(|face| solid.face(*face).is_some())
+        .collect();
+    let mut queue: Vec<FaceId> = chosen.iter().copied().collect();
+    while let Some(face) = queue.pop() {
+        for edge in bounding_edges(solid, face) {
+            if !meets_smoothly(solid, edge) {
+                continue;
+            }
+            for (other, _) in edge_faces(solid, edge) {
+                if chosen.insert(other) {
+                    queue.push(other);
+                }
+            }
+        }
+    }
+    chosen.into_iter().collect()
+}
+
+fn bounding_edges(solid: &Solid, face: FaceId) -> BTreeSet<EdgeId> {
+    solid
+        .face(face)
+        .into_iter()
+        .flat_map(|definition| definition.loops())
+        .filter_map(|id| solid.face_loop(*id))
+        .flat_map(|face_loop| face_loop.coedges())
+        .filter_map(|id| solid.coedge(*id))
+        .map(|coedge| coedge.edge())
+        .collect()
+}
+
+fn meets_smoothly(solid: &Solid, edge: EdgeId) -> bool {
+    let faces = edge_faces(solid, edge);
+    let ([(first, _), (second, _)], Some(definition)) = (faces.as_slice(), solid.edge(edge)) else {
+        return false;
+    };
+    if first == second {
+        return false;
+    }
+    let interval = definition.interval();
+    TANGENT_FACE_SAMPLES.iter().all(|fraction| {
+        let at = definition.curve().point(interval.at(*fraction));
+        match (
+            face_normal(solid, *first, at),
+            face_normal(solid, *second, at),
+        ) {
+            (Some(a), Some(b)) => a.dot(b) > 0.0 && a.angle_between(b) <= TANGENT_FACE_ANGLE,
+            _ => false,
+        }
+    })
 }
 
 pub fn blend(

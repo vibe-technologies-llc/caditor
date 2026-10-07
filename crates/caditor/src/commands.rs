@@ -122,6 +122,7 @@ pub enum Command {
     LookAtSketch,
     SelectAllShapes,
     SelectTangentEdges,
+    SelectTangentFaces,
     SelectFaceEdges,
     ToggleVisibility,
     ShowAll,
@@ -452,6 +453,7 @@ plain_commands! {
     LookAtSketch,
     SelectAllShapes,
     SelectTangentEdges,
+    SelectTangentFaces,
     SelectFaceEdges,
     ToggleVisibility,
     ShowAll,
@@ -647,6 +649,7 @@ impl Command {
             Self::LookAtSketch => "view.look_at_sketch",
             Self::SelectAllShapes => "select.all",
             Self::SelectTangentEdges => "select.tangent_edges",
+            Self::SelectTangentFaces => "select.tangent_faces",
             Self::SelectFaceEdges => "select.face_edges",
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
@@ -777,6 +780,7 @@ impl Command {
             Self::LookAtSketch => "Look straight at the edited sketch",
             Self::SelectAllShapes => "Select all faces, edges or vertices",
             Self::SelectTangentEdges => "Select the edges tangent to the selected edges",
+            Self::SelectTangentFaces => "Select the faces tangent to the selected faces",
             Self::SelectFaceEdges => "Select the edges around the selected faces",
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
@@ -862,6 +866,7 @@ impl Command {
             | Self::DeleteSelection
             | Self::SelectAllShapes
             | Self::SelectTangentEdges
+            | Self::SelectTangentFaces
             | Self::SelectFaceEdges
             | Self::DismissNotice => Category::Edit,
             Self::FitView
@@ -1002,6 +1007,7 @@ impl Command {
             Self::LookAtSketch => vec![alt_shift(Key::V)],
             Self::SelectAllShapes => vec![command_shift(Key::A)],
             Self::SelectTangentEdges => vec![alt(Key::T)],
+            Self::SelectTangentFaces => vec![alt_shift(Key::T)],
             Self::SelectFaceEdges => vec![alt_shift(Key::E)],
             Self::ShowAll => vec![KeyboardShortcut::new(Modifiers::ALT, Key::H)],
             Self::SketchTool(tool) => tool_shortcut(tool).into_iter().collect(),

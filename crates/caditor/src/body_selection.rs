@@ -1,7 +1,7 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{FeatureId, SolidResult};
-use caditor_kernel::{EdgeId, Solid, tangent_chain};
+use caditor_kernel::{EdgeId, Solid, tangent_chain, tangent_faces};
 
 use crate::{
     bodies::{self, FaceKey},
@@ -16,6 +16,9 @@ pub const NO_KIND_TO_SELECT: &str =
 pub const NO_SHAPES: &str = "No shown body has anything of that kind to select";
 pub const NO_EDGE_SELECTED: &str = "Select an edge first to follow its tangent edges";
 pub const NO_TANGENT_EDGES: &str = "The selected edges have no tangent edge beyond themselves";
+pub const NO_TANGENT_FACE_SELECTED: &str =
+    "Select a face first to spread the selection to its tangent faces";
+pub const NO_TANGENT_FACES: &str = "The selected faces meet no other face smoothly";
 pub const NO_FACE_SELECTED: &str = "Select a face first to select the edges around it";
 pub const NO_FACE_EDGES: &str = "The selected faces have no edge to select";
 
@@ -158,6 +161,40 @@ fn selected_faces(selection: &Selection) -> Vec<(FeatureId, FaceKey)> {
             Pickable::Face { body, face } => Some((body, face)),
             _ => None,
         })
+        .collect()
+}
+
+pub fn offer_tangent_faces(selection: &Selection) -> Result<(), &'static str> {
+    selection
+        .iter()
+        .any(|pickable| Kind::of(pickable) == Some(Kind::Faces))
+        .then_some(())
+        .ok_or(NO_TANGENT_FACE_SELECTED)
+}
+
+pub fn tangent_faces_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
+    let selected = selected_faces(selection);
+    let bodies: BTreeSet<FeatureId> = selected.iter().map(|(body, _)| *body).collect();
+    bodies
+        .into_iter()
+        .filter_map(|body| Some((body, bodies::shown(model.evaluation(), body)?)))
+        .flat_map(|(body, result)| {
+            let starts: Vec<caditor_kernel::FaceId> = selected
+                .iter()
+                .filter(|(owner, _)| *owner == body)
+                .filter_map(|(_, key)| bodies::find_face(result, *key))
+                .collect();
+            let keys: BTreeMap<caditor_kernel::FaceId, FaceKey> =
+                bodies::face_keys(&result.solid).into_iter().collect();
+            tangent_faces(&result.solid, &starts)
+                .into_iter()
+                .filter_map(|face| {
+                    let key = *keys.get(&face)?;
+                    Some(Pickable::Face { body, face: key })
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|pickable| !selection.contains(*pickable))
         .collect()
 }
 

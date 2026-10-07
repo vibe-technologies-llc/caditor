@@ -30,7 +30,7 @@ mod tolerance;
 mod topology;
 
 pub use crate::{
-    blend::{BlendError, BlendShape, blend, blend_chain, tangent_chain},
+    blend::{BlendError, BlendShape, blend, blend_chain, tangent_chain, tangent_faces},
     boolean::{BooleanError, BooleanOperation, BooleanSite, Interference, boolean, interference},
     bspline::{BSpline, MAX_SPLINE_DEGREE},
     build::{

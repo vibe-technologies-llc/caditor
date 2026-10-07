@@ -1494,6 +1494,19 @@ impl ViewportState {
             }
             self.selection.extend(followed);
         }
+        let tangent_faces = body_selection::outside_sketch(
+            in_sketch,
+            body_selection::offer_tangent_faces(&self.selection),
+        );
+        if commands.invoke(Command::SelectTangentFaces, &tangent_faces) && tangent_faces.is_ok() {
+            let spread = body_selection::tangent_faces_of(model, &self.selection);
+            if spread.is_empty() {
+                actions.push(Action::Inform(Notice::info(
+                    body_selection::NO_TANGENT_FACES,
+                )));
+            }
+            self.selection.extend(spread);
+        }
         let boundary = body_selection::outside_sketch(
             in_sketch,
             body_selection::offer_face_edges(&self.selection),

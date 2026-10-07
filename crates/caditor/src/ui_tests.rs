@@ -9802,6 +9802,57 @@ fn tangent_edges_join_the_selection_along_smooth_joins_and_a_corner_says_there_a
     assert!(harness.shows_containing(crate::body_selection::NO_TANGENT_EDGES));
 }
 
+#[test]
+fn tangent_faces_join_the_selection_around_rounded_ends_and_a_flat_end_says_there_are_none() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0));
+    sketch.add_arc(
+        Point2::new(20.0, 5.0),
+        Point2::new(20.0, 0.0),
+        Point2::new(20.0, 10.0),
+    );
+    sketch.add_line(Point2::new(20.0, 10.0), Point2::new(0.0, 10.0));
+    sketch.add_arc(
+        Point2::new(0.0, 5.0),
+        Point2::new(0.0, 10.0),
+        Point2::new(0.0, 0.0),
+    );
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let faces: Vec<Pickable> = harness.built().picks.pickables().filter(is_face).collect();
+    let describe = |face: &Pickable| face.describe(harness.document(), harness.model.evaluation());
+    let side = faces
+        .iter()
+        .copied()
+        .find(|face| !describe(face).contains("end face"))
+        .unwrap();
+    let end = faces
+        .iter()
+        .copied()
+        .find(|face| describe(face).contains("end face"))
+        .unwrap();
+
+    harness.select([side]);
+    harness.key(Key::T, Modifiers::ALT | Modifiers::SHIFT);
+    harness.frame();
+    let around = selected_of(&harness, is_face);
+    harness.select([end]);
+    harness.key(Key::T, Modifiers::ALT | Modifiers::SHIFT);
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(faces.len(), 6);
+    assert_eq!(around, 4);
+    assert_eq!(selected_of(&harness, is_face), 1);
+    assert!(harness.shows_containing(crate::body_selection::NO_TANGENT_FACES));
+}
+
 fn rows_named(harness: &Harness, label: &str) -> Vec<Rect> {
     let mut rows: Vec<Rect> = harness
         .texts

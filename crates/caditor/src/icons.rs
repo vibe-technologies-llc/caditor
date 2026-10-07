@@ -150,6 +150,7 @@ pub fn command(command: Command) -> &'static str {
         Command::LookAtSketch => phosphor::SCAN,
         Command::SelectAllShapes => phosphor::SELECTION_ALL,
         Command::SelectTangentEdges => phosphor::LINE_SEGMENTS,
+        Command::SelectTangentFaces => phosphor::CYLINDER,
         Command::SelectFaceEdges => phosphor::POLYGON,
         Command::ShowAll => SHOW,
         Command::TogglePrincipal => PRINCIPAL_GROUP,
