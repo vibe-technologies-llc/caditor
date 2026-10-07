@@ -51,7 +51,7 @@ env_logger = {
     default-features = false,
     features = ["auto-color", "humantime"]
 }
-glam = "0.33.12"
+glam = "0.34.1"
 jiff = {
     version = "0.2.38",
     default-features = false,
