@@ -8128,15 +8128,21 @@ fn the_undo_history_goes_back_and_forward_several_steps_at_once() {
     harness.settle();
     assert_eq!(harness.document().parameters().len(), before + 1);
     assert_eq!(
-        harness.model.redo_labels().collect::<Vec<_>>(),
+        harness
+            .model
+            .redo_steps()
+            .map(Transaction::label)
+            .collect::<Vec<_>>(),
         ["Add second", "Add third"]
     );
     assert!(harness.workspace.undo_history_open);
+    harness.hover("Add third");
+    assert!(harness.shows_containing("Parameters: third"));
 
     harness.click("Add third");
     harness.settle();
     assert_eq!(harness.document().parameters().len(), before + 3);
-    assert_eq!(harness.model.redo_labels().count(), 0);
+    assert_eq!(harness.model.redo_steps().count(), 0);
 
     harness.click("Close");
     assert!(!harness.workspace.undo_history_open);

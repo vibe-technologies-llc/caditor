@@ -1,6 +1,9 @@
 mod sketch;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_name};
 use caditor_geometry::Plane;
@@ -148,6 +151,64 @@ impl Transaction {
 
     pub fn is_empty(&self) -> bool {
         self.edits.is_empty()
+    }
+
+    pub fn touched(&self) -> Touched {
+        let mut touched = Touched::default();
+        for edit in &self.edits {
+            match edit {
+                Edit::InsertParameter { parameter, .. } => {
+                    touched.parameters.insert(parameter.id());
+                    touched
+                        .named_parameters
+                        .insert(parameter.id(), parameter.name.clone());
+                }
+                Edit::RemoveParameter { id }
+                | Edit::RenameParameter { id, .. }
+                | Edit::SetParameterExpression { id, .. } => {
+                    touched.parameters.insert(*id);
+                }
+                Edit::InsertFeature { feature, .. } => {
+                    touched.features.insert(feature.id());
+                    touched
+                        .named_features
+                        .insert(feature.id(), feature.name.clone());
+                }
+                Edit::RemoveFeature { id }
+                | Edit::RenameFeature { id, .. }
+                | Edit::MoveFeature { id, .. }
+                | Edit::SetFeatureHidden { id, .. }
+                | Edit::SetFeatureSuppressed { id, .. }
+                | Edit::SetBodyAppearance { id, .. }
+                | Edit::SetFeatureKind { id, .. } => {
+                    touched.features.insert(*id);
+                }
+                Edit::SetSketchPlacement { feature, .. } => {
+                    touched.features.insert(*feature);
+                }
+                Edit::AddSketchEntity { feature, id, .. }
+                | Edit::RemoveSketchEntity { feature, id }
+                | Edit::SetSketchEntity { feature, id, .. }
+                | Edit::SetSketchConstruction { feature, id, .. } => {
+                    touched.features.insert(*feature);
+                    touched.entities.insert((*feature, *id));
+                }
+                Edit::SetDimension {
+                    feature,
+                    constraint: id,
+                    ..
+                }
+                | Edit::AddSketchConstraint { feature, id, .. }
+                | Edit::RemoveSketchConstraint { feature, id }
+                | Edit::SetSketchConstraintActive { feature, id, .. } => {
+                    touched.features.insert(*feature);
+                    touched.constraints.insert((*feature, *id));
+                }
+                Edit::SetRollbackBar { .. } => touched.rollback = true,
+                Edit::SetPrincipalHidden { .. } => touched.principal = true,
+            }
+        }
+        touched
     }
 
     pub fn approximate_size(&self) -> usize {
@@ -299,6 +360,18 @@ impl ParameterGraph {
             graph.forget(id);
         }
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Touched {
+    pub features: BTreeSet<FeatureId>,
+    pub named_features: BTreeMap<FeatureId, String>,
+    pub parameters: BTreeSet<ParameterId>,
+    pub named_parameters: BTreeMap<ParameterId, String>,
+    pub entities: BTreeSet<(FeatureId, EntityId)>,
+    pub constraints: BTreeSet<(FeatureId, ConstraintId)>,
+    pub rollback: bool,
+    pub principal: bool,
 }
 
 pub struct TransactionBuilder<'a> {

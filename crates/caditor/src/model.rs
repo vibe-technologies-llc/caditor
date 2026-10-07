@@ -295,12 +295,12 @@ impl Model {
         self.editor.redo_label()
     }
 
-    pub fn undo_labels(&self) -> impl Iterator<Item = &str> {
-        self.editor.undo_labels()
+    pub fn undo_steps(&self) -> impl Iterator<Item = &Transaction> {
+        self.editor.undo_steps()
     }
 
-    pub fn redo_labels(&self) -> impl Iterator<Item = &str> {
-        self.editor.redo_labels()
+    pub fn redo_steps(&self) -> impl Iterator<Item = &Transaction> {
+        self.editor.redo_steps()
     }
 
     pub fn status(&self) -> RecomputeStatus {

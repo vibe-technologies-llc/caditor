@@ -145,9 +145,11 @@ paths:
   opening, importing, exporting or the journal. The bar shows only the newest, but
   `Model::set_notice` records recent ones and Help › Recent messages (`messages.rs`) lists them,
   so a failed save outlives the notice that replaced it.
-- Edit › Undo history (`undo_history.rs`) lists what Undo and Redo hold (`Editor::undo_labels`,
-  `redo_labels`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary
-  undoable journal step.
+- Edit › Undo history (`undo_history.rs`) lists what Undo and Redo hold (`Editor::undo_steps`,
+  `redo_steps`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary
+  undoable journal step. Hovering a step sums up what it touched (`Transaction::touched`): the
+  features by name, how many sketch curves, points, constraints and dimensions, the parameters,
+  and the rollback bar or principal geometry.
 - Neither bar clips at large sizes or in narrow windows: the search field, model name, selection,
   unit and size take their own row when last frame's needed width does not fit
   (`widgets::remembered_width`); the selection has a fixed truncating share (all of it on hover);

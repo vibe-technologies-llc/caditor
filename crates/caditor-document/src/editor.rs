@@ -22,7 +22,11 @@ struct Steps {
 
 impl Steps {
     fn labels(&self) -> impl Iterator<Item = &str> {
-        self.steps.iter().rev().map(|step| step.transaction.label())
+        self.transactions().map(Transaction::label)
+    }
+
+    fn transactions(&self) -> impl Iterator<Item = &Transaction> {
+        self.steps.iter().rev().map(|step| &step.transaction)
     }
 
     fn last(&self) -> Option<&Transaction> {
@@ -143,6 +147,14 @@ impl Editor {
 
     pub fn redo_labels(&self) -> impl Iterator<Item = &str> {
         self.redo.labels()
+    }
+
+    pub fn undo_steps(&self) -> impl Iterator<Item = &Transaction> {
+        self.undo.transactions()
+    }
+
+    pub fn redo_steps(&self) -> impl Iterator<Item = &Transaction> {
+        self.redo.transactions()
     }
 
     pub fn next_undo(&self) -> Option<&Transaction> {

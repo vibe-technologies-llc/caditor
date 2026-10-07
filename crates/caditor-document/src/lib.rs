@@ -47,7 +47,7 @@ pub use crate::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
         TreeRow,
     },
-    edit::{Edit, EditError, Transaction, TransactionBuilder},
+    edit::{Edit, EditError, Touched, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},
     healing::Healing,
     hole::{Hole, HoleDepth, HoleStyle, MAX_COUNTERSINK_ANGLE, MAX_HOLES, centres as hole_centres},
