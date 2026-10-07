@@ -6,7 +6,7 @@ use std::{
 use caditor_geometry::Point2;
 use caditor_sketch::ArcGeometry;
 
-use crate::import::{Drawing, DrawingCurve};
+use crate::import::{Drawing, DrawingCurve, MAX_DRAWING_CURVES};
 
 pub const MIN_SCALE: f64 = 1e-6;
 pub const MAX_SCALE: f64 = 1e6;
@@ -107,18 +107,20 @@ impl Drawing {
             .count()
     }
 
-    fn on_chosen_layers(&self, left_out: &BTreeSet<usize>) -> (Self, usize) {
-        if left_out.is_empty() {
-            return (self.clone(), 0);
-        }
-        let kept: Vec<bool> = (0..self.curves.len())
-            .map(|index| {
-                !self
-                    .curve_layers
-                    .get(index)
-                    .is_some_and(|layer| left_out.contains(layer))
-            })
-            .collect();
+    fn is_chosen(&self, index: usize, left_out: &BTreeSet<usize>) -> bool {
+        !self
+            .curve_layers
+            .get(index)
+            .is_some_and(|layer| left_out.contains(layer))
+    }
+
+    pub fn chosen_curve_count(&self, left_out: &BTreeSet<usize>) -> usize {
+        (0..self.curves.len())
+            .filter(|index| self.is_chosen(*index, left_out))
+            .count()
+    }
+
+    fn on_chosen_layers(&self, left_out: &BTreeSet<usize>) -> Chosen {
         let mut chosen = Self {
             curves: Vec::new(),
             construction: BTreeSet::new(),
@@ -127,10 +129,15 @@ impl Drawing {
             layers: self.layers.clone(),
             curve_layers: Vec::new(),
         };
-        let mut dropped = 0;
+        let mut on_left_out_layers = 0;
+        let mut past_the_limit = 0;
         for (index, curve) in self.curves.iter().enumerate() {
-            if !kept.get(index).copied().unwrap_or(true) {
-                dropped += usize::from(!matches!(curve, DrawingCurve::Point(_)));
+            if !self.is_chosen(index, left_out) {
+                on_left_out_layers += usize::from(!matches!(curve, DrawingCurve::Point(_)));
+                continue;
+            }
+            if chosen.curves.len() >= MAX_DRAWING_CURVES {
+                past_the_limit += 1;
                 continue;
             }
             if self.construction.contains(&index) {
@@ -141,19 +148,30 @@ impl Drawing {
                 chosen.curve_layers.push(*layer);
             }
         }
-        (chosen, dropped)
+        Chosen {
+            drawing: chosen,
+            on_left_out_layers,
+            past_the_limit,
+        }
     }
 
     pub fn arranged(&self, options: &DrawingOptions) -> Self {
         let factor = self.factor(options);
-        let (mut arranged, dropped) = self.on_chosen_layers(&options.left_out_layers);
+        let Chosen {
+            drawing: mut arranged,
+            on_left_out_layers,
+            past_the_limit,
+        } = self.on_chosen_layers(&options.left_out_layers);
         let mut notes = Vec::new();
-        match dropped {
+        match on_left_out_layers {
             0 => {}
             1 => notes.push("1 curve on a layer you left out was not imported.".to_owned()),
             many => notes.push(format!(
                 "{many} curves on layers you left out were not imported."
             )),
+        }
+        if past_the_limit > 0 {
+            notes.push(past_the_limit_note(past_the_limit));
         }
         if let Some(unit) = options.unit.millimetres().map(|_| options.unit.name()) {
             notes.push(format!(
@@ -185,6 +203,21 @@ impl Drawing {
         arranged.notes.extend(notes);
         arranged
     }
+}
+
+struct Chosen {
+    drawing: Drawing,
+    on_left_out_layers: usize,
+    past_the_limit: usize,
+}
+
+fn past_the_limit_note(past_the_limit: usize) -> String {
+    let were = if past_the_limit == 1 { "was" } else { "were" };
+    format!(
+        "Only the first {MAX_DRAWING_CURVES} curves were imported, because a sketch holds at most \
+         that many; {past_the_limit} more {were} left out. Leave out layers or split the drawing \
+         to import the rest."
+    )
 }
 
 impl DrawingCurve {

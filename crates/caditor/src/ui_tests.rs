@@ -2005,6 +2005,34 @@ fn cancelling_the_import_options_adds_nothing_and_a_sketch_being_edited_has_no_p
 }
 
 #[test]
+fn the_import_options_warn_when_the_chosen_layers_hold_more_than_a_sketch() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let plan = dir.path().join("dense.dxf");
+    let mut entities: String = (0..=caditor_file::MAX_DRAWING_CURVES)
+        .map(|index| format!("0\nLINE\n8\nHatching\n10\n{index}\n20\n0\n11\n{index}\n21\n1\n"))
+        .collect();
+    entities.push_str("0\nCIRCLE\n8\nOutline\n10\n20\n20\n20\n40\n3\n");
+    write_drawing(&plan, Some(4), &entities);
+    let warning = crate::import_options::too_many_curves(caditor_file::MAX_DRAWING_CURVES + 2);
+
+    harness.answer_dialog(Some(plan));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_for_import_options("dense.dxf");
+
+    assert!(harness.shows(&warning));
+
+    harness.command(FileCommand::ImportOptions(ImportOptionsCommand::Layer {
+        layer: 0,
+        included: false,
+    }));
+    harness.frame();
+
+    assert!(!harness.shows(&warning));
+    assert!(harness.shows("1 curve drawn, 6.000 mm wide and 6.000 mm high."));
+}
+
+#[test]
 fn the_import_options_list_the_layers_and_leave_out_the_ones_unticked() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

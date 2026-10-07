@@ -30,6 +30,7 @@ use crate::{read::read_file, reason::ReadFailure};
 
 pub const DXF_EXTENSION: &str = "dxf";
 pub const MAX_DRAWING_CURVES: usize = 20_000;
+pub const MAX_READ_CURVES: usize = 5 * MAX_DRAWING_CURVES;
 pub const MAX_EXPANDED_OBJECTS: usize = 1_000_000;
 pub const MAX_DRAWING_POINTS: usize = 2_000_000;
 pub const MAX_DRAWING_VALUES: usize = 16_000_000;

@@ -15,8 +15,11 @@ paths:
 - Hostile-input limits, each an `ImportError` naming it: `MAX_DRAWING_VALUES`,
   `MAX_EXPANDED_OBJECTS` (block expansion, charged per object and per decoded shape, so a long
   polyline repeated in a huge array ends there), `MAX_DRAWING_POINTS`. Curves past
-  `MAX_DRAWING_CURVES` are left out with a note and the first ones import; the rest of an item
-  past the limit is counted in one step, never walked shape by shape.
+  `MAX_READ_CURVES` are left out with a note and the first ones read; the rest of an item past the
+  limit is counted in one step, never walked shape by shape. The sketch's own limit,
+  `MAX_DRAWING_CURVES`, applies in `Drawing::arranged` to the curves of the chosen layers, in
+  drawing order with a note, so leaving layers out brings later curves in;
+  `drawing_transaction` never adds more than it either.
 - Units: `$INSUNITS` converts to millimetres with a note; an unknown or missing unit reads as
   millimetres with a note, except missing with imperial `$MEASUREMENT`, which reads as inches.
 - Damage ends reading where it is found: earlier records are interpreted and a note says where, so

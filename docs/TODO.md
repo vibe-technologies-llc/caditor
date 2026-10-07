@@ -271,9 +271,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   it on a layer, and the files hold no text or dimensions. A face's intersection edges are written
   as polylines, which some CAM software joins poorly; fitting them as splines within the chord would
   keep each one a single curve.
-- [low · medium] Curves past the first 20,000 are left out in drawing order rather than by any
-  choice of the user: the import options' layer choice is made after that cut, so leaving layers
-  out cannot bring the curves of the others back in.
 
 ## Mesh import and export
 

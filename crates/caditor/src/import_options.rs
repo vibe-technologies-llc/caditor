@@ -1,16 +1,18 @@
 use std::path::PathBuf;
 
 use caditor_document::FeatureId;
-use caditor_file::{Drawing, DrawingOptions, DrawingUnit, MAX_SCALE, MIN_SCALE};
+use caditor_file::{
+    Drawing, DrawingOptions, DrawingUnit, MAX_DRAWING_CURVES, MAX_SCALE, MIN_SCALE,
+};
 use caditor_geometry::Plane;
-use egui::{Id, ScrollArea, Ui};
+use egui::{Id, Label, ScrollArea, Ui};
 
 use crate::{
     appearance::SPACE_M,
     export, feature_tree, field,
     model::{Model, display_name},
     preferences,
-    widgets::{self, DialogWidth},
+    widgets::{self, DialogWidth, Tone},
 };
 
 const LAYER_LIST_HEIGHT: f32 = 140.0;
@@ -222,6 +224,14 @@ pub fn dialog(
             None => "The drawing is empty.".to_owned(),
         };
         ui.label(widgets::muted(summary, ui));
+        let chosen = arranging
+            .drawing
+            .chosen_curve_count(&options.left_out_layers);
+        if chosen > MAX_DRAWING_CURVES {
+            widgets::callout(ui, Tone::Warning, |ui| {
+                ui.add(Label::new(too_many_curves(chosen)).wrap());
+            });
+        }
 
         let blocker = if !options.is_valid() {
             Some(NOT_A_SCALE)
@@ -249,6 +259,14 @@ pub fn dialog(
         .should_close()
         .then_some(ImportOptionsCommand::Cancel);
     response.inner.or(closed)
+}
+
+pub fn too_many_curves(chosen: usize) -> String {
+    format!(
+        "The chosen layers hold {chosen} curves, and a sketch holds at most {MAX_DRAWING_CURVES}, \
+         so only the first {MAX_DRAWING_CURVES} will be imported. Leave out layers to import the \
+         others."
+    )
 }
 
 fn layers(ui: &mut Ui, arranging: &Arranging, command: &mut Option<ImportOptionsCommand>) {

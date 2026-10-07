@@ -4,7 +4,7 @@ use caditor_document::{Document, FeatureId, FeatureKind, Transaction, Transactio
 use caditor_geometry::{Plane, Point2};
 use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Sketch};
 
-use crate::import::{Drawing, DrawingCurve};
+use crate::import::{Drawing, DrawingCurve, MAX_DRAWING_CURVES};
 
 const RELATIVE_JOINT_TOLERANCE: f64 = 1e-6;
 const MIN_JOINT_TOLERANCE: f64 = 1e-9;
@@ -39,7 +39,7 @@ pub fn drawing_transaction(
     let tolerance = (drawing.extent() * RELATIVE_JOINT_TOLERANCE).max(MIN_JOINT_TOLERANCE);
     let mut ends = Vec::new();
     let mut curves = 0;
-    for (index, curve) in drawing.curves.iter().enumerate() {
+    for (index, curve) in drawing.curves.iter().enumerate().take(MAX_DRAWING_CURVES) {
         let Some(curve) = usable(curve, tolerance) else {
             continue;
         };

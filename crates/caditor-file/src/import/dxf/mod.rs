@@ -17,8 +17,8 @@ use std::{
 use caditor_geometry::{Point2, Point3, Vector3};
 
 use crate::import::{
-    Drawing, ImportError, MAX_DRAWING_CURVES, MAX_DRAWING_POINTS, MAX_DRAWING_VALUES,
-    MAX_EXPANDED_OBJECTS,
+    Drawing, ImportError, MAX_DRAWING_POINTS, MAX_DRAWING_VALUES, MAX_EXPANDED_OBJECTS,
+    MAX_READ_CURVES,
     dxf::{
         flatten::flatten,
         geometry::{Affine, FitPoints, Nurbs, Shape, conic_arc},
@@ -812,7 +812,7 @@ impl<'a> Interpreter<'a> {
             return Err(ImportError::TooManyObjects);
         }
         let layer = self.layer_index(layer);
-        let room = MAX_DRAWING_CURVES.saturating_sub(self.shapes.len());
+        let room = MAX_READ_CURVES.saturating_sub(self.shapes.len());
         let (kept, beyond) = shapes.split_at(room.min(shapes.len()));
         self.beyond_the_limit = self.beyond_the_limit.saturating_add(beyond.len());
         for shape in kept {
@@ -937,8 +937,8 @@ impl<'a> Interpreter<'a> {
         }
         if self.beyond_the_limit > 0 {
             drawing.notes.push(format!(
-                "Only the first {MAX_DRAWING_CURVES} curves were imported, because a sketch holds at \
-                 most that many; {} more {} left out. Split the drawing to import the rest.",
+                "Only the first {MAX_READ_CURVES} curves were read, more than a sketch can hold; \
+                 {} more {} left out. Split the drawing to import the rest.",
                 self.beyond_the_limit,
                 were(self.beyond_the_limit)
             ));

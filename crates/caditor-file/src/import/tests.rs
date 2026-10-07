@@ -1,4 +1,7 @@
-use std::f64::consts::{FRAC_PI_2, PI};
+use std::{
+    collections::BTreeSet,
+    f64::consts::{FRAC_PI_2, PI},
+};
 
 use caditor_document::{
     BodyOperation, CancelToken, Document, Evaluation, Extrude, ExtrudeExtent, FeatureId,
@@ -10,8 +13,8 @@ use caditor_kernel::SamplingTolerance;
 use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch};
 
 use crate::import::{
-    Drawing, DrawingCurve, DrawingOptions, DrawingUnit, ImportError, MAX_DRAWING_CURVES, MAX_SCALE,
-    MIN_SCALE, SketchTarget, drawing_transaction, parse_dxf,
+    Drawing, DrawingCurve, DrawingOptions, DrawingUnit, ImportError, MAX_DRAWING_CURVES,
+    MAX_READ_CURVES, MAX_SCALE, MIN_SCALE, SketchTarget, drawing_transaction, parse_dxf,
 };
 
 pub(super) type Pairs = Vec<(i32, String)>;
@@ -762,13 +765,15 @@ fn files_that_are_not_usable_drawings_are_refused_in_words() {
         .map(|index| line((index as f64, 0.0), (index as f64, 1.0)))
         .collect();
     let huge = text(vec![section("ENTITIES", many)]);
-    let kept = parse_dxf(&huge).unwrap();
+    let read = parse_dxf(&huge).unwrap();
+    let kept = read.arranged(&DrawingOptions::default());
+    assert_eq!(read.curves.len(), MAX_DRAWING_CURVES + 1);
     assert_eq!(kept.curves.len(), MAX_DRAWING_CURVES);
     assert!(
         kept.notes.contains(&format!(
             "Only the first {MAX_DRAWING_CURVES} curves were imported, because a sketch \
-                 holds at most that many; 1 more was left out. Split the drawing to import the \
-                 rest."
+                 holds at most that many; 1 more was left out. Leave out layers or split the \
+                 drawing to import the rest."
         )),
         "{:?}",
         kept.notes
@@ -1523,8 +1528,8 @@ fn curves_past_the_limit_are_counted_whole_items_at_a_time() {
                 &[
                     (10, 0.0),
                     (20, 0.0),
-                    (70, 10.0),
-                    (71, 10.0),
+                    (70, 20.0),
+                    (71, 20.0),
                     (44, 400.0),
                     (45, 2.0),
                 ],
@@ -1534,12 +1539,12 @@ fn curves_past_the_limit_are_counted_whole_items_at_a_time() {
 
     let drawing = parse_dxf(&bytes).unwrap();
 
-    assert_eq!(drawing.curves.len(), MAX_DRAWING_CURVES);
+    assert_eq!(drawing.curves.len(), MAX_READ_CURVES);
     assert!(
         drawing
             .notes
             .iter()
-            .any(|note| note.contains("10000 more were left out")),
+            .any(|note| note.contains("20000 more were left out")),
         "{:?}",
         drawing.notes
     );
@@ -1873,5 +1878,50 @@ fn leaving_layers_out_drops_their_curves_and_keeps_the_rest_in_order() {
             .notes
             .iter()
             .any(|note| note == "1 curve on a layer you left out was not imported.")
+    );
+}
+
+#[test]
+fn the_sketch_limit_applies_to_the_layers_chosen_so_leaving_layers_out_brings_later_curves_in() {
+    let mut entities: Vec<Pairs> = (0..MAX_DRAWING_CURVES)
+        .map(|index| line_on("Hatching", (index as f64, 0.0), (index as f64, 1.0)))
+        .collect();
+    entities
+        .extend((0..3).map(|index| line_on("Outline", (index as f64, 5.0), (index as f64, 6.0))));
+    let drawing = parse_dxf(&text(vec![section("ENTITIES", entities)])).unwrap();
+    let hatching = drawing
+        .layers
+        .iter()
+        .position(|name| name == "Hatching")
+        .unwrap();
+    let without_hatching = DrawingOptions {
+        left_out_layers: [hatching].into(),
+        ..DrawingOptions::default()
+    };
+
+    let everything = drawing.arranged(&DrawingOptions::default());
+    let outline = drawing.arranged(&without_hatching);
+
+    assert_eq!(everything.curves.len(), MAX_DRAWING_CURVES);
+    assert!(
+        everything
+            .notes
+            .iter()
+            .any(|note| note.contains("3 more were left out"))
+    );
+    assert_eq!(outline.curves.len(), 3);
+    assert!(
+        !outline
+            .notes
+            .iter()
+            .any(|note| note.contains("more were left out"))
+    );
+    assert_eq!(
+        drawing.chosen_curve_count(&without_hatching.left_out_layers),
+        3
+    );
+    assert_eq!(
+        drawing.chosen_curve_count(&BTreeSet::new()),
+        MAX_DRAWING_CURVES + 3
     );
 }
