@@ -403,10 +403,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   added to the `icons` font family or as painted shapes.
 - [low · medium] Text outside Latin, Greek and Cyrillic shows as missing glyphs in feature and file
   names, since only Inter and egui's defaults are loaded.
-- [low · medium] No model properties: a model has no title, description, part number, revision or
-  notes, so exports carry only the output file's name (the STEP description and its author and
-  organisation fields stay empty, and the 3MF metadata holds only the application) and nothing
-  identifies a part beyond its path. Empty unless the user fills them in.
 - [low · medium] The feature tree has no groups (folders).
 - [low · hard] Themes are four fixed `Tokens` sets in `appearance.rs` (dark, light and their
   high-contrast variants) and the 3D view is dark in all of them. Add themes as data: a few shipped

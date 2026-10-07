@@ -67,12 +67,13 @@ const MODEL_EXCHANGE_KIND: &str = "STEP model";
 const MESH_KIND: &str = "STL, OBJ or 3MF mesh";
 const IMPORTABLE_KIND: &str = "Drawings and models";
 const IMAGE_KIND: &str = "PNG image";
-const FILE_COMMANDS: [Command; 10] = [
+const FILE_COMMANDS: [Command; 11] = [
     Command::New,
     Command::Open,
     Command::Save,
     Command::SaveAs,
     Command::VersionHistory,
+    Command::ModelProperties,
     Command::Import,
     Command::Export,
     Command::ExportImage,
@@ -1903,6 +1904,7 @@ pub fn menu(
         })
         .response
         .on_disabled_hover_text("Save the model to start keeping its versions.");
+        item(ui, &mut chosen, Command::ModelProperties);
         ui.separator();
         let hints = [
             (Command::Import, Some(IMPORT_HINT)),
@@ -2007,6 +2009,9 @@ pub fn menu(
             Command::Save => Action::File(FileCommand::Save),
             Command::SaveAs => Action::File(FileCommand::SaveAs),
             Command::VersionHistory => Action::File(FileCommand::History(HistoryCommand::Show)),
+            Command::ModelProperties => {
+                Action::Preferences(PreferencesCommand::ShowModelProperties)
+            }
             Command::Import => Action::File(FileCommand::Import {
                 into: editing.feature(),
             }),

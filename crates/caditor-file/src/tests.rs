@@ -2010,6 +2010,85 @@ fn an_overlong_parameter_note_is_cut_and_reported() {
     );
 }
 
+fn bracket_properties() -> caditor_document::ModelProperties {
+    caditor_document::ModelProperties {
+        title: "Wall bracket".to_owned(),
+        part_number: "BR-100".to_owned(),
+        revision: "C".to_owned(),
+        organisation: "Workshop".to_owned(),
+        notes: "Print with 40% infill.\nCountersink by hand.".to_owned(),
+        ..caditor_document::ModelProperties::default()
+    }
+}
+
+#[test]
+fn model_properties_survive_saving_the_journal_and_its_snapshot() {
+    let mut document = sample();
+    let plain = encode(&document).unwrap();
+    let change = Transaction::single(
+        "Model properties",
+        Edit::SetModelProperties {
+            properties: Box::new(bracket_properties()),
+        },
+    );
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+    let recovered = journal::decode_journal(
+        &journal::encode_journal(
+            &journal::JournalHead {
+                file: None,
+                on_disk: None,
+                loaded_with_problems: false,
+                folded: 0,
+            },
+            &document,
+            &[],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    assert!(!plain.contains("properties"));
+    assert!(
+        text.contains(r#"{"properties":{"notes":"Print with 40% infill.\nCountersink by hand.","organisation":"Workshop","part_number":"BR-100","revision":"C","title":"Wall bracket"}}"#),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+    assert_eq!(recovered.issues, Vec::<String>::new());
+    assert_eq!(recovered.base, document);
+}
+
+#[test]
+fn an_overlong_model_property_is_cut_and_reported() {
+    let document = sample();
+    let long = "t".repeat(caditor_document::MAX_PROPERTY_CHARS + 3);
+    let text = format!(
+        "{}\n{{\"properties\":{{\"title\":\"{long}\",\"revision\":\"B\"}}}}",
+        encode(&document).unwrap()
+    );
+
+    let loaded = decode_text(&text);
+
+    assert!(issues_mention(
+        &loaded,
+        "The model's title was longer than 200 characters"
+    ));
+    assert_eq!(
+        loaded.document.properties().title.chars().count(),
+        caditor_document::MAX_PROPERTY_CHARS
+    );
+    assert_eq!(loaded.document.properties().revision, "B");
+}
+
 fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
     caditor_document::BodyAppearance {
         colour: Some(caditor_document::Rgb::new(70, 130, 180)),

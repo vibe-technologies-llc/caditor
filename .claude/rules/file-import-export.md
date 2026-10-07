@@ -89,6 +89,12 @@ paths:
   body, f32 positions in metres with Y up, `x, z, -y` of the model's, so winding is kept, and the
   position bounds glTF requires; no normals, which the format defines as flat; a body with a look
   gets a material named like its 3MF base, its colour as a linear `baseColorFactor`).
+- `export_bodies` takes the model's `ModelProperties`; the notes are never exported, the rest go
+  where the format has room (`EXPORTED_PROPERTIES`): STEP through `write_step_detailed`, 3MF as
+  `Title`, `Designer` (author) and `Description` metadata plus the part number as each build item's
+  `partnumber` when there is one body, glTF as `asset.extras` (`title`, `partNumber`, `revision`,
+  `author`, `organisation`, `description`), OBJ as `# <Label>: <value>` lines after its header.
+  STL has nowhere to put them.
 - Saved atomically like a model. Cancellation is checked between bodies and before writing;
   failures are sentences naming the body. A body that cannot be meshed or written (a panic
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that

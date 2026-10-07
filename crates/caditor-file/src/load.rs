@@ -17,8 +17,8 @@ use crate::{
     binary::{self, FileDigest, History, UnpackError},
     format::{
         FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord,
-        PrincipalGeometryRecord, RECORD_KINDS, Record, Unreadable, restore_feature,
-        restore_principal,
+        PrincipalGeometryRecord, PropertiesRecord, RECORD_KINDS, Record, Unreadable,
+        restore_feature, restore_principal, restore_properties,
     },
     read::read_file,
     reason::ReadFailure,
@@ -143,6 +143,7 @@ pub(crate) struct Parts {
     pub hidden_principal: Vec<PrincipalGeometryRecord>,
     pub suppressed: Vec<u64>,
     pub rollback: Option<u64>,
+    pub properties: Option<PropertiesRecord>,
     pub lost_parameter_names: BTreeMap<u64, String>,
     pub beyond_limit: usize,
 }
@@ -167,6 +168,7 @@ impl Parts {
             Record::Principal(principal) => self.hidden_principal = principal.hidden,
             Record::Suppressed(suppressed) => self.suppressed = suppressed.features,
             Record::Rollback(rollback) => self.rollback = Some(rollback.before),
+            Record::Properties(properties) => self.properties = Some(properties),
         }
     }
 }
@@ -396,6 +398,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         );
     }
 
+    restore_model_properties(&mut document, parts.properties, issues);
     restore_suppressed(&mut document, &parts.suppressed, issues);
     restore_rollback_bar(&mut document, parts.rollback, issues);
 
@@ -403,6 +406,26 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         document.reserve_ids_below(next.parameter, next.feature);
     }
     document
+}
+
+fn restore_model_properties(
+    document: &mut Document,
+    record: Option<PropertiesRecord>,
+    issues: &mut Vec<String>,
+) {
+    let Some(record) = record else {
+        return;
+    };
+    let properties = restore_properties(record, issues);
+    let edit = Edit::SetModelProperties {
+        properties: Box::new(properties),
+    };
+    if document
+        .apply(Transaction::single("Model properties", edit))
+        .is_err()
+    {
+        issues.push("The model's properties could not be restored, so they are empty.".to_owned());
+    }
 }
 
 fn restore_suppressed(document: &mut Document, suppressed: &[u64], issues: &mut Vec<String>) {

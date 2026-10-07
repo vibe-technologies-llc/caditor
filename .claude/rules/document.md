@@ -58,6 +58,17 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`Edit::SetPrincipalHidden`), compared by `same_content` and carried by `transaction_to`, so
   hiding a mixed selection and undoing it are one change and a model reopens as it was left.
 
+## Model properties (`properties.rs`)
+
+- `ModelProperties` (title, part number, revision, author, organisation, description, notes) is
+  document content like the hidden principal geometry: compared by `same_content`, carried by
+  `transaction_to`, counted by `heap_size`, ignored by recompute. Empty by default; nothing fills
+  them in but the user.
+- `Edit::SetModelProperties` sets them whole and its inverse holds the previous set. Each field is
+  trimmed, every field but the notes is kept on one line (line breaks become spaces), and a field
+  past its `ModelProperty::max_chars` (`MAX_PROPERTY_CHARS`, `MAX_DESCRIPTION_CHARS`,
+  `MAX_MODEL_NOTES_CHARS`) is refused as `PropertyTooLong` naming it.
+
 ## Body appearance (`body_appearance.rs`)
 
 - A feature's `appearance` (`BodyAppearance`: an sRGB `Rgb` colour, a material name, a density

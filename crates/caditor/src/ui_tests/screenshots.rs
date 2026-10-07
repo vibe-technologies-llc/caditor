@@ -669,6 +669,10 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     shoot(&mut model, gpu, out, "about", look);
     close_dialog(&mut model);
 
+    model.perform(Action::Preferences(PreferencesCommand::ShowModelProperties));
+    shoot(&mut model, gpu, out, "model-properties", look);
+    close_dialog(&mut model);
+
     model.command(FileCommand::ExportImage(ImageCommand::Show));
     shoot(&mut model, gpu, out, "image-export", look);
     close_dialog(&mut model);

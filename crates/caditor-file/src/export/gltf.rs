@@ -1,7 +1,7 @@
-use caditor_document::Rgb;
+use caditor_document::{ModelProperties, ModelProperty, Rgb};
 use serde_json::{Value, json};
 
-use super::{APPLICATION, ExportError, MeshBody};
+use super::{APPLICATION, ExportError, MeshBody, exported_properties};
 
 const MAGIC: u32 = 0x4654_6c67;
 const VERSION: u32 = 2;
@@ -26,7 +26,35 @@ struct Parts {
     materials: Vec<Value>,
 }
 
-pub(super) fn encode(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
+fn extras_key(property: ModelProperty) -> &'static str {
+    match property {
+        ModelProperty::Title => "title",
+        ModelProperty::PartNumber => "partNumber",
+        ModelProperty::Revision => "revision",
+        ModelProperty::Author => "author",
+        ModelProperty::Organisation => "organisation",
+        ModelProperty::Description => "description",
+        ModelProperty::Notes => "notes",
+    }
+}
+
+fn asset(properties: &ModelProperties) -> Value {
+    let mut asset = json!({ "version": "2.0", "generator": APPLICATION });
+    let extras: serde_json::Map<String, Value> = exported_properties(properties)
+        .map(|(property, value)| (extras_key(property).to_owned(), Value::from(value)))
+        .collect();
+    if !extras.is_empty()
+        && let Some(fields) = asset.as_object_mut()
+    {
+        fields.insert("extras".to_owned(), Value::Object(extras));
+    }
+    asset
+}
+
+pub(super) fn encode(
+    bodies: &[MeshBody<'_>],
+    properties: &ModelProperties,
+) -> Result<Vec<u8>, ExportError> {
     let mut parts = Parts {
         binary: Vec::new(),
         views: Vec::new(),
@@ -44,7 +72,7 @@ pub(super) fn encode(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
     let binary_length = u32::try_from(parts.binary.len()).map_err(|_| ExportError::TooLarge)?;
     let node_indices: Vec<usize> = (0..parts.nodes.len()).collect();
     let mut document = json!({
-        "asset": { "version": "2.0", "generator": APPLICATION },
+        "asset": asset(properties),
         "scene": 0,
         "scenes": [{ "nodes": node_indices }],
         "nodes": parts.nodes,

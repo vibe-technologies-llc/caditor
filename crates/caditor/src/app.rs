@@ -42,6 +42,7 @@ use crate::{
     menu_bar::{self, MenuContext},
     messages,
     model::{Action, Model, Notice, WakerFactory},
+    model_properties::{self, PropertiesDraft},
     offers::SelectionOffers,
     onboarding::{self, HintChoice, WelcomeChoice},
     overlay::Overlay,
@@ -121,6 +122,7 @@ pub struct Workspace {
     pub about_open: bool,
     pub messages_open: bool,
     pub undo_history_open: bool,
+    pub model_properties: Option<PropertiesDraft>,
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
@@ -160,6 +162,7 @@ impl Workspace {
             about_open: false,
             messages_open: false,
             undo_history_open: false,
+            model_properties: None,
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
@@ -185,6 +188,7 @@ impl Workspace {
         self.about_open = false;
         self.messages_open = false;
         self.undo_history_open = false;
+        self.model_properties = None;
         self.last_offers.clear();
         self.selection_offers = SelectionOffers::default();
         self.measure = MeasureTool::default();
@@ -200,6 +204,7 @@ impl Workspace {
             self.session = model.session();
             self.viewport.forget_document();
             self.panels.forget_document();
+            self.model_properties = None;
             self.interference.interference.forget();
         }
     }
@@ -244,6 +249,10 @@ impl Workspace {
             PreferencesCommand::CloseMessages => self.messages_open = false,
             PreferencesCommand::ShowUndoHistory => self.undo_history_open = true,
             PreferencesCommand::CloseUndoHistory => self.undo_history_open = false,
+            PreferencesCommand::ShowModelProperties => {
+                self.model_properties = Some(PropertiesDraft::of(model.document()));
+            }
+            PreferencesCommand::CloseModelProperties => self.model_properties = None,
             PreferencesCommand::Tab(tab) => {
                 self.preferences_tab = tab;
                 self.restored = None;
@@ -320,6 +329,7 @@ pub fn show(
         || workspace.about_open
         || workspace.messages_open
         || workspace.undo_history_open
+        || workspace.model_properties.is_some()
         || workspace.panels.deleting.is_some()
         || workspace.panels.noting.is_some();
     let dialog_open = modal_open || palette_open;
@@ -340,6 +350,7 @@ pub fn show(
         about_open,
         messages_open,
         undo_history_open,
+        model_properties,
         last_offers,
         selection_offers,
         measure,
@@ -580,6 +591,16 @@ pub fn show(
                     actions.extend(std::iter::repeat_n(Action::Redo, steps));
                 }
             }
+        }
+        if let Some(draft) = model_properties
+            && let Some(outcome) = model_properties::dialog(ui.ctx(), model.document(), draft)
+        {
+            if let model_properties::Outcome::Save(transaction) = outcome {
+                actions.push(Action::Apply(transaction));
+            }
+            actions.push(Action::Preferences(
+                PreferencesCommand::CloseModelProperties,
+            ));
         }
         if *messages_open && messages::dialog(ui.ctx(), model) {
             actions.push(Action::Preferences(PreferencesCommand::CloseMessages));

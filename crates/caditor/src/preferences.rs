@@ -379,6 +379,8 @@ pub enum PreferencesCommand {
     CloseMessages,
     ShowUndoHistory,
     CloseUndoHistory,
+    ShowModelProperties,
+    CloseModelProperties,
     Tab(PreferencesTab),
     Change(PreferenceChange),
     Preview(PreferenceChange),

@@ -12,6 +12,7 @@ use crate::{
     history::HistoryCommand,
     icons, logo,
     model::{Action, Model},
+    preferences::PreferencesCommand,
     selection::SelectionFilter,
     shape_modes::ShapeMode,
     sketch_tools::ConstraintTool,
@@ -275,6 +276,9 @@ fn model_details(
         .on_disabled_hover_text(NOT_SAVED);
     if history.clicked() {
         actions.push(Action::File(FileCommand::History(HistoryCommand::Show)));
+    }
+    if item(ui, Command::ModelProperties).clicked() {
+        actions.push(Action::Preferences(PreferencesCommand::ShowModelProperties));
     }
     if let Some(path) = model.path() {
         let copy = widgets::menu_item(ui, icons::COPY_PATH, COPY_PATH, None)

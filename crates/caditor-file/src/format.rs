@@ -5,10 +5,10 @@ use caditor_document::{
     CombineOperation, Datum, DatumAxis, DatumPlane, Document, Edit, Extrude, ExtrudeEnd,
     ExtrudeExtent, FaceAttachment, Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleFit,
     HoleShape, HoleStandard, HoleStyle, Import, LinearDirection, MAX_MATERIAL_NAME_CHARS,
-    MetricSize, Mirror, Move, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Revolve,
-    RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Transaction, material_name,
+    MetricSize, Mirror, ModelProperties, ModelProperty, Move, Parameter, Pattern, PatternKind,
+    PlaneReference, PlaneRotation, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, RegionChoice, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale,
+    Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -31,16 +31,36 @@ pub(crate) enum Record {
     Principal(PrincipalRecord),
     Suppressed(SuppressedRecord),
     Rollback(RollbackRecord),
+    Properties(PropertiesRecord),
 }
 
-pub(crate) const RECORD_KINDS: [&str; 6] = [
+pub(crate) const RECORD_KINDS: [&str; 7] = [
     "parameter",
     "feature",
     "next_ids",
     "principal",
     "suppressed",
     "rollback",
+    "properties",
 ];
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PropertiesRecord {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub part_number: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub revision: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub author: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub organisation: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub notes: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SuppressedRecord {
@@ -778,6 +798,9 @@ pub(crate) enum EditRecord {
         geometry: PrincipalGeometryRecord,
         hidden: bool,
     },
+    SetModelProperties {
+        properties: PropertiesRecord,
+    },
     SetFeatureKind {
         feature: FeatureRecord,
     },
@@ -1411,6 +1434,56 @@ pub(crate) fn principal_record(document: &Document) -> Option<PrincipalRecord> {
     (!hidden.is_empty()).then_some(PrincipalRecord { hidden })
 }
 
+fn properties_record_of(properties: &ModelProperties) -> PropertiesRecord {
+    PropertiesRecord {
+        title: properties.title.clone(),
+        part_number: properties.part_number.clone(),
+        revision: properties.revision.clone(),
+        author: properties.author.clone(),
+        organisation: properties.organisation.clone(),
+        description: properties.description.clone(),
+        notes: properties.notes.clone(),
+    }
+}
+
+pub(crate) fn properties_record(document: &Document) -> Option<PropertiesRecord> {
+    let properties = document.properties();
+    (!properties.is_empty()).then(|| properties_record_of(properties))
+}
+
+pub(crate) fn restore_properties(
+    record: PropertiesRecord,
+    issues: &mut Vec<String>,
+) -> ModelProperties {
+    let mut properties = ModelProperties {
+        title: record.title,
+        part_number: record.part_number,
+        revision: record.revision,
+        author: record.author,
+        organisation: record.organisation,
+        description: record.description,
+        notes: record.notes,
+    }
+    .normalized();
+    for property in ModelProperty::ALL {
+        let field = properties.get_mut(property);
+        let limit = property.max_chars();
+        if field.chars().count() > limit {
+            *field = field
+                .chars()
+                .take(limit)
+                .collect::<String>()
+                .trim_end()
+                .to_owned();
+            issues.push(format!(
+                "The model's {} was longer than {limit} characters, so its end was cut off.",
+                property.in_sentence()
+            ));
+        }
+    }
+    properties
+}
+
 pub(crate) fn suppressed_record(document: &Document) -> Option<SuppressedRecord> {
     let features: Vec<u64> = document
         .features()
@@ -1843,6 +1916,9 @@ fn edit_record(edit: &Edit) -> EditRecord {
             geometry: principal_geometry_record(*geometry),
             hidden: *hidden,
         },
+        Edit::SetModelProperties { properties } => EditRecord::SetModelProperties {
+            properties: properties_record_of(properties),
+        },
         Edit::SetFeatureKind { id, kind } => EditRecord::SetFeatureKind {
             feature: FeatureRecord {
                 id: id.raw(),
@@ -2033,6 +2109,9 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
         EditRecord::SetPrincipalHidden { geometry, hidden } => Edit::SetPrincipalHidden {
             geometry: restore_principal(geometry),
             hidden,
+        },
+        EditRecord::SetModelProperties { properties } => Edit::SetModelProperties {
+            properties: Box::new(restore_properties(properties, &mut Vec::new())),
         },
         EditRecord::SetFeatureKind { feature } => {
             let mut issues = Vec::new();

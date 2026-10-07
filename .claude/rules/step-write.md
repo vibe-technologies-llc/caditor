@@ -11,7 +11,12 @@ paths:
 - `write_step` writes named kernel solids as one product (named after the model, or the body when
   there is only one): one `MANIFOLD_SOLID_BREP` per lump, or a `BREP_WITH_VOIDS` whose voids are
   `ORIENTED_CLOSED_SHELL`s of inverted faces. Millimetres and radians, uncertainty
-  `LINEAR_RESOLUTION`, no author or organisation, the application named by name and version only.
+  `LINEAR_RESOLUTION`, the application named by name and version only.
+- `write_step_detailed` takes `StepDetails` (empty in `write_step` and imports): the title names
+  the product (over the body or model name), the part number is the product's id, the description
+  the product's and the header's `FILE_DESCRIPTION` (else the model name), the revision the
+  `PRODUCT_DEFINITION_FORMATION` id, and the author and organisation fill `FILE_NAME`, which are
+  otherwise empty.
 - A `StepBody` with a `colour` gets one `STYLED_ITEM` per solid, each pointing at a
   `PRESENTATION_STYLE_ASSIGNMENT` (surface fill of `COLOUR_RGB`, the 0–255 channels over 255,
   `.BOTH.` sides) written once per distinct colour, all gathered in one

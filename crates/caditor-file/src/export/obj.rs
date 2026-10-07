@@ -5,7 +5,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{APPLICATION, ExportError, Look, MeshBody, three_mf::Coordinate};
+use caditor_document::ModelProperties;
+
+use super::{APPLICATION, ExportError, Look, MeshBody, exported_properties, three_mf::Coordinate};
 
 const LIBRARY_EXTENSION: &str = "mtl";
 const OWN_HEADER: &str = "# caditor ";
@@ -41,9 +43,10 @@ fn replaceable(path: &Path) -> bool {
 pub(super) fn encode(
     bodies: &[MeshBody<'_>],
     library: Option<&Library>,
+    properties: &ModelProperties,
 ) -> Result<Vec<u8>, ExportError> {
     let mut text = String::new();
-    write_objects(&mut text, bodies, library).map_err(|_| ExportError::Encoding)?;
+    write_objects(&mut text, bodies, library, properties).map_err(|_| ExportError::Encoding)?;
     Ok(text.into_bytes())
 }
 
@@ -57,8 +60,22 @@ fn write_objects(
     text: &mut String,
     bodies: &[MeshBody<'_>],
     library: Option<&Library>,
+    properties: &ModelProperties,
 ) -> fmt::Result {
     writeln!(text, "# {APPLICATION}, millimetres, Z up")?;
+    for (property, value) in exported_properties(properties) {
+        let line: String = value
+            .chars()
+            .map(|character| {
+                if character.is_control() {
+                    ' '
+                } else {
+                    character
+                }
+            })
+            .collect();
+        writeln!(text, "# {}: {line}", property.label())?;
+    }
     if let Some(library) = library {
         writeln!(text, "mtllib {}", library.file_name)?;
     }

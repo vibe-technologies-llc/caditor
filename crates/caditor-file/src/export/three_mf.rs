@@ -1,7 +1,9 @@
 use std::fmt::{self, Write};
 
+use caditor_document::{ModelProperties, ModelProperty};
+
 use super::{
-    APPLICATION, ExportError, Look, MeshBody,
+    APPLICATION, ExportError, Look, MeshBody, exported_properties,
     zip::{self, ZipEntry},
 };
 
@@ -29,9 +31,12 @@ const RELATIONSHIPS: &str = concat!(
 
 const CORE_NAMESPACE: &str = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02";
 
-pub(super) fn encode(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
+pub(super) fn encode(
+    bodies: &[MeshBody<'_>],
+    properties: &ModelProperties,
+) -> Result<Vec<u8>, ExportError> {
     let mut model = String::new();
-    write_model(&mut model, bodies).map_err(|_| ExportError::Encoding)?;
+    write_model(&mut model, bodies, properties).map_err(|_| ExportError::Encoding)?;
     zip::archive(&[
         ZipEntry {
             name: CONTENT_TYPES_PATH,
@@ -48,11 +53,37 @@ pub(super) fn encode(bodies: &[MeshBody<'_>]) -> Result<Vec<u8>, ExportError> {
     ])
 }
 
-fn write_model(xml: &mut String, bodies: &[MeshBody<'_>]) -> fmt::Result {
+fn metadata_name(property: ModelProperty) -> Option<&'static str> {
+    match property {
+        ModelProperty::Title => Some("Title"),
+        ModelProperty::Author => Some("Designer"),
+        ModelProperty::Description => Some("Description"),
+        ModelProperty::PartNumber
+        | ModelProperty::Revision
+        | ModelProperty::Organisation
+        | ModelProperty::Notes => None,
+    }
+}
+
+fn write_model(
+    xml: &mut String,
+    bodies: &[MeshBody<'_>],
+    properties: &ModelProperties,
+) -> fmt::Result {
     write!(
         xml,
-        r#"<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="{CORE_NAMESPACE}"><metadata name="Application">{APPLICATION}</metadata><resources>"#
+        r#"<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="{CORE_NAMESPACE}"><metadata name="Application">{APPLICATION}</metadata>"#
     )?;
+    for (property, value) in exported_properties(properties) {
+        if let Some(name) = metadata_name(property) {
+            write!(
+                xml,
+                r#"<metadata name="{name}">{}</metadata>"#,
+                Escaped(value)
+            )?;
+        }
+    }
+    xml.push_str("<resources>");
     let materials = bodies.len() + 1;
     let looks: Vec<(&MeshBody<'_>, Look<'_>)> = bodies
         .iter()
@@ -98,8 +129,16 @@ fn write_model(xml: &mut String, bodies: &[MeshBody<'_>]) -> fmt::Result {
         xml.push_str("</triangles></mesh></object>");
     }
     xml.push_str("</resources><build>");
+    let part_number = match bodies {
+        [_] if !properties.part_number.is_empty() => Some(&properties.part_number),
+        _ => None,
+    };
     for (object, _) in object_ids(bodies) {
-        write!(xml, r#"<item objectid="{object}"/>"#)?;
+        write!(xml, r#"<item objectid="{object}""#)?;
+        if let Some(part_number) = part_number {
+            write!(xml, r#" partnumber="{}""#, Escaped(part_number))?;
+        }
+        xml.push_str("/>");
     }
     xml.push_str("</build></model>");
     Ok(())

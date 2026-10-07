@@ -4,8 +4,11 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::ProfileCurve;
 
 use crate::{
-    fixtures,
-    write::{Data, StepBody, WriteError, real, text, timestamp, write_step},
+    fixtures, read_step,
+    write::{
+        Data, StepBody, StepDetails, WriteError, real, text, timestamp, write_step,
+        write_step_detailed,
+    },
 };
 
 fn written(name: &str, solid: &caditor_kernel::Solid) -> String {
@@ -97,6 +100,50 @@ fn every_kind_of_edge_and_face_is_written() {
     let filleted = written("Block", &fixtures::filleted_block());
     assert!(count(&filleted, "CYLINDRICAL_SURFACE") >= 4);
     assert!(write_step(&[], "none", SystemTime::UNIX_EPOCH) == Err(WriteError::Empty));
+}
+
+#[test]
+fn without_details_the_product_is_named_after_its_body_and_the_header_after_the_model() {
+    let step = written("Plate", &fixtures::plate_with_hole());
+
+    assert!(step.contains("FILE_DESCRIPTION(('part'),'2;1');"));
+    assert!(step.contains("FILE_NAME('part','"));
+    assert!(step.contains("',(''),(''),'caditor "));
+    assert!(step.contains("=PRODUCT('Plate','Plate','',("));
+    assert!(step.contains("=PRODUCT_DEFINITION_FORMATION('','',#"));
+}
+
+#[test]
+fn model_details_fill_the_header_product_and_revision() {
+    let plate = fixtures::plate_with_hole();
+    let details = StepDetails {
+        title: "Wall bracket",
+        part_number: "BR-100",
+        revision: "C",
+        description: "Holds a shelf",
+        author: "Drafter",
+        organisation: "Workshop",
+    };
+
+    let step = write_step_detailed(
+        &[StepBody {
+            name: "Plate",
+            solid: &plate,
+            colour: None,
+        }],
+        "bracket",
+        &details,
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap()
+    .text;
+    let read = read_step(&step).unwrap();
+
+    assert!(step.contains("FILE_DESCRIPTION(('Holds a shelf'),'2;1');"));
+    assert!(step.contains("FILE_NAME('bracket','1970-01-01T00:00:00',('Drafter'),('Workshop'),"));
+    assert!(step.contains("=PRODUCT('BR-100','Wall bracket','Holds a shelf',("));
+    assert!(step.contains("=PRODUCT_DEFINITION_FORMATION('C','',#"));
+    assert_eq!(read.solids.len(), 1);
 }
 
 #[test]

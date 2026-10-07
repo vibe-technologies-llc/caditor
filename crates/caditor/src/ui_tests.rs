@@ -8853,6 +8853,63 @@ fn parameters_are_reordered_and_noted_from_the_keyboard() {
 }
 
 #[test]
+fn model_properties_are_edited_in_a_dialog_as_one_undoable_change() {
+    use caditor_document::ModelProperty;
+
+    use crate::model_properties::{SAVE_LABEL, field_id};
+
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+
+    run_from_palette(&mut harness, "model properties");
+    harness.frame();
+    let title_focused = harness.focused() == Some(field_id(ModelProperty::Title));
+    let captioned = harness.captioned(Role::TextInput, "Part number");
+    harness.type_text("Wall bracket");
+    harness.type_into_field(field_id(ModelProperty::PartNumber), "BR-100");
+    harness.type_into_field(field_id(ModelProperty::Notes), "Print it flat");
+    harness.click(SAVE_LABEL);
+    harness.frame();
+    let closed = harness.workspace.model_properties.is_none();
+
+    assert!(title_focused);
+    assert!(captioned);
+    assert!(closed);
+    assert_eq!(harness.document().properties().title, "Wall bracket");
+    assert_eq!(harness.document().properties().part_number, "BR-100");
+    assert_eq!(harness.document().properties().notes, "Print it flat");
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(crate::model_properties::CHANGE_LABEL)
+    );
+
+    harness.perform(Action::Undo);
+    assert!(harness.document().properties().is_empty());
+}
+
+#[test]
+fn cancelling_the_model_properties_changes_nothing() {
+    use caditor_document::ModelProperty;
+
+    use crate::model_properties::{CANCEL_LABEL, field_id};
+
+    let mut harness = Harness::new();
+    let revision = harness.model.revision();
+
+    harness.perform(Action::Preferences(
+        crate::preferences::PreferencesCommand::ShowModelProperties,
+    ));
+    harness.frame();
+    harness.type_into_field(field_id(ModelProperty::Revision), "B");
+    harness.click(CANCEL_LABEL);
+    harness.frame();
+
+    assert!(harness.workspace.model_properties.is_none());
+    assert!(harness.document().properties().is_empty());
+    assert_eq!(harness.model.revision(), revision);
+}
+
+#[test]
 fn the_feature_tree_is_filtered_by_name_from_the_keyboard() {
     let mut harness = Harness::new();
     let hidden_at_first = !harness.shows(crate::feature_tree::FILTER_HINT);

@@ -9,7 +9,9 @@ use std::{
     thread,
 };
 
-use caditor_document::{BodyAppearance, CancelToken, FeatureId, FeatureResult, Rgb};
+use caditor_document::{
+    BodyAppearance, CancelToken, FeatureId, FeatureResult, ModelProperties, Rgb,
+};
 use caditor_file::{ExportBody, ExportError, ExportFormat, Exported, Look, MeshResolution};
 use egui::{ScrollArea, Sides, Ui};
 use parking_lot::Mutex;
@@ -170,13 +172,15 @@ impl Exporter {
         let flag = Arc::clone(&cancelled);
         let cancel = CancelToken::new(move || flag.load(Ordering::SeqCst));
         let resolution = self.resolution;
+        let properties = model.document().properties().clone();
         let target = path.clone();
         let slot = Arc::new(Mutex::new(Some(finished)));
         let worker_slot = Arc::clone(&slot);
         let spawned = thread::Builder::new()
             .name("export".to_owned())
             .spawn(move || {
-                let exported = export_results(&target, format, resolution, &bodies, &cancel);
+                let exported =
+                    export_results(&target, format, resolution, &bodies, &properties, &cancel);
                 if let Some(finished) = worker_slot.lock().take() {
                     finished(target, exported);
                 }
@@ -252,6 +256,7 @@ fn export_results(
     format: ExportFormat,
     resolution: MeshResolution,
     bodies: &[ExportSource],
+    properties: &ModelProperties,
     cancel: &CancelToken,
 ) -> Result<Exported, ExportError> {
     let bodies: Vec<ExportBody<'_>> = bodies
@@ -264,7 +269,7 @@ fn export_results(
             })
         })
         .collect();
-    caditor_file::export_bodies(path, format, resolution, &bodies, cancel)
+    caditor_file::export_bodies(path, format, resolution, &bodies, properties, cancel)
 }
 
 pub fn with_format_extension(path: PathBuf, format: ExportFormat) -> PathBuf {

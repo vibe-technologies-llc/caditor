@@ -22,6 +22,7 @@ use crate::{
     parameter_list::ParameterList,
     pattern::Pattern,
     projection::ProjectionSource,
+    properties::ModelProperties,
     scaling::Scale,
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
@@ -705,6 +706,7 @@ pub struct Document {
     pub(crate) next_feature_id: u64,
     pub(crate) hidden_principal: BTreeSet<PrincipalGeometry>,
     pub(crate) rollback: RollbackBar,
+    pub(crate) properties: Arc<ModelProperties>,
 }
 
 impl Document {
@@ -759,6 +761,10 @@ impl Document {
         self.hidden_principal.iter().copied()
     }
 
+    pub fn properties(&self) -> &ModelProperties {
+        &self.properties
+    }
+
     pub fn rollback_bar(&self) -> RollbackBar {
         self.rollback
     }
@@ -810,6 +816,7 @@ impl Document {
     pub fn same_content(&self, other: &Self) -> bool {
         self.parameters == other.parameters
             && self.hidden_principal == other.hidden_principal
+            && self.properties == other.properties
             && self.rollback == other.rollback
             && self.features.len() == other.features.len()
             && self
@@ -884,12 +891,16 @@ impl Document {
         let rollback = (target.rollback != RollbackBar::AtEnd).then_some(Edit::SetRollbackBar {
             bar: target.rollback,
         });
+        let properties = (self.properties != target.properties).then(|| Edit::SetModelProperties {
+            properties: Box::new(ModelProperties::clone(&target.properties)),
+        });
         Transaction::new(
             label,
             removals
                 .chain(insertions)
                 .chain(visibility)
                 .chain(rollback)
+                .chain(properties)
                 .collect(),
         )
     }

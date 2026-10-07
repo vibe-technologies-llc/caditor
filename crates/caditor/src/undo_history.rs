@@ -143,6 +143,9 @@ pub fn summary(document: &Document, step: &Transaction) -> String {
     if touched.principal {
         lines.push("The principal planes, axes or origin".to_owned());
     }
+    if touched.properties {
+        lines.push("The model's properties".to_owned());
+    }
     lines.join("\n")
 }
 

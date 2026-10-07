@@ -20,6 +20,16 @@ pub struct StepBody<'a> {
     pub colour: Option<[u8; 3]>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StepDetails<'a> {
+    pub title: &'a str,
+    pub part_number: &'a str,
+    pub revision: &'a str,
+    pub description: &'a str,
+    pub author: &'a str,
+    pub organisation: &'a str,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum WriteError {
     #[error("there are no bodies to write")]
@@ -194,6 +204,15 @@ pub fn write_step_keeping_what_can_be(
     model_name: &str,
     written: SystemTime,
 ) -> Result<StepWritten, WriteError> {
+    write_step_detailed(bodies, model_name, &StepDetails::default(), written)
+}
+
+pub fn write_step_detailed(
+    bodies: &[StepBody<'_>],
+    model_name: &str,
+    details: &StepDetails<'_>,
+    written: SystemTime,
+) -> Result<StepWritten, WriteError> {
     if bodies.is_empty() {
         return Err(WriteError::Empty);
     }
@@ -205,15 +224,27 @@ pub fn write_step_keeping_what_can_be(
     ));
     let product_context = data.add(format!("PRODUCT_CONTEXT('',{application},'mechanical')"));
     let product_name = match bodies {
+        _ if !details.title.is_empty() => details.title,
         [only] => only.name,
         _ => model_name,
     };
     let name = text(product_name);
-    let product = data.add(format!("PRODUCT({name},{name},'',({product_context}))"));
+    let id = if details.part_number.is_empty() {
+        name.clone()
+    } else {
+        text(details.part_number)
+    };
+    let description = text(details.description);
+    let product = data.add(format!(
+        "PRODUCT({id},{name},{description},({product_context}))"
+    ));
     data.add(format!(
         "PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,({product}))"
     ));
-    let formation = data.add(format!("PRODUCT_DEFINITION_FORMATION('','',{product})"));
+    let formation = data.add(format!(
+        "PRODUCT_DEFINITION_FORMATION({},'',{product})",
+        text(details.revision)
+    ));
     let definition_context = data.add(format!(
         "PRODUCT_DEFINITION_CONTEXT('part definition',{application},'design')"
     ));
@@ -260,7 +291,7 @@ pub fn write_step_keeping_what_can_be(
     ));
     styles(&mut data, &coloured, context);
     Ok(StepWritten {
-        text: document(&data, model_name, written),
+        text: document(&data, model_name, details, written),
         left_out,
     })
 }
@@ -312,17 +343,29 @@ fn representation_context(data: &mut Data) -> Ref {
     ))
 }
 
-fn document(data: &Data, model_name: &str, written: SystemTime) -> String {
+fn document(
+    data: &Data,
+    model_name: &str,
+    details: &StepDetails<'_>,
+    written: SystemTime,
+) -> String {
+    let description = if details.description.is_empty() {
+        model_name
+    } else {
+        details.description
+    };
     let mut out = String::new();
     out.push_str("ISO-10303-21;\nHEADER;\n");
     out.push_str(&format!(
         "FILE_DESCRIPTION(({}),'2;1');\n",
-        text(model_name)
+        text(description)
     ));
     out.push_str(&format!(
-        "FILE_NAME({},{},(''),(''),{},{},'');\n",
+        "FILE_NAME({},{},({}),({}),{},{},'');\n",
         text(model_name),
         text(&timestamp(written)),
+        text(details.author),
+        text(details.organisation),
         text(APPLICATION),
         text(APPLICATION)
     ));

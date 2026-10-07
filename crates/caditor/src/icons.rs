@@ -88,6 +88,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Save => phosphor::FLOPPY_DISK,
         Command::SaveAs => phosphor::FLOPPY_DISK_BACK,
         Command::VersionHistory => phosphor::CLOCK_COUNTER_CLOCKWISE,
+        Command::ModelProperties => phosphor::IDENTIFICATION_CARD,
         Command::Import => phosphor::DOWNLOAD_SIMPLE,
         Command::Export => phosphor::EXPORT,
         Command::ExportImage => phosphor::IMAGE,

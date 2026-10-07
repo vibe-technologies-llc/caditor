@@ -125,6 +125,13 @@ paths:
   into what was edited at the drop, each after the previous report closed. Mixed or multi-model
   drops, or drops during an import or dialog, are refused with a notice.
 
+## Model properties
+
+- Model properties… (File menu, the model details under the title, palette) opens a modal
+  (`model_properties.rs`, `Workspace::model_properties`, dropped with the session): a property
+  grid of the one-line fields, focus on Title, and a multi-line Notes field. Save properties applies
+  one `SetModelProperties` only when something changed; Cancel and Escape drop the draft.
+
 ## Version history
 
 - File › Version history lists the file's versions newest first, read on the files worker, each

@@ -133,6 +133,7 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
                 format,
                 *resolution,
                 &export_bodies,
+                document.properties(),
                 &CancelToken::never(),
             )
             .with_context(|| format!("could not export “{}”", display_name(Some(output))))?;

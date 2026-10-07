@@ -8,7 +8,7 @@ use std::{
     },
 };
 
-use caditor_document::CancelToken;
+use caditor_document::{CancelToken, ModelProperties};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{FaceId, LinearExtent, Profile, ProfileCurve, Selection, Solid, extrude};
 use caditor_sketch::Sketch;
@@ -296,7 +296,7 @@ fn a_3mf_gives_coloured_bodies_a_base_material_and_leaves_the_rest_plain() {
         material: None,
     });
 
-    let entries = unzip(&three_mf::encode(&meshes).unwrap());
+    let entries = unzip(&three_mf::encode(&meshes, &ModelProperties::default()).unwrap());
 
     let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
     assert!(model.contains(
@@ -322,7 +322,7 @@ fn a_3mf_is_a_valid_package_with_one_named_object_per_body() {
     ];
     meshes[0].name = "Plate & <\"Pin\">";
     meshes[1].name = "Pin 'rod'\u{FFFE}\u{FFFF}\u{7}é";
-    let entries = unzip(&three_mf::encode(&meshes).unwrap());
+    let entries = unzip(&three_mf::encode(&meshes, &ModelProperties::default()).unwrap());
     assert_eq!(
         entries.keys().map(String::as_str).collect::<Vec<_>>(),
         [MODEL_PATH, CONTENT_TYPES_PATH, RELATIONSHIPS_PATH]
@@ -400,7 +400,7 @@ fn an_obj_holds_each_body_as_a_named_closed_object_in_millimetres() {
         mesh_of(&pin, MeshResolution::Standard),
     ];
 
-    let bytes = obj::encode(&meshes, None).unwrap();
+    let bytes = obj::encode(&meshes, None, &ModelProperties::default()).unwrap();
     let text = String::from_utf8(bytes).unwrap();
     let objects = obj_objects(&text);
 
@@ -435,7 +435,10 @@ fn an_obj_names_a_body_without_line_breaks_or_emptiness() {
     let mut second = mesh_of(&block, MeshResolution::Coarse);
     second.name = "  ";
 
-    let text = String::from_utf8(obj::encode(&[first, second], None).unwrap()).unwrap();
+    let text = String::from_utf8(
+        obj::encode(&[first, second], None, &ModelProperties::default()).unwrap(),
+    )
+    .unwrap();
     let names: Vec<&str> = text
         .lines()
         .filter_map(|line| line.strip_prefix("o "))
@@ -450,6 +453,7 @@ fn export_obj(path: &std::path::Path, bodies: &[ExportBody<'_>]) {
         ExportFormat::Obj,
         MeshResolution::Coarse,
         bodies,
+        &ModelProperties::default(),
         &CancelToken::never(),
     )
     .unwrap();
@@ -631,7 +635,7 @@ fn a_glb_gives_a_coloured_body_a_material_in_linear_colour() {
         material: Some("Brass"),
     });
 
-    let glb = glb(&gltf::encode(&meshes).unwrap());
+    let glb = glb(&gltf::encode(&meshes, &ModelProperties::default()).unwrap());
 
     assert!(
         glb.json["meshes"][0]["primitives"][0]
@@ -653,7 +657,7 @@ fn a_glb_of_plain_bodies_has_no_materials() {
     let block = block();
     let meshes = [mesh_of(&block, MeshResolution::Coarse)];
 
-    let glb = glb(&gltf::encode(&meshes).unwrap());
+    let glb = glb(&gltf::encode(&meshes, &ModelProperties::default()).unwrap());
 
     assert!(glb.json.get("materials").is_none());
 }
@@ -667,7 +671,7 @@ fn a_glb_is_a_valid_binary_gltf_with_one_named_node_per_body_in_metres_with_y_up
         mesh_of(&pin, MeshResolution::Standard),
     ];
 
-    let glb = glb(&gltf::encode(&meshes).unwrap());
+    let glb = glb(&gltf::encode(&meshes, &ModelProperties::default()).unwrap());
 
     assert_eq!(glb.json["asset"]["version"], "2.0");
     assert_eq!(glb.json["scenes"][0]["nodes"], serde_json::json!([0, 1]));
@@ -712,7 +716,7 @@ fn a_glb_gives_each_position_accessor_the_bounds_gltf_requires() {
     let block = block();
     let meshes = [mesh_of(&block, MeshResolution::Coarse)];
 
-    let glb = glb(&gltf::encode(&meshes).unwrap());
+    let glb = glb(&gltf::encode(&meshes, &ModelProperties::default()).unwrap());
     let accessor = &glb.json["accessors"][0];
 
     let bound = |name: &str| -> Vec<f64> {
@@ -764,6 +768,7 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
             format,
             MeshResolution::Standard,
             &bodies,
+            &ModelProperties::default(),
             &CancelToken::never(),
         )
         .unwrap();
@@ -805,6 +810,7 @@ fn a_step_export_styles_a_coloured_body_with_its_colour() {
         ExportFormat::Step,
         MeshResolution::Standard,
         &bodies,
+        &ModelProperties::default(),
         &CancelToken::never(),
     )
     .unwrap();
@@ -871,6 +877,7 @@ fn a_cancelled_or_empty_export_writes_nothing() {
             ExportFormat::Stl,
             MeshResolution::Fine,
             &bodies,
+            &ModelProperties::default(),
             &cancel
         ),
         Err(ExportError::Cancelled)
@@ -881,6 +888,7 @@ fn a_cancelled_or_empty_export_writes_nothing() {
             ExportFormat::Stl,
             MeshResolution::Fine,
             &[],
+            &ModelProperties::default(),
             &CancelToken::never()
         ),
         Err(ExportError::Empty)
@@ -893,6 +901,7 @@ fn a_cancelled_or_empty_export_writes_nothing() {
         ExportFormat::Stl,
         MeshResolution::Coarse,
         &bodies,
+        &ModelProperties::default(),
         &CancelToken::never(),
     )
     .unwrap_err();
@@ -917,7 +926,14 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
         let cancel = CancelToken::new(move || counted.fetch_add(1, Ordering::SeqCst) >= allowed);
         let path = dir.path().join(name);
         assert_eq!(
-            export_bodies(&path, format, MeshResolution::Fine, &bodies, &cancel),
+            export_bodies(
+                &path,
+                format,
+                MeshResolution::Fine,
+                &bodies,
+                &ModelProperties::default(),
+                &cancel
+            ),
             Err(ExportError::Cancelled),
             "{format:?}"
         );
@@ -1321,4 +1337,123 @@ fn an_elliptical_edge_keeps_its_arc_whichever_way_its_frame_faces() {
             assert!(near(middle, on_drawing(range.middle())));
         }
     }
+}
+
+fn bracket_properties() -> ModelProperties {
+    ModelProperties {
+        title: "Wall <bracket>".to_owned(),
+        part_number: "BR-100".to_owned(),
+        revision: "C".to_owned(),
+        author: "Drafter".to_owned(),
+        organisation: "Workshop".to_owned(),
+        description: "Holds a shelf".to_owned(),
+        notes: "Never exported".to_owned(),
+    }
+}
+
+#[test]
+fn a_3mf_carries_the_model_properties_it_has_names_for() {
+    let block = block();
+    let meshes = [mesh_of(&block, MeshResolution::Coarse)];
+
+    let entries = unzip(&three_mf::encode(&meshes, &bracket_properties()).unwrap());
+    let plain = unzip(&three_mf::encode(&meshes, &ModelProperties::default()).unwrap());
+
+    let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
+    let plain = String::from_utf8(plain[MODEL_PATH].clone()).unwrap();
+    assert!(model.contains(r#"<metadata name="Title">Wall &lt;bracket&gt;</metadata>"#));
+    assert!(model.contains(r#"<metadata name="Designer">Drafter</metadata>"#));
+    assert!(model.contains(r#"<metadata name="Description">Holds a shelf</metadata>"#));
+    assert!(model.contains(r#"<item objectid="1" partnumber="BR-100"/>"#));
+    assert!(!model.contains("Never exported"));
+    assert!(!plain.contains(r#"name="Title""#));
+    assert!(plain.contains(r#"<item objectid="1"/>"#));
+}
+
+#[test]
+fn a_3mf_of_several_bodies_leaves_the_part_number_off_its_items() {
+    let block = block();
+    let pin = pin();
+    let meshes = [
+        mesh_of(&block, MeshResolution::Coarse),
+        mesh_of(&pin, MeshResolution::Coarse),
+    ];
+
+    let entries = unzip(&three_mf::encode(&meshes, &bracket_properties()).unwrap());
+
+    let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
+    assert!(!model.contains("partnumber"));
+}
+
+#[test]
+fn a_glb_keeps_the_model_properties_in_its_asset_extras() {
+    let block = block();
+    let meshes = [mesh_of(&block, MeshResolution::Coarse)];
+
+    let glb_with = glb(&gltf::encode(&meshes, &bracket_properties()).unwrap());
+    let glb_without = glb(&gltf::encode(&meshes, &ModelProperties::default()).unwrap());
+
+    let extras = &glb_with.json["asset"]["extras"];
+    assert_eq!(extras["title"], "Wall <bracket>");
+    assert_eq!(extras["partNumber"], "BR-100");
+    assert_eq!(extras["revision"], "C");
+    assert_eq!(extras["author"], "Drafter");
+    assert_eq!(extras["organisation"], "Workshop");
+    assert_eq!(extras["description"], "Holds a shelf");
+    assert!(extras.get("notes").is_none());
+    assert!(glb_without.json["asset"].get("extras").is_none());
+}
+
+#[test]
+fn an_obj_names_the_model_properties_in_its_header() {
+    let block = block();
+    let meshes = [mesh_of(&block, MeshResolution::Coarse)];
+
+    let text =
+        String::from_utf8(obj::encode(&meshes, None, &bracket_properties()).unwrap()).unwrap();
+    let header: Vec<&str> = text
+        .lines()
+        .take_while(|line| line.starts_with('#'))
+        .collect();
+
+    assert_eq!(
+        header[1..],
+        [
+            "# Title: Wall <bracket>",
+            "# Part number: BR-100",
+            "# Revision: C",
+            "# Author: Drafter",
+            "# Organisation: Workshop",
+            "# Description: Holds a shelf",
+        ]
+    );
+}
+
+#[test]
+fn a_step_export_names_its_product_and_header_from_the_model_properties() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("bracket.step");
+    let bodies = [ExportBody {
+        name: "Extrude 1",
+        solid: &block,
+        look: None,
+    }];
+
+    export_bodies(
+        &path,
+        ExportFormat::Step,
+        MeshResolution::Standard,
+        &bodies,
+        &bracket_properties(),
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let step = std::fs::read_to_string(&path).unwrap();
+
+    assert!(step.contains("FILE_DESCRIPTION(('Holds a shelf'),'2;1');"));
+    assert!(step.contains(",('Drafter'),('Workshop'),"));
+    assert!(step.contains("=PRODUCT('BR-100','Wall <bracket>','Holds a shelf',("));
+    assert!(step.contains("=PRODUCT_DEFINITION_FORMATION('C','',"));
+    assert!(!step.contains("Never exported"));
 }

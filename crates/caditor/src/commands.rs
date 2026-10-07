@@ -64,6 +64,7 @@ pub enum Command {
     Save,
     SaveAs,
     VersionHistory,
+    ModelProperties,
     Import,
     Export,
     ExportImage,
@@ -424,6 +425,7 @@ plain_commands! {
     Save,
     SaveAs,
     VersionHistory,
+    ModelProperties,
     Import,
     Export,
     ExportImage,
@@ -553,6 +555,7 @@ impl Command {
             Self::Save => "file.save",
             Self::SaveAs => "file.save_as",
             Self::VersionHistory => "file.history",
+            Self::ModelProperties => "file.properties",
             Self::Import => "file.import",
             Self::Export => "file.export",
             Self::ExportImage => "file.export_image",
@@ -725,6 +728,7 @@ impl Command {
             Self::Save => "Save",
             Self::SaveAs => "Save as…",
             Self::VersionHistory => "Version history…",
+            Self::ModelProperties => "Model properties…",
             Self::Import => "Import…",
             Self::Export => "Export…",
             Self::ExportImage => "Export image…",
@@ -856,6 +860,7 @@ impl Command {
             | Self::Save
             | Self::SaveAs
             | Self::VersionHistory
+            | Self::ModelProperties
             | Self::Import
             | Self::Export
             | Self::ExportImage
@@ -1063,6 +1068,7 @@ impl Command {
             Self::DatumPlane => vec![alt(Key::D)],
             Self::DatumAxis => vec![alt_shift(Key::D)],
             Self::VersionHistory
+            | Self::ModelProperties
             | Self::KeyboardShortcuts
             | Self::ExportSketch
             | Self::ExportFace

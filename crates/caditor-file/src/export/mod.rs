@@ -17,11 +17,11 @@ use std::{
     time::SystemTime,
 };
 
-use caditor_document::{CancelToken, Rgb};
+use caditor_document::{CancelToken, ModelProperties, ModelProperty, Rgb};
 use caditor_geometry::{Aabb, Point3};
 use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
-use caditor_step::{StepBody, StepWritten, WriteError, write_step_keeping_what_can_be};
+use caditor_step::{StepBody, StepDetails, StepWritten, WriteError, write_step_detailed};
 
 use self::figure::Figure;
 pub use self::image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png};
@@ -290,18 +290,37 @@ pub enum ExportError {
     WorkerUnavailable,
 }
 
+pub const EXPORTED_PROPERTIES: [ModelProperty; 6] = [
+    ModelProperty::Title,
+    ModelProperty::PartNumber,
+    ModelProperty::Revision,
+    ModelProperty::Author,
+    ModelProperty::Organisation,
+    ModelProperty::Description,
+];
+
+fn exported_properties(
+    properties: &ModelProperties,
+) -> impl Iterator<Item = (ModelProperty, &str)> {
+    EXPORTED_PROPERTIES
+        .into_iter()
+        .map(|property| (property, properties.get(property)))
+        .filter(|(_, value)| !value.is_empty())
+}
+
 pub fn export_bodies(
     path: &Path,
     format: ExportFormat,
     resolution: MeshResolution,
     bodies: &[ExportBody<'_>],
+    properties: &ModelProperties,
     cancel: &CancelToken,
 ) -> Result<Exported, ExportError> {
     if bodies.is_empty() {
         return Err(ExportError::Empty);
     }
     if !format.is_mesh() {
-        return export_step(path, bodies, cancel);
+        return export_step(path, bodies, properties, cancel);
     }
     let tolerance = resolution.tolerance(bodies.iter().map(|body| body.solid));
     let (meshes, left_out) = tessellate_all(bodies, cancel, |body| {
@@ -313,7 +332,7 @@ pub fn export_bodies(
     let library = (format == ExportFormat::Obj)
         .then(|| obj::Library::beside(path, &meshes))
         .flatten();
-    let contents = encode(format, &meshes, library.as_ref())?;
+    let contents = encode(format, &meshes, library.as_ref(), properties)?;
     let materials = match library {
         Some(library) => Some((library.path, obj::encode_library(&meshes)?)),
         None => None,
@@ -360,6 +379,7 @@ fn tessellate_all<'a>(
 fn export_step(
     path: &Path,
     bodies: &[ExportBody<'_>],
+    properties: &ModelProperties,
     cancel: &CancelToken,
 ) -> Result<Exported, ExportError> {
     let step_bodies: Vec<StepBody<'_>> = bodies
@@ -375,9 +395,17 @@ fn export_step(
     let model_name = path
         .file_stem()
         .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
+    let details = StepDetails {
+        title: &properties.title,
+        part_number: &properties.part_number,
+        revision: &properties.revision,
+        description: &properties.description,
+        author: &properties.author,
+        organisation: &properties.organisation,
+    };
     let written = panic::catch_unwind(AssertUnwindSafe(|| {
         interruptible(cancel.interrupt(), || {
-            write_step_keeping_what_can_be(&step_bodies, &model_name, SystemTime::now())
+            write_step_detailed(&step_bodies, &model_name, &details, SystemTime::now())
         })
     }));
     let StepWritten { text, left_out } = match written {
@@ -409,12 +437,13 @@ fn encode(
     format: ExportFormat,
     bodies: &[MeshBody<'_>],
     library: Option<&obj::Library>,
+    properties: &ModelProperties,
 ) -> Result<Vec<u8>, ExportError> {
     match format {
         ExportFormat::Stl => stl::encode(bodies),
-        ExportFormat::ThreeMf => three_mf::encode(bodies),
-        ExportFormat::Obj => obj::encode(bodies, library),
-        ExportFormat::Gltf => gltf::encode(bodies),
+        ExportFormat::ThreeMf => three_mf::encode(bodies, properties),
+        ExportFormat::Obj => obj::encode(bodies, library, properties),
+        ExportFormat::Gltf => gltf::encode(bodies, properties),
         ExportFormat::Step => Err(ExportError::Encoding),
     }
 }

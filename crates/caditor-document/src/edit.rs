@@ -19,6 +19,7 @@ use crate::{
         list_names,
     },
     projection::ProjectionSource,
+    properties::{ModelProperties, ModelProperty},
     solid::BodyOperation,
 };
 
@@ -82,6 +83,9 @@ pub enum Edit {
     SetPrincipalHidden {
         geometry: PrincipalGeometry,
         hidden: bool,
+    },
+    SetModelProperties {
+        properties: Box<ModelProperties>,
     },
     SetFeatureKind {
         id: FeatureId,
@@ -225,6 +229,7 @@ impl Transaction {
                 }
                 Edit::SetRollbackBar { .. } => touched.rollback = true,
                 Edit::SetPrincipalHidden { .. } => touched.principal = true,
+                Edit::SetModelProperties { .. } => touched.properties = true,
             }
         }
         touched
@@ -243,6 +248,9 @@ impl Transaction {
                 }
                 Edit::RenameParameter { name, .. } | Edit::RenameFeature { name, .. } => name.len(),
                 Edit::SetParameterNote { note, .. } => note.len(),
+                Edit::SetModelProperties { properties } => {
+                    size_of::<ModelProperties>() + properties.heap_size()
+                }
                 Edit::SetParameterExpression { expression, .. }
                 | Edit::SetDimension {
                     value: expression, ..
@@ -303,6 +311,15 @@ pub enum EditError {
         "A parameter's note may be at most {MAX_PARAMETER_NOTE_CHARS} characters long, and this one has {0}"
     )]
     NoteTooLong(usize),
+    #[error(
+        "The model's {} may be at most {} characters long, and this one has {length}",
+        property.in_sentence(),
+        property.max_chars()
+    )]
+    PropertyTooLong {
+        property: ModelProperty,
+        length: usize,
+    },
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
     #[error("The rollback bar sits right above {0}; move the bar before deleting it")]
@@ -412,6 +429,7 @@ pub struct Touched {
     pub constraints: BTreeSet<(FeatureId, ConstraintId)>,
     pub rollback: bool,
     pub principal: bool,
+    pub properties: bool,
 }
 
 pub struct TransactionBuilder<'a> {
@@ -536,6 +554,7 @@ impl Document {
             Edit::SetPrincipalHidden { geometry, hidden } => {
                 Ok(self.set_principal_hidden(geometry, hidden))
             }
+            Edit::SetModelProperties { properties } => self.set_model_properties(*properties),
             Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
             Edit::SetSketchPlacement {
                 feature,
@@ -998,6 +1017,17 @@ impl Document {
         }
         let previous = std::mem::replace(&mut self.rollback, bar);
         Ok(Edit::SetRollbackBar { bar: previous })
+    }
+
+    fn set_model_properties(&mut self, properties: ModelProperties) -> Result<Edit, EditError> {
+        let properties = properties.normalized();
+        if let Some((property, length)) = properties.too_long() {
+            return Err(EditError::PropertyTooLong { property, length });
+        }
+        let previous = std::mem::replace(&mut self.properties, Arc::new(properties));
+        Ok(Edit::SetModelProperties {
+            properties: Box::new(Arc::unwrap_or_clone(previous)),
+        })
     }
 
     fn set_principal_hidden(&mut self, geometry: PrincipalGeometry, hidden: bool) -> Edit {

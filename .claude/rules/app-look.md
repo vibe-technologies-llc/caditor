@@ -116,7 +116,8 @@ paths:
   caditor's title bar, the logo (leading) and the window buttons.
 - The model title (file icon, name, Unsaved pill, "› sketch" while one is edited) sits centred on
   the window when it fits between menus and search, else as near as it can; clicking it opens the
-  model details (path, saved state, Save, Save as…, Version history…, Copy file location).
+  model details (path, saved state, Save, Save as…, Version history…, Model properties…, Copy
+  file location).
 - Search commands looks like a field and opens the palette on click; its keys show as
   `widgets::key_cap`s.
 - Both ribbons are built by `ribbon.rs`: whole groups packed into rows by last frame's natural
@@ -150,7 +151,7 @@ paths:
   `redo_steps`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary
   undoable journal step. Hovering a step sums up what it touched (`Transaction::touched`): the
   features by name, how many sketch curves, points, constraints and dimensions, the parameters,
-  and the rollback bar or principal geometry.
+  and the rollback bar, principal geometry or model properties.
 - Neither bar clips at large sizes or in narrow windows: the search field, model name, selection,
   unit and size take their own row when last frame's needed width does not fit
   (`widgets::remembered_width`); the selection has a fixed truncating share (all of it on hover);

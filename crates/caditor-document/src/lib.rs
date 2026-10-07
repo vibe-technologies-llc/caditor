@@ -21,6 +21,7 @@ mod pattern;
 mod pieces;
 mod presenting;
 mod projection;
+mod properties;
 mod recompute;
 mod scaling;
 mod shell;
@@ -68,6 +69,10 @@ pub use crate::{
         Outline, PROJECTED_SPLINE_POINTS, ProjectionSource, edge_outline, sketch_outline,
         vertex_outline,
     },
+    properties::{
+        MAX_DESCRIPTION_CHARS, MAX_MODEL_NOTES_CHARS, MAX_PROPERTY_CHARS, ModelProperties,
+        ModelProperty,
+    },
     recompute::{
         CancelToken, Evaluation, Evaluator, Failure, FeatureError, FeatureResult, FeatureState,
         FeatureStatus, FixTarget, Inputs, ModelEvaluator, Recompute, SketchResult,
@@ -109,6 +114,8 @@ mod pattern_tests;
 mod presenting_tests;
 #[cfg(test)]
 mod projection_tests;
+#[cfg(test)]
+mod properties_tests;
 #[cfg(test)]
 mod scaling_tests;
 #[cfg(test)]
