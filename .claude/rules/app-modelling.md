@@ -161,6 +161,9 @@ paths:
   else the last body standing, and the first selected axis, straight edge or round face as direction or
   axis, else a principal axis. While open the patterned body is shown with its directions or axis
   drawn like a revolve's axis.
+- Direction, Second direction and Axis are lists of the principal axes and the datum axes made
+  before the pattern (`pattern_tools::listed_axes`, set through `with_axis`; Second direction
+  also None), above Use selected or Choose in the view for an edge, round face or sketch line.
 - Each linear direction has a Measured switch (Each, Overall) above its length, captioned Spacing
   or Total length. Switching keeps the copies in place when the count is a plain number
   (`pattern_panel::respaced`: a literal multiplied or divided, else the expression times or over

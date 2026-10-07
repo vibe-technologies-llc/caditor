@@ -7671,6 +7671,56 @@ fn a_linear_pattern_repeats_the_body_and_takes_its_count_and_directions_from_the
 }
 
 #[test]
+fn a_pattern_takes_its_directions_from_lists_in_its_panel() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    harness.click("Linear pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+    let directions = |harness: &Harness| match &pattern_of(harness, pattern).kind {
+        caditor_document::PatternKind::Linear { first, second } => (
+            first.axis.clone(),
+            second.as_ref().map(|second| second.axis.clone()),
+        ),
+        caditor_document::PatternKind::Circular(_) => panic!("the pattern stays linear"),
+    };
+
+    open_combo(&mut harness, "Direction");
+    harness.click_lowest("The Y axis");
+    harness.settle();
+    open_combo(&mut harness, "Second direction");
+    harness.click_lowest("The X axis");
+    harness.settle();
+
+    assert_eq!(
+        directions(&harness),
+        (
+            caditor_document::AxisReference::Principal(caditor_document::PrincipalAxis::Y),
+            Some(caditor_document::AxisReference::Principal(
+                caditor_document::PrincipalAxis::X
+            ))
+        )
+    );
+
+    open_combo(&mut harness, "Second direction");
+    harness.click_lowest(crate::pattern_panel::NO_SECOND_DIRECTION);
+    harness.settle();
+
+    assert_eq!(
+        directions(&harness),
+        (
+            caditor_document::AxisReference::Principal(caditor_document::PrincipalAxis::Y),
+            None
+        )
+    );
+}
+
+#[test]
 fn a_pattern_measures_first_to_last_and_leaves_out_the_copies_clicked_in_its_panel() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);

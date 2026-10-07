@@ -7,7 +7,7 @@ use caditor_expression::{BinaryOperator, Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
-    feature_fields::{self, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment, Shown},
+    feature_fields::{self, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment},
     model::{Action, Model},
     pattern_tools::{self, Reference, Shape},
     reference_picking::Slot,
@@ -21,6 +21,7 @@ pub const CIRCULAR_HINT: &str = "A total angle of 360° spaces the copies evenly
 const COUNT: (Dimension, Rule) = (Dimension::NONE, Rule::Count);
 
 pub const INSTANCES: &str = "Instances";
+pub const NO_SECOND_DIRECTION: &str = "None";
 pub const MEASURED_EACH: &str = "Each";
 pub const MEASURED_OVERALL: &str = "Overall";
 const INSTANCES_HINT: &str = "Click a copy to leave it out of the pattern, and again to bring it \
@@ -261,16 +262,56 @@ impl Panel<'_> {
         }
     }
 
+    fn axis_choices(&self, reference: Reference, current: Option<&AxisReference>) -> Vec<Choice> {
+        let document = self.model.document();
+        let none = match (&self.pattern.kind, reference) {
+            (PatternKind::Linear { first, .. }, Reference::Second) => Some(Choice {
+                label: NO_SECOND_DIRECTION.to_owned(),
+                selected: current.is_none(),
+                change: self
+                    .change(PatternKind::Linear {
+                        first: first.clone(),
+                        second: None,
+                    })
+                    .map(Action::Apply),
+            }),
+            _ => None,
+        };
+        let axes = pattern_tools::listed_axes(self.model, self.id())
+            .into_iter()
+            .map(|axis| Choice {
+                label: capitalized(&describe_axis(document, &axis)),
+                selected: current == Some(&axis),
+                change: pattern_tools::with_axis(self.model, self.pattern, reference, axis)
+                    .map_err(str::to_owned)
+                    .and_then(|pattern| pattern_tools::change(self.model, self.id(), pattern))
+                    .map(Action::Apply),
+            });
+        none.into_iter().chain(axes).collect()
+    }
+
     fn reference_row(
         &mut self,
         ui: &mut Ui,
         caption: &str,
-        axis: &AxisReference,
+        axis: Option<&AxisReference>,
+        (reference, slot): (Reference, Slot),
         hover: &'static str,
     ) {
-        let shown = Shown::Named(capitalized(&describe_axis(self.model.document(), axis)));
-        let picker = self.picker(ui.ctx(), Slot::PatternDirection, Reference::First, hover);
-        feature_fields::reference_row(ui, self.model, caption, shown, picker, None, self.actions);
+        widgets::caption(ui, caption);
+        let shown = axis.map_or_else(
+            || NO_SECOND_DIRECTION.to_owned(),
+            |axis| capitalized(&describe_axis(self.model.document(), axis)),
+        );
+        let id = Id::new(("pattern-axis", caption, self.id()));
+        ui.vertical(|ui| {
+            let chosen =
+                feature_fields::combo(ui, id, shown, || self.axis_choices(reference, axis));
+            self.actions.extend(chosen);
+            let picker = self.picker(ui.ctx(), slot, reference, hover);
+            feature_fields::reference_picker(ui, self.model, picker, self.actions);
+        });
+        ui.end_row();
     }
 
     fn expression(
@@ -356,46 +397,6 @@ impl Panel<'_> {
         });
     }
 
-    fn second_row(
-        &mut self,
-        ui: &mut Ui,
-        first: &LinearDirection,
-        second: Option<&LinearDirection>,
-    ) {
-        let shown = match second {
-            Some(second) => Shown::Named(capitalized(&describe_axis(
-                self.model.document(),
-                &second.axis,
-            ))),
-            None => Shown::NoneChosen,
-        };
-        let picker = self.picker(
-            ui.ctx(),
-            Slot::PatternSecond,
-            Reference::Second,
-            "Also repeat the rows along the selected edge, round face or axis",
-        );
-        let remove = second
-            .is_some()
-            .then_some("Stop repeating in a second direction");
-        let removed = feature_fields::reference_row(
-            ui,
-            self.model,
-            "Second direction",
-            shown,
-            picker,
-            remove,
-            self.actions,
-        );
-        if removed {
-            let change = self.change(PatternKind::Linear {
-                first: first.clone(),
-                second: None,
-            });
-            self.apply(change);
-        }
-    }
-
     fn linear_rows(
         &mut self,
         ui: &mut Ui,
@@ -405,7 +406,8 @@ impl Panel<'_> {
         self.reference_row(
             ui,
             "Direction",
-            &first.axis,
+            Some(&first.axis),
+            (Reference::First, Slot::PatternDirection),
             "Repeat along the selected edge, round face or axis",
         );
         let kept = second.cloned();
@@ -413,7 +415,13 @@ impl Panel<'_> {
             first,
             second: kept.clone(),
         });
-        self.second_row(ui, first, second);
+        self.reference_row(
+            ui,
+            "Second direction",
+            second.map(|second| &second.axis),
+            (Reference::Second, Slot::PatternSecond),
+            "Also repeat the rows along the selected edge, round face or axis",
+        );
         if let Some(second) = second {
             let first = first.clone();
             self.direction_rows(ui, second, &SECOND, &|second| PatternKind::Linear {
@@ -427,7 +435,8 @@ impl Panel<'_> {
         self.reference_row(
             ui,
             "Axis",
-            &circular.axis,
+            Some(&circular.axis),
+            (Reference::First, Slot::PatternDirection),
             "Turn about the selected axis, straight edge or round face",
         );
         self.expression(ui, "Count", "count", &circular.count, COUNT, |count| {

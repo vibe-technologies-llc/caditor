@@ -258,6 +258,15 @@ fn with_selected(
     reference: Reference,
 ) -> Result<Pattern, &'static str> {
     let axis = selected_axis(model, selection, feature).ok_or(NO_AXIS)?;
+    with_axis(model, pattern, reference, axis)
+}
+
+pub fn with_axis(
+    model: &Model,
+    pattern: &Pattern,
+    reference: Reference,
+    axis: AxisReference,
+) -> Result<Pattern, &'static str> {
     let already = "It already runs along the selection";
     let kind = match (&pattern.kind, reference) {
         (PatternKind::Linear { first, second }, Reference::First) => {
@@ -307,6 +316,21 @@ fn with_selected(
         kind,
         ..pattern.clone()
     })
+}
+
+pub fn listed_axes(model: &Model, feature: FeatureId) -> Vec<AxisReference> {
+    let document = model.document();
+    let before = document.feature_index(feature).unwrap_or(usize::MAX);
+    let datums = document
+        .features()
+        .take(before)
+        .filter(|candidate| matches!(candidate.kind.datum(), Some(datum) if datum.is_axis()))
+        .map(|datum| AxisReference::Datum(datum.id()));
+    PrincipalAxis::ALL
+        .into_iter()
+        .map(AxisReference::Principal)
+        .chain(datums)
+        .collect()
 }
 
 pub fn selected_change(
