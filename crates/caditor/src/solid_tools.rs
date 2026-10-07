@@ -1,7 +1,7 @@
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FeatureId, FeatureKind,
-    RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, SolidStart, Transaction,
-    describe_axis,
+    RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchAttachment, SolidFeature, SolidStart,
+    Transaction, describe_axis,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_kernel::RegionKey;
@@ -135,6 +135,14 @@ pub fn default_operation(document: &Document, before: Option<FeatureId>) -> Body
     last_body(document, before).map_or(BodyOperation::NewBody, BodyOperation::Add)
 }
 
+pub fn face_body(document: &Document, sketch: FeatureId) -> Option<FeatureId> {
+    let body = match document.feature(sketch)?.kind.attachment()? {
+        SketchAttachment::Face(face) => face.body,
+        SketchAttachment::Datum(_) => return None,
+    };
+    document.bodies_standing().contains(&body).then_some(body)
+}
+
 pub fn degrees(value: f64) -> Expression {
     Expression::measure(value, Unit::Degree)
 }
@@ -148,13 +156,22 @@ pub fn create(
     let name = editing::next_feature_name(document, sweep.label());
     let operation = default_operation(document, None);
     let solid = match sweep {
-        Sweep::Extrude => SolidFeature::Extrude(Extrude {
-            sketch: source.sketch,
-            regions: RegionChoice::All,
-            extent: ExtrudeExtent::one_side(unit.default_length(DEFAULT_DISTANCE), false),
-            operation,
-            start: None,
-        }),
+        Sweep::Extrude => {
+            let (operation, into_the_body) = match face_body(document, source.sketch) {
+                Some(body) => (BodyOperation::Remove(body), true),
+                None => (operation, false),
+            };
+            SolidFeature::Extrude(Extrude {
+                sketch: source.sketch,
+                regions: RegionChoice::All,
+                extent: ExtrudeExtent::one_side(
+                    unit.default_length(DEFAULT_DISTANCE),
+                    into_the_body,
+                ),
+                operation,
+                start: None,
+            })
+        }
         Sweep::Revolve => SolidFeature::Revolve(Revolve {
             sketch: source.sketch,
             regions: RegionChoice::All,
