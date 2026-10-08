@@ -1,9 +1,10 @@
 use caditor_document::{
     AxisReference, CircularPattern, Document, Edit, FeatureId, FeatureKind, Instance,
     LinearDirection, LinearSpacing, Pattern, PatternKind, PrincipalAxis, Transaction,
-    displayed_axis, instance_name,
+    displayed_axis, instance_name, repeatable_on,
 };
 use caditor_expression::Expression;
+use caditor_geometry::Aabb;
 
 use crate::{
     bodies, datum_tools,
@@ -26,6 +27,7 @@ pub const DEFAULT_CIRCULAR_COUNT: f64 = 6.0;
 pub const FULL_TURN: f64 = 360.0;
 const FALLBACK_SPACING: f64 = 10.0;
 const SPACING_ROOM: f64 = 1.2;
+const FEATURE_SPACING_ROOM: f64 = 2.0;
 const NO_BODY: &str = "Make a body first, then pattern it";
 const NO_BODY_SELECTED: &str =
     "Select a face, edge or vertex of the body to pattern, or the body in the tree";
@@ -78,6 +80,52 @@ impl Shape {
 pub struct PatternSource {
     pub body: FeatureId,
     pub axis: Option<AxisReference>,
+    pub repeated: Vec<FeatureId>,
+}
+
+impl PatternSource {
+    pub fn subject(&self, document: &Document) -> String {
+        subject(document, self.body, &self.repeated)
+    }
+}
+
+pub fn subject(document: &Document, body: FeatureId, repeated: &[FeatureId]) -> String {
+    let name = |feature: FeatureId| {
+        document.feature(feature).map_or_else(
+            || "a deleted feature".to_owned(),
+            |found| found.name.clone(),
+        )
+    };
+    match repeated {
+        [] => format!("the body of {}", name(body)),
+        [only] => name(*only),
+        [rest @ .., last] => format!(
+            "{} and {}",
+            rest.iter()
+                .map(|feature| name(*feature))
+                .collect::<Vec<_>>()
+                .join(", "),
+            name(*last)
+        ),
+    }
+}
+
+pub fn repeatable(document: &Document, rows: &[FeatureId]) -> Option<(FeatureId, Vec<FeatureId>)> {
+    let mut body = None;
+    let mut repeated: Vec<(usize, FeatureId)> = Vec::new();
+    for row in rows {
+        let feature = document.feature(*row)?;
+        let on = repeatable_on(&feature.kind)?;
+        if body.is_some_and(|known| known != on) {
+            return None;
+        }
+        body = Some(on);
+        if !repeated.iter().any(|(_, known)| known == row) {
+            repeated.push((document.feature_index(*row)?, *row));
+        }
+    }
+    repeated.sort_unstable();
+    Some((body?, repeated.into_iter().map(|(_, row)| row).collect()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,15 +142,25 @@ pub fn source(
     model: &Model,
     selection: &Selection,
     tree: &[FeatureId],
+    rows: &[FeatureId],
 ) -> Result<PatternSource, &'static str> {
     let document = model.document();
-    let body = if selection.is_empty() && tree.is_empty() {
-        last_body(document).ok_or(NO_BODY)?
-    } else {
-        move_tools::chosen_body(model, selection, tree, NO_BODY_SELECTED)?
+    let (body, repeated) = match repeatable(document, rows) {
+        Some(repeating) => repeating,
+        None if selection.is_empty() && tree.is_empty() => {
+            (last_body(document).ok_or(NO_BODY)?, Vec::new())
+        }
+        None => (
+            move_tools::chosen_body(model, selection, tree, NO_BODY_SELECTED)?,
+            Vec::new(),
+        ),
     };
     let axis = chosen_axis(model, selection, body, document.bar_index())?;
-    Ok(PatternSource { body, axis })
+    Ok(PatternSource {
+        body,
+        axis,
+        repeated,
+    })
 }
 
 fn chosen_axis(
@@ -132,29 +190,56 @@ fn chosen_axis(
     }
 }
 
-fn default_spacing(model: &Model, body: FeatureId, axis: &AxisReference) -> f64 {
+fn repeated_bounds(model: &Model, repeated: &[FeatureId]) -> Option<Aabb> {
     let evaluation = model.evaluation();
+    repeated
+        .iter()
+        .flat_map(|feature| {
+            evaluation
+                .cuts(*feature)
+                .iter()
+                .chain(evaluation.joins(*feature))
+        })
+        .filter_map(|tool| tool.solid()?.bounding_box())
+        .reduce(|all, bounds| all.union(bounds))
+}
+
+fn default_spacing(
+    model: &Model,
+    body: FeatureId,
+    repeated: &[FeatureId],
+    axis: &AxisReference,
+) -> f64 {
+    let evaluation = model.evaluation();
+    let (bounds, room) = if repeated.is_empty() {
+        (
+            bodies::shown(evaluation, body).and_then(|shown| shown.bounding_box()),
+            SPACING_ROOM,
+        )
+    } else {
+        (repeated_bounds(model, repeated), FEATURE_SPACING_ROOM)
+    };
     let extent = displayed_axis(evaluation, body, axis).and_then(|ray| {
-        let bounds = bodies::shown(evaluation, body)?.bounding_box()?;
+        let bounds = bounds?;
         let along = bounds.corners().map(|corner| ray.direction().dot(corner));
         let low = along.iter().copied().fold(f64::INFINITY, f64::min);
         let high = along.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         Some(high - low)
     });
     match extent {
-        Some(extent) if extent.is_finite() && extent > 0.0 => (extent * SPACING_ROOM).ceil(),
+        Some(extent) if extent.is_finite() && extent > 0.0 => (extent * room).ceil(),
         _ => FALLBACK_SPACING,
     }
 }
 
 fn direction(
     model: &Model,
-    body: FeatureId,
+    (body, repeated): (FeatureId, &[FeatureId]),
     axis: AxisReference,
     count: f64,
     unit: LengthUnit,
 ) -> LinearDirection {
-    let spacing = default_spacing(model, body, &axis);
+    let spacing = default_spacing(model, body, repeated, &axis);
     LinearDirection {
         axis,
         count: Expression::Number(count),
@@ -164,10 +249,21 @@ fn direction(
     }
 }
 
-fn kind_for(model: &Model, shape: Shape, body: FeatureId, axis: AxisReference) -> PatternKind {
+fn kind_for(
+    model: &Model,
+    shape: Shape,
+    source: (FeatureId, &[FeatureId]),
+    axis: AxisReference,
+) -> PatternKind {
     match shape {
         Shape::Linear => PatternKind::Linear {
-            first: direction(model, body, axis, DEFAULT_LINEAR_COUNT, model.length_unit()),
+            first: direction(
+                model,
+                source,
+                axis,
+                DEFAULT_LINEAR_COUNT,
+                model.length_unit(),
+            ),
             second: None,
         },
         Shape::Circular => PatternKind::Circular(CircularPattern {
@@ -190,10 +286,13 @@ pub fn create(
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
         name,
-        FeatureKind::from(Pattern::new(
-            source.body,
-            kind_for(model, shape, source.body, axis),
-        )),
+        FeatureKind::from(
+            Pattern::new(
+                source.body,
+                kind_for(model, shape, (source.body, &source.repeated), axis),
+            )
+            .repeating(source.repeated.clone()),
+        ),
     );
     field::checked(document, transaction.finish()).map(|transaction| (transaction, feature))
 }
@@ -282,7 +381,7 @@ pub fn reshaped(model: &Model, pattern: &Pattern, shape: Shape) -> Pattern {
         (PatternKind::Circular(circular), Shape::Linear) => {
             let mut first = direction(
                 model,
-                pattern.body,
+                (pattern.body, &pattern.repeated),
                 circular.axis.clone(),
                 DEFAULT_LINEAR_COUNT,
                 model.length_unit(),
@@ -295,7 +394,7 @@ pub fn reshaped(model: &Model, pattern: &Pattern, shape: Shape) -> Pattern {
             }
         }
     };
-    Pattern::new(pattern.body, kind)
+    Pattern::new(pattern.body, kind).repeating(pattern.repeated.clone())
 }
 
 fn with_selected(
@@ -339,7 +438,7 @@ pub fn with_axis(
                 },
                 None => direction(
                     model,
-                    pattern.body,
+                    (pattern.body, &pattern.repeated),
                     axis,
                     DEFAULT_SECOND_COUNT,
                     model.length_unit(),
@@ -392,4 +491,20 @@ pub fn selected_change(
     with_selected(model, selection, feature, pattern, reference)
         .map_err(str::to_owned)
         .and_then(|changed| change(model, feature, changed))
+}
+
+pub fn repeating(
+    model: &Model,
+    feature: FeatureId,
+    pattern: &Pattern,
+    repeated: Vec<FeatureId>,
+) -> Result<Transaction, String> {
+    change(
+        model,
+        feature,
+        Pattern {
+            repeated,
+            ..pattern.clone()
+        },
+    )
 }

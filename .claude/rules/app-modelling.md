@@ -260,7 +260,15 @@ paths:
 
 ## Patterns
 
-- Linear and Circular pattern take the body of the selected faces, edges or vertices or of the
+- With rows chosen in the tree that are all extrusions, revolves or holes adding to or removing
+  from one body (`pattern_tools::repeatable`, from the tree's raw rows, which the offers carry
+  beside its bodies), Linear and Circular pattern repeat those features instead of the body, the
+  hover naming them ("Repeat Hole 1 along …"), with a default spacing of twice their tools'
+  extent along the direction. The panel's Repeats rows list them, each with Stop repeating (the
+  last one leaves the whole body repeated), or read The whole body, and Repeat the chosen features
+  takes the rows chosen in the tree now (Ctrl+click while the pattern is open), disabled with how
+  to choose them otherwise.
+- Otherwise Linear and Circular pattern take the body of the selected faces, edges or vertices or of the
   tree (`move_tools::chosen_body`), the last body standing only with nothing selected, and the one
   selected axis, straight edge, round face or sketch line as direction or axis (edges and faces of
   the body itself count only when nothing else is selected), else a principal axis

@@ -160,8 +160,6 @@ comes last.
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
-- [high · hard] Patterns repeat a whole body: no pattern of chosen features (a row of holes cut into
-  a plate).
 - [medium · medium] A body splits only along a plane (`Split`), not along a curved face or a sketch
   curve swept through it; a body can be moved or copied by typed distances and turns about the
   origin's axes or dragged along an axis or in a plane, but not turned by dragging, turned about

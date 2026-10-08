@@ -873,7 +873,15 @@ fn body(
             body_display(ui, model, feature);
         }
         FeatureKind::Pattern(pattern) => {
-            pattern_panel::show(ui, model, row.selection, actions, feature, pattern);
+            let chosen = state.chosen();
+            pattern_panel::show(
+                ui,
+                model,
+                (row.selection, &chosen),
+                actions,
+                feature,
+                pattern,
+            );
             body_display(ui, model, feature);
         }
         FeatureKind::Datum(datum) => {

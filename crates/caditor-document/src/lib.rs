@@ -72,7 +72,7 @@ pub use crate::{
     origins::complete_origins,
     pattern::{
         CircularPattern, Instance, LinearDirection, LinearSpacing, MAX_PATTERN_INSTANCES,
-        ORIGINAL_INSTANCE, Pattern, PatternKind, instance_name,
+        ORIGINAL_INSTANCE, Pattern, PatternKind, instance_name, repeatable_on,
     },
     pieces::{Resolution, Unresolved},
     projection::{

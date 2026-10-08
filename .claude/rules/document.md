@@ -343,6 +343,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - Repeats the whole body as it stands before the pattern and unions the copies (kernel `pattern`).
   Boxed in `FeatureKind`, which it would otherwise double in size.
+- With `repeated` features (`Pattern::repeating`; `repeatable_on` says which: an extrusion or
+  revolve adding to or removing from a body, or a hole) it repeats their tools instead: for each,
+  in tree order, the tools kept with its result (`SolidResult::cuts` of a removal or a hole,
+  `joins` of an addition) are placed at every copy and unioned without the original (kernel
+  `pattern_copies`), then cut from or joined to the body as it stands, so the original feature is
+  never repeated onto itself. The repeated features are in `features()`, so they stay above the
+  pattern and a change to their tools recomputes it (`same_shapes` compares cuts and joins too).
+  A repeated feature whose result is missing, that changes another body or that neither adds nor
+  removes (a feature making the body) fails the pattern naming it, with the fix on that feature.
+  A copy that misses the body changes nothing. The cut copies are the pattern's own `cuts`, so an
+  open pattern of holes shows them like a hole's drills; their faces are `FaceOrigin::Copy` of
+  the pattern as a body pattern's are.
 - Axes are `AxisReference`s resolved like a datum's at the pattern's place in the tree; their body
   and datum count as used.
 - Counts are whole and from 1, at most `MAX_PATTERN_INSTANCES` instances in all (directions

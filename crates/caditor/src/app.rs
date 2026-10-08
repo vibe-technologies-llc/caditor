@@ -363,8 +363,10 @@ pub fn show(
         deferred_commands,
         ..
     } = workspace;
-    let tree_bodies = body_selection::tree_bodies(model.document(), &panels.chosen());
-    let offers = selection_offers.refresh(model, viewport.selection(), &tree_bodies);
+    let chosen_rows = panels.chosen();
+    let tree_bodies = body_selection::tree_bodies(model.document(), &chosen_rows);
+    let offers =
+        selection_offers.refresh(model, viewport.selection(), (&tree_bodies, &chosen_rows));
     let situation = Situation {
         editing_sketch: editing.active().is_some(),
         drawing: viewport.is_drawing(),

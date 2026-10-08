@@ -230,3 +230,20 @@ fn a_mirrored_copy_joins_the_original_across_a_face_and_names_its_far_end_its_ow
     assert_eq!(found.intersection(&names(&original)).count(), 5);
     assert_eq!(found.intersection(&copied).count(), 1);
 }
+
+#[test]
+fn copies_alone_leave_the_original_out_and_cut_a_row_of_pockets() {
+    let plate = block((0.0, 0.0), (40.0, 10.0), 4.0);
+    let pocket = block((2.0, 2.0), (6.0, 8.0), 4.0);
+    let cut = boolean(&plate, &pocket, BooleanOperation::Difference).unwrap();
+
+    let copies = pattern_copies(&pocket, &along_x(10.0, 4), FEATURE)
+        .unwrap()
+        .unwrap();
+    let pocketed = boolean(&cut, &copies, BooleanOperation::Difference).unwrap();
+
+    check("copies", &copies, 3.0 * 4.0 * 6.0 * 4.0);
+    check("pocketed", &pocketed, (40.0 * 10.0 - 4.0 * 4.0 * 6.0) * 4.0);
+    assert!(names(&copies).is_disjoint(&names(&pocket)));
+    assert_eq!(pattern_copies(&pocket, &[], FEATURE), Ok(None));
+}

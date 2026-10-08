@@ -201,6 +201,10 @@ paths:
   `skipped`, a list of `[step, step]`), since an older reader would make the wrong copies; any
   other pattern is still written as `linear_pattern` or `circular_pattern`. Loading drops skipped
   entries that no pattern can make (the original, a step past `MAX_PATTERN_INSTANCES`).
+- A pattern repeating features rather than its whole body is a `feature_pattern` record:
+  `feature`, the pattern record it would be repeating the body, and `repeated`, the ids of the
+  features it repeats in tree order, since an older reader would repeat the whole body; an inner
+  record that is no pattern loads without them, reported, and a repeated id is kept once.
 - An extrusion or revolve cutting other bodies too is a `cut_several` record: `feature`, the
   record it would be without them, and `bodies`, the ids of the others, so an older reader
   reports it rather than cutting one body; an inner record that is no extrusion or revolve loads

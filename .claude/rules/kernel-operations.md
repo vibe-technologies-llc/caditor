@@ -156,7 +156,9 @@ paths:
 
 - `pattern(solid, copies, feature)` places a copy for each `PatternCopy` (an index `[column, row]`
   and a `Similarity`, so a copy may be mirrored or scaled through `Solid::mapped`) and unions the
-  original with every copy: valid or a `PatternError`.
+  original with every copy: valid or a `PatternError`. `pattern_copies` unions the copies alone,
+  leaving the original out (none for no copies), for the document to cut or join a repeated
+  feature's tool.
 - Copies are unioned in pairs, round by round, so n copies take about log n rounds of booleans on
   neighbours rather than n booleans against an ever larger body; copies that do not touch stay
   separate lumps of one body, and coincident faces of touching copies merge by healing. Copies

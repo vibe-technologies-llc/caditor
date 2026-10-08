@@ -2,13 +2,16 @@ use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, Expression, ParameterId, format_number};
 use caditor_geometry::{Ray, RigidTransform, Vector3};
-use caditor_kernel::{BooleanError, MAX_SIZE, PatternCopy, PatternError, pattern};
+use caditor_kernel::{
+    BooleanError, BooleanOperation, MAX_SIZE, PatternCopy, PatternError, Solid, boolean, pattern,
+    pattern_copies,
+};
 
 use crate::{
     datum::{AxisReference, Resolver},
-    document::{Feature, FeatureId},
+    document::{Feature, FeatureId, FeatureKind},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
-    solid::SolidResult,
+    solid::{BodyOperation, SolidResult},
     tolerance, trouble,
     values::ParameterValues,
 };
@@ -60,6 +63,17 @@ pub struct Pattern {
     pub body: FeatureId,
     pub kind: PatternKind,
     pub skipped: BTreeSet<Instance>,
+    pub repeated: Vec<FeatureId>,
+}
+
+pub fn repeatable_on(kind: &FeatureKind) -> Option<FeatureId> {
+    if let Some(hole) = kind.hole() {
+        return Some(hole.body);
+    }
+    match kind.solid()?.operation() {
+        BodyOperation::Add(body) | BodyOperation::Remove(body) => Some(body),
+        BodyOperation::NewBody | BodyOperation::Intersect(_) => None,
+    }
 }
 
 impl PatternKind {
@@ -107,11 +121,24 @@ impl Pattern {
             body,
             kind,
             skipped: BTreeSet::new(),
+            repeated: Vec::new(),
         }
     }
 
+    #[must_use]
+    pub fn repeating(mut self, features: Vec<FeatureId>) -> Self {
+        self.repeated = features;
+        self
+    }
+
+    pub fn repeats_features(&self) -> bool {
+        !self.repeated.is_empty()
+    }
+
     pub fn heap_size(&self) -> usize {
-        self.kind.heap_size() + self.skipped.len() * size_of::<Instance>()
+        self.kind.heap_size()
+            + self.skipped.len() * size_of::<Instance>()
+            + self.repeated.len() * size_of::<FeatureId>()
     }
 
     pub fn instances(&self, values: &ParameterValues) -> Option<[u32; 2]> {
@@ -222,6 +249,7 @@ impl Pattern {
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+        used.extend(self.repeated.iter().copied());
         used.extend(self.axis_datums());
         used.extend(self.axis_bodies());
         used.extend(self.axis_sketches());
@@ -231,7 +259,7 @@ impl Pattern {
 
 struct Context<'a> {
     resolver: Resolver<'a>,
-    body_name: String,
+    subject: String,
 }
 
 struct Steps {
@@ -277,10 +305,10 @@ impl Context<'_> {
     fn too_many(&self, instances: f64) -> Failure {
         self.error(
             format!(
-                "The pattern would make {} instances of the body of {}, and at most \
+                "The pattern would make {} instances of {}, and at most \
                  {MAX_PATTERN_INSTANCES} are allowed.",
                 format_number(instances),
-                self.body_name
+                self.subject
             ),
             "Lower the count.",
         )
@@ -414,11 +442,11 @@ impl Context<'_> {
     }
 
     fn failure(&self, error: &PatternError) -> Failure {
-        let body = &self.body_name;
+        let body = &self.subject;
         match error {
             PatternError::Cancelled(_) => Failure::Cancelled,
             PatternError::Placement { .. } => self.error(
-                format!("A copy of the body of {body} could not be placed that far away."),
+                format!("A copy of {body} could not be placed that far away."),
                 "Lower the count or the spacing.",
             ),
             PatternError::Union {
@@ -426,8 +454,8 @@ impl Context<'_> {
                 error: BooleanError::NonManifold(_),
             } => self.error(
                 format!(
-                    "{} of the body of {body} meet only along an edge or at a corner, and could \
-                     not be kept as separate shells.",
+                    "{} of {body} meet only along an edge or at a corner, and could not be \
+                     kept as separate shells.",
                     describe_copies(copies)
                 ),
                 "Change the spacing or the angle so the copies overlap or stand apart.",
@@ -437,7 +465,7 @@ impl Context<'_> {
                 error: BooleanError::Ambiguous(_),
             } => self.error(
                 format!(
-                    "{} of the body of {body} touch where it cannot be told which side is inside.",
+                    "{} of {body} touch where it cannot be told which side is inside.",
                     describe_copies(copies)
                 ),
                 "Change the spacing or the angle slightly.",
@@ -446,13 +474,154 @@ impl Context<'_> {
                 log::warn!("{} could not be built: {error}", self.resolver.feature.name);
                 self.error(
                     format!(
-                        "{} of the body of {body} could not be joined together.",
+                        "{} of {body} could not be joined together.",
                         describe_copies(copies)
                     ),
                     "Change the spacing or the angle slightly, or lower the count.",
                 )
             }
         }
+    }
+}
+
+struct Seed<'a> {
+    name: String,
+    operation: BooleanOperation,
+    tools: Vec<&'a Solid>,
+}
+
+impl Context<'_> {
+    fn seed_error(&self, seed: FeatureId, reason: String, remedy: &str) -> Failure {
+        Failure::Error(Box::new(FeatureError {
+            reason,
+            remedy: remedy.to_owned(),
+            fix: Some(FixTarget::Feature(seed)),
+            constraints: Vec::new(),
+            place: None,
+        }))
+    }
+
+    fn seed<'a>(
+        &self,
+        inputs: &'a Inputs<'_>,
+        seed: FeatureId,
+        body: FeatureId,
+    ) -> Result<Seed<'a>, Failure> {
+        let name = inputs.document.feature(seed).map_or_else(
+            || "a deleted feature".to_owned(),
+            |feature| feature.name.clone(),
+        );
+        let Some(result) = inputs.features.get(&seed).and_then(|result| result.solid()) else {
+            return Err(self.seed_error(
+                seed,
+                format!("It repeats {name}, whose shape is not available."),
+                &format!("Fix {name} first, or leave it out of the pattern."),
+            ));
+        };
+        if result.body != body {
+            return Err(self.seed_error(
+                seed,
+                format!("{name} changes another body than the one this pattern repeats it on."),
+                "Leave it out of the pattern, or pattern the body it changes.",
+            ));
+        }
+        let (operation, parts) = match (result.cuts(), result.joins()) {
+            ([], []) => {
+                return Err(self.seed_error(
+                    seed,
+                    format!(
+                        "{name} neither adds to nor removes from a body, so it cannot be repeated."
+                    ),
+                    "Leave it out of the pattern, or pattern the whole body.",
+                ));
+            }
+            ([], joins) => (BooleanOperation::Union, joins),
+            (cuts, _) => (BooleanOperation::Difference, cuts),
+        };
+        let tools = parts
+            .iter()
+            .filter_map(|part| part.solid())
+            .map(|part| &part.solid)
+            .collect();
+        Ok(Seed {
+            name,
+            operation,
+            tools,
+        })
+    }
+
+    fn repeat(
+        &self,
+        definition: &Pattern,
+        solid: &Solid,
+        copies: &[PatternCopy],
+        cancel: &CancelToken,
+    ) -> Result<SolidResult, Failure> {
+        let inputs = self.resolver.inputs;
+        let raw = self.resolver.feature.id().raw();
+        let mut body = solid.clone();
+        let mut cuts = Vec::new();
+        for &feature in &definition.repeated {
+            let seed = self.seed(inputs, feature, definition.body)?;
+            let subject = Context {
+                resolver: Resolver {
+                    feature: self.resolver.feature,
+                    inputs,
+                },
+                subject: seed.name.clone(),
+            };
+            for tool in &seed.tools {
+                if cancel.is_cancelled() {
+                    return Err(Failure::Cancelled);
+                }
+                let placed = pattern_copies(tool, copies, raw).map_err(|error| {
+                    subject.failure(&error).placed(trouble::union_place(&error))
+                })?;
+                let Some(placed) = placed else {
+                    continue;
+                };
+                body = boolean(&body, &placed, seed.operation).map_err(|error| {
+                    self.combine_failure(inputs, [&body, &placed], &seed, &error)
+                })?;
+                if seed.operation == BooleanOperation::Difference {
+                    cuts.push(placed);
+                }
+            }
+        }
+        Ok(SolidResult::new(definition.body, body).cutting(cuts))
+    }
+
+    fn combine_failure(
+        &self,
+        inputs: &Inputs<'_>,
+        operands: [&Solid; 2],
+        seed: &Seed<'_>,
+        error: &BooleanError,
+    ) -> Failure {
+        let name = &seed.name;
+        let body = &self.subject;
+        let headline = match (error, seed.operation) {
+            (BooleanError::Cancelled(_), _) => return Failure::Cancelled,
+            (BooleanError::Empty, _) => {
+                return self.error(
+                    format!("The copies of {name} would leave nothing of {body}."),
+                    "Lower the count or change the spacing.",
+                );
+            }
+            (_, BooleanOperation::Difference) => {
+                format!("The copies of {name} could not be cut into {body}.")
+            }
+            (_, _) => format!("The copies of {name} could not be joined to {body}."),
+        };
+        log::warn!("{} could not be built: {error}", self.resolver.feature.name);
+        let trouble = trouble::boolean_trouble(
+            inputs.document,
+            operands,
+            error,
+            "Change the spacing or the angle slightly",
+        );
+        self.error(trouble.reason(headline), &trouble.remedy)
+            .placed(trouble.place)
     }
 }
 
@@ -495,7 +664,7 @@ pub(crate) fn evaluate(
         .unwrap_or_default();
     let context = Context {
         resolver: Resolver { feature, inputs },
-        body_name,
+        subject: format!("the body of {body_name}"),
     };
     let mut copies = match &definition.kind {
         PatternKind::Linear { first, second } => context.linear(first, second.as_ref())?,
@@ -507,6 +676,11 @@ pub(crate) fn evaluate(
     };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
+    }
+    if definition.repeats_features() {
+        return context
+            .repeat(definition, solid, &copies, cancel)
+            .map(FeatureResult::Solid);
     }
     let result = pattern(solid, &copies, feature.id().raw())
         .map_err(|error| context.failure(&error).placed(trouble::union_place(&error)))?;

@@ -68,7 +68,7 @@ pub use crate::{
         EdgeName, EdgeNaming, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference, Made,
         ReferenceError, VertexName, vertex_names,
     },
-    pattern::{PatternCopy, PatternError, pattern},
+    pattern::{PatternCopy, PatternError, pattern, pattern_copies},
     profile::{
         BoundaryPiece, Neighbour, OpenEnd, Piece, PieceBound, PieceId, Profile, ProfileCurve,
         ProfileError, ProfileLoop, ProfileShape, Region, RegionKey, RegionMatch, RegionMesh,

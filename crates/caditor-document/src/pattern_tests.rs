@@ -1,5 +1,7 @@
+use std::collections::BTreeSet;
+
 use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::{Plane, Point2, Point3};
+use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
     FaceId, FaceName, FaceOrigin, FaceReference, SamplingTolerance, Solid, Surface,
 };
@@ -587,4 +589,134 @@ fn leaving_out_an_instance_past_the_count_changes_nothing() {
 
     assert_eq!(evaluation.failed_count(), 0);
     assert_volume(&evaluation, model.base, 3.0 * 320.0);
+}
+
+struct Seeded {
+    document: Document,
+    plate: FeatureId,
+    hole: FeatureId,
+    boss: FeatureId,
+    pattern: FeatureId,
+}
+
+fn top() -> Plane {
+    Plane::from_frame(Point3::new(0.0, 0.0, 4.0), Vector3::Z, Vector3::X).unwrap()
+}
+
+fn on_top(min: (f64, f64), max: (f64, f64)) -> Sketch {
+    let mut sketch = rectangle(min, max);
+    sketch.set_plane(top());
+    sketch
+}
+
+fn extrusion(sketch: FeatureId, height: &str, operation: BodyOperation) -> FeatureKind {
+    FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+        sketch,
+        regions: RegionChoice::All,
+        extent: ExtrudeExtent::one_side(Expression::parse(height, &|_| None).unwrap(), false),
+        operation,
+        start: None,
+        other_bodies: Vec::new(),
+    }))
+}
+
+fn seeded(repeated: impl FnOnce(&Seeded) -> Vec<FeatureId>) -> Seeded {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((0.0, 0.0), (60.0, 10.0))),
+    );
+    let plate =
+        transaction.add_feature("Plate", extrusion(outline, "4 mm", BodyOperation::NewBody));
+    let mut points = Sketch::new(top());
+    points.add_point(Point2::new(5.0, 5.0));
+    let points = transaction.add_feature("Hole sketch", FeatureKind::from(points));
+    let hole = transaction.add_feature(
+        "Hole 1",
+        FeatureKind::Hole(Hole {
+            sketch: points,
+            body: plate,
+            diameter: Expression::parse("2 mm", &|_| None).unwrap(),
+            depth: HoleDepth::ThroughAll,
+            style: HoleStyle::Plain,
+            reversed: false,
+            shape: HoleShape::Round,
+            standard: None,
+            sizing: HoleSizing::Typed,
+        }),
+    );
+    let boss_outline = transaction.add_feature(
+        "Boss outline",
+        FeatureKind::from(on_top((8.0, 2.0), (12.0, 8.0))),
+    );
+    let boss = transaction.add_feature(
+        "Boss",
+        extrusion(boss_outline, "2 mm", BodyOperation::Add(plate)),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut seeded = Seeded {
+        document,
+        plate,
+        hole,
+        boss,
+        pattern: FeatureId::from_raw(0),
+    };
+    let pattern = Pattern::new(
+        plate,
+        PatternKind::Linear {
+            first: along(PrincipalAxis::X, Expression::Number(3.0), "20 mm"),
+            second: None,
+        },
+    )
+    .repeating(repeated(&seeded));
+    let mut transaction = seeded.document.transaction("Pattern");
+    seeded.pattern = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+    seeded.document.apply(transaction.finish()).unwrap();
+    seeded
+}
+
+#[test]
+fn a_pattern_of_features_repeats_their_holes_and_bosses_on_the_body() {
+    let seeded = seeded(|seeded| vec![seeded.hole, seeded.boss]);
+    let evaluation = evaluate(&seeded.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let hole = std::f64::consts::PI * 4.0;
+    assert_volume(
+        &evaluation,
+        seeded.plate,
+        60.0 * 10.0 * 4.0 - 3.0 * hole + 3.0 * 4.0 * 6.0 * 2.0,
+    );
+    assert_eq!(evaluation.cuts(seeded.pattern).len(), 1);
+    let solid = evaluation.body(seeded.plate).unwrap();
+    let copied: BTreeSet<[u32; 2]> = solid
+        .faces()
+        .filter_map(|(_, face)| face.origin()?.copy())
+        .filter(|copy| copy.pattern == seeded.pattern.raw())
+        .map(|copy| copy.index)
+        .collect();
+    assert_eq!(copied, BTreeSet::from([[1, 0], [2, 0]]));
+    assert!(
+        seeded
+            .document
+            .feature(seeded.pattern)
+            .unwrap()
+            .kind
+            .features()
+            .contains(&seeded.hole)
+    );
+}
+
+#[test]
+fn a_feature_that_made_the_body_is_not_repeated_but_named() {
+    let seeded = seeded(|seeded| vec![seeded.plate]);
+    let evaluation = evaluate(&seeded.document, &mut Recompute::default());
+
+    let error = failure(&evaluation, seeded.pattern);
+    assert_eq!(
+        error.reason,
+        "Plate neither adds to nor removes from a body, so it cannot be repeated."
+    );
+    assert_eq!(error.fix, Some(FixTarget::Feature(seeded.plate)));
 }

@@ -2974,6 +2974,43 @@ fn a_pattern_with_a_total_length_or_instances_left_out_is_a_record_kind_of_its_o
 }
 
 #[test]
+fn a_pattern_repeating_features_is_a_kind_older_readers_report_and_reads_back() {
+    use caditor_document::HoleStyle;
+    let (mut document, hole) = holed_model(HoleStyle::Plain, true);
+    let (patterned, linear, _) = patterned_model();
+    let mut repeating = patterned
+        .feature(linear)
+        .unwrap()
+        .kind
+        .pattern()
+        .unwrap()
+        .clone()
+        .repeating(vec![hole]);
+    repeating.body = document.feature(hole).unwrap().kind.hole().unwrap().body;
+    let mut transaction = document.transaction("Pattern the hole");
+    let pattern = transaction.add_feature("Linear pattern 1", FeatureKind::from(repeating));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("feature_pattern", "pattern_of_features"));
+    let kind = document.feature(pattern).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: pattern, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
+    assert!(text.contains("\"feature_pattern\":{\"feature\":{\"linear_pattern\":"));
+    assert!(text.contains(&format!("\"repeated\":[{}]", hole.raw())));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(pattern).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
 fn instances_left_out_that_no_pattern_can_make_are_dropped_on_loading() {
     let (mut document, linear, circular) = patterned_model();
     spread_and_skipping(&mut document, linear, circular);

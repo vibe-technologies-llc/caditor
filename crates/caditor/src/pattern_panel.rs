@@ -8,6 +8,7 @@ use egui::{Id, Ui};
 
 use crate::{
     feature_fields::{self, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment},
+    icons,
     model::{Action, Model},
     pattern_tools::{self, Reference, Shape},
     reference_picking::Slot,
@@ -21,6 +22,12 @@ pub const CIRCULAR_HINT: &str = "A total angle of 360° spaces the copies evenly
 const COUNT: (Dimension, Rule) = (Dimension::NONE, Rule::Count);
 
 pub const INSTANCES: &str = "Instances";
+pub const REPEATS: &str = "Repeats";
+pub const WHOLE_BODY: &str = "The whole body";
+pub const REPEAT_CHOSEN: &str = "Repeat the chosen features";
+const REPEAT_CHOSEN_HINT: &str = "Choose extrusions, revolves or holes of this body above the \
+                                  pattern in the tree (Ctrl+click), then repeat them instead of \
+                                  the whole body";
 pub const NO_SECOND_DIRECTION: &str = "None";
 pub const MEASURED_EACH: &str = "Each";
 pub const MEASURED_OVERALL: &str = "Overall";
@@ -119,6 +126,7 @@ fn shape_label(shape: Shape) -> &'static str {
 struct Panel<'a> {
     model: &'a Model,
     selection: &'a Selection,
+    chosen: &'a [FeatureId],
     feature: &'a Feature,
     pattern: &'a Pattern,
     actions: &'a mut Vec<Action>,
@@ -207,6 +215,65 @@ impl Panel<'_> {
         ui.end_row();
         if let Some(pattern) = toggled.and_then(|instance| self.pattern.toggled(instance)) {
             let change = pattern_tools::change(self.model, self.id(), pattern);
+            self.apply(change);
+        }
+    }
+
+    fn repeats_rows(&mut self, ui: &mut Ui) {
+        let document = self.model.document();
+        let repeated = self.pattern.repeated.clone();
+        widgets::caption(ui, REPEATS);
+        if repeated.is_empty() {
+            ui.label(WHOLE_BODY);
+            ui.end_row();
+        }
+        for (index, feature) in repeated.iter().enumerate() {
+            if index > 0 {
+                ui.label("");
+            }
+            let name = feature_fields::feature_name(document, *feature);
+            let hover = format!("Stop repeating {}", name.unwrap_or("the missing feature"));
+            let mut dropped = false;
+            ui.horizontal(|ui| {
+                match name {
+                    Some(name) => {
+                        ui.label(name);
+                    }
+                    None => feature_fields::missing(ui, "Missing feature"),
+                }
+                dropped = widgets::icon_button(ui, icons::REMOVE, &hover).clicked();
+            });
+            ui.end_row();
+            if dropped {
+                let kept = repeated
+                    .iter()
+                    .copied()
+                    .filter(|kept| kept != feature)
+                    .collect();
+                let change = pattern_tools::repeating(self.model, self.id(), self.pattern, kept);
+                self.apply(change);
+            }
+        }
+        let offered = pattern_tools::repeatable(document, self.chosen)
+            .filter(|(body, chosen)| *body == self.pattern.body && *chosen != repeated);
+        ui.label("");
+        let button = widgets::small_button(ui, icons::ADD, REPEAT_CHOSEN);
+        let hover = match &offered {
+            Some((body, chosen)) => format!(
+                "Repeat {} instead of {}",
+                pattern_tools::subject(document, *body, chosen),
+                pattern_tools::subject(document, self.pattern.body, &repeated)
+            ),
+            None => REPEAT_CHOSEN_HINT.to_owned(),
+        };
+        let clicked = ui
+            .add_enabled(offered.is_some(), button)
+            .on_hover_text(&hover)
+            .on_disabled_hover_text(&hover)
+            .clicked();
+        ui.end_row();
+        if clicked && let Some((_, chosen)) = offered {
+            let change = pattern_tools::repeating(self.model, self.id(), self.pattern, chosen);
             self.apply(change);
         }
     }
@@ -470,7 +537,7 @@ impl Panel<'_> {
 pub fn show(
     ui: &mut Ui,
     model: &Model,
-    selection: &Selection,
+    (selection, chosen): (&Selection, &[FeatureId]),
     actions: &mut Vec<Action>,
     feature: &Feature,
     pattern: &Pattern,
@@ -479,6 +546,7 @@ pub fn show(
     let mut panel = Panel {
         model,
         selection,
+        chosen,
         feature,
         pattern,
         actions,
@@ -490,6 +558,7 @@ pub fn show(
             PatternKind::Circular(circular) => panel.circular_rows(ui, circular),
         }
         panel.instances_row(ui);
+        panel.repeats_rows(ui);
         feature_fields::feature_row(ui, model.document(), "Body", pattern.body);
     });
     if !pattern.kind.is_linear() {

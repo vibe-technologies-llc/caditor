@@ -597,25 +597,21 @@ fn pattern_buttons(
         let invoked = commands.invoke(command, source);
         let help = match source {
             Ok(source) => {
-                let body = document
-                    .feature(source.body)
-                    .map_or("the body", |body| body.name.as_str());
+                let subject = source.subject(document);
                 let hover = match (shape, &source.axis) {
-                    (Shape::Linear, Some(axis)) => format!(
-                        "Repeat the body of {body} along {}",
-                        describe_axis(document, axis)
-                    ),
+                    (Shape::Linear, Some(axis)) => {
+                        format!("Repeat {subject} along {}", describe_axis(document, axis))
+                    }
                     (Shape::Linear, None) => format!(
-                        "Repeat the body of {body} along the X axis, or along an edge or axis \
-                         you select first"
+                        "Repeat {subject} along the X axis, or along an edge or axis you select \
+                         first"
                     ),
-                    (Shape::Circular, Some(axis)) => format!(
-                        "Repeat the body of {body} around {}",
-                        describe_axis(document, axis)
-                    ),
+                    (Shape::Circular, Some(axis)) => {
+                        format!("Repeat {subject} around {}", describe_axis(document, axis))
+                    }
                     (Shape::Circular, None) => format!(
-                        "Repeat the body of {body} around the Z axis, or around an axis or \
-                         round face you select first"
+                        "Repeat {subject} around the Z axis, or around an axis or round face you \
+                         select first"
                     ),
                 };
                 Ok(commands.with_keys(command, &hover))

@@ -7357,7 +7357,11 @@ fn a_large_selection_is_counted_whole_but_described_and_measured_only_in_part() 
     let offers = harness
         .workspace
         .selection_offers
-        .refresh(&harness.model, harness.workspace.viewport.selection(), &[])
+        .refresh(
+            &harness.model,
+            harness.workspace.viewport.selection(),
+            (&[], &[]),
+        )
         .clone();
 
     assert_eq!(offers.selected, 20);
@@ -9314,6 +9318,55 @@ fn a_linear_pattern_repeats_the_body_and_takes_its_count_and_directions_from_the
     harness.type_into_field(Id::new(("pattern-field", "count", pattern)), "2.5");
     assert!(harness.shows("Enter a whole number of at least 1"));
     assert!(volume_about(&harness, plate, 8.0 * 16000.0));
+}
+
+#[test]
+fn a_hole_chosen_in_the_tree_is_repeated_by_a_pattern_instead_of_its_body() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut sketch = Sketch::new(top);
+    sketch.add_point(Point2::new(8.0, 20.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let drilled = std::f64::consts::PI * 9.0 * 10.0;
+
+    harness.workspace.panels.selected = Some(hole);
+    harness.frame();
+    harness.frame();
+    harness.hover("Linear pattern");
+    let described = harness.shows_containing("Repeat Hole 1 along the X axis");
+    harness.click("Linear pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+
+    assert!(described);
+    let created = pattern_of(&harness, pattern).clone();
+    assert_eq!(created.body, plate);
+    assert_eq!(created.repeated, vec![hole]);
+    assert!(volume_about(&harness, plate, 16000.0 - 3.0 * drilled));
+    assert!(harness.shows(crate::pattern_panel::REPEATS));
+    assert!(harness.shows("Hole 1"));
+
+    harness.click_button("Stop repeating Hole 1");
+    harness.settle();
+    assert!(pattern_of(&harness, pattern).repeated.is_empty());
+    assert!(harness.shows(crate::pattern_panel::WHOLE_BODY));
+    assert!(harness.body_volume(plate) > 16000.0);
 }
 
 #[test]

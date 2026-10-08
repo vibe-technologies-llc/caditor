@@ -59,6 +59,25 @@ pub fn pattern(solid: &Solid, copies: &[PatternCopy], feature: u64) -> Result<So
     Ok(parts.pop().map_or_else(|| solid.clone(), |part| part.solid))
 }
 
+pub fn pattern_copies(
+    solid: &Solid,
+    copies: &[PatternCopy],
+    feature: u64,
+) -> Result<Option<Solid>, PatternError> {
+    let mut parts = Vec::with_capacity(copies.len());
+    for copy in copies {
+        interrupt::check()?;
+        parts.push(Part {
+            solid: placed(solid, copy, feature)?,
+            copies: vec![copy.index],
+        });
+    }
+    while parts.len() > 1 {
+        parts = joined_in_pairs(parts)?;
+    }
+    Ok(parts.pop().map(|part| part.solid))
+}
+
 fn placed(solid: &Solid, copy: &PatternCopy, feature: u64) -> Result<Solid, PatternError> {
     let moved = solid.mapped(&copy.placement).map_err(|error| match error {
         TransformError::Cancelled(interrupted) => PatternError::Cancelled(interrupted),

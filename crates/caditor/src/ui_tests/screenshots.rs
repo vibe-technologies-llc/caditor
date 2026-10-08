@@ -717,7 +717,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         (Shape::Linear, "panel-linear-pattern"),
         (Shape::Circular, "panel-circular-pattern"),
     ] {
-        if let Ok(source) = pattern_tools::source(&model.model, &Selection::default(), &[]) {
+        if let Ok(source) = pattern_tools::source(&model.model, &Selection::default(), &[], &[]) {
             let actions = pattern_tools::create_actions(&model.model, shape, &source);
             perform_all(model, actions);
             shoot_open(model, gpu, out, scene, look);

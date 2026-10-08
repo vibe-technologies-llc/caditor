@@ -487,6 +487,7 @@ pub struct SolidResult {
     pub solid: Solid,
     others: Vec<Arc<FeatureResult>>,
     cuts: Vec<Arc<FeatureResult>>,
+    joins: Vec<Arc<FeatureResult>>,
     mesh: OnceLock<Option<Mesh>>,
     bounds: OnceLock<Option<Aabb>>,
     names: OnceLock<NameIndex>,
@@ -547,6 +548,7 @@ impl SolidResult {
             solid,
             others: Vec::new(),
             cuts: Vec::new(),
+            joins: Vec::new(),
             mesh: OnceLock::new(),
             bounds: OnceLock::new(),
             names: OnceLock::new(),
@@ -566,6 +568,19 @@ impl SolidResult {
         &self.cuts
     }
 
+    pub fn joining(mut self, tools: impl IntoIterator<Item = Solid>) -> Self {
+        let body = self.body;
+        self.joins = tools
+            .into_iter()
+            .map(|tool| Arc::new(FeatureResult::Solid(SolidResult::new(body, tool))))
+            .collect();
+        self
+    }
+
+    pub fn joins(&self) -> &[Arc<FeatureResult>] {
+        &self.joins
+    }
+
     pub fn with_others(mut self, others: impl IntoIterator<Item = SolidResult>) -> Self {
         self.others = others
             .into_iter()
@@ -581,15 +596,9 @@ impl SolidResult {
     pub(crate) fn same_shapes(&self, other: &Self) -> bool {
         self.body == other.body
             && self.solid == other.solid
-            && self.others.len() == other.others.len()
-            && self.others.iter().zip(&other.others).all(|(own, theirs)| {
-                match (own.solid(), theirs.solid()) {
-                    (Some(own), Some(theirs)) => {
-                        own.body == theirs.body && own.solid == theirs.solid
-                    }
-                    _ => false,
-                }
-            })
+            && same_parts(&self.others, &other.others)
+            && same_parts(&self.cuts, &other.cuts)
+            && same_parts(&self.joins, &other.joins)
     }
 
     pub fn names(&self) -> &NameIndex {
@@ -758,6 +767,17 @@ impl Context<'_> {
     }
 }
 
+fn same_parts(own: &[Arc<FeatureResult>], theirs: &[Arc<FeatureResult>]) -> bool {
+    own.len() == theirs.len()
+        && own
+            .iter()
+            .zip(theirs)
+            .all(|(own, theirs)| match (own.solid(), theirs.solid()) {
+                (Some(own), Some(theirs)) => own.body == theirs.body && own.solid == theirs.solid,
+                _ => false,
+            })
+}
+
 pub(crate) fn evaluate(
     feature: &Feature,
     solid: &SolidFeature,
@@ -830,7 +850,8 @@ pub(crate) fn evaluate(
         return Err(Failure::Cancelled);
     }
     let other_bodies = solid.other_bodies();
-    let (body, solid, cut) = match solid.operation() {
+    let operation = solid.operation();
+    let (body, solid, cut) = match operation {
         BodyOperation::NewBody => (feature.id(), tool, None),
         operation @ (BodyOperation::Add(body)
         | BodyOperation::Remove(body)
@@ -844,8 +865,7 @@ pub(crate) fn evaluate(
             let combined = boolean(current, &tool, kernel_operation).map_err(|error| {
                 boolean_failure(&context, inputs, [current, &tool], body, operation, &error)
             })?;
-            let cut = matches!(operation, BodyOperation::Remove(_)).then_some(tool);
-            (body, combined, cut)
+            (body, combined, Some(tool))
         }
     };
     let mut distinct = Vec::new();
@@ -854,6 +874,11 @@ pub(crate) fn evaluate(
             distinct.push(*other);
         }
     }
+    let (cut, joined) = match operation {
+        BodyOperation::Remove(_) => (cut, None),
+        BodyOperation::Add(_) => (None, cut),
+        BodyOperation::NewBody | BodyOperation::Intersect(_) => (None, None),
+    };
     let others = match (&cut, distinct.as_slice()) {
         (Some(tool), others) => cut_others(&context, inputs, tool, others, cancel)?,
         (None, []) => Vec::new(),
@@ -868,7 +893,8 @@ pub(crate) fn evaluate(
     Ok(FeatureResult::Solid(
         SolidResult::new(body, solid)
             .with_others(others)
-            .cutting(cut),
+            .cutting(cut)
+            .joining(joined),
     ))
 }
 

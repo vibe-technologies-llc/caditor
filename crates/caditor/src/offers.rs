@@ -21,10 +21,13 @@ pub const MAX_DESCRIBED: usize = 12;
 struct Basis {
     selection: u64,
     tree: Vec<FeatureId>,
+    rows: Vec<FeatureId>,
     revision: u64,
     evaluation: u64,
     unit: LengthUnit,
 }
+
+pub type Chosen<'a> = (&'a [FeatureId], &'a [FeatureId]);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Offers {
@@ -45,7 +48,7 @@ pub struct Offers {
 }
 
 impl Offers {
-    fn of(model: &Model, selection: &Selection, tree: &[FeatureId]) -> Self {
+    fn of(model: &Model, selection: &Selection, (tree, rows): Chosen<'_>) -> Self {
         let document = model.document();
         let evaluation = model.evaluation();
         let end = document.bar_index();
@@ -58,7 +61,7 @@ impl Offers {
             .collect();
         Self {
             sketch_target: sketch_placement::sketch_target(model, selection),
-            pattern: pattern_tools::source(model, selection, tree),
+            pattern: pattern_tools::source(model, selection, tree, rows),
             model_axes,
             datum_plane: datum_tools::plane_from_selection(model, selection, end),
             datum_axis: datum_tools::axis_from_selection(model, selection, end),
@@ -87,10 +90,12 @@ pub struct SelectionOffers {
 }
 
 impl SelectionOffers {
-    pub fn refresh(&mut self, model: &Model, selection: &Selection, tree: &[FeatureId]) -> &Offers {
+    pub fn refresh(&mut self, model: &Model, selection: &Selection, chosen: Chosen<'_>) -> &Offers {
+        let (tree, rows) = chosen;
         let basis = Basis {
             selection: selection.generation(),
             tree: tree.to_vec(),
+            rows: rows.to_vec(),
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
             unit: model.length_unit(),
@@ -103,7 +108,7 @@ impl SelectionOffers {
                     self.computations += 1;
                 }
                 self.current
-                    .insert((basis, Offers::of(model, selection, tree)))
+                    .insert((basis, Offers::of(model, selection, chosen)))
             }
         };
         offers

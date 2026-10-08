@@ -161,6 +161,13 @@ pub(crate) enum FeatureKindRecord {
     PlacedImport(Box<PlacedImportRecord>),
     RevolveOneSide(Box<RevolveOneSideRecord>),
     SteppedHole(Box<SteppedHoleRecord>),
+    FeaturePattern(Box<FeaturePatternRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FeaturePatternRecord {
+    pub feature: FeatureKindRecord,
+    pub repeated: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -196,7 +203,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 33] = [
+pub(crate) const FEATURE_KINDS: [&str; 34] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -230,6 +237,7 @@ pub(crate) const FEATURE_KINDS: [&str; 33] = [
     "hole_scaled_by_circles",
     "revolve_one_side",
     "stepped_hole",
+    "feature_pattern",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1720,13 +1728,24 @@ fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
             .any(|direction| direction.total),
         PatternShapeRecord::Circular(_) => false,
     };
-    match (shape, skipped.is_empty() && !total) {
+    let record = match (shape, skipped.is_empty() && !total) {
         (PatternShapeRecord::Linear(linear), true) => FeatureKindRecord::LinearPattern(linear),
         (PatternShapeRecord::Circular(circular), true) => {
             FeatureKindRecord::CircularPattern(circular)
         }
         (shape, false) => FeatureKindRecord::Pattern(Box::new(PatternRecord { shape, skipped })),
+    };
+    if pattern.repeated.is_empty() {
+        return record;
     }
+    FeatureKindRecord::FeaturePattern(Box::new(FeaturePatternRecord {
+        feature: record,
+        repeated: pattern
+            .repeated
+            .iter()
+            .map(|feature| feature.raw())
+            .collect(),
+    }))
 }
 
 fn direction_record(direction: &LinearDirection) -> DirectionRecord {
@@ -2777,6 +2796,26 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” listed the steps of a stepped hole, but it is not a hole, so they \
                      were left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::FeaturePattern(repeating) => {
+            let mut kind = restore_kind(&repeating.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Pattern(pattern) => {
+                    let mut repeated = Vec::new();
+                    for raw in &repeating.repeated {
+                        let feature = FeatureId::from_raw(*raw);
+                        if !repeated.contains(&feature) {
+                            repeated.push(feature);
+                        }
+                    }
+                    pattern.repeated = repeated;
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed features to repeat, but it is not a pattern, so they were \
+                     left out."
                 )),
             }
             kind

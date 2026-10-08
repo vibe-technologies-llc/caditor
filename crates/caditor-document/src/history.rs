@@ -128,6 +128,7 @@ fn result_bytes(result: &FeatureResult) -> usize {
                     .others()
                     .iter()
                     .chain(solid.cuts())
+                    .chain(solid.joins())
                     .map(|part| result_bytes(Arc::as_ref(part)))
                     .sum::<usize>()
         }
