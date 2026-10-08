@@ -1492,6 +1492,48 @@ mod step {
         }
     }
 
+    fn block_file(dir: &tempfile::TempDir) -> std::path::PathBuf {
+        let path = dir.path().join("block.step");
+        std::fs::write(&path, written_block()).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_cancelled_step_read_stops_with_the_import_stopped() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = block_file(&dir);
+        let cancelled = CancelToken::new(|| true);
+
+        assert_eq!(
+            read_step_file(&path, &cancelled).map(|_| ()),
+            Err(ImportError::Cancelled)
+        );
+        assert_eq!(
+            read_step_file(&path, &CancelToken::never())
+                .unwrap()
+                .bodies
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_step_read_notices_a_cancel_raised_while_it_is_running() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = block_file(&dir);
+        let polls = std::sync::atomic::AtomicUsize::new(0);
+        let polls = std::sync::Arc::new(polls);
+        let seen = std::sync::Arc::clone(&polls);
+        let cancel =
+            CancelToken::new(move || seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 2);
+
+        assert_eq!(
+            read_step_file(&path, &cancel).map(|_| ()),
+            Err(ImportError::Cancelled)
+        );
+        assert!(polls.load(std::sync::atomic::Ordering::SeqCst) >= 3);
+    }
+
     #[test]
     fn a_latin_1_file_is_read_with_its_names_and_says_so() {
         let solid = block();
@@ -1515,7 +1557,7 @@ mod step {
         let path = dir.path().join("piece.step");
         std::fs::write(&path, &latin_1).unwrap();
 
-        let import = read_step_file(&path).unwrap();
+        let import = read_step_file(&path, &CancelToken::never()).unwrap();
 
         assert_eq!(import.bodies.len(), 1);
         assert_eq!(import.bodies[0].name, "Pièce");
@@ -1564,13 +1606,13 @@ mod step {
         ];
         let plain = dir.path().join("plain.step");
         std::fs::write(&plain, &text).unwrap();
-        let expected = read_step_file(&plain).unwrap();
+        let expected = read_step_file(&plain, &CancelToken::never()).unwrap();
 
         for (name, bytes) in variants {
             let path = dir.path().join(name);
             std::fs::write(&path, bytes).unwrap();
 
-            let import = read_step_file(&path).unwrap();
+            let import = read_step_file(&path, &CancelToken::never()).unwrap();
 
             assert_eq!(import.bodies.len(), 1, "{name}");
             assert_eq!(
@@ -1608,7 +1650,7 @@ mod step {
             std::fs::write(&path, bytes).unwrap();
 
             assert_eq!(
-                read_step_file(&path),
+                read_step_file(&path, &CancelToken::never()),
                 Err(ImportError::DamagedArchive),
                 "{name}"
             );

@@ -1,14 +1,14 @@
 use std::path::Path;
 
-use caditor_document::Import;
+use caditor_document::{CancelToken, Import};
 use caditor_geometry::Point3;
 use caditor_kernel::{
-    FacetedError, MAX_FILLED_HOLE_EDGES, MeshRepairs, TriangleMesh, faceted_solids,
+    FacetedError, MAX_FILLED_HOLE_EDGES, MeshRepairs, TriangleMesh, faceted_solids, interruptible,
 };
 
 use crate::{
     import::{
-        ImportError,
+        ImportError, ensure_going,
         model::{ImportedBody, ModelImport, canonical},
         zip_read,
     },
@@ -54,16 +54,21 @@ impl MeshFormat {
     }
 }
 
-pub fn read_mesh_file(path: &Path) -> Result<ModelImport, ImportError> {
+pub fn read_mesh_file(path: &Path, cancel: &CancelToken) -> Result<ModelImport, ImportError> {
     let format = MeshFormat::of(path).ok_or(ImportError::NotMesh)?;
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
+    ensure_going(cancel)?;
     let source = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
     let stem = path
         .file_stem()
         .map_or_else(String::new, |stem| stem.to_string_lossy().trim().to_owned());
-    parse_mesh(&bytes, format, &source, &stem)
+    let imported = interruptible(cancel.interrupt(), || {
+        parse_mesh(&bytes, format, &source, &stem)
+    });
+    ensure_going(cancel)?;
+    imported
 }
 
 pub fn parse_mesh(
@@ -92,7 +97,7 @@ pub fn parse_mesh(
             log::warn!("a mesh could not be built into a solid: {error}");
             ImportError::MeshNotSolid
         }
-        FacetedError::Cancelled(_) => ImportError::Crashed,
+        FacetedError::Cancelled(_) => ImportError::Cancelled,
     })?;
     notes.extend(repair_notes(&built.repairs));
     let name = if name.is_empty() { "Mesh" } else { name };

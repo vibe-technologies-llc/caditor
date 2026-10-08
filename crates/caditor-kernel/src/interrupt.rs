@@ -18,7 +18,7 @@ pub fn interruptible<T>(interrupt: Interrupt, work: impl FnOnce() -> T) -> T {
     work()
 }
 
-pub(crate) fn check() -> Result<(), Interrupted> {
+pub fn check() -> Result<(), Interrupted> {
     let interrupt = CURRENT.with(|current| current.borrow().clone());
     match interrupt {
         Some(interrupted) if interrupted() => Err(Interrupted),

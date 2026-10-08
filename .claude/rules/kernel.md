@@ -23,7 +23,8 @@ paths:
 - A classification or `first_crossing` whose ray intersection is cancelled answers `Undecided` at
   once rather than trying the other directions; its caller's next poll reports the cancel.
 - The document installs its `CancelToken` around evaluation and meshing; export around meshing and
-  STEP writing.
+  STEP writing; import around reading STEP and meshes. `check_interrupt` lets a crate above the
+  kernel poll the same check (the STEP reader polls it per solid).
 
 ## Curves and surfaces
 

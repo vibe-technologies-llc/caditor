@@ -157,6 +157,7 @@ pub enum Command {
     RecoverUnsaved,
     CancelExport,
     CancelImageExport,
+    CancelImport,
     Recompute,
     CancelRecompute,
     RenameFeature,
@@ -539,6 +540,7 @@ plain_commands! {
     RecoverUnsaved,
     CancelExport,
     CancelImageExport,
+    CancelImport,
     Recompute,
     CancelRecompute,
     RenameFeature,
@@ -752,6 +754,7 @@ impl Command {
             Self::RecoverUnsaved => "file.recover",
             Self::CancelExport => "file.cancel_export",
             Self::CancelImageExport => "file.cancel_image_export",
+            Self::CancelImport => "file.cancel_import",
             Self::Recompute => "model.recompute",
             Self::CancelRecompute => "model.cancel_recompute",
             Self::RenameFeature => "model.rename_feature",
@@ -911,6 +914,7 @@ impl Command {
             Self::RecoverUnsaved => "Recover unsaved work…",
             Self::CancelExport => "Cancel the export",
             Self::CancelImageExport => "Cancel the image export",
+            Self::CancelImport => "Cancel the import",
             Self::Recompute => "Recompute the model",
             Self::CancelRecompute => "Cancel the recompute",
             Self::RenameFeature => "Rename feature",
@@ -982,7 +986,8 @@ impl Command {
             | Self::ClearRecent
             | Self::RecoverUnsaved
             | Self::CancelExport
-            | Self::CancelImageExport => Category::File,
+            | Self::CancelImageExport
+            | Self::CancelImport => Category::File,
             Self::Welcome | Self::About | Self::Messages | Self::DismissTip | Self::HideTips => {
                 Category::Help
             }
@@ -1243,6 +1248,7 @@ impl Command {
             | Self::RecoverUnsaved
             | Self::CancelExport
             | Self::CancelImageExport
+            | Self::CancelImport
             | Self::CancelRecompute
             | Self::Ungroup
             | Self::RenameGroup

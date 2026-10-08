@@ -51,7 +51,7 @@ pub use crate::{
         TriangleMesh, faceted_solids,
     },
     hole_faces::hole_faces,
-    interrupt::{Interrupt, Interrupted, interruptible},
+    interrupt::{Interrupt, Interrupted, check as check_interrupt, interruptible},
     intersect::{
         CurveCurveIntersection, CurveCurveOverlap, CurveCurvePoint, CurveSurfaceIntersection,
         CurveSurfaceOverlap, CurveSurfacePoint, IntersectionBranch, IntersectionError,

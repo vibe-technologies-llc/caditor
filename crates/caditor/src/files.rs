@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread,
@@ -55,6 +56,7 @@ pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geom
                                           layer of its own named Construction, instead of leaving \
                                           it out";
 const OPEN_SAMPLE: &str = "Open sample";
+const NOT_IMPORTING: &str = "No import is running";
 const NO_RECENT: &str = "No model has been opened or saved yet";
 const QUIT_ANYWAY_AFTER: Duration = Duration::from_secs(5);
 const INTERNAL_ERROR: &str = "caditor ran into an internal error while reading it";
@@ -122,6 +124,7 @@ pub enum FileCommand {
     OpenSample(Sample),
     ClearRecent,
     CancelOpen,
+    CancelImport,
     CancelPick,
     KeepDrawingConstruction(bool),
 }
@@ -440,18 +443,21 @@ enum Event {
     Imported {
         path: PathBuf,
         session: u64,
+        attempt: u64,
         into: Option<FeatureId>,
         result: Result<Box<DrawingPlan>, ImportError>,
     },
     DrawingRead {
         path: PathBuf,
         session: u64,
+        attempt: u64,
         into: Option<FeatureId>,
         drawing: Box<Drawing>,
     },
     ImportedModel {
         path: PathBuf,
         session: u64,
+        attempt: u64,
         replacing: Option<FeatureId>,
         result: Result<ModelImport, ImportError>,
     },
@@ -481,7 +487,34 @@ struct Importing {
     path: Option<PathBuf>,
     into: Option<FeatureId>,
     replacing: Option<FeatureId>,
+    stopped: Arc<AtomicBool>,
 }
+
+impl Importing {
+    fn picking(into: Option<FeatureId>, replacing: Option<FeatureId>) -> Self {
+        Self {
+            path: None,
+            into,
+            replacing,
+            stopped: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn reading(path: PathBuf, into: Option<FeatureId>, replacing: Option<FeatureId>) -> Self {
+        Self {
+            path: Some(path),
+            ..Self::picking(into, replacing)
+        }
+    }
+
+    fn token(&self) -> CancelToken {
+        let stopped = Arc::clone(&self.stopped);
+        CancelToken::new(move || stopped.load(Ordering::Relaxed))
+    }
+}
+
+pub type ModelReader =
+    Arc<dyn Fn(&Path, &CancelToken) -> Result<ModelImport, ImportError> + Send + Sync>;
 
 struct Queued {
     path: PathBuf,
@@ -508,6 +541,8 @@ pub struct Files {
     opening: Option<PathBuf>,
     open_attempt: u64,
     importing: Option<Importing>,
+    import_attempt: u64,
+    model_reader: ModelReader,
     arranging: Option<Arranging>,
     queued_imports: VecDeque<Queued>,
     exporter: Exporter,
@@ -544,6 +579,8 @@ impl Files {
             opening: None,
             open_attempt: 0,
             importing: None,
+            import_attempt: 0,
+            model_reader: Arc::new(import::read_model),
             arranging: None,
             queued_imports: VecDeque::new(),
             exporter: Exporter::default(),
@@ -580,6 +617,25 @@ impl Files {
             Some(path) => self.perform(FileCommand::OpenPath(path), model),
             None => {}
         }
+    }
+
+    #[cfg(test)]
+    pub fn read_models_with(&mut self, reader: ModelReader) {
+        self.model_reader = reader;
+    }
+
+    #[cfg(test)]
+    pub fn hold_worker(&mut self) -> Sender<()> {
+        let (release, held) = mpsc::channel();
+        self.run_job(Box::new(move || {
+            let _ = held.recv();
+        }));
+        release
+    }
+
+    #[cfg(test)]
+    pub fn is_opening(&self) -> bool {
+        self.opening.is_some()
     }
 
     pub fn should_quit(&self) -> bool {
@@ -754,11 +810,7 @@ impl Files {
                 if self.picking.is_some() {
                     return;
                 }
-                self.importing = Some(Importing {
-                    path: None,
-                    into,
-                    replacing: None,
-                });
+                self.importing = Some(Importing::picking(into, None));
                 self.pick(Purpose::Import, model);
             }
             FileCommand::ReplaceImport(feature) => {
@@ -769,11 +821,7 @@ impl Files {
                 if self.picking.is_some() {
                     return;
                 }
-                self.importing = Some(Importing {
-                    path: None,
-                    into: None,
-                    replacing: Some(feature),
-                });
+                self.importing = Some(Importing::picking(None, Some(feature)));
                 self.pick(Purpose::Import, model);
             }
             FileCommand::ReloadImport(feature) => {
@@ -796,11 +844,8 @@ impl Files {
                 };
             }
             FileCommand::CancelPick => self.stop_picking(model),
-            FileCommand::CancelOpen => {
-                if self.opening.take().is_some() {
-                    self.open_attempt += 1;
-                }
-            }
+            FileCommand::CancelOpen => self.abandon_open(),
+            FileCommand::CancelImport => self.cancel_import(model),
         }
     }
 
@@ -1136,9 +1181,13 @@ impl Files {
             Event::Imported {
                 path,
                 session,
+                attempt,
                 into,
                 result,
             } => {
+                if attempt != self.import_attempt {
+                    return;
+                }
                 self.importing = None;
                 if session != model.session() {
                     return;
@@ -1160,9 +1209,13 @@ impl Files {
             Event::DrawingRead {
                 path,
                 session,
+                attempt,
                 into,
                 drawing,
             } => {
+                if attempt != self.import_attempt {
+                    return;
+                }
                 self.importing = None;
                 if session == model.session() {
                     self.arranging = Some(Arranging::new(path, into, *drawing));
@@ -1171,9 +1224,13 @@ impl Files {
             Event::ImportedModel {
                 path,
                 session,
+                attempt,
                 replacing,
                 result,
             } => {
+                if attempt != self.import_attempt {
+                    return;
+                }
                 self.importing = None;
                 if session != model.session() {
                     return;
@@ -1194,42 +1251,43 @@ impl Files {
     }
 
     fn import(&mut self, path: PathBuf, into: Option<FeatureId>, model: &Model) {
-        self.importing = Some(Importing {
-            path: Some(path.clone()),
-            into,
-            replacing: None,
-        });
         let session = model.session();
+        let reader = Arc::clone(&self.model_reader);
         let failed = path.clone();
-        self.spawn(
-            move || {
+        self.start_import(
+            Importing::reading(path.clone(), into, None),
+            move |attempt, cancel| {
                 if import::is_model(&path) {
                     Event::ImportedModel {
-                        result: import::read_model(&path),
+                        result: reader(&path, &cancel),
                         path,
                         session,
+                        attempt,
                         replacing: None,
                     }
                 } else {
-                    match read_dxf(&path) {
+                    match read_dxf(&path, &cancel) {
                         Ok(drawing) => Event::DrawingRead {
                             path,
                             session,
+                            attempt,
                             into,
                             drawing: Box::new(drawing),
                         },
                         Err(error) => Event::Imported {
                             path,
                             session,
+                            attempt,
                             into,
                             result: Err(error),
                         },
                     }
                 }
             },
-            move || Event::Imported {
+            move |attempt| Event::Imported {
                 path: failed,
                 session,
+                attempt,
                 into,
                 result: Err(ImportError::Crashed),
             },
@@ -1246,23 +1304,22 @@ impl Files {
             )));
             return;
         }
-        self.importing = Some(Importing {
-            path: Some(path.clone()),
-            into: None,
-            replacing: Some(feature),
-        });
         let session = model.session();
+        let reader = Arc::clone(&self.model_reader);
         let failed = path.clone();
-        self.spawn(
-            move || Event::ImportedModel {
-                result: import::read_model(&path),
+        self.start_import(
+            Importing::reading(path.clone(), None, Some(feature)),
+            move |attempt, cancel| Event::ImportedModel {
+                result: reader(&path, &cancel),
                 path,
                 session,
+                attempt,
                 replacing: Some(feature),
             },
-            move || Event::ImportedModel {
+            move |attempt| Event::ImportedModel {
                 path: failed,
                 session,
+                attempt,
                 replacing: Some(feature),
                 result: Err(ImportError::Crashed),
             },
@@ -1277,16 +1334,12 @@ impl Files {
         arrangement: Arrangement,
         model: &Model,
     ) {
-        self.importing = Some(Importing {
-            path: Some(path.clone()),
-            into,
-            replacing: None,
-        });
         let session = model.session();
         let base = model.base();
         let failed = path.clone();
-        self.spawn(
-            move || Event::Imported {
+        self.start_import(
+            Importing::reading(path.clone(), into, None),
+            move |attempt, _| Event::Imported {
                 result: Ok(import::plan_drawing(
                     base,
                     &path,
@@ -1296,15 +1349,69 @@ impl Files {
                 )),
                 path,
                 session,
+                attempt,
                 into,
             },
-            move || Event::Imported {
+            move |attempt| Event::Imported {
                 path: failed,
                 session,
+                attempt,
                 into,
                 result: Err(ImportError::Crashed),
             },
         );
+    }
+
+    fn start_import(
+        &mut self,
+        importing: Importing,
+        task: impl FnOnce(u64, CancelToken) -> Event + Send + 'static,
+        failed: impl FnOnce(u64) -> Event + Send + 'static,
+    ) {
+        self.import_attempt += 1;
+        let attempt = self.import_attempt;
+        let cancel = importing.token();
+        self.importing = Some(importing);
+        let events = self.events.clone();
+        let wake = (self.make_waker)();
+        run_on_own_thread(Box::new(move || {
+            let event = panic::catch_unwind(AssertUnwindSafe(|| task(attempt, cancel)))
+                .unwrap_or_else(|_| {
+                    log::error!("a background import panicked");
+                    failed(attempt)
+                });
+            if events.send(event).is_ok() {
+                wake();
+            }
+        }));
+    }
+
+    fn cancel_import(&mut self, model: &mut Model) {
+        let running = self.importing.take_if(|importing| importing.path.is_some());
+        let Some(importing) = running else {
+            return;
+        };
+        importing.stopped.store(true, Ordering::Relaxed);
+        self.import_attempt += 1;
+        let skipped = std::mem::take(&mut self.queued_imports).len();
+        let name = display_name(importing.path.as_deref());
+        model.set_notice(Notice::info(match skipped {
+            0 => format!("Stopped importing “{name}”. Nothing was added."),
+            1 => format!(
+                "Stopped importing “{name}” and left out the 1 dropped file still waiting. \
+                 Nothing was added."
+            ),
+            more => format!(
+                "Stopped importing “{name}” and left out the {more} dropped files still \
+                 waiting. Nothing was added."
+            ),
+        }));
+    }
+
+    fn abandon_open(&mut self) {
+        if self.opening.take().is_some() {
+            self.open_attempt += 1;
+        }
     }
 
     fn check_output(&mut self, output: Output) {
@@ -1499,6 +1606,15 @@ impl Files {
     }
 
     fn request(&mut self, intent: Intent, model: &mut Model) {
+        if matches!(intent, Intent::Quit)
+            && let Some(path) = self.opening.clone()
+        {
+            self.abandon_open();
+            model.set_notice(Notice::info(format!(
+                "Stopped opening “{}” because the window is closing.",
+                display_name(Some(&path))
+            )));
+        }
         if model.is_dirty() {
             self.guard = Some(intent);
         } else {
@@ -1922,6 +2038,31 @@ fn spawn_worker() -> Option<Sender<Job>> {
     }
 }
 
+fn run_on_own_thread(job: Job) {
+    run_where_possible(job, |work| {
+        thread::Builder::new()
+            .name("import".to_owned())
+            .spawn(work)
+            .map(drop)
+    });
+}
+
+fn run_where_possible(job: Job, spawn: impl FnOnce(Job) -> io::Result<()>) {
+    let slot = Arc::new(Mutex::new(Some(job)));
+    let worker_slot = Arc::clone(&slot);
+    let work: Job = Box::new(move || {
+        if let Some(job) = worker_slot.lock().take() {
+            run_contained(job);
+        }
+    });
+    if let Err(error) = spawn(work) {
+        log::error!("could not start a thread, so the import runs on the UI thread: {error}");
+        if let Some(job) = slot.lock().take() {
+            run_contained(job);
+        }
+    }
+}
+
 fn internal_load_error() -> LoadError {
     LoadError::Crashed
 }
@@ -2220,15 +2361,37 @@ pub fn activity(
             actions.push(Action::File(FileCommand::CancelPick));
         }
     }
-    if let Some(Importing {
-        path: Some(path), ..
-    }) = &files.importing
-    {
-        ui.spinner();
-        ui.label(format!("Importing “{}”…", display_name(Some(path))));
-    }
+    import_activity(ui, files, commands, actions);
     export::activity(ui, &files.exporter, commands, actions);
     image_export::activity(ui, &files.image, commands, actions);
+}
+
+fn import_activity(
+    ui: &mut Ui,
+    files: &Files,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let running = files
+        .importing
+        .as_ref()
+        .and_then(|importing| importing.path.as_deref())
+        .ok_or(NOT_IMPORTING);
+    let mut cancel = commands.invoke(Command::CancelImport, &running);
+    if let Ok(path) = running {
+        ui.spinner();
+        ui.label(format!("Importing “{}”…", display_name(Some(path))));
+        cancel |= ui
+            .add(widgets::button("Cancel"))
+            .on_hover_text(commands.with_keys(
+                Command::CancelImport,
+                "Stop reading the file and add nothing to the model",
+            ))
+            .clicked();
+    }
+    if cancel {
+        actions.push(Action::File(FileCommand::CancelImport));
+    }
 }
 
 pub fn is_importable_file(path: &Path) -> bool {
@@ -2603,4 +2766,50 @@ fn recovery_row(ui: &mut Ui, files: &Files, recovered: &Recovered) -> Option<Fil
             .then_some(FileCommand::AskDiscard(journal))
     })
     .inner
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+
+    use super::*;
+
+    #[test]
+    fn a_job_runs_on_the_calling_thread_when_no_thread_can_be_started() {
+        let ran_on = Arc::new(Mutex::new(None));
+        let recorded = Arc::clone(&ran_on);
+
+        run_where_possible(
+            Box::new(move || *recorded.lock() = Some(thread::current().id())),
+            |_| Err(io::Error::from(io::ErrorKind::WouldBlock)),
+        );
+
+        assert_eq!(*ran_on.lock(), Some(thread::current().id()));
+    }
+
+    #[test]
+    fn a_job_runs_once_on_the_thread_that_took_it() {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&runs);
+        let (done, finished) = mpsc::channel();
+
+        run_where_possible(
+            Box::new(move || {
+                counted.fetch_add(1, Ordering::SeqCst);
+                let _ = done.send(thread::current().id());
+            }),
+            |work| thread::Builder::new().spawn(work).map(drop),
+        );
+
+        let thread = finished.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_ne!(thread, thread::current().id());
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_panicking_job_is_contained() {
+        run_where_possible(Box::new(|| std::panic::panic_any("boom")), |_| {
+            Err(io::Error::from(io::ErrorKind::WouldBlock))
+        });
+    }
 }

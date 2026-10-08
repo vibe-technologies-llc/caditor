@@ -16,7 +16,7 @@ use std::{
 };
 
 use caditor_geometry::Similarity;
-use caditor_kernel::Solid;
+use caditor_kernel::{Solid, check_interrupt};
 
 use crate::{
     part21::{Exchange, SyntaxError, parse},
@@ -142,6 +142,8 @@ pub enum ReadError {
     Damaged(usize),
     #[error("it is larger than the 4 GiB caditor reads")]
     TooLarge,
+    #[error("reading it was stopped")]
+    Cancelled,
     #[error("it holds no solid bodies{0}; caditor imports closed solids only")]
     NoSolids(Held),
     #[error("“{name}” could not be rebuilt, because its entity #{entity} {reason}")]
@@ -248,6 +250,7 @@ fn read_placed<T>(
     text: &str,
     mut place: impl FnMut(&Arc<Solid>, Similarity) -> Option<T>,
 ) -> Result<Read<T>, ReadError> {
+    check_interrupt().map_err(|_| ReadError::Cancelled)?;
     let exchange = parse(text).map_err(|error| match error {
         SyntaxError::NotStep => ReadError::NotStep,
         SyntaxError::Damaged { line } => ReadError::Damaged(line),
@@ -299,6 +302,7 @@ fn read_placed<T>(
     let mut unplaced = Vec::new();
     let mut builder = Builder::new(graph);
     for (index, entity) in solids.iter().enumerate() {
+        check_interrupt().map_err(|_| ReadError::Cancelled)?;
         let representation = structure.representation_of(entity.id);
         let units = representation
             .map(|representation| structure.units_of(&graph, representation))

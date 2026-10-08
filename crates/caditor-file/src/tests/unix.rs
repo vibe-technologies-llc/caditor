@@ -1,5 +1,7 @@
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
+use caditor_document::CancelToken;
+
 use super::*;
 
 #[test]
@@ -87,8 +89,8 @@ fn pipes_devices_folders_and_huge_files_are_refused_without_reading_them() {
     assert_eq!(refusal(dir.path()), "it is a folder, not a file");
     assert_eq!(refusal(&huge), "it is larger than the 2 GiB caditor reads");
     assert!(crate::history(&fifo).is_err());
-    assert!(read_step_file(&fifo).is_err());
-    assert!(read_dxf(&fifo).is_err());
+    assert!(read_step_file(&fifo, &CancelToken::never()).is_err());
+    assert!(read_dxf(&fifo, &CancelToken::never()).is_err());
 
     let journal = dir.path().join(".pipe.caditor.journal");
     make_fifo(&journal);

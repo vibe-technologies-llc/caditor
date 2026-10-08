@@ -1,18 +1,18 @@
 use std::{collections::BTreeMap, path::Path, sync::Arc, time::SystemTime};
 
 use caditor_document::{
-    BodyAppearance, BodyPlacement, Document, Edit, FeatureKind, Import, MAX_GROUP_NAME_CHARS,
-    ParameterValues, Rgb, Transaction, group_name,
+    BodyAppearance, BodyPlacement, CancelToken, Document, Edit, FeatureKind, Import,
+    MAX_GROUP_NAME_CHARS, ParameterValues, Rgb, Transaction, group_name,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Similarity, Vector3};
-use caditor_kernel::{LINEAR_RESOLUTION, Solid};
+use caditor_kernel::{LINEAR_RESOLUTION, Solid, check_interrupt, interruptible};
 use caditor_step::{
     Misplacement, ReadError, StepBody, StepCopy, read_step, read_step_copies, write_step,
 };
 
 use crate::{
-    import::ImportError,
+    import::{ImportError, ensure_going},
     read::{MAX_FILE_SIZE, read_file},
     reason::ReadFailure,
 };
@@ -51,17 +51,19 @@ pub struct ModelImport {
     pub notes: Vec<String>,
 }
 
-pub fn read_step_file(path: &Path) -> Result<ModelImport, ImportError> {
+pub fn read_step_file(path: &Path, cancel: &CancelToken) -> Result<ModelImport, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
+    ensure_going(cancel)?;
     let bytes = if bytes.starts_with(&GZIP_MAGIC) {
         unpacked(&bytes)?
     } else {
         bytes
     };
+    ensure_going(cancel)?;
     let source = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-    match String::from_utf8(bytes) {
+    let imported = interruptible(cancel.interrupt(), || match String::from_utf8(bytes) {
         Ok(text) => parse_step(&text, &source),
         Err(error) => {
             let text: String = error
@@ -73,7 +75,9 @@ pub fn read_step_file(path: &Path) -> Result<ModelImport, ImportError> {
             import.notes.push(LATIN_1_NOTE.to_owned());
             Ok(import)
         }
-    }
+    });
+    ensure_going(cancel)?;
+    imported
 }
 
 fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
@@ -136,6 +140,7 @@ fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
 pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> {
     let model = read_step_copies(text).map_err(|error| match error {
         ReadError::NotStep => ImportError::NotStep,
+        ReadError::Cancelled => ImportError::Cancelled,
         other => ImportError::Step(other),
     })?;
     let mut imported = ModelImport {
@@ -146,6 +151,7 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
     let mut unplaceable: Vec<String> = Vec::new();
     let mut stored: BTreeMap<*const Solid, Stored> = BTreeMap::new();
     for copy in model.copies {
+        check_interrupt().map_err(|_| ImportError::Cancelled)?;
         let lumps = stored
             .entry(Arc::as_ptr(&copy.solid))
             .or_insert_with(|| shared(canonical(&copy.name, &copy.solid)))
