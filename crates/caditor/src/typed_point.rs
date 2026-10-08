@@ -13,6 +13,7 @@ use crate::{
     field::{self, Expected},
     icons,
     model::Model,
+    sketch_drag::Transform,
     widgets,
 };
 
@@ -413,6 +414,46 @@ fn offset(model: &Model, text: &str, from: From) -> Result<(Vector2, Vec<TypedVa
         }
         _ => Err(FORMS.to_owned()),
     }
+}
+
+pub struct TransformField {
+    pub label: &'static str,
+    pub hint: &'static str,
+    pub placeholder: &'static str,
+}
+
+pub const ROTATE_FIELD: TransformField = TransformField {
+    label: "Rotate by",
+    hint: "Degrees unless a unit is named, counter-clockwise   Enter: rotate   Esc: cancel",
+    placeholder: "angle",
+};
+pub const SCALE_FIELD: TransformField = TransformField {
+    label: "Scale by",
+    hint: "A factor above zero, such as 2 or 0.5   Enter: scale   Esc: cancel",
+    placeholder: "factor",
+};
+const FACTOR: Expected = Expected {
+    dimension: Some(Dimension::NONE),
+    non_negative: false,
+};
+
+pub fn transform_field(transform: Transform) -> TransformField {
+    match transform {
+        Transform::Rotate => ROTATE_FIELD,
+        Transform::Scale => SCALE_FIELD,
+    }
+}
+
+pub fn parse_transform(model: &Model, text: &str, transform: Transform) -> Result<f64, String> {
+    let part = match transform {
+        Transform::Rotate => DIRECTION,
+        Transform::Scale => Part {
+            label: "factor",
+            noun: "factor",
+            expected: FACTOR,
+        },
+    };
+    typed_value(model, text, part, Measured::Angle).map(|typed| typed.value)
 }
 
 pub fn parse(model: &Model, text: &str, from: From) -> Result<Point2, String> {

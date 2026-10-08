@@ -111,6 +111,8 @@ pub fn command(command: Command) -> &'static str {
         Command::FewerSides => SUBTRACT,
         Command::ToggleConstraintActive => phosphor::PROHIBIT,
         Command::SplitCurve => phosphor::GIT_COMMIT,
+        Command::RotateGeometry => phosphor::ARROW_ARC_LEFT,
+        Command::ScaleGeometry => phosphor::RESIZE,
         Command::Construction => CONSTRUCTION,
         Command::MoveGeometry => phosphor::ARROWS_OUT_CARDINAL,
         Command::SelectAll => phosphor::SELECTION_ALL,

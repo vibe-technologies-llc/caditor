@@ -13264,6 +13264,73 @@ fn selected_geometry_moves_by_a_typed_offset_from_the_keyboard() {
 }
 
 #[test]
+fn selected_geometry_rotates_about_a_selected_point_and_scales_about_its_centre_from_the_palette() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    let circle = sketch.add_circle(Point2::new(40.0, 0.0), 5.0);
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.select([
+        Pickable::SketchEntity {
+            feature,
+            entity: line,
+        },
+        Pickable::SketchEntity {
+            feature,
+            entity: EntityId::ORIGIN,
+        },
+    ]);
+    run_from_palette(&mut harness, "rotate selected sketch");
+    let opened = harness.shows(typed_point::ROTATE_FIELD.label);
+    harness.type_text("90");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.wait_until("the rotation is committed", |harness| {
+        harness.sketch(feature).point(start) != Some(Point2::new(10.0, 0.0))
+    });
+    let rotated = harness.sketch(feature).clone();
+    let rotate_label = harness.model.undo_label().map(str::to_owned);
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: circle,
+    }]);
+    run_from_palette(&mut harness, "scale selected sketch");
+    harness.type_text("0");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    let refused = harness.shows("The factor must be a number above zero");
+    harness.key(Key::A, Modifiers::COMMAND);
+    harness.type_text("2");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.wait_until("the scale is committed", |harness| {
+        harness
+            .sketch(feature)
+            .circle(circle)
+            .map(|(_, radius)| radius)
+            != Some(5.0)
+    });
+
+    assert!(opened);
+    assert!(
+        rotated
+            .point(start)
+            .unwrap()
+            .distance(Point2::new(0.0, 10.0))
+            < DRAWN
+    );
+    assert!(rotated.point(end).unwrap().distance(Point2::new(0.0, 20.0)) < DRAWN);
+    assert_eq!(
+        rotate_label.as_deref(),
+        Some(format!("Rotate {}", rotated.entity_label(line)).as_str())
+    );
+    assert!(refused);
+    let (centre, radius) = harness.sketch(feature).circle(circle).unwrap();
+    assert!(centre.distance(Point2::new(40.0, 0.0)) < DRAWN);
+    assert!((radius - 10.0).abs() < DRAWN);
+}
+
+#[test]
 fn escape_during_a_drag_puts_the_geometry_back_and_changes_nothing() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

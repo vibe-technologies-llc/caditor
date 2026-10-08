@@ -593,6 +593,8 @@ impl Menus<'_, '_> {
                 [
                     Command::SplitCurve,
                     Command::MoveGeometry,
+                    Command::RotateGeometry,
+                    Command::ScaleGeometry,
                     Command::SelectAll,
                 ],
             );

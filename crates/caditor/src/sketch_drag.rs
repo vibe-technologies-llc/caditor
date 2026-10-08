@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Drag, Entity, EntityId, Faceting, Sketch};
+use caditor_sketch::{Drag, Entity, EntityId, Faceting, MAX_LENGTH, Sketch};
 
 use crate::{
     drag_solver::{DragCommand, Join},
@@ -261,6 +261,204 @@ impl Moving {
             DragCommand::Finish { join: None },
         ]
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transform {
+    Rotate,
+    Scale,
+}
+
+impl Transform {
+    pub fn verb(self) -> &'static str {
+        match self {
+            Self::Rotate => "Rotate",
+            Self::Scale => "Scale",
+        }
+    }
+
+    fn nothing_selected(self) -> String {
+        format!(
+            "Select sketch geometry to {} it",
+            self.verb().to_lowercase()
+        )
+    }
+
+    fn needs_pivot(self) -> String {
+        format!(
+            "{} a lone point by selecting the point to {} it about with it",
+            self.verb(),
+            match self {
+                Self::Rotate => "turn",
+                Self::Scale => "scale",
+            }
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Transforming {
+    pub feature: FeatureId,
+    pub transform: Transform,
+    pub label: String,
+    pub pivot: Point2,
+    points: Vec<(EntityId, Point2)>,
+    circles: Vec<(EntityId, f64)>,
+}
+
+impl Transforming {
+    pub fn offered(
+        sketch: &Sketch,
+        feature: FeatureId,
+        selected: &[EntityId],
+        drawing: bool,
+        transform: Transform,
+    ) -> Result<Self, String> {
+        if drawing {
+            Err(format!(
+                "Switch to the Select tool to {} geometry",
+                transform.verb().to_lowercase()
+            ))
+        } else {
+            Self::of(sketch, feature, selected, transform)
+        }
+    }
+
+    pub fn of(
+        sketch: &Sketch,
+        feature: FeatureId,
+        selected: &[EntityId],
+        transform: Transform,
+    ) -> Result<Self, String> {
+        let present: Vec<EntityId> = selected
+            .iter()
+            .copied()
+            .filter(|entity| sketch.entity(*entity).is_some() || *entity == EntityId::ORIGIN)
+            .collect();
+        let curve_points: BTreeSet<EntityId> = present
+            .iter()
+            .filter_map(|entity| sketch.entity(*entity))
+            .flat_map(Entity::points)
+            .collect();
+        let lone_points: Vec<EntityId> = present
+            .iter()
+            .copied()
+            .filter(|entity| {
+                (*entity == EntityId::ORIGIN
+                    || matches!(sketch.entity(*entity), Some(Entity::Point(_))))
+                    && !curve_points.contains(entity)
+            })
+            .collect();
+        let pivot_point = match lone_points.as_slice() {
+            [only] if present.len() > 1 => Some(*only),
+            _ => None,
+        };
+        let moved: Vec<EntityId> = present
+            .iter()
+            .copied()
+            .filter(|entity| !entity.is_reference() && Some(*entity) != pivot_point)
+            .collect();
+        let points = points_of(sketch, &moved);
+        if points.is_empty() {
+            return Err(transform.nothing_selected());
+        }
+        let circles: Vec<(EntityId, f64)> = moved
+            .iter()
+            .filter_map(|entity| match sketch.entity(*entity) {
+                Some(Entity::Circle { radius, .. }) => Some((*entity, *radius)),
+                _ => None,
+            })
+            .collect();
+        let pivot = match pivot_point.and_then(|point| sketch.point(point)) {
+            Some(pivot) => pivot,
+            None if points.len() == 1 && circles.is_empty() => {
+                return Err(transform.needs_pivot());
+            }
+            None => extent_centre(sketch, &points, &circles),
+        };
+        Ok(Self {
+            feature,
+            transform,
+            label: format!("{} {}", transform.verb(), subject(sketch, &moved)),
+            pivot,
+            points,
+            circles,
+        })
+    }
+
+    pub fn rotated(&self, degrees: f64) -> Result<Vec<DragCommand>, String> {
+        let turn = Vector2::from_angle(degrees.to_radians());
+        let drags = self
+            .points
+            .iter()
+            .map(|(point, at)| Drag::Point {
+                point: *point,
+                to: self.pivot + turn.rotate(*at - self.pivot),
+            })
+            .collect();
+        self.commands(drags)
+    }
+
+    pub fn scaled(&self, factor: f64) -> Result<Vec<DragCommand>, String> {
+        if !(factor.is_finite() && factor > 0.0) {
+            return Err("The factor must be a number above zero".to_owned());
+        }
+        let points = self.points.iter().map(|(point, at)| Drag::Point {
+            point: *point,
+            to: self.pivot + (*at - self.pivot) * factor,
+        });
+        let radii = self.circles.iter().map(|(circle, radius)| Drag::Radius {
+            circle: *circle,
+            to: radius * factor,
+        });
+        self.commands(points.chain(radii).collect())
+    }
+
+    fn commands(&self, drags: Vec<Drag>) -> Result<Vec<DragCommand>, String> {
+        let beyond = drags.iter().any(|drag| match drag {
+            Drag::Point { to, .. } => to.abs().max_element() > MAX_LENGTH,
+            Drag::Radius { to, .. } => *to > MAX_LENGTH,
+        });
+        if beyond {
+            return Err(format!(
+                "Keep the geometry within {} m of the sketch's origin",
+                MAX_LENGTH / 1_000.0
+            ));
+        }
+        Ok(vec![
+            DragCommand::Move {
+                feature: self.feature,
+                label: self.label.clone(),
+                drags,
+            },
+            DragCommand::Finish { join: None },
+        ])
+    }
+}
+
+fn extent_centre(
+    sketch: &Sketch,
+    points: &[(EntityId, Point2)],
+    circles: &[(EntityId, f64)],
+) -> Point2 {
+    let rims = circles.iter().filter_map(|(circle, radius)| {
+        let centre = match sketch.entity(*circle) {
+            Some(Entity::Circle { center, .. }) => sketch.point(*center)?,
+            _ => return None,
+        };
+        Some([
+            centre - Vector2::splat(*radius),
+            centre + Vector2::splat(*radius),
+        ])
+    });
+    let (low, high) = points.iter().map(|(_, at)| [*at, *at]).chain(rims).fold(
+        (
+            Point2::splat(f64::INFINITY),
+            Point2::splat(f64::NEG_INFINITY),
+        ),
+        |(low, high), [from, to]| (low.min(from), high.max(to)),
+    );
+    (low + high) * 0.5
 }
 
 fn subject(sketch: &Sketch, entities: &[EntityId]) -> String {
@@ -690,6 +888,50 @@ mod tests {
         let all = everything(&sketch);
         assert_eq!(all, vec![inside, across, lone, circle]);
         assert!(!all.contains(&across_end));
+    }
+
+    #[test]
+    fn a_selection_turns_about_a_lone_selected_point_or_else_about_its_centre() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(2.0, 0.0), Point2::new(6.0, 0.0));
+        let (start, end) = ends(&sketch, line);
+        let pivot = sketch.add_point(Point2::new(0.0, 0.0));
+        let circle = sketch.add_circle(Point2::new(10.0, 0.0), 2.0);
+        let feature = feature();
+
+        let about_point =
+            Transforming::of(&sketch, feature, &[line, pivot], Transform::Rotate).unwrap();
+        let about_centre =
+            Transforming::of(&sketch, feature, &[line, circle], Transform::Scale).unwrap();
+        let commands = about_point.rotated(90.0).unwrap();
+        let scaled = about_centre.scaled(0.5).unwrap();
+
+        assert_eq!(about_point.pivot, Point2::ZERO);
+        assert_eq!(about_centre.pivot, Point2::new(7.0, 0.0));
+        let Some(DragCommand::Move { drags, .. }) = commands.first() else {
+            panic!("a rotation moves the points");
+        };
+        let at = |point: EntityId| {
+            drags.iter().find_map(|drag| match drag {
+                Drag::Point { point: dragged, to } if *dragged == point => Some(*to),
+                _ => None,
+            })
+        };
+        assert!(at(start).unwrap().distance(Point2::new(0.0, 2.0)) < 1e-12);
+        assert!(at(end).unwrap().distance(Point2::new(0.0, 6.0)) < 1e-12);
+        assert!(at(pivot).is_none());
+        let Some(DragCommand::Move { drags, .. }) = scaled.first() else {
+            panic!("a scale moves the points");
+        };
+        assert!(drags.contains(&Drag::Radius { circle, to: 1.0 }));
+        assert!(drags.contains(&Drag::Point {
+            point: start,
+            to: Point2::new(4.5, 0.0)
+        }));
+        assert!(about_centre.scaled(0.0).is_err());
+        assert!(about_centre.scaled(f64::NAN).is_err());
+        assert!(Transforming::of(&sketch, feature, &[pivot], Transform::Rotate).is_err());
+        assert!(Transforming::of(&sketch, feature, &[EntityId::ORIGIN], Transform::Scale).is_err());
     }
 
     #[test]

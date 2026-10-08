@@ -42,7 +42,7 @@ use crate::{
     selection::{Pickable, Selection, SelectionFilter},
     shape_modes::ShapeMode,
     shell_tools,
-    sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea},
+    sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
     sketch_placement::{self, FaceChoice},
     sketch_toolbar, sketch_tools,
     snap::{Pointer, Screen},
@@ -236,6 +236,7 @@ pub struct ViewportState {
     keyboard_highlight: Option<Pickable>,
     typed_point: TypedPoint,
     moving: Option<Moving>,
+    transforming: Option<Transforming>,
     press: Option<Press>,
     draw_press: Option<Vector2>,
     placing_freely: bool,
@@ -353,6 +354,7 @@ impl ViewportState {
             keyboard_highlight: None,
             typed_point: TypedPoint::default(),
             moving: None,
+            transforming: None,
             press: None,
             draw_press: None,
             placing_freely: false,
@@ -489,6 +491,7 @@ impl ViewportState {
         self.annotations = Annotations::default();
         self.typed_point = TypedPoint::default();
         self.moving = None;
+        self.transforming = None;
         self.clipboard = None;
         self.press = None;
         self.primary = None;
@@ -2103,7 +2106,22 @@ impl ViewportState {
             && let Ok(moving) = moving
         {
             self.moving = Some(moving);
+            self.transforming = None;
             self.typed_point.open();
+        }
+        for (command, transform) in [
+            (Command::RotateGeometry, Transform::Rotate),
+            (Command::ScaleGeometry, Transform::Scale),
+        ] {
+            let transforming =
+                Transforming::offered(&sketch, feature, &selected, drawing, transform);
+            if commands.invoke(command, &transforming)
+                && let Ok(transforming) = transforming
+            {
+                self.transforming = Some(transforming);
+                self.moving = None;
+                self.typed_point.open();
+            }
         }
         let everything = sketch_drag::select_all(&sketch);
         if commands.invoke(Command::SelectAll, &everything)
@@ -2287,6 +2305,14 @@ impl ViewportState {
             self.type_move(ui, rect, model, actions);
             return;
         }
+        self.transforming = self
+            .transforming
+            .take()
+            .filter(|transforming| editing.feature() == Some(transforming.feature));
+        if self.transforming.is_some() {
+            self.type_transform(ui, rect, model, actions);
+            return;
+        }
         if self.modifying.value_field().is_some() {
             self.type_value(ui, rect, model, editing, keys_free, actions);
             return;
@@ -2441,6 +2467,55 @@ impl ViewportState {
             Err(error) => {
                 self.typed_point.open_with(typed.text, error);
                 self.moving = Some(moving);
+            }
+        }
+    }
+
+    fn type_transform(
+        &mut self,
+        ui: &egui::Ui,
+        rect: Rect,
+        model: &Model,
+        actions: &mut Vec<Action>,
+    ) {
+        let Some(transform) = self
+            .transforming
+            .as_ref()
+            .map(|transforming| transforming.transform)
+        else {
+            return;
+        };
+        let field = typed_point::transform_field(transform);
+        let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
+        let typed = self.typed_point.show(
+            ui.ctx(),
+            top_band(rect),
+            anchor,
+            field.label,
+            field.hint,
+            field.placeholder,
+        );
+        let Some(transforming) = self.transforming.take() else {
+            return;
+        };
+        let Some(typed) = typed else {
+            if self.typed_point.is_open() {
+                self.transforming = Some(transforming);
+            }
+            return;
+        };
+        let commands =
+            typed_point::parse_transform(model, &typed.text, transform).and_then(|amount| {
+                match transform {
+                    Transform::Rotate => transforming.rotated(amount),
+                    Transform::Scale => transforming.scaled(amount),
+                }
+            });
+        match commands {
+            Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
+            Err(error) => {
+                self.typed_point.open_with(typed.text, error);
+                self.transforming = Some(transforming);
             }
         }
     }
