@@ -19,6 +19,7 @@ use crate::{
     datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
+    history::ResultHistory,
     hole, import, mirror, movement, pattern,
     presenting::{Glimpse, Presentation, SettledBody},
     projection, removal, scaling, shell,
@@ -495,14 +496,14 @@ impl Names {
 }
 
 #[derive(Debug, Clone)]
-struct CacheEntry {
+pub(crate) struct CacheEntry {
     definition: Arc<Feature>,
     parameters: ParameterFingerprint,
     names: Names,
     upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)>,
     suppressed_upstream: BTreeSet<FeatureId>,
     state: FeatureState,
-    result: Option<Arc<FeatureResult>>,
+    pub(crate) result: Option<Arc<FeatureResult>>,
     healing: Option<Arc<Healing>>,
     retry: bool,
 }
@@ -563,7 +564,7 @@ const MAX_UNSWEPT_REGION_ENTITIES: usize = 2_000;
 
 #[derive(Debug, Clone)]
 pub struct Recompute {
-    cache: BTreeMap<FeatureId, CacheEntry>,
+    cache: ResultHistory,
     mesh_quality: MeshQuality,
     features_done_after: Duration,
 }
@@ -582,10 +583,21 @@ struct Reports<'a> {
 impl Recompute {
     pub fn with_mesh_quality(mesh_quality: MeshQuality) -> Self {
         Self {
-            cache: BTreeMap::new(),
+            cache: ResultHistory::default(),
             mesh_quality,
             features_done_after: FEATURES_DONE_AFTER,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn keeping_earlier_results_within(mut self, budget: usize) -> Self {
+        self.cache = ResultHistory::with_budget(budget);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn results_kept(&self, feature: FeatureId) -> usize {
+        self.cache.kept(feature)
     }
 
     #[cfg(test)]
@@ -613,7 +625,7 @@ impl Recompute {
     }
 
     pub fn retry_failures(&mut self) {
-        for entry in self.cache.values_mut() {
+        for entry in self.cache.entries_mut() {
             if matches!(entry.state, FeatureState::Failed(_)) {
                 entry.retry = true;
             }
@@ -702,7 +714,7 @@ impl Recompute {
         }
 
         let alive: BTreeSet<FeatureId> = document.features().map(Feature::id).collect();
-        self.cache.retain(|id, _| alive.contains(id));
+        self.cache.retain(|id| alive.contains(id));
         evaluation
     }
 
@@ -775,19 +787,16 @@ impl Recompute {
                 .map(|(used, _)| *used)
                 .filter(|used| suppressed.contains(used))
                 .collect();
-            let previous = self.cache.get(&id);
-
-            let reusable = previous
-                .filter(|entry| {
-                    entry.matches(
-                        feature,
-                        &parameter_fingerprint,
-                        &names,
-                        &upstream,
-                        &suppressed_upstream,
-                    )
-                })
-                .cloned();
+            let reusable = self.cache.reuse(id, |entry| {
+                entry.matches(
+                    feature,
+                    &parameter_fingerprint,
+                    &names,
+                    &upstream,
+                    &suppressed_upstream,
+                )
+            });
+            let previous = self.cache.latest(id);
             let entry = if let Some(entry) = reusable {
                 entry
             } else if cancelled || cancel.is_cancelled() {
@@ -893,7 +902,7 @@ impl Recompute {
                 continue;
             }
             pending.insert(id);
-            let Some(entry) = self.cache.get(&id) else {
+            let Some(entry) = self.cache.latest(id) else {
                 continue;
             };
             if let (FeatureState::UpToDate, Some(result)) = (&entry.state, &entry.result) {

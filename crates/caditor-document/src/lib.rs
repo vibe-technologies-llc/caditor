@@ -10,6 +10,7 @@ mod edit;
 mod editor;
 mod grouping;
 mod healing;
+mod history;
 mod hole;
 mod hole_standard;
 mod import;
@@ -117,6 +118,8 @@ mod datum_tests;
 mod extent_tests;
 #[cfg(test)]
 mod grouping_tests;
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod hole_tests;
 #[cfg(test)]

@@ -17,6 +17,12 @@ paths:
   parameters it uses and its upstream results are unchanged. Upstream results count as unchanged
   when they are the same `Arc` or equal in what dependents read (a sketch's plane and entities, a
   datum's result, a solid's body and geometry), so an edit that leaves geometry alone stops there.
+- The cache keeps a short history per feature (`history.rs`, `ResultHistory`): up to
+  `RESULTS_KEPT_PER_FEATURE` entries, the one last used first, so undoing a change or switching a
+  value back finds the earlier entry and its result `Arc`, and everything below reuses its own
+  earlier entries in turn. Earlier entries (all but the latest of each feature) are held within
+  `EARLIER_RESULTS_BUDGET`, estimated from `Solid::approximate_size` with room for its mesh; the
+  least recently used go first, and the latest entry of a feature is never dropped for size.
 - A failed result is also recomputed when a name its message could hold changed (its own, those of
   the parameters and features it uses, those of every feature before it, which name the faces it
   works on); which used features are suppressed is part of its key too.

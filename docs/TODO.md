@@ -86,9 +86,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Document and recompute
 
-- [medium · hard] The cache keeps one result per feature, so changing a depth and undoing recomputes
-  everything after it; it also has no byte budget, holding every intermediate `Solid`. Keep a small,
-  size-bounded history per feature.
 - [medium · hard] Recompute evaluates features on one thread: independent bodies could run in
   parallel over the dependency data the document already has. A body is meshed beside the feature
   loop once no later feature changes it, but one at a time, and those settling only at the last
