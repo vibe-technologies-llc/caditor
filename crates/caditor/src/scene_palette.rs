@@ -108,6 +108,7 @@ pub struct Bands {
     pub drafted: Color,
     pub too_little_draft: Color,
     pub undercut: Color,
+    pub too_tight: Color,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -271,6 +272,7 @@ pub const STANDARD: ScenePalette = ScenePalette {
         drafted: Color::from_rgb8(72, 168, 96),
         too_little_draft: Color::from_rgb8(236, 190, 52),
         undercut: Color::from_rgb8(214, 68, 62),
+        too_tight: Color::from_rgb8(226, 72, 150),
     },
     datum_edge: Color::from_rgba8(236, 178, 92, 220),
     datum_fill: Color::from_rgba8(236, 178, 92, 26),
@@ -360,6 +362,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
         drafted: Color::from_rgb8(96, 214, 128),
         too_little_draft: Color::from_rgb8(255, 224, 70),
         undercut: Color::from_rgb8(255, 96, 88),
+        too_tight: Color::from_rgb8(255, 110, 190),
     },
     datum_edge: Color::from_rgb8(245, 190, 100),
     datum_fill: Color::from_rgba8(245, 190, 100, 34),
@@ -522,6 +525,7 @@ mod tests {
                 ("drafted", bands.drafted),
                 ("too little draft", bands.too_little_draft),
                 ("undercut", bands.undercut),
+                ("too tight", bands.too_tight),
             ];
             for (what, color) in all {
                 assert_visible(what, color, canvas());

@@ -25,20 +25,25 @@ pub const INLINE_TRIANGLES: usize = 40_000;
 pub const MAX_DRAFT_LIMIT: f64 = 90.0;
 const MOST_CONSIDERED: usize = 16;
 const DEFAULT_DRAFT_LIMIT: f64 = 3.0;
+const DEFAULT_RADIUS_LIMIT: f64 = 2.0;
+const SMALLEST_CHORD_SQUARED: f64 = 1e-12;
+const RADIUS_SLACK: f64 = 1e-3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AnalysisCommand {
     Draft,
+    Radius,
     UseSelected,
     Reverse,
 }
 
-all_variants!(AnalysisCommand: Draft, UseSelected, Reverse);
+all_variants!(AnalysisCommand: Draft, Radius, UseSelected, Reverse);
 
 impl AnalysisCommand {
     pub fn id(self) -> &'static str {
         match self {
             Self::Draft => "view.analysis_draft",
+            Self::Radius => "view.analysis_radius",
             Self::UseSelected => "view.analysis_pull_selected",
             Self::Reverse => "view.analysis_pull_reverse",
         }
@@ -47,6 +52,7 @@ impl AnalysisCommand {
     pub fn title(self) -> &'static str {
         match self {
             Self::Draft => "Analyse draft",
+            Self::Radius => "Analyse minimum radius",
             Self::UseSelected => "Pull along the selected axis, edge or face",
             Self::Reverse => "Reverse the pull direction",
         }
@@ -56,6 +62,7 @@ impl AnalysisCommand {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FaceAnalysis {
     Draft { pull: Vector3, limit: f64 },
+    Radius { limit: f64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -63,6 +70,7 @@ pub enum Band {
     Drafted,
     TooLittleDraft,
     Undercut,
+    TooTight,
 }
 
 impl Band {
@@ -71,9 +79,14 @@ impl Band {
     }
 
     pub fn of_class(class: u8) -> Option<Self> {
-        [Self::Drafted, Self::TooLittleDraft, Self::Undercut]
-            .into_iter()
-            .find(|band| band.class() == class)
+        [
+            Self::Drafted,
+            Self::TooLittleDraft,
+            Self::Undercut,
+            Self::TooTight,
+        ]
+        .into_iter()
+        .find(|band| band.class() == class)
     }
 
     pub fn title(self) -> &'static str {
@@ -81,6 +94,7 @@ impl Band {
             Self::Drafted => "Drafted enough",
             Self::TooLittleDraft => "Too little draft",
             Self::Undercut => "Faces away from the pull",
+            Self::TooTight => "Too tight to reach",
         }
     }
 
@@ -95,6 +109,10 @@ impl Band {
                 "These faces turn from the pull and cannot be pulled out this way; reverse the \
                  pull to check the other half of the mould"
             }
+            Self::TooTight => {
+                "These concave faces curve tighter than the radius, so a cutter or nozzle that \
+                 size cannot reach into them"
+            }
         }
     }
 
@@ -103,6 +121,7 @@ impl Band {
             Self::Drafted => palette.bands.drafted,
             Self::TooLittleDraft => palette.bands.too_little_draft,
             Self::Undercut => palette.bands.undercut,
+            Self::TooTight => palette.bands.too_tight,
         }
     }
 }
@@ -111,12 +130,14 @@ impl FaceAnalysis {
     pub fn bands(self) -> &'static [Band] {
         match self {
             Self::Draft { .. } => &[Band::Drafted, Band::TooLittleDraft, Band::Undercut],
+            Self::Radius { .. } => &[Band::TooTight],
         }
     }
 
     fn classify(self, corners: [Corner; 3]) -> u8 {
         match self {
             Self::Draft { pull, limit } => draft_class(pull, limit, corners),
+            Self::Radius { limit } => radius_class(limit, corners),
         }
     }
 }
@@ -138,6 +159,21 @@ fn draft_class(pull: Vector3, limit_degrees: f64, corners: [Corner; 3]) -> u8 {
         Band::TooLittleDraft
     };
     band.class()
+}
+
+fn radius_class(limit: f64, corners: [Corner; 3]) -> u8 {
+    let [a, b, c] = corners;
+    let tight = [(a, b), (b, c), (c, a)].into_iter().any(|(from, to)| {
+        let chord = to.position.as_dvec3() - from.position.as_dvec3();
+        let squared = chord.length_squared();
+        if squared < SMALLEST_CHORD_SQUARED {
+            return false;
+        }
+        let turn = to.normal.as_dvec3() - from.normal.as_dvec3();
+        let curvature = turn.dot(chord) / squared;
+        curvature * limit < -(1.0 + RADIUS_SLACK)
+    });
+    if tight { Band::TooTight.class() } else { 0 }
 }
 
 #[derive(Debug)]
@@ -325,6 +361,13 @@ impl Tally {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Kind {
+    #[default]
+    Draft,
+    Radius,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pull {
     Axis(Axis),
@@ -342,6 +385,8 @@ pub enum Problem {
     LimitUnreadable,
     #[error("Enter a draft limit from 0° to 90°")]
     DraftLimitOutOfRange,
+    #[error("Enter a radius above zero")]
+    RadiusNotAboveZero,
 }
 
 pub fn check_draft_limit(degrees: f64) -> Result<(), Problem> {
@@ -349,6 +394,14 @@ pub fn check_draft_limit(degrees: f64) -> Result<(), Problem> {
         Ok(())
     } else {
         Err(Problem::DraftLimitOutOfRange)
+    }
+}
+
+pub fn check_radius_limit(millimetres: f64) -> Result<(), Problem> {
+    if millimetres > 0.0 {
+        Ok(())
+    } else {
+        Err(Problem::RadiusNotAboveZero)
     }
 }
 
@@ -364,25 +417,34 @@ pub enum Refusal {
 
 pub struct AnalysisTool {
     pub open: bool,
+    pub kind: Kind,
     pub pull: Pull,
     pub reversed: bool,
     pub draft_limit: Expression,
+    pub radius_limit: Expression,
 }
 
 impl Default for AnalysisTool {
     fn default() -> Self {
         Self {
             open: false,
+            kind: Kind::Draft,
             pull: Pull::Axis(Axis::Z),
             reversed: false,
             draft_limit: Expression::measure(DEFAULT_DRAFT_LIMIT, Unit::Degree),
+            radius_limit: Expression::measure(DEFAULT_RADIUS_LIMIT, Unit::Millimetre),
         }
     }
 }
 
 impl AnalysisTool {
-    pub fn toggle(&mut self) {
-        self.open = !self.open;
+    pub fn toggle(&mut self, kind: Kind) {
+        if self.open && self.kind == kind {
+            self.open = false;
+        } else {
+            self.open = true;
+            self.kind = kind;
+        }
     }
 
     pub fn pull_from(model: &Model, selection: &Selection) -> Result<Pull, Refusal> {
@@ -413,13 +475,22 @@ impl AnalysisTool {
     }
 
     pub fn analysis(&self, model: &Model) -> Result<FaceAnalysis, Problem> {
-        let limit = self.limit(model, &self.draft_limit, Dimension::ANGLE)?;
-        check_draft_limit(limit)?;
-        let pull = self.direction(model)?;
-        Ok(FaceAnalysis::Draft {
-            pull: if self.reversed { -pull } else { pull },
-            limit,
-        })
+        match self.kind {
+            Kind::Draft => {
+                let limit = self.limit(model, &self.draft_limit, Dimension::ANGLE)?;
+                check_draft_limit(limit)?;
+                let pull = self.direction(model)?;
+                Ok(FaceAnalysis::Draft {
+                    pull: if self.reversed { -pull } else { pull },
+                    limit,
+                })
+            }
+            Kind::Radius => {
+                let limit = self.limit(model, &self.radius_limit, Dimension::LENGTH)?;
+                check_radius_limit(limit)?;
+                Ok(FaceAnalysis::Radius { limit })
+            }
+        }
     }
 
     fn limit(
@@ -536,10 +607,36 @@ mod tests {
         );
     }
 
+    fn arc(radius: f64, outward: bool) -> [Corner; 3] {
+        let at = |degrees: f64| {
+            let angle = degrees.to_radians();
+            let out = Vector3::new(angle.cos(), angle.sin(), 0.0);
+            let normal = if outward { out } else { -out };
+            corner(radius * out.x, radius * out.y, 0.0, normal)
+        };
+        [at(0.0), at(5.0), at(10.0)]
+    }
+
+    #[test]
+    fn only_a_concave_face_tighter_than_the_radius_is_too_tight() {
+        let limit = |limit: f64| FaceAnalysis::Radius { limit };
+
+        assert_eq!(limit(5.0).classify(arc(4.0, false)), Band::TooTight.class());
+        assert_eq!(limit(3.0).classify(arc(4.0, false)), 0);
+        assert_eq!(limit(4.0).classify(arc(4.0, false)), 0);
+        assert_eq!(limit(5.0).classify(arc(4.0, true)), 0);
+        assert_eq!(limit(5.0).classify(flat(Vector3::Z)), 0);
+    }
+
     #[test]
     fn classes_round_trip_through_their_bands_and_zero_is_no_band() {
         assert_eq!(Band::of_class(0), None);
-        for band in [Band::Drafted, Band::TooLittleDraft, Band::Undercut] {
+        for band in [
+            Band::Drafted,
+            Band::TooLittleDraft,
+            Band::Undercut,
+            Band::TooTight,
+        ] {
             assert_eq!(Band::of_class(band.class()), Some(band));
         }
     }
@@ -561,6 +658,19 @@ mod tests {
 
     fn area_of(tally: &Tally, band: Band) -> f64 {
         tally.areas.get(&band).copied().unwrap_or(f64::NAN)
+    }
+
+    #[test]
+    fn the_walls_of_the_plates_holes_are_too_tight_for_a_wider_cutter_only() {
+        let meshes = plate();
+        let analyses = Analyses::default();
+        let walls = 2.0 * std::f64::consts::TAU * 4.0 * 6.0;
+
+        let wide = Tally::of(&analyses, &meshes, FaceAnalysis::Radius { limit: 5.0 });
+        let narrow = Tally::of(&analyses, &meshes, FaceAnalysis::Radius { limit: 3.0 });
+
+        assert!((area_of(&wide, Band::TooTight) - walls).abs() / walls < 0.03);
+        assert_eq!(area_of(&narrow, Band::TooTight), 0.0);
     }
 
     #[test]
@@ -591,10 +701,7 @@ mod tests {
         let woken = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&woken);
         analyses.wake_with(|| Box::new(move || flag.store(true, Ordering::Release)));
-        let analysis = FaceAnalysis::Draft {
-            pull: Vector3::Z,
-            limit: 3.0,
-        };
+        let analysis = FaceAnalysis::Radius { limit: 5.0 };
         let mesh = meshes.first().unwrap();
 
         let first = analyses.of(mesh, analysis);

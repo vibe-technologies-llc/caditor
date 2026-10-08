@@ -3,7 +3,7 @@ use caditor_render::Color;
 use egui::{Color32, Id, Label, ScrollArea, Sense, TextWrapMode, Ui, vec2};
 
 use crate::{
-    analysis::{self, Analyses, AnalysisTool, FaceAnalysis, Problem, Pull, Tally},
+    analysis::{self, Analyses, AnalysisTool, FaceAnalysis, Kind, Problem, Pull, Tally},
     appearance::{SPACE_M, SPACE_S},
     bodies::BodyMeshes,
     display_style::DisplayStyle,
@@ -26,6 +26,9 @@ pub const HIDDEN_STYLE: &str = "This display style does not colour faces. Choose
 pub const DRAFT_ABOUT: &str = "Faces are coloured by the angle between their surface and the \
                                pull direction, as a mould or a die is pulled away. It never \
                                changes the model.";
+pub const RADIUS_ABOUT: &str = "Concave faces curving tighter than the radius are coloured, \
+                                where a cutter or a nozzle that size cannot reach. Sharp inside \
+                                corners have no radius and are not coloured.";
 const PANEL_WIDTH: f32 = 300.0;
 const MIN_PANEL_WIDTH: f32 = 220.0;
 const SWATCH_SIDE: f32 = 14.0;
@@ -195,17 +198,55 @@ pub fn show(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool,
             });
             ui.add_space(SPACE_S);
             ScrollArea::vertical().show(ui, |ui| {
-                ui.label(widgets::muted(DRAFT_ABOUT, ui));
+                let chosen = match tool.kind {
+                    Kind::Draft => 0,
+                    Kind::Radius => 1,
+                };
+                if let Some(index) = widgets::segmented(
+                    ui,
+                    &[
+                        (
+                            "Draft",
+                            "Colour faces by their draft against a pull direction",
+                        ),
+                        (
+                            "Minimum radius",
+                            "Colour concave faces tighter than a radius",
+                        ),
+                    ],
+                    chosen,
+                ) {
+                    tool.kind = if index == 0 {
+                        Kind::Draft
+                    } else {
+                        Kind::Radius
+                    };
+                }
                 ui.add_space(SPACE_S);
-                widgets::properties(ui, "analysis-properties", |ui| {
-                    pull_rows(ui, context, tool);
-                    limit_row(
+                let about = match tool.kind {
+                    Kind::Draft => DRAFT_ABOUT,
+                    Kind::Radius => RADIUS_ABOUT,
+                };
+                ui.label(widgets::muted(about, ui));
+                ui.add_space(SPACE_S);
+                widgets::properties(ui, "analysis-properties", |ui| match tool.kind {
+                    Kind::Draft => {
+                        pull_rows(ui, context, tool);
+                        limit_row(
+                            ui,
+                            context.model,
+                            ("Draft limit", "draft", Dimension::ANGLE),
+                            &mut tool.draft_limit,
+                            analysis::check_draft_limit,
+                        );
+                    }
+                    Kind::Radius => limit_row(
                         ui,
                         context.model,
-                        ("Draft limit", "draft", Dimension::ANGLE),
-                        &mut tool.draft_limit,
-                        analysis::check_draft_limit,
-                    );
+                        ("Smallest radius", "radius", Dimension::LENGTH),
+                        &mut tool.radius_limit,
+                        analysis::check_radius_limit,
+                    ),
                 });
                 ui.add_space(SPACE_M);
                 if !context.style.shows_faces() || context.style.is_translucent() {

@@ -494,6 +494,7 @@ impl Menus<'_, '_> {
             self.item(ui, Command::Measure);
             self.item(ui, Command::Interference);
             self.item(ui, Command::Analysis(AnalysisCommand::Draft));
+            self.item(ui, Command::Analysis(AnalysisCommand::Radius));
             ui.separator();
             self.items(
                 ui,

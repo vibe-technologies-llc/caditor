@@ -223,8 +223,10 @@ paths:
 
 ## Face analysis
 
-- Analyse draft (`AnalysisCommand::Draft`, View menu, palette) toggles `AnalysisTool` in the
-  `Workspace`; while open, `analysis_panel.rs` draws a right-hand panel beside any other. Like
+- Analyse draft and Analyse minimum radius (`AnalysisCommand::Draft`, `Radius`, View menu, palette)
+  toggle `AnalysisTool` in the `Workspace` (`Kind` is its Draft or Minimum radius switch, which the
+  panel's segmented control changes too); while open, `analysis_panel.rs` draws a right-hand panel
+  beside any other. Like
   centres of mass it is a view aid: `ViewAids::analysis` (a `FaceAnalysis`, worked out each frame
   from the tool by `AnalysisTool::analysis` and handed over with `ViewportState::set_analysis`)
   reaches the scene through `Sources::aids` and `Revisions::aids`. It never changes the document and
@@ -239,6 +241,13 @@ paths:
   again each frame through `measure::direction_of`, so it follows edits) or the X, Y and Z buttons;
   `AnalysisCommand::Reverse` flips it. The limit is an angle expression of named parameters
   (3° at first, 0° to 90°).
+- Minimum radius colours `Band::TooTight` the concave triangles whose surface curves tighter than
+  the Smallest radius (a length expression, 2 mm at first, above zero), where a cutter or a nozzle
+  of that radius cannot reach. The curvature is read from the display mesh along each triangle edge,
+  the change of the corners' normals over the chord (`(n₂ − n₁)·d / d²`), negative where the face
+  curves away from its outward normal, so planar, convex and gentler faces are left in their own
+  colour; a face is flagged when its radius is more than 0.1% under the limit. Sharp inside corners
+  between faces have no radius and are not flagged.
 - `Analyses` (`analysis.rs`, owned by `ViewportState`, handed to the scene as `Sources::analyses`)
   caches one `Analysed` per body mesh and analysis: `ShadedMesh::divide` splits each face into a
   piece per band (`render.md`), the pieces carrying their source face and area, and the scene draws

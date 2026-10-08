@@ -22,7 +22,7 @@ use winit::{
 
 use crate::{
     about,
-    analysis::{AnalysisCommand, AnalysisTool},
+    analysis::{AnalysisCommand, AnalysisTool, Kind},
     analysis_panel::{self, AnalysisContext},
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     body_selection, canvas,
@@ -1537,10 +1537,15 @@ fn analysis_commands(
     analysis: &mut AnalysisTool,
     commands: &mut CommandFrame<'_>,
 ) {
-    if commands.available(Command::Analysis(AnalysisCommand::Draft)) {
-        analysis.toggle();
+    for (command, kind) in [
+        (AnalysisCommand::Draft, Kind::Draft),
+        (AnalysisCommand::Radius, Kind::Radius),
+    ] {
+        if commands.available(Command::Analysis(command)) {
+            analysis.toggle(kind);
+        }
     }
-    let drafting = analysis.open;
+    let drafting = analysis.open && analysis.kind == Kind::Draft;
     let pull = if drafting {
         AnalysisTool::pull_from(model, selection).map_err(|refusal| refusal.to_string())
     } else {

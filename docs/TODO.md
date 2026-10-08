@@ -313,8 +313,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · medium] No curvature comb: a comb of lines whose length follows the curvature along a
   chosen edge or sketch curve (density and scale adjustable), also across the joint of two edges to
   see whether the curvature continues, as splines and blends are judged by eye.
-- [low · medium] No minimum radius analysis: concave faces tighter than a radius the user types
-  coloured, to show where a cutter or a nozzle cannot reach.
 - [low · medium] No surface quality analyses: zebra stripes, a curvature map (Gaussian and the
   principal curvatures), isocurves with combs, and a chrome reflection of the surroundings, all
   shown on the bodies without changing the model.

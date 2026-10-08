@@ -14981,7 +14981,15 @@ fn draft_analysis_bands_the_faces_of_a_plate_and_leaves_the_model_alone() {
     assert!(harness.workspace.analysis.open);
     assert_eq!(harness.model.revision(), revision);
 
-    run_from_palette(&mut harness, "analyse draft");
+    run_from_palette(&mut harness, "analyse minimum radius");
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows_containing("Too tight to reach"));
+    assert_eq!(on_screen(&mut harness, Band::Drafted), 0);
+    assert_eq!(on_screen(&mut harness, Band::TooTight), 0);
+
+    run_from_palette(&mut harness, "analyse minimum radius");
     harness.frame();
     harness.frame();
 
