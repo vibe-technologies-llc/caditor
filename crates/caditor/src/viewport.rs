@@ -646,7 +646,10 @@ impl ViewportState {
                         .map(move |entity| Pickable::SketchEntity { feature, entity })
                 })
                 .collect()
-        } else if let Some(annotation) = self.annotations.hovered() {
+        } else if let Some(annotation) =
+            self.annotations.hovered().or(highlighted
+                .filter(|highlight| matches!(highlight, Pickable::SketchConstraint { .. })))
+        {
             annotation.constrained_entities(document)
         } else if let Some(row) = self.hovered_in_tree {
             match row.constrained_entities(document) {
@@ -700,6 +703,8 @@ impl ViewportState {
         });
         if let Some(highlight) = self.keyboard_highlight
             && !self.scenes.highlightable().contains(&highlight)
+            && !(matches!(highlight, Pickable::SketchConstraint { .. })
+                && highlight.is_available(document, evaluation, context))
         {
             self.keyboard_highlight = None;
         }
@@ -1705,7 +1710,7 @@ impl ViewportState {
                 match &targets {
                     Some(sketch) if trims => self.trimming.step(sketch, step),
                     Some(sketch) => self.modifying.step(sketch, step),
-                    None => self.step_highlight(step, editing),
+                    None => self.step_highlight(step, model, editing),
                 }
             }
         }
@@ -1981,12 +1986,28 @@ impl ViewportState {
         Vector2::splat(copied.clip.size().max(PASTE_SHIFT_FLOOR) * PASTE_SHIFT_FRACTION)
     }
 
-    fn step_highlight(&mut self, step: isize, editing: &SketchEditing) {
+    fn step_highlight(&mut self, step: isize, model: &Model, editing: &SketchEditing) {
         let filter = self.active_filter();
         let projecting = editing
             .active()
             .filter(|active| active.tool.projects())
             .map(|active| active.feature);
+        let constraints: Vec<Pickable> = editing
+            .feature()
+            .filter(|_| projecting.is_none())
+            .and_then(|feature| {
+                let sketch = model.document().feature(feature)?.kind.sketch()?;
+                Some(
+                    sketch
+                        .constraints()
+                        .map(|(constraint, _)| Pickable::SketchConstraint {
+                            feature,
+                            constraint,
+                        })
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
         let highlightable: Vec<Pickable> = self
             .scenes
             .highlightable()
@@ -1996,6 +2017,7 @@ impl ViewportState {
             .filter(|pickable| {
                 projecting.is_none_or(|sketch| projecting::projectable(*pickable, sketch))
             })
+            .chain(constraints)
             .collect();
         let count = highlightable.len();
         if count == 0 {
@@ -2236,6 +2258,20 @@ impl ViewportState {
                 self.modify(editing, outcome, actions);
             } else if let Some(transaction) = self.drawing.finish(model) {
                 actions.push(Action::Apply(transaction));
+            } else if let Some(Pickable::SketchConstraint {
+                feature,
+                constraint,
+            }) = self.keyboard_highlight
+                && editing.feature() == Some(feature)
+                && !self.drawing.is_active()
+                && model
+                    .document()
+                    .feature(feature)
+                    .and_then(|owner| owner.kind.sketch())
+                    .and_then(|sketch| sketch.constraint(constraint))
+                    .is_some_and(|defined| defined.dimension().is_some())
+            {
+                self.annotations.request_field(feature, constraint);
             } else if editing.feature().is_none()
                 && let Some(command) = open_command(self.keyboard_highlight, model)
             {
@@ -2320,6 +2356,7 @@ impl ViewportState {
                 && !self.trimming.is_active()
                 && !self.modifying.is_active(),
             glyphs: self.glyphs_shown,
+            highlight: self.keyboard_highlight,
         };
         self.annotations
             .show(ui, model, &surface, &mut self.selection, actions);

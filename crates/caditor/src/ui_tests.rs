@@ -9136,6 +9136,61 @@ fn space_while_drawing_starts_a_line_at_the_middle_of_the_highlighted_line() {
 }
 
 #[test]
+fn the_highlight_keys_reach_a_dimension_and_enter_edits_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0));
+    let Some(&Entity::Line { start, end }) = sketch.entity(line) else {
+        panic!("a line");
+    };
+    let length = sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(20.0, Unit::Millimetre),
+        })
+        .unwrap();
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.settle();
+    let dimension = Pickable::SketchConstraint {
+        feature,
+        constraint: length,
+    };
+
+    for _ in 0..30 {
+        if harness.workspace.viewport.keyboard_highlight() == Some(dimension) {
+            break;
+        }
+        harness.key(Key::N, Modifiers::NONE);
+        harness.frame();
+    }
+    assert_eq!(
+        harness.workspace.viewport.keyboard_highlight(),
+        Some(dimension)
+    );
+    assert!(harness.shows_containing("Distance between"));
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness.frame();
+    harness.events.push(Event::Text("35".to_owned()));
+    harness.frame();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(
+        harness
+            .sketch(feature)
+            .constraint(length)
+            .and_then(Constraint::dimension),
+        Some(&Expression::Number(35.0))
+    );
+}
+
+#[test]
 fn a_part_can_be_modelled_from_the_keyboard_alone() {
     let mut harness = Harness::new();
     run_from_palette(&mut harness, "new sketch");

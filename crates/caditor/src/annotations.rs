@@ -362,6 +362,7 @@ pub struct Surface<'a, S> {
     pub feature: FeatureId,
     pub interactive: bool,
     pub glyphs: bool,
+    pub highlight: Option<Pickable>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -495,7 +496,7 @@ impl Annotations {
 
         let color = |constraint, standing| {
             let pickable = pickable(constraint);
-            if self.hovered == Some(pickable) {
+            if self.hovered == Some(pickable) || surface.highlight == Some(pickable) {
                 canvas::HOVERED
             } else if selection.contains(pickable) {
                 canvas::SELECTED

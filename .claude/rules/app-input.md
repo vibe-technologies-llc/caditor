@@ -94,7 +94,11 @@ paths:
   (`app-look.md`). Sketch commands (move, select all, tool keys and the ways of drawing a shape)
   are in `app-sketching.md`.
 - Highlight next and previous step a keyboard highlight through the scene's pickables in
-  pick-table order (drawn and described like hover; a pointer move or Escape clears it). Activate
+  pick-table order (drawn and described like hover; a pointer move or Escape clears it), then,
+  while a sketch is edited, through its constraints and dimensions in id order
+  (`Pickable::SketchConstraint`, coloured as hovered and lighting their entities); Activate
+  selects one and Enter opens a highlighted dimension's inline field, so dimensions are edited
+  without a pointer. Activate
   acts as a click would (selection toggle, or the region, blend edge, shell face or sketch plane
   action through `pick_action`); Enter opens what the item belongs to as a double-click would,
   and with nothing highlighted Enter confirms the open feature like its checkmark.
