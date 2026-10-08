@@ -14873,3 +14873,52 @@ fn typed_values_are_kept_as_dimensions_unless_turned_off() {
         ends[1]
     );
 }
+
+#[test]
+fn the_hole_of_a_selected_wall_joins_the_selection_and_a_flat_face_is_no_hole() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let corners = [
+        Point2::new(-20.0, -20.0),
+        Point2::new(20.0, -20.0),
+        Point2::new(20.0, 20.0),
+        Point2::new(-20.0, 20.0),
+    ];
+    for index in 0..4 {
+        sketch.add_line(corners[index], corners[(index + 1) % 4]);
+    }
+    let circle = sketch.add_circle(Point2::ZERO, 5.0);
+    let circle_label = sketch.entity_label(circle);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let faces: Vec<Pickable> = harness.built().picks.pickables().filter(is_face).collect();
+    let describe = |face: &Pickable| face.describe(harness.document(), harness.model.evaluation());
+    let walls: Vec<Pickable> = faces
+        .iter()
+        .copied()
+        .filter(|face| describe(face).contains(&circle_label))
+        .collect();
+    let flat = faces
+        .iter()
+        .copied()
+        .find(|face| describe(face).contains("end face"))
+        .unwrap();
+
+    harness.select([walls[0]]);
+    run_from_palette(&mut harness, "Select the whole hole");
+    harness.frame();
+    let hole = selected_of(&harness, is_face);
+    harness.select([flat]);
+    run_from_palette(&mut harness, "Select the whole hole");
+    harness.frame();
+
+    assert!(!walls.is_empty());
+    assert_eq!(hole, walls.len());
+    assert_eq!(selected_of(&harness, is_face), 1);
+    assert!(harness.shows_containing(crate::body_selection::NO_HOLE));
+}

@@ -419,6 +419,7 @@ impl Menus<'_, '_> {
                     Command::SelectAllShapes,
                     Command::SelectTangentEdges,
                     Command::SelectTangentFaces,
+                    Command::SelectHole,
                     Command::SelectFaceEdges,
                     Command::SelectBody,
                 ],

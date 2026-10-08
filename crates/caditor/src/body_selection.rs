@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{FeatureId, SolidResult};
-use caditor_kernel::{EdgeId, Solid, tangent_chain, tangent_faces};
+use caditor_kernel::{EdgeId, FaceId, Solid, hole_faces, tangent_chain, tangent_faces};
 
 use crate::{
     bodies::{self, FaceKey},
@@ -19,6 +19,9 @@ pub const NO_TANGENT_EDGES: &str = "The selected edges have no tangent edge beyo
 pub const NO_TANGENT_FACE_SELECTED: &str =
     "Select a face first to spread the selection to its tangent faces";
 pub const NO_TANGENT_FACES: &str = "The selected faces meet no other face smoothly";
+pub const NO_HOLE_FACE_SELECTED: &str =
+    "Select a face of a hole's wall first to select the whole hole";
+pub const NO_HOLE: &str = "The selected faces are not the round wall of a hole";
 pub const NO_FACE_SELECTED: &str = "Select a face first to select the edges around it";
 pub const NO_FACE_EDGES: &str = "The selected faces have no edge to select";
 
@@ -203,20 +206,40 @@ pub fn offer_tangent_faces(selection: &Selection) -> Result<(), &'static str> {
 }
 
 pub fn tangent_faces_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
+    spread_faces(model, selection, tangent_faces)
+}
+
+pub fn offer_hole(selection: &Selection) -> Result<(), &'static str> {
+    selection
+        .iter()
+        .any(|pickable| Kind::of(pickable) == Some(Kind::Faces))
+        .then_some(())
+        .ok_or(NO_HOLE_FACE_SELECTED)
+}
+
+pub fn hole_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
+    spread_faces(model, selection, hole_faces)
+}
+
+fn spread_faces(
+    model: &Model,
+    selection: &Selection,
+    spread: fn(&Solid, &[FaceId]) -> Vec<FaceId>,
+) -> Vec<Pickable> {
     let selected = selected_faces(selection);
     let bodies: BTreeSet<FeatureId> = selected.iter().map(|(body, _)| *body).collect();
     bodies
         .into_iter()
         .filter_map(|body| Some((body, bodies::shown(model.evaluation(), body)?)))
         .flat_map(|(body, result)| {
-            let starts: Vec<caditor_kernel::FaceId> = selected
+            let starts: Vec<FaceId> = selected
                 .iter()
                 .filter(|(owner, _)| *owner == body)
                 .filter_map(|(_, key)| bodies::find_face(result, *key))
                 .collect();
-            let keys: BTreeMap<caditor_kernel::FaceId, FaceKey> =
+            let keys: BTreeMap<FaceId, FaceKey> =
                 bodies::face_keys(&result.solid).into_iter().collect();
-            tangent_faces(&result.solid, &starts)
+            spread(&result.solid, &starts)
                 .into_iter()
                 .filter_map(|face| {
                     let key = *keys.get(&face)?;
@@ -228,7 +251,7 @@ pub fn tangent_faces_of(model: &Model, selection: &Selection) -> Vec<Pickable> {
         .collect()
 }
 
-pub fn face_boundary(solid: &Solid, face: caditor_kernel::FaceId) -> Vec<EdgeId> {
+pub fn face_boundary(solid: &Solid, face: FaceId) -> Vec<EdgeId> {
     let Some(face) = solid.face(face) else {
         return Vec::new();
     };

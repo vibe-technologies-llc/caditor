@@ -1854,6 +1854,15 @@ impl ViewportState {
             }
             self.selection.extend(spread);
         }
+        let hole =
+            body_selection::outside_sketch(in_sketch, body_selection::offer_hole(&self.selection));
+        if commands.invoke(Command::SelectHole, &hole) && hole.is_ok() {
+            let walls = body_selection::hole_of(model, &self.selection);
+            if walls.is_empty() {
+                actions.push(Action::Inform(Notice::info(body_selection::NO_HOLE)));
+            }
+            self.selection.extend(walls);
+        }
         let boundary = body_selection::outside_sketch(
             in_sketch,
             body_selection::offer_face_edges(&self.selection),

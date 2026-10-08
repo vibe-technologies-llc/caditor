@@ -129,7 +129,8 @@ paths:
   selected while the filter is Everything, and says what to choose when neither names one; seam
   edges, which cannot be picked, are never taken. Tangent edges add what `tangent_chain` reaches
   from the selected edges (smooth or sharp alike, unlike a blend's `blend_chain`); tangent faces
-  (Alt+Shift+T) add what `tangent_faces` reaches from the selected faces; the edges around
+  (Alt+Shift+T) add what `tangent_faces` reaches from the selected faces; Select the whole hole
+  (`select.hole`, Edit menu, palette) adds what `hole_faces` reaches from a selected wall; the edges around
   faces replace the faces with every loop's edges. Select the whole body (`select.body`, Edit menu,
   palette) replaces the selection with every face, edge or vertex (by the filter or the kind
   selected, faces otherwise) of the bodies the selection touches. An empty result is an info

@@ -132,6 +132,7 @@ pub enum Command {
     SelectAllShapes,
     SelectTangentEdges,
     SelectTangentFaces,
+    SelectHole,
     SelectBody,
     SelectFaceEdges,
     ToggleVisibility,
@@ -477,6 +478,7 @@ plain_commands! {
     SelectAllShapes,
     SelectTangentEdges,
     SelectTangentFaces,
+    SelectHole,
     SelectBody,
     SelectFaceEdges,
     ToggleVisibility,
@@ -698,6 +700,7 @@ impl Command {
             Self::SelectAllShapes => "select.all",
             Self::SelectTangentEdges => "select.tangent_edges",
             Self::SelectTangentFaces => "select.tangent_faces",
+            Self::SelectHole => "select.hole",
             Self::SelectBody => "select.body",
             Self::SelectFaceEdges => "select.face_edges",
             Self::ToggleVisibility => "view.toggle_visibility",
@@ -848,6 +851,7 @@ impl Command {
             Self::SelectAllShapes => "Select all faces, edges or vertices",
             Self::SelectTangentEdges => "Select the edges tangent to the selected edges",
             Self::SelectTangentFaces => "Select the faces tangent to the selected faces",
+            Self::SelectHole => "Select the whole hole of the selected wall",
             Self::SelectBody => "Select the whole body",
             Self::SelectFaceEdges => "Select the edges around the selected faces",
             Self::ToggleVisibility => "Hide or show feature",
@@ -944,6 +948,7 @@ impl Command {
             | Self::SelectAllShapes
             | Self::SelectTangentEdges
             | Self::SelectTangentFaces
+            | Self::SelectHole
             | Self::SelectBody
             | Self::SelectFaceEdges
             | Self::DismissNotice => Category::Edit,
@@ -1161,6 +1166,7 @@ impl Command {
             | Self::RenameBody
             | Self::RemoveBody
             | Self::SelectBody
+            | Self::SelectHole
             | Self::FinishSketch
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive

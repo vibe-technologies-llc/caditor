@@ -294,8 +294,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Viewer
 
-- [medium · medium] No lasso selection, a box in the 3D view takes edges and vertices hidden behind
-  the body (faces only count where they face the camera) and no command selects a hole's wall.
+- [medium · medium] No lasso selection, and a box in the 3D view takes edges and vertices hidden
+  behind the body (faces only count where they face the camera).
 - [medium · hard] Section planes.
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.

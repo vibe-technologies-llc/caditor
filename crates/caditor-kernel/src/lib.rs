@@ -11,6 +11,7 @@ mod error;
 mod faceted;
 #[cfg(test)]
 mod fixtures;
+mod hole_faces;
 mod interrupt;
 mod intersect;
 mod interval;
@@ -49,6 +50,7 @@ pub use crate::{
         FacetedError, FacetedSolids, MAX_FACETED_FACES, MAX_FILLED_HOLE_EDGES, MeshRepairs,
         TriangleMesh, faceted_solids,
     },
+    hole_faces::hole_faces,
     interrupt::{Interrupt, Interrupted, interruptible},
     intersect::{
         CurveCurveIntersection, CurveCurveOverlap, CurveCurvePoint, CurveSurfaceIntersection,

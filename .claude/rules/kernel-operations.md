@@ -122,6 +122,11 @@ paths:
 - `tangent_chain(solid, edges)` follows tangent-continuous edges sharing a face through their end
   vertices, smooth or sharp, for selection; it shares `follow` with `blend_chain`, which admits only
   sharp edges.
+- `hole_faces(solid, faces)` (`hole_faces.rs`) spreads from each selected concave cylinder, cone or
+  torus (its outward normal pointing at its axis) to the faces of the same axis that are concave
+  too, and to flat faces square to the axis bounded only by circles about it whose every
+  neighbour is such a wall (a counterbore's floor, a flat bottom), so a hole is taken whole while
+  the plate around it and the ends of a tube are not; a boss is no hole.
 - `tangent_faces(solid, faces)` spreads from the given faces across every edge where the two faces'
   normals agree within `TANGENT_FACE_ANGLE` (0.01 rad, looser than blending's test so fitted
   imported blends count) at a quarter, half and three quarters along it, for selection.

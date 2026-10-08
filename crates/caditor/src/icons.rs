@@ -167,6 +167,7 @@ pub fn command(command: Command) -> &'static str {
         Command::SelectAllShapes => phosphor::SELECTION_ALL,
         Command::SelectTangentEdges => phosphor::LINE_SEGMENTS,
         Command::SelectTangentFaces => phosphor::CYLINDER,
+        Command::SelectHole => HOLE,
         Command::SelectFaceEdges => phosphor::POLYGON,
         Command::ShowAll => SHOW,
         Command::TogglePrincipal => PRINCIPAL_GROUP,
