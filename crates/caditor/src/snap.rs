@@ -415,8 +415,7 @@ fn intersections(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Vec
                     hits(*first_geometry, *second_geometry)
                 }
                 (None, Some(_)) => sketch.spline_crossings(*first, *second),
-                (Some(_), None) => sketch.spline_crossings(*second, *first),
-                (None, None) => Vec::new(),
+                (Some(_), None) | (None, None) => sketch.spline_crossings(*second, *first),
             };
             found.extend(crossed.into_iter().map(|position| Snapped {
                 position,
@@ -1691,5 +1690,31 @@ pub mod tests {
         )
         .unwrap();
         assert!(upward.distance(crossing) < 1e-6);
+    }
+
+    #[test]
+    fn two_splines_snap_where_they_cross() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let first = sketch.add_spline(&[
+            Point2::new(0.0, -20.0),
+            Point2::new(10.0, 0.0),
+            Point2::new(20.0, 20.0),
+        ]);
+        let second = sketch.add_spline(&[
+            Point2::new(0.0, 10.0),
+            Point2::new(15.0, 20.0),
+            Point2::new(30.0, 0.0),
+        ]);
+        let [crossing] = sketch.spline_crossings(first, second)[..] else {
+            panic!("the splines cross once");
+        };
+
+        let at = resolve_at(&sketch, crossing + Vector2::new(0.3, -0.2)).unwrap();
+
+        assert_eq!(
+            at.target.min_ordered(),
+            Target::Intersection(first, second).min_ordered()
+        );
+        assert!(at.position.distance(crossing) < 1e-9);
     }
 }

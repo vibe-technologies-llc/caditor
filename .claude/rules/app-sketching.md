@@ -201,8 +201,7 @@ paths:
   is accepted and within the same tolerance, the middle of a line or arc (`Target::Midpoint`), the
   centre of a closed outline (`Target::Centre`), the crossing of two of the up to
   `MAX_CROSSING_CURVES` curves nearest the pointer, axes included (`Target::Intersection`; a
-  spline crosses lines, circles, arcs and axes through `Sketch::spline_crossings`, never another
-  spline) and the right, top, left and bottom of a circle or of an arc
+  spline crosses lines, circles, arcs, axes and other splines through `Sketch::spline_crossings`) and the right, top, left and bottom of a circle or of an arc
   sweeping through them (`Target::Quadrant`); lines, circles, arcs, splines and axes within
   `CURVE_TOLERANCE`, projecting onto the curve. A snapped point gets a `Coincident` with its
   target (with both curves at a crossing), a `Midpoint` constraint for a middle, a `Symmetric`

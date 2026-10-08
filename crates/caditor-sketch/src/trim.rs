@@ -296,7 +296,13 @@ impl Sketch {
             .into_iter()
             .filter(|point| intersect::on_arc(&arc, *point, tolerance))
             .collect(),
-            Some(Shape::Spline(_)) | None => Vec::new(),
+            Some(Shape::Spline(other)) => {
+                let Shape::Spline(own) = &shape else {
+                    return Vec::new();
+                };
+                intersect::spline_spline(own, &other, tolerance)
+            }
+            None => Vec::new(),
         }
     }
 

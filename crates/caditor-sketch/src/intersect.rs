@@ -8,6 +8,8 @@ const PARALLEL_TOLERANCE: f64 = 1e-12;
 const SPLINE_SAMPLES_PER_POINT: usize = 16;
 const MIN_SPLINE_SAMPLES: usize = 256;
 const BISECTION_STEPS: usize = 100;
+const NEWTON_STEPS: usize = 30;
+const NEWTON_SETTLED: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Shape {
@@ -308,6 +310,90 @@ fn deepest_in(value: &impl Fn(f64) -> f64, low: f64, high: f64) -> f64 {
     if at_inner < at_outer { inner } else { outer }
 }
 
+pub(crate) fn spline_spline(first: &BSpline, second: &BSpline, tolerance: f64) -> Vec<Point2> {
+    let sampled = |spline: &BSpline| {
+        let samples = spline_samples(spline);
+        (0..=samples)
+            .map(|index| {
+                let parameter = index as f64 / samples as f64;
+                (parameter, spline.point_at(parameter))
+            })
+            .collect::<Vec<_>>()
+    };
+    let (along_first, along_second) = (sampled(first), sampled(second));
+    let mut found: Vec<Point2> = Vec::new();
+    for first_pair in along_first.windows(2) {
+        let &[(s0, a0), (s1, a1)] = first_pair else {
+            continue;
+        };
+        let (low, high) = (a0.min(a1), a0.max(a1));
+        for second_pair in along_second.windows(2) {
+            let &[(t0, b0), (t1, b1)] = second_pair else {
+                continue;
+            };
+            let overlaps =
+                b0.min(b1).cmple(high + tolerance).all() && b0.max(b1).cmpge(low - tolerance).all();
+            if !overlaps {
+                continue;
+            }
+            let Some((along, across)) = segment_fractions(a0, a1, b0, b1) else {
+                continue;
+            };
+            let slack = 1e-9;
+            if !(-slack..=1.0 + slack).contains(&along) || !(-slack..=1.0 + slack).contains(&across)
+            {
+                continue;
+            }
+            let start = (s0 + (s1 - s0) * along, t0 + (t1 - t0) * across);
+            let Some(point) = refined_crossing(first, second, start, tolerance) else {
+                continue;
+            };
+            if found.iter().all(|known| known.distance(point) > tolerance) {
+                found.push(point);
+            }
+        }
+    }
+    found
+}
+
+fn segment_fractions(a0: Point2, a1: Point2, b0: Point2, b1: Point2) -> Option<(f64, f64)> {
+    let (first, second) = (a1 - a0, b1 - b0);
+    let denominator = first.perp_dot(second);
+    if denominator.abs() <= PARALLEL_TOLERANCE * first.length() * second.length() {
+        return None;
+    }
+    let offset = b0 - a0;
+    Some((
+        offset.perp_dot(second) / denominator,
+        offset.perp_dot(first) / denominator,
+    ))
+}
+
+fn refined_crossing(
+    first: &BSpline,
+    second: &BSpline,
+    (mut s, mut t): (f64, f64),
+    tolerance: f64,
+) -> Option<Point2> {
+    for _ in 0..NEWTON_STEPS {
+        let gap = first.point_at(s) - second.point_at(t);
+        if gap.length() <= tolerance * NEWTON_SETTLED {
+            break;
+        }
+        let ([along_first, _], [along_second, _]) = (first.derivatives(s), second.derivatives(t));
+        let determinant = along_first.perp_dot(-along_second);
+        if determinant.abs() <= f64::EPSILON {
+            return None;
+        }
+        let step_s = gap.perp_dot(-along_second) / determinant;
+        let step_t = along_first.perp_dot(gap) / determinant;
+        s = (s - step_s).clamp(0.0, 1.0);
+        t = (t - step_t).clamp(0.0, 1.0);
+    }
+    let (on_first, on_second) = (first.point_at(s), second.point_at(t));
+    (on_first.distance(on_second) <= tolerance).then(|| on_first.midpoint(on_second))
+}
+
 fn bisect(value: &impl Fn(f64) -> f64, low: f64, high: f64, at_low: f64) -> f64 {
     let (mut low, mut high, mut at_low) = (low, high, at_low);
     for _ in 0..BISECTION_STEPS {
@@ -462,6 +548,44 @@ mod tests {
         assert!(touched[0].distance(peak) < 1e-3);
 
         assert!(crossings(horizontal_through(peak.y + 1e-3), &bump, TOLERANCE).is_empty());
+    }
+
+    #[test]
+    fn two_splines_cross_where_both_pass() {
+        let Some(rising) = BSpline::clamped(vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(5.0, 2.0),
+            Point2::new(10.0, 10.0),
+        ]) else {
+            panic!("a spline");
+        };
+        let Some(wave) = BSpline::clamped(vec![
+            Point2::new(0.0, 6.0),
+            Point2::new(4.0, 0.0),
+            Point2::new(7.0, 8.0),
+            Point2::new(10.0, 1.0),
+        ]) else {
+            panic!("a spline");
+        };
+
+        let crossed = spline_spline(&rising, &wave, TOLERANCE);
+
+        assert!(!crossed.is_empty());
+        for point in &crossed {
+            let on = |spline: &BSpline| {
+                (0..=20_000)
+                    .map(|index| {
+                        spline
+                            .point_at(f64::from(index) / 20_000.0)
+                            .distance(*point)
+                    })
+                    .fold(f64::INFINITY, f64::min)
+            };
+            assert!(on(&rising) < 1e-3 && on(&wave) < 1e-3, "{point}");
+        }
+        let apart =
+            BSpline::clamped(vec![Point2::new(0.0, 20.0), Point2::new(10.0, 30.0)]).unwrap();
+        assert!(spline_spline(&rising, &apart, TOLERANCE).is_empty());
     }
 
     #[test]

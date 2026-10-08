@@ -124,4 +124,6 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
 - A spline meets a line or circle where its signed distance changes sign between samples
   (`intersect::spline_roots`, bisected); where the distance dips toward zero between samples
   without changing sign, the deepest point is found by golden-section search, giving two crossings
-  when it passes zero and one touching point when it comes within the tolerance.
+  when it passes zero and one touching point when it comes within the tolerance. Two splines cross
+  where their sampled polylines do, each candidate refined by Newton on both parameters
+  (`intersect::spline_spline`) and kept when both curves meet within the tolerance.
