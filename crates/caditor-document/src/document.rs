@@ -838,6 +838,12 @@ pub enum TreeRow {
     Bar,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParameterUser {
+    Parameter(ParameterId),
+    Feature(FeatureId),
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Document {
     pub(crate) parameters: ParameterList,
@@ -1094,6 +1100,20 @@ impl Document {
             .iter()
             .flat_map(|feature| feature.kind.parameters());
         by_parameters.chain(by_features).collect()
+    }
+
+    pub fn parameter_user_ids(&self, parameter: ParameterId) -> Vec<ParameterUser> {
+        let parameters = self
+            .parameters
+            .iter()
+            .filter(|other| other.expression.uses(parameter))
+            .map(|other| ParameterUser::Parameter(other.id));
+        let features = self
+            .features
+            .iter()
+            .filter(|feature| feature.uses_parameter(parameter))
+            .map(|feature| ParameterUser::Feature(feature.id()));
+        parameters.chain(features).collect()
     }
 
     pub fn parameter_users(&self, parameter: ParameterId) -> Vec<String> {

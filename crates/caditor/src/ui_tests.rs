@@ -11178,6 +11178,40 @@ fn a_used_parameter_is_deleted_by_writing_its_expression_into_its_uses() {
 }
 
 #[test]
+fn a_parameter_s_menu_lists_what_uses_it_and_goes_to_it() {
+    let mut harness = Harness::new();
+    harness.command(FileCommand::OpenSample(crate::samples::Sample::Bracket));
+    harness.settle();
+    let hole_sketch = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Hole sketch")
+        .map(caditor_document::Feature::id)
+        .unwrap();
+    let spot = harness.position_of("hole");
+
+    harness.events.push(Event::PointerMoved(spot));
+    harness.frame();
+    for pressed in [true, false] {
+        harness.events.push(Event::PointerButton {
+            pos: spot,
+            button: PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+        harness.frame();
+    }
+    harness.show_new_windows();
+    let listed = harness.shows(crate::parameter_table::USED_BY);
+    harness.click("Hole sketch");
+    harness.frame();
+    harness.frame();
+
+    assert!(listed);
+    assert_eq!(harness.workspace.panels.selected, Some(hole_sketch));
+}
+
+#[test]
 fn parameters_are_reordered_and_noted_from_the_keyboard() {
     let mut harness = Harness::new();
     let order = |harness: &Harness| -> Vec<String> {

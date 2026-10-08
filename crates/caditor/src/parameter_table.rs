@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{Document, Edit, MAX_PARAMETER_NOTE_CHARS, Parameter, Transaction};
+use caditor_document::{
+    Document, Edit, MAX_PARAMETER_NOTE_CHARS, Parameter, ParameterUser, Transaction,
+};
 use caditor_expression::ParameterId;
 use egui::{Grid, Id, Label, Rect, TextEdit, Ui, Vec2, vec2};
 
@@ -26,6 +28,8 @@ const NAME_SHARE: f32 = 0.5;
 const MIN_NAME_WIDTH: f32 = 48.0;
 const MIN_EXPRESSION_WIDTH: f32 = 64.0;
 const MAX_NAMED_USERS: usize = 4;
+const MAX_LISTED_USERS: usize = 12;
+pub const USED_BY: &str = "Used by";
 const NEW_PARAMETER_NAME: &str = "parameter";
 const NEW_PARAMETER_MILLIMETRES: f64 = 10.0;
 const NO_PARAMETER_CHOSEN: &str =
@@ -259,6 +263,9 @@ fn row_menu(
         state.noting = Some(NoteDraft::of(parameter));
         ui.close();
     }
+    if used {
+        users_menu(ui, document, state, parameter);
+    }
     ui.separator();
     let deletion = Deletion::of(document, parameter, used);
     let response = widgets::menu_item(ui, icons::DELETE, &deletion.label(), None)
@@ -266,6 +273,43 @@ fn row_menu(
     if response.clicked() {
         deletion.perform(document, actions);
         ui.close();
+    }
+}
+
+fn users_menu(ui: &mut Ui, document: &Document, state: &mut PanelState, parameter: &Parameter) {
+    let users = document.parameter_user_ids(parameter.id());
+    ui.separator();
+    ui.label(widgets::muted(USED_BY, ui));
+    for user in users.iter().take(MAX_LISTED_USERS) {
+        let (glyph, name, focus) = match *user {
+            ParameterUser::Parameter(id) => (
+                icons::PARAMETERS,
+                document.parameter_name(id).unwrap_or_default().to_owned(),
+                Focus::ParameterValue(id),
+            ),
+            ParameterUser::Feature(id) => match document.feature(id) {
+                Some(feature) => (
+                    icons::feature(&feature.kind),
+                    feature.name.clone(),
+                    Focus::Feature(id),
+                ),
+                None => continue,
+            },
+        };
+        let response = widgets::menu_item(ui, glyph, &name, None)
+            .on_hover_text(format!("Go to {name}, which uses {}", parameter.name));
+        if response.clicked() {
+            if let Focus::Feature(id) = focus {
+                state.choose_only(id);
+                state.reveal(id);
+            }
+            state.request_focus(focus);
+            ui.close();
+        }
+    }
+    let more = users.len().saturating_sub(MAX_LISTED_USERS);
+    if more > 0 {
+        ui.label(widgets::muted(format!("and {more} more"), ui));
     }
 }
 

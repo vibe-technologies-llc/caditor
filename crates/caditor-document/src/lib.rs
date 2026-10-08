@@ -53,8 +53,8 @@ pub use crate::{
     dependencies::DependencyGraph,
     describe::{describe_edge, describe_origin, edge_faces, origin_feature},
     document::{
-        Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
-        TreeRow,
+        Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, ParameterUser,
+        RollbackBar, TreeRow,
     },
     edit::{Edit, EditError, MAX_PARAMETER_NOTE_CHARS, Touched, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},

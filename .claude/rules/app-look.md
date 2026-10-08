@@ -200,7 +200,10 @@ paths:
   many uses took its expression. A parameter with a note shows `icons::NOTE` before its value,
   described with the note. Right-clicking a row's name or expression opens its menu (Move up,
   Move down, Add or Edit the note…, Delete); the same act on the focused row from the palette and
-  the Model menu (`MoveParameterUp`, `MoveParameterDown`, `ParameterNote`, `DeleteParameter`). The
+  the Model menu (`MoveParameterUp`, `MoveParameterDown`, `ParameterNote`, `DeleteParameter`).
+  A used parameter's menu also lists under Used by the parameters and features using it
+  (`Document::parameter_user_ids`, at most `MAX_LISTED_USERS`, then how many more); choosing one
+  focuses that parameter's value or chooses and reveals that feature in the tree. The
   note is edited in a modal dialog (`parameter_table::note_dialog`, `PanelState::noting`). A value that cannot be evaluated is an error
   icon with the reason on hover, a refused edit an `error_row`. A row's delete button shows only
   while the row is hovered or the button has keyboard focus, and stays in the Tab order.
