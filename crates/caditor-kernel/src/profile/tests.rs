@@ -1264,3 +1264,38 @@ fn a_thin_lens_between_two_nearly_equal_arcs_is_no_region() {
         areas(&profile)
     );
 }
+
+#[test]
+fn a_region_whose_arc_starts_a_rounding_error_off_its_line_still_triangulates() {
+    let corners = [
+        Point2::new(0.0, 0.0),
+        Point2::new(30.0, 0.0),
+        Point2::new(30.0, 10.0),
+        Point2::new(0.0, 10.0),
+    ];
+    let mut curves: Vec<ProfileCurve> = (0..4)
+        .map(|index| ProfileCurve::line(index as u64 + 1, corners[index], corners[(index + 1) % 4]))
+        .collect();
+    curves.push(ProfileCurve::circle(9, Point2::new(30.0, 0.0), 8.0));
+    let profile = profile(&curves);
+
+    assert_areas(&profile, &[300.0 - 16.0 * PI, 48.0 * PI, 16.0 * PI]);
+    for region in profile.regions() {
+        let extent = region.bounds().unwrap().size().length();
+        let mesh = region
+            .triangulate(&SamplingTolerance::for_extent(extent))
+            .unwrap_or_else(|| panic!("the region of area {} is meshed", region.area()));
+        let meshed: f64 = mesh
+            .triangles
+            .iter()
+            .map(|triangle| {
+                let [a, b, c] = triangle.map(|index| mesh.points[index as usize]);
+                0.5 * (b - a).perp_dot(c - a).abs()
+            })
+            .sum();
+        assert!(
+            (meshed - region.area()).abs() < 0.01 * region.area(),
+            "{meshed}"
+        );
+    }
+}

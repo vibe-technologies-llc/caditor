@@ -52,6 +52,10 @@ paths:
   goes to the outer loop of its lump through the faces joined across pieces chosen on both sides,
   so selection is linear in loops; a probe point's containment decides only when a lump has
   several outer loops or none.
+- `Region::triangulate` samples each loop into a polygon whose consecutive points closer than
+  `LINEAR_RESOLUTION` are one (an arc sampled from a crossing starts a rounding error off the line
+  ending there, and keeping both made the constrained triangulation refuse the region, leaving it
+  without a fill to draw or click).
 - A `RegionReference` keeps what a feature chose: the key, the boundary pieces and an anchor (the
   centroid of the largest triangle of `Region::triangulate`, `RegionMesh::anchor`). `resolve` gives
   `Same` when the key still exists, else `Healed` to the region most like it among those sharing at

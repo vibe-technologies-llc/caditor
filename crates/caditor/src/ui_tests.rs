@@ -15875,6 +15875,62 @@ fn a_hole_takes_the_selected_sketch_point_over_a_selected_face() {
 }
 
 #[test]
+fn extruding_with_a_closed_shape_selected_sweeps_only_what_it_encloses() {
+    let overlapping = || {
+        let mut sketch = Sketch::new(Plane::XY);
+        let sides: Vec<EntityId> = [
+            (Point2::new(0.0, 0.0), Point2::new(30.0, 0.0)),
+            (Point2::new(30.0, 0.0), Point2::new(30.0, 10.0)),
+            (Point2::new(30.0, 10.0), Point2::new(0.0, 10.0)),
+            (Point2::new(0.0, 10.0), Point2::new(0.0, 0.0)),
+        ]
+        .into_iter()
+        .map(|(start, end)| sketch.add_line(start, end))
+        .collect();
+        let circle = sketch.add_circle(Point2::new(30.0, 0.0), 8.0);
+        (sketch, sides, circle)
+    };
+    let extruded =
+        |chosen: &dyn Fn(&[EntityId], EntityId) -> Vec<EntityId>| {
+            let mut harness = Harness::new();
+            let (sketch, sides, circle) = overlapping();
+            let sketch = harness.add_sketch(sketch);
+            harness.select(chosen(&sides, circle).into_iter().map(|entity| {
+                Pickable::SketchEntity {
+                    feature: sketch,
+                    entity,
+                }
+            }));
+            harness.click("Extrude");
+            harness.settle();
+            let extrusion = harness
+                .workspace
+                .editing
+                .solid()
+                .expect("the extrusion is open");
+            let chosen = match harness.solid(extrusion).regions() {
+                RegionChoice::Chosen(chosen) => chosen.len(),
+                RegionChoice::All => 0,
+            };
+            (chosen, harness.body_volume(extrusion))
+        };
+
+    let rectangle = extruded(&|sides, _| sides.to_vec());
+    let disc = extruded(&|_, circle| vec![circle]);
+    let one_side = extruded(&|sides, _| vec![sides[0]]);
+
+    assert_eq!(rectangle.0, 2);
+    assert!((rectangle.1 - 300.0 * 10.0).abs() < 1.0, "{}", rectangle.1);
+    assert_eq!(disc.0, 2);
+    assert!(
+        (disc.1 - std::f64::consts::PI * 64.0 * 10.0).abs() < 5.0,
+        "{}",
+        disc.1
+    );
+    assert_eq!(one_side.0, 0);
+}
+
+#[test]
 fn a_chamfer_face_selected_for_extrude_grows_out_along_its_slant() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);

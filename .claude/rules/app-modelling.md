@@ -114,6 +114,11 @@ paths:
   standing (`solid_tools::face_body`) instead cuts that body, reversed so it runs into it; the panel's Body list is `Document::bodies_before`. `SketchEditing` holds at most
   one open solid feature, never together with an edited sketch; `editing::Context` carries both to
   the scene and to availability checks.
+- With curves of the sketch selected that close up (every open end meets another), a new
+  extrusion or revolve chooses the regions whose anchor lies inside them, even-odd
+  (`solid_tools::with_selected_outline`, a revolve leaving its axis line out), so selecting a
+  rectangle overlapping a circle sweeps the rectangle and their overlap; curves that do not close
+  sweep every region as before.
 - An open feature's tree row is its property panel; every change is one `SetFeatureKind`, checked
   before it is offered. Regions are fills; `Pickable::Region` clicks add or leave out, turning
   `RegionChoice::All` into explicit keys. Double-clicking a face opens the feature that made it.

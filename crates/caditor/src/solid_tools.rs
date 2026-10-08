@@ -1,9 +1,12 @@
+use std::collections::BTreeSet;
+
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FeatureId, FeatureKind,
-    RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Transaction, describe_axis,
+    FeatureResult, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchAttachment,
+    SketchFeature, SolidFeature, SolidStart, Transaction, describe_axis,
 };
 use caditor_expression::{Expression, Unit};
+use caditor_geometry::Point2;
 use caditor_kernel::RegionKey;
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -21,6 +24,8 @@ use crate::{
 pub const DEFAULT_DISTANCE: f64 = 10.0;
 pub const DEFAULT_PARTIAL_ANGLE: f64 = 180.0;
 pub const DEFAULT_BACKWARD_ANGLE: f64 = 30.0;
+const OUTLINE_SEGMENT_ANGLE: f64 = 0.02;
+const OUTLINE_GAP: f64 = 1e-6;
 pub const NOT_FLAT_TO_EXTRUDE: &str =
     "The selected face is curved; only a flat face can be extruded";
 pub const NOTHING_TO_EXTRUDE: &str =
@@ -50,6 +55,7 @@ impl Sweep {
 pub struct SweepSource {
     pub sketch: FeatureId,
     pub axis: Option<RevolveAxis>,
+    pub regions: RegionChoice,
 }
 
 pub fn sweep_source(
@@ -111,7 +117,11 @@ pub fn sweep_source(
         | Pickable::ShellFace { .. }
         | Pickable::Datum(_) => None,
     });
-    Some(SweepSource { sketch, axis })
+    Some(SweepSource {
+        sketch,
+        axis,
+        regions: RegionChoice::All,
+    })
 }
 
 pub fn may_guess_sketch(sweep: Sweep, selection: &Selection, lone_axis: bool) -> bool {
@@ -208,6 +218,97 @@ pub fn with_model_axis(source: SweepSource, axis: Option<&AxisReference>) -> Swe
     }
 }
 
+pub fn with_selected_outline(
+    model: &Model,
+    sweep: Sweep,
+    source: SweepSource,
+    selection: &Selection,
+) -> SweepSource {
+    match enclosed_regions(model, sweep, &source, selection) {
+        Some(regions) => SweepSource { regions, ..source },
+        None => source,
+    }
+}
+
+fn enclosed_regions(
+    model: &Model,
+    sweep: Sweep,
+    source: &SweepSource,
+    selection: &Selection,
+) -> Option<RegionChoice> {
+    let feature = model.document().feature(source.sketch)?;
+    let displayed = model.displayed_sketch(feature)?;
+    let axis = match (sweep, &source.axis) {
+        (Sweep::Revolve, Some(RevolveAxis::Sketch(axis))) => Some(*axis),
+        _ => None,
+    };
+    let outline: Vec<Vec<Point2>> = selection
+        .iter()
+        .filter_map(|pickable| match pickable {
+            Pickable::SketchEntity { feature, entity }
+                if feature == source.sketch && Some(entity) != axis =>
+            {
+                displayed.polyline(entity, OUTLINE_SEGMENT_ANGLE)
+            }
+            _ => None,
+        })
+        .collect();
+    if outline.is_empty() || !closed(&outline) {
+        return None;
+    }
+    let regions = model
+        .evaluation()
+        .feature(source.sketch)?
+        .result
+        .as_deref()
+        .and_then(FeatureResult::sketch)?
+        .regions()?
+        .as_ref()
+        .ok()?;
+    let enclosed: BTreeSet<RegionKey> = regions
+        .iter()
+        .filter(|region| {
+            region
+                .reference()
+                .anchor()
+                .is_some_and(|anchor| encloses(&outline, anchor))
+        })
+        .map(|region| region.region.key())
+        .collect();
+    (!enclosed.is_empty())
+        .then(|| RegionChoice::Chosen(scene::region_references(&enclosed, regions)))
+}
+
+fn closed(outline: &[Vec<Point2>]) -> bool {
+    let ends: Vec<Point2> = outline
+        .iter()
+        .filter_map(|polyline| Some((*polyline.first()?, *polyline.last()?)))
+        .filter(|(first, last)| first.distance(*last) > OUTLINE_GAP)
+        .flat_map(|(first, last)| [first, last])
+        .collect();
+    ends.iter().enumerate().all(|(index, end)| {
+        ends.iter()
+            .enumerate()
+            .any(|(other, point)| other != index && point.distance(*end) <= OUTLINE_GAP)
+    })
+}
+
+fn encloses(outline: &[Vec<Point2>], point: Point2) -> bool {
+    let crossings = outline
+        .iter()
+        .flat_map(|polyline| polyline.windows(2))
+        .filter(|pair| match pair {
+            [start, end] => {
+                (start.y > point.y) != (end.y > point.y)
+                    && point.x
+                        < start.x + (point.y - start.y) / (end.y - start.y) * (end.x - start.x)
+            }
+            _ => false,
+        })
+        .count();
+    crossings % 2 == 1
+}
+
 pub fn axis_name(document: &Document, sketch: FeatureId, axis: &RevolveAxis) -> String {
     match axis {
         RevolveAxis::Sketch(line) => editing::edited_sketch(document, sketch).map_or_else(
@@ -258,7 +359,7 @@ pub fn create(
             };
             SolidFeature::Extrude(Extrude {
                 sketch: source.sketch,
-                regions: RegionChoice::All,
+                regions: source.regions.clone(),
                 extent: ExtrudeExtent::one_side(
                     unit.default_length(DEFAULT_DISTANCE),
                     into_the_body,
@@ -270,7 +371,7 @@ pub fn create(
         }
         Sweep::Revolve => SolidFeature::Revolve(Revolve {
             sketch: source.sketch,
-            regions: RegionChoice::All,
+            regions: source.regions.clone(),
             axis: source
                 .axis
                 .unwrap_or(RevolveAxis::Sketch(EntityId::VERTICAL_AXIS)),
@@ -406,7 +507,8 @@ mod tests {
             sweep_source(&document, &selection, &idle, true),
             Some(SweepSource {
                 sketch: side,
-                axis: None
+                axis: None,
+                regions: RegionChoice::All,
             })
         );
         assert_eq!(
@@ -422,7 +524,8 @@ mod tests {
             sweep_source(&document, &selection, &SketchEditing::editing(side), false),
             Some(SweepSource {
                 sketch: side,
-                axis: Some(RevolveAxis::Sketch(line))
+                axis: Some(RevolveAxis::Sketch(line)),
+                regions: RegionChoice::All,
             })
         );
         assert_eq!(
@@ -454,6 +557,7 @@ mod tests {
             SweepSource {
                 sketch: base,
                 axis: None,
+                regions: RegionChoice::All,
             },
             LengthUnit::Millimetre,
         );
@@ -464,6 +568,7 @@ mod tests {
             SweepSource {
                 sketch: side,
                 axis: Some(RevolveAxis::Sketch(line)),
+                regions: RegionChoice::All,
             },
             LengthUnit::Millimetre,
         );

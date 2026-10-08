@@ -301,7 +301,7 @@ fn solid_buttons(
             (None, Some(source)) => actions.extend(solid_tools::create_actions(
                 document,
                 sweep,
-                source.clone(),
+                solid_tools::with_selected_outline(model, sweep, source.clone(), context.selection),
                 model.length_unit(),
             )),
             (Some(Err(_)), _) | (None, None) => {}

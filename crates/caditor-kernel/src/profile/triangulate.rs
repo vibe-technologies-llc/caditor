@@ -7,7 +7,7 @@ use spade::{
 };
 
 use super::{ProfileLoop, Region};
-use crate::tolerance::SamplingTolerance;
+use crate::tolerance::{LINEAR_RESOLUTION, SamplingTolerance};
 
 type Cdt = ConstrainedDelaunayTriangulation<PlanePoint<f64>>;
 
@@ -50,12 +50,17 @@ pub(super) fn loop_polygon(
             samples.reverse();
         }
         for point in samples {
-            if polygon.last() != Some(&point) {
+            if !polygon
+                .last()
+                .is_some_and(|last| last.distance(point) <= LINEAR_RESOLUTION)
+            {
                 polygon.push(point);
             }
         }
     }
-    if polygon.len() > 1 && polygon.first() == polygon.last() {
+    while polygon.len() > 1
+        && matches!((polygon.first(), polygon.last()), (Some(first), Some(last)) if first.distance(*last) <= LINEAR_RESOLUTION)
+    {
         polygon.pop();
     }
     polygon
