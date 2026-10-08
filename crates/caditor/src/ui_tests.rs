@@ -2502,6 +2502,81 @@ fn an_imported_body_reloads_from_the_file_it_came_from_without_asking() {
 }
 
 #[test]
+fn an_imported_body_is_placed_from_its_details_and_keeps_its_place_when_reloaded() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let path = dir.path().join("cube.stl");
+    std::fs::write(&path, cube_stl(10.0)).unwrap();
+    let before = harness.document().features().len();
+    harness.answer_dialog(Some(path.clone()));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_until("the cube is imported", |harness| {
+        harness.document().features().len() == before + 1
+    });
+    harness.settle();
+    let body = harness.document().features().last().unwrap().id();
+    let name = harness.document().feature(body).unwrap().name.clone();
+
+    harness.click("Close");
+    harness.click_button(&format!("Show details of {name}"));
+    harness.let_animations_finish();
+    let described = harness.shows(crate::import_panel::DESCRIPTION);
+    let captioned = harness.shows("Move along X") && harness.shows("Turn about Z");
+    harness.type_into_field(Id::new(("import-field", ("offset", 0usize), body)), "15 mm");
+    harness.settle();
+    let (low, _) = plate_bounds(&harness, body);
+
+    assert!(described);
+    assert!(captioned);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Place {name}").as_str())
+    );
+    assert!((low.x - 15.0).abs() < 1e-6, "{low:?}");
+
+    harness.type_into_field(Id::new(("import-field", ("turn", 2usize), body)), "90 deg");
+    harness.settle();
+    let (low, high) = plate_bounds(&harness, body);
+
+    assert!((low.x - 5.0).abs() < 1e-6, "{low:?}");
+    assert!(
+        low.y.abs() < 1e-6 && (high.y - 10.0).abs() < 1e-6,
+        "{high:?}"
+    );
+
+    harness.type_into_field(Id::new(("import-field", ("offset", 1usize), body)), "5 deg");
+
+    assert!(harness.shows_containing("length"));
+
+    std::fs::write(&path, cube_stl(20.0)).unwrap();
+    harness.command(FileCommand::ReloadImport(body));
+    harness.wait_until("the cube is reloaded", |harness| {
+        harness
+            .model
+            .undo_label()
+            .is_some_and(|label| label.starts_with("Replace"))
+    });
+    harness.settle();
+    let (low, high) = plate_bounds(&harness, body);
+
+    assert!(volume_about(&harness, body, 8000.0));
+    assert!((low.x + 5.0).abs() < 1e-6, "{low:?}");
+    assert!(
+        low.y.abs() < 1e-6 && (high.y - 20.0).abs() < 1e-6,
+        "{high:?}"
+    );
+
+    for _ in 0..3 {
+        harness.perform(Action::Undo);
+    }
+    harness.settle();
+    let (low, _) = plate_bounds(&harness, body);
+
+    assert!(volume_about(&harness, body, 1000.0));
+    assert!(low.length() < 1e-6, "{low:?}");
+}
+
+#[test]
 fn an_imported_body_is_replaced_from_a_file_in_place_and_undone_as_one_step() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

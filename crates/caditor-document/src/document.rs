@@ -162,6 +162,7 @@ impl FeatureKind {
                     + import.path_len()
                     + import.step.len()
                     + import.solid.approximate_size()
+                    + import.placement.heap_size()
             }
             Self::Pattern(pattern) => size_of::<Pattern>() + pattern.heap_size(),
             Self::Datum(datum) => datum.heap_size(),
@@ -624,7 +625,8 @@ impl FeatureKind {
             Self::Hole(hole) => hole.parameters(),
             Self::Pattern(pattern) => pattern.parameters(),
             Self::Datum(datum) => datum.parameters(),
-            Self::Import(_) | Self::Remove(_) => BTreeSet::new(),
+            Self::Import(import) => import.placement.parameters(),
+            Self::Remove(_) => BTreeSet::new(),
         }
     }
 
@@ -641,7 +643,8 @@ impl FeatureKind {
             Self::Hole(hole) => hole.uses_parameter(parameter),
             Self::Pattern(pattern) => pattern.uses_parameter(parameter),
             Self::Datum(datum) => datum.uses_parameter(parameter),
-            Self::Import(_) | Self::Remove(_) => false,
+            Self::Import(import) => import.placement.uses_parameter(parameter),
+            Self::Remove(_) => false,
         }
     }
 

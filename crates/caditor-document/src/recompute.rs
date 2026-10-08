@@ -1282,7 +1282,7 @@ impl Evaluator for ModelEvaluator {
                 pattern::evaluate(feature, definition, inputs, cancel)
             }
             FeatureKind::Datum(definition) => datum::evaluate(feature, definition, inputs),
-            FeatureKind::Import(definition) => import::evaluate(feature, definition),
+            FeatureKind::Import(definition) => import::evaluate(feature, definition, inputs),
             FeatureKind::Remove(definition) => removal::evaluate(feature, definition, inputs),
         }
     }

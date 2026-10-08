@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
+use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Unit};
 use caditor_geometry::{Point3, RigidTransform, Vector3};
 
 use crate::{
@@ -96,17 +96,76 @@ impl Move {
     }
 
     pub fn placement(&self, parameters: &ParameterValues) -> Option<RigidTransform> {
-        placed(
-            self,
-            |expression, dimension, _| {
-                expression
-                    .evaluate_as(dimension, &|id| parameters.value(id))
-                    .map_err(|_| ())
-            },
-            || (),
-        )
-        .ok()
+        evaluated(&self.offset, &self.turn, parameters)
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BodyPlacement {
+    pub offset: [Expression; 3],
+    pub turn: [Expression; 3],
+}
+
+impl Default for BodyPlacement {
+    fn default() -> Self {
+        Self {
+            offset: std::array::from_fn(|_| Expression::Measure(0.0, Unit::Millimetre)),
+            turn: std::array::from_fn(|_| Expression::Measure(0.0, Unit::Degree)),
+        }
+    }
+}
+
+impl BodyPlacement {
+    pub fn is_at_origin(&self) -> bool {
+        self.expressions().all(|expression| {
+            matches!(expression, Expression::Number(value) | Expression::Measure(value, _) if *value == 0.0)
+        })
+    }
+
+    pub fn expressions(&self) -> impl Iterator<Item = &Expression> {
+        self.offset.iter().chain(self.turn.iter())
+    }
+
+    pub fn expressions_mut(&mut self) -> impl Iterator<Item = &mut Expression> {
+        self.offset.iter_mut().chain(self.turn.iter_mut())
+    }
+
+    pub fn parameters(&self) -> BTreeSet<ParameterId> {
+        self.expressions()
+            .flat_map(|expression| expression.parameters())
+            .collect()
+    }
+
+    pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
+        self.expressions()
+            .any(|expression| expression.uses(parameter))
+    }
+
+    pub fn heap_size(&self) -> usize {
+        self.expressions().map(Expression::heap_size).sum()
+    }
+
+    pub fn transform(&self, parameters: &ParameterValues) -> Option<RigidTransform> {
+        evaluated(&self.offset, &self.turn, parameters)
+    }
+}
+
+fn evaluated(
+    offset: &[Expression; 3],
+    turn: &[Expression; 3],
+    parameters: &ParameterValues,
+) -> Option<RigidTransform> {
+    placed(
+        offset,
+        turn,
+        |expression, dimension, _| {
+            expression
+                .evaluate_as(dimension, &|id| parameters.value(id))
+                .map_err(|_| ())
+        },
+        || (),
+    )
+    .ok()
 }
 
 struct Context<'a> {
@@ -165,31 +224,52 @@ impl Context<'_> {
 
 fn transform(context: &Context<'_>, definition: &Move) -> Result<RigidTransform, Failure> {
     placed(
-        definition,
+        &definition.offset,
+        &definition.turn,
         |expression, dimension, what| context.value(expression, dimension, what),
         || unusable(context),
     )
 }
 
+pub(crate) fn placement_transform(
+    feature: &Feature,
+    inputs: &Inputs<'_>,
+    placement: &BodyPlacement,
+) -> Result<RigidTransform, Failure> {
+    let context = Context { feature, inputs };
+    placed(
+        &placement.offset,
+        &placement.turn,
+        |expression, dimension, what| context.value(expression, dimension, what),
+        || {
+            context.error(
+                "The placement is too large or too small to place the body.".to_owned(),
+                "Enter smaller distances and turns.".to_owned(),
+            )
+        },
+    )
+}
+
 fn placed<E>(
-    definition: &Move,
+    offset: &[Expression; 3],
+    turn: &[Expression; 3],
     value: impl Fn(&Expression, Dimension, &str) -> Result<f64, E>,
     unusable: impl Fn() -> E,
 ) -> Result<RigidTransform, E> {
     let mut placed = RigidTransform::IDENTITY;
     for axis in MoveAxis::ALL {
         let what = format!("turn about {}", axis.name());
-        let angle = value(axis.of(&definition.turn), Dimension::ANGLE, &what)?.to_radians();
+        let angle = value(axis.of(turn), Dimension::ANGLE, &what)?.to_radians();
         let turned = RigidTransform::rotation_about(Point3::ZERO, axis.direction(), angle)
             .ok_or_else(&unusable)?;
         placed = placed.then(&turned);
     }
-    let mut offset = Vector3::ZERO;
+    let mut shift = Vector3::ZERO;
     for axis in MoveAxis::ALL {
         let what = format!("distance along {}", axis.name());
-        offset += axis.direction() * value(axis.of(&definition.offset), Dimension::LENGTH, &what)?;
+        shift += axis.direction() * value(axis.of(offset), Dimension::LENGTH, &what)?;
     }
-    let shifted = RigidTransform::translation(offset).ok_or_else(&unusable)?;
+    let shifted = RigidTransform::translation(shift).ok_or_else(&unusable)?;
     Ok(placed.then(&shifted))
 }
 

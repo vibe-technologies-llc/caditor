@@ -261,6 +261,11 @@ pub fn replace_body(
     };
     let name = existing.name.clone();
     let held_before = existing.kind.stored_text_len();
+    let placement = existing
+        .kind
+        .import()
+        .map(|import| import.placement.clone())
+        .unwrap_or_default();
     let imported = match result {
         Ok(imported) => imported,
         Err(error) => {
@@ -279,11 +284,12 @@ pub fn replace_body(
             return None;
         }
     };
+    let kept_in_place = FeatureKind::Import(body.import.clone().placed(placement));
     let transaction = Transaction::single(
         format!("Replace {name} from {file}"),
         Edit::SetFeatureKind {
             id: feature,
-            kind: FeatureKind::Import(body.import.clone()),
+            kind: kept_in_place,
         },
     );
     let held: usize = model

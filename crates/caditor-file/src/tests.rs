@@ -1458,6 +1458,75 @@ fn an_import_keeps_the_path_it_was_read_from_only_when_known() {
 }
 
 #[test]
+fn a_placed_import_is_a_record_of_its_own_and_an_unplaced_one_stays_readable_by_older_versions() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Import");
+    let shift = transaction.add_parameter("shift", transaction.parse("4 mm").unwrap());
+    let mut placement = caditor_document::BodyPlacement::default();
+    placement.offset[2] = Expression::Parameter(shift);
+    placement.turn[0] = Expression::Measure(30.0, Unit::Degree);
+    let placed = caditor_document::Import::new("cube.step", caditor_kernel::Solid::default(), "")
+        .placed(placement);
+    let unplaced = caditor_document::Import::new("old.step", caditor_kernel::Solid::default(), "");
+    let first = transaction.add_feature("Cube", FeatureKind::Import(placed.clone()));
+    transaction.add_feature("Old", FeatureKind::Import(unplaced));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let damaged = decode_text(
+        &text
+            .replace("\"30 deg\"", "\"30 ((\"")
+            .replace("\"$0\"", "\"$0 ((\""),
+    );
+    let placement_of = |loaded: &Loaded| {
+        loaded
+            .document
+            .feature(first)
+            .and_then(|feature| feature.kind.import())
+            .map(|import| import.placement.clone())
+    };
+
+    assert!(
+        text.contains(
+            "\"placed_import\":{\"offset\":[\"0 mm\",\"0 mm\",\"$0\"],\"source\":\"cube.step\",\
+             \"step\":\"\",\"turn\":[\"30 deg\",\"0 deg\",\"0 deg\"]}"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("\"import\":{\"source\":\"old.step\""),
+        "{text}"
+    );
+    assert!(
+        loaded
+            .issues
+            .iter()
+            .all(|issue| issue.contains("it is not a STEP file")),
+        "{:?}",
+        loaded.issues
+    );
+    assert_eq!(loaded.document, document);
+    assert_eq!(
+        placement_of(&damaged),
+        Some(caditor_document::BodyPlacement::default())
+    );
+    assert_eq!(damaged.issues.len(), loaded.issues.len() + 2);
+    assert!(
+        damaged.issues.iter().any(|issue| issue
+            == "The placement distance of “Cube” could not be read, so it was set to 0 mm."),
+        "{:?}",
+        damaged.issues
+    );
+    assert!(
+        damaged.issues.iter().any(|issue| issue
+            == "The placement turn of “Cube” could not be read, so it was set to 0 deg."),
+        "{:?}",
+        damaged.issues
+    );
+}
+
+#[test]
 fn arc_dimensions_round_trip_and_fall_back_to_their_drawn_values() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Arc dimensions");

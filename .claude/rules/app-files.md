@@ -7,6 +7,7 @@ paths:
   - "crates/caditor/src/export.rs"
   - "crates/caditor/src/image_export.rs"
   - "crates/caditor/src/import.rs"
+  - "crates/caditor/src/import_panel.rs"
   - "crates/caditor/src/history.rs"
   - "crates/caditor/src/preferences.rs"
   - "crates/caditor/src/graphics.rs"
@@ -124,10 +125,13 @@ paths:
   (`Drawing::chosen_curve_count`); Cancel adds nothing, and a queue of dropped files waits behind
   it. A drawing that fails to read skips it and reports as
   before.
+- An import's details (`import_panel.rs`) end with its placement: Turn about X, Y and Z, then Move
+  along X, Y and Z, all expressions (key `import-field`, `turn` or `offset`, axis index), each
+  entered value one undoable `SetFeatureKind` named "Place <name>".
 - Replace from file (`Command::ReplaceImport`, an import's details, its right-click menu, the
   palette on the tree's current import) picks a STEP or mesh file, reads it on the files worker and
-  applies one `SetFeatureKind` putting its body in place of the import, so features using the body
-  keep it and find its faces again by name. A file of several bodies gives the one named like the
+  applies one `SetFeatureKind` putting its body in place of the import, keeping its placement, so
+  features using the body keep it and find its faces again by name. A file of several bodies gives the one named like the
   feature (or like it before a " 2" suffix), else nothing with the reason; a drawing is refused.
 - Reload import from its file (`Command::ReloadImport`, the import's details, its right-click menu,
   the palette) does the same with the path the import kept (`import::kept_source`, made absolute

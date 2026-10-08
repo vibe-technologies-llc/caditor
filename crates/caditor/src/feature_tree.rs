@@ -22,7 +22,7 @@ use crate::{
     editing::{EditingCommand, SketchEditing},
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, hole_panel, icons, mirror_panel, mirror_tools,
+    fonts, hole_panel, icons, import_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel,
     panels::{Focus, PanelState, Renaming},
@@ -876,6 +876,7 @@ fn body(
                     actions.push(Action::File(FileCommand::ReloadImport(feature.id())));
                 }
             }
+            import_panel::placement(ui, model, actions, feature, import);
             body_display(ui, model, feature);
         }
         FeatureKind::Remove(remove) => removal::show(ui, model, actions, feature, remove),

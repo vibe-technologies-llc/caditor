@@ -48,6 +48,7 @@ mod icons;
 mod image_export;
 mod import;
 mod import_options;
+mod import_panel;
 mod interference;
 mod interference_panel;
 mod layout;

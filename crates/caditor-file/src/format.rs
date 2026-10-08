@@ -1,8 +1,8 @@
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use caditor_document::{
-    AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, CircularPattern, Combine,
-    CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, Edit, Extrude,
+    AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, BodyPlacement, CircularPattern,
+    Combine, CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, Edit, Extrude,
     ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour, Feature, FeatureId, FeatureKind, Hole,
     HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle, Import, LinearDirection,
     LinearSpacing, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
@@ -151,6 +151,7 @@ pub(crate) enum FeatureKindRecord {
     AxisThrough(Box<AxisThroughRecord>),
     Import(ImportRecord),
     CutSeveral(Box<CutSeveralRecord>),
+    PlacedImport(Box<PlacedImportRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -161,7 +162,7 @@ pub(crate) struct CutSeveralRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
-pub(crate) const FEATURE_KINDS: [&str; 29] = [
+pub(crate) const FEATURE_KINDS: [&str; 30] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -191,6 +192,7 @@ pub(crate) const FEATURE_KINDS: [&str; 29] = [
     "axis_through",
     "import",
     "cut_several",
+    "placed_import",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -199,6 +201,14 @@ pub(crate) struct ImportRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     pub step: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PlacedImportRecord {
+    #[serde(flatten)]
+    pub import: ImportRecord,
+    pub offset: [String; 3],
+    pub turn: [String; 3],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -1319,16 +1329,36 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }),
         FeatureKind::Hole(hole) => hole_record(hole),
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
-        FeatureKind::Import(import) => FeatureKindRecord::Import(ImportRecord {
-            source: import.source.clone(),
-            path: import
-                .path
-                .as_ref()
-                .and_then(|path| path.to_str())
-                .map(str::to_owned),
-            step: import.step.to_string(),
-        }),
+        FeatureKind::Import(import) => import_record(import),
     }
+}
+
+fn import_record(import: &Import) -> FeatureKindRecord {
+    let record = ImportRecord {
+        source: import.source.clone(),
+        path: import
+            .path
+            .as_ref()
+            .and_then(|path| path.to_str())
+            .map(str::to_owned),
+        step: import.step.to_string(),
+    };
+    if import.placement.is_at_origin() {
+        return FeatureKindRecord::Import(record);
+    }
+    FeatureKindRecord::PlacedImport(Box::new(PlacedImportRecord {
+        import: record,
+        offset: import
+            .placement
+            .offset
+            .each_ref()
+            .map(Expression::to_stored_text),
+        turn: import
+            .placement
+            .turn
+            .each_ref()
+            .map(Expression::to_stored_text),
+    }))
 }
 
 fn end_record(end: &ExtrudeEnd) -> Lenient<ExtrudeEndRecord> {
@@ -2834,6 +2864,9 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
         FeatureKindRecord::Import(record) => {
             FeatureKind::Import(restore_import(record, name, issues))
         }
+        FeatureKindRecord::PlacedImport(record) => {
+            FeatureKind::Import(restore_placed_import(record, name, issues))
+        }
     }
 }
 
@@ -2937,6 +2970,24 @@ fn restore_import(record: &ImportRecord, name: &str, issues: &mut Vec<String>) -
         Some(path) => import.from_file(PathBuf::from(path)),
         None => import,
     }
+}
+
+fn restore_placed_import(
+    record: &PlacedImportRecord,
+    name: &str,
+    issues: &mut Vec<String>,
+) -> Import {
+    let import = restore_import(&record.import, name, issues);
+    let mut read = |texts: &[String; 3], what: &str, fallback: &str| {
+        texts
+            .each_ref()
+            .map(|text| restore_value(text, what, fallback, name, issues))
+    };
+    let placement = BodyPlacement {
+        offset: read(&record.offset, "placement distance", "0 mm"),
+        turn: read(&record.turn, "placement turn", "0 deg"),
+    };
+    import.placed(placement)
 }
 
 fn restore_plane_reference(record: &PlaneReferenceRecord) -> Option<PlaneReference> {

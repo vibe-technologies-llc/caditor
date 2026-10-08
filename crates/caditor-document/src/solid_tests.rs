@@ -877,6 +877,103 @@ fn an_import_used_by_later_features_can_be_replaced_by_another_import_but_not_an
 }
 
 #[test]
+fn an_import_is_placed_by_its_turns_and_distances_keeping_its_face_names() {
+    let base = model();
+    let evaluation = evaluate(&base.document, &mut Recompute::default());
+    let solid = evaluation.body(base.base).unwrap().clone();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Import");
+    let shift = transaction.add_parameter("shift", transaction.parse("5 mm").unwrap());
+    let imported = transaction.add_feature(
+        "Bracket",
+        FeatureKind::Import(Import::new("bracket.step", solid, "text")),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let at_origin = evaluate(&document, &mut engine);
+    let names: Vec<_> = at_origin
+        .body(imported)
+        .unwrap()
+        .faces()
+        .map(|(_, face)| face.name())
+        .collect();
+    let (low, high) = {
+        let bounds = at_origin.body(imported).unwrap().bounding_box().unwrap();
+        (bounds.min(), bounds.max())
+    };
+
+    let mut placement = BodyPlacement::default();
+    placement.offset[0] = Expression::Parameter(shift);
+    placement.turn[2] = document.parse("90 deg").unwrap();
+    let placed = document
+        .feature(imported)
+        .and_then(|feature| feature.kind.import())
+        .unwrap()
+        .clone()
+        .placed(placement);
+    let undo = document
+        .apply(Transaction::single(
+            "Place",
+            Edit::SetFeatureKind {
+                id: imported,
+                kind: FeatureKind::Import(placed),
+            },
+        ))
+        .unwrap();
+    let moved = evaluate(&document, &mut engine);
+    let bounds = moved.body(imported).unwrap().bounding_box().unwrap();
+    let moved_names: Vec<_> = moved
+        .body(imported)
+        .unwrap()
+        .faces()
+        .map(|(_, face)| face.name())
+        .collect();
+    let inlined = document.inline_parameter(shift);
+
+    assert_eq!(moved.failed_count(), 0);
+    assert!((bounds.min() - Point3::new(5.0 - high.y, low.x, low.z)).length() < 1e-6);
+    assert!((bounds.max() - Point3::new(5.0 - low.y, high.x, high.z)).length() < 1e-6);
+    assert_eq!(moved_names, names);
+    assert!((volume(&moved, imported) - 348.0).abs() < 0.05);
+    assert!(document.feature(imported).unwrap().uses_parameter(shift));
+    assert!(document.check(&inlined.unwrap()).is_ok());
+
+    document.apply(undo).unwrap();
+    let back = evaluate(&document, &mut engine);
+    let bounds = back.body(imported).unwrap().bounding_box().unwrap();
+
+    assert!((bounds.min() - low).length() < 1e-6);
+}
+
+#[test]
+fn a_placement_that_is_not_a_length_fails_the_import_alone() {
+    let base = model();
+    let evaluation = evaluate(&base.document, &mut Recompute::default());
+    let solid = evaluation.body(base.base).unwrap().clone();
+    let mut document = Document::default();
+    let mut placement = BodyPlacement::default();
+    placement.offset[1] = document.parse("30 deg").unwrap();
+    let mut transaction = document.transaction("Import");
+    let imported = transaction.add_feature(
+        "Bracket",
+        FeatureKind::Import(Import::new("bracket.step", solid, "text").placed(placement)),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let FeatureState::Failed(error) = &evaluation.feature(imported).unwrap().state else {
+        panic!("an angle cannot shift a body");
+    };
+    assert!(
+        error.reason.contains("distance along Y"),
+        "{}",
+        error.reason
+    );
+    assert!(BodyPlacement::default().is_at_origin());
+}
+
+#[test]
 fn a_revolve_with_regions_on_both_sides_names_the_curves_apart_from_the_rest() {
     let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
     let stray = section.add_circle(Point2::new(-3.0, 1.0), 0.5);
