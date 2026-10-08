@@ -570,6 +570,14 @@ impl Menus<'_, '_> {
             self.item(ui, Command::Construction);
             self.items(ui, modifying.into_iter().map(Command::SketchTool));
             self.items(ui, [Command::MoveGeometry, Command::SelectAll]);
+            self.items(
+                ui,
+                [
+                    Command::CopyGeometry,
+                    Command::CutGeometry,
+                    Command::PasteGeometry,
+                ],
+            );
             ui.separator();
             let (dimensions, geometric): (Vec<ConstraintTool>, Vec<ConstraintTool>) =
                 ConstraintTool::ALL

@@ -85,6 +85,9 @@ pub enum Command {
     ToggleConstraintActive,
     MoveGeometry,
     SelectAll,
+    CopyGeometry,
+    CutGeometry,
+    PasteGeometry,
     SketchTool(Tool),
     ShapeMode(ShapeMode),
     Constraint(ConstraintTool),
@@ -506,6 +509,9 @@ plain_commands! {
     ToggleConstraintActive,
     MoveGeometry,
     SelectAll,
+    CopyGeometry,
+    CutGeometry,
+    PasteGeometry,
     DeleteSelection,
     ClearRecent,
     RecoverUnsaved,
@@ -594,6 +600,9 @@ impl Command {
             Self::ToggleConstraintActive => "sketch.toggle_constraint_active",
             Self::MoveGeometry => "sketch.move",
             Self::SelectAll => "sketch.select_all",
+            Self::CopyGeometry => "sketch.copy",
+            Self::CutGeometry => "sketch.cut",
+            Self::PasteGeometry => "sketch.paste",
             Self::SketchTool(tool) => match tool {
                 Tool::Select => "sketch.select",
                 Tool::Point => "sketch.point",
@@ -775,6 +784,9 @@ impl Command {
             Self::ToggleConstraintActive => "Disable or enable the selected constraints",
             Self::MoveGeometry => "Move selected sketch geometry",
             Self::SelectAll => "Select all sketch geometry",
+            Self::CopyGeometry => "Copy selected sketch geometry",
+            Self::CutGeometry => "Cut selected sketch geometry",
+            Self::PasteGeometry => "Paste sketch geometry",
             Self::SketchTool(Tool::Select) => "Select tool",
             Self::SketchTool(Tool::Trim) => "Trim sketch curves",
             Self::SketchTool(Tool::Extend) => "Extend a line or arc",
@@ -1011,6 +1023,9 @@ impl Command {
             | Self::ToggleConstraintActive
             | Self::MoveGeometry
             | Self::SelectAll
+            | Self::CopyGeometry
+            | Self::CutGeometry
+            | Self::PasteGeometry
             | Self::SketchTool(_)
             | Self::ShapeMode(_) => Category::Sketch,
             Self::Constraint(_) => Category::Constraint,
@@ -1027,6 +1042,9 @@ impl Command {
             | Self::ToggleConstraintActive
             | Self::MoveGeometry
             | Self::SelectAll
+            | Self::CopyGeometry
+            | Self::CutGeometry
+            | Self::PasteGeometry
             | Self::SketchTool(_)
             | Self::ShapeMode(_)
             | Self::Constraint(_) => Scope::Sketch,
@@ -1087,6 +1105,9 @@ impl Command {
             Self::Construction => vec![plain(Key::Q)],
             Self::MoveGeometry => vec![plain(Key::M)],
             Self::SelectAll => vec![command(Key::A)],
+            Self::CopyGeometry => vec![command(Key::C)],
+            Self::CutGeometry => vec![command(Key::X)],
+            Self::PasteGeometry => vec![command(Key::V)],
             Self::RenameFeature => vec![plain(Key::F2)],
             Self::Recompute => vec![plain(Key::F5)],
             Self::EditFeature => vec![plain(Key::E)],
@@ -1545,6 +1566,9 @@ pub fn pressed_shortcut(event: &Event) -> Option<KeyboardShortcut> {
             modifiers,
             ..
         } if !is_modifier(*key) => Some(KeyboardShortcut::new(normalized(*modifiers), *key)),
+        Event::Copy => Some(KeyboardShortcut::new(Modifiers::COMMAND, Key::C)),
+        Event::Cut => Some(KeyboardShortcut::new(Modifiers::COMMAND, Key::X)),
+        Event::Paste(_) => Some(KeyboardShortcut::new(Modifiers::COMMAND, Key::V)),
         _ => None,
     }
 }

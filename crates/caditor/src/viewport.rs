@@ -5,7 +5,7 @@ use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3}
 use caditor_render::{
     Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing,
 };
-use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH};
+use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
     Align, Align2, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, WidgetInfo,
     WidgetType, accesskit::Live, pos2, vec2,
@@ -26,6 +26,7 @@ use crate::{
     drawing::{Drawing, Preview},
     editing::{self, EditingCommand, SketchEditing, Tool},
     faceting::FacetLevel,
+    feature_tree,
     interference_panel::{Mark, MarkKind},
     measure::MeasuredLine,
     model::{Action, Model, Notice, RecomputeStatus},
@@ -44,7 +45,7 @@ use crate::{
     sketch_tools,
     snap::{self, Accept, Pointer, Screen, Snapped},
     solid_tools,
-    trimming::Trimming,
+    trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
     view_cube::{self, CubeAction},
     visibility,
@@ -66,6 +67,11 @@ const NOT_IN_A_SKETCH: &str = "Edit a sketch to look straight at it";
 pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
 pub const DRAG_CONFLICT: &str = "Nothing moves while constraints conflict";
 const READOUT_GAP: f32 = 4.0;
+const CLIPBOARD_MARK: &str = "caditor sketch geometry: ";
+const NOTHING_TO_COPY: &str = "Select sketch geometry to copy";
+const NOTHING_TO_PASTE: &str = "Copy or cut sketch geometry first";
+const PASTE_SHIFT_FRACTION: f64 = 0.25;
+const PASTE_SHIFT_FLOOR: f64 = 1.0;
 const NAVIGATION_HINT: &str =
     "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom";
 pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on";
@@ -241,12 +247,37 @@ pub struct ViewportState {
     glyphs_shown: bool,
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
+    clipboard: Option<Copied>,
+    system_clipboard: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Copied {
+    feature: FeatureId,
+    clip: SketchClip,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Problem {
     place: Point3,
     label: String,
+}
+
+fn clipped(clip: &SketchClip) -> String {
+    let parts: Vec<String> = [
+        (clip.curve_count(), "curve", "curves"),
+        (clip.lone_point_count(), "point", "points"),
+        (clip.constraint_count(), "constraint", "constraints"),
+    ]
+    .into_iter()
+    .filter(|(amount, _, _)| *amount > 0)
+    .map(|(amount, singular, plural)| feature_tree::count(amount, singular, plural))
+    .collect();
+    match parts.as_slice() {
+        [] => "nothing".to_owned(),
+        [only] => only.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
 }
 
 fn problems(model: &Model) -> Vec<Problem> {
@@ -328,6 +359,8 @@ impl ViewportState {
             glyphs_shown: true,
             manipulator: None,
             manipulator_hover: None,
+            clipboard: None,
+            system_clipboard: None,
         }
     }
 
@@ -418,6 +451,7 @@ impl ViewportState {
         self.annotations = Annotations::default();
         self.typed_point = TypedPoint::default();
         self.moving = None;
+        self.clipboard = None;
         self.press = None;
         self.primary = None;
     }
@@ -502,6 +536,9 @@ impl ViewportState {
             self.fit_when_computed = false;
         }
         self.keyboard_commands(model, editing, commands, actions);
+        if let Some(text) = self.system_clipboard.take() {
+            ui.ctx().copy_text(text);
+        }
         let key_hints = KeyHints::new(commands);
         egui::CentralPanel::no_frame().show(ui, |ui| {
             let rect = ui.max_rect();
@@ -1669,7 +1706,13 @@ impl ViewportState {
                     self.drawing.add_sides(change);
                 }
             }
-            self.sketch_commands(model, active.feature, active.tool.draws(), commands);
+            self.sketch_commands(
+                model,
+                active.feature,
+                active.tool.draws(),
+                commands,
+                actions,
+            );
         }
         if self.trimming.is_active() {
             let activation = if self.trimming.has_highlight() {
@@ -1811,6 +1854,7 @@ impl ViewportState {
         feature: FeatureId,
         drawing: bool,
         commands: &mut CommandFrame<'_>,
+        actions: &mut Vec<Action>,
     ) {
         let Some(owner) = model.document().feature(feature) else {
             return;
@@ -1832,6 +1876,91 @@ impl ViewportState {
         {
             self.add_to_selection(feature, everything, false);
         }
+        self.clipboard_commands(model, feature, &sketch, &selected, commands, actions);
+    }
+
+    fn clipboard_commands(
+        &mut self,
+        model: &Model,
+        feature: FeatureId,
+        sketch: &Sketch,
+        selected: &[EntityId],
+        commands: &mut CommandFrame<'_>,
+        actions: &mut Vec<Action>,
+    ) {
+        let copyable = if selected.iter().any(|entity| !entity.is_reference()) {
+            Ok(())
+        } else {
+            Err(NOTHING_TO_COPY.to_owned())
+        };
+        let copying = commands.invoke(Command::CopyGeometry, &copyable);
+        let cutting = commands.invoke(Command::CutGeometry, &copyable);
+        if (copying || cutting) && copyable.is_ok() {
+            match sketch.clip(selected) {
+                Ok(clip) => {
+                    let what = clipped(&clip);
+                    self.clipboard = Some(Copied { feature, clip });
+                    self.system_clipboard = Some(format!("{CLIPBOARD_MARK}{what}"));
+                    if cutting {
+                        let mut transaction = sketch_tools::settled_transaction(
+                            model,
+                            feature,
+                            format!("Cut {what}"),
+                        );
+                        transaction.remove_sketch_items(
+                            feature,
+                            selected
+                                .iter()
+                                .copied()
+                                .filter(|entity| !entity.is_reference()),
+                            [],
+                        );
+                        self.selection.clear();
+                        actions.push(Action::Apply(transaction.finish()));
+                    } else {
+                        actions.push(Action::Inform(Notice::info(format!("Copied {what}."))));
+                    }
+                }
+                Err(error) => actions.push(Action::Inform(Notice::info(format!(
+                    "Nothing was copied: {error}."
+                )))),
+            }
+        }
+        let pastable = match &self.clipboard {
+            Some(_) => Ok(()),
+            None => Err(NOTHING_TO_PASTE.to_owned()),
+        };
+        if commands.invoke(Command::PasteGeometry, &pastable)
+            && let Some(copied) = self.clipboard.clone()
+        {
+            let offset = self.paste_offset(&copied, feature);
+            let mut pasted = Vec::new();
+            let label = format!("Paste {}", clipped(&copied.clip));
+            let transaction = trimming::reshaped(model, feature, label, |working| {
+                pasted = working
+                    .paste(&copied.clip, offset)
+                    .map_err(|error| format!("The geometry could not be pasted: {error}."))?;
+                Ok(())
+            });
+            match transaction {
+                Ok(transaction) => {
+                    actions.push(Action::Apply(transaction));
+                    self.add_to_selection(feature, pasted, false);
+                }
+                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            }
+        }
+    }
+
+    fn paste_offset(&self, copied: &Copied, feature: FeatureId) -> Vector2 {
+        let centre = copied.clip.centre().unwrap_or(Point2::ZERO);
+        if let Some(cursor) = self.sketch_cursor {
+            return cursor - centre;
+        }
+        if copied.feature != feature {
+            return Vector2::ZERO;
+        }
+        Vector2::splat(copied.clip.size().max(PASTE_SHIFT_FLOOR) * PASTE_SHIFT_FRACTION)
     }
 
     fn step_highlight(&mut self, step: isize, editing: &SketchEditing) {

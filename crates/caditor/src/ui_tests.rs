@@ -4038,6 +4038,56 @@ fn tangent_arcs_arc_slots_and_spline_legs_show_their_size_too() {
 }
 
 #[test]
+fn copied_sketch_geometry_pastes_under_the_pointer_and_cut_takes_it_away() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(30.0, 10.0));
+    sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.point_at(Point2::new(25.0, 14.0));
+
+    harness.key(Key::V, Modifiers::COMMAND);
+    harness.settle();
+    let before_copy = entities_of_kind(harness.sketch(feature), "Line").len();
+
+    harness.key(Key::A, Modifiers::COMMAND);
+    harness.frame();
+    harness.events.push(Event::Copy);
+    harness.settle();
+    assert!(harness.shows("Copied 1 curve and 1 constraint."));
+    harness.point_at(Point2::new(25.0, 14.0));
+    harness
+        .events
+        .push(Event::Paste("caditor sketch geometry: 1 curve".to_owned()));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    assert_eq!(before_copy, 1);
+    assert_eq!(lines.len(), 2);
+    let pasted = *lines.iter().find(|candidate| **candidate != line).unwrap();
+    let (start, end) = sketch.line_endpoints(pasted).unwrap();
+    assert!(near(start, Point2::new(15.0, 14.0)), "{start}");
+    assert!(near(end, Point2::new(35.0, 14.0)), "{end}");
+    assert_eq!(sketch.constraints().len(), 2);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Paste 1 curve and 1 constraint")
+    );
+
+    harness.events.push(Event::Cut);
+    harness.settle();
+    let sketch = harness.sketch(feature);
+    assert_eq!(entities_of_kind(sketch, "Line"), vec![line]);
+    harness.point_at(Point2::new(20.0, 6.0));
+    harness
+        .events
+        .push(Event::Paste("caditor sketch geometry: 1 curve".to_owned()));
+    harness.settle();
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 2);
+}
+
+#[test]
 fn holding_ctrl_places_a_point_where_the_pointer_is_instead_of_snapping_to_a_point() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

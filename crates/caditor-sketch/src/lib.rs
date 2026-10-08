@@ -1,4 +1,5 @@
 mod banded;
+mod clip;
 mod constraint;
 mod curve;
 mod entity;
@@ -14,6 +15,7 @@ mod solve;
 mod trim;
 
 pub use crate::{
+    clip::{ClipError, SketchClip},
     constraint::{Constraint, DimensionError, MAX_LENGTH},
     curve::{ArcGeometry, BSpline, Faceting},
     entity::Entity,

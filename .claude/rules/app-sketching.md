@@ -69,6 +69,17 @@ paths:
   the selection (Shift or Ctrl adds); a point is left out when a curve it belongs to was taken.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", committed and
   solved like a drag; button and command share availability (`Moving::offered`).
+- Copy, Cut and Paste (`Command::CopyGeometry`, `CutGeometry`, `PasteGeometry`, Ctrl+C, Ctrl+X,
+  Ctrl+V, the Sketch menu and the palette) work on the edited sketch's selected geometry through a
+  `SketchClip` (`Sketch::clip`): the selected curves with their points and the lone points, their
+  construction flags and every constraint among them (inactive ones staying inactive), never
+  reference geometry or a constraint reaching outside the copy. It lives in
+  `ViewportState::clipboard` with the sketch it came from, forgotten with the document. Paste is
+  one transaction (`Sketch::paste` on the working copy under fresh ids, a `Fix` moving with the
+  copy) centred under the pointer when it is on the sketch, else in place in another sketch or
+  shifted by a quarter of the copy's size in the same one, and selects what it pasted. Copying
+  also puts a line of text on the system clipboard, since egui-winit sends Ctrl+V as a paste
+  event only when the system clipboard holds text.
 - Double-clicking a curve (no tool active) selects its chain, the lines and arcs joined end to end
   that Offset would take (`Sketch::offset_chain_through`).
 

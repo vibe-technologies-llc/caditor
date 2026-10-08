@@ -24,6 +24,9 @@ paths:
 - `Situation::accepts` decides what a key press may trigger. Keys widgets use (`WIDGET_KEYS`,
   Escape and Enter included) run commands only when no widget held focus, so Escape or Enter in a
   field never reaches the viewport; other plain keys need only that no text field has focus.
+- egui-winit turns Ctrl+C, Ctrl+X and Ctrl+V into `Event::Copy`, `Cut` and `Paste` without a key
+  event, so `commands::pressed_shortcut` reads those events as the key presses (a paste event
+  arrives only while the system clipboard holds text).
 - Ctrl and Alt shortcuts run from a text field too, except on `TEXT_EDITING_KEYS`: the field
   loses focus (committing) and the command runs next frame (`Workspace::deferred_commands`), so
   Save saves a value just typed.

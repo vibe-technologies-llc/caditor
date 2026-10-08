@@ -222,7 +222,10 @@ impl Constraint {
     }
 
     pub(crate) fn with_entity_replaced(&self, from: EntityId, to: EntityId) -> Self {
-        let swap = |entity: EntityId| if entity == from { to } else { entity };
+        self.with_entities_mapped(|entity| if entity == from { to } else { entity })
+    }
+
+    pub(crate) fn with_entities_mapped(&self, swap: impl Fn(EntityId) -> EntityId) -> Self {
         let mut replaced = self.clone();
         match &mut replaced {
             Self::Horizontal(entity)
