@@ -102,7 +102,7 @@ paths:
 
 ## Editing operations
 
-Trim, extend, offset, mirror, fillet, chamfer and split work on a copy and replace the sketch only if every step
+Trim, extend, offset, mirror, patterns, fillet, chamfer and split work on a copy and replace the sketch only if every step
 succeeded. A changed curve is removed and inserted again under the same ID (`restructure`), with
 every constraint still true of it. Joints are judged by a `TOLERANCE` relative to the extent.
 
@@ -133,6 +133,33 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
 - Mirror (`mirror.rs`): points on the mirror line are shared, others copied with `Symmetric` to the
   original; arcs swap ends to stay counter-clockwise, circles add `Equal`, a curve that is its own
   image is left out. No other constraint is copied, since symmetry holds the copy.
+- Patterns (`pattern.rs`): `rectangular_pattern` repeats the chosen curves and lone points along one
+  or two directions (a `PatternRow` each: count including the original, spacing, angle from the x
+  axis, the second defaulting to square to the first), `circular_pattern` about an existing point,
+  the origin included (`CircularPattern`: a count including the original, spread over a full turn
+  or across a total angle). Copies get fresh IDs and the construction flag, circles an `Equal` to
+  the original. Instances are capped at `MAX_PATTERN_INSTANCES` and must stay within `MAX_LENGTH`.
+  - Copies stay parametric with existing constraints, each tied to the instance before it (the
+    first to the original), so editing the original or any spacing moves everything after it. A
+    rectangular copy's every point is tied to its predecessor by `HorizontalDistance` and
+    `VerticalDistance` holding the typed spacing expression (a row along an axis, an angle that is
+    a literal, uses the spacing itself and `HorizontalPoints` or `VerticalPoints` for the other
+    component; any other angle, a parameter included, uses `abs(spacing * cos(angle))` and
+    `abs(spacing * sin(angle))`), the side coming from the drawn geometry like any distance. A
+    circular copy's every point is tied by two construction lines from the centre (`Equal` and an
+    `Angle` holding the step: the total over count minus one, or 360° over the count), created
+    once per point and instance; the origin as centre gets a point `Coincident` with it to start
+    the lines from, since a line cannot end on a reference.
+  - No constraint among the copied items is copied: a copy tied point by point is already as
+    constrained as its original (its dimensions, parallels, tangents and the like hold because
+    the shape does), so repeating them would make a whole copy redundant, as with mirror. A `Fix`
+    on an original does not reach the copies, so fixing the original moves the copies with it.
+  - Points of the selection lying on the centre are shared by the copies and held there by a
+    `Coincident` when not already; a circle centred on it is its own image and left out. Refused in
+    words (`PatternError`): nothing selected, a count below 2, more than the instance cap, a zero
+    spacing, two parallel directions, a centre that is not a point, nothing off the centre, an
+    angle of 0° or a full turn or more, geometry reaching past `MAX_LENGTH`. `rectangular_image`
+    and `circular_image` give the faceted copies for a preview without touching the sketch.
 - Fillet (`fillet.rs`): a `Corner` is where exactly two lines or arcs end, kept by one of its
   points. `rounding` refuses a radius whose touching point would not lie on a curve short of its far
   end (`TooLarge`). `fillet` adds the arc `Tangent` to both with a `Radius` dimension and keeps the

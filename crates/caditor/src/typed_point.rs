@@ -151,11 +151,11 @@ fn split_top_level(text: &str, separates: impl Fn(char, Option<char>) -> bool) -
     parts
 }
 
-fn coordinates(text: &str) -> Vec<&str> {
+pub(crate) fn coordinates(text: &str) -> Vec<&str> {
     split_top_level(text, |character, _| SEPARATORS.contains(&character))
 }
 
-fn polar(text: &str) -> Vec<&str> {
+pub(crate) fn polar(text: &str) -> Vec<&str> {
     split_top_level(text, |character, next| {
         character == POLAR_MARK && next != Some('=')
     })

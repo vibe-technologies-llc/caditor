@@ -123,7 +123,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
   profile curves, which have no ellipse although its 3D curves do, and the file format),
-  rectangular and circular patterns, text, and fit-point,
+  text, and fit-point,
   closed or periodic splines (`BSpline::through` serves only DXF import, `BSpline::interpolate`
   only its own tests, and the control polygon is not drawn).
 - [medium · hard] No spur gears: a gear tool in the sketch should draw the outline of an involute

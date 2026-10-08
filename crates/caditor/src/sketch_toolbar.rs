@@ -30,7 +30,11 @@ pub const FINISH_LABEL: &str = "Finish sketch";
 pub const ARC_LABEL: &str = "Arc";
 pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
-pub const OFF_RIBBON: [Tool; 1] = [Tool::Chamfer];
+pub const OFF_RIBBON: [Tool; 3] = [
+    Tool::Chamfer,
+    Tool::RectangularPattern,
+    Tool::CircularPattern,
+];
 pub const OFF_RIBBON_CONSTRAINTS: [ConstraintTool; 1] = [ConstraintTool::Curvature];
 pub const DELETE_LABEL: &str = "Delete";
 pub const MOVE_LABEL: &str = "Move";

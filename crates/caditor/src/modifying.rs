@@ -10,6 +10,7 @@ use crate::{
     mirroring::Mirroring,
     model::Model,
     offsetting::{self, Offsetting},
+    patterning::{PatternKind, Patterning},
     sketch_tools,
     snap::{Pointer, Screen},
     units::LengthUnit,
@@ -113,6 +114,7 @@ enum State {
     Idle,
     Offset(Offsetting),
     Mirror(Mirroring),
+    Pattern(Box<Patterning>),
     Fillet(Box<Filleting>),
 }
 
@@ -141,6 +143,12 @@ impl Modifying {
             self.state = match (context, sketch) {
                 (Some((_, Tool::Offset)), _) => State::Offset(Offsetting::default()),
                 (Some((_, Tool::Mirror)), _) => State::Mirror(Mirroring::default()),
+                (Some((_, Tool::RectangularPattern)), _) => {
+                    State::Pattern(Box::new(Patterning::new(PatternKind::Rectangular)))
+                }
+                (Some((_, Tool::CircularPattern)), _) => {
+                    State::Pattern(Box::new(Patterning::new(PatternKind::Circular)))
+                }
                 (Some((_, Tool::Fillet)), Some(sketch)) => State::Fillet(Box::new(
                     Filleting::starting(sketch, selected, CornerCut::Round),
                 )),
@@ -162,6 +170,7 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.sync(sketch, selected),
             State::Mirror(mirroring) => mirroring.sync(selected),
+            State::Pattern(patterning) => patterning.sync(sketch, selected),
             State::Fillet(filleting) => filleting.sync(sketch),
             State::Idle => {}
         }
@@ -177,6 +186,7 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.hover(sketch, screen, pointer),
             State::Mirror(mirroring) => mirroring.hover(sketch, screen, pointer, faceting),
+            State::Pattern(patterning) => patterning.hover(sketch, screen, pointer, faceting),
             State::Fillet(filleting) => filleting.hover(sketch, screen, pointer),
             State::Idle => {}
         }
@@ -186,6 +196,7 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.leave(),
             State::Mirror(mirroring) => mirroring.leave(),
+            State::Pattern(patterning) => patterning.leave(),
             State::Fillet(filleting) => filleting.leave(),
             State::Idle => {}
         }
@@ -195,6 +206,7 @@ impl Modifying {
         match &self.state {
             State::Offset(offsetting) => offsetting.preview(faceting),
             State::Mirror(mirroring) => mirroring.preview(),
+            State::Pattern(patterning) => patterning.preview(),
             State::Fillet(filleting) => filleting.preview(faceting),
             State::Idle => Preview::default(),
         }
@@ -204,6 +216,7 @@ impl Modifying {
         match &self.state {
             State::Offset(offsetting) => offsetting.highlighted_entities(),
             State::Mirror(mirroring) => mirroring.highlighted_entities(),
+            State::Pattern(patterning) => patterning.highlighted_entities(),
             State::Fillet(filleting) => filleting.highlighted_entities(),
             State::Idle => Vec::new(),
         }
@@ -213,6 +226,7 @@ impl Modifying {
         match &self.state {
             State::Offset(offsetting) => offsetting.label(sketch, unit),
             State::Mirror(mirroring) => mirroring.label(sketch),
+            State::Pattern(patterning) => patterning.label(sketch),
             State::Fillet(filleting) => filleting.label(sketch, unit),
             State::Idle => None,
         }
@@ -222,6 +236,7 @@ impl Modifying {
         match &self.state {
             State::Offset(offsetting) => Some(offsetting.prompt()),
             State::Mirror(mirroring) => Some(mirroring.prompt()),
+            State::Pattern(patterning) => Some(patterning.prompt()),
             State::Fillet(filleting) => Some(filleting.prompt()),
             State::Idle => None,
         }
@@ -231,6 +246,7 @@ impl Modifying {
         match &self.state {
             State::Offset(_) => Some(offsetting::FIELD),
             State::Fillet(filleting) => Some(filleting.field()),
+            State::Pattern(patterning) => Some(patterning.field()),
             State::Mirror(_) | State::Idle => None,
         }
     }
@@ -239,7 +255,31 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.show_typed(typed),
             State::Fillet(filleting) => filleting.show_typed(typed),
-            State::Mirror(_) | State::Idle => {}
+            State::Mirror(_) | State::Pattern(_) | State::Idle => {}
+        }
+    }
+
+    pub fn show_text(&mut self, model: &Model, text: Option<&str>) {
+        match &mut self.state {
+            State::Pattern(patterning) => patterning.show_text(model, text),
+            State::Offset(_) | State::Fillet(_) | State::Mirror(_) | State::Idle => {
+                let shown = text
+                    .and_then(|text| Value::typed(model, text).ok())
+                    .map(|value| value.millimetres);
+                self.show_typed(shown);
+            }
+        }
+    }
+
+    pub fn enter_text(&mut self, model: &Model, text: &str) -> Result<Outcome, String> {
+        match &mut self.state {
+            State::Pattern(patterning) => match self.context {
+                Some((feature, _)) => patterning.enter_text(model, feature, text),
+                None => Ok(Outcome::Nothing),
+            },
+            State::Offset(_) | State::Fillet(_) | State::Mirror(_) | State::Idle => {
+                Value::typed(model, text).and_then(|value| self.enter_value(model, value))
+            }
         }
     }
 
@@ -250,6 +290,7 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.click(model, feature, sketch),
             State::Mirror(mirroring) => mirroring.click(model, feature),
+            State::Pattern(patterning) => patterning.click(),
             State::Fillet(filleting) => filleting.click(model, feature),
             State::Idle => Outcome::Nothing,
         }
@@ -259,7 +300,7 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.can_pull(),
             State::Fillet(filleting) => filleting.begin_pull(),
-            State::Mirror(_) | State::Idle => false,
+            State::Mirror(_) | State::Pattern(_) | State::Idle => false,
         }
     }
 
@@ -270,7 +311,7 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.enter_value(model, feature, value),
             State::Fillet(filleting) => filleting.enter_value(model, feature, value),
-            State::Mirror(_) | State::Idle => Ok(Outcome::Nothing),
+            State::Mirror(_) | State::Pattern(_) | State::Idle => Ok(Outcome::Nothing),
         }
     }
 
@@ -281,18 +322,24 @@ impl Modifying {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.click(model, feature, sketch),
             State::Mirror(mirroring) => mirroring.activate(model, feature),
+            State::Pattern(patterning) => patterning.activate(),
             State::Fillet(filleting) => filleting.activate(model, feature),
             State::Idle => Outcome::Nothing,
         }
     }
 
     pub fn steps_targets(&self) -> bool {
-        matches!(self.state, State::Mirror(_) | State::Fillet(_))
+        match &self.state {
+            State::Pattern(patterning) => patterning.steps_targets(),
+            State::Mirror(_) | State::Fillet(_) => true,
+            State::Offset(_) | State::Idle => false,
+        }
     }
 
     pub fn steppable(&self, sketch: &Sketch) -> Result<(), &'static str> {
         match &self.state {
             State::Mirror(mirroring) => mirroring.steppable(),
+            State::Pattern(patterning) => patterning.steppable(),
             State::Fillet(filleting) => filleting.steppable(sketch),
             State::Offset(_) | State::Idle => Ok(()),
         }
@@ -301,6 +348,7 @@ impl Modifying {
     pub fn step(&mut self, sketch: &Sketch, step: isize) {
         match &mut self.state {
             State::Mirror(mirroring) => mirroring.step(sketch, step),
+            State::Pattern(patterning) => patterning.step(sketch, step),
             State::Fillet(filleting) => filleting.step(sketch, step),
             State::Offset(_) | State::Idle => {}
         }
@@ -309,6 +357,7 @@ impl Modifying {
     pub fn highlight_needed(&self) -> Result<(), &'static str> {
         match &self.state {
             State::Mirror(mirroring) => mirroring.highlight_needed(),
+            State::Pattern(patterning) => patterning.highlight_needed(),
             State::Fillet(filleting) => filleting.highlight_needed(),
             State::Offset(_) | State::Idle => Ok(()),
         }
@@ -320,6 +369,7 @@ impl Modifying {
         };
         match &mut self.state {
             State::Mirror(mirroring) => mirroring.activate(model, feature),
+            State::Pattern(patterning) => patterning.activate(),
             State::Fillet(filleting) => filleting.activate(model, feature),
             State::Offset(_) | State::Idle => Outcome::Nothing,
         }
@@ -328,6 +378,7 @@ impl Modifying {
     pub fn clear_highlight(&mut self) {
         match &mut self.state {
             State::Mirror(mirroring) => mirroring.clear_highlight(),
+            State::Pattern(patterning) => patterning.clear_highlight(),
             State::Fillet(filleting) => filleting.clear_highlight(),
             State::Offset(_) | State::Idle => {}
         }
@@ -336,6 +387,7 @@ impl Modifying {
     pub fn can_back_out(&self) -> bool {
         match &self.state {
             State::Mirror(mirroring) => mirroring.can_back_out(),
+            State::Pattern(patterning) => patterning.can_back_out(),
             State::Fillet(filleting) => filleting.can_back_out(),
             State::Offset(_) | State::Idle => false,
         }
@@ -344,6 +396,7 @@ impl Modifying {
     pub fn back_out(&mut self) {
         match &mut self.state {
             State::Mirror(mirroring) => mirroring.back_out(),
+            State::Pattern(patterning) => patterning.back_out(),
             State::Fillet(filleting) => filleting.back_out(),
             State::Offset(_) | State::Idle => {}
         }
