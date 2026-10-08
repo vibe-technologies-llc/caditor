@@ -1392,6 +1392,150 @@ fn the_grid_draws_its_major_lines_and_is_never_picked() {
     assert!(rendered.pick.hits.is_empty(), "{:?}", rendered.pick.hits);
 }
 
+fn quad_mesh(z: f64, half: f64) -> ShadedMesh {
+    let corner = |x: f64, y: f64| MeshPoint {
+        position: Point3::new(x * half, y * half, z),
+        normal: Vector3::Z,
+    };
+    ShadedMesh::new([MeshFace {
+        points: vec![
+            corner(-1.0, -1.0),
+            corner(1.0, -1.0),
+            corner(1.0, 1.0),
+            corner(-1.0, 1.0),
+        ],
+        triangles: vec![[0, 1, 2], [0, 2, 3]],
+    }])
+}
+
+#[test]
+fn a_face_on_the_grid_plane_hides_the_grid_and_a_reference_fill_without_speckles() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let face = Color::from_rgb8(40, 200, 40);
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(quad_mesh(0.0, 40.0)),
+            faces: vec![FaceStyle {
+                color: face,
+                pick: PickId::from_index(5),
+            }],
+            placement: None,
+        }],
+        batches: vec![Arc::new(Batch {
+            fills: vec![Fill::convex(
+                &[
+                    Point3::new(-60.0, -60.0, 0.0),
+                    Point3::new(60.0, -60.0, 0.0),
+                    Point3::new(60.0, 60.0, 0.0),
+                    Point3::new(-60.0, 60.0, 0.0),
+                ],
+                Color::from_rgba8(0, 0, 255, 200),
+                Layer::Reference,
+                PickId::from_index(6),
+            )],
+            ..Batch::default()
+        })],
+        grid: Some(Grid {
+            plane: Plane::XY,
+            color: Color::from_rgb8(255, 0, 255),
+        }),
+        ..Scene::default()
+    };
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::new(1.0, -1.3, 0.7), Point3::ZERO, 140.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let centre = view.project(Point3::ZERO).unwrap();
+
+    let rendered = render(&device, &queue, &view, &scene, centre);
+
+    let mut tainted = Vec::new();
+    for step_x in -30..=30 {
+        for step_y in -30..=30 {
+            let at = Point3::new(f64::from(step_x), f64::from(step_y), 0.0);
+            let Some(on_screen) = view.project(at) else {
+                continue;
+            };
+            let [red, green, blue, _] = pixel(&rendered, on_screen.round());
+            if blue > green || red > green {
+                tainted.push((at, [red, green, blue]));
+            }
+        }
+    }
+    assert!(
+        tainted.is_empty(),
+        "{} tainted, first {:?}",
+        tainted.len(),
+        tainted.first()
+    );
+    assert_eq!(
+        rendered.pick.hits.first().map(|hit| hit.id),
+        PickId::from_index(5)
+    );
+}
+
+#[test]
+fn an_edge_beyond_a_face_seen_at_a_grazing_angle_is_not_eaten_by_it() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let styles: Vec<FaceStyle> = (0..6)
+        .map(|index| FaceStyle {
+            color: Color::from_rgb8(40, 200, 40),
+            pick: PickId::from_index(10 + index),
+        })
+        .collect();
+    let far_edge = Line {
+        start: Point3::new(-20.0, -20.0, 20.0),
+        end: Point3::new(-20.0, 20.0, 20.0),
+        color: LINE_COLOR,
+        width: 1.5,
+        layer: Layer::Model,
+        pick: PickId::from_index(1),
+        stroke: Stroke::Solid,
+    };
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: styles,
+            placement: None,
+        }],
+        batches: vec![Arc::new(Batch {
+            lines: vec![far_edge],
+            ..Batch::default()
+        })],
+        ..Scene::default()
+    };
+    let viewpoint = Viewpoint::looking_from(
+        Vector3::new(1.0, 0.0, 0.015),
+        Point3::new(0.0, 0.0, 20.0),
+        150.0,
+    )
+    .unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+
+    let rendered = render(&device, &queue, &view, &scene, DVec2::ZERO);
+
+    let reddest = |at: DVec2| {
+        (-2..=2)
+            .map(|dy| pixel(&rendered, at + DVec2::new(0.0, f64::from(dy))))
+            .filter(|[red, green, _, _]| *red > 150 && *green < 120)
+            .count()
+    };
+    let missing: Vec<f64> = (-15..=15)
+        .map(f64::from)
+        .filter(|y| {
+            let at = view.project(Point3::new(-20.0, *y, 20.0)).unwrap().round();
+            reddest(at) == 0
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the far edge is hidden at y {missing:?}"
+    );
+}
+
 #[test]
 fn lines_crossing_the_near_plane_are_cut_there_and_lines_behind_the_eye_vanish() {
     let Some((device, queue)) = gpu() else {
@@ -2597,7 +2741,7 @@ fn translucent_fills_are_ordered_again_when_the_view_turns_over() {
         &queue,
         &full_frame(&above, &scene, middle),
     );
-    let above_draws = renderer.fill_draws().to_vec();
+    let above_draws = renderer.fill_draws();
     let from_below = render_with(
         &mut renderer,
         &device,
@@ -2617,7 +2761,7 @@ fn translucent_fills_are_ordered_again_when_the_view_turns_over() {
         }
     );
     assert_eq!(above_draws, vec![(0, 6..12), (0, 0..6)]);
-    assert_eq!(renderer.fill_draws(), &[(0, 0..12)][..]);
+    assert_eq!(renderer.fill_draws(), vec![(0, 0..12)]);
 }
 
 #[test]

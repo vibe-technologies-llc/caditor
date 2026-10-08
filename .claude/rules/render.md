@@ -89,6 +89,13 @@ paths:
   by centroid depth across all batches, front-layer fills last (`FillOrder`).
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth
   bias, model fills (sketch regions) over the faces they lie on.
+- Faces carry a slope-scaled pipeline bias (`FACE_DEPTH_BIAS`, two slopes back in reverse-Z), so
+  an edge beyond a face seen at a grazing angle is not eaten where the face's depth races across
+  the line's width; reference fills (their own `reference_fills` pipeline, chosen per draw by
+  `FillDraw::behind_faces`, and `pick_reference_fills`) and the grid sit behind faces on their plane
+  by a larger slope bias (`BEHIND_FACES_DEPTH_BIAS`) and a factor (`BEHIND_FACES`,
+  `GRID_DEPTH_BIAS`), so a face lying on the XY plane never speckles with the grid or a principal
+  plane (offscreen tests).
 - `Layer::Front` draws over everything whatever its depth, in view and picking alike (the app
   puts the edited sketch there). `layered_depth` halves every depth into the far half of the range
   (an exact scaling) and moves front geometry into the near half, where biases stay wide enough

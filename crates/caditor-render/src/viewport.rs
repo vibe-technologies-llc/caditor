@@ -22,6 +22,16 @@ pub const BACKGROUND: wgpu::Color = wgpu::Color {
 };
 const FAR_DEPTH: f32 = 0.0;
 const QUAD_VERTICES: u32 = 6;
+const FACE_DEPTH_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
+    constant: 0,
+    slope_scale: -2.0,
+    clamp: 0.0,
+};
+const BEHIND_FACES_DEPTH_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
+    constant: 0,
+    slope_scale: -4.0,
+    clamp: 0.0,
+};
 const LINE_STRIDE: u64 = 60;
 const MARKER_STRIDE: u64 = 44;
 const FILL_VERTEX_STRIDE: u64 = 40;
@@ -92,6 +102,7 @@ struct Pipelines {
     lines: wgpu::RenderPipeline,
     markers: wgpu::RenderPipeline,
     fills: wgpu::RenderPipeline,
+    reference_fills: wgpu::RenderPipeline,
     grid: wgpu::RenderPipeline,
     pick_lines: wgpu::RenderPipeline,
     pick_markers: wgpu::RenderPipeline,
@@ -254,6 +265,7 @@ struct FillSpan {
     vertices: Range<u32>,
     centroid: Option<Point3>,
     in_front: bool,
+    behind_faces: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -278,7 +290,14 @@ impl Facing {
 #[derive(Default)]
 struct FillOrder {
     sorted_for: Option<Facing>,
-    draws: Vec<(usize, Range<u32>)>,
+    draws: Vec<FillDraw>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FillDraw {
+    slot: usize,
+    vertices: Range<u32>,
+    behind_faces: bool,
 }
 
 struct GpuBatch {
@@ -379,6 +398,7 @@ impl GpuBatch {
                 vertices: start..written,
                 centroid: fill.centroid(),
                 in_front: fill.layer.draws_in_front(),
+                behind_faces: fill.layer == Layer::Reference,
             });
         }
         self.fill_vertices = count(
@@ -805,18 +825,24 @@ impl ViewportRenderer {
 
     fn draw_fills(&self, pass: &mut wgpu::RenderPass<'_>) {
         let mut bound = None;
-        for (slot, vertices) in &self.fill_order.draws {
-            let Some(batch) = self.batches.get(*slot) else {
+        let mut behind = None;
+        for draw in &self.fill_order.draws {
+            let Some(batch) = self.batches.get(draw.slot) else {
                 continue;
             };
-            if bound.is_none() {
-                pass.set_pipeline(&self.pipelines.fills);
+            if behind != Some(draw.behind_faces) {
+                pass.set_pipeline(if draw.behind_faces {
+                    &self.pipelines.reference_fills
+                } else {
+                    &self.pipelines.fills
+                });
+                behind = Some(draw.behind_faces);
             }
-            if bound != Some(*slot) {
+            if bound != Some(draw.slot) {
                 batch.bind_fills(pass);
-                bound = Some(*slot);
+                bound = Some(draw.slot);
             }
-            pass.draw(vertices.clone(), 0..1);
+            pass.draw(draw.vertices.clone(), 0..1);
         }
     }
 
@@ -1059,8 +1085,12 @@ impl ViewportRenderer {
     }
 
     #[cfg(test)]
-    pub fn fill_draws(&self) -> &[(usize, Range<u32>)] {
-        &self.fill_order.draws
+    pub fn fill_draws(&self) -> Vec<(usize, Range<u32>)> {
+        self.fill_order
+            .draws
+            .iter()
+            .map(|draw| (draw.slot, draw.vertices.clone()))
+            .collect()
     }
 }
 
@@ -1104,14 +1134,22 @@ fn sort_back_to_front(spans: &mut [FillSpan], facing: Facing) {
     });
 }
 
-fn coalesced(spans: Vec<FillSpan>) -> Vec<(usize, Range<u32>)> {
-    let mut draws: Vec<(usize, Range<u32>)> = Vec::with_capacity(spans.len());
+fn coalesced(spans: Vec<FillSpan>) -> Vec<FillDraw> {
+    let mut draws: Vec<FillDraw> = Vec::with_capacity(spans.len());
     for span in spans {
         match draws.last_mut() {
-            Some((slot, vertices)) if *slot == span.slot && vertices.end == span.vertices.start => {
-                vertices.end = span.vertices.end;
+            Some(draw)
+                if draw.slot == span.slot
+                    && draw.behind_faces == span.behind_faces
+                    && draw.vertices.end == span.vertices.start =>
+            {
+                draw.vertices.end = span.vertices.end;
             }
-            _ => draws.push((span.slot, span.vertices)),
+            _ => draws.push(FillDraw {
+                slot: span.slot,
+                vertices: span.vertices,
+                behind_faces: span.behind_faces,
+            }),
         }
     }
     draws
@@ -1179,6 +1217,13 @@ impl Pipelines {
             Some(wgpu::ColorTargetState::from(picking::ID_FORMAT)),
             Some(wgpu::ColorTargetState::from(picking::DEPTH_VALUE_FORMAT)),
         ];
+        let bias_of = |label: &str, vertex: &str| match (label, vertex) {
+            (_, "vs_mesh") => FACE_DEPTH_BIAS,
+            ("reference fills" | "pick reference fills", _) | (_, "vs_grid") => {
+                BEHIND_FACES_DEPTH_BIAS
+            }
+            _ => wgpu::DepthBiasState::default(),
+        };
         let color = |label, layout, vertex, buffers, fragment, depth_write| {
             build_pipeline(
                 device,
@@ -1192,6 +1237,7 @@ impl Pipelines {
                     targets: &color_target,
                     depth_write,
                     depth_compare: wgpu::CompareFunction::GreaterEqual,
+                    bias: bias_of(label, vertex),
                     sample_count,
                 },
             )
@@ -1209,6 +1255,7 @@ impl Pipelines {
                     targets: &pick_targets,
                     depth_write,
                     depth_compare: wgpu::CompareFunction::GreaterEqual,
+                    bias: bias_of(label, vertex),
                     sample_count: 1,
                 },
             )
@@ -1243,6 +1290,7 @@ impl Pipelines {
                     targets: &color_target,
                     depth_write: false,
                     depth_compare: wgpu::CompareFunction::Always,
+                    bias: wgpu::DepthBiasState::default(),
                     sample_count,
                 },
             ),
@@ -1264,6 +1312,14 @@ impl Pipelines {
                 true,
             ),
             fills: color("fills", &scene_layout, "vs_fill", &fills, "fs_color", false),
+            reference_fills: color(
+                "reference fills",
+                &scene_layout,
+                "vs_fill",
+                &fills,
+                "fs_color",
+                false,
+            ),
             grid: color(
                 "grid",
                 &grid_pipeline_layout,
@@ -1334,6 +1390,7 @@ struct PipelineSpec<'a> {
     targets: &'a [Option<wgpu::ColorTargetState>],
     depth_write: bool,
     depth_compare: wgpu::CompareFunction,
+    bias: wgpu::DepthBiasState,
     sample_count: u32,
 }
 
@@ -1353,7 +1410,7 @@ fn build_pipeline(device: &wgpu::Device, spec: &PipelineSpec<'_>) -> wgpu::Rende
             depth_write_enabled: Some(spec.depth_write),
             depth_compare: Some(spec.depth_compare),
             stencil: wgpu::StencilState::default(),
-            bias: wgpu::DepthBiasState::default(),
+            bias: spec.bias,
         }),
         multisample: wgpu::MultisampleState {
             count: spec.sample_count,
@@ -1590,6 +1647,7 @@ mod tests {
             vertices: first..first + 3,
             centroid: fill.centroid(),
             in_front: layer.draws_in_front(),
+            behind_faces: layer == Layer::Reference,
         }
     }
 
@@ -1649,12 +1707,26 @@ mod tests {
             span(0, 0, -10.0, Layer::Model),
         ];
 
-        assert_eq!(coalesced(in_order), vec![(0, 0..6), (1, 0..6)]);
+        let draws = |spans| {
+            coalesced(spans)
+                .into_iter()
+                .map(|draw| (draw.slot, draw.vertices))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(draws(in_order), vec![(0, 0..6), (1, 0..6)]);
+        assert_eq!(draws(interleaved), vec![(0, 0..3), (1, 0..3), (0, 3..6)]);
+        assert_eq!(draws(reversed), vec![(0, 3..6), (0, 0..3)]);
+        let mixed = vec![
+            span(0, 0, 0.0, Layer::Reference),
+            span(0, 3, 1.0, Layer::Model),
+        ];
         assert_eq!(
-            coalesced(interleaved),
-            vec![(0, 0..3), (1, 0..3), (0, 3..6)]
+            coalesced(mixed)
+                .into_iter()
+                .map(|draw| draw.behind_faces)
+                .collect::<Vec<_>>(),
+            vec![true, false]
         );
-        assert_eq!(coalesced(reversed), vec![(0, 3..6), (0, 0..3)]);
     }
 
     #[test]

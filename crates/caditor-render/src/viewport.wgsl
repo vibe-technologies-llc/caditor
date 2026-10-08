@@ -31,6 +31,7 @@ struct MeshPlacement {
 const CULLED: vec4<f32> = vec4<f32>(0.0, 0.0, 2.0, 1.0);
 const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
 const HALF_DEPTH_RANGE: f32 = 0.5;
+const GRID_DEPTH_BIAS: f32 = 0.99998;
 const BEHIND: u32 = 0u;
 const DASH_PERIOD_POINTS: f32 = 10.0;
 const DASH_DRAWN_FRACTION: f32 = 0.6;
@@ -284,7 +285,7 @@ fn vs_grid(@builtin(vertex_index) vertex: u32) -> Varyings {
         + grid.axis_v_fade.xyz * local.y;
 
     var out = empty_varyings();
-    out.position = finish(to_clip(position), 1.0, BEHIND);
+    out.position = finish(to_clip(position), GRID_DEPTH_BIAS, BEHIND);
     out.color = grid.color;
     out.relative = position;
     out.local = local;
