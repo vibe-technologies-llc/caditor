@@ -48,6 +48,7 @@ pub(crate) struct Topology<'g, 'a> {
     curves: BTreeMap<EdgeId, (Curve, Interval)>,
     corners: BTreeMap<[u64; 3], VertexId>,
     sides: BTreeMap<(VertexId, VertexId), EdgeId>,
+    fins: BTreeSet<u64>,
     face_entities: Vec<u64>,
     healed: usize,
     loosest: f64,
@@ -142,6 +143,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             curves: BTreeMap::new(),
             corners: BTreeMap::new(),
             sides: BTreeMap::new(),
+            fins: BTreeSet::new(),
             face_entities: Vec::new(),
             healed: 0,
             loosest: 0.0,
@@ -371,11 +373,16 @@ impl<'g, 'a> Topology<'g, 'a> {
             if loop_entity.kind() != "EDGE_LOOP" {
                 continue;
             }
+            let mut uses = Vec::new();
             for oriented in loop_entity.fields()?.references(1)? {
-                let edge = graph
-                    .entity(oriented)?
-                    .record("ORIENTED_EDGE")?
-                    .reference(3)?;
+                let fields = graph.entity(oriented)?.record("ORIENTED_EDGE")?;
+                uses.push((fields.reference(3)?, fields.logical(4)?));
+            }
+            let fins = self.fins_in(&uses, &surface)?;
+            for (edge, _) in uses {
+                if fins.contains(&edge) {
+                    continue;
+                }
                 self.edge_faces.entry(edge).or_default().insert(entity.id);
                 let edge_fields = graph.entity(edge)?.record("EDGE_CURVE")?;
                 for vertex in [edge_fields.reference(1)?, edge_fields.reference(2)?] {
@@ -395,6 +402,58 @@ impl<'g, 'a> Topology<'g, 'a> {
             },
         );
         Ok(())
+    }
+
+    fn fins_in(&mut self, uses: &[(u64, bool)], surface: &Surface) -> Read<BTreeSet<u64>> {
+        let mut kept: Vec<(u64, bool)> = Vec::with_capacity(uses.len());
+        let mut fins = BTreeSet::new();
+        let folds_back = |(edge, orientation): (u64, bool), other: Option<&(u64, bool)>| {
+            other.is_some_and(|(other, other_orientation)| {
+                *other == edge && *other_orientation != orientation
+            })
+        };
+        for used in uses.iter().copied() {
+            if folds_back(used, kept.last()) && !self.reaches_pole(used.0, surface)? {
+                kept.pop();
+                fins.insert(used.0);
+            } else {
+                kept.push(used);
+            }
+        }
+        while kept.len() > 2 {
+            match kept.last().copied() {
+                Some(last)
+                    if folds_back(last, kept.first()) && !self.reaches_pole(last.0, surface)? =>
+                {
+                    kept.pop();
+                    kept.remove(0);
+                    fins.insert(last.0);
+                }
+                _ => break,
+            }
+        }
+        if kept.is_empty() {
+            return Ok(BTreeSet::new());
+        }
+        self.fins.extend(fins.iter().copied());
+        Ok(fins)
+    }
+
+    fn reaches_pole(&self, edge: u64, surface: &Surface) -> Read<bool> {
+        let graph = self.geometry.graph;
+        let fields = graph.entity(edge)?.record("EDGE_CURVE")?;
+        let reach = self.geometry.units.uncertainty().max(LINEAR_RESOLUTION);
+        let poles = surface.poles();
+        for field in [1, 2] {
+            let vertex = graph.entity(fields.reference(field)?)?;
+            let point = self
+                .geometry
+                .point(vertex.record("VERTEX_POINT")?.reference(1)?)?;
+            if poles.iter().any(|pole| pole.point.distance(point) <= reach) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn build_shell(&mut self, plan: &ShellPlan) -> Read<()> {
@@ -636,7 +695,11 @@ impl<'g, 'a> Topology<'g, 'a> {
         for oriented in edges {
             let oriented_fields = graph.entity(oriented)?.record("ORIENTED_EDGE")?;
             let orientation = oriented_fields.logical(4)?;
-            let (edge, edge_reversed) = self.edge(oriented_fields.reference(3)?)?;
+            let edge_id = oriented_fields.reference(3)?;
+            if self.fins.contains(&edge_id) {
+                continue;
+            }
+            let (edge, edge_reversed) = self.edge(edge_id)?;
             let along = orientation != edge_reversed;
             let sense = if along != reversed {
                 Sense::Same

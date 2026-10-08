@@ -1257,3 +1257,128 @@ fn a_layer_holding_a_styled_item_puts_the_styled_body_on_it() {
     assert_eq!(solid.layer.as_deref(), Some("Parts"));
     assert_eq!(solid.colour, Some([1, 2, 3]));
 }
+
+fn written(name: &str, solid: &caditor_kernel::Solid) -> String {
+    write_step(
+        &[StepBody {
+            name,
+            solid,
+            colour: None,
+            layer: None,
+        }],
+        name,
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap()
+}
+
+fn arguments<'t>(text: &'t str, id: &str) -> Vec<&'t str> {
+    let line = text
+        .lines()
+        .find(|line| line.starts_with(&format!("{id}=")))
+        .unwrap();
+    let inside = &line[line.find('(').unwrap() + 1..line.rfind(')').unwrap()];
+    inside
+        .split([',', '(', ')'])
+        .filter(|argument| !argument.is_empty())
+        .collect()
+}
+
+#[test]
+fn an_edge_a_loop_runs_out_along_and_straight_back_is_left_out() {
+    let solid = fixtures::plate_with_hole();
+    let text = written("plate", &solid);
+
+    let edge_loop = text
+        .lines()
+        .find(|line| line.contains("=EDGE_LOOP('',("))
+        .unwrap();
+    let loop_id = &edge_loop[..edge_loop.find('=').unwrap()];
+    let first_use = arguments(&text, loop_id)[1];
+    let used = arguments(&text, first_use);
+    let edge = arguments(&text, used[3]);
+    let start = if used[4] == ".T." { edge[1] } else { edge[2] };
+    let start_point = arguments(&text, arguments(&text, start)[1]);
+    let corner: Vec<f64> = start_point[1..]
+        .iter()
+        .map(|value| value.parse().unwrap())
+        .collect();
+    let fin = format!(
+        "#9001=CARTESIAN_POINT('',({:?},{:?},{:?}));\n\
+         #9002=VERTEX_POINT('',#9001);\n\
+         #9003=CARTESIAN_POINT('',({:?},{:?},{:?}));\n\
+         #9004=DIRECTION('',(0.,0.6,0.8));#9005=VECTOR('',#9004,1.);\n\
+         #9006=LINE('',#9003,#9005);\n\
+         #9007=EDGE_CURVE('',{start},#9002,#9006,.T.);\n\
+         #9008=ORIENTED_EDGE('',*,*,#9007,.T.);#9009=ORIENTED_EDGE('',*,*,#9007,.F.);\n\
+         ENDSEC;\nEND-ISO-10303-21;",
+        corner[0] + 0.002,
+        corner[1] + 3.0,
+        corner[2] + 4.0,
+        corner[0] - 0.002,
+        corner[1],
+        corner[2],
+    );
+    let with_fin = text
+        .replace(
+            &format!("{loop_id}=EDGE_LOOP('',({first_use},"),
+            &format!("{loop_id}=EDGE_LOOP('',(#9008,#9009,{first_use},"),
+        )
+        .replace("ENDSEC;\nEND-ISO-10303-21;", &fin);
+    let model = sample(&with_fin);
+
+    assert_ne!(with_fin, text);
+    assert!(model.notes.is_empty(), "{:?}", model.notes);
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(model.solids[0].solid.edges().count(), solid.edges().count());
+    assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
+}
+
+#[test]
+fn every_file_of_a_corpus_is_read_and_reported() {
+    let Some(directory) = std::env::var_os("STEP_CORPUS") else {
+        return;
+    };
+    let mut paths: Vec<_> = std::fs::read_dir(directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    paths.sort();
+    let only = std::env::var("STEP_CORPUS_ONLY").unwrap_or_default();
+    for path in paths {
+        if !path.to_string_lossy().contains(&only) {
+            continue;
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        let text = String::from_utf8_lossy(&bytes);
+        let start = std::time::Instant::now();
+        let result = read_step(&text);
+        let elapsed = start.elapsed().as_secs_f64();
+        match result {
+            Ok(model) => {
+                let mut volumes: Vec<f64> = model
+                    .solids
+                    .iter()
+                    .map(|solid| fixtures::volume(&solid.solid))
+                    .collect();
+                volumes.sort_by(|a, b| b.total_cmp(a));
+                println!(
+                    "OK {} solids={} {:.2}s total={:.4} {:?}",
+                    path.display(),
+                    model.solids.len(),
+                    elapsed,
+                    volumes.iter().sum::<f64>(),
+                    volumes
+                        .iter()
+                        .take(12)
+                        .map(|volume| (volume * 1e4).round() / 1e4)
+                        .collect::<Vec<_>>()
+                );
+                for note in &model.notes {
+                    println!("    note: {note}");
+                }
+            }
+            Err(error) => println!("ERR {} {:.2}s: {error}", path.display(), elapsed),
+        }
+    }
+}

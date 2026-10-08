@@ -40,6 +40,10 @@ paths:
 - Every solid goes through `SolidBuilder::build`: valid, or a sentence naming the entity. A solid
   whose faces cross (`Solid::find_crossing`) is refused naming the face entities; an inconclusive
   check imports it with a note that features built on it may fail.
+- `STEP_CORPUS=<dir>` (narrowed by `STEP_CORPUS_ONLY=<part of a name>`) makes
+  `every_file_of_a_corpus_is_read_and_reported` read every file there and print its solids,
+  volumes, notes or refusal and time; run it in release against files whose volumes another
+  reader gives.
 - Hostile-input bounds: `MAX_SPLINE_DEGREE`, checked knot arithmetic before expansion, one
   `MAX_WORK` budget per file for everything built, `MAX_DEPTH` and `MAX_INSTANCES` for assemblies.
   Curves, surfaces, placements and solids are memoised per entity and units.
@@ -102,6 +106,9 @@ paths:
   grows until a step lowers the worst gap, so nearly tangent faces cannot make it overshoot); edges
   farther than a quarter of the resolution from either face are rebuilt with
   `IntersectionCurve::through`.
+- A fin, an edge a loop runs out along and straight back (Autodesk exports leave them on
+  cylinders), bounds nothing and is left out with its tip vertex, unless one of its ends is a pole
+  of the face, where such a fold is the seam reaching an apex.
 - The outer loop is the `FACE_OUTER_BOUND`, else the one using a seam, else the largest by area;
   faces bounded only by `VERTEX_LOOP`s get a pole-to-pole seam. `POLY_LOOP` faces get line edges
   shared by corner position and a plane from the polygon when none is named.
