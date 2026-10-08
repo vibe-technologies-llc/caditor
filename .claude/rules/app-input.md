@@ -160,7 +160,9 @@ paths:
   availability is a cheap check on the selection, and the work runs only when triggered.
 
 - The display style (`DisplayStyle`, commands `view.style_*`, View › Display style) is shaded with
-  edges, shaded without edges (edges drawn with no alpha, so they stay pickable and appear when
+  edges, shaded with hidden edges dashed (the same, plus each body edge drawn again dashed on
+  `Layer::Hidden` with no pick id, so it shows only where a face covers it and the visible copy
+  keeps the picking and highlight), shaded without edges (edges drawn with no alpha, so they stay pickable and appear when
   hovered or selected) wireframe (no faces in the scene, so none is drawn or picked and edges
   show through), hidden lines removed (faces in `Scene::flat_meshes`, unlit in `DRAWING_FACE`
   whatever the body's colour, still pickable and hiding what lies behind them, edges drawn over

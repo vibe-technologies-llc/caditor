@@ -676,6 +676,64 @@ fn faces_that_cannot_be_picked_still_hide_what_is_behind_them_from_picking() {
 }
 
 #[test]
+fn a_hidden_layer_line_shows_only_where_a_face_covers_it_and_is_never_picked() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(90, 90, 90),
+                    pick: PickId::from_index(1),
+                };
+                6
+            ],
+            placement: None,
+        }],
+        batches: vec![Arc::new(Batch {
+            lines: vec![Line {
+                start: Point3::new(-50.0, 0.0, 0.0),
+                end: Point3::new(50.0, 0.0, 0.0),
+                color: LINE_COLOR,
+                width: 3.0,
+                layer: Layer::Hidden,
+                pick: None,
+                stroke: Stroke::Solid,
+            }],
+            ..Batch::default()
+        })],
+        ..Scene::default()
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let under_face = view.project(Point3::new(5.0, 0.0, 20.0)).unwrap();
+    let in_the_open = view.project(Point3::new(40.0, 0.0, 0.0)).unwrap();
+
+    let covered = render(&device, &queue, &view, &scene, under_face);
+    let open = render(&device, &queue, &view, &scene, in_the_open);
+
+    let [red, green, blue, _] = pixel(&covered, under_face);
+    assert!(
+        red > 200 && green < 80 && blue < 80,
+        "covered pixel was {red} {green} {blue}"
+    );
+    let [red, green, blue, _] = pixel(&open, in_the_open);
+    assert!(
+        !(red > 200 && green < 80 && blue < 80),
+        "open pixel was {red} {green} {blue}"
+    );
+    assert!(
+        covered
+            .pick
+            .hits
+            .iter()
+            .all(|hit| hit.id == PickId::from_index(1).unwrap())
+    );
+}
+
+#[test]
 fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
     let Some((device, queue)) = gpu() else {
         return;

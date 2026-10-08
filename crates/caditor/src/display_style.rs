@@ -4,18 +4,23 @@ use crate::variants::all_variants;
 pub enum DisplayStyle {
     #[default]
     ShadedWithEdges,
+    ShadedWithHiddenEdges,
     Shaded,
     Wireframe,
     HiddenLine,
     XRay,
 }
 
-all_variants!(DisplayStyle: ShadedWithEdges, Shaded, Wireframe, HiddenLine, XRay);
+all_variants!(
+    DisplayStyle: ShadedWithEdges,
+    ShadedWithHiddenEdges,
+    Shaded, Wireframe, HiddenLine, XRay);
 
 impl DisplayStyle {
     pub fn id(self) -> &'static str {
         match self {
             Self::ShadedWithEdges => "view.style_shaded_with_edges",
+            Self::ShadedWithHiddenEdges => "view.style_shaded_with_hidden_edges",
             Self::Shaded => "view.style_shaded",
             Self::Wireframe => "view.style_wireframe",
             Self::HiddenLine => "view.style_hidden_line",
@@ -26,6 +31,7 @@ impl DisplayStyle {
     pub fn title(self) -> &'static str {
         match self {
             Self::ShadedWithEdges => "Shaded with edges",
+            Self::ShadedWithHiddenEdges => "Shaded with hidden edges dashed",
             Self::Shaded => "Shaded without edges",
             Self::Wireframe => "Wireframe",
             Self::HiddenLine => "Hidden lines removed",
@@ -43,6 +49,10 @@ impl DisplayStyle {
 
     pub fn is_drawing(self) -> bool {
         matches!(self, Self::HiddenLine)
+    }
+
+    pub fn shows_hidden_edges(self) -> bool {
+        matches!(self, Self::ShadedWithHiddenEdges)
     }
 
     pub fn shows_edges(self) -> bool {

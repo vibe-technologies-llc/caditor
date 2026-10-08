@@ -101,6 +101,10 @@ paths:
   by a larger slope bias (`BEHIND_FACES_DEPTH_BIAS`) and a factor (`BEHIND_FACES`,
   `GRID_DEPTH_BIAS`), so a face lying on the XY plane never speckles with the grid or a principal
   plane (offscreen tests).
+- `Layer::Hidden` lines draw after the model's lines with a depth test of `Less` and no depth write
+  (`hidden_lines` pipeline), so they show only where a nearer face covers them; they sit after the
+  other lines in the batch's buffer (`OrderedLines`), outside `line_count`, so the pick pass never
+  draws them.
 - `Layer::Front` draws over everything whatever its depth, in view and picking alike (the app
   puts the edited sketch there). `layered_depth` halves every depth into the far half of the range
   (an exact scaling) and moves front geometry into the near half, where biases stay wide enough

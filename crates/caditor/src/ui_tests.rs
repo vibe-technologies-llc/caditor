@@ -8175,6 +8175,52 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
 }
 
 #[test]
+fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    let hidden_lines = |harness: &mut Harness| {
+        harness
+            .built()
+            .scene
+            .batches
+            .iter()
+            .flat_map(|batch| batch.lines.iter())
+            .filter(|line| line.layer == caditor_render::Layer::Hidden)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let before = hidden_lines(&mut harness).len();
+
+    run_from_palette(&mut harness, "shaded with hidden edges dashed");
+    harness.frame();
+    let style = harness.workspace.viewport.style();
+    let lines = hidden_lines(&mut harness);
+    let faces = harness.built().scene.meshes.len();
+    let edges_pickable = harness
+        .built()
+        .picks
+        .pickables()
+        .filter(|pickable| matches!(pickable, Pickable::Edge { .. }))
+        .count();
+
+    run_from_palette(&mut harness, "shaded with edges");
+    harness.frame();
+    let after = hidden_lines(&mut harness).len();
+
+    assert_eq!(style, DisplayStyle::ShadedWithHiddenEdges);
+    assert_eq!(before, 0);
+    assert!(!lines.is_empty());
+    assert!(
+        lines.iter().all(|line| line.pick.is_none()
+            && matches!(line.stroke, caditor_render::Stroke::Dashed { .. }))
+    );
+    assert_eq!(faces, 1);
+    assert!(edges_pickable > 0);
+    assert_eq!(after, 0);
+}
+
+#[test]
 fn a_body_is_renamed_selected_whole_and_removed_from_the_palette() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);
