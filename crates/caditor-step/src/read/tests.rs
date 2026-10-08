@@ -917,7 +917,7 @@ fn faces_that_meet_only_as_closely_as_the_file_declares_import_as_facets() {
 }
 
 #[test]
-fn a_curved_face_off_its_neighbour_within_the_declared_precision_imports_as_facets() {
+fn a_curved_face_off_its_neighbour_is_continued_to_meet_it_with_a_note_beyond_the_precision() {
     let original = include_str!("samples/loft.step");
     let loose = original
         .replace(
@@ -927,21 +927,23 @@ fn a_curved_face_off_its_neighbour_within_the_declared_precision_imports_as_face
         .replace("LENGTH_MEASURE(1.E-07)", "LENGTH_MEASURE(1.E-02)");
     let strict = loose.replace("LENGTH_MEASURE(1.E-02)", "LENGTH_MEASURE(1.E-07)");
 
-    let model = sample(&loose);
-    let refusal = read_step(&strict).unwrap_err().to_string();
+    let within = sample(&loose);
+    let beyond = sample(&strict);
 
     assert_ne!(loose, original);
-    assert_eq!(model.solids.len(), 1);
+    assert!(within.notes.is_empty(), "{:?}", within.notes);
     assert!(
-        model
+        beyond
             .notes
             .iter()
-            .any(|note| note.contains("was imported as flat facets")),
+            .any(|note| note.contains("was moved onto its faces")),
         "{:?}",
-        model.notes
+        beyond.notes
     );
-    assert_volume(&model.solids[0].solid, 4494.9012);
-    assert!(refusal.contains("could not be rebuilt"), "{refusal}");
+    for model in [&within, &beyond] {
+        assert_eq!(model.solids.len(), 1);
+        assert_volume(&model.solids[0].solid, 4494.9012);
+    }
 }
 
 fn bulged_vase() -> caditor_kernel::Solid {
