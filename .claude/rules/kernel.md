@@ -66,8 +66,10 @@ paths:
 - Lengths are compared through `is_longer_than` (the chord, then a polyline through the seeds, and
   only then the integral) and capped with `length_up_to`, which stops once past the cap; building,
   validation, imprinting and profile arrangement never measure a whole spline to compare it with a
-  tolerance, and tracing measures the candidates at a vertex shortest chord first, each capped by
-  the shortest so far.
+  tolerance. Tracing needs only a scale for its chord probes, so it bounds the candidates at a
+  vertex by the polyline through their seeds (`polyline_length_up_to`, within a fraction of a
+  percent of a spline's length and polling every `SEEDS_PER_POLL` seeds), shortest chord first,
+  each capped by the shortest so far.
 - `Curve::Intersection(IntersectionCurve)` lies on two surfaces it carries, within
   `INTERSECTION_TOLERANCE`. `IntersectionCurve::through` rebuilds one from rough points (an
   imported edge off its faces) and is the only path that follows surfaces that merely touch (a

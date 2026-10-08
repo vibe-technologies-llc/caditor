@@ -1,5 +1,6 @@
 use crate::{
     coordinates::{Coordinates, angle_between, distance_to_segment},
+    interrupt::{self, Interrupted},
     interval::Interval,
     numeric::{Taylor, integrate, minimize_near},
     tolerance::SamplingTolerance,
@@ -11,6 +12,7 @@ const CLOSEST_SEED_REFINEMENT: usize = 4;
 const LENGTH_SEED_REFINEMENT: usize = 2;
 const BOUND_SAMPLES: usize = 4;
 const BOUND_SAFETY: f64 = 2.0;
+const SEEDS_PER_POLL: usize = 1024;
 
 pub(crate) trait Parametric {
     type Point: Coordinates;
@@ -105,6 +107,31 @@ pub(crate) fn length_up_to<C: Parametric>(curve: &C, range: Interval, cap: f64) 
         }
     }
     travelled
+}
+
+pub(crate) fn polyline_length_up_to<C: Parametric>(
+    curve: &C,
+    range: Interval,
+    cap: f64,
+) -> Result<f64, Interrupted> {
+    let point = |parameter: f64| {
+        let [point, _, _] = curve.evaluate(parameter);
+        point
+    };
+    let mut travelled = 0.0;
+    let mut previous = point(range.start());
+    for (index, parameter) in curve.seeds(range).into_iter().skip(1).enumerate() {
+        if index % SEEDS_PER_POLL == 0 {
+            interrupt::check()?;
+        }
+        let next = point(parameter);
+        travelled += previous.distance_to(next);
+        if travelled >= cap {
+            return Ok(cap);
+        }
+        previous = next;
+    }
+    Ok(travelled)
 }
 
 pub(crate) fn longer_than<C: Parametric>(curve: &C, range: Interval, bound: f64) -> bool {

@@ -349,6 +349,28 @@ fn lengths_up_to_a_cap_and_comparisons_agree_with_the_length() {
 }
 
 #[test]
+fn the_polyline_through_the_seeds_bounds_the_length_closely_from_below() {
+    for (curve, range) in curves() {
+        let length = curve.length(range);
+        let polyline = curve.polyline_length_up_to(range, f64::INFINITY).unwrap();
+        let capped = curve.polyline_length_up_to(range, 0.5 * polyline).unwrap();
+
+        assert!(polyline <= length * (1.0 + 1e-12), "{curve:?}");
+        assert!(
+            polyline >= 0.97 * length,
+            "{polyline} of {length}: {curve:?}"
+        );
+        assert_eq!(capped, 0.5 * polyline);
+    }
+
+    let stopped = crate::interruptible(std::sync::Arc::new(|| true), || {
+        wavy_spline().polyline_length_up_to(Interval::UNIT, f64::INFINITY)
+    });
+
+    assert_eq!(stopped, Err(crate::interrupt::Interrupted));
+}
+
+#[test]
 fn a_closed_curve_is_longer_than_the_chord_between_its_ends() {
     let circle = Curve::from(Circle::new(Plane::XY, 1e-3).unwrap());
     let loop_spline = Curve::from(

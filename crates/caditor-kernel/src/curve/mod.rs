@@ -17,6 +17,7 @@ pub use self::{
 use crate::{
     bspline::BSpline,
     error::GeometryError,
+    interrupt::Interrupted,
     interval::{Domain, Interval},
     mapping::Affine,
     parametric::{self, Parametric},
@@ -156,6 +157,21 @@ impl Curve {
         match self {
             Self::Line(_) | Self::Circle(_) | Self::Intersection(_) => self.length(range).min(cap),
             Self::Ellipse(_) | Self::BSpline(_) => parametric::length_up_to(self, range, cap),
+        }
+    }
+
+    pub(crate) fn polyline_length_up_to(
+        &self,
+        range: Interval,
+        cap: f64,
+    ) -> Result<f64, Interrupted> {
+        match self {
+            Self::Line(_) | Self::Circle(_) | Self::Intersection(_) => {
+                Ok(self.length_up_to(range, cap))
+            }
+            Self::Ellipse(_) | Self::BSpline(_) => {
+                parametric::polyline_length_up_to(self, range, cap)
+            }
         }
     }
 

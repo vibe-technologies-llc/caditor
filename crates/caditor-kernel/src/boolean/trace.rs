@@ -10,6 +10,7 @@ use caditor_geometry::{Aabb, Aabb2, Point2, Point3, Vector2, Vector3};
 use crate::{
     boolean::{BooleanError, imprint::Arrangement},
     box_tree::BoxTree,
+    interrupt::Interrupted,
     sense::Sense,
     surface::Surface,
     topology::{Pcurve, PolygonIndex, continues, fit_pcurve, signed_area},
@@ -161,7 +162,7 @@ fn travel(arrangement: &Arrangement, half_edge: &HalfEdge) -> Option<Travel> {
 fn shortest_travel<'a>(
     arrangement: &Arrangement,
     travels: impl Iterator<Item = &'a Travel>,
-) -> f64 {
+) -> Result<f64, Interrupted> {
     let chord = |travel: &Travel| {
         arrangement
             .point(travel.start)
@@ -170,18 +171,18 @@ fn shortest_travel<'a>(
     };
     let mut by_chord: Vec<(f64, &Travel)> = travels.map(|travel| (chord(travel), travel)).collect();
     by_chord.sort_by(|a, b| a.0.total_cmp(&b.0));
-    by_chord
-        .into_iter()
-        .fold(f64::INFINITY, |shortest, (chord, travel)| {
-            if chord >= shortest {
-                return shortest;
-            }
-            arrangement
-                .curve(travel.piece)
-                .map_or(shortest, |(curve, piece)| {
-                    curve.length_up_to(piece.interval, shortest).min(shortest)
-                })
-        })
+    let mut shortest = f64::INFINITY;
+    for (chord, travel) in by_chord {
+        if chord >= shortest {
+            break;
+        }
+        if let Some((curve, piece)) = arrangement.curve(travel.piece) {
+            shortest = curve
+                .polyline_length_up_to(piece.interval, shortest)?
+                .min(shortest);
+        }
+    }
+    Ok(shortest)
 }
 
 fn point_along(
@@ -305,6 +306,35 @@ fn pole_normal(surface: &Surface, pole: f64) -> Option<Vector3> {
     sum.try_normalize()
 }
 
+fn first_clockwise(
+    arrangement: &Arrangement,
+    travels: &[Travel],
+    travel: &Travel,
+    forward: &[usize],
+    normal: Vector3,
+    reach: f64,
+) -> Option<usize> {
+    let frame = Frame::new(normal, -travel.arriving)?;
+    let point = arrangement.point(travel.end)?;
+    let back = point_along(arrangement, travel, false, reach)? - point;
+    let reference = frame.signed_angle(back);
+    let turns: Vec<(usize, Turn)> = forward
+        .iter()
+        .filter_map(|index| {
+            let candidate = travels.get(*index)?;
+            let chord = point_along(arrangement, candidate, true, reach)? - point;
+            Some((
+                *index,
+                Turn::new(&frame, candidate.leaving, chord, reference),
+            ))
+        })
+        .collect();
+    turns
+        .iter()
+        .max_by(|a, b| a.1.compare(&b.1))
+        .map(|(index, _)| *index)
+}
+
 pub(super) fn trace(
     arrangement: &Arrangement,
     chart: &Chart,
@@ -328,10 +358,13 @@ pub(super) fn trace(
             normals.insert(*vertex, normal);
         }
     }
-    let next = |arriving: usize| -> Option<usize> {
-        let travel = travels.get(arriving)?;
-        let current = half_edges.get(arriving)?;
-        let candidates: Vec<usize> = leaving.get(&travel.end)?.clone();
+    let next = |arriving: usize| -> Result<Option<usize>, Interrupted> {
+        let Some((travel, current)) = travels.get(arriving).zip(half_edges.get(arriving)) else {
+            return Ok(None);
+        };
+        let Some(candidates) = leaving.get(&travel.end) else {
+            return Ok(None);
+        };
         let forward: Vec<usize> = candidates
             .iter()
             .copied()
@@ -342,13 +375,10 @@ pub(super) fn trace(
             })
             .collect();
         match forward.as_slice() {
-            [] => return candidates.first().copied(),
-            [only] => return Some(*only),
+            [] => return Ok(candidates.first().copied()),
+            [only] => return Ok(Some(*only)),
             _ => {}
         }
-        let normal = normals.get(&travel.end)?;
-        let frame = Frame::new(*normal, -travel.arriving)?;
-        let point = arrangement.point(travel.end)?;
         let reach = CHORD_FRACTION
             * shortest_travel(
                 arrangement,
@@ -356,24 +386,10 @@ pub(super) fn trace(
                     .iter()
                     .filter_map(|index| travels.get(*index))
                     .chain([travel]),
-            );
-        let back = point_along(arrangement, travel, false, reach)? - point;
-        let reference = frame.signed_angle(back);
-        let turns: Vec<(usize, Turn)> = forward
-            .iter()
-            .filter_map(|index| {
-                let candidate = travels.get(*index)?;
-                let chord = point_along(arrangement, candidate, true, reach)? - point;
-                Some((
-                    *index,
-                    Turn::new(&frame, candidate.leaving, chord, reference),
-                ))
-            })
-            .collect();
-        turns
-            .iter()
-            .max_by(|a, b| a.1.compare(&b.1))
-            .map(|(index, _)| *index)
+            )?;
+        Ok(normals.get(&travel.end).and_then(|normal| {
+            first_clockwise(arrangement, &travels, travel, &forward, *normal, reach)
+        }))
     };
     let mut used = vec![false; half_edges.len()];
     let mut loops = Vec::new();
@@ -393,7 +409,7 @@ pub(super) fn trace(
                 _ => return Err(BooleanError::split().or_point(|| stuck_at(current, false))),
             }
             members.push(*half_edges.get(current).ok_or_else(BooleanError::split)?);
-            current = next(current)
+            current = next(current)?
                 .ok_or_else(|| BooleanError::split().or_point(|| stuck_at(current, true)))?;
             if current == start {
                 break;

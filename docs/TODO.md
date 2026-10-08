@@ -82,10 +82,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [low · medium] Blending unions its tools pairwise even when they are disjoint, each union a full
   boolean; a disjoint pair could be joined as two lumps without the pipeline (see the item on
   rebuilding every face above).
-- [low · medium] Tracing a boolean measures the shortest piece leaving a vertex in full, unpolled:
-  half the profile of an extruded spline of 6,000 control points takes about 0.1 s in release, the
-  longest stretch without a poll in that boolean. `Curve::length` integrates 96 points per cubic
-  span; a bound good enough for the chord probes, or fewer points per span, would do.
 - [low · hard] The face grid is graded per direction but still a tensor product, so a bump divides
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
