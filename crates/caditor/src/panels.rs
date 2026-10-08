@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use caditor_document::{FeatureId, FixTarget, TreeRow};
 use caditor_expression::ParameterId;
 use caditor_geometry::Point3;
@@ -112,6 +114,8 @@ pub struct PanelState {
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
     pub selected_in_tree: Option<Vec<Pickable>>,
+    pub in_view: BTreeSet<FeatureId>,
+    view_selection: Option<u64>,
     pub shown_place: Option<Point3>,
     pub reference_rows: RowCache,
     pub constraint_offers: ConstraintOffers,
@@ -231,6 +235,25 @@ impl PanelState {
             target,
             frames_left: FOCUS_ATTEMPT_FRAMES,
         });
+    }
+
+    pub fn follow_view_selection(&mut self, selection: &Selection) {
+        if self.view_selection == Some(selection.generation()) {
+            return;
+        }
+        self.view_selection = Some(selection.generation());
+        let owners = selection.owners();
+        if owners == self.in_view {
+            return;
+        }
+        if let Some(first) = owners.difference(&self.in_view).next() {
+            self.reveal(*first);
+        }
+        self.in_view = owners;
+    }
+
+    pub fn reads_selected(&self, feature: FeatureId) -> bool {
+        self.in_view.contains(&feature) || self.chosen().contains(&feature)
     }
 
     pub fn reveal(&mut self, feature: FeatureId) {

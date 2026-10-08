@@ -4059,13 +4059,19 @@ fn scene_items(ui: &mut Ui, view: Id, corner: Pos2, items: &[Item]) {
         response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, name));
         response.id
     };
-    ui.scope_builder(UiBuilder::new().accessibility_parent(view), |ui| {
+    let within = |parent: Id| {
+        UiBuilder::new()
+            .accessibility_parent(parent)
+            .max_rect(nowhere)
+            .sense(Sense::empty())
+    };
+    ui.scope_builder(within(view), |ui| {
         for (index, item) in items.iter().enumerate() {
             let parent = node(ui, view.with(("scene item", index)), &item.name);
             if item.parts.is_empty() {
                 continue;
             }
-            ui.scope_builder(UiBuilder::new().accessibility_parent(parent), |ui| {
+            ui.scope_builder(within(parent), |ui| {
                 for (part_index, part) in item.parts.iter().enumerate() {
                     node(ui, parent.with(("part", part_index)), part);
                 }

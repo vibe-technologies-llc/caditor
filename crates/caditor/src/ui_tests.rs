@@ -8341,6 +8341,30 @@ fn descendants(harness: &Harness, node: &Node) -> Vec<String> {
 }
 
 #[test]
+fn a_face_clicked_in_the_view_marks_its_body_row_selected_in_the_tree() {
+    let mut harness = Harness::new();
+    let (extrude, top) = extruded_plate(&mut harness);
+    harness.select([]);
+
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.frame();
+    let marked = harness.workspace.panels.reads_selected(extrude);
+    let chosen = harness.workspace.panels.chosen();
+
+    harness.select([]);
+    harness.frame();
+    let cleared = harness.workspace.panels.reads_selected(extrude);
+
+    assert!(marked);
+    assert!(
+        chosen.is_empty(),
+        "marking a row does not choose it: {chosen:?}"
+    );
+    assert!(!cleared);
+    assert!(harness.workspace.panels.in_view.is_empty());
+}
+
+#[test]
 fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);

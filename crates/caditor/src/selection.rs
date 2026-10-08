@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -212,6 +212,22 @@ impl Pickable {
                 Some(body)
             }
             _ => None,
+        }
+    }
+
+    pub fn owner(self) -> Option<FeatureId> {
+        match self {
+            Self::Origin | Self::Axis(_) | Self::Plane(_) => None,
+            Self::SketchEntity { feature, .. }
+            | Self::SketchConstraint { feature, .. }
+            | Self::SketchRegion { feature, .. }
+            | Self::Region { feature, .. }
+            | Self::BlendEdge { feature, .. }
+            | Self::ShellFace { feature, .. }
+            | Self::Datum(feature) => Some(feature),
+            Self::Face { body, .. } | Self::Edge { body, .. } | Self::Vertex { body, .. } => {
+                Some(body)
+            }
         }
     }
 
@@ -465,6 +481,10 @@ impl PartialEq for Selection {
 impl Eq for Selection {}
 
 impl Selection {
+    pub fn owners(&self) -> BTreeSet<FeatureId> {
+        self.iter().filter_map(Pickable::owner).collect()
+    }
+
     pub fn generation(&self) -> u64 {
         self.generation
     }

@@ -232,6 +232,12 @@ paths:
 - A row opened for editing (a sketch entered, a feature opened) collapses again when editing it
   ends, by the checkmark, Enter, Escape or Finish (`PanelState::opened_for_editing`,
   `finished_editing`), so the tree goes back to one line per feature.
+- Whatever is selected in the view marks the rows of the features it belongs to as selected, a
+  face, edge or vertex its body's feature row and Bodies row, a sketch curve, region or
+  constraint its sketch, a datum its own (`Pickable::owner`, `PanelState::follow_view_selection`
+  on each change of the selection's generation, `in_view`), and the first newly marked row is
+  scrolled into view. The mark is only a look (`reads_selected`): it never chooses the row, so
+  the tree's commands and Delete still act on chosen rows only.
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
   changes); Ctrl+click toggles and Shift+click extends (`PanelState::chosen`, primary first); the
   chevron alone shows the details. A double-click, Enter, the edit button or the menu's Edit opens

@@ -520,6 +520,7 @@ pub fn show(
     if viewport.selection() != &selected_before && !viewport.selection().is_empty() {
         panels.selected = None;
     }
+    panels.follow_view_selection(viewport.selection());
     interface_size(&preferences.appearance, &mut commands, actions);
     window_frame::commands(ui.ctx(), chrome.state, &mut commands);
     if blocked {
