@@ -235,6 +235,35 @@ impl RevolveAxis {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AxisSide {
+    Left,
+    Right,
+}
+
+impl AxisSide {
+    pub fn other(self) -> Self {
+        match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+
+    fn holds(self, signed_distance: f64) -> bool {
+        match self {
+            Self::Left => signed_distance > 0.0,
+            Self::Right => signed_distance < 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Revolve {
     pub sketch: FeatureId,
@@ -244,6 +273,7 @@ pub struct Revolve {
     pub operation: BodyOperation,
     pub start: Option<SolidStart>,
     pub other_bodies: Vec<FeatureId>,
+    pub side: Option<AxisSide>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -719,7 +749,10 @@ impl Context<'_> {
     fn curves(&self, entities: &[u64]) -> String {
         let labels: Vec<String> = entities
             .iter()
-            .map(|raw| self.sketch.entity_label(EntityId::from_raw(*raw)))
+            .map(|raw| match *raw {
+                REVOLUTION_AXIS_ENTITY => "the revolution axis".to_owned(),
+                raw => self.sketch.entity_label(EntityId::from_raw(raw)),
+            })
             .collect();
         crate::document::list_names(&labels)
     }
@@ -785,6 +818,10 @@ pub(crate) fn evaluate(
                 }
             };
             let extent = angular_extent(&context, &definition.extent, inputs.parameters)?;
+            let regions = match definition.side {
+                Some(side) => one_side(&context, sketch, &regions, axis, side)?,
+                None => regions,
+            };
             revolve(&started, &regions, axis, extent, raw)
         }
     }
@@ -1168,7 +1205,8 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
                     "In {sketch}, {curves} {verb} on the other side of the revolution axis from the \
                      rest of the profile."
                 ),
-                "Choose only the regions on one side of the axis, or choose another axis."
+                "Keep one side of the axis, choose only the regions on one side, or choose \
+                 another axis."
                     .to_owned(),
                 context.own(),
             )
@@ -1178,9 +1216,10 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
             context.error(
                 format!("In {sketch}, {curves} would cut through the revolution axis."),
                 format!(
-                    "Keep the profile on one side of the axis in {sketch}, or choose another axis."
+                    "Keep one side of the axis, keep the profile on one side of it in {sketch}, \
+                     or choose another axis."
                 ),
-                context.in_sketch(),
+                context.own(),
             )
         }
         SweepError::OnAxis => context.error(
@@ -1724,6 +1763,72 @@ fn model_axis(
             context.own(),
         )),
     }
+}
+
+const REVOLUTION_AXIS_ENTITY: u64 = u64::MAX - 3;
+
+fn one_side(
+    context: &Context<'_>,
+    sketch: &SketchResult,
+    chosen: &[Region],
+    axis: Axis2,
+    side: AxisSide,
+) -> Result<Vec<Region>, Failure> {
+    let nothing_left = || {
+        context.error(
+            format!(
+                "No part of the profile of {} lies on the {} side of the revolution axis.",
+                context.sketch_name,
+                side.name()
+            ),
+            "Keep the other side, or choose regions on this side of the axis.".to_owned(),
+            context.own(),
+        )
+    };
+    let bounds = chosen
+        .iter()
+        .filter_map(Region::bounds)
+        .reduce(Aabb2::union)
+        .ok_or_else(nothing_left)?;
+    let mut curves = profile_curves(&sketch.geometry);
+    curves.push(axis_line(axis, bounds));
+    let divided = Profile::new(&curves).map_err(|error| profile_failure(context, &error))?;
+    let kept: Vec<_> = divided
+        .regions()
+        .iter()
+        .filter(|region| {
+            region.anchor().is_some_and(|anchor| {
+                side.holds(axis.signed_distance(anchor))
+                    && chosen.iter().any(|whole| whole.contains(anchor))
+            })
+        })
+        .map(Region::key)
+        .collect();
+    if kept.is_empty() {
+        return Err(nothing_left());
+    }
+    divided
+        .select(&Selection::Regions(kept))
+        .map_err(|error| profile_failure(context, &error))
+}
+
+fn axis_line(axis: Axis2, bounds: Aabb2) -> ProfileCurve {
+    let (min, max) = (bounds.min(), bounds.max());
+    let reach = bounds.size().length() + 1.0;
+    let along = [
+        min,
+        Point2::new(min.x, max.y),
+        Point2::new(max.x, min.y),
+        max,
+    ]
+    .map(|corner| axis.direction().dot(corner - axis.origin()));
+    let first = along.into_iter().fold(f64::INFINITY, f64::min) - reach;
+    let last = along.into_iter().fold(f64::NEG_INFINITY, f64::max) + reach;
+    ProfileCurve::line(
+        REVOLUTION_AXIS_ENTITY,
+        axis.origin() + axis.direction() * first,
+        axis.origin() + axis.direction() * last,
+    )
 }
 
 fn revolution_axis(context: &Context<'_>, axis: EntityId) -> Result<Axis2, Failure> {

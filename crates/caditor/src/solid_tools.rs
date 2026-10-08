@@ -183,6 +183,7 @@ pub fn create(
             operation,
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         }),
     };
     let mut transaction = document.transaction(format!("Create {name}"));

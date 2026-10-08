@@ -283,6 +283,7 @@ fn a_revolve_uses_a_sketch_axis_and_keeps_it() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -312,6 +313,7 @@ fn a_revolve_axis_must_be_a_line_of_its_own_sketch() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         }))
     };
     let mut transaction = document.transaction("Revolve");
@@ -620,6 +622,7 @@ fn revolved(extent: RevolveExtent) -> FeatureKind {
         operation: BodyOperation::NewBody,
         start: None,
         other_bodies: Vec::new(),
+        side: None,
     }))
 }
 
@@ -998,7 +1001,100 @@ fn a_revolve_with_regions_on_both_sides_names_the_curves_apart_from_the_rest() {
     );
     assert_eq!(
         error.remedy,
-        "Choose only the regions on one side of the axis, or choose another axis."
+        "Keep one side of the axis, choose only the regions on one side, or choose another axis."
+    );
+    assert_eq!(error.fix, Some(FixTarget::Feature(body)));
+}
+
+fn one_sided(side: Option<AxisSide>) -> FeatureKind {
+    let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = revolved(RevolveExtent::Full) else {
+        panic!("revolved makes a revolve");
+    };
+    FeatureKind::Solid(SolidFeature::Revolve(Revolve { side, ..revolve }))
+}
+
+#[test]
+fn a_revolve_keeping_one_side_of_its_axis_turns_only_the_part_of_the_profile_there() {
+    let section = rectangle(Plane::XZ, (-2.0, 0.0), (4.0, 3.0));
+    let volume_of = |side| {
+        let (document, body) = single_body(one_sided(side), section.clone());
+        let evaluation = evaluate(&document, &mut Recompute::default());
+        match &evaluation.feature(body).unwrap().state {
+            FeatureState::Failed(error) => Err(error.reason.clone()),
+            _ => Ok(volume(&evaluation, body)),
+        }
+    };
+
+    let whole = volume_of(None);
+    let left = volume_of(Some(AxisSide::Left)).unwrap();
+    let right = volume_of(Some(AxisSide::Right)).unwrap();
+
+    assert!(
+        whole
+            .unwrap_err()
+            .contains("would cut through the revolution axis")
+    );
+    assert!((left - std::f64::consts::PI * 4.0 * 3.0).abs() < 0.1);
+    assert!((right - std::f64::consts::PI * 16.0 * 3.0).abs() < 0.1);
+}
+
+#[test]
+fn a_part_turn_keeping_one_side_caps_the_profile_along_the_axis() {
+    let mut section = rectangle(Plane::XZ, (-2.0, 0.0), (4.0, 3.0));
+    section.add_circle(Point2::new(0.0, 1.5), 1.0);
+    let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = revolved(RevolveExtent::OneSide {
+        angle: stored("90 deg"),
+        reversed: false,
+    }) else {
+        panic!("revolved makes a revolve");
+    };
+    let kind = FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+        side: Some(AxisSide::Right),
+        ..revolve
+    }));
+    let (document, body) = single_body(kind, section);
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let quarter = std::f64::consts::FRAC_PI_4;
+    let expected = quarter * (16.0 * 3.0 - 4.0 / 3.0);
+    assert!((volume(&evaluation, body) - expected).abs() < 0.05);
+}
+
+#[test]
+fn a_revolve_keeping_one_side_leaves_out_regions_on_the_other() {
+    let mut section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
+    section.add_circle(Point2::new(-3.0, 1.0), 0.5);
+    let volume_of = |side| {
+        let (document, body) = single_body(one_sided(Some(side)), section.clone());
+        volume(&evaluate(&document, &mut Recompute::default()), body)
+    };
+
+    let left = volume_of(AxisSide::Left);
+    let right = volume_of(AxisSide::Right);
+
+    let torus = 2.0 * std::f64::consts::PI * 3.0 * std::f64::consts::PI * 0.25;
+    assert!((left - torus).abs() < 0.05);
+    assert!((right - std::f64::consts::PI * 12.0 * 3.0).abs() < 0.1);
+}
+
+#[test]
+fn a_revolve_keeping_a_side_with_nothing_on_it_says_so() {
+    let section = rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0));
+    let (document, body) = single_body(one_sided(Some(AxisSide::Left)), section);
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let FeatureState::Failed(error) = &evaluation.feature(body).unwrap().state else {
+        panic!("nothing lies on the left of the axis");
+    };
+    assert_eq!(
+        error.reason,
+        "No part of the profile of Section lies on the left side of the revolution axis."
+    );
+    assert_eq!(
+        error.remedy,
+        "Keep the other side, or choose regions on this side of the axis."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(body)));
 }
@@ -1093,6 +1189,7 @@ fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keep
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         })),
         section,
     );

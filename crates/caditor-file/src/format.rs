@@ -5,14 +5,14 @@ use std::{
 };
 
 use caditor_document::{
-    AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, BodyPlacement, CircularPattern,
-    Combine, CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, Edit, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour, Feature, FeatureId, FeatureKind, Hole,
-    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle, Import, LinearDirection,
-    LinearSpacing, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
-    MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty, Move, OPAQUE_PERCENT,
-    ORIGINAL_INSTANCE, Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation,
-    PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    AxisReference, AxisSide, Blend, BlendKind, BodyAppearance, BodyOperation, BodyPlacement,
+    CircularPattern, Combine, CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document,
+    Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour, Feature, FeatureId,
+    FeatureKind, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle, Import,
+    LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
+    MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty,
+    Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Parameter, Pattern, PatternKind, PlaneReference,
+    PlaneRotation, PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
     Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, Transaction,
     material_name,
@@ -157,6 +157,7 @@ pub(crate) enum FeatureKindRecord {
     Import(ImportRecord),
     CutSeveral(Box<CutSeveralRecord>),
     PlacedImport(Box<PlacedImportRecord>),
+    RevolveOneSide(Box<RevolveOneSideRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -165,9 +166,22 @@ pub(crate) struct CutSeveralRecord {
     pub bodies: Vec<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AxisSideRecord {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct RevolveOneSideRecord {
+    pub feature: FeatureKindRecord,
+    pub side: AxisSideRecord,
+}
+
 pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
-pub(crate) const FEATURE_KINDS: [&str; 31] = [
+pub(crate) const FEATURE_KINDS: [&str; 32] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -199,6 +213,7 @@ pub(crate) const FEATURE_KINDS: [&str; 31] = [
     "cut_several",
     "placed_import",
     "hole_scaled_by_circles",
+    "revolve_one_side",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1243,6 +1258,21 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         return FeatureKindRecord::CutSeveral(Box::new(CutSeveralRecord {
             feature: feature_kind_record(&FeatureKind::Solid(alone)),
             bodies: solid.other_bodies().iter().map(|body| body.raw()).collect(),
+        }));
+    }
+    if let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = kind
+        && let Some(side) = revolve.side
+    {
+        let whole = Revolve {
+            side: None,
+            ..revolve.clone()
+        };
+        return FeatureKindRecord::RevolveOneSide(Box::new(RevolveOneSideRecord {
+            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Revolve(whole))),
+            side: match side {
+                AxisSide::Left => AxisSideRecord::Left,
+                AxisSide::Right => AxisSideRecord::Right,
+            },
         }));
     }
     match kind {
@@ -2646,6 +2676,22 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::RevolveOneSide(one_side) => {
+            let mut kind = restore_kind(&one_side.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
+                    revolve.side = Some(match one_side.side {
+                        AxisSideRecord::Left => AxisSide::Left,
+                        AxisSideRecord::Right => AxisSide::Right,
+                    });
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to keep one side of its revolution axis, but it is not a \
+                     revolution, so it keeps its whole profile."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::Sketch(sketch) => {
             let attachment = match &sketch.attachment {
                 None => None,
@@ -2811,6 +2857,7 @@ fn restore_kind(
                 operation: restore_operation(revolve.operation),
                 start: restore_start(&revolve.start, name, issues),
                 other_bodies: Vec::new(),
+                side: None,
             }))
         }
         FeatureKindRecord::Revolve(revolve) => {
@@ -2838,6 +2885,7 @@ fn restore_kind(
                 operation: restore_operation(revolve.operation),
                 start: None,
                 other_bodies: Vec::new(),
+                side: None,
             }))
         }
         FeatureKindRecord::RevolveTwoAngles(revolve) => {
@@ -2860,6 +2908,7 @@ fn restore_kind(
                 operation: restore_operation(revolve.operation),
                 start: None,
                 other_bodies: Vec::new(),
+                side: None,
             }))
         }
         FeatureKindRecord::Fillet(record) => {

@@ -193,6 +193,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   a body the tool removes entirely fails the feature naming it.
 - A `RevolveAxis` is a line or axis of its own sketch (a sketch line used as axis cannot be
   deleted; `AxisNotALine`) or an `AxisReference` to a model axis lying in the sketch plane.
+- A revolve's `side` (`AxisSide`, left or right of the axis's direction in the sketch plane; none
+  turns the whole profile) keeps only the part of the chosen regions on that side: the sketch's
+  curves are divided again with the axis as a line past the chosen regions' bounds (entity
+  `REVOLUTION_AXIS_ENTITY`, worded "the revolution axis"), the regions whose anchor lies on that
+  side inside a chosen region are selected as one, and they are revolved, so a profile crossing
+  the axis or lying on both sides turns, and a side holding nothing fails in words.
 - A feature whose body others change keeps making a new body.
 
 ### Blend and shell (`blend.rs`, `shell.rs`)

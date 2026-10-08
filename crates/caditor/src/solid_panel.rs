@@ -1,9 +1,10 @@
 use caditor_document::{
-    AxisReference, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId,
-    PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature, SolidStart,
-    Transaction, capitalized, describe_plane,
+    AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature,
+    FeatureId, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
+    SolidStart, Transaction, capitalized, describe_plane, displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
+use caditor_geometry::Point2;
 use caditor_sketch::{Entity, EntityId, Reference};
 use egui::{Id, Ui};
 
@@ -26,6 +27,10 @@ use crate::{
 };
 
 const FULL_TURN_DEGREES: f64 = 360.0;
+const WHOLE_PROFILE: &str = "Turn the whole profile, which must lie on one side of the axis";
+const ONE_SIDE_OF_AXIS: &str =
+    "Turn only the part of the profile on one side of the axis, cut where the axis crosses it";
+pub const KEEP_OTHER_SIDE: &str = "Keep the other side of the axis";
 pub const ALSO_CUTS: &str = "Also cuts";
 pub const ADD_CUT_BODY: &str = "Add another body";
 const START_OFFSET: &str = "Start offset";
@@ -659,8 +664,44 @@ impl Panel<'_> {
         ui.end_row();
     }
 
+    fn side_rows(&mut self, ui: &mut Ui, revolve: &Revolve) {
+        let with_side = |side| {
+            SolidFeature::Revolve(Revolve {
+                side,
+                ..revolve.clone()
+            })
+        };
+        let one_side = revolve
+            .side
+            .or_else(|| larger_side(self.model, self.id(), revolve))
+            .unwrap_or(AxisSide::Left);
+        let segments = vec![
+            Segment {
+                label: "Whole",
+                hover: WHOLE_PROFILE,
+                change: revolve.side.is_some().then(|| self.change(with_side(None))),
+            },
+            Segment {
+                label: "One side",
+                hover: ONE_SIDE_OF_AXIS,
+                change: revolve
+                    .side
+                    .is_none()
+                    .then(|| self.change(with_side(Some(one_side)))),
+            },
+        ];
+        let chosen = feature_fields::segmented_row(ui, "Profile", &self.feature.name, segments);
+        self.actions.extend(chosen);
+        if let Some(side) = revolve.side
+            && feature_fields::reverse_row(ui, KEEP_OTHER_SIDE, side == AxisSide::Right).is_some()
+        {
+            self.apply(with_side(Some(side.other())));
+        }
+    }
+
     fn revolve_rows(&mut self, ui: &mut Ui, revolve: &Revolve) {
         self.axis_row(ui, revolve);
+        self.side_rows(ui, revolve);
         match &revolve.extent {
             RevolveExtent::Full => {}
             RevolveExtent::OneSide { angle, reversed } => {
@@ -1107,6 +1148,54 @@ pub fn selected_axis_change(
             "Select an axis, a straight edge or a round face made before this feature".to_owned(),
         ),
     }
+}
+
+fn larger_side(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<AxisSide> {
+    let (document, evaluation) = (model.document(), model.evaluation());
+    let plane = scene::sketch_plane(document, evaluation, revolve.sketch)?;
+    let (origin, toward) = match &revolve.axis {
+        RevolveAxis::Sketch(line) => match line.reference() {
+            Some(Reference::HorizontalAxis) => (Point2::ZERO, Point2::X),
+            Some(Reference::VerticalAxis) => (Point2::ZERO, Point2::Y),
+            Some(Reference::Origin) => return None,
+            None => evaluation
+                .feature(revolve.sketch)?
+                .result
+                .as_deref()?
+                .sketch()?
+                .geometry
+                .line_endpoints(*line)?,
+        },
+        RevolveAxis::Model(axis) => {
+            let ray = displayed_axis(evaluation, feature, axis)?;
+            (
+                plane.to_local(ray.origin()),
+                plane.to_local(ray.origin() + ray.direction()),
+            )
+        }
+    };
+    let direction = (toward - origin).try_normalize()?;
+    let (_, regions) = selection::swept_regions(document, evaluation, feature)?;
+    let chosen = scene::chosen_regions(&revolve.regions, regions);
+    let leftward: f64 = regions
+        .iter()
+        .filter(|region| chosen.contains(&region.region.key()))
+        .filter_map(|region| region.mesh.as_ref())
+        .flat_map(|mesh| {
+            mesh.triangles.iter().filter_map(|triangle| {
+                let [a, b, c] = triangle.map(|index| mesh.points.get(index as usize).copied());
+                let [a, b, c] = [a?, b?, c?];
+                let area = 0.5 * (b - a).perp_dot(c - a).abs();
+                let side = direction.perp_dot((a + b + c) / 3.0 - origin).signum();
+                Some(area * side)
+            })
+        })
+        .sum();
+    Some(if leftward < 0.0 {
+        AxisSide::Right
+    } else {
+        AxisSide::Left
+    })
 }
 
 fn change(model: &Model, feature: FeatureId, solid: SolidFeature) -> Result<Transaction, String> {

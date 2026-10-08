@@ -197,6 +197,11 @@ paths:
   record it would be without them, and `bodies`, the ids of the others, so an older reader
   reports it rather than cutting one body; an inner record that is no extrusion or revolve loads
   without the bodies, reported.
+- A revolve keeping one side of its axis is a `revolve_one_side` record: `feature`, the revolve
+  record it would be turning the whole profile, and `side` (`left`, `right`), since an older reader
+  would fail on the crossing profile or turn both sides; an inner record that is no revolve loads
+  turning the whole profile, reported. `cut_several` wraps it when the revolve also cuts other
+  bodies.
 - A `split` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as the
   YZ plane, reported) and `flipped` only when set.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).

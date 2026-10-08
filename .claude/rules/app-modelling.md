@@ -115,7 +115,10 @@ paths:
   plane with a Start offset field (key `start`, zero clears it), or Face or plane, taken like an
   end (`solid_panel::start_change`, slot `Slot::StartPlane`) and shown as Starts at with a button
   that goes back to the sketch plane.
-- A revolve can also take two angles, refusing a pair that turns more than a full turn.
+- A revolve can also take two angles, refusing a pair that turns more than a full turn. Its
+  Profile switch (Whole, One side) keeps one side of the axis, starting from the side holding
+  more of the chosen regions' area (`solid_panel::larger_side`), with Keep the other side of the
+  axis to swap.
 - A removal's panel lists under Body the other bodies it Also cuts, each with a button to stop
   cutting it, and an Add another body list of `bodies_before` not yet cut; switching away from
   Remove from body drops them (`solid_tools::with_operation`).

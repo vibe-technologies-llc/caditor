@@ -261,6 +261,7 @@ fn spool(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         })),
     );
     Ok(())

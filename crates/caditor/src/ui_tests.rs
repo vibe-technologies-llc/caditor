@@ -11730,6 +11730,52 @@ fn a_revolve_turns_by_two_angles_set_in_its_panel() {
     assert!((harness.body_volume(revolve) - full / 3.0).abs() < 0.01 * full);
 }
 
+#[test]
+fn a_revolve_crossing_its_axis_keeps_the_larger_side_and_then_the_other() {
+    let mut harness = Harness::new();
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(
+        &mut section,
+        Point2::new(-5.0, 0.0),
+        Point2::new(20.0, 10.0),
+    );
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = open_solid(&harness);
+    let side = |harness: &Harness| match harness.solid(revolve) {
+        SolidFeature::Revolve(revolve) => revolve.side,
+        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+    };
+    let failed = matches!(
+        harness
+            .model
+            .evaluation()
+            .feature(revolve)
+            .map(|status| status.state.clone()),
+        Some(caditor_document::FeatureState::Failed(_))
+    );
+
+    harness.click("One side");
+    harness.settle();
+    let larger = side(&harness);
+    let larger_volume = harness.body_volume(revolve);
+    harness.click(crate::solid_panel::KEEP_OTHER_SIDE);
+    harness.settle();
+    let other = side(&harness);
+    let other_volume = harness.body_volume(revolve);
+    harness.click("Whole");
+    harness.settle();
+
+    assert!(failed);
+    assert_eq!(larger, Some(caditor_document::AxisSide::Right));
+    assert!((larger_volume - PI * 400.0 * 10.0).abs() < 0.01 * larger_volume);
+    assert_eq!(other, Some(caditor_document::AxisSide::Left));
+    assert!((other_volume - PI * 25.0 * 10.0).abs() < 0.01 * other_volume);
+    assert_eq!(side(&harness), None);
+}
+
 fn datum_plane_of(harness: &Harness, feature: FeatureId) -> caditor_document::DatumPlane {
     match datum_of(harness, feature) {
         caditor_document::Datum::Plane(plane) => plane.clone(),

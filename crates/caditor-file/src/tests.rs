@@ -1965,6 +1965,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             operation: BodyOperation::Remove(base),
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3146,6 +3147,7 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3650,6 +3652,7 @@ fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
                 operation: caditor_document::BodyOperation::NewBody,
                 start: None,
                 other_bodies: Vec::new(),
+                side: None,
             },
         )),
     );
@@ -4173,6 +4176,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             operation: BodyOperation::Remove(base),
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -4244,6 +4248,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             operation: BodyOperation::NewBody,
             start: Some(SolidStart::Distance(transaction.parse("3 mm").unwrap())),
             other_bodies: Vec::new(),
+            side: None,
         })),
     );
     let placed = transaction.add_feature(
@@ -4259,6 +4264,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             operation: BodyOperation::NewBody,
             start: Some(SolidStart::Plane(PlaneReference::Datum(level))),
             other_bodies: Vec::new(),
+            side: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -4279,6 +4285,68 @@ fn starts_at_a_plane_or_off_a_revolution_are_saved_in_kinds_older_readers_report
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
     for feature in features {
+        let kind = document.feature(feature).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn a_revolution_keeping_one_side_of_its_axis_is_a_kind_older_readers_report() {
+    use caditor_document::{
+        AxisSide, BodyOperation, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
+        SolidStart,
+    };
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
+    let left = transaction.add_feature(
+        "Left",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+            extent: RevolveExtent::Full,
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            side: Some(AxisSide::Left),
+        })),
+    );
+    let right = transaction.add_feature(
+        "Right",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::HORIZONTAL_AXIS),
+            extent: RevolveExtent::TwoSides {
+                forward: transaction.parse("30 deg").unwrap(),
+                backward: transaction.parse("45 deg").unwrap(),
+            },
+            operation: BodyOperation::Remove(left),
+            start: Some(SolidStart::Distance(transaction.parse("3 mm").unwrap())),
+            other_bodies: Vec::new(),
+            side: Some(AxisSide::Right),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("revolve_one_side", "revolve_other_side"));
+
+    assert!(text.contains("\"revolve_one_side\":{\"feature\":{\"revolve\":"));
+    assert!(text.contains("\"revolve_one_side\":{\"feature\":{\"revolve_from\":"));
+    assert!(text.contains("\"side\":\"left\""));
+    assert!(text.contains("\"side\":\"right\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(left).is_none());
+    assert!(older.document.feature(right).is_none());
+    assert!(!older.issues.is_empty());
+    for feature in [left, right] {
         let kind = document.feature(feature).unwrap().kind.clone();
         let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();

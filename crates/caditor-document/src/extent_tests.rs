@@ -887,6 +887,7 @@ fn a_revolve_turns_by_two_angles_that_together_stay_within_a_turn() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         }))
     };
     let turned = add(&mut document, "Turned", revolve(90.0, 30.0));

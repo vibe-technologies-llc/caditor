@@ -88,9 +88,9 @@ pub use crate::{
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR, Scale},
     shell::Shell,
     solid::{
-        BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice, Revolve,
-        RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart, body_part,
-        body_parts, profile_curve, sketch_regions,
+        AxisSide, BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice,
+        Revolve, RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart,
+        body_part, body_parts, profile_curve, sketch_regions,
     },
     split::Split,
     values::{ParameterError, ParameterValues},

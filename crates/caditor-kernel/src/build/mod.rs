@@ -286,7 +286,7 @@ impl Axis2 {
         self.direction
     }
 
-    pub(crate) fn signed_distance(&self, point: Point2) -> f64 {
+    pub fn signed_distance(&self, point: Point2) -> f64 {
         self.direction.perp_dot(point - self.origin)
     }
 

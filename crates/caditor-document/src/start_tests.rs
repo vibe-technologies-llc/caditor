@@ -62,6 +62,7 @@ fn revolution(sketch: FeatureId, start: Option<SolidStart>) -> FeatureKind {
         operation: BodyOperation::NewBody,
         start,
         other_bodies: Vec::new(),
+        side: None,
     }))
 }
 
@@ -277,6 +278,7 @@ fn a_start_plane_is_reported_by_the_parameters_and_references_it_uses() {
         operation: BodyOperation::NewBody,
         start: Some(SolidStart::Distance(Expression::Parameter(lift))),
         other_bodies: Vec::new(),
+        side: None,
     });
 
     assert!(solid.uses_parameter(lift));

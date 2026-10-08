@@ -1,5 +1,5 @@
 use caditor_document::{
-    AxisReference, BodyOperation, CancelToken, Datum, DatumAxis, DatumPlane, DatumPoint, Document,
+    AxisReference, AxisSide, BodyOperation, CancelToken, Datum, DatumAxis, DatumPlane, DatumPoint, Document,
     Edit, Editor, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId, FeatureKind,
     ModelEvaluator, PlaneReference, PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry,
     PrincipalPlane, Recompute, RegionChoice, Revolve, RevolveAxis, RevolveExtent, RollbackBar,
@@ -206,6 +206,11 @@ fn solid_feature(input: &mut Unstructured, document: &Document) -> Result<Option
             operation,
             start: None,
             other_bodies: Vec::new(),
+            side: match input.int_in_range(0u8..=2)? {
+                0 => None,
+                1 => Some(AxisSide::Left),
+                _ => Some(AxisSide::Right),
+            },
         })
     };
     Ok(Some(FeatureKind::Solid(solid)))

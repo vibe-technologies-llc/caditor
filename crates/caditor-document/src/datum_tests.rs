@@ -341,6 +341,7 @@ fn a_revolve_turns_about_a_datum_axis_in_its_sketch_plane() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         }))
     };
     let ring = add(
@@ -460,6 +461,7 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            side: None,
         })),
     );
     let strip = add(
