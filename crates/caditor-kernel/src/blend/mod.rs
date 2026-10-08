@@ -9,7 +9,7 @@ use std::{
     f64::consts::TAU,
 };
 
-use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
 use thiserror::Error;
 
 use self::{
@@ -41,6 +41,7 @@ const END_MARGIN: f64 = 0.25;
 const CUTTER_SCALE: f64 = 4.0;
 const CLEARANCE: f64 = 0.25;
 const SMALLEST_RADIUS: f64 = 10.0 * LINEAR_RESOLUTION;
+const APART_TOOLS: f64 = 10.0 * LINEAR_RESOLUTION;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlendShape {
@@ -1207,7 +1208,39 @@ fn apply_analysed(
 
 struct ToolGroup {
     solid: Solid,
+    bounds: Option<Aabb>,
     members: Vec<usize>,
+}
+
+impl ToolGroup {
+    fn apart_from(&self, other: &Self) -> Option<Aabb> {
+        let (first, second) = self.bounds.zip(other.bounds)?;
+        (!boxes_overlap(&first, &second, APART_TOOLS)).then(|| first.union(second))
+    }
+
+    fn united(&self, other: &Self) -> Result<Option<Self>, BooleanError> {
+        let joined = match self.apart_from(other) {
+            Some(bounds) => self
+                .solid
+                .beside(&other.solid)
+                .map(|solid| (solid, Some(bounds))),
+            None => match boolean(&self.solid, &other.solid, BooleanOperation::Union) {
+                Ok(solid) => {
+                    let bounds = solid.bounding_box();
+                    Some((solid, bounds))
+                }
+                Err(error) => {
+                    cancelled(error)?;
+                    None
+                }
+            },
+        };
+        Ok(joined.map(|(solid, bounds)| Self {
+            solid,
+            bounds,
+            members: [self.members.as_slice(), other.members.as_slice()].concat(),
+        }))
+    }
 }
 
 fn cancelled(error: BooleanError) -> Result<(), BooleanError> {
@@ -1223,6 +1256,7 @@ fn grouped(tools: &[Solid]) -> Result<Vec<ToolGroup>, BooleanError> {
         .enumerate()
         .map(|(index, solid)| ToolGroup {
             solid: solid.clone(),
+            bounds: solid.bounding_box(),
             members: vec![index],
         })
         .collect();
@@ -1237,21 +1271,18 @@ fn grouped(tools: &[Solid]) -> Result<Vec<ToolGroup>, BooleanError> {
                 break;
             };
             let pair = (first.members.clone(), second.members.clone());
-            if !refused.contains(&pair) {
-                progressed = true;
-                match boolean(&first.solid, &second.solid, BooleanOperation::Union) {
-                    Ok(solid) => {
-                        let mut members = first.members;
-                        members.extend(second.members);
-                        next.push(ToolGroup { solid, members });
-                        continue;
-                    }
-                    Err(error) => cancelled(error)?,
-                }
-                refused.insert(pair);
+            if refused.contains(&pair) {
+                next.extend([first, second]);
+                continue;
             }
-            next.push(first);
-            next.push(second);
+            progressed = true;
+            match first.united(&second)? {
+                Some(group) => next.push(group),
+                None => {
+                    refused.insert(pair);
+                    next.extend([first, second]);
+                }
+            }
         }
         groups = next;
         if groups.len() <= 1 || !progressed {

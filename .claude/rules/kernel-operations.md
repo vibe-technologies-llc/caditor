@@ -132,8 +132,9 @@ paths:
   imported blends count) at a quarter, half and three quarters along it, for selection.
 - Chosen edges grow along tangent-continuous chains (`blend_chain`); smooth edges are dropped, and
   only when every chosen edge is smooth is it `Smooth`. Tools are united pairwise in rounds (a
-  pair that cannot be united stays apart) and each group is applied in one boolean, or tool by tool
-  when that fails.
+  pair that cannot be united stays apart; a pair whose bounding boxes lie more than `APART_TOOLS`
+  apart is joined as separate lumps by `Solid::beside`, without a boolean, valid by construction)
+  and each group is applied in one boolean, or tool by tool when that fails.
 - Supported: straight edges whose faces run along them (planes, parallel cylinders), swept by
   extrusion; circles whose faces share their axis, swept by revolution; else `Unsupported`.
 - `TooLarge` covers a blend that does not fit on both faces at sampled points along the edge, whose

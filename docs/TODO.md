@@ -79,9 +79,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   classification), so a sequence of hole features is quadratic: in release the 144th hole of a block
   takes about 70 ms against 1 ms for the first. Carry untouched faces through by id, and return
   disjoint operands without the pipeline: a few hundred separated unions take seconds.
-- [low · medium] Blending unions its tools pairwise even when they are disjoint, each union a full
-  boolean; a disjoint pair could be joined as two lumps without the pipeline (see the item on
-  rebuilding every face above).
 - [low · hard] The face grid is graded per direction but still a tensor product, so a bump divides
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where

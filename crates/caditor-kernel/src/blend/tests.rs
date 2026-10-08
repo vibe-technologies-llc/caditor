@@ -8,7 +8,7 @@ use crate::{
     fixtures::{cuboid, cylinder, hollow_cuboid},
     naming::FaceOrigin,
     profile::{Profile, ProfileCurve, Selection},
-    test_support::{arc, assert_cancelled_anywhere, assert_watertight, line},
+    test_support::{arc, assert_cancelled_anywhere, assert_watertight, cancelled_after, line},
     tolerance::SamplingTolerance,
 };
 
@@ -829,4 +829,30 @@ fn a_tangent_chain_runs_along_smooth_joins_and_stops_at_corners() {
     let block = cuboid(Vector3::new(4.0, 4.0, 4.0));
     let edge = edge_through(&block, (2.0, 0.0, 4.0));
     assert_eq!(tangent_chain(&block, &[edge]), vec![edge]);
+}
+
+#[test]
+fn tools_apart_are_joined_as_lumps_without_a_boolean() {
+    let apart: Vec<Solid> = (0..4)
+        .map(|index| moved(cylinder(1.0, 2.0), (5.0 * f64::from(index), 0.0, 0.0)))
+        .collect();
+    let overlapping = [
+        cylinder(1.0, 2.0),
+        moved(cylinder(1.0, 2.0), (1.0, 0.0, 0.0)),
+    ];
+
+    let (groups, polls) = cancelled_after(0, || grouped(&apart));
+    let (stopped, _) = cancelled_after(0, || grouped(&overlapping));
+    let groups = groups.unwrap();
+    let [group] = groups.as_slice() else {
+        panic!("{} groups", groups.len());
+    };
+    let mut members = group.members.clone();
+    members.sort_unstable();
+
+    assert_eq!(polls, 0);
+    assert_eq!(members, vec![0, 1, 2, 3]);
+    assert_eq!(group.solid.shells().count(), 4);
+    check("four cylinders apart", &group.solid, 4.0 * 2.0 * PI);
+    assert!(matches!(stopped, Err(BooleanError::Cancelled(_))));
 }
