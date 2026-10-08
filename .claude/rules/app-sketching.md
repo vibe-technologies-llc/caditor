@@ -331,8 +331,15 @@ paths:
   picked one again lets it go); `dimensioning::fitting` chooses the dimension: a line's length, a
   circle's diameter and an arc's radius for one pick, the angle between two lines that are not
   parallel, and otherwise the distance between the two picks (origin and axes included). A second
-  pick adds its dimension at once; a single pick waits for a second, and Enter or a click on empty
-  space adds the single one. A spline is refused in words and a lone point waits. The dimension goes
+  pick adds its dimension at once, except two points (`dimensioning::awaits_placement`), which wait
+  for a click placing it; a single pick waits for a second, and Enter or a click on empty space
+  adds the single one. Where the placing click lands chooses the dimension
+  (`dimensioning::placed`, from the sketch pointer): for two points or a lone line, within their
+  horizontal span and above or below them the horizontal distance, within their vertical span and
+  beside them the vertical one, elsewhere (and always for level or upright ones) the aligned one;
+  for a lone arc, beyond it within its sweep its length, inside it its sweep, outside its sweep its
+  radius. Enter always adds the aligned distance, the length or the radius. A spline is refused in
+  words and a lone point waits. The dimension goes
   through the same candidates, checks, reference rule and inline field as the dimension buttons
   (`ConstraintTool::candidates_among`, `add_constraints`), the field taking the typed value. The
   prompt says what Enter would add and the hover what a click would; with the tool active labels

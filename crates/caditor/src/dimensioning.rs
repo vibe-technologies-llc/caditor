@@ -1,4 +1,7 @@
+use std::f64::consts::TAU;
+
 use caditor_document::FeatureId;
+use caditor_geometry::Point2;
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
@@ -8,12 +11,15 @@ use crate::{
 
 pub const PICK_FIRST: &str = "Click a line, circle, arc or point to dimension it";
 pub const FIRST_KEYS: &str = "Esc: back to Select";
-pub const PICKED_KEYS: &str = "Enter or click empty space: dimension it   Esc: start again";
+pub const PICKED_KEYS: &str =
+    "Enter: dimension it   Click empty space: dimension it as placed   Esc: start again";
+pub const PLACING_KEYS: &str = "Enter: the aligned distance   Esc: start again";
 pub const POINT_KEYS: &str = "Esc: start again";
 const SPLINE_REFUSED: &str =
     "A spline takes no dimension; dimension the points or lines that shape it instead";
 const NOT_IN_SKETCH: &str = "That is not part of the sketch being edited";
 const PARALLEL_TOLERANCE: f64 = 1e-9;
+const LEVEL_TOLERANCE: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -67,6 +73,67 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
     }
 }
 
+pub fn awaits_placement(sketch: &Sketch, picks: &[EntityId]) -> bool {
+    match picks {
+        [first, second] => {
+            kind(sketch, *first) == Some(Kind::Point) && kind(sketch, *second) == Some(Kind::Point)
+        }
+        _ => false,
+    }
+}
+
+pub fn placed(
+    sketch: &Sketch,
+    picks: &[EntityId],
+    pointer: Option<Point2>,
+) -> Option<ConstraintTool> {
+    let Fit::Ready(tool) = fitting(sketch, picks) else {
+        return None;
+    };
+    let Some(pointer) = pointer else {
+        return Some(tool);
+    };
+    let kinds: Vec<Option<Kind>> = picks.iter().map(|id| kind(sketch, *id)).collect();
+    let placed = match (kinds.as_slice(), picks) {
+        ([Some(Kind::Line)], [line]) => sketch
+            .line_endpoints(*line)
+            .map(|(start, end)| oriented(start, end, pointer)),
+        ([Some(Kind::Point), Some(Kind::Point)], [first, second]) => sketch
+            .point(*first)
+            .zip(sketch.point(*second))
+            .map(|(start, end)| oriented(start, end, pointer)),
+        ([Some(Kind::Arc)], [arc]) => sketch.arc(*arc).map(|arc| {
+            let reach = pointer - arc.center;
+            let turned = (reach.y.atan2(reach.x) - arc.start_angle).rem_euclid(TAU);
+            if turned > arc.sweep {
+                ConstraintTool::Radius
+            } else if reach.length() > arc.radius {
+                ConstraintTool::Distance
+            } else {
+                ConstraintTool::Angle
+            }
+        }),
+        _ => None,
+    };
+    Some(placed.unwrap_or(tool))
+}
+
+fn oriented(start: Point2, end: Point2, pointer: Point2) -> ConstraintTool {
+    let (low, high) = (start.min(end), start.max(end));
+    let span = high - low;
+    let tolerance = LEVEL_TOLERANCE * span.length();
+    if span.x <= tolerance || span.y <= tolerance {
+        return ConstraintTool::Distance;
+    }
+    let within_x = (low.x..=high.x).contains(&pointer.x);
+    let within_y = (low.y..=high.y).contains(&pointer.y);
+    match (within_x, within_y) {
+        (true, false) => ConstraintTool::HorizontalDistance,
+        (false, true) => ConstraintTool::VerticalDistance,
+        _ => ConstraintTool::Distance,
+    }
+}
+
 fn parallel(sketch: &Sketch, first: EntityId, second: EntityId) -> bool {
     let (Some(a), Some(b)) = (sketch.line_direction(first), sketch.line_direction(second)) else {
         return true;
@@ -76,7 +143,30 @@ fn parallel(sketch: &Sketch, first: EntityId, second: EntityId) -> bool {
 
 pub fn words(sketch: &Sketch, tool: ConstraintTool, picks: &[EntityId]) -> String {
     let label = |id: &EntityId| sketch.entity_label(*id);
+    let arc = |id: &EntityId| kind(sketch, *id) == Some(Kind::Arc);
     match (tool, picks) {
+        (ConstraintTool::Distance, [arc_picked]) if arc(arc_picked) => {
+            format!("the length of {}", label(arc_picked))
+        }
+        (ConstraintTool::Angle, [arc_picked]) if arc(arc_picked) => {
+            format!("the sweep of {}", label(arc_picked))
+        }
+        (ConstraintTool::HorizontalDistance, [line]) => {
+            format!("the horizontal length of {}", label(line))
+        }
+        (ConstraintTool::VerticalDistance, [line]) => {
+            format!("the vertical length of {}", label(line))
+        }
+        (ConstraintTool::HorizontalDistance, [first, second]) => format!(
+            "the horizontal distance between {} and {}",
+            label(first),
+            label(second)
+        ),
+        (ConstraintTool::VerticalDistance, [first, second]) => format!(
+            "the vertical distance between {} and {}",
+            label(first),
+            label(second)
+        ),
         (ConstraintTool::Distance, [line]) => format!("the length of {}", label(line)),
         (ConstraintTool::Diameter, [circle]) => format!("the diameter of {}", label(circle)),
         (ConstraintTool::Radius, [arc]) => format!("the radius of {}", label(arc)),
@@ -94,7 +184,24 @@ pub fn words(sketch: &Sketch, tool: ConstraintTool, picks: &[EntityId]) -> Strin
     }
 }
 
-pub fn prompt(sketch: &Sketch, picks: &[EntityId]) -> (String, &'static str) {
+pub fn prompt(
+    sketch: &Sketch,
+    picks: &[EntityId],
+    pointer: Option<Point2>,
+) -> (String, &'static str) {
+    let as_placed = placed(sketch, picks, pointer);
+    if awaits_placement(sketch, picks)
+        && let Some(tool) = as_placed
+    {
+        return (
+            format!(
+                "Click above or below for the horizontal distance, beside for the vertical one, \
+                 elsewhere for the aligned one: here {}",
+                words(sketch, tool, picks)
+            ),
+            PLACING_KEYS,
+        );
+    }
     match (picks, fitting(sketch, picks)) {
         ([], _) => (PICK_FIRST.to_owned(), FIRST_KEYS),
         ([point], Fit::Waiting) => (
@@ -104,13 +211,20 @@ pub fn prompt(sketch: &Sketch, picks: &[EntityId]) -> (String, &'static str) {
             ),
             POINT_KEYS,
         ),
-        (_, Fit::Ready(tool)) => (
-            format!(
-                "Click a second item to dimension against it, or press Enter for {}",
-                words(sketch, tool, picks)
-            ),
-            PICKED_KEYS,
-        ),
+        (_, Fit::Ready(tool)) => {
+            let here = as_placed
+                .filter(|placed| *placed != tool)
+                .map_or_else(String::new, |placed| {
+                    format!(" (empty space here: {})", words(sketch, placed, picks))
+                });
+            (
+                format!(
+                    "Click a second item to dimension against it, or press Enter for {}{here}",
+                    words(sketch, tool, picks)
+                ),
+                PICKED_KEYS,
+            )
+        }
         (_, Fit::Waiting | Fit::Refused(_)) => (PICK_FIRST.to_owned(), FIRST_KEYS),
     }
 }
@@ -121,6 +235,12 @@ pub fn hover_words(sketch: &Sketch, picks: &[EntityId], hovered: EntityId) -> St
         return format!("Click to let go of {label}");
     }
     let picked: Vec<EntityId> = picks.iter().copied().chain([hovered]).collect();
+    if awaits_placement(sketch, &picked) {
+        return format!(
+            "Click to pick {label}, then click where {} goes",
+            words(sketch, ConstraintTool::Distance, &picked)
+        );
+    }
     match (picks, fitting(sketch, &picked)) {
         ([], Fit::Ready(tool)) => format!(
             "Click to pick {label}, then press Enter for {} or click a second item",
@@ -134,7 +254,12 @@ pub fn hover_words(sketch: &Sketch, picks: &[EntityId], hovered: EntityId) -> St
     }
 }
 
-pub fn dimension(model: &Model, feature: FeatureId, picks: &[EntityId]) -> Result<Added, String> {
+pub fn dimension(
+    model: &Model,
+    feature: FeatureId,
+    picks: &[EntityId],
+    pointer: Option<Point2>,
+) -> Result<Added, String> {
     let owner = model
         .document()
         .feature(feature)
@@ -147,8 +272,8 @@ pub fn dimension(model: &Model, feature: FeatureId, picks: &[EntityId]) -> Resul
         .displayed_sketch(owner)
         .ok_or_else(|| NOT_IN_SKETCH.to_owned())?;
     let tool = match fitting(&shown, picks) {
-        Fit::Ready(tool) => tool,
-        Fit::Waiting => return Err(prompt(&shown, picks).0),
+        Fit::Ready(tool) => placed(&shown, picks, pointer).unwrap_or(tool),
+        Fit::Waiting => return Err(prompt(&shown, picks, pointer).0),
         Fit::Refused(reason) => return Err(reason.to_owned()),
     };
     let constraints = tool.candidates_among(definition, &shown, picks, &definition.relations())?;
@@ -242,17 +367,81 @@ mod tests {
             format!("Click to let go of {level_label}")
         );
         assert_eq!(
-            prompt(&sketch, &[point]).0,
+            prompt(&sketch, &[point], None).0,
             format!("Click a second point, a line or a circle for its distance from {point_label}")
         );
         assert_eq!(
-            prompt(&sketch, &[level]),
+            prompt(&sketch, &[level], None),
             (
                 format!(
                     "Click a second item to dimension against it, or press Enter for the length \
                      of {level_label}"
                 ),
                 PICKED_KEYS
+            )
+        );
+    }
+
+    #[test]
+    fn where_the_pointer_is_chooses_horizontal_vertical_or_aligned_and_an_arc_s_part() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let first = sketch.add_point(Point2::ZERO);
+        let second = sketch.add_point(Point2::new(10.0, 4.0));
+        let level = sketch.add_point(Point2::new(10.0, 0.0));
+        let slanted = sketch.add_line(Point2::ZERO, Point2::new(6.0, 8.0));
+        let arc = sketch.add_arc(Point2::ZERO, Point2::new(5.0, 0.0), Point2::new(0.0, 5.0));
+        let points = [first, second];
+        let at = |x: f64, y: f64| Some(Point2::new(x, y));
+
+        assert!(awaits_placement(&sketch, &points));
+        assert!(!awaits_placement(&sketch, &[first]));
+        assert!(!awaits_placement(&sketch, &[first, slanted]));
+        assert_eq!(
+            placed(&sketch, &points, at(5.0, 9.0)),
+            Some(ConstraintTool::HorizontalDistance)
+        );
+        assert_eq!(
+            placed(&sketch, &points, at(-3.0, 2.0)),
+            Some(ConstraintTool::VerticalDistance)
+        );
+        assert_eq!(
+            placed(&sketch, &points, at(15.0, 9.0)),
+            Some(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            placed(&sketch, &points, None),
+            Some(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            placed(&sketch, &[first, level], at(5.0, 9.0)),
+            Some(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            placed(&sketch, &[slanted], at(3.0, 20.0)),
+            Some(ConstraintTool::HorizontalDistance)
+        );
+        assert_eq!(
+            placed(&sketch, &[arc], at(5.0, 5.0)),
+            Some(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            placed(&sketch, &[arc], at(1.0, 1.0)),
+            Some(ConstraintTool::Angle)
+        );
+        assert_eq!(
+            placed(&sketch, &[arc], at(-4.0, -4.0)),
+            Some(ConstraintTool::Radius)
+        );
+        assert_eq!(
+            words(&sketch, ConstraintTool::Angle, &[arc]),
+            format!("the sweep of {}", sketch.entity_label(arc))
+        );
+        assert_eq!(
+            words(&sketch, ConstraintTool::VerticalDistance, &points),
+            format!(
+                "the vertical distance between {} and {}",
+                sketch.entity_label(first),
+                sketch.entity_label(second)
             )
         );
     }

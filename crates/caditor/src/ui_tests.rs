@@ -3855,6 +3855,57 @@ fn the_smart_dimension_dimensions_two_lines_by_their_angle_and_a_circle_by_a_cli
 }
 
 #[test]
+fn the_smart_dimension_places_two_points_horizontally_and_an_arc_by_its_length() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_point(Point2::new(0.0, 0.0));
+    let second = sketch.add_point(Point2::new(30.0, 20.0));
+    let arc = sketch.add_arc(
+        Point2::new(60.0, 0.0),
+        Point2::new(70.0, 0.0),
+        Point2::new(60.0, 10.0),
+    );
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.use_tool(Key::D);
+
+    harness.click_pickable(Plane::XY, Point2::ZERO, sketch_entity(feature, first));
+    harness.frame();
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(30.0, 20.0),
+        sketch_entity(feature, second),
+    );
+    harness.frame();
+    let waiting = harness.sketch(feature).constraints().count();
+    harness.point_at(Point2::new(15.0, 35.0));
+    let horizontal_prompt = harness.shows_containing("here the horizontal distance between");
+    harness.click_at(Point2::new(15.0, 35.0));
+    harness.frame();
+    harness.frame();
+    let horizontal = constraints_of_kind(harness.sketch(feature), "Horizontal distance");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(67.07, 7.07),
+        sketch_entity(feature, arc),
+    );
+    harness.frame();
+    harness.click_at(Point2::new(72.0, 12.0));
+    harness.frame();
+    harness.frame();
+    let lengths = constraints_of_kind(harness.sketch(feature), "Arc length");
+
+    assert_eq!(waiting, 0);
+    assert!(horizontal_prompt);
+    let [Constraint::HorizontalDistance { value, .. }] = &horizontal[..] else {
+        panic!("one horizontal distance is added: {horizontal:?}");
+    };
+    assert_eq!(*value, Expression::Measure(30.0, Unit::Millimetre));
+    assert_eq!(lengths.len(), 1, "{lengths:?}");
+}
+
+#[test]
 fn the_smart_dimension_works_from_the_keyboard_and_escape_lets_go_before_leaving() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
@@ -3894,6 +3945,13 @@ fn the_smart_dimension_works_from_the_keyboard_and_escape_lets_go_before_leaving
 
     highlight(&mut harness, first);
     highlight(&mut harness, second);
+    let placing = harness.shows_containing("Click above or below for the horizontal distance");
+    let waiting = harness.sketch(feature).constraints().count();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    assert!(placing);
+    assert_eq!(waiting, 0);
     let (_, added) = only_constraint(harness.sketch(feature));
     assert_eq!(
         added,

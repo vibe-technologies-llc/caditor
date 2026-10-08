@@ -1641,6 +1641,21 @@ impl ViewportState {
         actions: &mut Vec<Action>,
     ) {
         let mut picks = sketch_tools::selected_entities(&self.selection, feature);
+        let Some(shown) = model
+            .document()
+            .feature(feature)
+            .and_then(|owner| model.displayed_sketch(owner))
+        else {
+            return;
+        };
+        let letting_go = matches!(
+            hovered,
+            Some(Pickable::SketchEntity { feature: owner, entity }) if owner == feature && picks.contains(&entity)
+        );
+        if dimensioning::awaits_placement(&shown, &picks) && !letting_go {
+            self.place_dimension(model, feature, &picks, actions);
+            return;
+        }
         let picked = match hovered {
             Some(Pickable::SketchEntity {
                 feature: owner,
@@ -1661,19 +1676,14 @@ impl ViewportState {
             self.selection.toggle(pickable);
             return;
         }
-        let Some(shown) = model
-            .document()
-            .feature(feature)
-            .and_then(|owner| model.displayed_sketch(owner))
-        else {
-            return;
-        };
         picks.push(picked);
         match dimensioning::fitting(&shown, &picks) {
             dimensioning::Fit::Refused(reason) => {
                 actions.push(Action::Inform(Notice::info(format!("{reason}."))));
             }
-            dimensioning::Fit::Ready(_) if picks.len() > 1 => {
+            dimensioning::Fit::Ready(_)
+                if picks.len() > 1 && !dimensioning::awaits_placement(&shown, &picks) =>
+            {
                 self.place_dimension(model, feature, &picks, actions);
             }
             dimensioning::Fit::Ready(_) | dimensioning::Fit::Waiting => {
@@ -1689,26 +1699,33 @@ impl ViewportState {
         picks: &[EntityId],
         actions: &mut Vec<Action>,
     ) {
-        match dimensioning::dimension(model, feature, picks) {
-            Ok(added) => {
-                let typed = added
-                    .constraints
-                    .first()
-                    .copied()
-                    .filter(|constraint| !added.references.contains(constraint));
-                actions.push(Action::Apply(added.transaction));
-                if !added.references.is_empty() {
-                    actions.push(Action::Inform(Notice::info(
-                        sketch_toolbar::REFERENCE_ADDED,
-                    )));
-                }
-                if let Some(constraint) = typed {
-                    self.edit_dimension(feature, constraint);
-                }
-                self.selection.clear();
-            }
+        match dimensioning::dimension(model, feature, picks, self.sketch_cursor) {
+            Ok(added) => self.dimension_added(feature, added, actions),
             Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
         }
+    }
+
+    fn dimension_added(
+        &mut self,
+        feature: FeatureId,
+        added: sketch_tools::Added,
+        actions: &mut Vec<Action>,
+    ) {
+        let typed = added
+            .constraints
+            .first()
+            .copied()
+            .filter(|constraint| !added.references.contains(constraint));
+        actions.push(Action::Apply(added.transaction));
+        if !added.references.is_empty() {
+            actions.push(Action::Inform(Notice::info(
+                sketch_toolbar::REFERENCE_ADDED,
+            )));
+        }
+        if let Some(constraint) = typed {
+            self.edit_dimension(feature, constraint);
+        }
+        self.selection.clear();
     }
 
     fn picked_dimension(&self, model: &Model) -> Option<(FeatureId, Vec<EntityId>)> {
@@ -2405,7 +2422,10 @@ impl ViewportState {
             } else if let Some(transaction) = self.drawing.finish(model) {
                 actions.push(Action::Apply(transaction));
             } else if let Some((feature, picks)) = self.picked_dimension(model) {
-                self.place_dimension(model, feature, &picks, actions);
+                match dimensioning::dimension(model, feature, &picks, None) {
+                    Ok(added) => self.dimension_added(feature, added, actions),
+                    Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+                }
             } else if let Some(Pickable::SketchConstraint {
                 feature,
                 constraint,
@@ -2775,7 +2795,7 @@ impl ViewportState {
             let picks = sketch_tools::selected_entities(&self.selection, feature);
             let owner = document.feature(feature)?;
             let shown = model.displayed_sketch(owner)?;
-            let (text, keys) = dimensioning::prompt(&shown, &picks);
+            let (text, keys) = dimensioning::prompt(&shown, &picks, self.sketch_cursor);
             Some((text, keys.to_owned()))
         } else if let Some(prompt) = self.trimming.prompt() {
             Some((prompt.to_owned(), key_hints.targets.clone()))
