@@ -8,6 +8,9 @@ use crate::{
     widgets::{self, Tone},
 };
 
+pub const BEYOND_HELP: &str = "Points held on a line or arc that lie past its drawn ends, marked in \
+                               the view: a point on a line or arc is held to its whole line or \
+                               circle. Extend the curve, or move the point, if that is not meant.";
 pub const OPEN_ENDS_HELP: &str = "Curve ends joined to nothing, marked in the view. Join them to \
                                   close the outline before extruding or revolving it.";
 
@@ -27,6 +30,7 @@ pub struct SketchSummary {
     pub status: SketchStatus,
     pub redundant: usize,
     pub open_ends: usize,
+    pub beyond: usize,
     pub problem: Option<Focus>,
 }
 
@@ -42,6 +46,7 @@ impl SketchSummary {
                 },
                 redundant: 0,
                 open_ends: 0,
+                beyond: 0,
                 problem: Some(error.fix.map_or(Focus::Feature(feature), Focus::from)),
             },
             Some(FeatureState::UpToDate) => {
@@ -56,6 +61,8 @@ impl SketchSummary {
                     redundant: solution.map_or(0, |solution| solution.redundancies().len()),
                     open_ends: up_to_date_result(evaluation, feature)
                         .map_or(0, |result| result.open_ends.len()),
+                    beyond: up_to_date_result(evaluation, feature)
+                        .map_or(0, |result| result.beyond.len()),
                     problem: None,
                 }
             }
@@ -63,18 +70,21 @@ impl SketchSummary {
                 status: SketchStatus::NotSolved,
                 redundant: 0,
                 open_ends: 0,
+                beyond: 0,
                 problem: None,
             },
             Some(FeatureState::Suppressed) => Self {
                 status: SketchStatus::Suppressed,
                 redundant: 0,
                 open_ends: 0,
+                beyond: 0,
                 problem: None,
             },
             Some(FeatureState::RolledBack) => Self {
                 status: SketchStatus::RolledBack,
                 redundant: 0,
                 open_ends: 0,
+                beyond: 0,
                 problem: None,
             },
         }
@@ -97,6 +107,16 @@ impl SketchSummary {
 
     pub fn open_ends_text(&self) -> Option<String> {
         (self.open_ends > 0).then(|| count(self.open_ends, "open end", "open ends"))
+    }
+
+    pub fn beyond_text(&self) -> Option<String> {
+        (self.beyond > 0).then(|| {
+            count(
+                self.beyond,
+                "point beyond its curve",
+                "points beyond their curves",
+            )
+        })
     }
 
     pub fn redundant_text(&self) -> Option<String> {
@@ -147,6 +167,9 @@ pub fn show(ui: &mut Ui, summary: &SketchSummary) -> Option<Focus> {
     }
     if let Some(open) = summary.open_ends_text() {
         widgets::status_pill(ui, Tone::Warning, open).on_hover_text(OPEN_ENDS_HELP);
+    }
+    if let Some(beyond) = summary.beyond_text() {
+        widgets::status_pill(ui, Tone::Info, beyond).on_hover_text(BEYOND_HELP);
     }
     focus
 }

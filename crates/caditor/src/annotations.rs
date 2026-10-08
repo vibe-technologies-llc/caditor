@@ -31,6 +31,8 @@ const GLYPH_HIT_SIZE: f32 = 16.0;
 const DOT_RADIUS: f32 = 3.5;
 const RING_WIDTH: f32 = 1.5;
 const OPEN_END_RADIUS: f32 = 6.0;
+const BEYOND_RADIUS: f32 = 7.0;
+const BEYOND_DASH: f32 = 4.0;
 const SYMBOL_HALF: f32 = 4.0;
 const SYMBOL_WIDTH: f32 = 1.4;
 const PARALLEL_GAP: f32 = 1.8;
@@ -169,6 +171,7 @@ struct Marks {
     groups: Vec<GlyphGroup>,
     screen_centre: Option<Vector2>,
     open_ends: Vec<Vector2>,
+    beyond: Vec<[Vector2; 2]>,
 }
 
 impl Marks {
@@ -242,17 +245,29 @@ impl Marks {
                 })
             })
             .collect();
-        let open_ends = sketch_status::up_to_date_result(model.evaluation(), feature)
+        let result = sketch_status::up_to_date_result(model.evaluation(), feature);
+        let in_view = |at: &Vector2| at.x >= 0.0 && at.y >= 0.0 && at.x <= view.x && at.y <= view.y;
+        let open_ends = result
             .into_iter()
             .flat_map(|result| &result.open_ends)
             .filter_map(|end| screen.to_screen(shown.point(*end)?))
-            .filter(|at| at.x >= 0.0 && at.y >= 0.0 && at.x <= view.x && at.y <= view.y)
+            .filter(in_view)
+            .collect();
+        let beyond = result
+            .into_iter()
+            .flat_map(|result| &result.beyond)
+            .filter_map(|beyond| {
+                let at = screen.to_screen(shown.point(beyond.point)?)?;
+                let end = screen.to_screen(shown.nearest_end(*beyond)?)?;
+                (in_view(&at) || in_view(&end)).then_some([end, at])
+            })
             .collect();
         Some(Self {
             dimensions,
             groups,
             screen_centre,
             open_ends,
+            beyond,
         })
     }
 
@@ -600,6 +615,16 @@ impl Annotations {
                     paint_glyph(&painter, center, mark.kind, tint);
                 }
             }
+        }
+        for [end, at] in &marks.beyond {
+            let (end, at) = (to_pos(surface.rect, *end), to_pos(surface.rect, *at));
+            painter.extend(Shape::dashed_line(
+                &[end, at],
+                Stroke::new(STROKE_WIDTH, canvas::MUTED),
+                BEYOND_DASH,
+                BEYOND_DASH,
+            ));
+            painter.circle_stroke(at, BEYOND_RADIUS, Stroke::new(RING_WIDTH, canvas::MUTED));
         }
         for end in &marks.open_ends {
             painter.circle_stroke(

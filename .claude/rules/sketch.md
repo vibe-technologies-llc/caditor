@@ -32,6 +32,11 @@ paths:
   an end whose class of points (shared or joined by `Coincident`) holds no other curve end and
   lies on no other profile curve (`Coincident` or `Midpoint` with it). Recompute keeps them in
   `SketchResult::open_ends`, worked out on the worker with each solve.
+- `Sketch::points_beyond_curves` lists the points an active `Coincident` holds on a line or arc
+  (not construction, not an axis) that lie past its drawn ends by more than `BEYOND_TOLERANCE`: the
+  solver holds a point on a line or arc to the whole line or circle (`Form::OnLine` and the circle
+  form), deliberately, since snapping to a line's extension relies on it. Recompute keeps them in
+  `SketchResult::beyond`, so the app says so rather than bounding the solve.
 - `Sketch::free_points` lists the points no curve uses (a constraint using one does not count), in one
   pass; the hole feature drills at them.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.

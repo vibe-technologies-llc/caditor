@@ -10,7 +10,8 @@ use caditor_expression::{Dimension, EvalError, ParameterId, Quantity};
 use caditor_geometry::Point3;
 use caditor_kernel::{Interrupt, MeshQuality, Profile, ProfileError, Solid, interruptible};
 use caditor_sketch::{
-    ConstraintId, DimensionError, EntityId, Sketch, SketchError, SketchSolution, SolveMemo, Solved,
+    ConstraintId, DimensionError, EntityId, PointBeyond, Sketch, SketchError, SketchSolution,
+    SolveMemo, Solved,
 };
 
 use crate::{
@@ -96,6 +97,7 @@ pub struct SketchResult {
     pub geometry: Sketch,
     pub solution: SketchSolution,
     pub open_ends: Vec<EntityId>,
+    pub beyond: Vec<PointBeyond>,
     memo: SolveMemo,
     profile: Arc<OnceLock<Box<Result<Profile, ProfileError>>>>,
     regions: Arc<OnceLock<Result<Vec<SketchRegion>, ProfileError>>>,
@@ -117,6 +119,7 @@ impl SketchResult {
     fn remembering(geometry: Sketch, solution: SketchSolution, memo: SolveMemo) -> Self {
         Self {
             open_ends: geometry.open_ends(),
+            beyond: geometry.points_beyond_curves(),
             geometry,
             solution,
             memo,

@@ -131,10 +131,11 @@ fn edited_sketch(model: &Model, feature: FeatureId) -> Option<String> {
     }
     let constraints = sketch.constraints().count();
     let summary = SketchSummary::of(model.evaluation(), feature);
-    let open = summary
-        .open_ends_text()
-        .map(|open| format!("; {open}"))
-        .unwrap_or_default();
+    let open: String = [summary.open_ends_text(), summary.beyond_text()]
+        .into_iter()
+        .flatten()
+        .map(|note| format!("; {note}"))
+        .collect();
     Some(format!(
         "Editing {}: {}, {} and {}; {}{open}.",
         owner.name,

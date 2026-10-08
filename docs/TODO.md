@@ -108,9 +108,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] When conflict diagnosis finds that a part which failed from its drawn shape
   holds after all (a chain whose line must fold back, reached from a solution of all but one
   constraint), the solve still fails; the solution found could be offered instead.
-- [medium · medium] A point on a line segment or arc is held to the infinite line or full circle
-  (`Form::OnLine` and the circle form behind `Coincident`), so it can solve beyond the segment's
-  ends or outside the sweep, and the line rotates to meet it; bound it or say so.
 - [medium · hard] The rank and null-space analysis (`analyze_sparse`, `Echelon::spans_unit` once per
   column) is near cubic on closed chains and never checks `cancelled`: solving the sketch left by
   offsetting a closed, fully dimensioned chain takes 0.2 s at 100 lines, 1.8 s at 200 and 15 s at

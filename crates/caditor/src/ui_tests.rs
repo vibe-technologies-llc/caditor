@@ -14784,3 +14784,26 @@ fn constraint_rows_far_out_of_view_are_not_laid_out() {
     assert!(delete_buttons > 0);
     assert!(delete_buttons < 100, "{delete_buttons}");
 }
+
+#[test]
+fn a_point_held_past_the_end_of_its_line_is_counted_and_explained() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+    let past = sketch.add_point(Point2::new(15.0, 0.0));
+    sketch
+        .add_constraint(Constraint::Coincident(past, line))
+        .unwrap();
+    let feature = harness.add_sketch(sketch);
+    harness.context.enable_accesskit();
+
+    harness.edit(feature);
+    harness.frame();
+
+    assert!(harness.shows("1 point beyond its curve"));
+    assert!(
+        harness
+            .view_description()
+            .is_some_and(|description| description.contains("1 point beyond its curve"))
+    );
+}

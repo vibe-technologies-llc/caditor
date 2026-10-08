@@ -307,6 +307,11 @@ paths:
   pill beside the sketch's status in the sketch bar ("2 open ends", its hover saying to join them)
   and in the 3D view's description, so an outline that will not close is seen while drawing
   rather than when the extrusion fails.
+- Points held past the drawn ends of their line or arc (`SketchResult::beyond`) are marked the same
+  way in `canvas::MUTED`: a dashed extension from the curve's nearer end to the point and a ring,
+  counted in an info pill ("1 point beyond its curve", its hover `sketch_status::BEYOND_HELP`)
+  and in the 3D view's description. It is information, not a warning, since a point on a line's
+  extension is often meant (`Target::Extension`).
 - The edited sketch's closed regions (its result's display regions) are tinted `CLOSED_REGION` on
   the front layer, unpicked (`scene::Builder::closed_regions`), while the shown geometry is the
   result's (`same_geometry`), so a drag never shows regions it left behind.

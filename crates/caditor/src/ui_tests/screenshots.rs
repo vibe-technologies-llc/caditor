@@ -9,8 +9,9 @@ use caditor_document::{
     SolidFeature,
 };
 use caditor_file::{JournalEntry, Start, Storage, StorageConfig};
-use caditor_geometry::Point2;
+use caditor_geometry::{Plane, Point2};
 use caditor_render::{SurfaceTarget, ViewportFrame, ViewportRenderer};
+use caditor_sketch::{Constraint, Sketch};
 use egui::{Event, Key, Modifiers};
 use tempfile::TempDir;
 
@@ -331,6 +332,11 @@ fn screenshots() {
         drop(sketching);
 
         let dir = TempDir::new().expect("a temporary directory");
+        let mut beyond = Harness::styled(look, dir.path(), false);
+        beyond_scene(&mut beyond, &gpu, &out, look);
+        drop(beyond);
+
+        let dir = TempDir::new().expect("a temporary directory");
         let mut moving = Harness::styled(look, dir.path(), false);
         move_scene(&mut moving, &gpu, &out, look);
         drop(moving);
@@ -535,6 +541,19 @@ fn inference_scenes(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     harness.click_at(Point2::new(10.0, 5.0));
     harness.point_at(Point2::new(25.0, 30.02));
     shoot(harness, gpu, out, "tracking", look);
+}
+
+fn beyond_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    let past = sketch.add_point(Point2::new(45.0, 0.0));
+    sketch
+        .add_constraint(Constraint::Coincident(past, line))
+        .expect("a point goes on a line");
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.frame();
+    shoot(harness, gpu, out, "point-beyond", look);
 }
 
 fn move_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
