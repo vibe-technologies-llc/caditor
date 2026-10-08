@@ -12,7 +12,10 @@ use std::{
 use caditor_document::{
     BodyAppearance, CancelToken, FeatureId, FeatureResult, ModelProperties, Rgb,
 };
-use caditor_file::{ExportBody, ExportError, ExportFormat, Exported, Look, MeshResolution};
+use caditor_file::{
+    ExportBody, ExportError, ExportFormat, Exported, Look, MeshOptions, MeshResolution, StlEncoding,
+};
+use caditor_geometry::Vector3;
 use egui::{ScrollArea, Sides, Ui};
 use parking_lot::Mutex;
 
@@ -42,6 +45,7 @@ pub enum ExportCommand {
     Hide,
     SetFormat(ExportFormat),
     SetResolution(MeshResolution),
+    SetStlEncoding(StlEncoding),
     Include { body: FeatureId, included: bool },
     IncludeAll(bool),
     Choose,
@@ -60,6 +64,7 @@ pub struct Exporter {
     open: bool,
     format: ExportFormat,
     resolution: MeshResolution,
+    stl: StlEncoding,
     left_out: BTreeSet<FeatureId>,
     running: Option<Running>,
     session: u64,
@@ -134,6 +139,7 @@ impl Exporter {
             ExportCommand::Choose => {}
             ExportCommand::SetFormat(format) => self.format = format,
             ExportCommand::SetResolution(resolution) => self.resolution = resolution,
+            ExportCommand::SetStlEncoding(stl) => self.stl = stl,
             ExportCommand::Include { body, included } => {
                 if included {
                     self.left_out.remove(&body);
@@ -171,7 +177,10 @@ impl Exporter {
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&cancelled);
         let cancel = CancelToken::new(move || flag.load(Ordering::SeqCst));
-        let resolution = self.resolution;
+        let options = MeshOptions {
+            resolution: self.resolution,
+            stl: self.stl,
+        };
         let properties = model.document().properties().clone();
         let target = path.clone();
         let slot = Arc::new(Mutex::new(Some(finished)));
@@ -180,7 +189,7 @@ impl Exporter {
             .name("export".to_owned())
             .spawn(move || {
                 let exported =
-                    export_results(&target, format, resolution, &bodies, &properties, &cancel);
+                    export_results(&target, format, &options, &bodies, &properties, &cancel);
                 if let Some(finished) = worker_slot.lock().take() {
                     finished(target, exported);
                 }
@@ -215,8 +224,15 @@ impl Exporter {
                     ),
                     None => format!("Exported {bodies} to “{name}”."),
                 };
+                let summary = match exported.moved {
+                    Some(moved) => format!("{summary} {}", moved_note(moved)),
+                    None => summary,
+                };
                 if exported.left_out.is_empty() {
-                    return Notice::info(summary);
+                    return Notice {
+                        outlasts_edits: exported.moved.is_some(),
+                        ..Notice::info(summary)
+                    };
                 }
                 let reasons: Vec<String> =
                     exported.left_out.iter().map(ToString::to_string).collect();
@@ -254,10 +270,19 @@ impl Exporter {
     }
 }
 
+pub fn moved_note(moved: Vector3) -> String {
+    let back = Vector3::ZERO - moved;
+    format!(
+        "Everything was moved by ({}, {}, {}) mm, so that binary STL keeps a micrometre; move it by \
+         ({}, {}, {}) mm to put it back.",
+        moved.x, moved.y, moved.z, back.x, back.y, back.z
+    )
+}
+
 fn export_results(
     path: &Path,
     format: ExportFormat,
-    resolution: MeshResolution,
+    options: &MeshOptions,
     bodies: &[ExportSource],
     properties: &ModelProperties,
     cancel: &CancelToken,
@@ -272,7 +297,7 @@ fn export_results(
             })
         })
         .collect();
-    caditor_file::export_bodies(path, format, resolution, &bodies, properties, cancel)
+    caditor_file::export_bodies(path, format, options, &bodies, properties, cancel)
 }
 
 pub fn with_format_extension(path: PathBuf, format: ExportFormat) -> PathBuf {
@@ -321,6 +346,9 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
         }
         let mut command = None;
         format_choice(ui, exporter, &mut command);
+        if exporter.format == ExportFormat::Stl {
+            stl_choice(ui, exporter, &mut command);
+        }
         if exporter.format.is_mesh() {
             resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
         }
@@ -421,6 +449,28 @@ fn format_hint(format: ExportFormat) -> &'static str {
         }
         ExportFormat::Step => {
             "Exact faces and edges that other CAD programs can open and keep editing."
+        }
+    }
+}
+
+fn stl_choice(ui: &mut Ui, exporter: &Exporter, command: &mut Option<ExportCommand>) {
+    heading(ui, "Encoding");
+    let options = StlEncoding::ALL.map(|stl| (stl, stl.name(), stl_hint(stl)));
+    if let Some(stl) = preferences::choice(ui, &options, exporter.stl) {
+        *command = Some(ExportCommand::SetStlEncoding(stl));
+    }
+    ui.label(widgets::muted(stl_hint(exporter.stl), ui));
+}
+
+fn stl_hint(stl: StlEncoding) -> &'static str {
+    match stl {
+        StlEncoding::Binary => {
+            "Compact, with every body in one surface; a model far from the origin is moved near \
+             it so its single-precision numbers keep a micrometre."
+        }
+        StlEncoding::Text => {
+            "Each body a named solid with exact coordinates, about five times larger; some \
+             programs read the first solid only."
         }
     }
 }
@@ -546,6 +596,7 @@ mod tests {
             bodies: 2,
             triangles: Some(24),
             left_out: vec![ExportError::Meshing("Bracket".to_owned())],
+            moved: None,
         };
 
         let notice = exporter.finished(Path::new("parts.stl"), Ok(exported));
@@ -556,6 +607,27 @@ mod tests {
             "Exported 2 bodies to “parts.stl” (24 triangles). 1 body was left out: the body of \
              “Bracket” could not be turned into triangles at this resolution; try another \
              resolution."
+        );
+    }
+
+    #[test]
+    fn a_moved_stl_says_how_to_put_it_back() {
+        let mut exporter = Exporter::default();
+        let exported = Exported {
+            bodies: 1,
+            triangles: Some(12),
+            left_out: Vec::new(),
+            moved: Some(Vector3::new(-1_000_020.0, 0.0, -5.0)),
+        };
+
+        let notice = exporter.finished(Path::new("far.stl"), Ok(exported));
+
+        assert!(notice.outlasts_edits);
+        assert_eq!(
+            notice.text,
+            "Exported 1 body to “far.stl” (12 triangles). Everything was moved by (-1000020, 0, \
+             -5) mm, so that binary STL keeps a micrometre; move it by (1000020, 0, 5) mm to put \
+             it back."
         );
     }
 

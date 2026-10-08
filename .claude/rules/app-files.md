@@ -76,6 +76,10 @@ paths:
 - The dialog stays open behind the save dialog so cancelling the picker keeps the choices, and
   closes when the export starts. The export then runs on its own thread, cancellable from the
   status bar and the palette.
+- STL adds an Encoding choice (binary by default, text keeping each body a named solid), each
+  option saying what it costs on hover. A binary STL moved near the origin says by how much and
+  how to move it back, in a notice that outlasts edits (`export::moved_note`; the command line
+  prints it as a warning).
 - A path lacking the format's extension gets it appended, so an export never replaces a model
   file; when the appended name exists, `files.rs` asks "Replace …?" as Save As does, and Cancel
   returns to the export dialog.

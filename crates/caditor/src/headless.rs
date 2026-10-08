@@ -9,13 +9,13 @@ use caditor_document::{
     CancelToken, Document, Evaluation, FeatureState, ModelEvaluator, Recompute,
 };
 use caditor_file::{
-    DXF_EXTENSION, ExportBody, ExportFormat, MeshResolution, PNG_EXTENSION, PngExportError,
-    bodies_transaction, export_png,
+    DXF_EXTENSION, ExportBody, ExportFormat, MeshOptions, MeshResolution, PNG_EXTENSION,
+    PngExportError, bodies_transaction, export_png,
 };
 use caditor_render::{Background, GraphicsSettings, ImageRequest, OffscreenRenderer, SurfaceSize};
 
 use crate::{
-    export::{ExportSource, OwnedLook},
+    export::{self, ExportSource, OwnedLook},
     image_export::RenderedRows,
     import,
     model::display_name,
@@ -132,13 +132,17 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
             let exported = caditor_file::export_bodies(
                 output,
                 format,
-                *resolution,
+                &MeshOptions {
+                    resolution: *resolution,
+                    ..MeshOptions::default()
+                },
                 &export_bodies,
                 document.properties(),
                 &CancelToken::never(),
             )
             .with_context(|| format!("could not export “{}”", display_name(Some(output))))?;
             warnings.extend(exported.left_out.iter().map(ToString::to_string));
+            warnings.extend(exported.moved.map(export::moved_note));
             exported.bodies
         }
         Target::Image => {

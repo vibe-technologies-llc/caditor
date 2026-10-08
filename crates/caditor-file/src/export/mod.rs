@@ -12,25 +12,34 @@ mod three_mf;
 pub(crate) mod zip;
 
 use std::{
+    fs::File,
+    io::{self, BufWriter, Write},
     panic::{self, AssertUnwindSafe},
     path::Path,
     time::SystemTime,
 };
 
 use caditor_document::{CancelToken, ModelProperties, ModelProperty, Rgb};
-use caditor_geometry::{Aabb, Point3, Vector2};
+use caditor_geometry::{Aabb, Point3, Vector2, Vector3};
 use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
 use caditor_step::{StepBody, StepDetails, StepWritten, WriteError, write_step_detailed};
 
 use self::figure::Figure;
-pub use self::image::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, export_png};
-use crate::{reason::WriteFailure, save::write_atomically};
+pub use self::{
+    image::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, export_png},
+    stl::StlEncoding,
+};
+use crate::{
+    reason::WriteFailure,
+    save::{replace_atomically, write_atomically},
+};
 
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
 const SMALLEST_EXTENT: f64 = 1.0;
 const MIN_FACE_GAP: f64 = 10.0;
 const FACE_GAP_FRACTION: f64 = 0.1;
+const STREAM_BUFFER: usize = 1 << 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ExportFormat {
@@ -284,6 +293,12 @@ fn extent(bounds: impl IntoIterator<Item = Aabb>) -> f64 {
         .fold(SMALLEST_EXTENT, f64::max)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MeshOptions {
+    pub resolution: MeshResolution,
+    pub stl: StlEncoding,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ExportBody<'a> {
     pub name: &'a str,
@@ -297,11 +312,12 @@ pub struct Look<'a> {
     pub material: Option<&'a str>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Exported {
     pub bodies: usize,
     pub triangles: Option<usize>,
     pub left_out: Vec<ExportError>,
+    pub moved: Option<Vector3>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -359,7 +375,7 @@ fn exported_properties(
 pub fn export_bodies(
     path: &Path,
     format: ExportFormat,
-    resolution: MeshResolution,
+    options: &MeshOptions,
     bodies: &[ExportBody<'_>],
     properties: &ModelProperties,
     cancel: &CancelToken,
@@ -370,12 +386,31 @@ pub fn export_bodies(
     if !format.is_mesh() {
         return export_step(path, bodies, properties, cancel);
     }
-    let tolerance = resolution.tolerance(bodies.iter().map(|body| body.solid));
+    let tolerance = options
+        .resolution
+        .tolerance(bodies.iter().map(|body| body.solid));
     let (meshes, left_out) = tessellate_all(bodies, cancel, |body| {
         MeshBody::tessellate(body, &tolerance, cancel)
     })?;
     if cancel.is_cancelled() {
         return Err(ExportError::Cancelled);
+    }
+    let exported = |moved| Exported {
+        bodies: meshes.len(),
+        triangles: Some(meshes.iter().map(|mesh| mesh.triangles.len()).sum()),
+        left_out: left_out.clone(),
+        moved,
+    };
+    if format == ExportFormat::Stl {
+        let moved = match options.stl {
+            StlEncoding::Binary => stl::offset(&meshes),
+            StlEncoding::Text => None,
+        };
+        write_streamed(path, |out| match options.stl {
+            StlEncoding::Binary => stl::write_binary(out, &meshes, moved, cancel),
+            StlEncoding::Text => stl::write_text(out, &meshes, cancel),
+        })?;
+        return Ok(exported(moved));
     }
     let library = (format == ExportFormat::Obj)
         .then(|| obj::Library::beside(path, &meshes))
@@ -394,11 +429,33 @@ pub fn export_bodies(
     }
     write_atomically(path, &contents)
         .map_err(|error| ExportError::Writing(WriteFailure::of(&error)))?;
-    Ok(Exported {
-        bodies: meshes.len(),
-        triangles: Some(meshes.iter().map(|mesh| mesh.triangles.len()).sum()),
-        left_out,
-    })
+    Ok(exported(None))
+}
+
+fn writing(error: io::Error) -> ExportError {
+    ExportError::Writing(WriteFailure::of(&error))
+}
+
+fn write_streamed(
+    path: &Path,
+    write: impl FnOnce(&mut BufWriter<&mut File>) -> Result<(), ExportError>,
+) -> Result<(), ExportError> {
+    let mut failure = None;
+    let written = replace_atomically(path, |file| {
+        let mut out = BufWriter::with_capacity(STREAM_BUFFER, file);
+        match write(&mut out) {
+            Ok(()) => out.flush(),
+            Err(error) => {
+                failure = Some(error);
+                Err(io::Error::from(io::ErrorKind::Interrupted))
+            }
+        }
+    });
+    match (failure, written) {
+        (Some(error), _) => Err(error),
+        (None, Err(error)) => Err(writing(error)),
+        (None, Ok(())) => Ok(()),
+    }
 }
 
 fn tessellate_all<'a>(
@@ -478,6 +535,7 @@ fn export_step(
             .into_iter()
             .map(|(_, error)| ExportError::Step(error))
             .collect(),
+        moved: None,
     })
 }
 
@@ -488,11 +546,10 @@ fn encode(
     properties: &ModelProperties,
 ) -> Result<Vec<u8>, ExportError> {
     match format {
-        ExportFormat::Stl => stl::encode(bodies),
+        ExportFormat::Stl | ExportFormat::Step => Err(ExportError::Encoding),
         ExportFormat::ThreeMf => three_mf::encode(bodies, properties),
         ExportFormat::Obj => obj::encode(bodies, library, properties),
         ExportFormat::Gltf => gltf::encode(bodies, properties),
-        ExportFormat::Step => Err(ExportError::Encoding),
     }
 }
 

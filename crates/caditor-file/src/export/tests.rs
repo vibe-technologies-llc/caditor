@@ -241,7 +241,8 @@ fn an_stl_holds_every_body_as_a_closed_outward_surface_in_millimetres() {
         mesh_of(&block, MeshResolution::Standard),
         mesh_of(&pin, MeshResolution::Standard),
     ];
-    let bytes = stl::encode(&meshes).unwrap();
+    let mut bytes = Vec::new();
+    stl::write_binary(&mut bytes, &meshes, None, &CancelToken::never()).unwrap();
     assert!(!bytes.starts_with(b"solid"));
     assert!(String::from_utf8_lossy(&bytes[..HEADER_LENGTH]).contains("millimetres"));
 
@@ -262,6 +263,166 @@ fn an_stl_holds_every_body_as_a_closed_outward_surface_in_millimetres() {
     let normal = Point3::from_array(read_f32s(&bytes, first));
     let [a, b, c] = facets[0];
     assert!((normal - (b - a).cross(c - a).normalize()).length() < 1e-6);
+}
+
+fn far_block() -> Solid {
+    let corners = [
+        Point2::new(1_000_000.0, 2_000_000.0),
+        Point2::new(1_000_040.0, 2_000_000.0),
+        Point2::new(1_000_040.0, 2_000_020.0),
+        Point2::new(1_000_000.0, 2_000_020.0),
+    ];
+    let lines: Vec<ProfileCurve> = (0..4)
+        .map(|index| {
+            ProfileCurve::line(
+                index,
+                corners[index as usize],
+                corners[(index as usize + 1) % 4],
+            )
+        })
+        .collect();
+    extruded(&lines, 10.0)
+}
+
+fn text_stl_solids(text: &str) -> Vec<(String, Vec<[Point3; 3]>)> {
+    let mut solids: Vec<(String, Vec<[Point3; 3]>)> = Vec::new();
+    let mut corners = Vec::new();
+    for line in text.lines() {
+        let mut words = line.split_whitespace();
+        match words.next() {
+            Some("solid") => solids.push((words.collect::<Vec<_>>().join(" "), Vec::new())),
+            Some("vertex") => {
+                let values: Vec<f64> = words.map(|word| word.parse().unwrap()).collect();
+                corners.push(Point3::new(values[0], values[1], values[2]));
+            }
+            Some("endloop") => {
+                let facet: [Point3; 3] = std::mem::take(&mut corners).try_into().unwrap();
+                solids.last_mut().unwrap().1.push(facet);
+            }
+            Some("endsolid") => {
+                assert_eq!(
+                    words.collect::<Vec<_>>().join(" "),
+                    solids.last().unwrap().0
+                );
+            }
+            _ => {}
+        }
+    }
+    solids
+}
+
+#[test]
+fn a_text_stl_keeps_each_body_as_a_named_solid_with_exact_coordinates() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("parts.stl");
+    let far = far_block();
+    let pin = pin();
+    let bodies = [
+        ExportBody {
+            name: "Far block",
+            solid: &far,
+            look: None,
+        },
+        ExportBody {
+            name: "Kühler\tpin",
+            solid: &pin,
+            look: None,
+        },
+    ];
+    let options = MeshOptions {
+        resolution: MeshResolution::Coarse,
+        stl: StlEncoding::Text,
+    };
+
+    let exported = export_bodies(
+        &path,
+        ExportFormat::Stl,
+        &options,
+        &bodies,
+        &ModelProperties::default(),
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    let solids = text_stl_solids(&text);
+
+    assert_eq!(exported.bodies, 2);
+    assert_eq!(exported.moved, None);
+    assert!(text.is_ascii());
+    assert_eq!(
+        solids
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["Far_block", "K_hler_pin"]
+    );
+    for (_, facets) in &solids {
+        assert_closed(welded(facets));
+    }
+    assert_eq!(
+        solids.iter().map(|(_, facets)| facets.len()).sum::<usize>(),
+        exported.triangles.unwrap()
+    );
+    assert!(
+        solids[0]
+            .1
+            .iter()
+            .flatten()
+            .any(|corner| *corner == Point3::new(1_000_040.0, 2_000_020.0, 10.0))
+    );
+    assert!((signed_volume(&solids[0].1) - 40.0 * 20.0 * 10.0).abs() < 1e-6);
+}
+
+#[test]
+fn a_binary_stl_far_from_the_origin_is_moved_near_it_and_says_by_how_much() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("far.stl");
+    let far = far_block();
+    let near = block();
+    let bodies = |solid| {
+        [ExportBody {
+            name: "Block",
+            solid,
+            look: None,
+        }]
+    };
+    let export = |path: &Path, solid| {
+        export_bodies(
+            path,
+            ExportFormat::Stl,
+            &MeshOptions::default(),
+            &bodies(solid),
+            &ModelProperties::default(),
+            &CancelToken::never(),
+        )
+        .unwrap()
+    };
+
+    let exported = export(&path, &far);
+    let bytes = std::fs::read(&path).unwrap();
+    let facets = stl_facets(&bytes);
+    let header = String::from_utf8_lossy(&bytes[..HEADER_LENGTH]).into_owned();
+    let unmoved = export(&dir.path().join("near.stl"), &near);
+
+    assert_eq!(
+        exported.moved,
+        Some(Vector3::new(-1_000_020.0, -2_000_010.0, -5.0))
+    );
+    assert!(header.contains("moved by -1000020 -2000010 -5"), "{header}");
+    assert!(
+        facets
+            .iter()
+            .flatten()
+            .any(|corner| *corner == Point3::new(20.0, 10.0, 5.0))
+    );
+    assert!(
+        facets
+            .iter()
+            .flatten()
+            .all(|corner| corner.abs().max_element() <= 20.0)
+    );
+    assert!((signed_volume(&facets) - 40.0 * 20.0 * 10.0).abs() < 1e-6);
+    assert_eq!(unmoved.moved, None);
 }
 
 #[test]
@@ -451,7 +612,10 @@ fn export_obj(path: &std::path::Path, bodies: &[ExportBody<'_>]) {
     export_bodies(
         path,
         ExportFormat::Obj,
-        MeshResolution::Coarse,
+        &MeshOptions {
+            resolution: MeshResolution::Coarse,
+            ..MeshOptions::default()
+        },
         bodies,
         &ModelProperties::default(),
         &CancelToken::never(),
@@ -766,7 +930,10 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
         let exported = export_bodies(
             &path,
             format,
-            MeshResolution::Standard,
+            &MeshOptions {
+                resolution: MeshResolution::Standard,
+                ..MeshOptions::default()
+            },
             &bodies,
             &ModelProperties::default(),
             &CancelToken::never(),
@@ -808,7 +975,10 @@ fn a_step_export_styles_a_coloured_body_with_its_colour() {
     export_bodies(
         &path,
         ExportFormat::Step,
-        MeshResolution::Standard,
+        &MeshOptions {
+            resolution: MeshResolution::Standard,
+            ..MeshOptions::default()
+        },
         &bodies,
         &ModelProperties::default(),
         &CancelToken::never(),
@@ -875,7 +1045,10 @@ fn a_cancelled_or_empty_export_writes_nothing() {
         export_bodies(
             &path,
             ExportFormat::Stl,
-            MeshResolution::Fine,
+            &MeshOptions {
+                resolution: MeshResolution::Fine,
+                ..MeshOptions::default()
+            },
             &bodies,
             &ModelProperties::default(),
             &cancel
@@ -886,7 +1059,10 @@ fn a_cancelled_or_empty_export_writes_nothing() {
         export_bodies(
             &path,
             ExportFormat::Stl,
-            MeshResolution::Fine,
+            &MeshOptions {
+                resolution: MeshResolution::Fine,
+                ..MeshOptions::default()
+            },
             &[],
             &ModelProperties::default(),
             &CancelToken::never()
@@ -899,7 +1075,10 @@ fn a_cancelled_or_empty_export_writes_nothing() {
     let error = export_bodies(
         &missing,
         ExportFormat::Stl,
-        MeshResolution::Coarse,
+        &MeshOptions {
+            resolution: MeshResolution::Coarse,
+            ..MeshOptions::default()
+        },
         &bodies,
         &ModelProperties::default(),
         &CancelToken::never(),
@@ -929,7 +1108,10 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
             export_bodies(
                 &path,
                 format,
-                MeshResolution::Fine,
+                &MeshOptions {
+                    resolution: MeshResolution::Fine,
+                    ..MeshOptions::default()
+                },
                 &bodies,
                 &ModelProperties::default(),
                 &cancel
@@ -1551,7 +1733,10 @@ fn a_step_export_names_its_product_and_header_from_the_model_properties() {
     export_bodies(
         &path,
         ExportFormat::Step,
-        MeshResolution::Standard,
+        &MeshOptions {
+            resolution: MeshResolution::Standard,
+            ..MeshOptions::default()
+        },
         &bodies,
         &bracket_properties(),
         &CancelToken::never(),

@@ -1529,6 +1529,42 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
 }
 
 #[test]
+fn a_text_stl_is_chosen_in_the_export_dialog_and_keeps_each_body_named() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    extruded_plate(&mut harness);
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.click("STEP");
+    assert!(!harness.shows("Encoding"));
+    harness.click("STL");
+    assert!(harness.shows("Encoding"));
+    harness.click("Text");
+    assert!(harness.shows(
+        "Each body a named solid with exact coordinates, about five times larger; some programs \
+         read the first solid only."
+    ));
+    harness.answer_dialog(Some(dir.path().join("plate.stl")));
+
+    harness.click("Export…");
+    harness.wait_until("the STL is written", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.starts_with("Exported 1 body to “plate.stl”"))
+    });
+
+    let text = std::fs::read_to_string(dir.path().join("plate.stl")).unwrap();
+    assert!(text.starts_with("solid "));
+    assert!(
+        text.trim_end()
+            .lines()
+            .last()
+            .unwrap()
+            .starts_with("endsolid ")
+    );
+}
+
+#[test]
 fn cancelling_the_export_file_picker_keeps_the_dialog_and_its_settings() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
