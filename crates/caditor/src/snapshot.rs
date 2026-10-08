@@ -8,6 +8,7 @@ use caditor_document::{Document, Evaluation};
 use caditor_render::{Scene, SurfaceSize, View};
 
 use crate::{
+    analysis::Analyses,
     bodies::{BodyMeshes, BodyMeshing},
     display::DisplayedSketches,
     display_style::DisplayStyle,
@@ -18,6 +19,7 @@ use crate::{
     scene::{self, Highlight, SketchShapes, Sources},
     scene_palette::Contrast,
     selection::Selection,
+    view_aids::ViewAids,
     viewport::initial_viewpoint,
 };
 
@@ -49,6 +51,8 @@ pub fn of_bodies(
         bodies: meshes,
         sketches: &sketches,
         style: DisplayStyle::default(),
+        aids: ViewAids::default(),
+        analyses: &Analyses::default(),
         contrast: Contrast::default(),
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));
@@ -87,7 +91,7 @@ fn build(sources: &Sources<'_>, level: FacetLevel) -> scene::BuiltScene {
     built
 }
 
-fn meshed(evaluation: &Evaluation) -> Result<BodyMeshes> {
+pub fn meshed(evaluation: &Evaluation) -> Result<BodyMeshes> {
     let mut meshing = BodyMeshing::default();
     for (body, _) in evaluation.bodies() {
         if let Some(result) = evaluation.body_result(body) {

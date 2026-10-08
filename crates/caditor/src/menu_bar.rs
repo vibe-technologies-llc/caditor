@@ -5,6 +5,7 @@ use egui::{
 };
 
 use crate::{
+    analysis::AnalysisCommand,
     appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{CameraMove, Command, CommandFrame, Offer, Scope, StandardView},
     display_style::DisplayStyle,
@@ -17,6 +18,7 @@ use crate::{
     selection::SelectionFilter,
     shape_modes::ShapeMode,
     sketch_tools::ConstraintTool,
+    view_aids::ViewAids,
     widgets::{self, Tone},
     window_frame::{self, Chrome},
 };
@@ -101,6 +103,7 @@ pub struct MenuContext<'a> {
     pub automatic_projection: bool,
     pub typed_dimensions: bool,
     pub glyphs: bool,
+    pub aids: ViewAids,
 }
 
 pub fn show(
@@ -144,6 +147,7 @@ pub fn show(
                     automatic_projection: context.automatic_projection,
                     typed_dimensions: context.typed_dimensions,
                     glyphs: context.glyphs,
+                    aids: context.aids,
                     commands,
                     chosen: Vec::new(),
                 };
@@ -375,6 +379,7 @@ struct Menus<'a, 'b> {
     automatic_projection: bool,
     typed_dimensions: bool,
     glyphs: bool,
+    aids: ViewAids,
     commands: &'a CommandFrame<'b>,
     chosen: Vec<Command>,
 }
@@ -528,11 +533,14 @@ impl Menus<'_, '_> {
             self.choice(ui, Command::ToggleLasso, self.lasso);
             self.choice(ui, Command::ToggleSelectThrough, self.select_through);
             self.choice(ui, Command::ToggleGlyphs, self.glyphs);
+            self.choice(ui, Command::ToggleCentresOfMass, self.aids.centres_of_mass);
             ui.separator();
             self.item(ui, Command::FullScreen);
             ui.separator();
             self.item(ui, Command::Measure);
             self.item(ui, Command::Interference);
+            self.item(ui, Command::Analysis(AnalysisCommand::Draft));
+            self.item(ui, Command::Analysis(AnalysisCommand::Radius));
             ui.separator();
             self.items(
                 ui,

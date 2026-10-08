@@ -75,6 +75,7 @@ pub const NAVIGATION: &str = phosphor::COMPASS;
 pub const GRAPHICS: &str = phosphor::MONITOR;
 pub const MEASURE: &str = phosphor::RULER;
 pub const INTERFERENCE: &str = phosphor::INTERSECT_SQUARE;
+pub const ANALYSIS: &str = phosphor::GAUGE;
 pub const COPY: &str = phosphor::COPY_SIMPLE;
 pub const FEATURES: &str = phosphor::TREE_STRUCTURE;
 pub const PARAMETERS: &str = phosphor::FUNCTION;
@@ -149,6 +150,7 @@ pub fn command(command: Command) -> &'static str {
         Command::FitView => phosphor::FRAME_CORNERS,
         Command::Measure => MEASURE,
         Command::Interference => INTERFERENCE,
+        Command::Analysis(_) => ANALYSIS,
         Command::ToggleProjection => phosphor::PERSPECTIVE,
         Command::AutomaticProjection => phosphor::PERSPECTIVE,
         Command::ToggleSnapping => phosphor::MAGNET,
@@ -158,6 +160,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CycleSelectionPriority => phosphor::FUNNEL,
         Command::ToggleTypedDimensions => phosphor::RULER,
         Command::ToggleGlyphs => phosphor::SHAPES,
+        Command::ToggleCentresOfMass => phosphor::TARGET,
         Command::MinimizeWindow => MINIMIZE,
         Command::MaximizeWindow => MAXIMIZE,
         Command::FullScreen => FULL_SCREEN,

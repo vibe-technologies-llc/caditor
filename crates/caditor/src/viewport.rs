@@ -13,6 +13,7 @@ use egui::{
 };
 
 use crate::{
+    analysis::{Analyses, FaceAnalysis},
     annotations::{Annotations, Surface},
     blend_tools,
     bodies::{self, BodyMeshes, OpenDraft},
@@ -50,6 +51,7 @@ use crate::{
     snapshot, solid_tools,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
+    view_aids::ViewAids,
     view_cube::{self, CubeAction},
     visibility,
 };
@@ -269,6 +271,8 @@ pub struct ViewportState {
     select_through: bool,
     typed_dimensions: bool,
     glyphs_shown: bool,
+    aids: ViewAids,
+    analyses: Analyses,
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
     clipboard: Option<Copied>,
@@ -397,6 +401,8 @@ impl ViewportState {
             select_through: false,
             typed_dimensions: true,
             glyphs_shown: true,
+            aids: ViewAids::default(),
+            analyses: Analyses::default(),
             manipulator: None,
             manipulator_hover: None,
             clipboard: None,
@@ -427,6 +433,23 @@ impl ViewportState {
 
     pub fn typed_dimensions(&self) -> bool {
         self.typed_dimensions
+    }
+
+    pub fn aids(&self) -> ViewAids {
+        self.aids
+    }
+
+    #[cfg(test)]
+    pub fn toggle_centres_of_mass_for_screenshots(&mut self) {
+        self.aids.centres_of_mass = !self.aids.centres_of_mass;
+    }
+
+    pub fn set_analysis(&mut self, analysis: Option<FaceAnalysis>) {
+        self.aids.analysis = analysis;
+    }
+
+    pub fn analyses(&self) -> &Analyses {
+        &self.analyses
     }
 
     pub fn glyphs_shown(&self) -> bool {
@@ -772,6 +795,8 @@ impl ViewportState {
             bodies: &self.bodies,
             sketches: &display.sketches,
             style: self.style,
+            aids: self.aids,
+            analyses: &self.analyses,
             contrast: self.contrast,
         };
         self.scenes.update(&SceneInputs {
@@ -782,6 +807,8 @@ impl ViewportState {
                 sketches: display.sketches.generation(),
                 bodies: self.bodies.generation(),
                 style: self.style,
+                aids: self.aids,
+                analysed: self.analyses.finished(),
                 contrast: self.contrast,
             },
             context,
@@ -928,6 +955,8 @@ impl ViewportState {
             bodies: &self.bodies,
             sketches: &model.display().sketches,
             style: self.style,
+            aids: ViewAids::default(),
+            analyses: &Analyses::default(),
             contrast: Contrast::Standard,
         };
         let context = editing.context();
@@ -2008,6 +2037,16 @@ impl ViewportState {
         }
         if commands.available(Command::ToggleGlyphs) {
             self.glyphs_shown = !self.glyphs_shown;
+        }
+        if commands.available(Command::ToggleCentresOfMass) {
+            self.aids.centres_of_mass = !self.aids.centres_of_mass;
+            if !self.aids.centres_of_mass {
+                self.selection
+                    .retain(|pickable| !matches!(pickable, Pickable::CentreOfMass(_)));
+                self.hovered = self
+                    .hovered
+                    .filter(|hovered| !matches!(hovered, Pickable::CentreOfMass(_)));
+            }
         }
         if commands.available(Command::ToggleSnapping) {
             self.snapping = !self.snapping;

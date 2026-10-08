@@ -188,6 +188,7 @@ pub enum Pickable {
         face: FaceKey,
     },
     Datum(FeatureId),
+    CentreOfMass(FeatureId),
 }
 
 pub fn sketch_regions(evaluation: &Evaluation, sketch: FeatureId) -> Option<&[SketchRegion]> {
@@ -237,9 +238,10 @@ impl Pickable {
             | Self::BlendEdge { feature, .. }
             | Self::ShellFace { feature, .. }
             | Self::Datum(feature) => Some(feature),
-            Self::Face { body, .. } | Self::Edge { body, .. } | Self::Vertex { body, .. } => {
-                Some(body)
-            }
+            Self::Face { body, .. }
+            | Self::Edge { body, .. }
+            | Self::Vertex { body, .. }
+            | Self::CentreOfMass(body) => Some(body),
         }
     }
 
@@ -330,6 +332,7 @@ impl Pickable {
             Self::Datum(feature) => document
                 .feature(feature)
                 .map_or_else(|| "A deleted datum".to_owned(), |datum| datum.name.clone()),
+            Self::CentreOfMass(body) => format!("Centre of mass of {}", body_name(document, body)),
             Self::ShellFace { feature, face } => {
                 let owner = document
                     .feature(feature)
@@ -471,6 +474,11 @@ impl Pickable {
                     && bodies::input(evaluation, feature)
                         .is_some_and(|solid| bodies::find_face(solid, face).is_some())
             }
+            Self::CentreOfMass(body) => {
+                editing.is_none()
+                    && visibility::is_shown(document, body)
+                    && bodies::shown(evaluation, body).is_some()
+            }
         }
     }
 }
@@ -568,6 +576,14 @@ impl Selection {
             self.insert(pickable);
         }
         self.changed();
+    }
+
+    pub fn retain(&mut self, keep: impl Fn(Pickable) -> bool) {
+        let before = self.items.len();
+        self.items.retain(|pickable, _| keep(*pickable));
+        if self.items.len() != before {
+            self.changed();
+        }
     }
 
     pub fn retain_available(

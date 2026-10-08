@@ -22,6 +22,8 @@ use winit::{
 
 use crate::{
     about,
+    analysis::{AnalysisCommand, AnalysisTool, Kind},
+    analysis_panel::{self, AnalysisContext},
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     body_selection, canvas,
     commands::{self, Command, CommandFrame, Offer, Situation},
@@ -58,7 +60,7 @@ use crate::{
     reference_picking,
     saved_views::{self, ViewsDraft},
     scene_palette::Contrast,
-    selection::SelectionFilter,
+    selection::{Selection, SelectionFilter},
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
     status_bar::{self, StatusContext},
@@ -133,6 +135,7 @@ pub struct Workspace {
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
     pub interference: InterferenceTool,
+    pub analysis: AnalysisTool,
     pub(crate) frame_failures: FrameFailures,
     applied_appearance: Option<Appearance>,
     applied_title_bar: Option<TitleBar>,
@@ -174,6 +177,7 @@ impl Workspace {
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
             interference: InterferenceTool::default(),
+            analysis: AnalysisTool::default(),
             frame_failures: FrameFailures::default(),
             applied_appearance: None,
             applied_title_bar: None,
@@ -201,6 +205,7 @@ impl Workspace {
         self.selection_offers = SelectionOffers::default();
         self.measure = MeasureTool::default();
         self.interference = InterferenceTool::default();
+        self.analysis = AnalysisTool::default();
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
@@ -382,6 +387,7 @@ pub fn show(
         selection_offers,
         measure,
         interference,
+        analysis,
         keyboard_was_taken,
         deferred_commands,
         ..
@@ -432,6 +438,7 @@ pub fn show(
         automatic_projection: viewport.projection() == ProjectionMode::Automatic,
         typed_dimensions: viewport.typed_dimensions(),
         glyphs: viewport.glyphs_shown(),
+        aids: viewport.aids(),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {
@@ -448,6 +455,7 @@ pub fn show(
     if commands.available(Command::Interference) {
         interference.toggle();
     }
+    analysis_commands(model, viewport.selection(), analysis, &mut commands);
     sketch_toolbar::show(
         ui,
         model,
@@ -477,7 +485,8 @@ pub fn show(
     drawing_export::face_commands(model, viewport.selection(), &mut commands, actions);
     route_dimension_focus(panels, editing, viewport);
     reference_picking::publish(ui.ctx(), editing.picking());
-    let open_panels = 1 + usize::from(measure.open) + usize::from(interference.open);
+    let open_panels =
+        1 + usize::from(measure.open) + usize::from(interference.open) + usize::from(analysis.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
     panels::show(
         ui,
@@ -539,6 +548,22 @@ pub fn show(
         Vec::new()
     };
     viewport.set_interference(marks);
+    let analysing = if analysis.open {
+        viewport.analyses().wake_with(|| model.waker());
+        let context = AnalysisContext {
+            model,
+            selection: viewport.selection(),
+            bodies: viewport.bodies(),
+            analyses: viewport.analyses(),
+            style: viewport.style(),
+            contrast: Contrast::of(preferences.appearance.high_contrast),
+        };
+        analysis_panel::show(ui, &context, analysis, room);
+        analysis.analysis(model).ok()
+    } else {
+        None
+    };
+    viewport.set_analysis(analysing);
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
     canvas::set_contrast(ui.ctx(), contrast);
@@ -1543,6 +1568,43 @@ fn surface_size(size: PhysicalSize<u32>) -> SurfaceSize {
     SurfaceSize {
         width: size.width,
         height: size.height,
+    }
+}
+
+const ANALYSIS_CLOSED: &str = "Open the draft analysis to choose its pull direction";
+
+fn analysis_commands(
+    model: &Model,
+    selection: &Selection,
+    analysis: &mut AnalysisTool,
+    commands: &mut CommandFrame<'_>,
+) {
+    for (command, kind) in [
+        (AnalysisCommand::Draft, Kind::Draft),
+        (AnalysisCommand::Radius, Kind::Radius),
+    ] {
+        if commands.available(Command::Analysis(command)) {
+            analysis.toggle(kind);
+        }
+    }
+    let drafting = analysis.open && analysis.kind == Kind::Draft;
+    let pull = if drafting {
+        AnalysisTool::pull_from(model, selection).map_err(|refusal| refusal.to_string())
+    } else {
+        Err(ANALYSIS_CLOSED.to_owned())
+    };
+    if commands.invoke(Command::Analysis(AnalysisCommand::UseSelected), &pull)
+        && let Ok(pull) = pull
+    {
+        analysis.pull = pull;
+    }
+    let reversible = if drafting {
+        Ok(())
+    } else {
+        Err(ANALYSIS_CLOSED.to_owned())
+    };
+    if commands.invoke(Command::Analysis(AnalysisCommand::Reverse), &reversible) {
+        analysis.reversed = !analysis.reversed;
     }
 }
 

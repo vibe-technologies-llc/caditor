@@ -15,15 +15,18 @@ use crate::{
     scene::{self, BuiltScene, Highlight, SketchShapes, Sources},
     scene_palette::Contrast,
     selection::{Pickable, Selection},
+    view_aids::ViewAids,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Revisions {
     pub document: u64,
     pub evaluation: u64,
     pub sketches: u64,
     pub bodies: u64,
     pub style: DisplayStyle,
+    pub aids: ViewAids,
+    pub analysed: u64,
     pub contrast: Contrast,
 }
 

@@ -5,8 +5,9 @@ use caditor_geometry::Vector3;
 use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
 use crate::{
-    display_style::DisplayStyle, editing::Tool, samples::Sample, selection::SelectionFilter,
-    shape_modes::ShapeMode, sketch_tools::ConstraintTool, variants::all_variants,
+    analysis::AnalysisCommand, display_style::DisplayStyle, editing::Tool, samples::Sample,
+    selection::SelectionFilter, shape_modes::ShapeMode, sketch_tools::ConstraintTool,
+    variants::all_variants,
 };
 
 const SETTINGS_PREFIX: &str = "keys.";
@@ -127,6 +128,7 @@ pub enum Command {
     Camera(CameraMove),
     Filter(SelectionFilter),
     Style(DisplayStyle),
+    Analysis(AnalysisCommand),
     HighlightNext,
     HighlightPrevious,
     ActivateHighlighted,
@@ -156,6 +158,7 @@ pub enum Command {
     CycleSelectionPriority,
     ToggleTypedDimensions,
     ToggleGlyphs,
+    ToggleCentresOfMass,
     MinimizeWindow,
     MaximizeWindow,
     FullScreen,
@@ -448,6 +451,7 @@ macro_rules! plain_commands {
             | Command::Camera(_)
             | Command::Filter(_)
             | Command::Style(_)
+            | Command::Analysis(_)
             | Command::OpenSample(_)
             | Command::OpenRecent(_) => {}
         };
@@ -487,6 +491,7 @@ plain_commands! {
     CycleSelectionPriority,
     ToggleTypedDimensions,
     ToggleGlyphs,
+    ToggleCentresOfMass,
     Measure,
     Interference,
     LargerInterface,
@@ -613,6 +618,7 @@ impl Command {
             .chain(CameraMove::ALL.into_iter().map(Self::Camera))
             .chain(SelectionFilter::ALL.into_iter().map(Self::Filter))
             .chain(DisplayStyle::ALL.into_iter().map(Self::Style))
+            .chain(AnalysisCommand::ALL.into_iter().map(Self::Analysis))
             .chain(Sample::ALL.into_iter().map(Self::OpenSample))
             .chain(RecentSlot::ALL.into_iter().map(Self::OpenRecent))
     }
@@ -681,6 +687,7 @@ impl Command {
             Self::ShapeMode(mode) => mode.id(),
             Self::Filter(filter) => filter.id(),
             Self::Style(style) => style.id(),
+            Self::Analysis(analysis) => analysis.id(),
             Self::Constraint(tool) => match tool {
                 ConstraintTool::Coincident => "constraint.coincident",
                 ConstraintTool::Midpoint => "constraint.midpoint",
@@ -768,6 +775,7 @@ impl Command {
             Self::CycleSelectionPriority => "select.priority",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
             Self::ToggleGlyphs => "view.toggle_glyphs",
+            Self::ToggleCentresOfMass => "view.toggle_centres_of_mass",
             Self::MinimizeWindow => "view.minimize_window",
             Self::MaximizeWindow => "view.maximize_window",
             Self::FullScreen => "view.full_screen",
@@ -914,6 +922,7 @@ impl Command {
             Self::Camera(camera) => camera.title(),
             Self::Filter(filter) => filter.title(),
             Self::Style(style) => style.title(),
+            Self::Analysis(analysis) => analysis.title(),
             Self::HighlightNext => "Highlight the next item in the view",
             Self::HighlightPrevious => "Highlight the previous item in the view",
             Self::ActivateHighlighted => "Select the highlighted item",
@@ -943,6 +952,7 @@ impl Command {
             Self::CycleSelectionPriority => "Cycle the selection priority: body, face, edge",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
+            Self::ToggleCentresOfMass => "Show or hide centres of mass",
             Self::MinimizeWindow => "Minimize the window",
             Self::MaximizeWindow => "Maximize or restore the window",
             Self::FullScreen => "Enter or leave full screen",
@@ -1051,6 +1061,7 @@ impl Command {
             | Self::Camera(_)
             | Self::Filter(_)
             | Self::Style(_)
+            | Self::Analysis(_)
             | Self::HighlightNext
             | Self::HighlightPrevious
             | Self::ActivateHighlighted
@@ -1073,6 +1084,7 @@ impl Command {
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::ToggleGlyphs
+            | Self::ToggleCentresOfMass
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::FullScreen => Category::View,
@@ -1290,6 +1302,7 @@ impl Command {
             | Self::ToggleTypedDimensions
             | Self::Filter(_)
             | Self::Style(_)
+            | Self::Analysis(_)
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
             | Self::ClearRecent
@@ -1313,6 +1326,7 @@ impl Command {
             | Self::ToggleLasso
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
+            | Self::ToggleCentresOfMass
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::SaveView

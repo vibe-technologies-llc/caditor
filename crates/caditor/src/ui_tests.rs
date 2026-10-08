@@ -15317,6 +15317,124 @@ fn two_picked_vertices_are_measured_in_the_panel_and_the_view() {
     assert!(!harness.shows(&expected));
 }
 
+#[test]
+fn centres_of_mass_are_markers_in_the_view_that_can_be_picked_and_measured() {
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let marker = Pickable::CentreOfMass(body);
+    let marked = |harness: &mut Harness| {
+        harness
+            .built()
+            .picks
+            .pickables()
+            .any(|pickable| pickable == marker)
+    };
+
+    assert!(!marked(&mut harness));
+
+    run_from_palette(&mut harness, "show or hide centres of mass");
+    harness.frame();
+    harness.frame();
+
+    assert!(marked(&mut harness));
+
+    harness.key(Key::I, Modifiers::NONE);
+    harness.select([marker]);
+    harness.wait_until("the centre of mass is measured", |harness| {
+        harness.shows("Centre of mass of Extrude 1") && harness.shows("Position")
+    });
+
+    run_from_palette(&mut harness, "show or hide centres of mass");
+    harness.frame();
+    harness.frame();
+
+    assert!(!marked(&mut harness));
+    assert!(harness.workspace.viewport.selection().is_empty());
+}
+
+#[test]
+fn draft_analysis_bands_the_faces_of_a_plate_and_leaves_the_model_alone() {
+    use crate::{analysis::Band, scene_palette::Contrast};
+
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    let revision = harness.model.revision();
+    let palette = Contrast::Standard.palette();
+    let on_screen =
+        |harness: &mut Harness, band: Band| painted_faces(harness, band.colour(palette));
+
+    run_from_palette(&mut harness, "analyse draft");
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows(crate::analysis_panel::TITLE));
+    assert!(harness.shows_containing("Too little draft"));
+    assert_eq!(on_screen(&mut harness, Band::Drafted), 1);
+    assert_eq!(on_screen(&mut harness, Band::Undercut), 1);
+    assert_eq!(on_screen(&mut harness, Band::TooLittleDraft), 4);
+    assert!(harness.workspace.analysis.open);
+    assert_eq!(harness.model.revision(), revision);
+
+    run_from_palette(&mut harness, "analyse minimum radius");
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows_containing("Too tight to reach"));
+    assert_eq!(on_screen(&mut harness, Band::Drafted), 0);
+    assert_eq!(on_screen(&mut harness, Band::TooTight), 0);
+
+    run_from_palette(&mut harness, "analyse minimum radius");
+    harness.frame();
+    harness.frame();
+
+    assert!(!harness.workspace.analysis.open);
+    assert_eq!(on_screen(&mut harness, Band::TooLittleDraft), 0);
+    assert_eq!(harness.model.revision(), revision);
+}
+
+#[test]
+fn the_pull_direction_follows_the_selected_face_and_reverses_from_the_palette() {
+    use crate::{
+        analysis::{AnalysisCommand, Pull, Refusal},
+        commands::Offer,
+    };
+
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([]);
+    let use_selected = Command::Analysis(AnalysisCommand::UseSelected);
+    let offered = |harness: &Harness| -> Option<Offer> {
+        harness
+            .workspace
+            .last_offers
+            .iter()
+            .find(|offer| offer.command == use_selected)
+            .cloned()
+    };
+
+    run_from_palette(&mut harness, "analyse draft");
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(
+        offered(&harness).map(|offer| offer.availability),
+        Some(Err(Refusal::NothingGivesADirection.to_string()))
+    );
+
+    harness.select([top]);
+    harness.frame();
+    run_from_palette(&mut harness, "pull along the selected");
+    harness.frame();
+    harness.frame();
+    run_from_palette(&mut harness, "reverse the pull direction");
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(harness.workspace.analysis.pull, Pull::Picked(top));
+    assert!(harness.workspace.analysis.reversed);
+    assert!(harness.shows_containing(", reversed"));
+}
+
 fn painted_faces(harness: &mut Harness, colour: caditor_render::Color) -> usize {
     harness
         .built_with_meshes(1)
