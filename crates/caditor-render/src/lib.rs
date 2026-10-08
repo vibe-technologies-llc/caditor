@@ -22,7 +22,7 @@ use std::{
 use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 
 pub use crate::{
-    camera::{Camera, Projection, View, Viewpoint},
+    camera::{Camera, Projection, ProjectionMode, View, Viewpoint},
     gpu::Wake,
     image::{Background, ImageBands, ImageError, ImageRequest, MAX_IMAGE_SIDE},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},

@@ -3,7 +3,8 @@ use std::{sync::Arc, time::Duration};
 use caditor_document::{FeatureId, FeatureKind, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{
-    Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing,
+    Camera, PickResult, ProjectionMode, Scene, SurfaceSize, View, Viewpoint, ViewportRect,
+    grid_minor_spacing,
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
@@ -403,6 +404,10 @@ impl ViewportState {
 
     pub fn lasso(&self) -> bool {
         self.lasso
+    }
+
+    pub fn projection(&self) -> ProjectionMode {
+        self.navigation.projection
     }
 
     pub fn select_through(&self) -> bool {
@@ -1970,6 +1975,11 @@ impl ViewportState {
         if commands.available(Command::ToggleProjection) {
             actions.push(Action::Preferences(PreferencesCommand::Change(
                 PreferenceChange::Projection(self.navigation.projection.other()),
+            )));
+        }
+        if commands.available(Command::AutomaticProjection) {
+            actions.push(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::Projection(self.navigation.projection.automatic_toggled()),
             )));
         }
         let trims = self.trimming.is_active();

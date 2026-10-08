@@ -13454,7 +13454,7 @@ fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it(
 
     assert!(!before.is_orthographic());
     assert!(switched.is_orthographic());
-    assert_eq!(remembered, caditor_render::Projection::Orthographic);
+    assert_eq!(remembered, caditor_render::ProjectionMode::Orthographic);
     assert!(
         offered,
         "{:?}",
@@ -13474,7 +13474,43 @@ fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it(
     assert!(!back.is_orthographic());
     assert_eq!(
         harness.workspace.preferences.navigation.projection,
-        caditor_render::Projection::Perspective
+        caditor_render::ProjectionMode::Perspective
+    );
+}
+
+#[test]
+fn the_automatic_projection_is_a_command_and_turns_orthographic_in_a_standard_view() {
+    let mut harness = Harness::new();
+    harness.settle();
+    let view = |harness: &Harness| harness.workspace.viewport.current_view().unwrap();
+
+    run_from_palette(&mut harness, "perspective that turns orthographic");
+    harness.settle();
+    let isometric = view(&harness);
+    let chosen = harness.workspace.preferences.navigation.projection;
+
+    harness.key(Key::Num2, Modifiers::ALT);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let top = view(&harness);
+
+    harness.key(Key::Num0, Modifiers::ALT);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let back_to_isometric = view(&harness);
+
+    assert_eq!(chosen, caditor_render::ProjectionMode::Automatic);
+    assert!(!isometric.is_orthographic());
+    assert!(top.is_orthographic());
+    assert!(!back_to_isometric.is_orthographic());
+
+    run_from_palette(&mut harness, "perspective that turns orthographic");
+    harness.settle();
+    assert_eq!(
+        harness.workspace.preferences.navigation.projection,
+        caditor_render::ProjectionMode::Perspective
     );
 }
 
@@ -13482,7 +13518,7 @@ fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it(
 fn an_orthographic_preference_survives_the_first_fit_and_o_switches_back() {
     let mut preferences = Preferences::default();
     preferences.onboarding = crate::onboarding::Onboarding::finished();
-    preferences.navigation.projection = caditor_render::Projection::Orthographic;
+    preferences.navigation.projection = caditor_render::ProjectionMode::Orthographic;
     let mut harness = Harness::starting(
         None,
         sample_document().unwrap(),
@@ -13505,7 +13541,7 @@ fn an_orthographic_preference_survives_the_first_fit_and_o_switches_back() {
     );
     assert_eq!(
         harness.workspace.preferences.navigation.projection,
-        caditor_render::Projection::Perspective
+        caditor_render::ProjectionMode::Perspective
     );
 }
 

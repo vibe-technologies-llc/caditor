@@ -213,8 +213,9 @@ paths:
   (`preferences::choice`).
 - The input mode is a `Navigation` preference (key `navigation.input_mode`); the Navigate tip and
   the Preferences hover texts describe the chosen mode (`InputMode::navigation_tip`).
-- Length units are SI only (`ux.md`). The projection changes only when asked; standard views and
-  sketching never switch it. The interface scale is the egui zoom factor, with egui's keyboard
+- Length units are SI only (`ux.md`). The projection preference changes only when asked (perspective, orthographic or automatic, which
+  `Command::AutomaticProjection` and Preferences choose and O leaves for perspective); standard
+  views and sketching never change it. The interface scale is the egui zoom factor, with egui's keyboard
   zoom and quit shortcut off (`app::apply_appearance`).
 - Graphics settings (`graphics::Graphics`, keys `graphics.*`) are read clamped to what is offered.
   An option the adapter cannot do is disabled with the reason on hover, never hidden, and a stored

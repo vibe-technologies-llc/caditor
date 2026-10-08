@@ -96,6 +96,7 @@ pub struct MenuContext<'a> {
     pub grid_snapping: bool,
     pub lasso: bool,
     pub select_through: bool,
+    pub automatic_projection: bool,
     pub typed_dimensions: bool,
     pub glyphs: bool,
 }
@@ -136,6 +137,7 @@ pub fn show(
                     grid_snapping: context.grid_snapping,
                     lasso: context.lasso,
                     select_through: context.select_through,
+                    automatic_projection: context.automatic_projection,
                     typed_dimensions: context.typed_dimensions,
                     glyphs: context.glyphs,
                     commands,
@@ -358,6 +360,7 @@ struct Menus<'a, 'b> {
     grid_snapping: bool,
     lasso: bool,
     select_through: bool,
+    automatic_projection: bool,
     typed_dimensions: bool,
     glyphs: bool,
     commands: &'a CommandFrame<'b>,
@@ -483,6 +486,7 @@ impl Menus<'_, '_> {
             );
             ui.separator();
             self.item(ui, Command::ToggleProjection);
+            self.choice(ui, Command::AutomaticProjection, self.automatic_projection);
             self.choice(ui, Command::ToggleSnapping, self.snapping);
             self.choice(ui, Command::ToggleGridSnapping, self.grid_snapping);
             self.choice(ui, Command::ToggleLasso, self.lasso);

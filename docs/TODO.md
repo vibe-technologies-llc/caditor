@@ -399,8 +399,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
   at once, which only looks into the model and changes nothing. Measure works on what it shows.
 - [low · easy] The shaded styles cannot show hidden edges: shaded with hidden edges dashed.
-- [low · easy] The camera is perspective or orthographic: a third mode that is perspective in
-  general and turns orthographic on looking square at a standard view.
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
 - [low · medium] Lighting and the MSAA resolve happen in gamma space.

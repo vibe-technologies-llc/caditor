@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use caditor_render::{
-    Background, FrameStart, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake,
-    WindowTarget,
+    Background, FrameStart, ImageRequest, PickPoll, ProjectionMode, Renderer, SurfaceSize,
+    ViewportFrame, Wake, WindowTarget,
 };
 use egui_winit::accesskit_winit;
 use parking_lot::Mutex;
@@ -405,6 +405,7 @@ pub fn show(
         grid_snapping: viewport.grid_snapping(),
         lasso: viewport.lasso(),
         select_through: viewport.select_through(),
+        automatic_projection: viewport.projection() == ProjectionMode::Automatic,
         typed_dimensions: viewport.typed_dimensions(),
         glyphs: viewport.glyphs_shown(),
     };

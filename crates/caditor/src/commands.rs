@@ -143,6 +143,7 @@ pub enum Command {
     ShowAll,
     TogglePrincipal,
     ToggleProjection,
+    AutomaticProjection,
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
@@ -473,6 +474,7 @@ plain_commands! {
     Redo,
     FitView,
     ToggleProjection,
+    AutomaticProjection,
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
@@ -742,6 +744,7 @@ impl Command {
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
             Self::ToggleProjection => "view.toggle_projection",
+            Self::AutomaticProjection => "view.automatic_projection",
             Self::ToggleSnapping => "view.toggle_snapping",
             Self::ToggleGridSnapping => "view.toggle_grid_snapping",
             Self::ToggleLasso => "view.toggle_lasso",
@@ -910,6 +913,7 @@ impl Command {
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
             Self::ToggleProjection => "Switch between perspective and orthographic",
+            Self::AutomaticProjection => "Perspective that turns orthographic in a standard view",
             Self::ToggleSnapping => "Turn snapping on or off",
             Self::ToggleGridSnapping => "Snap to the grid",
             Self::ToggleLasso => "Select with a lasso",
@@ -1036,6 +1040,7 @@ impl Command {
             | Self::ShowAll
             | Self::TogglePrincipal
             | Self::ToggleProjection
+            | Self::AutomaticProjection
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
             | Self::ToggleLasso
@@ -1275,6 +1280,7 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
+            | Self::AutomaticProjection
             | Self::ToggleLasso
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority

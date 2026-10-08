@@ -149,6 +149,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Measure => MEASURE,
         Command::Interference => INTERFERENCE,
         Command::ToggleProjection => phosphor::PERSPECTIVE,
+        Command::AutomaticProjection => phosphor::PERSPECTIVE,
         Command::ToggleSnapping => phosphor::MAGNET,
         Command::ToggleGridSnapping => phosphor::GRID_FOUR,
         Command::ToggleLasso => phosphor::LASSO,
