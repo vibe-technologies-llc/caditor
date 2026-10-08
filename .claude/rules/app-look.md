@@ -170,7 +170,7 @@ paths:
   `redo_steps`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary
   undoable journal step. Hovering a step sums up what it touched (`Transaction::touched`): the
   features by name, how many sketch curves, points, constraints and dimensions, the parameters,
-  and the rollback bar, principal geometry or model properties.
+  and the rollback bar, principal geometry, model properties or saved views.
 - Neither bar clips at large sizes or in narrow windows: the search field, model name, selection,
   unit and size take their own row when last frame's needed width does not fit
   (`widgets::remembered_width`); the selection has a fixed truncating share (all of it on hover);
@@ -238,6 +238,14 @@ paths:
   on each change of the selection's generation, `in_view`), and the first newly marked row is
   scrolled into view. The mark is only a look (`reads_selected`): it never chooses the row, so
   the tree's commands and Delete still act on chosen rows only.
+- The other way round, the rows chosen in the tree (`PanelState::chosen`, handed to the viewport
+  each frame by `Viewport::show_chosen_rows`) highlight what they made in the view as hovered
+  geometry is: the faces and edges of a body, the curves of a sketch, a datum
+  (`Highlight::chosen_rows`, part of the scene cache's highlight key), never vertices or regions.
+  It is only a look: the view's selection stays as it was, so commands keep taking the tree's
+  choice, and nothing is highlighted while a sketch or feature is open for editing. Fit view
+  (F) with nothing selected in the view frames the chosen rows' bodies, sketches and datums
+  (`BuiltScene::bounds_of_features`) and everything when none is chosen.
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
   changes); Ctrl+click toggles and Shift+click extends (`PanelState::chosen`, primary first); the
   chevron alone shows the details. A double-click, Enter, the edit button or the menu's Edit opens

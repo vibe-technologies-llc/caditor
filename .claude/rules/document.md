@@ -84,6 +84,20 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   past its `ModelProperty::max_chars` (`MAX_PROPERTY_CHARS`, `MAX_DESCRIPTION_CHARS`,
   `MAX_MODEL_NOTES_CHARS`) is refused as `PropertyTooLong` naming it.
 
+## Saved views (`views.rs`)
+
+- `SavedViews` (named views in the user's order, and the redefined Isometric `home`) is document
+  content like the model properties: compared by `same_content`, carried by `transaction_to`,
+  counted by `heap_size`, ignored by recompute. A `SavedView` is a camera's target, orientation
+  and distance in model units, with no projection, which stays a preference.
+- `Edit::SetSavedViews` sets the whole set and its inverse holds the previous one, so saving,
+  updating, renaming and deleting a view and changing the Isometric view are each one undoable
+  change. Names are trimmed, kept on one line and unique ignoring case; a blank name, one past
+  `MAX_VIEW_NAME_CHARS`, a duplicate, more than `MAX_SAVED_VIEWS` views and a view the camera
+  cannot show (not finite, no distance) are refused as `ViewNameEmpty`, `ViewNameTooLong`,
+  `ViewNameTaken`, `TooManyViews` and `ViewNotUsable`. A unit orientation is stored as given and
+  any other is normalised, so setting the same views again is no change.
+
 ## Body appearance (`body_appearance.rs`)
 
 - A feature's `appearance` (`BodyAppearance`: an sRGB `Rgb` colour, a material name, a density

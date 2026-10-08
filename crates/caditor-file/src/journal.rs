@@ -10,9 +10,9 @@ use crate::{
     },
     format::{
         FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, PrincipalRecord, PropertiesRecord,
-        Record, RollbackRecord, SuppressedRecord, TransactionRecord, feature_records,
+        Record, RollbackRecord, SuppressedRecord, TransactionRecord, ViewsRecord, feature_records,
         next_ids_record, parameter_record, principal_record, properties_record,
-        restore_transaction, rollback_record, suppressed_record, transaction_record,
+        restore_transaction, rollback_record, suppressed_record, transaction_record, views_record,
     },
     load::{Parts, assemble},
     os,
@@ -64,6 +64,8 @@ struct SnapshotRecord {
     rollback: Option<RollbackRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     properties: Option<PropertiesRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    views: Option<ViewsRecord>,
 }
 
 pub(crate) struct JournalHead<'a> {
@@ -193,6 +195,7 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
         suppressed: suppressed_record(document),
         rollback: rollback_record(document),
         properties: properties_record(document),
+        views: views_record(document),
     }
 }
 
@@ -308,6 +311,7 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
             .unwrap_or_default(),
         rollback: snapshot.rollback.map(|rollback| rollback.before),
         properties: snapshot.properties,
+        views: snapshot.views,
         ..Parts::default()
     };
     for parameter in snapshot.parameters {

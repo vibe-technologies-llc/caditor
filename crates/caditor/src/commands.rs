@@ -142,6 +142,10 @@ pub enum Command {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    SaveView,
+    SavedViews,
+    SetHomeView,
+    ResetHomeView,
     ToggleProjection,
     AutomaticProjection,
     ToggleSnapping,
@@ -503,6 +507,10 @@ plain_commands! {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    SaveView,
+    SavedViews,
+    SetHomeView,
+    ResetHomeView,
     MinimizeWindow,
     MaximizeWindow,
     FullScreen,
@@ -743,6 +751,10 @@ impl Command {
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
+            Self::SaveView => "view.save",
+            Self::SavedViews => "view.saved_views",
+            Self::SetHomeView => "view.set_home",
+            Self::ResetHomeView => "view.reset_home",
             Self::ToggleProjection => "view.toggle_projection",
             Self::AutomaticProjection => "view.automatic_projection",
             Self::ToggleSnapping => "view.toggle_snapping",
@@ -912,6 +924,10 @@ impl Command {
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
+            Self::SaveView => "Save the current view",
+            Self::SavedViews => "Saved views…",
+            Self::SetHomeView => "Make the current view the Isometric view",
+            Self::ResetHomeView => "Reset the Isometric view",
             Self::ToggleProjection => "Switch between perspective and orthographic",
             Self::AutomaticProjection => "Perspective that turns orthographic in a standard view",
             Self::ToggleSnapping => "Turn snapping on or off",
@@ -1039,6 +1055,10 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
+            | Self::SaveView
+            | Self::SavedViews
+            | Self::SetHomeView
+            | Self::ResetHomeView
             | Self::ToggleProjection
             | Self::AutomaticProjection
             | Self::ToggleSnapping
@@ -1286,6 +1306,10 @@ impl Command {
             | Self::CycleSelectionPriority
             | Self::MinimizeWindow
             | Self::MaximizeWindow
+            | Self::SaveView
+            | Self::SavedViews
+            | Self::SetHomeView
+            | Self::ResetHomeView
             | Self::CloseFeature
             | Self::DetachSketch
             | Self::PlaceSketch

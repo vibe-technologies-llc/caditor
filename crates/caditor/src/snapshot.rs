@@ -14,6 +14,7 @@ use crate::{
     editing::Context,
     faceting::FacetLevel,
     model::Waker,
+    saved_views,
     scene::{self, Highlight, SketchShapes, Sources},
     scene_palette::Contrast,
     selection::Selection,
@@ -53,7 +54,11 @@ pub fn of_bodies(
     let (width, height) = (f64::from(size.width), f64::from(size.height));
 
     let first = build(&sources, FacetLevel::WITHOUT_A_VIEW);
-    let initial = View::new(initial_viewpoint(), width, height);
+    let starting = document
+        .saved_views()
+        .home
+        .map_or_else(initial_viewpoint, saved_views::viewpoint);
+    let initial = View::new(starting, width, height);
     let framed = View::new(initial.fitted(first.fit_all()), width, height);
     let level = FacetLevel::fitting(FacetLevel::wanted_chord(&framed));
     let built = build(&sources, level);
@@ -73,6 +78,7 @@ fn build(sources: &Sources<'_>, level: FacetLevel) -> scene::BuiltScene {
         &Highlight {
             selection: &unselected,
             hovered: &[],
+            chosen_rows: &[],
         },
         context,
         &mut SketchShapes::new(scene::drawn_faceting(sources, context, level.faceting())),

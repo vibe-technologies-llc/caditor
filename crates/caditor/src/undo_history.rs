@@ -146,6 +146,9 @@ pub fn summary(document: &Document, step: &Transaction) -> String {
     if touched.properties {
         lines.push("The model's properties".to_owned());
     }
+    if touched.views {
+        lines.push("The model's saved views".to_owned());
+    }
     lines.join("\n")
 }
 

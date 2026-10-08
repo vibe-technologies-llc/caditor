@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use caditor_document::{FeatureId, FeatureKind, Transaction};
+use caditor_document::{FeatureId, FeatureKind, SavedView, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{
     Camera, PickResult, ProjectionMode, Scene, SurfaceSize, View, Viewpoint, ViewportRect,
@@ -35,7 +35,7 @@ use crate::{
     move_manipulator::{Handle, Manipulating, Manipulator},
     pattern_tools,
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
-    projecting, reference_picking,
+    projecting, reference_picking, saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
@@ -66,6 +66,7 @@ const SIZE_READOUT_OFFSET: egui::Vec2 = vec2(14.0, 26.0);
 pub const PLACE_AT_A_POINT: &str = "While drawing, Space places at the highlighted point or curve: \
                                     highlight one of the sketch's points or curves, or the origin.";
 const VIEWPORT_NAME: &str = "3D view";
+const ISOMETRIC_NOT_CHANGED: &str = "The Isometric view has not been changed";
 const NOT_IN_A_SKETCH: &str = "Edit a sketch to look straight at it";
 pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
 pub const DRAG_CONFLICT: &str = "Nothing moves while constraints conflict";
@@ -246,6 +247,8 @@ pub struct ViewportState {
     scrubbing: bool,
     primary: Option<PrimaryDrag>,
     hovered_in_tree: Option<Pickable>,
+    chosen_rows: Vec<FeatureId>,
+    home_applied: bool,
     session: u64,
     fit_when_computed: bool,
     scene_bounds: Option<Aabb>,
@@ -317,6 +320,12 @@ fn problems(model: &Model) -> Vec<Problem> {
         .collect()
 }
 
+fn camera_looking_from(view: SavedView, projection: ProjectionMode) -> Camera {
+    let mut camera = Camera::new(saved_views::viewpoint(view));
+    camera.set_projection(projection);
+    camera
+}
+
 pub fn initial_viewpoint() -> Viewpoint {
     Viewpoint::looking_from(INITIAL_LOOK_FROM, Point3::ZERO, INITIAL_DISTANCE).unwrap_or(
         Viewpoint {
@@ -366,6 +375,8 @@ impl ViewportState {
             scrubbing: false,
             primary: None,
             hovered_in_tree: None,
+            chosen_rows: Vec::new(),
+            home_applied: false,
             session: 0,
             fit_when_computed: false,
             scene_bounds: None,
@@ -472,6 +483,29 @@ impl ViewportState {
         self.interference = marks;
     }
 
+    pub fn destination(&self) -> Viewpoint {
+        self.camera.destination()
+    }
+
+    pub fn show_saved_view(&mut self, view: SavedView) {
+        self.camera.animate_to(saved_views::viewpoint(view));
+    }
+
+    fn start_from_home(&mut self, model: &Model) {
+        match model.document().saved_views().home {
+            Some(home) => {
+                self.camera = camera_looking_from(home, self.navigation.projection);
+                self.home_applied = true;
+            }
+            None if self.home_applied => {
+                self.camera = Camera::new(initial_viewpoint());
+                self.camera.set_projection(self.navigation.projection);
+                self.home_applied = false;
+            }
+            None => {}
+        }
+    }
+
     pub fn show_place(&mut self, place: Point3) {
         self.framed_place = Some(place);
     }
@@ -489,8 +523,20 @@ impl ViewportState {
         self.hovered_in_tree = pickable;
     }
 
+    pub fn show_chosen_rows(&mut self, rows: Vec<FeatureId>) {
+        self.chosen_rows = rows;
+    }
+
+    fn rows_to_highlight(&self, context: editing::Context) -> Vec<FeatureId> {
+        match context.sketch.is_none() && context.solid.is_none() {
+            true => self.chosen_rows.clone(),
+            false => Vec::new(),
+        }
+    }
+
     pub fn forget_document(&mut self) {
         self.selection.clear();
+        self.chosen_rows.clear();
         self.hovered = None;
         self.hover_source = None;
         self.pending_click = None;
@@ -582,6 +628,7 @@ impl ViewportState {
         if self.session != model.session() {
             self.session = model.session();
             self.fit_when_computed = true;
+            self.start_from_home(model);
         }
         if self.fit_when_computed
             && model.status() == RecomputeStatus::UpToDate
@@ -717,6 +764,7 @@ impl ViewportState {
                 .flat_map(|highlighted| self.whole_body_of(model, highlighted))
                 .collect()
         };
+        let chosen_rows = self.rows_to_highlight(context);
         let view = self.view();
         let sources = Sources {
             document,
@@ -740,6 +788,7 @@ impl ViewportState {
             highlight: Highlight {
                 selection: &self.selection,
                 hovered: &hovered,
+                chosen_rows: &chosen_rows,
             },
             view: view.as_ref(),
         });
@@ -771,6 +820,12 @@ impl ViewportState {
         }
         let built = self.scenes.built()?;
         self.scene_bounds = Some(built.everything);
+        if self.needs_initial_fit
+            && let Some(home) = model.document().saved_views().home
+        {
+            self.camera = camera_looking_from(home, self.navigation.projection);
+            self.home_applied = true;
+        }
         let Some(view) = self.view() else {
             return Some(built);
         };
@@ -793,11 +848,13 @@ impl ViewportState {
             self.camera.animate_to(view.fitted(around));
         } else if self.fit_requested {
             let everything = built.fit_all();
-            let bounds = if self.selection.is_empty() {
-                everything
-            } else {
+            let bounds = if !self.selection.is_empty() {
                 built
                     .bounds_of(&sources, self.selection.iter())
+                    .unwrap_or(everything)
+            } else {
+                built
+                    .bounds_of_features(&sources, &chosen_rows)
                     .unwrap_or(everything)
             };
             self.camera.animate_to(view.fitted(bounds));
@@ -884,6 +941,7 @@ impl ViewportState {
             &Highlight {
                 selection: &unselected,
                 hovered: &[],
+                chosen_rows: &[],
             },
             context,
             &mut SketchShapes::new(scene::drawn_faceting(&sources, context, level.faceting())),
@@ -1913,8 +1971,13 @@ impl ViewportState {
         commands: &mut CommandFrame<'_>,
         actions: &mut Vec<Action>,
     ) {
+        let home = model.document().saved_views().home;
         for view in StandardView::ALL {
             if commands.available(Command::View(view)) {
+                if let (StandardView::Isometric, Some(home)) = (view, home) {
+                    self.show_saved_view(home);
+                    continue;
+                }
                 let destination = self.camera.destination();
                 if let Some(viewpoint) = Viewpoint::looking_from(
                     view.looking_from(),
@@ -1925,6 +1988,7 @@ impl ViewportState {
                 }
             }
         }
+        self.view_commands(model, commands, actions);
         let facing = editing.feature().ok_or(NOT_IN_A_SKETCH);
         if commands.invoke(Command::LookAtSketch, &facing) && facing.is_ok() {
             self.face_edited_sketch = true;
@@ -2094,6 +2158,52 @@ impl ViewportState {
             Ok(transaction) => transaction.map(Action::Apply),
             Err(refusal) => Some(Action::Inform(Notice::info(refusal.reason()))),
         })
+    }
+
+    fn view_commands(
+        &mut self,
+        model: &Model,
+        commands: &mut CommandFrame<'_>,
+        actions: &mut Vec<Action>,
+    ) {
+        let document = model.document();
+        let current = saved_views::saved_view(self.camera.destination());
+        if commands.available(Command::SaveView) {
+            let name = document.saved_views().unused_name();
+            match saved_views::save(document, &name, current) {
+                Ok(transaction) => {
+                    actions.push(Action::Apply(transaction));
+                    actions.push(Action::Inform(Notice::info(format!(
+                        "Saved the view as {name}. Rename it, or see them all, in Saved views."
+                    ))));
+                }
+                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            }
+        }
+        if commands.available(Command::SavedViews) {
+            actions.push(Action::Preferences(PreferencesCommand::ShowSavedViews));
+        }
+        if commands.available(Command::SetHomeView) {
+            match saved_views::set_home(document, current) {
+                Ok(transaction) => {
+                    actions.push(Action::Apply(transaction));
+                    actions.push(Action::Inform(Notice::info(
+                        "The Isometric view now shows the model like this.",
+                    )));
+                }
+                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            }
+        }
+        let redefined = match document.saved_views().home {
+            Some(_) => Ok(()),
+            None => Err(ISOMETRIC_NOT_CHANGED),
+        };
+        if commands.invoke(Command::ResetHomeView, &redefined) {
+            match saved_views::reset_home(document) {
+                Ok(transaction) => actions.push(Action::Apply(transaction)),
+                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            }
+        }
     }
 
     fn selection_commands(
@@ -2752,7 +2862,7 @@ impl ViewportState {
     ) {
         let document = model.document();
         let orientation = self.camera.viewpoint().orientation;
-        let fit_label = if self.selection.is_empty() {
+        let fit_label = if self.selection.is_empty() && self.chosen_rows.is_empty() {
             "Fit all"
         } else {
             "Fit selection"

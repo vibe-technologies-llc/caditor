@@ -6,6 +6,7 @@ paths:
   - "crates/caditor/src/shortcut_editor.rs"
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
+  - "crates/caditor/src/saved_views.rs"
   - "crates/caditor/src/app.rs"
   - "crates/caditor/src/feature_tree.rs"
 ---
@@ -57,14 +58,35 @@ paths:
   and says whether it triggered; a triggered unavailable command becomes a notice with the reason.
   Hover texts and menu items show the current binding (`commands::display`).
 
+## Saved views
+
+- A model keeps named camera views (`document.md`, `saved_views.rs`). Save the current view saves
+  where the camera is heading (`Camera::destination`) under the next free "View N" with a notice;
+  Saved views… opens a modal (`Workspace::saved_views`, dropped with the session) listing them with
+  Show, Replace with the current view, Rename and Delete, a Name field with Save view (Enter
+  saves, focus starts there; a refused name is a callout and nothing is applied) and the Isometric
+  section. Each change is one undoable `SetSavedViews` built by `saved_views::save`, `update`,
+  `rename`, `delete`, `set_home` or `reset_home`, which check the transaction before it is
+  offered. The dialog keeps the view it was opened with as the current one until Show moves it.
+- A view is restored from View › Saved views, the dialog or a palette search
+  (`PreferencesCommand::GoToView`, the camera animating like any view change), so every view is
+  reachable from the keyboard.
+- The Isometric view (Alt+0, the View menu, the palette) looks from the standard corner at the
+  current target and distance until Make the current view the Isometric view redefines it as a
+  whole saved view; Reset the Isometric view undoes that. A model with a redefined Isometric view
+  opens looking from its orientation, fitted to the model (`ViewportState::start_from_home`, also
+  for a new session; the headless PNG does the same), and one without goes back to the default
+  orientation after one that had it.
+
 ## Command palette
 
 - `palette.rs` lists this frame's offers, then the sketch commands that do not fit outside a
   sketch (muted, after all offers, `palette::absence`), and once something is typed the features
   (selecting the row and scrolling the tree to it, `Focus::Feature`) and parameters (focusing the
-  value field, `Focus::ParameterValue`); the focus reaches the panels the next frame
+  value field, `Focus::ParameterValue`) and saved views (going to the view, `Choice::View`,
+  `Palette::take_view`); the focus reaches the panels the next frame
   (`Palette::take_focus`, `PanelState::request_focus`). Groups (Recent only while nothing is typed,
-  Commands, Features, Parameters) are ordered by best match.
+  Commands, Features, Parameters, Views) are ordered by best match.
 - A fixed detail line under the list says what Enter does, or why the highlighted entry is not
   available, distinguishing "unavailable now" from "only works while a sketch is edited". The
   chosen command is triggered on the next frame.

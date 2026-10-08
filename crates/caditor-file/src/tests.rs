@@ -2400,6 +2400,120 @@ fn a_removal_is_saved_loaded_and_journaled() {
     assert_eq!(format::restore_transaction(journaled), Some(add));
 }
 
+fn bore_views() -> caditor_document::SavedViews {
+    let view = |distance: f64| caditor_document::SavedView {
+        target: caditor_geometry::Point3::new(12.5, -3.0, 40.0),
+        orientation: caditor_geometry::Rotation3::from_axis_angle(
+            caditor_geometry::Vector3::Z,
+            0.75,
+        ),
+        distance,
+    };
+    caditor_document::SavedViews {
+        named: vec![
+            caditor_document::NamedView {
+                name: "Hidden bore".to_owned(),
+                view: view(80.0),
+            },
+            caditor_document::NamedView {
+                name: "As drawn".to_owned(),
+                view: view(260.0),
+            },
+        ],
+        home: Some(view(150.0)),
+    }
+}
+
+#[test]
+fn saved_views_survive_saving_the_journal_and_its_snapshot() {
+    let mut document = sample();
+    let plain = encode(&document).unwrap();
+    let change = Transaction::single(
+        "Saved views",
+        Edit::SetSavedViews {
+            views: Box::new(bore_views()),
+        },
+    );
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+    let recovered = journal::decode_journal(
+        &journal::encode_journal(
+            &journal::JournalHead {
+                file: None,
+                on_disk: None,
+                loaded_with_problems: false,
+                folded: 0,
+            },
+            &document,
+            &[],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    assert!(!plain.contains("\"views\""));
+    assert!(text.contains("\"views\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+    assert_eq!(recovered.issues, Vec::<String>::new());
+    assert_eq!(recovered.base, document);
+}
+
+#[test]
+fn a_model_saved_before_views_existed_loads_with_none() {
+    let document = sample();
+
+    let loaded = decode_text(&encode(&document).unwrap());
+
+    assert!(loaded.document.saved_views().is_empty());
+    assert_eq!(loaded.issues, Vec::<String>::new());
+}
+
+#[test]
+fn saved_views_that_cannot_be_used_are_repaired_and_reported() {
+    let document = sample();
+    let good = r#"{"target":[1.0,2.0,3.0],"orientation":[0.0,0.0,0.0,1.0],"distance":50.0}"#;
+    let flat = r#"{"target":[1.0,2.0,3.0],"orientation":[0.0,0.0,0.0,1.0],"distance":0.0}"#;
+    let views = format!(
+        r#"{{"views":{{"named":[{{"name":"Bore","view":{good}}},{{"name":"bore","view":{good}}},{{"name":"  ","view":{good}}},{{"name":"Flat","view":{flat}}},{{"name":"Broken"}}],"home":{{"target":"here"}}}}}}"#
+    );
+    let text = format!("{}\n{views}", encode(&document).unwrap());
+
+    let loaded = decode_text(&text);
+
+    let names: Vec<&str> = loaded
+        .document
+        .saved_views()
+        .named
+        .iter()
+        .map(|named| named.name.as_str())
+        .collect();
+    assert_eq!(names, ["Bore", "bore 2", "View 3"]);
+    assert_eq!(loaded.document.saved_views().home, None);
+    assert!(issues_mention(
+        &loaded,
+        "Two saved views were called “bore”"
+    ));
+    assert!(issues_mention(&loaded, "A saved view had no name"));
+    assert!(issues_mention(
+        &loaded,
+        "“Flat” is not a view the camera can show"
+    ));
+    assert!(issues_mention(&loaded, "A saved view could not be read"));
+    assert!(issues_mention(
+        &loaded,
+        "The Isometric view could not be read"
+    ));
+}
+
 fn steel_appearance(document: &Document) -> caditor_document::BodyAppearance {
     caditor_document::BodyAppearance {
         colour: Some(caditor_document::Rgb::new(70, 130, 180)),

@@ -1,5 +1,6 @@
 use std::{collections::BTreeSet, sync::Arc};
 
+use caditor_document::FeatureId;
 use caditor_geometry::{Plane, Point3};
 use caditor_render::{Batch, View};
 use caditor_sketch::Faceting;
@@ -80,11 +81,14 @@ struct Content {
 struct Highlighted {
     selection: Selection,
     hovered: Vec<Pickable>,
+    chosen_rows: Vec<FeatureId>,
 }
 
 impl Highlighted {
     fn is(&self, highlight: &Highlight<'_>) -> bool {
-        self.selection == *highlight.selection && self.hovered == highlight.hovered
+        self.selection == *highlight.selection
+            && self.hovered == highlight.hovered
+            && self.chosen_rows == highlight.chosen_rows
     }
 }
 
@@ -162,6 +166,7 @@ impl SceneCache {
         self.highlighted = Some(Highlighted {
             selection: inputs.highlight.selection.clone(),
             hovered: inputs.highlight.hovered.to_vec(),
+            chosen_rows: inputs.highlight.chosen_rows.to_vec(),
         });
     }
 

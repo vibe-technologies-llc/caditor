@@ -377,10 +377,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
-- [medium · medium] No named views: the model keeps no saved view, so an angle and zoom worth
-  coming back to (a view of a hidden bore, the way a drawing was taken) is lost. Named views
-  stored in the model, restored from a list or the palette, with the Isometric home view
-  redefinable.
 - [medium · medium] A face, edge or body hidden behind another can be reached only by hiding the
   one in front or by stepping the keyboard highlight: a click held on a spot, or a key, should list
   everything under the pointer to choose from.
@@ -420,12 +416,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
-- [medium · medium] Choosing a row in the tree (a feature that made a body, a row of the Bodies
-  group, a sketch or a datum) neither highlights nor selects what it made in the view, so the body
-  a row names has to be found by eye; the view's selection already marks its rows in the tree
-  (`app-look.md`), the other way is missing. Highlight the chosen rows' bodies, sketches and
-  datums in the view as hovered or chosen geometry is, without making the faces the selection
-  (so commands keep taking the tree's choice as they do), and frame them on request.
 - [low · medium] Cancelling Open only drops its result while the files worker reads on, so a save or
   another open queues behind a slow load; the loader would need a cancel token and its own thread
   as imports have.

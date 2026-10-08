@@ -34,6 +34,7 @@ mod tolerance;
 mod tree;
 mod trouble;
 mod values;
+mod views;
 mod worker;
 
 pub use crate::{
@@ -97,6 +98,10 @@ pub use crate::{
     },
     split::Split,
     values::{ParameterError, ParameterValues},
+    views::{
+        HOME_VIEW_NAME, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, NamedView, SavedView, SavedViews,
+        view_name,
+    },
     worker::{Outcome, Progress, Recomputer, Update, WorkerStopped},
 };
 
@@ -152,6 +157,8 @@ mod split_tests;
 mod start_tests;
 #[cfg(test)]
 mod tree_tests;
+#[cfg(test)]
+mod views_tests;
 #[cfg(test)]
 mod tests {
     use std::sync::{

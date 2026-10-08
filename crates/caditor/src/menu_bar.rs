@@ -1,3 +1,4 @@
+use caditor_document::SavedViews;
 use egui::{
     Align, CornerRadius, Id, Label, Layout, Popup, Rect, Response, RichText, Sense, Shape, Stroke,
     StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, pos2, vec2,
@@ -86,6 +87,7 @@ const MODEL_RECOMPUTE: [&[Command]; 1] = [&[
 ]];
 
 pub struct MenuContext<'a> {
+    pub views: &'a SavedViews,
     pub files: &'a Files,
     pub editing: &'a SketchEditing,
     pub offers: &'a [Offer],
@@ -130,6 +132,8 @@ pub fn show(
                     actions,
                 );
                 let mut menus = Menus {
+                    views: context.views,
+                    visited: Vec::new(),
                     offers: context.offers,
                     filter: context.filter,
                     style: context.style,
@@ -149,9 +153,15 @@ pub fn show(
                 menus.sketch(ui);
                 menus.help(ui);
                 let chosen = std::mem::take(&mut menus.chosen);
+                let visited = std::mem::take(&mut menus.visited);
                 for command in chosen {
                     commands.trigger(command);
                 }
+                actions.extend(
+                    visited
+                        .into_iter()
+                        .map(|index| Action::Preferences(PreferencesCommand::GoToView(index))),
+                );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if context.chrome.built_in() {
                         window_frame::remember_controls_row(ui.ctx(), ui.max_rect());
@@ -353,6 +363,8 @@ fn model_details(
 }
 
 struct Menus<'a, 'b> {
+    views: &'a SavedViews,
+    visited: Vec<usize>,
     offers: &'a [Offer],
     filter: SelectionFilter,
     style: DisplayStyle,
@@ -452,6 +464,30 @@ impl Menus<'_, '_> {
                 "Standard views",
                 |ui| {
                     self.items(ui, StandardView::ALL.map(Command::View));
+                },
+            );
+            submenu(
+                ui,
+                icons::command(Command::SavedViews),
+                "Saved views",
+                |ui| {
+                    self.items(ui, [Command::SaveView, Command::SavedViews]);
+                    if !self.views.named.is_empty() {
+                        ui.separator();
+                    }
+                    for (index, named) in self.views.named.iter().enumerate() {
+                        let shown = widgets::menu_item(
+                            ui,
+                            icons::command(Command::View(StandardView::Isometric)),
+                            &named.name,
+                            None,
+                        );
+                        if shown.clicked() {
+                            self.visited.push(index);
+                        }
+                    }
+                    ui.separator();
+                    self.items(ui, [Command::SetHomeView, Command::ResetHomeView]);
                 },
             );
             submenu(

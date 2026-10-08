@@ -8449,6 +8449,71 @@ fn a_face_clicked_in_the_view_marks_its_body_row_selected_in_the_tree() {
 }
 
 #[test]
+fn a_row_chosen_in_the_tree_highlights_its_body_in_the_view_without_selecting_it() {
+    let mut harness = Harness::new();
+    let (extrude, top) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.frame();
+    let face_colour = |harness: &mut Harness| {
+        let built = harness.built();
+        let pick = built.picks.id_of(top);
+        built
+            .scene
+            .meshes
+            .iter()
+            .flat_map(|instance| instance.faces.iter())
+            .find(|face| face.pick == pick)
+            .map(|face| face.color)
+            .expect("the top face is drawn")
+    };
+    let plain = face_colour(&mut harness);
+
+    harness.workspace.panels.choose_only(extrude);
+    harness.frame();
+    harness.frame();
+    let highlighted = face_colour(&mut harness);
+    let selected = harness.workspace.viewport.selection().is_empty();
+
+    harness.workspace.panels.selected = None;
+    harness.frame();
+    harness.frame();
+    let cleared = face_colour(&mut harness);
+
+    assert_ne!(highlighted, plain);
+    assert!(selected, "highlighting does not select");
+    assert_eq!(cleared, plain);
+}
+
+#[test]
+fn fitting_the_view_frames_the_rows_chosen_in_the_tree_when_nothing_is_selected() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    harness.add_sketch(sketch);
+    let mut far = Sketch::new(Plane::XY);
+    rectangle(
+        &mut far,
+        Point2::new(500.0, 500.0),
+        Point2::new(510.0, 510.0),
+    );
+    let near = harness.add_sketch(far);
+    harness.select([]);
+    harness.frame();
+
+    harness.workspace.panels.choose_only(near);
+    harness.key(Key::F, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let target = harness.workspace.viewport.viewpoint().target;
+
+    assert!(
+        target.x > 400.0,
+        "the view is framed on the chosen sketch: {target:?}"
+    );
+}
+
+#[test]
 fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);
@@ -12340,6 +12405,155 @@ fn model_properties_are_edited_in_a_dialog_as_one_undoable_change() {
 
     harness.perform(Action::Undo);
     assert!(harness.document().properties().is_empty());
+}
+
+fn turn_the_view(harness: &mut Harness) {
+    harness.key(Key::ArrowLeft, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+}
+
+#[test]
+fn the_current_view_is_saved_from_the_palette_and_shown_again_from_a_search() {
+    let mut harness = Harness::new();
+    harness.settle();
+    turn_the_view(&mut harness);
+    let saved = harness.workspace.viewport.viewpoint();
+
+    run_from_palette(&mut harness, "save the current view");
+    harness.frame();
+    let named = harness.document().saved_views().named.clone();
+    let label = harness.model.undo_label().map(str::to_owned);
+
+    turn_the_view(&mut harness);
+    let moved = harness.workspace.viewport.viewpoint();
+    run_from_palette(&mut harness, "view 1");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let returned = harness.workspace.viewport.viewpoint();
+
+    assert_eq!(named.len(), 1);
+    assert_eq!(named[0].name, "View 1");
+    assert_eq!(label.as_deref(), Some("Save view “View 1”"));
+    assert_ne!(moved.orientation, saved.orientation);
+    assert!(returned.orientation.angle_between(saved.orientation) < 1e-6);
+    assert!((returned.distance - saved.distance).abs() < 1e-6);
+    assert!(returned.target.distance(saved.target) < 1e-6);
+
+    harness.perform(Action::Undo);
+    assert!(harness.document().saved_views().is_empty());
+}
+
+#[test]
+fn the_saved_views_dialog_saves_renames_updates_and_deletes_views() {
+    use crate::saved_views::{SAVE_LABEL, name_field_id, rename_field_id};
+
+    let mut harness = Harness::new();
+    harness.context.enable_accesskit();
+    harness.settle();
+
+    run_from_palette(&mut harness, "saved views");
+    harness.frame();
+    let focused = harness.focused() == Some(name_field_id());
+    harness.type_into_field(name_field_id(), "Hidden bore");
+    harness.frame();
+    let first = harness.document().saved_views().named.clone();
+    harness.type_into_field(name_field_id(), "hidden bore");
+    harness.frame();
+    let refused = harness.shows_containing("There is already a view named");
+    harness.type_into_field(name_field_id(), "As drawn");
+    harness.click(SAVE_LABEL);
+    harness.frame();
+    let two = harness.document().saved_views().named.len();
+
+    harness.click_button("Rename it");
+    harness.frame();
+    harness.type_into_field(rename_field_id(), "Bore");
+    harness.frame();
+    let renamed: Vec<String> = harness
+        .document()
+        .saved_views()
+        .named
+        .iter()
+        .map(|named| named.name.clone())
+        .collect();
+
+    harness.click_button("Delete it");
+    harness.frame();
+    let left = harness.document().saved_views().named.len();
+
+    assert!(focused);
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].name, "Hidden bore");
+    assert!(refused);
+    assert_eq!(two, 2);
+    assert_eq!(renamed.len(), 2);
+    assert!(renamed.contains(&"Bore".to_owned()));
+    assert_eq!(left, 1);
+}
+
+#[test]
+fn the_isometric_view_is_redefined_by_the_current_view_and_reset() {
+    let mut harness = Harness::new();
+    harness.settle();
+    turn_the_view(&mut harness);
+    let wanted = harness.workspace.viewport.viewpoint();
+
+    run_from_palette(&mut harness, "make the current view the isometric");
+    harness.frame();
+    let home = harness.document().saved_views().home;
+
+    turn_the_view(&mut harness);
+    turn_the_view(&mut harness);
+    let away = harness.workspace.viewport.viewpoint();
+    harness.key(Key::Num0, Modifiers::ALT);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let back = harness.workspace.viewport.viewpoint();
+
+    run_from_palette(&mut harness, "reset the isometric");
+    harness.frame();
+    let reset = harness.document().saved_views().home;
+
+    assert!(home.is_some());
+    assert!(away.orientation.angle_between(wanted.orientation) > 0.01);
+    assert!(back.orientation.angle_between(wanted.orientation) < 1e-6);
+    assert!((back.distance - wanted.distance).abs() < 1e-6);
+    assert_eq!(reset, None);
+}
+
+#[test]
+fn a_model_with_a_redefined_isometric_view_opens_looking_from_it() {
+    use caditor_document::{Edit, SavedView, SavedViews};
+    use caditor_geometry::{Point3, Rotation3, Vector3};
+
+    let mut document = sample_document().unwrap();
+    let home = SavedView {
+        target: Point3::new(5.0, 5.0, 5.0),
+        orientation: Rotation3::from_axis_angle(Vector3::X, 1.2),
+        distance: 90.0,
+    };
+    document
+        .apply(Transaction::single(
+            "Isometric",
+            Edit::SetSavedViews {
+                views: Box::new(SavedViews {
+                    named: Vec::new(),
+                    home: Some(home),
+                }),
+            },
+        ))
+        .unwrap();
+
+    let mut harness = Harness::starting(None, document, Workspace::new());
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let opened = harness.workspace.viewport.viewpoint();
+
+    assert!(opened.orientation.angle_between(home.orientation) < 1e-6);
 }
 
 #[test]

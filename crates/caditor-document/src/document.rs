@@ -28,6 +28,7 @@ use crate::{
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
     split::Split,
+    views::SavedViews,
 };
 
 pub const FIRST_UNSTORABLE_ID: u64 = 1 << 63;
@@ -852,6 +853,7 @@ pub struct Document {
     pub(crate) hidden_principal: BTreeSet<PrincipalGeometry>,
     pub(crate) rollback: RollbackBar,
     pub(crate) properties: Arc<ModelProperties>,
+    pub(crate) views: Arc<SavedViews>,
 }
 
 impl Document {
@@ -915,6 +917,10 @@ impl Document {
         &self.properties
     }
 
+    pub fn saved_views(&self) -> &SavedViews {
+        &self.views
+    }
+
     pub fn rollback_bar(&self) -> RollbackBar {
         self.rollback
     }
@@ -967,6 +973,7 @@ impl Document {
         self.parameters == other.parameters
             && self.hidden_principal == other.hidden_principal
             && self.properties == other.properties
+            && self.views == other.views
             && self.rollback == other.rollback
             && self.features.len() == other.features.len()
             && self
@@ -1044,6 +1051,9 @@ impl Document {
         let properties = (self.properties != target.properties).then(|| Edit::SetModelProperties {
             properties: Box::new(ModelProperties::clone(&target.properties)),
         });
+        let views = (self.views != target.views).then(|| Edit::SetSavedViews {
+            views: Box::new(SavedViews::clone(&target.views)),
+        });
         Transaction::new(
             label,
             removals
@@ -1051,6 +1061,7 @@ impl Document {
                 .chain(visibility)
                 .chain(rollback)
                 .chain(properties)
+                .chain(views)
                 .collect(),
         )
     }

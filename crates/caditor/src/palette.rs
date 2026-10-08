@@ -17,7 +17,7 @@ const LIST_HEIGHT: f32 = 360.0;
 const RECENT_LIMIT: usize = 6;
 const ROW_HEIGHT: f32 = CONTROL_HEIGHT + SPACE_S;
 const DETAIL_LINES: f32 = 2.0;
-pub const FIELD_HINT: &str = "Search commands, features and parameters";
+pub const FIELD_HINT: &str = "Search commands, features, parameters and views";
 const SKETCH_ONLY: &str = "works only while a sketch is edited";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -36,6 +36,7 @@ enum Group {
     Commands,
     Features,
     Parameters,
+    Views,
 }
 
 impl Group {
@@ -45,6 +46,7 @@ impl Group {
             Self::Commands => "Commands",
             Self::Features => "Features",
             Self::Parameters => "Parameters",
+            Self::Views => "Views",
         }
     }
 }
@@ -53,6 +55,7 @@ impl Group {
 pub enum Choice {
     Command(Command),
     Focus(Focus),
+    View(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +92,7 @@ impl Entry {
             (State::Ready, Choice::Focus(_)) => {
                 "Press Enter to select it in the feature tree.".to_owned()
             }
+            (State::Ready, Choice::View(_)) => "Press Enter to go to this saved view.".to_owned(),
         }
     }
 
@@ -108,6 +112,7 @@ pub struct Palette {
     highlighted: usize,
     chosen: Option<Command>,
     focus: Option<Focus>,
+    view: Option<usize>,
     recent: Vec<Command>,
 }
 
@@ -130,6 +135,10 @@ impl Palette {
         self.focus.take()
     }
 
+    pub fn take_view(&mut self) -> Option<usize> {
+        self.view.take()
+    }
+
     fn choose(&mut self, choice: Choice) {
         self.open = false;
         match choice {
@@ -140,6 +149,7 @@ impl Palette {
                 self.recent.truncate(RECENT_LIMIT);
             }
             Choice::Focus(focus) => self.focus = Some(focus),
+            Choice::View(index) => self.view = Some(index),
         }
     }
 
@@ -230,6 +240,23 @@ impl Palette {
                 ranked.push(((fit, 0, RECENT_LIMIT, length, order), entry));
             }
         }
+        if searching {
+            for (index, named) in document.saved_views().named.iter().enumerate() {
+                let Some((fit, length)) = matches(&named.name, &named.name) else {
+                    continue;
+                };
+                let entry = Entry {
+                    group: Group::Views,
+                    choice: Choice::View(index),
+                    title: named.name.clone(),
+                    glyph: icons::command(Command::SavedViews),
+                    note: None,
+                    keys: None,
+                    state: State::Ready,
+                };
+                ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
+            }
+        }
         let best = |group: Group| {
             ranked
                 .iter()
@@ -249,6 +276,7 @@ impl Palette {
             Group::Commands,
             Group::Features,
             Group::Parameters,
+            Group::Views,
         ]
         .into_iter()
         .map(|group| (group_order(group), group))
