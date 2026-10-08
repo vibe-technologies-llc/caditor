@@ -3,7 +3,7 @@ use crate::{
     tolerance::LINEAR_RESOLUTION,
 };
 
-pub const MAX_SPLINE_DEGREE: usize = 9;
+pub const MAX_SPLINE_DEGREE: usize = 25;
 const MIN_PRUNED_SPANS: usize = 8;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -137,20 +137,30 @@ impl<P: Coordinates> BSpline<P> {
     }
 
     pub fn derivatives(&self, parameter: f64) -> [P; 3] {
+        if self.degree < CUBIC_WIDTH {
+            self.derivatives_within::<CUBIC_WIDTH>(parameter)
+        } else if self.degree < NARROW_WIDTH {
+            self.derivatives_within::<NARROW_WIDTH>(parameter)
+        } else {
+            self.derivatives_within::<WIDE_WIDTH>(parameter)
+        }
+    }
+
+    fn derivatives_within<const WIDTH: usize>(&self, parameter: f64) -> [P; 3] {
         let parameter = self.domain.clamp(parameter);
         let span = self.span(parameter);
-        let table = self.basis_table(span, parameter);
+        let table = self.basis_table::<WIDTH>(span, parameter);
         let degree = self.degree;
-        let values = table.get(degree).copied().unwrap_or(ZERO_ROW);
-        let first = table
-            .get(degree - 1)
-            .map_or(ZERO_ROW, |lower| self.derivative_row(lower, degree, span));
+        let values = table.get(degree).copied().unwrap_or([0.0; WIDTH]);
+        let first = table.get(degree - 1).map_or([0.0; WIDTH], |lower| {
+            self.derivative_row(lower, degree, span)
+        });
         let second = match degree.checked_sub(2).and_then(|index| table.get(index)) {
             Some(lower) => {
                 let middle = self.derivative_row(lower, degree - 1, span);
                 self.derivative_row(&middle, degree, span)
             }
-            None => ZERO_ROW,
+            None => [0.0; WIDTH],
         };
         let (a0, w0) = self.combine(span, &values);
         let (a1, w1) = self.combine(span, &first);
@@ -285,12 +295,11 @@ impl<P: Coordinates> BSpline<P> {
         }
         knots.extend(std::iter::repeat_n(travelled, degree + 1));
         let shape = Self::new(degree, knots.clone(), vec![P::ORIGIN; count])?;
-        let mut band: Vec<[f64; ROW_WIDTH]> = Vec::with_capacity(count);
+        let mut band = Vec::with_capacity(count);
         let mut firsts = Vec::with_capacity(count);
         for parameter in &parameters {
             let span = shape.span(*parameter);
-            let table = shape.basis_table(span, *parameter);
-            band.push(table.get(degree).copied().unwrap_or(ZERO_ROW));
+            band.push(shape.basis_values(span, *parameter));
             firsts.push(span - degree);
         }
         let solved =
@@ -332,23 +341,39 @@ impl<P: Coordinates> BSpline<P> {
         }
     }
 
-    pub(crate) fn rational_basis(&self, parameter: f64) -> (usize, BasisRow) {
+    pub(crate) fn rational_basis(&self, parameter: f64) -> (usize, Vec<f64>) {
         let parameter = self.domain.clamp(parameter);
         let span = self.span(parameter);
         let first = span - self.degree;
-        let table = self.basis_table(span, parameter);
-        let mut values = table.get(self.degree).copied().unwrap_or(ZERO_ROW);
+        let mut values = self.basis_values(span, parameter);
         let mut total = 0.0;
-        for (offset, value) in values.iter_mut().enumerate().take(self.degree + 1) {
+        for (offset, value) in values.iter_mut().enumerate() {
             *value *= self.weight(first + offset);
             total += *value;
         }
         if total > 0.0 {
-            for value in values.iter_mut().take(self.degree + 1) {
+            for value in &mut values {
                 *value /= total;
             }
         }
         (first, values)
+    }
+
+    fn basis_values(&self, span: usize, parameter: f64) -> Vec<f64> {
+        if self.degree < CUBIC_WIDTH {
+            self.basis_row::<CUBIC_WIDTH>(span, parameter)
+        } else if self.degree < NARROW_WIDTH {
+            self.basis_row::<NARROW_WIDTH>(span, parameter)
+        } else {
+            self.basis_row::<WIDE_WIDTH>(span, parameter)
+        }
+    }
+
+    fn basis_row<const WIDTH: usize>(&self, span: usize, parameter: f64) -> Vec<f64> {
+        self.basis_table::<WIDTH>(span, parameter)
+            .get(self.degree)
+            .and_then(|row| row.get(..=self.degree))
+            .map_or_else(|| vec![0.0; self.degree + 1], <[f64]>::to_vec)
     }
 
     fn homogeneous_points(&self) -> Vec<Homogeneous<P>> {
@@ -498,13 +523,17 @@ impl<P: Coordinates> BSpline<P> {
             .clamp(self.degree, last)
     }
 
-    fn basis_table(&self, span: usize, parameter: f64) -> [BasisRow; ROW_WIDTH] {
-        let mut table = [ZERO_ROW; ROW_WIDTH];
+    fn basis_table<const WIDTH: usize>(
+        &self,
+        span: usize,
+        parameter: f64,
+    ) -> [[f64; WIDTH]; WIDTH] {
+        let mut table = [[0.0; WIDTH]; WIDTH];
         if let Some(first) = table.first_mut().and_then(|row| row.first_mut()) {
             *first = 1.0;
         }
-        for degree in 1..=self.degree.min(MAX_SPLINE_DEGREE) {
-            let lower = table.get(degree - 1).copied().unwrap_or(ZERO_ROW);
+        for degree in 1..=self.degree.min(WIDTH - 1) {
+            let lower = table.get(degree - 1).copied().unwrap_or([0.0; WIDTH]);
             let Some(row) = table.get_mut(degree) else {
                 break;
             };
@@ -530,8 +559,13 @@ impl<P: Coordinates> BSpline<P> {
         table
     }
 
-    fn derivative_row(&self, lower: &BasisRow, degree: usize, span: usize) -> BasisRow {
-        let mut row = ZERO_ROW;
+    fn derivative_row<const WIDTH: usize>(
+        &self,
+        lower: &[f64; WIDTH],
+        degree: usize,
+        span: usize,
+    ) -> [f64; WIDTH] {
+        let mut row = [0.0; WIDTH];
         for (offset, slot) in row.iter_mut().enumerate().take(degree + 1) {
             let index = span + offset - degree;
             let left = offset
@@ -551,7 +585,7 @@ impl<P: Coordinates> BSpline<P> {
         row
     }
 
-    fn combine(&self, span: usize, coefficients: &BasisRow) -> (P, f64) {
+    fn combine(&self, span: usize, coefficients: &[f64]) -> (P, f64) {
         let first = span - self.degree;
         coefficients.iter().take(self.degree + 1).enumerate().fold(
             (P::ORIGIN, 0.0),
@@ -617,7 +651,7 @@ fn insert_knot<P: Coordinates>(
 }
 
 fn solve_collocation<P: Coordinates>(
-    band: &[[f64; MAX_SPLINE_DEGREE + 1]],
+    band: &[Vec<f64>],
     firsts: &[usize],
     points: &[P],
     degree: usize,
@@ -665,9 +699,9 @@ fn solve_collocation<P: Coordinates>(
         .then_some(right)
 }
 
-pub(crate) const ROW_WIDTH: usize = MAX_SPLINE_DEGREE + 1;
-pub(crate) type BasisRow = [f64; ROW_WIDTH];
-const ZERO_ROW: BasisRow = [0.0; ROW_WIDTH];
+pub(crate) const CUBIC_WIDTH: usize = 4;
+pub(crate) const NARROW_WIDTH: usize = 10;
+pub(crate) const WIDE_WIDTH: usize = MAX_SPLINE_DEGREE + 1;
 
 fn ratio(numerator: f64, denominator: f64) -> f64 {
     if denominator > 0.0 {
@@ -713,6 +747,87 @@ mod tests {
             vec![1.0, half, 1.0],
         )
         .unwrap()
+    }
+
+    fn casteljau(points: &[Point3], parameter: f64) -> Point3 {
+        let mut points = points.to_vec();
+        while points.len() > 1 {
+            points = points
+                .windows(2)
+                .map(|pair| pair[0].lerp(pair[1], parameter))
+                .collect();
+        }
+        points[0]
+    }
+
+    fn wavy(count: usize, seed: f64) -> Vec<Point3> {
+        (0..count)
+            .map(|index| {
+                let along = index as f64;
+                Point3::new(
+                    along,
+                    (along * 0.7 + seed).sin() * 3.0,
+                    (along * 0.3).cos() * seed,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn splines_of_every_degree_up_to_the_most_evaluate_as_bezier_curves_and_patches() {
+        for degree in [1, 2, 3, 4, 9, 10, 12, MAX_SPLINE_DEGREE] {
+            let knots: Vec<f64> = std::iter::repeat_n(0.0, degree + 1)
+                .chain(std::iter::repeat_n(1.0, degree + 1))
+                .collect();
+            let points = wavy(degree + 1, 1.5);
+            let differences: Vec<Point3> = points
+                .windows(2)
+                .map(|pair| (pair[1] - pair[0]) * degree as f64)
+                .collect();
+            let curve = BSpline::new(degree, knots.clone(), points.clone()).unwrap();
+            let rows = 5;
+            let net: Vec<Point3> = (0..rows)
+                .flat_map(|row| wavy(degree + 1, row as f64))
+                .collect();
+            let row_knots: Vec<f64> = std::iter::repeat_n(0.0, rows)
+                .chain(std::iter::repeat_n(1.0, rows))
+                .collect();
+            let surface = crate::BSplineSurface::new(
+                degree,
+                rows - 1,
+                knots.clone(),
+                row_knots,
+                degree + 1,
+                net.clone(),
+                None,
+            )
+            .unwrap();
+
+            for index in 0..=10 {
+                let t = index as f64 / 10.0;
+                let [point, tangent, _] = curve.derivatives(t);
+                let along_rows: Vec<Point3> = net
+                    .chunks(degree + 1)
+                    .map(|row| casteljau(row, t))
+                    .collect();
+                let expected = casteljau(&along_rows, 1.0 - t);
+                let derivative = if degree == 1 {
+                    differences[0]
+                } else {
+                    casteljau(&differences, t)
+                };
+                assert!(point.distance(casteljau(&points, t)) < 1e-9, "{degree} {t}");
+                assert!(tangent.distance(derivative) < 1e-7, "{degree} {t}");
+                assert!(
+                    surface.point(t, 1.0 - t).distance(expected) < 1e-9,
+                    "{degree} {t}"
+                );
+                assert!(
+                    surface.evaluate(t, 1.0 - t).point.distance(expected) < 1e-9,
+                    "{degree} {t}"
+                );
+            }
+        }
     }
 
     #[test]

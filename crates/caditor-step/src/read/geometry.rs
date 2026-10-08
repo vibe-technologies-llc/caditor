@@ -890,9 +890,10 @@ mod tests {
     #[test]
     fn spline_degrees_above_the_kernel_limit_are_refused_before_any_work() {
         assert_eq!(spline_degree(3, 7), Ok(3));
-        assert_eq!(spline_degree(9, 7), Ok(9));
-        let refused = spline_degree(1_000_000_000, 7).unwrap_err();
-        assert!(refused.to_string().contains("up to degree 9"), "{refused}");
+        assert_eq!(spline_degree(25, 7), Ok(25));
+        let refused = spline_degree(26, 7).unwrap_err();
+        assert!(refused.to_string().contains("up to degree 25"), "{refused}");
+        assert!(spline_degree(1_000_000_000, 7).is_err());
         assert!(spline_degree(-1, 7).is_err());
     }
 

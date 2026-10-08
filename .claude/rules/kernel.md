@@ -49,6 +49,9 @@ paths:
   a point no seed reaches within the resolution is sought from the nearest of a few samples in each
   span whose hull holds it (at most `MAX_SPAN_SEARCHES`), so a point on a dense, rough net always
   finds its foot.
+- Splines reach `MAX_SPLINE_DEGREE` (25, as OpenCascade allows). Evaluation keeps its basis tables
+  on the stack at the width the degree needs (`CUBIC_WIDTH` up to cubic, `NARROW_WIDTH` up to
+  degree 9, `WIDE_WIDTH` above), so the common cubic never zeroes a table sized for degree 25.
 - `BSpline::interpolating` passes a clamped spline through points at chord-length parameters with
   averaged knots (a banded solve, no pivoting, as the collocation matrix is totally positive).
 - `BSpline::restricted` is the exact piece of a spline over a range, by knot insertion in

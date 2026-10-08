@@ -4,7 +4,7 @@ use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
 
 use crate::{
     box_tree::BoxTree,
-    bspline::{BSpline, MAX_SPLINE_DEGREE, clamped_domain},
+    bspline::{BSpline, CUBIC_WIDTH, MAX_SPLINE_DEGREE, NARROW_WIDTH, WIDE_WIDTH, clamped_domain},
     error::GeometryError,
     interval::Interval,
     surface::{Pole, SurfaceDerivatives, SurfaceSide, projection::periodic_near},
@@ -176,22 +176,20 @@ impl SampleGrid {
     }
 }
 
-type Table = [[f64; MAX_SPLINE_DEGREE + 1]; MAX_SPLINE_DEGREE + 1];
-
-struct BasisTable {
+struct BasisTable<const WIDTH: usize> {
     span: usize,
-    table: Table,
+    table: [[f64; WIDTH]; WIDTH],
 }
 
-struct BasisValues {
+struct BasisValues<const WIDTH: usize> {
     first: usize,
-    values: [f64; MAX_SPLINE_DEGREE + 1],
+    values: [f64; WIDTH],
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Basis {
+struct Basis<const WIDTH: usize> {
     first: usize,
-    values: [[f64; MAX_SPLINE_DEGREE + 1]; 3],
+    values: [[f64; WIDTH]; 3],
 }
 
 impl BSplineSurface {
@@ -514,9 +512,20 @@ impl BSplineSurface {
         #[cfg(test)]
         counting::POINTS.with(|count| count.set(count.get() + 1));
         let (u, v) = self.wrap(u, v);
+        let degree = self.u_degree.max(self.v_degree);
+        if degree < CUBIC_WIDTH {
+            self.point_within::<CUBIC_WIDTH>(u, v)
+        } else if degree < NARROW_WIDTH {
+            self.point_within::<NARROW_WIDTH>(u, v)
+        } else {
+            self.point_within::<WIDE_WIDTH>(u, v)
+        }
+    }
+
+    fn point_within<const WIDTH: usize>(&self, u: f64, v: f64) -> Point3 {
         let (Some(along_u), Some(along_v)) = (
-            basis_values(&self.u_knots, self.u_degree, self.columns, u),
-            basis_values(&self.v_knots, self.v_degree, self.rows, v),
+            basis_values::<WIDTH>(&self.u_knots, self.u_degree, self.columns, u),
+            basis_values::<WIDTH>(&self.v_knots, self.v_degree, self.rows, v),
         ) else {
             return Point3::ZERO;
         };
@@ -740,9 +749,20 @@ impl BSplineSurface {
     }
 
     fn derivatives_at(&self, u: f64, v: f64) -> SurfaceDerivatives {
+        let degree = self.u_degree.max(self.v_degree);
+        if degree < CUBIC_WIDTH {
+            self.derivatives_within::<CUBIC_WIDTH>(u, v)
+        } else if degree < NARROW_WIDTH {
+            self.derivatives_within::<NARROW_WIDTH>(u, v)
+        } else {
+            self.derivatives_within::<WIDE_WIDTH>(u, v)
+        }
+    }
+
+    fn derivatives_within<const WIDTH: usize>(&self, u: f64, v: f64) -> SurfaceDerivatives {
         let (Some(along_u), Some(along_v)) = (
-            basis(&self.u_knots, self.u_degree, self.columns, u),
-            basis(&self.v_knots, self.v_degree, self.rows, v),
+            basis::<WIDTH>(&self.u_knots, self.u_degree, self.columns, u),
+            basis::<WIDTH>(&self.v_knots, self.v_degree, self.rows, v),
         ) else {
             return SurfaceDerivatives {
                 point: Point3::ZERO,
@@ -1044,7 +1064,7 @@ impl BSplineSurface {
     }
 }
 
-fn column_of(basis: &Basis, index: usize) -> [f64; 3] {
+fn column_of<const WIDTH: usize>(basis: &Basis<WIDTH>, index: usize) -> [f64; 3] {
     [0, 1, 2].map(|order| {
         basis
             .values
@@ -1235,12 +1255,17 @@ fn span_of(knots: &[f64], degree: usize, count: usize, parameter: f64) -> usize 
         .clamp(degree, count - 1)
 }
 
-fn basis_table(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Option<BasisTable> {
+fn basis_table<const WIDTH: usize>(
+    knots: &[f64],
+    degree: usize,
+    count: usize,
+    parameter: f64,
+) -> Option<BasisTable<WIDTH>> {
     let span = span_of(knots, degree, count, parameter);
     let knot = |index: usize| knots.get(index).copied().unwrap_or(0.0);
-    let mut table = [[0.0f64; MAX_SPLINE_DEGREE + 1]; MAX_SPLINE_DEGREE + 1];
-    let mut left = [0.0f64; MAX_SPLINE_DEGREE + 1];
-    let mut right = [0.0f64; MAX_SPLINE_DEGREE + 1];
+    let mut table = [[0.0f64; WIDTH]; WIDTH];
+    let mut left = [0.0f64; WIDTH];
+    let mut right = [0.0f64; WIDTH];
     *table.get_mut(0)?.get_mut(0)? = 1.0;
     for j in 1..=degree {
         *left.get_mut(j)? = parameter - knot(span + 1 - j);
@@ -1262,9 +1287,14 @@ fn basis_table(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Op
     Some(BasisTable { span, table })
 }
 
-fn basis_values(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Option<BasisValues> {
-    let BasisTable { span, table } = basis_table(knots, degree, count, parameter)?;
-    let mut values = [0.0f64; MAX_SPLINE_DEGREE + 1];
+fn basis_values<const WIDTH: usize>(
+    knots: &[f64],
+    degree: usize,
+    count: usize,
+    parameter: f64,
+) -> Option<BasisValues<WIDTH>> {
+    let BasisTable { span, table } = basis_table::<WIDTH>(knots, degree, count, parameter)?;
+    let mut values = [0.0f64; WIDTH];
     for (j, value) in values.iter_mut().enumerate().take(degree + 1) {
         *value = *table.get(j)?.get(degree)?;
     }
@@ -1274,13 +1304,18 @@ fn basis_values(knots: &[f64], degree: usize, count: usize, parameter: f64) -> O
     })
 }
 
-fn basis(knots: &[f64], degree: usize, count: usize, parameter: f64) -> Option<Basis> {
-    let BasisTable { span, table } = basis_table(knots, degree, count, parameter)?;
-    let mut values = [[0.0f64; MAX_SPLINE_DEGREE + 1]; 3];
+fn basis<const WIDTH: usize>(
+    knots: &[f64],
+    degree: usize,
+    count: usize,
+    parameter: f64,
+) -> Option<Basis<WIDTH>> {
+    let BasisTable { span, table } = basis_table::<WIDTH>(knots, degree, count, parameter)?;
+    let mut values = [[0.0f64; WIDTH]; 3];
     for j in 0..=degree {
         *values.get_mut(0)?.get_mut(j)? = *table.get(j)?.get(degree)?;
     }
-    let mut a = [[0.0f64; MAX_SPLINE_DEGREE + 1]; 2];
+    let mut a = [[0.0f64; WIDTH]; 2];
     for r in 0..=degree {
         let (mut s1, mut s2) = (0usize, 1usize);
         *a.get_mut(0)?.get_mut(0)? = 1.0;
