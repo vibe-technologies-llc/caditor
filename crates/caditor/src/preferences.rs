@@ -1,5 +1,5 @@
 use caditor_file::{Settings, SettingsError};
-use caditor_render::{AdapterPreference, Msaa, Projection, Shading};
+use caditor_render::{AdapterPreference, Msaa, ProjectionMode, Shading};
 use egui::{Id, KeyboardShortcut, Label, ThemePreference, Ui};
 
 use crate::{
@@ -203,31 +203,36 @@ impl PreferencesTab {
     }
 }
 
-pub fn projection_label(projection: Projection) -> &'static str {
+pub fn projection_label(projection: ProjectionMode) -> &'static str {
     match projection {
-        Projection::Perspective => "Perspective",
-        Projection::Orthographic => "Orthographic",
+        ProjectionMode::Perspective => "Perspective",
+        ProjectionMode::Orthographic => "Orthographic",
+        ProjectionMode::Automatic => "Automatic",
     }
 }
 
-fn projection_description(projection: Projection) -> &'static str {
+fn projection_description(projection: ProjectionMode) -> &'static str {
     match projection {
-        Projection::Perspective => "Farther parts look smaller, as they do to the eye",
-        Projection::Orthographic => {
+        ProjectionMode::Perspective => "Farther parts look smaller, as they do to the eye",
+        ProjectionMode::Orthographic => {
             "Parallel edges stay parallel and sizes compare across the view, as in a drawing"
+        }
+        ProjectionMode::Automatic => {
+            "Perspective, turning orthographic while the view looks square at a front, back, top, bottom, left or right view"
         }
     }
 }
 
-fn projection_key(projection: Projection) -> &'static str {
+fn projection_key(projection: ProjectionMode) -> &'static str {
     match projection {
-        Projection::Perspective => "perspective",
-        Projection::Orthographic => "orthographic",
+        ProjectionMode::Perspective => "perspective",
+        ProjectionMode::Orthographic => "orthographic",
+        ProjectionMode::Automatic => "automatic",
     }
 }
 
-fn projection_from_key(key: &str) -> Option<Projection> {
-    Projection::ALL
+fn projection_from_key(key: &str) -> Option<ProjectionMode> {
+    ProjectionMode::ALL
         .into_iter()
         .find(|projection| projection_key(*projection) == key)
 }
@@ -319,7 +324,7 @@ pub struct Navigation {
     pub orbit_speed: f64,
     pub zoom_speed: f64,
     pub invert_zoom: bool,
-    pub projection: Projection,
+    pub projection: ProjectionMode,
     pub input_mode: InputMode,
 }
 
@@ -329,7 +334,7 @@ impl Default for Navigation {
             orbit_speed: 1.0,
             zoom_speed: 1.0,
             invert_zoom: false,
-            projection: Projection::default(),
+            projection: ProjectionMode::default(),
             input_mode: InputMode::default(),
         }
     }
@@ -378,7 +383,7 @@ pub enum PreferenceChange {
     OrbitSpeed(f64),
     ZoomSpeed(f64),
     InvertZoom(bool),
-    Projection(Projection),
+    Projection(ProjectionMode),
     InputMode(InputMode),
     TitleBar(TitleBar),
     Vsync(bool),
@@ -932,10 +937,10 @@ fn navigation(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Prefe
             || Command::ToggleProjection.title(),
             |shortcut| commands::display(&shortcut),
         );
-    let note = format!("{toggle} switches between them in the view.");
+    let note = format!("{toggle} switches between perspective and orthographic in the view.");
     section(ui, "View", "navigation-view", Some(note), |ui| {
         widgets::property(ui, "Projection", |ui| {
-            let options = Projection::ALL.map(|projection| {
+            let options = ProjectionMode::ALL.map(|projection| {
                 (
                     projection,
                     projection_label(projection),
@@ -1025,7 +1030,7 @@ mod tests {
         assert_eq!(preferences.navigation.zoom_speed, 1.0);
         preferences.apply(PreferenceChange::ZoomSpeed(0.5));
         preferences.apply(PreferenceChange::InvertZoom(true));
-        preferences.apply(PreferenceChange::Projection(Projection::Orthographic));
+        preferences.apply(PreferenceChange::Projection(ProjectionMode::Orthographic));
         preferences.apply(PreferenceChange::TitleBar(TitleBar::System));
         let settings = preferences.settings();
         assert_eq!(settings.text("future.option"), Some("kept"));
@@ -1040,7 +1045,7 @@ mod tests {
             Preferences::from_settings(settings.clone())
                 .navigation
                 .projection,
-            Projection::Orthographic
+            ProjectionMode::Orthographic
         );
         assert_eq!(
             Preferences::from_settings(settings.clone()).settings(),

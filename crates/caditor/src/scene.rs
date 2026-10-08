@@ -943,6 +943,7 @@ impl Builder<'_> {
         };
         let edge_width = self.palette.body_edge_width;
         let pickable_edges = pickable;
+        let shows_hidden_edges = style.shows_hidden_edges() && color.is_some();
         for edge in &mesh.edges {
             let pickable = Pickable::Edge {
                 body,
@@ -966,30 +967,27 @@ impl Builder<'_> {
                 ),
                 None => (self.palette.background_body_edge, edge_width, None),
             };
-            let mut along = 0.0;
-            let segments = edge.points.windows(2).filter_map(|pair| match pair {
-                [start, end] => {
-                    let stroke = if dashed {
-                        Stroke::Dashed {
-                            along: along as f32,
-                        }
-                    } else {
-                        Stroke::Solid
-                    };
-                    along += start.distance(*end);
-                    Some(Line {
-                        start: placed(*start),
-                        end: placed(*end),
-                        color,
-                        width,
-                        layer: Layer::Model,
-                        pick,
-                        stroke,
-                    })
-                }
-                _ => None,
-            });
-            self.scene.lines.extend(segments);
+            let drawn = EdgeStroke {
+                color,
+                width,
+                layer: Layer::Model,
+                pick,
+                dashed,
+            };
+            self.scene
+                .lines
+                .extend(edge_lines(&edge.points, &placed, drawn));
+            if shows_hidden_edges && color.alpha > 0.0 {
+                let hidden = EdgeStroke {
+                    layer: Layer::Hidden,
+                    pick: None,
+                    dashed: true,
+                    ..drawn
+                };
+                self.scene
+                    .lines
+                    .extend(edge_lines(&edge.points, &placed, hidden));
+            }
         }
         if color.is_none() && !pickable_edges {
             return;
@@ -1481,6 +1479,48 @@ struct CurveStyle {
     layer: Layer,
     pick: Option<PickId>,
     dashed: bool,
+}
+
+#[derive(Clone, Copy)]
+struct EdgeStroke {
+    color: Color,
+    width: f32,
+    layer: Layer,
+    pick: Option<PickId>,
+    dashed: bool,
+}
+
+fn edge_lines(
+    points: &[Point3],
+    placed: &impl Fn(Point3) -> Point3,
+    stroke: EdgeStroke,
+) -> Vec<Line> {
+    let mut along = 0.0;
+    points
+        .windows(2)
+        .filter_map(|pair| match pair {
+            [start, end] => {
+                let line_stroke = if stroke.dashed {
+                    Stroke::Dashed {
+                        along: along as f32,
+                    }
+                } else {
+                    Stroke::Solid
+                };
+                along += start.distance(*end);
+                Some(Line {
+                    start: placed(*start),
+                    end: placed(*end),
+                    color: stroke.color,
+                    width: stroke.width,
+                    layer: stroke.layer,
+                    pick: stroke.pick,
+                    stroke: line_stroke,
+                })
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn curve_segments(plane: Plane, points: &[Point2], dashed: bool) -> impl Iterator<Item = Segment> {

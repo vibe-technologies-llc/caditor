@@ -101,6 +101,10 @@ paths:
   by a larger slope bias (`BEHIND_FACES_DEPTH_BIAS`) and a factor (`BEHIND_FACES`,
   `GRID_DEPTH_BIAS`), so a face lying on the XY plane never speckles with the grid or a principal
   plane (offscreen tests).
+- `Layer::Hidden` lines draw after the model's lines with a depth test of `Less` and no depth write
+  (`hidden_lines` pipeline), so they show only where a nearer face covers them; they sit after the
+  other lines in the batch's buffer (`OrderedLines`), outside `line_count`, so the pick pass never
+  draws them.
 - `Layer::Front` draws over everything whatever its depth, in view and picking alike (the app
   puts the edited sketch there). `layered_depth` halves every depth into the far half of the range
   (an exact scaling) and moves front geometry into the near half, where biases stay wide enough
@@ -133,7 +137,12 @@ paths:
 
 ## Projection
 
-- `camera::Projection` is perspective or orthographic. Orthographic shows at every depth the scale
+- `camera::ProjectionMode` is what the user chooses and the `Camera` keeps: perspective,
+  orthographic or automatic, which is perspective and turns orthographic while the viewpoint looks
+  square at a coordinate axis (within `SQUARE_TOLERANCE_DEGREES`, the six front, back, top, bottom,
+  left and right views, not the isometric one). `Camera::view` resolves it against the current
+  viewpoint, so a `View` only ever holds the effective `camera::Projection`, perspective or
+  orthographic. Orthographic shows at every depth the scale
   perspective shows at its target, so switching keeps the on-screen size. The eye stays
   `distance` in front of the target (relative-to-eye precision unchanged) and the depth range is
   finite, centred on the target; `View::reaching` widens it to the scene's bounds so geometry

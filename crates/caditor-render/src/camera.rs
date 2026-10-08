@@ -18,6 +18,7 @@ const MIN_FIT_DEPTH_FRACTION: f64 = 0.1;
 const TRANSITION_DURATION: Duration = Duration::from_millis(350);
 const ORTHOGRAPHIC_REACH_PER_DISTANCE: f64 = 40.0;
 const ORTHOGRAPHIC_SCENE_MARGIN: f64 = 1.1;
+const SQUARE_TOLERANCE_DEGREES: f64 = 0.1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Projection {
@@ -28,11 +29,39 @@ pub enum Projection {
 
 impl Projection {
     pub const ALL: [Self; 2] = [Self::Perspective, Self::Orthographic];
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ProjectionMode {
+    #[default]
+    Perspective,
+    Orthographic,
+    Automatic,
+}
+
+impl ProjectionMode {
+    pub const ALL: [Self; 3] = [Self::Perspective, Self::Orthographic, Self::Automatic];
 
     pub fn other(self) -> Self {
         match self {
             Self::Perspective => Self::Orthographic,
-            Self::Orthographic => Self::Perspective,
+            Self::Orthographic | Self::Automatic => Self::Perspective,
+        }
+    }
+
+    pub fn automatic_toggled(self) -> Self {
+        match self {
+            Self::Automatic => Self::Perspective,
+            Self::Perspective | Self::Orthographic => Self::Automatic,
+        }
+    }
+
+    pub fn resolved(self, viewpoint: &Viewpoint) -> Projection {
+        match self {
+            Self::Perspective => Projection::Perspective,
+            Self::Orthographic => Projection::Orthographic,
+            Self::Automatic if viewpoint.is_square_to_an_axis() => Projection::Orthographic,
+            Self::Automatic => Projection::Perspective,
         }
     }
 }
@@ -117,6 +146,12 @@ impl Viewpoint {
             target: self.target + offset,
             ..self
         }
+    }
+
+    pub fn is_square_to_an_axis(&self) -> bool {
+        let forward = self.forward();
+        let squareness = forward.abs().max_element();
+        squareness >= SQUARE_TOLERANCE_DEGREES.to_radians().cos()
     }
 
     fn interpolated(self, to: Self, amount: f64) -> Self {
@@ -402,7 +437,7 @@ struct Transition {
 pub struct Camera {
     viewpoint: Viewpoint,
     transition: Option<Transition>,
-    projection: Projection,
+    projection: ProjectionMode,
 }
 
 impl Camera {
@@ -410,15 +445,15 @@ impl Camera {
         Self {
             viewpoint,
             transition: None,
-            projection: Projection::Perspective,
+            projection: ProjectionMode::Perspective,
         }
     }
 
-    pub fn projection(&self) -> Projection {
+    pub fn projection(&self) -> ProjectionMode {
         self.projection
     }
 
-    pub fn set_projection(&mut self, projection: Projection) {
+    pub fn set_projection(&mut self, projection: ProjectionMode) {
         self.projection = projection;
     }
 
@@ -432,7 +467,8 @@ impl Camera {
     }
 
     pub fn view(&self, width: f64, height: f64) -> View {
-        View::new(self.viewpoint, width, height).with_projection(self.projection)
+        View::new(self.viewpoint, width, height)
+            .with_projection(self.projection.resolved(&self.viewpoint))
     }
 
     pub fn is_animating(&self) -> bool {
@@ -819,7 +855,7 @@ mod tests {
 
     fn orthographic_camera() -> Camera {
         let mut camera = Camera::new(isometric());
-        camera.set_projection(Projection::Orthographic);
+        camera.set_projection(ProjectionMode::Orthographic);
         camera
     }
 
@@ -1015,7 +1051,47 @@ mod tests {
             assert!((0.0..=WIDTH).contains(&pixel.x) && (0.0..=HEIGHT).contains(&pixel.y));
         }
         assert!(fitted.viewpoint().distance < perspective.distance);
-        assert_eq!(Projection::Perspective.other(), Projection::Orthographic);
-        assert_eq!(Projection::Orthographic.other(), Projection::Perspective);
+        assert_eq!(
+            ProjectionMode::Perspective.other(),
+            ProjectionMode::Orthographic
+        );
+        assert_eq!(
+            ProjectionMode::Orthographic.other(),
+            ProjectionMode::Perspective
+        );
+        assert_eq!(
+            ProjectionMode::Automatic.other(),
+            ProjectionMode::Perspective
+        );
+        assert_eq!(
+            ProjectionMode::Perspective.automatic_toggled(),
+            ProjectionMode::Automatic
+        );
+        assert_eq!(
+            ProjectionMode::Automatic.automatic_toggled(),
+            ProjectionMode::Perspective
+        );
+    }
+
+    #[test]
+    fn the_automatic_projection_is_orthographic_only_while_square_to_an_axis() {
+        let square = Viewpoint::looking_from(Vector3::NEG_Y, Point3::ZERO, 80.0).unwrap();
+        let top = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 80.0).unwrap();
+        let nudged =
+            Viewpoint::looking_from(Vector3::new(0.0, -1.0, 0.05), Point3::ZERO, 80.0).unwrap();
+        let mut camera = Camera::new(isometric());
+        camera.set_projection(ProjectionMode::Automatic);
+
+        assert!(!camera.view(WIDTH, HEIGHT).is_orthographic());
+        camera.animate_to(square);
+        camera.advance(TRANSITION_DURATION);
+        assert!(camera.view(WIDTH, HEIGHT).is_orthographic());
+        camera.animate_to(top);
+        camera.advance(TRANSITION_DURATION);
+        assert!(camera.view(WIDTH, HEIGHT).is_orthographic());
+        camera.animate_to(nudged);
+        camera.advance(TRANSITION_DURATION);
+        assert!(!camera.view(WIDTH, HEIGHT).is_orthographic());
+        assert_eq!(camera.projection(), ProjectionMode::Automatic);
     }
 }

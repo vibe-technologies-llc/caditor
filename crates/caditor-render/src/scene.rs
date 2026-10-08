@@ -63,6 +63,7 @@ impl Color {
 pub enum Layer {
     Reference,
     Model,
+    Hidden,
     Front,
 }
 
@@ -79,11 +80,11 @@ impl Layer {
         match (self, primitive) {
             (Self::Reference, Primitive::Fill) => BEHIND_FACES,
             (Self::Front, Primitive::Fill) => 1.0,
-            (Self::Model, Primitive::Fill) => 1.00002,
+            (Self::Model | Self::Hidden, Primitive::Fill) => 1.00002,
             (Self::Reference, Primitive::Line) => 1.00001,
             (Self::Reference, Primitive::Marker) => 1.00002,
-            (Self::Model, Primitive::Line) => 1.00003,
-            (Self::Model, Primitive::Marker) => 1.00004,
+            (Self::Model | Self::Hidden, Primitive::Line) => 1.00003,
+            (Self::Model | Self::Hidden, Primitive::Marker) => 1.00004,
             (Self::Front, Primitive::Line) => 1.002,
             (Self::Front, Primitive::Marker) => 1.004,
         }

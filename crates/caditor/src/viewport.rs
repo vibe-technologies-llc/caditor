@@ -3,7 +3,8 @@ use std::{sync::Arc, time::Duration};
 use caditor_document::{FeatureId, FeatureKind, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{
-    Camera, PickResult, Scene, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing,
+    Camera, PickResult, ProjectionMode, Scene, SurfaceSize, View, Viewpoint, ViewportRect,
+    grid_minor_spacing,
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
@@ -262,6 +263,7 @@ pub struct ViewportState {
     snapping: bool,
     grid_snapping: bool,
     lasso: bool,
+    select_through: bool,
     typed_dimensions: bool,
     glyphs_shown: bool,
     manipulator: Option<Manipulator>,
@@ -381,6 +383,7 @@ impl ViewportState {
             snapping: true,
             grid_snapping: false,
             lasso: false,
+            select_through: false,
             typed_dimensions: true,
             glyphs_shown: true,
             manipulator: None,
@@ -401,6 +404,14 @@ impl ViewportState {
 
     pub fn lasso(&self) -> bool {
         self.lasso
+    }
+
+    pub fn projection(&self) -> ProjectionMode {
+        self.navigation.projection
+    }
+
+    pub fn select_through(&self) -> bool {
+        self.select_through
     }
 
     pub fn typed_dimensions(&self) -> bool {
@@ -701,7 +712,10 @@ impl ViewportState {
                 entities => entities,
             }
         } else {
-            highlighted.into_iter().collect()
+            highlighted
+                .into_iter()
+                .flat_map(|highlighted| self.whole_body_of(model, highlighted))
+                .collect()
         };
         let view = self.view();
         let sources = Sources {
@@ -1472,13 +1486,17 @@ impl ViewportState {
                     .iter()
                     .filter(|(body, _)| visibility::is_shown(document, *body))
                     .collect();
-                let occlusion = box_selection::Occlusion::of(
-                    shown
-                        .iter()
-                        .filter_map(|(_, mesh)| mesh.source().solid()?.mesh()),
-                    &seen,
-                    area,
-                );
+                let occlusion = if self.select_through {
+                    box_selection::Occlusion::open()
+                } else {
+                    box_selection::Occlusion::of(
+                        shown
+                            .iter()
+                            .filter_map(|(_, mesh)| mesh.source().solid()?.mesh()),
+                        &seen,
+                        area,
+                    )
+                };
                 let looking = box_selection::Looking {
                     seen: &seen,
                     occlusion: &occlusion,
@@ -1491,6 +1509,10 @@ impl ViewportState {
                     .collect()
             }
         };
+        if self.active_filter() == SelectionFilter::Bodies {
+            let touched: Vec<FeatureId> = caught.iter().filter_map(|item| item.body()).collect();
+            caught = body_selection::whole_bodies(model, &touched, body_selection::Kind::Faces);
+        }
         let context = editing.context();
         caught.retain(|pickable| pickable.is_available(document, evaluation, context));
         if !keep {
@@ -1709,7 +1731,7 @@ impl ViewportState {
         if click.double && self.select_chain(model, editing) {
             return;
         }
-        self.select(click.toggle);
+        self.select(model, click.toggle);
     }
 
     fn dimension_click(
@@ -1846,12 +1868,41 @@ impl ViewportState {
         true
     }
 
-    fn select(&mut self, toggle: bool) {
+    fn select(&mut self, model: &Model, toggle: bool) {
         match (self.hovered, toggle) {
-            (Some(pickable), true) => self.selection.toggle(pickable),
-            (Some(pickable), false) => self.selection.replace_with(pickable),
+            (Some(pickable), true) => self.toggle_chosen(model, pickable),
+            (Some(pickable), false) => {
+                let chosen = self.whole_body_of(model, pickable);
+                self.selection.replace_with_all(chosen);
+            }
             (None, false) => self.selection.clear(),
             (None, true) => {}
+        }
+    }
+
+    fn whole_body_of(&self, model: &Model, pickable: Pickable) -> Vec<Pickable> {
+        match pickable {
+            Pickable::Face { body, .. } if self.active_filter() == SelectionFilter::Bodies => {
+                let faces =
+                    body_selection::whole_bodies(model, &[body], body_selection::Kind::Faces);
+                if faces.is_empty() {
+                    vec![pickable]
+                } else {
+                    faces
+                }
+            }
+            _ => vec![pickable],
+        }
+    }
+
+    fn toggle_chosen(&mut self, model: &Model, pickable: Pickable) {
+        let chosen = self.whole_body_of(model, pickable);
+        if chosen.iter().all(|item| self.selection.contains(*item)) {
+            for item in chosen {
+                self.selection.toggle(item);
+            }
+        } else {
+            self.selection.extend(chosen);
         }
     }
 
@@ -1902,6 +1953,9 @@ impl ViewportState {
         if commands.available(Command::ToggleLasso) {
             self.lasso = !self.lasso;
         }
+        if commands.available(Command::ToggleSelectThrough) {
+            self.select_through = !self.select_through;
+        }
         if commands.available(Command::ToggleTypedDimensions) {
             self.typed_dimensions = !self.typed_dimensions;
         }
@@ -1915,9 +1969,17 @@ impl ViewportState {
                 self.set_filter(filter);
             }
         }
+        if commands.available(Command::CycleSelectionPriority) {
+            self.set_filter(self.filter.next_priority());
+        }
         if commands.available(Command::ToggleProjection) {
             actions.push(Action::Preferences(PreferencesCommand::Change(
                 PreferenceChange::Projection(self.navigation.projection.other()),
+            )));
+        }
+        if commands.available(Command::AutomaticProjection) {
+            actions.push(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::Projection(self.navigation.projection.automatic_toggled()),
             )));
         }
         let trims = self.trimming.is_active();
@@ -2000,7 +2062,7 @@ impl ViewportState {
             }
             match pick_action(Some(highlight), model, editing) {
                 Some(action) => actions.extend(action),
-                None => self.selection.toggle(highlight),
+                None => self.toggle_chosen(model, highlight),
             }
         }
     }

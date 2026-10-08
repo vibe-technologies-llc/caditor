@@ -86,7 +86,7 @@ impl Kind {
 
     pub fn chosen(filter: SelectionFilter, selection: &Selection) -> Option<Self> {
         match filter {
-            SelectionFilter::Faces => Some(Self::Faces),
+            SelectionFilter::Bodies | SelectionFilter::Faces => Some(Self::Faces),
             SelectionFilter::Edges => Some(Self::Edges),
             SelectionFilter::Vertices => Some(Self::Vertices),
             SelectionFilter::SketchGeometry => None,

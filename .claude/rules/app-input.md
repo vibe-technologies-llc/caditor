@@ -113,8 +113,13 @@ paths:
   Activate picks the highlighted item as a click would and Enter adds the dimension of a single
   pick (`app-sketching.md`).
 - The selection filter (`SelectionFilter`, commands `select.*`, View › Selection filter) makes
-  `PickTable::best_hit` and the highlight keys skip every pickable but one kind (faces, edges,
-  vertices or sketch geometry), reference geometry included. It applies only while no sketch or
+  `PickTable::best_hit` and the highlight keys skip every pickable but one kind (whole bodies,
+  faces, edges, vertices or sketch geometry), reference geometry included. Bodies picks faces
+  but acts on the whole body: hover and the keyboard highlight light every face of it, a click,
+  Activate or a box (`ViewportState::whole_body_of`) selects, or with Shift or Ctrl toggles, all
+  its faces, which is how every tool already reads a body from its faces. Cycle the selection
+  priority (`select.priority`, View menu, palette) sets the filter to the next of body, face and
+  edge in one step, from any other filter to body. It applies only while no sketch or
   tool is open and no plane is being chosen (`ViewportState::filter_applies`), so tools keep
   picking what they need; the status bar names an active filter and its button clears it. It is
   kept for the session, not saved.
@@ -124,12 +129,17 @@ paths:
   right a window taking what lies wholly inside, right to left a crossing box taking what it
   touches, replacing the selection (Shift or Ctrl adds). It takes faces (Everything or Faces),
   edges, vertices or the curves of shown sketches by the selection filter, of shown bodies only.
-  Faces count by their triangles facing the camera, so faces turned away are left out. Edges and
+  Faces count by their triangles facing the camera, so faces turned away are left out, and only
+  when one of those triangles is seen (a corner or its middle, `triangle_is_seen`). Faces, edges and
   vertices hidden behind a shown body are left out: `box_selection::Occlusion` rasterises the
   shown bodies' triangles into a depth map over the box (at most `MAX_CELLS` a side), a point
   counting as seen when it lies within `SLACK_CELLS` cells' worth of depth of the nearest surface
   there; an edge is sampled every `SAMPLE_POINTS` on screen and counts only when at least half of
   it is seen, judged by its seen samples alone. A box under `SMALLEST_BOX` points takes nothing.
+  Select through (`Command::ToggleSelectThrough`, View menu, palette; kept for the session in
+  `ViewportState::select_through`, not saved) swaps the depth map for `Occlusion::open`, which
+  shows everything, so boxes and lassos also take the faces, edges, vertices and bodies (with the
+  Bodies filter) hidden behind others.
 - Select with a lasso (`Command::ToggleLasso`, View menu, palette; kept for the session in
   `ViewportState::lasso`, not saved, since Alt-drag already navigates in the Laptop input mode)
   makes those drags, and the edited sketch's, draw a freehand outline instead
@@ -150,7 +160,9 @@ paths:
   availability is a cheap check on the selection, and the work runs only when triggered.
 
 - The display style (`DisplayStyle`, commands `view.style_*`, View › Display style) is shaded with
-  edges, shaded without edges (edges drawn with no alpha, so they stay pickable and appear when
+  edges, shaded with hidden edges dashed (the same, plus each body edge drawn again dashed on
+  `Layer::Hidden` with no pick id, so it shows only where a face covers it and the visible copy
+  keeps the picking and highlight), shaded without edges (edges drawn with no alpha, so they stay pickable and appear when
   hovered or selected) wireframe (no faces in the scene, so none is drawn or picked and edges
   show through), hidden lines removed (faces in `Scene::flat_meshes`, unlit in `DRAWING_FACE`
   whatever the body's colour, still pickable and hiding what lies behind them, edges drawn over

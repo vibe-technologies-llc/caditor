@@ -11,7 +11,7 @@ use crate::{
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
-    scene::{Batch, Color, Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
+    scene::{Batch, Color, Fill, Grid, Layer, Line, PickId, Primitive, Scene, ViewportRect},
     settings::Shading,
 };
 
@@ -103,6 +103,7 @@ struct Pipelines {
     overlay_meshes: wgpu::RenderPipeline,
     flat_meshes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
+    hidden_lines: wgpu::RenderPipeline,
     markers: wgpu::RenderPipeline,
     fills: wgpu::RenderPipeline,
     reference_fills: wgpu::RenderPipeline,
@@ -334,6 +335,7 @@ struct GpuBatch {
     pick_fills: GrowableBuffer,
     line_count: u32,
     shown_lines: u32,
+    hidden_line_count: u32,
     marker_count: u32,
     shown_markers: u32,
     fill_vertices: u32,
@@ -353,6 +355,7 @@ impl GpuBatch {
             pick_fills: GrowableBuffer::new(device, "pick fills", wgpu::BufferUsages::VERTEX),
             line_count: 0,
             shown_lines: 0,
+            hidden_line_count: 0,
             marker_count: 0,
             shown_markers: 0,
             fill_vertices: 0,
@@ -391,8 +394,8 @@ impl GpuBatch {
             slot,
         } = uploaded;
         staging.clear();
-        let (shown_lines, lines) = shown_first(&batch.lines, |line| line.color);
-        for line in lines {
+        let ordered = OrderedLines::of(&batch.lines);
+        for line in ordered.lines {
             staging
                 .vec3(relative_to_eye(line.start, anchor))
                 .vec3(relative_to_eye(line.end, anchor))
@@ -403,8 +406,10 @@ impl GpuBatch {
                 .f32(line.stroke.along())
                 .u32(u32::from(line.layer.draws_in_front()));
         }
-        self.line_count = count(self.lines.upload(device, queue, staging, LINE_STRIDE));
-        self.shown_lines = count(shown_lines).min(self.line_count);
+        let uploaded = count(self.lines.upload(device, queue, staging, LINE_STRIDE));
+        self.line_count = uploaded.min(count(ordered.pickable));
+        self.shown_lines = count(ordered.shown).min(self.line_count);
+        self.hidden_line_count = uploaded.saturating_sub(self.line_count);
 
         staging.clear();
         let (shown_markers, markers) = shown_first(&batch.markers, |marker| marker.color);
@@ -498,6 +503,16 @@ impl GpuBatch {
         pass.draw(0..QUAD_VERTICES, 0..instances);
     }
 
+    fn draw_hidden_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
+        if self.hidden_line_count == 0 {
+            return;
+        }
+        let end = self.line_count.saturating_add(self.hidden_line_count);
+        pass.set_pipeline(pipeline);
+        pass.set_vertex_buffer(0, self.lines.slice(u64::from(end) * LINE_STRIDE));
+        pass.draw(0..QUAD_VERTICES, self.line_count..end);
+    }
+
     fn draw_markers(
         &self,
         pass: &mut wgpu::RenderPass<'_>,
@@ -547,6 +562,38 @@ impl GpuBatch {
             ..self
                 .reference_pick_vertices
                 .saturating_add(self.nearer_pick_vertices)
+    }
+}
+
+struct OrderedLines<'a> {
+    shown: u64,
+    pickable: u64,
+    lines: Box<dyn Iterator<Item = &'a Line> + 'a>,
+}
+
+impl<'a> OrderedLines<'a> {
+    fn of(lines: &'a [Line]) -> Self {
+        let hidden = |line: &&Line| line.layer == Layer::Hidden;
+        let drawn = |line: &&Line| line.color.alpha > 0.0;
+        let shown = lines
+            .iter()
+            .filter(|line| !hidden(line) && drawn(line))
+            .count() as u64;
+        let pickable = lines.iter().filter(|line| !hidden(line)).count() as u64;
+        let ordered = lines
+            .iter()
+            .filter(move |line| !hidden(line) && drawn(line))
+            .chain(
+                lines
+                    .iter()
+                    .filter(move |line| !hidden(line) && !drawn(line)),
+            )
+            .chain(lines.iter().filter(move |line| hidden(line) && drawn(line)));
+        Self {
+            shown,
+            pickable,
+            lines: Box::new(ordered),
+        }
     }
 }
 
@@ -932,6 +979,9 @@ impl ViewportRenderer {
             .draw(pass, &self.pipelines.overlay_meshes, window);
         for batch in &self.batches {
             batch.draw_lines(pass, &self.pipelines.lines, batch.shown_lines);
+        }
+        for batch in &self.batches {
+            batch.draw_hidden_lines(pass, &self.pipelines.hidden_lines);
         }
         for batch in &self.batches {
             batch.draw_markers(pass, &self.pipelines.markers, batch.shown_markers);
@@ -1446,6 +1496,22 @@ impl Pipelines {
                 true,
             ),
             lines: color("lines", &scene_layout, "vs_line", &lines, "fs_line", true),
+            hidden_lines: build_pipeline(
+                device,
+                &PipelineSpec {
+                    label: "hidden lines",
+                    layout: &scene_layout,
+                    module: &module,
+                    vertex: "vs_line",
+                    buffers: &lines,
+                    fragment: "fs_line",
+                    targets: &color_target,
+                    depth_write: false,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    bias: wgpu::DepthBiasState::default(),
+                    sample_count,
+                },
+            ),
             markers: color(
                 "markers",
                 &scene_layout,

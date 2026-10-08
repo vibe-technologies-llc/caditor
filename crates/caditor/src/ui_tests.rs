@@ -7993,6 +7993,43 @@ fn a_lasso_drawn_around_the_model_takes_what_lies_inside_it() {
 }
 
 #[test]
+fn select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    run_from_palette(&mut harness, "fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    let margin = egui::vec2(12.0, 12.0);
+
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Vertices);
+    drag_screen(&mut harness, low - margin, high + margin);
+    let seen = selected_kinds(&harness);
+
+    run_from_palette(&mut harness, "select through to what is hidden");
+    harness.frame();
+    assert!(harness.workspace.viewport.select_through());
+    drag_screen(&mut harness, low - margin, high + margin);
+    let through = selected_kinds(&harness);
+
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Edges);
+    drag_screen(&mut harness, low - margin, high + margin);
+    let edges_through = selected_kinds(&harness);
+
+    assert_eq!(seen, (0, 0, 7));
+    assert_eq!(through, (0, 0, 8));
+    assert_eq!(edges_through, (0, 12, 0));
+}
+
+#[test]
 fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);
@@ -8135,6 +8172,52 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     assert!(first.red > 0.9 && first.green > 0.9 && first.blue > 0.9);
     assert!(edge_alphas(&mut harness).iter().all(|alpha| *alpha == 1.0));
     assert!(faces_pickable(&mut harness));
+}
+
+#[test]
+fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    let hidden_lines = |harness: &mut Harness| {
+        harness
+            .built()
+            .scene
+            .batches
+            .iter()
+            .flat_map(|batch| batch.lines.iter())
+            .filter(|line| line.layer == caditor_render::Layer::Hidden)
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let before = hidden_lines(&mut harness).len();
+
+    run_from_palette(&mut harness, "shaded with hidden edges dashed");
+    harness.frame();
+    let style = harness.workspace.viewport.style();
+    let lines = hidden_lines(&mut harness);
+    let faces = harness.built().scene.meshes.len();
+    let edges_pickable = harness
+        .built()
+        .picks
+        .pickables()
+        .filter(|pickable| matches!(pickable, Pickable::Edge { .. }))
+        .count();
+
+    run_from_palette(&mut harness, "shaded with edges");
+    harness.frame();
+    let after = hidden_lines(&mut harness).len();
+
+    assert_eq!(style, DisplayStyle::ShadedWithHiddenEdges);
+    assert_eq!(before, 0);
+    assert!(!lines.is_empty());
+    assert!(
+        lines.iter().all(|line| line.pick.is_none()
+            && matches!(line.stroke, caditor_render::Stroke::Dashed { .. }))
+    );
+    assert_eq!(faces, 1);
+    assert!(edges_pickable > 0);
+    assert_eq!(after, 0);
 }
 
 #[test]
@@ -8399,6 +8482,60 @@ fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
     harness.select([]);
     harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
     assert!(harness.workspace.viewport.selection().contains(top));
+}
+
+#[test]
+fn the_bodies_filter_selects_a_whole_body_by_a_click_or_a_box_and_the_priority_cycles() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([]);
+
+    run_from_palette(&mut harness, "select whole bodies only");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.filter(), SelectionFilter::Bodies);
+    assert!(harness.shows("Selecting whole bodies only"));
+
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    assert_eq!(selected_kinds(&harness), (6, 0, 0));
+
+    let position = harness.hover_pickable(Plane::XY, Point2::new(10.0, 10.0), top);
+    harness
+        .events
+        .push(Event::ModifiersChanged(Modifiers::SHIFT));
+    harness.frame();
+    for pressed in [true, false] {
+        harness.events.push(Event::PointerButton {
+            pos: position,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::SHIFT,
+        });
+        harness.frame();
+    }
+    harness
+        .events
+        .push(Event::ModifiersChanged(Modifiers::NONE));
+    harness.frame();
+    assert_eq!(selected_kinds(&harness), (0, 0, 0));
+
+    run_from_palette(&mut harness, "cycle the selection priority");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.filter(), SelectionFilter::Faces);
+    run_from_palette(&mut harness, "cycle the selection priority");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.filter(), SelectionFilter::Edges);
+    run_from_palette(&mut harness, "cycle the selection priority");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.filter(), SelectionFilter::Bodies);
+
+    run_from_palette(&mut harness, "fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    let margin = egui::vec2(12.0, 12.0);
+    drag_screen(&mut harness, low - margin, high + margin);
+    assert_eq!(selected_kinds(&harness), (6, 0, 0));
 }
 
 #[test]
@@ -13518,7 +13655,7 @@ fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it(
 
     assert!(!before.is_orthographic());
     assert!(switched.is_orthographic());
-    assert_eq!(remembered, caditor_render::Projection::Orthographic);
+    assert_eq!(remembered, caditor_render::ProjectionMode::Orthographic);
     assert!(
         offered,
         "{:?}",
@@ -13538,7 +13675,43 @@ fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it(
     assert!(!back.is_orthographic());
     assert_eq!(
         harness.workspace.preferences.navigation.projection,
-        caditor_render::Projection::Perspective
+        caditor_render::ProjectionMode::Perspective
+    );
+}
+
+#[test]
+fn the_automatic_projection_is_a_command_and_turns_orthographic_in_a_standard_view() {
+    let mut harness = Harness::new();
+    harness.settle();
+    let view = |harness: &Harness| harness.workspace.viewport.current_view().unwrap();
+
+    run_from_palette(&mut harness, "perspective that turns orthographic");
+    harness.settle();
+    let isometric = view(&harness);
+    let chosen = harness.workspace.preferences.navigation.projection;
+
+    harness.key(Key::Num2, Modifiers::ALT);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let top = view(&harness);
+
+    harness.key(Key::Num0, Modifiers::ALT);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let back_to_isometric = view(&harness);
+
+    assert_eq!(chosen, caditor_render::ProjectionMode::Automatic);
+    assert!(!isometric.is_orthographic());
+    assert!(top.is_orthographic());
+    assert!(!back_to_isometric.is_orthographic());
+
+    run_from_palette(&mut harness, "perspective that turns orthographic");
+    harness.settle();
+    assert_eq!(
+        harness.workspace.preferences.navigation.projection,
+        caditor_render::ProjectionMode::Perspective
     );
 }
 
@@ -13546,7 +13719,7 @@ fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it(
 fn an_orthographic_preference_survives_the_first_fit_and_o_switches_back() {
     let mut preferences = Preferences::default();
     preferences.onboarding = crate::onboarding::Onboarding::finished();
-    preferences.navigation.projection = caditor_render::Projection::Orthographic;
+    preferences.navigation.projection = caditor_render::ProjectionMode::Orthographic;
     let mut harness = Harness::starting(
         None,
         sample_document().unwrap(),
@@ -13569,7 +13742,7 @@ fn an_orthographic_preference_survives_the_first_fit_and_o_switches_back() {
     );
     assert_eq!(
         harness.workspace.preferences.navigation.projection,
-        caditor_render::Projection::Perspective
+        caditor_render::ProjectionMode::Perspective
     );
 }
 
