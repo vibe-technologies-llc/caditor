@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use caditor_geometry::{Point3, RigidTransform, Vector3};
 
 use super::*;
@@ -5,9 +7,13 @@ use crate::{
     curve::{Curve, IntersectionCurve, IntersectionNode},
     error::GeometryError,
     intersect::intersect_surfaces,
+    parametric::{self, Parametric},
     surface::{Cylinder, Torus},
+    test_support::Random,
     tolerance::{INTERSECTION_TOLERANCE, SamplingTolerance},
 };
+
+const MARCHED_QUERY_TIME_LIMIT: Duration = Duration::from_secs(10);
 
 fn marched() -> (Curve, Interval, [Surface; 2]) {
     let big: Surface = Cylinder::new(frame(Point3::ZERO, Vector3::Z), 2.0)
@@ -180,4 +186,153 @@ fn an_intersection_curve_edge_gets_pcurves_on_both_surfaces() {
             assert!(surface.point_at(sample.uv).distance(expected) <= LINEAR_RESOLUTION);
         }
     }
+}
+
+fn wavy_loop(nodes: usize) -> IntersectionCurve {
+    let radius = |angle: f64| 20.0 + 2.0 * (7.0 * angle).sin();
+    let at = |index: usize| {
+        let angle = TAU * (index % nodes) as f64 / nodes as f64;
+        let point = Point3::new(
+            radius(angle) * angle.cos(),
+            radius(angle) * angle.sin(),
+            0.0,
+        );
+        let slope = 14.0 * (7.0 * angle).cos();
+        let tangent = Vector3::new(
+            slope * angle.cos() - radius(angle) * angle.sin(),
+            slope * angle.sin() + radius(angle) * angle.cos(),
+            0.0,
+        );
+        (point, tangent.normalize())
+    };
+    let mut parameter = 0.0;
+    let mut previous = at(0).0;
+    let nodes: Vec<IntersectionNode> = (0..=nodes)
+        .map(|index| {
+            let (point, derivative) = at(index);
+            parameter += previous.distance(point);
+            previous = point;
+            IntersectionNode {
+                parameter,
+                point,
+                derivative,
+                uv: [caditor_geometry::Point2::ZERO; 2],
+            }
+        })
+        .collect();
+    let surfaces = [
+        plane(Point3::ZERO, Vector3::Z),
+        Cylinder::new(frame(Point3::ZERO, Vector3::Z), 20.0)
+            .unwrap()
+            .into(),
+    ];
+    IntersectionCurve::new(surfaces, nodes, true).unwrap()
+}
+
+fn unindexed_closest(curve: &Curve, point: Point3, range: Interval) -> f64 {
+    parametric::closest_parameter_among(curve, point, range, None, || vec![range])
+}
+
+#[test]
+fn closest_points_on_a_long_marched_curve_search_only_the_nearby_segments() {
+    let intersection = wavy_loop(2000);
+    let domain = intersection.domain();
+    let curve = Curve::from(intersection);
+    let mut random = Random::new(11);
+    let across_seam = Interval::new(domain.end() - 30.0, domain.end() + 40.0).unwrap();
+
+    for range in [domain, across_seam] {
+        for _ in 0..20 {
+            let point = curve.point(random.between(range.start(), range.end()))
+                + Vector3::new(random.between(-0.5, 0.5), random.between(-0.5, 0.5), 0.1);
+            let runs = curve.nearby_runs(point, range);
+            let searched: f64 = runs.iter().map(Interval::length).sum();
+            let found = curve.closest_parameter(point, range);
+            let expected = unindexed_closest(&curve, point, range);
+            let gap = curve.point(found).distance(point);
+            let best = curve.point(expected).distance(point);
+
+            assert!(searched < 0.05 * range.length(), "{searched} of {range:?}");
+            assert!(
+                runs.iter()
+                    .all(|run| run.start() >= range.start() && run.end() <= range.end())
+            );
+            assert!(range.contains(found));
+            assert!(gap <= best + 1e-9, "{gap} against {best}");
+        }
+    }
+}
+
+#[test]
+fn lengths_of_a_long_marched_curve_match_the_integral_along_it() {
+    let intersection = wavy_loop(2000);
+    let domain = intersection.domain();
+    let period = domain.length();
+    let piece = intersection
+        .trimmed(Interval::new(domain.start() + 10.0, domain.start() + 90.0).unwrap())
+        .unwrap();
+    let curve = Curve::from(intersection);
+    let open = Curve::from(piece);
+    let mut random = Random::new(5);
+    let mut ranges: Vec<(&Curve, Interval)> = vec![
+        (&curve, domain),
+        (
+            &curve,
+            Interval::new(domain.end() - 3.0, domain.end() + 7.5).unwrap(),
+        ),
+        (
+            &curve,
+            Interval::new(domain.start() + 5.0, domain.start() + 5.0 + 2.5 * period).unwrap(),
+        ),
+        (
+            &curve,
+            Interval::new(domain.start() - period - 2.0, domain.start() - period + 1.0).unwrap(),
+        ),
+        (&open, Interval::new(20.0, 70.0).unwrap()),
+        (&open, Interval::new(10.0, 90.0).unwrap()),
+    ];
+    for _ in 0..20 {
+        let a = random.between(domain.start(), domain.end());
+        let b = random.between(domain.start(), domain.end());
+        ranges.push((&curve, Interval::new(a.min(b), a.max(b)).unwrap()));
+    }
+
+    for (curve, range) in ranges {
+        let length = curve.length(range);
+        let expected = parametric::length(curve, range);
+
+        assert!(
+            (length - expected).abs() <= 1e-9 * (1.0 + expected),
+            "{length} against {expected} over {range:?}"
+        );
+        assert_eq!(curve.length_up_to(range, 0.5 * length), 0.5 * length);
+        assert!(curve.is_longer_than(range, 0.999 * length));
+        assert!(!curve.is_longer_than(range, 1.001 * length));
+    }
+}
+
+#[test]
+fn a_marched_curve_of_tens_of_thousands_of_nodes_answers_queries_in_bounded_time() {
+    let intersection = wavy_loop(20_000);
+    let domain = intersection.domain();
+    let curve = Curve::from(intersection);
+    let mut random = Random::new(7);
+    let clock = Instant::now();
+
+    for _ in 0..2000 {
+        let parameter = random.between(domain.start(), domain.end());
+        let point = curve.point(parameter) + Vector3::new(0.0, 0.0, 0.1);
+        let found = curve.closest_parameter(point, domain);
+        let low = random.between(domain.start(), domain.end());
+        let length = curve.length(Interval::new(low, low + 0.5 * domain.length()).unwrap());
+
+        assert!(curve.point(found).distance(point) <= 0.1 + 1e-9);
+        assert!(length > 0.4 * domain.length());
+    }
+
+    assert!(
+        clock.elapsed() < MARCHED_QUERY_TIME_LIMIT,
+        "{:?}",
+        clock.elapsed()
+    );
 }

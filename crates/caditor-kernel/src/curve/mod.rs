@@ -147,27 +147,23 @@ impl Curve {
         match self {
             Self::Line(_) => range.length(),
             Self::Circle(circle) => circle.radius() * range.length(),
-            Self::Ellipse(_) | Self::BSpline(_) | Self::Intersection(_) => {
-                parametric::length(self, range)
-            }
+            Self::Intersection(curve) => curve.length(range),
+            Self::Ellipse(_) | Self::BSpline(_) => parametric::length(self, range),
         }
     }
 
     pub fn length_up_to(&self, range: Interval, cap: f64) -> f64 {
         match self {
-            Self::Line(_) | Self::Circle(_) => self.length(range).min(cap),
-            Self::Ellipse(_) | Self::BSpline(_) | Self::Intersection(_) => {
-                parametric::length_up_to(self, range, cap)
-            }
+            Self::Line(_) | Self::Circle(_) | Self::Intersection(_) => self.length(range).min(cap),
+            Self::Ellipse(_) | Self::BSpline(_) => parametric::length_up_to(self, range, cap),
         }
     }
 
     pub fn is_longer_than(&self, range: Interval, bound: f64) -> bool {
         match self {
             Self::Line(_) | Self::Circle(_) => self.length(range) > bound,
-            Self::Ellipse(_) | Self::BSpline(_) | Self::Intersection(_) => {
-                parametric::longer_than(self, range, bound)
-            }
+            Self::Intersection(curve) => curve.is_longer_than(range, bound),
+            Self::Ellipse(_) | Self::BSpline(_) => parametric::longer_than(self, range, bound),
         }
     }
 
@@ -272,7 +268,8 @@ impl Parametric for Curve {
     fn nearby_runs(&self, point: Point3, range: Interval) -> Vec<Interval> {
         match self {
             Self::BSpline(spline) => spline.nearby_runs(point, range),
-            _ => vec![range],
+            Self::Intersection(curve) => curve.nearby_runs(point, range),
+            Self::Line(_) | Self::Circle(_) | Self::Ellipse(_) => vec![range],
         }
     }
 }

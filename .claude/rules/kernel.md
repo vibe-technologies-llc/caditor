@@ -38,7 +38,11 @@ paths:
   hull reaches (`BSpline::nearby_runs`), and an extrusion or revolution whose profile has at least
   `MIN_INDEXED_SPANS` spans keeps a box tree of its span hulls (flattened across an extrusion's
   direction, `surface/profile_spans.rs`), so projecting onto a profile of thousands of control
-  points visits a handful of spans.
+  points visits a handful of spans. An intersection curve of at least `MIN_INDEXED_SEGMENTS` node
+  segments in the range searches the same way over a box tree of the segments' hulls, and keeps
+  the length travelled to each node, so its length is a difference and two partial integrals;
+  both are built on first use and shared by clones, so projecting each vertex along a marched
+  branch of thousands of nodes visits a handful of segments.
   Surface `project` returns the periodic representative nearest the hint, else the principal one in
   [0, period). A spline surface seeds from a grid of three samples per knot span, capped at 48 a
   direction; a net with more spans than that also keeps a box tree of each span's control hull, and

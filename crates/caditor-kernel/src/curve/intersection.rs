@@ -1,13 +1,18 @@
-use std::sync::Arc;
+use std::{
+    ops::Range,
+    sync::{Arc, OnceLock},
+};
 
 use caditor_geometry::{Aabb, Point2, Point3, Similarity, Vector3};
 
 use crate::{
+    box_tree::BoxTree,
     coordinates::angle_between,
     error::GeometryError,
     interrupt,
     intersect::solve::{Contact, contact_direction, refine_on_plane},
     interval::Interval,
+    numeric::integrate,
     surface::{Surface, periodic_near},
     tolerance::{INTERSECTION_TOLERANCE, LINEAR_RESOLUTION},
 };
@@ -20,6 +25,7 @@ const SMALL_TURN: f64 = 1e-6;
 const TOUCHING_ITERATIONS: usize = 12;
 const TOUCHING_GAP: f64 = LINEAR_RESOLUTION;
 const SEED_GAP: f64 = 1e-3 * LINEAR_RESOLUTION;
+const MIN_INDEXED_SEGMENTS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IntersectionNode {
@@ -29,11 +35,40 @@ pub struct IntersectionNode {
     pub uv: [Point2; 2],
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct IntersectionCurve {
     surfaces: Arc<[Surface; 2]>,
     nodes: Arc<[IntersectionNode]>,
     closed: bool,
+    index: Arc<NodeIndex>,
+}
+
+impl PartialEq for IntersectionCurve {
+    fn eq(&self, other: &Self) -> bool {
+        self.surfaces == other.surfaces && self.nodes == other.nodes && self.closed == other.closed
+    }
+}
+
+#[derive(Debug, Default)]
+struct NodeIndex {
+    travelled: OnceLock<Box<[f64]>>,
+    hulls: OnceLock<BoxTree>,
+}
+
+impl NodeIndex {
+    fn heap_size(&self) -> usize {
+        size_of::<Self>()
+            + self
+                .travelled
+                .get()
+                .map_or(0, |travelled| size_of_val(&**travelled))
+            + self.hulls.get().map_or(0, BoxTree::heap_size)
+    }
+}
+
+struct Window {
+    turn: i64,
+    segments: Range<usize>,
 }
 
 fn finite_node(node: &IntersectionNode) -> bool {
@@ -70,6 +105,21 @@ pub(crate) fn hermite(
     [point, first, second]
 }
 
+fn segment_length(start: &IntersectionNode, end: &IntersectionNode, low: f64, high: f64) -> f64 {
+    integrate(&[low, 0.5 * (low + high), high], |parameter| {
+        let [_, first, _] = hermite(start, end, parameter);
+        first.length()
+    })
+}
+
+fn segment_hull(start: &IntersectionNode, end: &IntersectionNode) -> Aabb {
+    let third = (end.parameter - start.parameter) / 3.0;
+    Aabb::from_point(start.point)
+        .including(start.point + start.derivative * third)
+        .including(end.point - end.derivative * third)
+        .including(end.point)
+}
+
 fn arc_estimate(start: Point3, start_tangent: Vector3, end: Point3, end_tangent: Vector3) -> f64 {
     let chord = start.distance(end);
     let turn = angle_between(start_tangent, end_tangent);
@@ -91,6 +141,7 @@ impl IntersectionCurve {
         size_of_val(&*self.surfaces)
             + self.surfaces.iter().map(Surface::heap_size).sum::<usize>()
             + size_of_val(&*self.nodes)
+            + self.index.heap_size()
     }
 
     pub fn new(
@@ -123,6 +174,7 @@ impl IntersectionCurve {
             surfaces: Arc::new(surfaces),
             nodes: nodes.into(),
             closed,
+            index: Arc::default(),
         })
     }
 
@@ -254,12 +306,172 @@ impl IntersectionCurve {
         }
     }
 
-    fn segment_at(&self, parameter: f64) -> Option<(&IntersectionNode, &IntersectionNode)> {
-        let after = self
-            .nodes
+    fn segment_index(&self, parameter: f64) -> usize {
+        self.nodes
             .partition_point(|node| node.parameter <= parameter)
-            .clamp(1, self.nodes.len().saturating_sub(1));
-        Some((self.nodes.get(after - 1)?, self.nodes.get(after)?))
+            .min(self.nodes.len().saturating_sub(1))
+            .saturating_sub(1)
+    }
+
+    fn segment(&self, index: usize) -> Option<(&IntersectionNode, &IntersectionNode)> {
+        Some((self.nodes.get(index)?, self.nodes.get(index + 1)?))
+    }
+
+    fn segment_at(&self, parameter: f64) -> Option<(&IntersectionNode, &IntersectionNode)> {
+        self.segment(self.segment_index(parameter))
+    }
+
+    fn segments(&self) -> impl Iterator<Item = (&IntersectionNode, &IntersectionNode)> {
+        self.nodes.iter().zip(self.nodes.iter().skip(1))
+    }
+
+    fn travelled(&self) -> &[f64] {
+        self.index.travelled.get_or_init(|| {
+            let mut sum = 0.0;
+            std::iter::once(0.0)
+                .chain(self.segments().map(|(start, end)| {
+                    sum += segment_length(start, end, start.parameter, end.parameter);
+                    sum
+                }))
+                .collect()
+        })
+    }
+
+    fn hulls(&self) -> &BoxTree {
+        self.index.hulls.get_or_init(|| {
+            BoxTree::new(self.segments().map(|(start, end)| segment_hull(start, end)))
+        })
+    }
+
+    fn length_within(&self, low: f64, high: f64) -> f64 {
+        let partial = |index: usize, from: f64, to: f64| match self.segment(index) {
+            Some((start, end)) if from < to => segment_length(start, end, from, to),
+            _ => 0.0,
+        };
+        let parameter = |index: usize| self.nodes.get(index).map_or(low, |node| node.parameter);
+        let first = self.segment_index(low);
+        let last = self.segment_index(high);
+        if first >= last {
+            return partial(first, low, high);
+        }
+        let travelled = self.travelled();
+        let between = match (travelled.get(first + 1), travelled.get(last)) {
+            (Some(from), Some(to)) => to - from,
+            _ => 0.0,
+        };
+        partial(first, low, parameter(first + 1)) + between + partial(last, parameter(last), high)
+    }
+
+    pub(crate) fn length(&self, range: Interval) -> f64 {
+        let domain = self.domain();
+        let Some(period) = self.period().filter(|period| *period > 0.0) else {
+            let low = domain.clamp(range.start());
+            return self.length_within(low, domain.clamp(range.end()).max(low));
+        };
+        let turns = ((range.start() - domain.start()) / period).floor();
+        let shift = if turns.is_finite() {
+            turns * period
+        } else {
+            0.0
+        };
+        let low = domain.clamp(range.start() - shift);
+        let high = range.end() - shift;
+        if high <= domain.end() {
+            return self.length_within(low, domain.clamp(high).max(low));
+        }
+        let beyond = high - domain.end();
+        let laps = (beyond / period).floor();
+        let rest = domain.clamp(domain.start() + beyond - laps * period);
+        let lap = self.travelled().last().copied().unwrap_or(0.0);
+        self.length_within(low, domain.end())
+            + laps * lap
+            + self.length_within(domain.start(), rest)
+    }
+
+    pub(crate) fn is_longer_than(&self, range: Interval, bound: f64) -> bool {
+        self.point(range.start()).distance(self.point(range.end())) > bound
+            || self.length(range) > bound
+    }
+
+    pub(crate) fn nearby_runs(&self, point: Point3, range: Interval) -> Vec<Interval> {
+        let (range, windows) = self.windows(range);
+        let segments: usize = windows.iter().map(|window| window.segments.len()).sum();
+        if segments < MIN_INDEXED_SEGMENTS {
+            return vec![range];
+        }
+        let within = |index: usize| {
+            windows
+                .iter()
+                .any(|window| window.segments.contains(&index))
+        };
+        let nearest = self
+            .hulls()
+            .possibly_nearest_among(point, LINEAR_RESOLUTION, within);
+        let period = self.domain().length();
+        let mut runs: Vec<Interval> = Vec::new();
+        for window in &windows {
+            let offset = window.turn as f64 * period;
+            for (start, end) in nearest
+                .iter()
+                .filter(|index| window.segments.contains(index))
+                .filter_map(|index| self.segment(*index))
+            {
+                let low = (start.parameter + offset).max(range.start());
+                let high = (end.parameter + offset).min(range.end());
+                let Some(piece) = Interval::new(low, high).filter(|piece| piece.length() > 0.0)
+                else {
+                    continue;
+                };
+                match runs.last_mut() {
+                    Some(last) if last.end() == piece.start() => {
+                        *last = Interval::new(last.start(), piece.end()).unwrap_or(*last);
+                    }
+                    _ => runs.push(piece),
+                }
+            }
+        }
+        if runs.is_empty() {
+            return vec![range];
+        }
+        runs
+    }
+
+    fn windows(&self, range: Interval) -> (Interval, Vec<Window>) {
+        let domain = self.domain();
+        let turns = match self.period().filter(|period| *period > 0.0) {
+            Some(period) => {
+                let low = ((range.start() - domain.start()) / period).floor();
+                let high = ((range.end() - domain.start()) / period).floor();
+                let low = if low.is_finite() { low as i64 } else { 0 };
+                let high = if high.is_finite() { high as i64 } else { 0 };
+                low..=high.min(low + MAX_UNROLLED_PERIODS)
+            }
+            None => 0..=0,
+        };
+        let range = if self.closed {
+            range
+        } else {
+            let start = domain.clamp(range.start());
+            Interval::new(start, domain.clamp(range.end()).max(start)).unwrap_or(domain)
+        };
+        let windows = turns
+            .map(|turn| {
+                let offset = turn as f64 * domain.length();
+                let from = self
+                    .nodes
+                    .partition_point(|node| node.parameter + offset < range.start())
+                    .saturating_sub(1);
+                let to = self
+                    .nodes
+                    .partition_point(|node| node.parameter + offset <= range.end())
+                    .min(self.nodes.len().saturating_sub(1));
+                Window {
+                    turn,
+                    segments: from..to.max(from),
+                }
+            })
+            .collect();
+        (range, windows)
     }
 
     pub(crate) fn evaluate(&self, parameter: f64) -> [Point3; 3] {
@@ -312,56 +524,31 @@ impl IntersectionCurve {
     }
 
     fn pieces(&self, range: Interval) -> Vec<(IntersectionNode, IntersectionNode)> {
-        let domain = self.domain();
-        let (first, last) = (self.nodes.first(), self.nodes.last());
-        let (Some(first), Some(last)) = (first, last) else {
+        let (Some(first), Some(last)) = (self.nodes.first(), self.nodes.last()) else {
             return Vec::new();
         };
-        let (periods, uv_shift) = match self.period().filter(|period| *period > 0.0) {
-            Some(period) => {
-                let low = ((range.start() - domain.start()) / period).floor();
-                let high = ((range.end() - domain.start()) / period).floor();
-                let low = if low.is_finite() { low as i64 } else { 0 };
-                let high = if high.is_finite() { high as i64 } else { 0 };
-                let high = high.min(low + MAX_UNROLLED_PERIODS);
-                let [a0, a1] = first.uv;
-                let [b0, b1] = last.uv;
-                ((low..=high).collect::<Vec<i64>>(), [b0 - a0, b1 - a1])
-            }
-            None => (vec![0], [Point2::ZERO; 2]),
-        };
-        let range = if self.closed {
-            range
+        let uv_shift = if self.closed {
+            let [a0, a1] = first.uv;
+            let [b0, b1] = last.uv;
+            [b0 - a0, b1 - a1]
         } else {
-            let start = domain.clamp(range.start());
-            Interval::new(start, domain.clamp(range.end()).max(start)).unwrap_or(domain)
+            [Point2::ZERO; 2]
         };
+        let period = self.domain().length();
+        let (range, windows) = self.windows(range);
         let mut pieces = Vec::new();
-        for period in periods {
-            let offset = period as f64 * domain.length();
+        for window in windows {
+            let turn = window.turn as f64;
             let shift = |node: &IntersectionNode| {
                 let [s0, s1] = uv_shift;
                 let [u0, u1] = node.uv;
                 IntersectionNode {
-                    parameter: node.parameter + offset,
-                    uv: [u0 + s0 * period as f64, u1 + s1 * period as f64],
+                    parameter: node.parameter + turn * period,
+                    uv: [u0 + s0 * turn, u1 + s1 * turn],
                     ..*node
                 }
             };
-            let from = self
-                .nodes
-                .partition_point(|node| node.parameter + offset < range.start())
-                .saturating_sub(1);
-            let to = self
-                .nodes
-                .partition_point(|node| node.parameter + offset <= range.end())
-                .saturating_add(1)
-                .min(self.nodes.len());
-            let window = self.nodes.get(from..to).unwrap_or(&[]);
-            for pair in window.windows(2) {
-                let [a, b] = pair else {
-                    continue;
-                };
+            for (a, b) in window.segments.filter_map(|index| self.segment(index)) {
                 let (a, b) = (shift(a), shift(b));
                 if b.parameter < range.start() || a.parameter > range.end() {
                     continue;
@@ -396,17 +583,11 @@ impl IntersectionCurve {
     }
 
     pub(crate) fn bounds(&self, range: Interval) -> Aabb {
-        let mut points = Vec::new();
-        for (a, b) in self.pieces(range) {
-            let third = (b.parameter - a.parameter) / 3.0;
-            points.extend([
-                a.point,
-                a.point + a.derivative * third,
-                b.point - b.derivative * third,
-                b.point,
-            ]);
-        }
-        Aabb::from_points(points).unwrap_or_else(|| Aabb::from_point(self.point(range.start())))
+        self.pieces(range)
+            .iter()
+            .map(|(start, end)| segment_hull(start, end))
+            .reduce(Aabb::union)
+            .unwrap_or_else(|| Aabb::from_point(self.point(range.start())))
     }
 
     pub(crate) fn seeds(&self, range: Interval) -> Vec<f64> {
@@ -473,6 +654,7 @@ impl IntersectionCurve {
             surfaces: Arc::clone(&self.surfaces),
             nodes: nodes.into(),
             closed: self.closed,
+            index: Arc::default(),
         }
     }
 

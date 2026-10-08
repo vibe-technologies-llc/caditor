@@ -84,6 +84,14 @@ impl BoxTree {
     }
 
     pub fn matching(&self, test: impl Fn(&Aabb) -> bool) -> Vec<usize> {
+        self.matching_among(test, |_| true)
+    }
+
+    fn matching_among(
+        &self,
+        test: impl Fn(&Aabb) -> bool,
+        accept: impl Fn(usize) -> bool,
+    ) -> Vec<usize> {
         let mut found = Vec::new();
         let mut pending = Vec::new();
         if !self.nodes.is_empty() {
@@ -107,7 +115,7 @@ impl BoxTree {
             found.extend(
                 members
                     .iter()
-                    .filter(|(_, bounds)| test(bounds))
+                    .filter(|(item, bounds)| accept(*item) && test(bounds))
                     .map(|(item, _)| *item),
             );
         }
@@ -116,6 +124,15 @@ impl BoxTree {
     }
 
     pub fn possibly_nearest(&self, point: Point3, slack: f64) -> Vec<usize> {
+        self.possibly_nearest_among(point, slack, |_| true)
+    }
+
+    pub fn possibly_nearest_among(
+        &self,
+        point: Point3,
+        slack: f64,
+        accept: impl Fn(usize) -> bool,
+    ) -> Vec<usize> {
         let mut reach = f64::INFINITY;
         let mut pending = Vec::new();
         if !self.nodes.is_empty() {
@@ -146,13 +163,13 @@ impl BoxTree {
                 .items
                 .get(node.first..node.first + node.count)
                 .unwrap_or_default();
-            for (_, bounds) in members {
+            for (_, bounds) in members.iter().filter(|(item, _)| accept(*item)) {
                 reach = reach.min(farthest_squared(bounds, point));
             }
         }
         let reach = reach.sqrt() + slack;
         let reach = reach * reach;
-        self.matching(|bounds| nearest_squared(bounds, point) <= reach)
+        self.matching_among(|bounds| nearest_squared(bounds, point) <= reach, accept)
     }
 }
 

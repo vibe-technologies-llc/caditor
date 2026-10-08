@@ -82,8 +82,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [low · medium] Blending unions its tools pairwise even when they are disjoint, each union a full
   boolean; a disjoint pair could be joined as two lumps without the pipeline (see the item on
   rebuilding every face above).
-- [low · medium] Marched curves' `closest_parameter` and `length` reseed over all nodes on every
-  call, from loops over nearby vertices in `imprint.rs`.
 - [low · medium] Tracing a boolean measures the shortest piece leaving a vertex in full, unpolled:
   half the profile of an extruded spline of 6,000 control points takes about 0.1 s in release, the
   longest stretch without a poll in that boolean. `Curve::length` integrates 96 points per cubic
