@@ -642,6 +642,11 @@ impl<'a> Builder<'a> {
             .ok_or_else(|| Problem::new(id, "could not be read"))?;
         let built = Topology::new(geometry, Healing::Exact)
             .solid(id, &key.0)
+            .or_else(|problem| {
+                Topology::new(geometry, Healing::Extended)
+                    .solid(id, &key.0)
+                    .map_err(|_| problem)
+            })
             .or_else(|problem| match geometry.units.precision {
                 Some(_) => Topology::new(geometry, Healing::Bent)
                     .solid(id, &key.0)

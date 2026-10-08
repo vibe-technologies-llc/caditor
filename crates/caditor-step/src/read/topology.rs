@@ -18,6 +18,7 @@ use crate::read::{
 };
 
 const LOOP_SAMPLES: usize = 16;
+const SPLINE_EXTENSION: f64 = 0.1;
 const CHECK_SAMPLES: usize = 32;
 const HEAL_SAMPLES: usize = 48;
 const CLEAN: f64 = 0.25 * LINEAR_RESOLUTION;
@@ -32,6 +33,7 @@ const DAMPING_RELIEF: f64 = 0.1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Healing {
     Exact,
+    Extended,
     Bent,
     Faceted,
 }
@@ -366,6 +368,14 @@ impl<'g, 'a> Topology<'g, 'a> {
             return Ok(());
         }
         let (surface, transposed) = upright(self.geometry.surface(fields.reference(2)?)?);
+        let surface = match surface {
+            Surface::BSpline(spline) if self.healing == Healing::Extended => Surface::BSpline(
+                spline
+                    .extended(SPLINE_EXTENSION, self.geometry.units.uncertainty())
+                    .unwrap_or(spline),
+            ),
+            other => other,
+        };
         let graph = self.geometry.graph;
         for bound in &bounds {
             let loop_id = graph.entity(*bound)?.fields()?.reference(1)?;

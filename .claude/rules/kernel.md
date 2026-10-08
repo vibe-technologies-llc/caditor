@@ -58,7 +58,10 @@ paths:
   homogeneous coordinates; drawing export writes a trimmed spline edge with it.
   `BSplineSurface::restricted` is the same over a uv box, `side` gives a side as a curve, and
   `extended_evaluate` continues the boundary spans' polynomials past the domain, for closest points
-  that must not clamp.
+  that must not clamp. `BSplineSurface::extended` makes that continuation a surface of its own: each
+  open side not a pole, nor within a given distance of its opposite side, grows by a fraction of its
+  boundary span (an end span made Bézier by knot insertion, then de Casteljau past its end in
+  homogeneous coordinates), shrinking the reach while a weight would turn non-positive.
 - `BSplineSurface::bent_side` refits one side of a spline surface (`SideBend`): the side curve, with
   the requested knots (snapped to an existing one within `KNOT_SNAP` of a span) and a C0 knot at
   each interior pin, is fitted by banded least squares to sampled `BendTarget`s, pins and held

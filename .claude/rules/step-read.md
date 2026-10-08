@@ -106,6 +106,12 @@ paths:
   grows until a step lowers the worst gap, so nearly tangent faces cannot make it overshoot); edges
   farther than a quarter of the resolution from either face are rebuilt with
   `IntersectionCurve::through`.
+- A body the exact build refuses is built again in `Healing::Extended` before any looser mode: each
+  spline face's surface is continued past its domain by a tenth of its boundary span
+  (`BSplineSurface::extended`), except across a seam, a pole or sides within the file's precision
+  of each other, since exporters (Fusion 360 threads) trim a spline exactly where its neighbours
+  meet it and their common corner lies a hair beyond. It is a retry, never the first build, as
+  continuing a spline that winds over itself can mislead projection.
 - A fin, an edge a loop runs out along and straight back (Autodesk exports leave them on
   cylinders), bounds nothing and is left out with its tip vertex, unless one of its ends is a pole
   of the face, where such a fold is the seam reaching an apex.
@@ -115,8 +121,8 @@ paths:
 
 ## Bent faces (`conform.rs`)
 
-- A body the exact build refuses is built in `Healing::Bent` before `Healing::Faceted` when the
-  file declares a precision. Each edge between two faces is studied from samples of its file curve:
+- A body the exact and extended builds refuse is built in `Healing::Bent` before
+  `Healing::Faceted` when the file declares a precision. Each edge between two faces is studied from samples of its file curve:
   one whose faces' normals stay within `TANGENT_ANGLE` and that runs along an iso-line of a spline
   face (within the precision; one at the domain bound is a side) is bent, with one face its master
   and a spline it runs along its slave; every other edge is traced after bending with

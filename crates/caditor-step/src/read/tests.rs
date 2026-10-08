@@ -1334,6 +1334,149 @@ fn an_edge_a_loop_runs_out_along_and_straight_back_is_left_out() {
     assert_volume(&model.solids[0].solid, fixtures::volume(&solid));
 }
 
+#[derive(Default)]
+struct Entities {
+    lines: Vec<String>,
+}
+
+impl Entities {
+    fn add(&mut self, entity: String) -> usize {
+        self.lines.push(entity);
+        self.lines.len()
+    }
+
+    fn point(&mut self, point: caditor_geometry::Point3) -> usize {
+        self.add(format!(
+            "CARTESIAN_POINT('',({:?},{:?},{:?}))",
+            point.x, point.y, point.z
+        ))
+    }
+
+    fn direction(&mut self, direction: caditor_geometry::Vector3) -> usize {
+        self.add(format!(
+            "DIRECTION('',({:?},{:?},{:?}))",
+            direction.x, direction.y, direction.z
+        ))
+    }
+
+    fn text(&self) -> String {
+        let data: Vec<String> = self
+            .lines
+            .iter()
+            .enumerate()
+            .map(|(index, entity)| format!("#{}={entity};", index + 1))
+            .collect();
+        format!(
+            "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;\n",
+            data.join("\n")
+        )
+    }
+}
+
+fn box_with_top(top: impl Fn(&mut Entities) -> usize) -> String {
+    const LOOPS: [[usize; 4]; 6] = [
+        [0, 2, 3, 1],
+        [4, 5, 7, 6],
+        [0, 1, 5, 4],
+        [2, 6, 7, 3],
+        [0, 4, 6, 2],
+        [1, 3, 7, 5],
+    ];
+    let corner = |index: usize| {
+        let pick = |bit: usize| if index & bit == 0 { 0.0 } else { 10.0 };
+        caditor_geometry::Point3::new(pick(1), pick(2), pick(4))
+    };
+    let mut entities = Entities::default();
+    let vertices: Vec<usize> = (0..8)
+        .map(|index| {
+            let at = entities.point(corner(index));
+            entities.add(format!("VERTEX_POINT('',#{at})"))
+        })
+        .collect();
+    let mut edges = std::collections::BTreeMap::new();
+    let mut faces = Vec::new();
+    for (face, corners) in LOOPS.iter().enumerate() {
+        let mut uses = Vec::new();
+        for (index, from) in corners.iter().enumerate() {
+            let to = corners[(index + 1) % 4];
+            let key = (*from.min(&to), *from.max(&to));
+            let edge = *edges.entry(key).or_insert_with(|| {
+                let (start, end) = (corner(key.0), corner(key.1));
+                let origin = entities.point(start);
+                let along = entities.direction((end - start).normalize());
+                let vector = entities.add(format!("VECTOR('',#{along},1.)"));
+                let line = entities.add(format!("LINE('',#{origin},#{vector})"));
+                entities.add(format!(
+                    "EDGE_CURVE('',#{},#{},#{line},.T.)",
+                    vertices[key.0], vertices[key.1]
+                ))
+            });
+            let forward = if *from < to { ".T." } else { ".F." };
+            uses.push(format!(
+                "#{}",
+                entities.add(format!("ORIENTED_EDGE('',*,*,#{edge},{forward})"))
+            ));
+        }
+        let edge_loop = entities.add(format!("EDGE_LOOP('',({}))", uses.join(",")));
+        let bound = entities.add(format!("FACE_OUTER_BOUND('',#{edge_loop},.T.)"));
+        let points: Vec<_> = corners.iter().map(|index| corner(*index)).collect();
+        let surface = if face == 1 {
+            top(&mut entities)
+        } else {
+            let origin = entities.point(points[0]);
+            let axis = entities.direction(
+                (points[1] - points[0])
+                    .cross(points[2] - points[1])
+                    .normalize(),
+            );
+            let reference = entities.direction((points[1] - points[0]).normalize());
+            let placement = entities.add(format!(
+                "AXIS2_PLACEMENT_3D('',#{origin},#{axis},#{reference})"
+            ));
+            entities.add(format!("PLANE('',#{placement})"))
+        };
+        faces.push(format!(
+            "#{}",
+            entities.add(format!("ADVANCED_FACE('',(#{bound}),#{surface},.T.)"))
+        ));
+    }
+    let shell = entities.add(format!("CLOSED_SHELL('',({}))", faces.join(",")));
+    entities.add(format!("MANIFOLD_SOLID_BREP('box',#{shell})"));
+    entities.text()
+}
+
+#[test]
+fn a_spline_face_ending_just_short_of_its_neighbours_is_continued_to_meet_them() {
+    let short_by = 1e-4;
+    let text = box_with_top(|entities| {
+        let net: Vec<String> = [0.0, 10.0 - short_by]
+            .into_iter()
+            .map(|x| {
+                let row: Vec<String> = [0.0, 10.0]
+                    .into_iter()
+                    .map(|y| {
+                        format!(
+                            "#{}",
+                            entities.point(caditor_geometry::Point3::new(x, y, 10.0))
+                        )
+                    })
+                    .collect();
+                format!("({})", row.join(","))
+            })
+            .collect();
+        entities.add(format!(
+            "B_SPLINE_SURFACE_WITH_KNOTS('',1,1,({}),.UNSPECIFIED.,.F.,.F.,.F.,(2,2),(2,2),\
+             (0.,1.),(0.,1.),.UNSPECIFIED.)",
+            net.join(",")
+        ))
+    });
+
+    let model = sample(&text);
+
+    assert_eq!(model.solids.len(), 1);
+    assert_volume(&model.solids[0].solid, 1000.0);
+}
+
 #[test]
 fn every_file_of_a_corpus_is_read_and_reported() {
     let Some(directory) = std::env::var_os("STEP_CORPUS") else {

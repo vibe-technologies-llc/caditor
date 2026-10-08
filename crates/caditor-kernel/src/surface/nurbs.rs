@@ -602,6 +602,64 @@ impl BSplineSurface {
         )
     }
 
+    pub fn extended(&self, fraction: f64, closed_within: f64) -> Option<Self> {
+        let sides = |closed: bool, poles: [bool; 2]| poles.map(|pole| !closed && !pole);
+        let u_sides = sides(
+            self.u_closed || self.boundaries_within(true, closed_within),
+            [
+                self.degenerate_column(0),
+                self.degenerate_column(self.columns.checked_sub(1)?),
+            ],
+        );
+        let v_sides = sides(
+            self.v_closed || self.boundaries_within(false, closed_within),
+            [
+                self.degenerate_row(0),
+                self.degenerate_row(self.rows.checked_sub(1)?),
+            ],
+        );
+        let (u_knots, grid) = extend_lines(
+            self.homogeneous_grid(),
+            &self.u_knots,
+            self.u_degree,
+            self.u_domain,
+            u_sides.map(|side| if side { fraction } else { 0.0 }),
+        )?;
+        let (v_knots, columns) = extend_lines(
+            transpose(&grid),
+            &self.v_knots,
+            self.v_degree,
+            self.v_domain,
+            v_sides.map(|side| if side { fraction } else { 0.0 }),
+        )?;
+        self.rebuilt(
+            self.u_degree,
+            self.v_degree,
+            u_knots,
+            v_knots,
+            &transpose(&columns),
+        )
+    }
+
+    fn boundaries_within(&self, along_u: bool, distance: f64) -> bool {
+        let (across, along) = if along_u {
+            (self.u_domain, self.v_domain)
+        } else {
+            (self.v_domain, self.u_domain)
+        };
+        (0..=BOUNDARY_SAMPLES).all(|index| {
+            let at = along.at(index as f64 / BOUNDARY_SAMPLES as f64);
+            let [first, last] = [across.start(), across.end()].map(|side| {
+                if along_u {
+                    self.point(side, at)
+                } else {
+                    self.point(at, side)
+                }
+            });
+            first.distance(last) <= distance
+        })
+    }
+
     pub(crate) fn cubic_along_u(&self) -> Option<Self> {
         if self.u_degree != 1 {
             return Some(self.clone());
@@ -1173,6 +1231,10 @@ fn insert_into_lines(
 
 type Lines = Vec<Vec<[f64; 4]>>;
 
+const EXTENSION_ATTEMPTS: usize = 4;
+const BOUNDARY_SAMPLES: usize = 16;
+const EXTENSION_SHRINK: f64 = 0.25;
+
 fn restrict_lines(
     mut lines: Lines,
     knots: &[f64],
@@ -1202,6 +1264,132 @@ fn restrict_lines(
         .map(|line| line.get(first..=last).map(<[_]>::to_vec))
         .collect();
     Some((kept_knots, kept?))
+}
+
+fn extend_lines(
+    lines: Lines,
+    knots: &[f64],
+    degree: usize,
+    domain: Interval,
+    fractions: [f64; 2],
+) -> Option<(Vec<f64>, Lines)> {
+    let (start, end) = (domain.start(), domain.end());
+    let occurrences = |value: f64| knots.iter().filter(|knot| **knot == value).count();
+    if fractions == [0.0; 2] {
+        return Some((knots.to_vec(), lines));
+    }
+    if occurrences(start) <= degree || occurrences(end) <= degree {
+        return None;
+    }
+    let after_start = knots.iter().copied().find(|knot| *knot > start)?;
+    let before_end = knots.iter().copied().rev().find(|knot| *knot < end)?;
+    let mut parameters = Vec::new();
+    for (fraction, inner) in fractions.into_iter().zip([after_start, before_end]) {
+        if fraction > 0.0 && inner > start && inner < end {
+            parameters.extend(std::iter::repeat_n(
+                inner,
+                degree.saturating_sub(occurrences(inner)),
+            ));
+        }
+    }
+    let mut lines = lines;
+    let mut knots = insert_into_lines(&mut lines, knots, degree, domain, &parameters)?;
+    let mut reaches = [0.0; 2];
+    for (side, fraction) in fractions.into_iter().enumerate() {
+        let span = if side == 0 {
+            after_start - start
+        } else if before_end > start {
+            end - before_end
+        } else {
+            end - start + reaches[0]
+        };
+        let attempts = (0..EXTENSION_ATTEMPTS).map(|attempt| {
+            fraction * span * EXTENSION_SHRINK.powi(i32::try_from(attempt).unwrap_or(i32::MAX))
+        });
+        for reach in attempts.filter(|reach| *reach > 0.0) {
+            let extended: Option<Lines> = lines
+                .iter()
+                .map(|line| extend_line(line, degree, side == 0, reach / span))
+                .collect();
+            if let (Some(extended), Some(slot)) = (extended, reaches.get_mut(side)) {
+                lines = extended;
+                *slot = reach;
+                break;
+            }
+        }
+    }
+    let count = knots.len();
+    let [start_by, end_by] = reaches;
+    for (index, knot) in knots.iter_mut().enumerate() {
+        if index <= degree {
+            *knot -= start_by;
+        } else if index + degree + 1 >= count {
+            *knot += end_by;
+        }
+    }
+    Some((knots, lines))
+}
+
+fn extend_line(
+    line: &[[f64; 4]],
+    degree: usize,
+    at_start: bool,
+    beyond: f64,
+) -> Option<Vec<[f64; 4]>> {
+    let mut extended = line.to_vec();
+    if at_start {
+        let first = line.get(..=degree)?;
+        for (slot, point) in extended.iter_mut().zip(bezier_after(first, -beyond)) {
+            *slot = point;
+        }
+    } else {
+        let first = line.len().checked_sub(degree + 1)?;
+        let last = line.get(first..)?;
+        for (slot, point) in extended
+            .iter_mut()
+            .skip(first)
+            .zip(bezier_before(last, 1.0 + beyond))
+        {
+            *slot = point;
+        }
+    }
+    extended
+        .iter()
+        .all(|[x, y, z, weight]| weight.is_finite() && *weight > 0.0 && (x + y + z).is_finite())
+        .then_some(extended)
+}
+
+fn casteljau_levels(points: &[[f64; 4]], along: f64) -> Vec<Vec<[f64; 4]>> {
+    let mut levels = vec![points.to_vec()];
+    while let Some(level) = levels.last().filter(|level| level.len() > 1) {
+        let next = level
+            .windows(2)
+            .map(|pair| match pair {
+                [a, b] => [0, 1, 2, 3].map(|axis| {
+                    let (a, b) = (a.get(axis).copied(), b.get(axis).copied());
+                    a.zip(b).map_or(f64::NAN, |(a, b)| a + (b - a) * along)
+                }),
+                _ => [f64::NAN; 4],
+            })
+            .collect();
+        levels.push(next);
+    }
+    levels
+}
+
+fn bezier_before(points: &[[f64; 4]], along: f64) -> Vec<[f64; 4]> {
+    casteljau_levels(points, along)
+        .iter()
+        .filter_map(|level| level.first().copied())
+        .collect()
+}
+
+fn bezier_after(points: &[[f64; 4]], along: f64) -> Vec<[f64; 4]> {
+    casteljau_levels(points, along)
+        .iter()
+        .rev()
+        .filter_map(|level| level.last().copied())
+        .collect()
 }
 
 fn cubic_line(line: &[[f64; 4]]) -> Option<Vec<[f64; 4]>> {
@@ -1478,6 +1666,73 @@ mod tests {
                 (at.point + at.normal().unwrap() * lift, uv)
             })
             .collect()
+    }
+
+    #[test]
+    fn an_extended_surface_keeps_its_points_and_continues_its_boundary_spans() {
+        for (index, surface) in [wavy(), bumpy(true), quarter_cylinder()]
+            .into_iter()
+            .enumerate()
+        {
+            let extended = surface
+                .extended(0.1, 0.0)
+                .unwrap_or_else(|| panic!("surface {index}"));
+            let (u, v) = (surface.u_domain(), surface.v_domain());
+            let (wide_u, wide_v) = (extended.u_domain(), extended.v_domain());
+
+            assert!(wide_u.start() < u.start() && wide_u.end() > u.end());
+            assert!(wide_v.start() < v.start() && wide_v.end() > v.end());
+            for row in 0..=12 {
+                for column in 0..=12 {
+                    let (s, t) = (column as f64 / 12.0, row as f64 / 12.0);
+                    let inside = surface.evaluate(u.at(s), v.at(t)).point;
+                    let (outer_u, outer_v) = (wide_u.at(s), wide_v.at(t));
+                    let continued = surface.extended_evaluate(outer_u, outer_v).point;
+                    let gap = extended.evaluate(u.at(s), v.at(t)).point.distance(inside);
+                    assert!(
+                        gap < 1e-9,
+                        "{index} {s} {t} {gap} {u:?} {v:?} {wide_u:?} {wide_v:?}"
+                    );
+                    assert!(
+                        extended
+                            .evaluate(outer_u, outer_v)
+                            .point
+                            .distance(continued)
+                            < 1e-9,
+                        "{s} {t}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_closed_or_pinched_side_is_not_extended() {
+        let size = 6;
+        let mut points = Vec::new();
+        for row in 0..size {
+            for column in 0..size {
+                let angle = column as f64 / (size - 1) as f64 * std::f64::consts::PI;
+                let radius = row as f64;
+                points.push(Point3::new(
+                    radius * angle.cos(),
+                    radius * angle.sin(),
+                    radius,
+                ));
+            }
+        }
+        let knots: Vec<f64> = std::iter::repeat_n(0.0, 4)
+            .chain([0.4, 0.6])
+            .chain(std::iter::repeat_n(1.0, 4))
+            .collect();
+        let pinched = BSplineSurface::new(3, 3, knots.clone(), knots, size, points, None).unwrap();
+
+        let extended = pinched.extended(0.1, 0.0).unwrap();
+
+        assert!(pinched.degenerate_row(0));
+        assert_eq!(extended.v_domain().start(), 0.0);
+        assert!((extended.v_domain().end() - 1.04).abs() < 1e-12);
+        assert!((extended.u_domain().length() - 1.08).abs() < 1e-12);
     }
 
     #[test]
