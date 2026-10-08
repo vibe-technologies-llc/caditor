@@ -51,7 +51,7 @@ pub enum PatternError {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PatternValue {
+pub struct Dimensioned {
     pub expression: Expression,
     pub value: f64,
 }
@@ -59,8 +59,8 @@ pub struct PatternValue {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PatternRow {
     pub count: usize,
-    pub spacing: PatternValue,
-    pub angle: PatternValue,
+    pub spacing: Dimensioned,
+    pub angle: Dimensioned,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -72,7 +72,7 @@ pub struct RectangularPattern {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Spread {
     FullTurn,
-    Total(PatternValue),
+    Total(Dimensioned),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -685,7 +685,7 @@ fn component(row: &PatternRow, function: Function) -> Expression {
     )
 }
 
-fn magnitude(spacing: &PatternValue) -> Expression {
+fn magnitude(spacing: &Dimensioned) -> Expression {
     if spacing.value >= 0.0 {
         return spacing.expression.clone();
     }

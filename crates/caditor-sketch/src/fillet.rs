@@ -9,12 +9,14 @@ use crate::{
     entity::Entity,
     id::EntityId,
     intersect::{self, Carrier, Shape},
+    pattern::Dimensioned,
     sketch::{Sketch, SketchError},
     trim::{keeps_length, keeps_sweep},
 };
 
 const TOLERANCE: f64 = 1e-7;
 const SMOOTH_ANGLE: f64 = 1e-6;
+const ANGLE_TOLERANCE: f64 = 1e-6;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum FilletError {
@@ -46,6 +48,12 @@ pub enum FilletError {
     DistanceNotPositive,
     #[error("the chamfer distance is too large for {label}")]
     TooFar { entity: EntityId, label: String },
+    #[error("the chamfer angle must be greater than 0° and less than 180°")]
+    AngleOutOfRange,
+    #[error("a cut at this angle from {first} does not meet {second}")]
+    AngleMisses { first: String, second: String },
+    #[error("the angle between the cut and {label} cannot be held as a dimension")]
+    AngleNotHeld { curve: EntityId, label: String },
     #[error("no arc of this radius touches both {first} and {second} near their corner")]
     NoFit { first: String, second: String },
     #[error("{label} follows the geometry it was projected from, so its corner cannot be rounded")]
@@ -79,8 +87,21 @@ impl Rounding {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bevel {
-    pub distance: f64,
+    pub distances: [f64; 2],
     pub touches: [Point2; 2],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ChamferSize {
+    Equal(Dimensioned),
+    Distances {
+        first: Dimensioned,
+        second: Dimensioned,
+    },
+    DistanceAndAngle {
+        distance: Dimensioned,
+        angle: Dimensioned,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -149,6 +170,36 @@ impl Side {
                 let along = if corner_at_start { turn } else { -turn };
                 Some(arc.point_at(from + along))
             }
+        }
+    }
+
+    fn heading_back(&self, at: Point2) -> Vector2 {
+        match self.leg {
+            Leg::Line { .. } => -self.leaving,
+            Leg::Arc {
+                arc,
+                corner_at_start,
+            } => {
+                let radial = (at - arc.center).try_normalize().unwrap_or(Vector2::X);
+                if corner_at_start {
+                    -radial.perp()
+                } else {
+                    radial.perp()
+                }
+            }
+        }
+    }
+
+    fn carrier_through(&self, corner: Point2) -> Carrier {
+        match self.leg {
+            Leg::Line { .. } => Carrier::Line {
+                through: corner,
+                direction: self.leaving,
+            },
+            Leg::Arc { arc, .. } => Carrier::Circle {
+                center: arc.center,
+                radius: arc.radius,
+            },
         }
     }
 
@@ -398,26 +449,93 @@ impl Sketch {
         })
     }
 
-    pub fn bevel(&self, corner: &Corner, distance: f64) -> Result<Bevel, FilletError> {
+    pub fn bevel(&self, corner: &Corner, size: &ChamferSize) -> Result<Bevel, FilletError> {
+        let sides = self.corner_sides(corner)?;
+        match size {
+            ChamferSize::Equal(distance) => {
+                self.bevel_by_distances(corner, &sides, [distance.value; 2])
+            }
+            ChamferSize::Distances { first, second } => {
+                self.bevel_by_distances(corner, &sides, [first.value, second.value])
+            }
+            ChamferSize::DistanceAndAngle { distance, angle } => {
+                self.bevel_by_angle(corner, &sides, distance.value, angle.value)
+            }
+        }
+    }
+
+    fn bevel_by_distances(
+        &self,
+        corner: &Corner,
+        sides: &[Side; 2],
+        distances: [f64; 2],
+    ) -> Result<Bevel, FilletError> {
+        let at = corner.position;
+        let mut touches = [at; 2];
+        for ((touch, side), distance) in touches.iter_mut().zip(sides).zip(distances) {
+            *touch = self.touch_at(side, at, distance)?;
+        }
+        Ok(Bevel { distances, touches })
+    }
+
+    fn touch_at(&self, side: &Side, at: Point2, distance: f64) -> Result<Point2, FilletError> {
         if !(distance.is_finite() && distance > 0.0) {
             return Err(FilletError::DistanceNotPositive);
         }
-        let sides = self.corner_sides(corner)?;
-        let at = corner.position;
         let tolerance = TOLERANCE * at.abs().max_element().max(distance).max(1.0);
-        let mut touches = [at; 2];
-        for (touch, side) in touches.iter_mut().zip(&sides) {
-            let too_far = || FilletError::TooFar {
-                entity: side.curve,
-                label: self.entity_label(side.curve),
-            };
-            let reached = side.at_distance(at, distance).ok_or_else(too_far)?;
-            if !side.reaches(at, reached, tolerance) {
-                return Err(too_far());
-            }
-            *touch = reached;
+        let too_far = || FilletError::TooFar {
+            entity: side.curve,
+            label: self.entity_label(side.curve),
+        };
+        let reached = side.at_distance(at, distance).ok_or_else(too_far)?;
+        if side.reaches(at, reached, tolerance) {
+            Ok(reached)
+        } else {
+            Err(too_far())
         }
-        Ok(Bevel { distance, touches })
+    }
+
+    fn bevel_by_angle(
+        &self,
+        corner: &Corner,
+        sides: &[Side; 2],
+        distance: f64,
+        degrees: f64,
+    ) -> Result<Bevel, FilletError> {
+        if !(degrees.is_finite() && degrees > 0.0 && degrees < 180.0) {
+            return Err(FilletError::AngleOutOfRange);
+        }
+        let [first, second] = sides;
+        let at = corner.position;
+        let first_touch = self.touch_at(first, at, distance)?;
+        let toward_corner = first.heading_back(first_touch);
+        let side = (at - first_touch).perp_dot(second.leaving);
+        let turn = degrees.to_radians() * if side < 0.0 { -1.0 } else { 1.0 };
+        let direction = Vector2::from_angle(turn).rotate(toward_corner);
+        let tolerance = TOLERANCE * at.abs().max_element().max(distance).max(1.0);
+        let misses = || FilletError::AngleMisses {
+            first: self.entity_label(first.curve),
+            second: self.entity_label(second.curve),
+        };
+        let ray = Carrier::Line {
+            through: first_touch,
+            direction,
+        };
+        let second_touch = centers(ray, second.carrier_through(at), tolerance)
+            .into_iter()
+            .filter(|found| (*found - first_touch).dot(direction) > tolerance)
+            .min_by(|a, b| a.distance(first_touch).total_cmp(&b.distance(first_touch)))
+            .ok_or_else(misses)?;
+        if !second.reaches(at, second_touch, tolerance) {
+            return Err(FilletError::TooFar {
+                entity: second.curve,
+                label: self.entity_label(second.curve),
+            });
+        }
+        Ok(Bevel {
+            distances: [distance, second_touch.distance(at)],
+            touches: [first_touch, second_touch],
+        })
     }
 
     pub fn distance_through(&self, corner: &Corner, point: Point2) -> Option<f64> {
@@ -432,8 +550,7 @@ impl Sketch {
     pub fn chamfer(
         &mut self,
         corner: &Corner,
-        distance: f64,
-        value: Expression,
+        size: &ChamferSize,
     ) -> Result<EntityId, FilletError> {
         let current = self.corner_at(corner.point)?;
         if current.curves != corner.curves {
@@ -442,11 +559,9 @@ impl Sketch {
                 second: self.entity_label(corner.curves[1]),
             });
         }
-        let bevel = self.bevel(&current, distance)?;
+        let bevel = self.bevel(&current, size)?;
         let mut working = self.clone();
-        let line = working
-            .cut_corner(&current, &bevel, value)
-            .map_err(FilletError::Edit)?;
+        let line = working.cut_corner(&current, &bevel, size)?;
         *self = working;
         Ok(line)
     }
@@ -564,14 +679,16 @@ impl Sketch {
         &mut self,
         corner: &Corner,
         bevel: &Bevel,
-        value: Expression,
-    ) -> Result<EntityId, SketchError> {
+        size: &ChamferSize,
+    ) -> Result<EntityId, FilletError> {
         let kept = corner.point;
         let construction = corner
             .curves
             .iter()
             .all(|curve| self.is_construction(*curve));
-        let [first_touch, second_touch] = self.shorten_to(corner, bevel.touches)?;
+        let [first_touch, second_touch] = self
+            .shorten_to(corner, bevel.touches)
+            .map_err(FilletError::Edit)?;
         let line = EntityId::from_raw(self.next_id());
         self.insert_entity(
             line,
@@ -579,21 +696,72 @@ impl Sketch {
                 start: first_touch,
                 end: second_touch,
             },
-        )?;
+        )
+        .map_err(FilletError::Edit)?;
         if construction {
-            self.set_construction(line, true)?;
+            self.set_construction(line, true)
+                .map_err(FilletError::Edit)?;
         }
         for curve in corner.curves {
-            self.add_constraint(Constraint::Coincident(kept, curve))?;
+            self.add_constraint(Constraint::Coincident(kept, curve))
+                .map_err(FilletError::Edit)?;
         }
-        for touch in [first_touch, second_touch] {
-            self.add_constraint(Constraint::Distance {
-                from: kept,
-                to: touch,
-                value: value.clone(),
-            })?;
+        let held = |touch: EntityId, value: &Dimensioned| Constraint::Distance {
+            from: kept,
+            to: touch,
+            value: value.expression.clone(),
+        };
+        let mut dimensions = Vec::new();
+        match size {
+            ChamferSize::Equal(distance) => {
+                dimensions.push(held(first_touch, distance));
+                dimensions.push(held(second_touch, distance));
+            }
+            ChamferSize::Distances { first, second } => {
+                dimensions.push(held(first_touch, first));
+                dimensions.push(held(second_touch, second));
+            }
+            ChamferSize::DistanceAndAngle { distance, angle } => {
+                dimensions.push(held(first_touch, distance));
+                dimensions.push(self.cut_angle(corner.curves[0], line, angle)?);
+            }
+        }
+        for dimension in dimensions {
+            self.add_constraint(dimension).map_err(FilletError::Edit)?;
         }
         Ok(line)
+    }
+
+    fn cut_angle(
+        &self,
+        curve: EntityId,
+        line: EntityId,
+        angle: &Dimensioned,
+    ) -> Result<Constraint, FilletError> {
+        let holds = |candidate: &Constraint| {
+            self.check_constraint(candidate).is_ok()
+                && self
+                    .measured(candidate)
+                    .is_some_and(|found| (found - angle.value).abs() <= ANGLE_TOLERANCE)
+        };
+        [false, true]
+            .into_iter()
+            .flat_map(|reversed| {
+                [(curve, line), (line, curve)]
+                    .into_iter()
+                    .map(move |(from, to)| (from, to, reversed))
+            })
+            .map(|(from, to, reversed)| Constraint::Angle {
+                from,
+                to,
+                reversed,
+                value: angle.expression.clone(),
+            })
+            .find(holds)
+            .ok_or_else(|| FilletError::AngleNotHeld {
+                curve,
+                label: self.entity_label(curve),
+            })
     }
 
     fn shorten_to(

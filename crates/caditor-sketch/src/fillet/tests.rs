@@ -1,7 +1,10 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
-use crate::{Constraint, ConstraintId, Entity, EntityId, FilletError, Sketch, Solved};
+use crate::{
+    ChamferSize, Constraint, ConstraintId, Dimensioned, Entity, EntityId, FilletError, Sketch,
+    Solved,
+};
 
 const EXACT: f64 = 1e-7;
 
@@ -18,6 +21,24 @@ fn solve(sketch: &Sketch) -> Solved {
 
 fn mm(value: f64) -> Expression {
     Expression::Measure(value, Unit::Millimetre)
+}
+
+fn equal(distance: f64) -> ChamferSize {
+    ChamferSize::Equal(dimensioned(distance))
+}
+
+fn dimensioned(distance: f64) -> Dimensioned {
+    Dimensioned {
+        expression: mm(distance),
+        value: distance,
+    }
+}
+
+fn degrees(angle: f64) -> Dimensioned {
+    Dimensioned {
+        expression: Expression::Measure(angle, Unit::Degree),
+        value: angle,
+    }
 }
 
 fn ends(sketch: &Sketch, curve: EntityId) -> (EntityId, EntityId) {
@@ -388,12 +409,12 @@ fn a_rectangle_corner_is_chamfered_and_keeps_its_distances_when_the_rectangle_wi
     } = rectangle();
     let freedom = solve(&sketch).solution.degrees_of_freedom();
     let found = sketch.corner_at(corner).unwrap();
-    let bevel = sketch.bevel(&found, 5.0).unwrap();
+    let bevel = sketch.bevel(&found, &equal(5.0)).unwrap();
 
     assert_near(bevel.touches[0], Point2::new(35.0, 0.0));
     assert_near(bevel.touches[1], Point2::new(40.0, 5.0));
 
-    let line = sketch.chamfer(&found, 5.0, mm(5.0)).unwrap();
+    let line = sketch.chamfer(&found, &equal(5.0)).unwrap();
     let solved = solve(&sketch);
     let (start, end) = ends(&sketch, line);
 
@@ -417,11 +438,11 @@ fn a_chamfer_longer_than_a_side_or_not_above_zero_is_refused() {
     let found = sketch.corner_at(corner).unwrap();
 
     assert!(matches!(
-        sketch.bevel(&found, 25.0),
+        sketch.bevel(&found, &equal(25.0)),
         Err(FilletError::TooFar { .. })
     ));
     assert_eq!(
-        sketch.bevel(&found, 0.0),
+        sketch.bevel(&found, &equal(0.0)),
         Err(FilletError::DistanceNotPositive)
     );
     assert!(
@@ -443,11 +464,205 @@ fn a_corner_of_a_line_and_an_arc_is_chamfered_on_the_arc_by_its_chord() {
         .unwrap();
     let found = sketch.corner_between(line, arc).unwrap();
 
-    let bevel = sketch.bevel(&found, 4.0).unwrap();
+    let bevel = sketch.bevel(&found, &equal(4.0)).unwrap();
 
     assert_near(bevel.touches[0], Point2::new(0.0, 14.0));
     assert!(bevel.touches[1].x > 0.0);
     assert!((bevel.touches[1].length() - 10.0).abs() < EXACT);
     assert!((bevel.touches[1].distance(Point2::new(0.0, 10.0)) - 4.0).abs() < EXACT);
-    assert!(sketch.chamfer(&found, 4.0, mm(4.0)).is_ok());
+    assert!(sketch.chamfer(&found, &equal(4.0)).is_ok());
+}
+
+#[test]
+fn a_corner_is_chamfered_by_a_different_distance_on_each_curve_and_each_stays_editable() {
+    let Rectangle {
+        mut sketch,
+        sides,
+        corner,
+        ..
+    } = rectangle();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let found = sketch.corner_at(corner).unwrap();
+    let size = ChamferSize::Distances {
+        first: dimensioned(8.0),
+        second: dimensioned(3.0),
+    };
+
+    let bevel = sketch.bevel(&found, &size).unwrap();
+
+    assert_eq!(bevel.distances, [8.0, 3.0]);
+    assert_near(bevel.touches[0], Point2::new(32.0, 0.0));
+    assert_near(bevel.touches[1], Point2::new(40.0, 3.0));
+
+    let line = sketch.chamfer(&found, &size).unwrap();
+    let solved = solve(&sketch);
+    let (start, end) = ends(&sketch, line);
+    let distances: Vec<ConstraintId> = sketch
+        .constraints()
+        .filter(|(_, constraint)| {
+            matches!(constraint, Constraint::Distance { from, to, .. } if *from == corner && (*to == start || *to == end))
+        })
+        .map(|(id, _)| id)
+        .collect();
+
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+    assert_eq!(distances.len(), 2);
+    assert!(has(&sketch, &Constraint::Coincident(corner, sides[1])));
+
+    let second = distances[1];
+    sketch.set_dimension(second, mm(6.0)).unwrap();
+    let taller = solve(&sketch).geometry;
+
+    assert_near(taller.point(start).unwrap(), Point2::new(32.0, 0.0));
+    assert_near(taller.point(end).unwrap(), Point2::new(40.0, 6.0));
+}
+
+#[test]
+fn a_corner_is_chamfered_by_a_distance_and_an_angle_that_stays_a_dimension() {
+    let Rectangle {
+        mut sketch,
+        sides,
+        corner,
+        ..
+    } = rectangle();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let found = sketch.corner_at(corner).unwrap();
+    let size = ChamferSize::DistanceAndAngle {
+        distance: dimensioned(6.0),
+        angle: degrees(30.0),
+    };
+
+    let bevel = sketch.bevel(&found, &size).unwrap();
+
+    assert_near(bevel.touches[0], Point2::new(34.0, 0.0));
+    assert_near(
+        bevel.touches[1],
+        Point2::new(40.0, 6.0 * 30f64.to_radians().tan()),
+    );
+
+    let line = sketch.chamfer(&found, &size).unwrap();
+    let solved = solve(&sketch);
+    let (start, end) = ends(&sketch, line);
+    let angle = sketch
+        .constraints()
+        .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
+        .map(|(id, constraint)| (id, constraint.clone()))
+        .unwrap();
+
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+    assert!(has(&sketch, &Constraint::Coincident(corner, sides[0])));
+    assert!(
+        matches!(&angle.1, Constraint::Angle { value, .. } if *value == degrees(30.0).expression)
+    );
+    assert!(
+        sketch
+            .measured(&angle.1)
+            .is_some_and(|found| (found - 30.0).abs() < EXACT)
+    );
+
+    sketch
+        .set_dimension(angle.0, degrees(60.0).expression)
+        .unwrap();
+    let steeper = solve(&sketch).geometry;
+
+    assert_near(steeper.point(start).unwrap(), Point2::new(34.0, 0.0));
+    assert_near(
+        steeper.point(end).unwrap(),
+        Point2::new(40.0, 6.0 * 60f64.to_radians().tan()),
+    );
+}
+
+#[test]
+fn a_chamfer_angle_is_measured_inside_the_cut_corner_whichever_way_the_lines_are_drawn() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let across = sketch.add_line(Point2::new(40.0, 0.0), Point2::new(0.0, 0.0));
+    let up = sketch.add_line(Point2::new(40.0, 20.0), Point2::new(40.0, 0.0));
+    let (across_start, _) = ends(&sketch, across);
+    let (_, up_end) = ends(&sketch, up);
+    sketch
+        .add_constraint(Constraint::Coincident(across_start, up_end))
+        .unwrap();
+    let found = sketch.corner_between(across, up).unwrap();
+    let size = ChamferSize::DistanceAndAngle {
+        distance: dimensioned(5.0),
+        angle: degrees(45.0),
+    };
+
+    let bevel = sketch.bevel(&found, &size).unwrap();
+
+    assert_near(bevel.touches[0], Point2::new(35.0, 0.0));
+    assert_near(bevel.touches[1], Point2::new(40.0, 5.0));
+
+    sketch.chamfer(&found, &size).unwrap();
+    let angle = sketch
+        .constraints()
+        .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
+        .map(|(_, constraint)| constraint.clone())
+        .unwrap();
+
+    assert!(
+        sketch
+            .measured(&angle)
+            .is_some_and(|found| (found - 45.0).abs() < EXACT)
+    );
+}
+
+#[test]
+fn a_chamfer_angle_outside_a_half_turn_or_missing_the_other_curve_is_refused() {
+    let Rectangle { sketch, corner, .. } = rectangle();
+    let found = sketch.corner_at(corner).unwrap();
+    let at = |angle: f64| ChamferSize::DistanceAndAngle {
+        distance: dimensioned(5.0),
+        angle: degrees(angle),
+    };
+
+    assert_eq!(
+        sketch.bevel(&found, &at(0.0)),
+        Err(FilletError::AngleOutOfRange)
+    );
+    assert_eq!(
+        sketch.bevel(&found, &at(180.0)),
+        Err(FilletError::AngleOutOfRange)
+    );
+    assert!(matches!(
+        sketch.bevel(&found, &at(150.0)),
+        Err(FilletError::AngleMisses { .. })
+    ));
+    assert!(matches!(
+        sketch.bevel(&found, &at(89.0)),
+        Err(FilletError::TooFar { .. })
+    ));
+}
+
+#[test]
+fn a_line_and_an_arc_are_chamfered_by_a_distance_and_an_angle_held_at_the_line() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(0.0, 10.0));
+    let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    let (_, line_end) = ends(&sketch, line);
+    let (_, arc_end) = ends(&sketch, arc);
+    sketch
+        .add_constraint(Constraint::Coincident(line_end, arc_end))
+        .unwrap();
+    let found = sketch.corner_between(line, arc).unwrap();
+    let size = ChamferSize::DistanceAndAngle {
+        distance: dimensioned(4.0),
+        angle: degrees(45.0),
+    };
+
+    sketch.chamfer(&found, &size).unwrap();
+    let angle = sketch
+        .constraints()
+        .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
+        .map(|(_, constraint)| constraint.clone())
+        .unwrap();
+
+    assert!(
+        sketch
+            .measured(&angle)
+            .is_some_and(|found| (found - 45.0).abs() < EXACT)
+    );
+    assert!(solve(&sketch).solution.redundancies().is_empty());
 }

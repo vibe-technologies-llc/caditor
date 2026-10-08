@@ -173,11 +173,20 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   end (`TooLarge`). `fillet` adds the arc `Tangent` to both with a `Radius` dimension and keeps the
   corner point as a sharp held on both carriers by `Coincident`, so dimensions, fixes and symmetry
   on the corner still hold.
-- Chamfer (`fillet.rs`, same corners): `bevel` finds the points at the distance from the corner on
-  each curve (along a line, by the chord on an arc), refusing one past a curve's far end
-  (`TooFar`); `chamfer` shortens both to them (`shorten_to`, shared with the fillet), joins them
-  with a line and keeps the sharp the same way, with one `Distance` from the sharp to each new
-  end holding the typed expression, so either side can be changed alone afterwards.
+- Chamfer (`fillet.rs`, same corners): a `ChamferSize` is one distance for both curves (`Equal`),
+  a distance on each (`Distances`) or a distance on the first and the angle of the cut
+  (`DistanceAndAngle`), each a `Dimensioned` (typed expression and its value). `bevel` finds the
+  points at the distances from the corner on each curve (along a line, by the chord on an arc),
+  refusing one past a curve's far end (`TooFar`) or a distance not above zero. With an angle the
+  first point is at the distance and the second where a ray from it, turned by the angle from the
+  direction back to the corner toward the second curve, meets that curve (`AngleMisses` when it
+  never does, `AngleOutOfRange` outside 0° to 180°). `chamfer` shortens both curves to the points
+  (`shorten_to`, shared with the fillet), joins them with a line and keeps the sharp the same
+  way. It holds a `Distance` from the sharp to each new end with the typed expression of that
+  side, so either side can be changed alone afterwards; with an angle, the first end's `Distance`
+  and an `Angle` between the cut and the first curve measured inside the cut-off triangle (the
+  `from`, `to` and `reversed` that make the drawn value positive are found by measuring,
+  `AngleNotHeld` if none does), so the angle is a dimension like the distance.
 - Split (`split.rs`): `split_at` cuts a line or arc at an existing point lying on it between its
   ends (`check_split`), which becomes the end both pieces share, its `Coincident` on the curve
   dropped. A line's pieces are `Collinear`, or each keeps its horizontal or vertical; a point that

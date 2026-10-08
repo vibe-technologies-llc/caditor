@@ -254,15 +254,15 @@ impl Modifying {
     pub fn show_typed(&mut self, typed: Option<f64>) {
         match &mut self.state {
             State::Offset(offsetting) => offsetting.show_typed(typed),
-            State::Fillet(filleting) => filleting.show_typed(typed),
-            State::Mirror(_) | State::Pattern(_) | State::Idle => {}
+            State::Fillet(_) | State::Mirror(_) | State::Pattern(_) | State::Idle => {}
         }
     }
 
     pub fn show_text(&mut self, model: &Model, text: Option<&str>) {
         match &mut self.state {
             State::Pattern(patterning) => patterning.show_text(model, text),
-            State::Offset(_) | State::Fillet(_) | State::Mirror(_) | State::Idle => {
+            State::Fillet(filleting) => filleting.show_text(model, text),
+            State::Offset(_) | State::Mirror(_) | State::Idle => {
                 let shown = text
                     .and_then(|text| Value::typed(model, text).ok())
                     .map(|value| value.millimetres);
@@ -277,7 +277,11 @@ impl Modifying {
                 Some((feature, _)) => patterning.enter_text(model, feature, text),
                 None => Ok(Outcome::Nothing),
             },
-            State::Offset(_) | State::Fillet(_) | State::Mirror(_) | State::Idle => {
+            State::Fillet(filleting) => match self.context {
+                Some((feature, _)) => filleting.enter_text(model, feature, text),
+                None => Ok(Outcome::Nothing),
+            },
+            State::Offset(_) | State::Mirror(_) | State::Idle => {
                 Value::typed(model, text).and_then(|value| self.enter_value(model, value))
             }
         }

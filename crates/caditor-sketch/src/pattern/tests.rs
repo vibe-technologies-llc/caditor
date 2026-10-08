@@ -2,8 +2,8 @@ use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
 
 use crate::{
-    CircularPattern, Constraint, Entity, EntityId, Faceting, MAX_PATTERN_INSTANCES, PatternError,
-    PatternRow, PatternValue, RectangularPattern, Sketch, Solved, Spread,
+    CircularPattern, Constraint, Dimensioned, Entity, EntityId, Faceting, MAX_PATTERN_INSTANCES,
+    PatternError, PatternRow, RectangularPattern, Sketch, Solved, Spread,
 };
 
 const EXACT: f64 = 1e-6;
@@ -31,15 +31,15 @@ fn mm(value: f64) -> Expression {
     Expression::Measure(value, Unit::Millimetre)
 }
 
-fn degrees(value: f64) -> PatternValue {
-    PatternValue {
+fn degrees(value: f64) -> Dimensioned {
+    Dimensioned {
         expression: Expression::Measure(value, Unit::Degree),
         value,
     }
 }
 
-fn length(value: f64) -> PatternValue {
-    PatternValue {
+fn length(value: f64) -> Dimensioned {
+    Dimensioned {
         expression: Expression::measure(value, Unit::Millimetre),
         value,
     }
@@ -258,7 +258,7 @@ fn a_spacing_naming_a_parameter_moves_every_copy_when_the_parameter_changes() {
     let pattern = RectangularPattern {
         first: PatternRow {
             count: 4,
-            spacing: PatternValue {
+            spacing: Dimensioned {
                 expression: Expression::Parameter(SPACING),
                 value: 10.0,
             },
@@ -378,7 +378,7 @@ fn a_negative_total_angle_turns_clockwise() {
     let point = sketch.add_point(Point2::new(10.0, 0.0));
     let pattern = CircularPattern {
         count: 2,
-        spread: Spread::Total(PatternValue {
+        spread: Spread::Total(Dimensioned {
             expression: Expression::Negate(Box::new(Expression::Measure(90.0, Unit::Degree))),
             value: -90.0,
         }),
