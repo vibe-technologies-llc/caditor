@@ -4,10 +4,10 @@ use caditor_geometry::{Aabb, Point2, Point3, RigidTransform, Vector3};
 
 use crate::{
     box_tree::BoxTree,
-    bspline::{MAX_SPLINE_DEGREE, clamped_domain},
+    bspline::{BSpline, MAX_SPLINE_DEGREE, clamped_domain},
     error::GeometryError,
     interval::Interval,
-    surface::{Pole, SurfaceDerivatives, projection::periodic_near},
+    surface::{Pole, SurfaceDerivatives, SurfaceSide, projection::periodic_near},
     tolerance::LINEAR_RESOLUTION,
 };
 
@@ -539,10 +539,207 @@ impl BSplineSurface {
         sum / weight_sum
     }
 
+    pub(crate) fn with_knots(&self, u_parameters: &[f64], v_parameters: &[f64]) -> Option<Self> {
+        let mut grid = self.homogeneous_grid();
+        let u_knots = insert_into_lines(
+            &mut grid,
+            &self.u_knots,
+            self.u_degree,
+            self.u_domain,
+            u_parameters,
+        )?;
+        let mut columns: Vec<Vec<[f64; 4]>> = transpose(&grid);
+        let v_knots = insert_into_lines(
+            &mut columns,
+            &self.v_knots,
+            self.v_degree,
+            self.v_domain,
+            v_parameters,
+        )?;
+        self.rebuilt(
+            self.u_degree,
+            self.v_degree,
+            u_knots,
+            v_knots,
+            &transpose(&columns),
+        )
+    }
+
+    pub fn restricted(&self, u_range: Interval, v_range: Interval) -> Option<Self> {
+        let grid = self.homogeneous_grid();
+        let (u_knots, grid) = if self.u_closed {
+            (self.u_knots.to_vec(), grid)
+        } else {
+            restrict_lines(grid, &self.u_knots, self.u_degree, self.u_domain, u_range)?
+        };
+        let columns = transpose(&grid);
+        let (v_knots, columns) = if self.v_closed {
+            (self.v_knots.to_vec(), columns)
+        } else {
+            restrict_lines(
+                columns,
+                &self.v_knots,
+                self.v_degree,
+                self.v_domain,
+                v_range,
+            )?
+        };
+        self.rebuilt(
+            self.u_degree,
+            self.v_degree,
+            u_knots,
+            v_knots,
+            &transpose(&columns),
+        )
+    }
+
+    pub(crate) fn cubic_along_u(&self) -> Option<Self> {
+        if self.u_degree != 1 {
+            return Some(self.clone());
+        }
+        let lines: Option<Vec<Vec<[f64; 4]>>> = self
+            .homogeneous_grid()
+            .iter()
+            .map(|line| cubic_line(line))
+            .collect();
+        self.rebuilt(
+            3,
+            self.v_degree,
+            cubic_knots(&self.u_knots),
+            self.v_knots.to_vec(),
+            &lines?,
+        )
+    }
+
+    pub fn side(&self, side: SurfaceSide) -> Option<BSpline<Point3>> {
+        let indices = self.side_indices(side);
+        let points: Vec<Point3> = indices
+            .iter()
+            .filter_map(|index| self.control_points.get(*index).copied())
+            .collect();
+        let (degree, knots) = match side {
+            SurfaceSide::VStart | SurfaceSide::VEnd => (self.u_degree, self.u_knots.to_vec()),
+            SurfaceSide::UStart | SurfaceSide::UEnd => (self.v_degree, self.v_knots.to_vec()),
+        };
+        let curve = match self.weights {
+            Some(_) => BSpline::rational(
+                degree,
+                knots,
+                points,
+                indices.iter().map(|index| self.weight(*index)).collect(),
+            ),
+            None => BSpline::new(degree, knots, points),
+        };
+        curve.ok()
+    }
+
+    pub(crate) fn with_side(&self, side: SurfaceSide, curve: &BSpline<Point3>) -> Option<Self> {
+        let indices = self.side_indices(side);
+        let knots = match side {
+            SurfaceSide::VStart | SurfaceSide::VEnd => &self.u_knots,
+            SurfaceSide::UStart | SurfaceSide::UEnd => &self.v_knots,
+        };
+        if curve.knots() != &knots[..] || curve.control_points().len() != indices.len() {
+            return None;
+        }
+        let mut points = self.control_points.to_vec();
+        let mut weights: Option<Vec<f64>> = self.weights.as_ref().map(|weights| weights.to_vec());
+        for (offset, index) in indices.iter().enumerate() {
+            *points.get_mut(*index)? = *curve.control_points().get(offset)?;
+            if let Some(weights) = weights.as_mut() {
+                *weights.get_mut(*index)? = curve
+                    .weights()
+                    .and_then(|curve_weights| curve_weights.get(offset))
+                    .copied()
+                    .unwrap_or(1.0);
+            }
+        }
+        Self::new(
+            self.u_degree,
+            self.v_degree,
+            self.u_knots.to_vec(),
+            self.v_knots.to_vec(),
+            self.columns,
+            points,
+            weights,
+        )
+        .ok()
+    }
+
+    fn side_indices(&self, side: SurfaceSide) -> Vec<usize> {
+        let last_row = self.rows.saturating_sub(1);
+        let last_column = self.columns.saturating_sub(1);
+        match side {
+            SurfaceSide::VStart => (0..self.columns).collect(),
+            SurfaceSide::VEnd => (0..self.columns)
+                .map(|column| last_row * self.columns + column)
+                .collect(),
+            SurfaceSide::UStart => (0..self.rows).map(|row| row * self.columns).collect(),
+            SurfaceSide::UEnd => (0..self.rows)
+                .map(|row| row * self.columns + last_column)
+                .collect(),
+        }
+    }
+
+    fn homogeneous_grid(&self) -> Vec<Vec<[f64; 4]>> {
+        (0..self.rows)
+            .map(|row| {
+                (0..self.columns)
+                    .map(|column| self.homogeneous(row * self.columns + column))
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn homogeneous(&self, index: usize) -> [f64; 4] {
+        let weight = self.weight(index);
+        let point = self
+            .control_points
+            .get(index)
+            .copied()
+            .unwrap_or(Point3::ZERO)
+            * weight;
+        [point.x, point.y, point.z, weight]
+    }
+
+    fn rebuilt(
+        &self,
+        u_degree: usize,
+        v_degree: usize,
+        u_knots: Vec<f64>,
+        v_knots: Vec<f64>,
+        grid: &[Vec<[f64; 4]>],
+    ) -> Option<Self> {
+        let width = grid.first().map_or(0, Vec::len);
+        let homogeneous: Vec<[f64; 4]> = grid.iter().flatten().copied().collect();
+        let points = homogeneous
+            .iter()
+            .map(|[x, y, z, weight]| Point3::new(*x, *y, *z) / *weight)
+            .collect();
+        let weights = self.weights.as_ref().map(|_| {
+            homogeneous
+                .iter()
+                .map(|[_, _, _, weight]| *weight)
+                .collect()
+        });
+        Self::new(u_degree, v_degree, u_knots, v_knots, width, points, weights).ok()
+    }
+
     pub(crate) fn evaluate(&self, u: f64, v: f64) -> SurfaceDerivatives {
         #[cfg(test)]
         counting::DERIVATIVES.with(|count| count.set(count.get() + 1));
         let (u, v) = self.wrap(u, v);
+        self.derivatives_at(u, v)
+    }
+
+    pub fn extended_evaluate(&self, u: f64, v: f64) -> SurfaceDerivatives {
+        let (wrapped_u, wrapped_v) = self.wrap(u, v);
+        let u = if self.u_closed { wrapped_u } else { u };
+        let v = if self.v_closed { wrapped_v } else { v };
+        self.derivatives_at(u, v)
+    }
+
+    fn derivatives_at(&self, u: f64, v: f64) -> SurfaceDerivatives {
         let (Some(along_u), Some(along_v)) = (
             basis(&self.u_knots, self.u_degree, self.columns, u),
             basis(&self.v_knots, self.v_degree, self.rows, v),
@@ -925,6 +1122,110 @@ fn insert_knot(
     knots.insert(span + 1, parameter);
     *points = inserted;
     Some(())
+}
+
+fn insert_into_lines(
+    lines: &mut [Vec<[f64; 4]>],
+    knots: &[f64],
+    degree: usize,
+    domain: Interval,
+    parameters: &[f64],
+) -> Option<Vec<f64>> {
+    let mut knots = knots.to_vec();
+    for parameter in parameters {
+        let inside = domain.start() < *parameter && *parameter < domain.end();
+        let present = knots.iter().filter(|knot| **knot == *parameter).count();
+        if !inside || present >= degree {
+            continue;
+        }
+        let mut inserted = None;
+        for line in lines.iter_mut() {
+            let mut line_knots = knots.clone();
+            let mut points = std::mem::take(line);
+            insert_knot(&mut line_knots, &mut points, degree, *parameter)?;
+            *line = points;
+            inserted = Some(line_knots);
+        }
+        knots = inserted?;
+    }
+    Some(knots)
+}
+
+type Lines = Vec<Vec<[f64; 4]>>;
+
+fn restrict_lines(
+    mut lines: Lines,
+    knots: &[f64],
+    degree: usize,
+    domain: Interval,
+    range: Interval,
+) -> Option<(Vec<f64>, Lines)> {
+    let (low, high) = (domain.clamp(range.start()), domain.clamp(range.end()));
+    if low >= high {
+        return None;
+    }
+    let mut parameters = vec![low; degree];
+    parameters.extend(std::iter::repeat_n(high, degree));
+    let knots = insert_into_lines(&mut lines, knots, degree, domain, &parameters)?;
+    let occurrences = |value: f64| knots.iter().filter(|knot| **knot == value).count();
+    let first_low = knots.iter().position(|knot| *knot == low)?;
+    let first_high = knots.iter().position(|knot| *knot == high)?;
+    let first = (first_low + occurrences(low)).checked_sub(degree + 1)?;
+    let last = first_high.checked_sub(1)?;
+    let interior = knots.iter().filter(|knot| **knot > low && **knot < high);
+    let kept_knots: Vec<f64> = std::iter::repeat_n(low, degree + 1)
+        .chain(interior.copied())
+        .chain(std::iter::repeat_n(high, degree + 1))
+        .collect();
+    let kept: Option<Lines> = lines
+        .iter()
+        .map(|line| line.get(first..=last).map(<[_]>::to_vec))
+        .collect();
+    Some((kept_knots, kept?))
+}
+
+fn cubic_line(line: &[[f64; 4]]) -> Option<Vec<[f64; 4]>> {
+    let mut points = vec![*line.first()?];
+    for pair in line.windows(2) {
+        let [start, end] = pair else {
+            return None;
+        };
+        let mix = |along: f64| {
+            let mut mixed = *start;
+            for (slot, target) in mixed.iter_mut().zip(end) {
+                *slot += (target - *slot) * along;
+            }
+            mixed
+        };
+        points.extend([mix(1.0 / 3.0), mix(2.0 / 3.0), *end]);
+    }
+    Some(points)
+}
+
+fn cubic_knots(knots: &[f64]) -> Vec<f64> {
+    let mut distinct = knots.to_vec();
+    distinct.dedup();
+    let last = distinct.len().saturating_sub(1);
+    distinct
+        .iter()
+        .enumerate()
+        .flat_map(|(index, knot)| {
+            let repeat = if index == 0 || index == last { 4 } else { 3 };
+            std::iter::repeat_n(*knot, repeat)
+        })
+        .collect()
+}
+
+fn transpose(lines: &[Vec<[f64; 4]>]) -> Vec<Vec<[f64; 4]>> {
+    let width = lines.first().map_or(0, Vec::len);
+    (0..width)
+        .map(|index| {
+            lines
+                .iter()
+                .filter_map(|line| line.get(index).copied())
+                .collect()
+        })
+        .collect()
 }
 
 fn span_of(knots: &[f64], degree: usize, count: usize, parameter: f64) -> usize {

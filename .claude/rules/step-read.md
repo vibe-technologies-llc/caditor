@@ -81,15 +81,42 @@ paths:
   faces bounded only by `VERTEX_LOOP`s get a pole-to-pole seam. `POLY_LOOP` faces get line edges
   shared by corner position and a plane from the polygon when none is named.
 
+## Bent faces (`conform.rs`)
+
+- A body the exact build refuses is built in `Healing::Bent` before `Healing::Faceted` when the
+  file declares a precision. Each edge between two faces is studied from samples of its file curve:
+  one whose faces' normals stay within `TANGENT_ANGLE` and that runs along an iso-line of a spline
+  face (within the precision; one at the domain bound is a side) is bent, with one face its master
+  and a spline it runs along its slave; every other edge is traced after bending with
+  `IntersectionCurve::through`.
+- Rigid faces (every surface but a spline) are always masters. Between two splines the master is
+  the one the edge is slanted on, else the one earlier in an order that puts those first and smaller
+  nets before larger; a ring of such constraints refuses the mode.
+- The gap between tangent CATIA fillets is not noise: measured along their edges it is zero at one
+  face's knots and bulges between them. So a slave side is fitted to the master itself (its line
+  through a closest-point map, its surface, or the rigid face), the master's knot lines crossed by
+  that map become knots of the slave, and spans are halved until the side is within
+  `BEND_TOLERANCE` of its targets (`BSplineSurface::bent_side`).
+- A vertex settles onto its rigid faces and the splines it lies on no line of, which must then hold
+  it within a quarter of the resolution; every other spline at it is pinned to it. A target's end
+  takes up what that settling leaves.
+- Faces are bent in master order: a spline is restricted to its fitted lines, so each becomes a
+  side, then each side is refitted: strict targets on the master along its slave edges, its own
+  curve elsewhere with the vertex moves blended in, pins at vertices, corners an earlier side set
+  held. The edge is the slave's side curve between its vertices, exact on the slave and within the
+  tolerance on the master. A vertex or side moving farther than the precision refuses the mode; the
+  note gives the faces bent and the largest bend.
+
 ## Faceted fallback
 
-- A body the exact build refuses is built again in `Healing::Faceted` when the file declares a
-  precision: intersection edges are traced only between elementary faces, and an edge whose ends
+- A body neither the exact nor the bent build accepts is built again in `Healing::Faceted` when the
+  file declares a precision: intersection edges are traced only between elementary faces, and an
+  edge whose ends
   miss its vertices keeps the file's curve with the miss blended in (`loose::met_at_ends`, a line
   rebuilt through its vertices). If every vertex and edge then lies within the declared precision of
   its faces, the unvalidated body is meshed (`SolidBuilder::unvalidated_mesh`, `SMOOTH`, then
   coarser while `faceted_solids` finds too many faces) and imported as the one planar solid
   `faceted_solids` makes, with a note per body; otherwise the exact refusal stands. Like a mesh
   import it skips `find_crossing`, since `faceted_solids` already leaves out self-folding shells.
-- Faceted bodies lose their curved faces (no fillets on them, no exact measures). Refitting the
-  faces to each other instead is the roadmap item in `docs/TODO.md`.
+- Faceted bodies lose their curved faces (no fillets on them, no exact measures). Bending covers
+  only part of such files yet; the rest is the roadmap item in `docs/TODO.md`.

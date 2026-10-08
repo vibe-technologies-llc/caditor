@@ -1,3 +1,4 @@
+mod bend;
 mod coincidence;
 mod elementary;
 mod nurbs;
@@ -13,6 +14,10 @@ use caditor_geometry::{Point2, Point3, RigidTransform, Similarity, Vector3};
 
 pub(crate) use self::projection::{periodic_near, refine as refine_projection};
 pub use self::{
+    bend::{
+        BendError, BendTarget, BentSide, MAX_BENT_CONTROL_POINTS, MAX_SIDE_CONTROL_POINTS,
+        SideBend, SurfaceSide,
+    },
     elementary::{Cone, Cylinder, PlaneSurface, Sphere, Torus},
     nurbs::BSplineSurface,
     swept::{Extrusion, Revolution},

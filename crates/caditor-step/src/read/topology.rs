@@ -11,6 +11,7 @@ use caditor_kernel::{
 };
 
 use crate::read::{
+    conform::{Conformed, LooseBody, LooseEdge, conform},
     geometry::Geometry,
     graph::{Entity, Graph, Problem, Read, friendly},
     loose::{exact_kind, farthest, met_at_ends},
@@ -31,6 +32,7 @@ const DAMPING_RELIEF: f64 = 0.1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Healing {
     Exact,
+    Bent,
     Faceted,
 }
 
@@ -49,6 +51,7 @@ pub(crate) struct Topology<'g, 'a> {
     face_entities: Vec<u64>,
     healed: usize,
     loosest: f64,
+    conformed: Conformed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -100,6 +103,13 @@ pub(crate) struct Built {
     pub healed: usize,
     pub unchecked: Option<[u64; 2]>,
     pub faceted: bool,
+    pub bent: Option<Bending>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Bending {
+    pub faces: usize,
+    pub farthest: f64,
 }
 
 struct FacePlan {
@@ -135,6 +145,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             face_entities: Vec::new(),
             healed: 0,
             loosest: 0.0,
+            conformed: Conformed::default(),
         }
     }
 
@@ -159,6 +170,9 @@ impl<'g, 'a> Topology<'g, 'a> {
                 }
                 _ => self.plan_shell(void, true)?,
             });
+        }
+        if self.healing == Healing::Bent {
+            self.conform(id)?;
         }
         for shell in &shells {
             self.build_shell(shell)?;
@@ -215,11 +229,83 @@ impl<'g, 'a> Topology<'g, 'a> {
                 return Err(Problem::new(id, reason));
             }
         };
+        let bent = (self.healing == Healing::Bent).then_some(Bending {
+            faces: self.conformed.faces_bent,
+            farthest: self.conformed.farthest,
+        });
         Ok(Built {
             solid,
             healed,
             unchecked,
             faceted,
+            bent,
+        })
+    }
+
+    fn conform(&mut self, id: u64) -> Read<()> {
+        let allowance =
+            self.geometry.units.precision.ok_or_else(|| {
+                Problem::new(id, "declares no precision to bend its faces within")
+            })?;
+        let body = self.loose_body(allowance)?;
+        let conformed = conform(&body)?;
+        for (face, surface) in &conformed.surfaces {
+            if let Some(plan) = self.faces.get_mut(face) {
+                plan.surface = surface.clone();
+            }
+        }
+        self.conformed = conformed;
+        Ok(())
+    }
+
+    fn loose_body(&self, allowance: f64) -> Read<LooseBody<'_>> {
+        let graph = self.geometry.graph;
+        let mut edges = Vec::new();
+        let mut vertices = BTreeMap::new();
+        for (edge, faces) in &self.edge_faces {
+            let fields = graph.entity(*edge)?.record("EDGE_CURVE")?;
+            let (first, second) = (fields.reference(1)?, fields.reference(2)?);
+            let mut point = |vertex: u64| -> Read<Point3> {
+                let position = self
+                    .geometry
+                    .point(graph.entity(vertex)?.record("VERTEX_POINT")?.reference(1)?)?;
+                vertices.insert(vertex, position);
+                Ok(position)
+            };
+            let (first_point, second_point) = (point(first)?, point(second)?);
+            let curve = self.geometry.curve(fields.reference(3)?)?;
+            let ends = if fields.logical(4)? {
+                [first, second]
+            } else {
+                [second, first]
+            };
+            let (from, to) = if ends[0] == first {
+                (first_point, second_point)
+            } else {
+                (second_point, first_point)
+            };
+            let Some(interval) = parameter_range(&curve, from, to, ends[0] == ends[1]) else {
+                continue;
+            };
+            edges.push(LooseEdge {
+                id: *edge,
+                ends,
+                curve,
+                interval,
+                faces: faces.iter().copied().collect(),
+            });
+        }
+        let faces = self
+            .faces
+            .iter()
+            .map(|(face, plan)| (*face, plan.surface.clone()))
+            .collect();
+        Ok(LooseBody {
+            faces,
+            edges,
+            vertices,
+            vertex_faces: &self.vertex_faces,
+            allowance,
         })
     }
 
@@ -581,8 +667,14 @@ impl<'g, 'a> Topology<'g, 'a> {
         let fields = self.geometry.graph.entity(id)?.record("VERTEX_POINT")?;
         let point = self.geometry.point(fields.reference(1)?)?;
         let surfaces = self.surfaces_of(self.vertex_faces.get(&id));
-        let (point, gap) = settle_on(point, &surfaces);
-        self.note_repair(gap);
+        let point = match self.conformed.vertices.get(&id) {
+            Some(placed) => *placed,
+            None => {
+                let (point, gap) = settle_on(point, &surfaces);
+                self.note_repair(gap);
+                point
+            }
+        };
         if self.healing == Healing::Faceted {
             let left = surfaces
                 .iter()
@@ -605,16 +697,26 @@ impl<'g, 'a> Topology<'g, 'a> {
         let fields = self.geometry.graph.entity(id)?.record("EDGE_CURVE")?;
         let first = self.vertex(fields.reference(1)?)?;
         let second = self.vertex(fields.reference(2)?)?;
-        let curve = self.geometry.curve(fields.reference(3)?)?;
         let same_sense = fields.logical(4)?;
         let (start, end) = if same_sense {
             (first, second)
         } else {
             (second, first)
         };
+        if let Some((curve, interval)) = self.conformed.edges.get(&id).cloned() {
+            let edge = self
+                .builder
+                .edge(curve.clone(), interval, start, end)
+                .map_err(|error| Problem::new(id, self.describe(&error)))?;
+            self.curves.insert(edge, (curve, interval));
+            let entry = (edge, !same_sense);
+            self.edges.insert(id, entry);
+            return Ok(entry);
+        }
+        let curve = self.geometry.curve(fields.reference(3)?)?;
         let interval = self.interval(id, &curve, start, end)?;
         let surfaces = self.surfaces_of(self.edge_faces.get(&id));
-        let traceable = self.healing == Healing::Exact || surfaces.iter().all(exact_kind);
+        let traceable = self.healing != Healing::Faceted || surfaces.iter().all(exact_kind);
         let healed = match traceable
             .then(|| self.heal_edge(&curve, interval, start, end, &surfaces))
             .flatten()
@@ -719,24 +821,8 @@ impl<'g, 'a> Topology<'g, 'a> {
                 .ok_or_else(|| Problem::new(id, "uses a vertex that is missing"))
         };
         let (from, to) = (point(start)?, point(end)?);
-        let domain = curve.domain();
-        let search = domain
-            .bounded()
-            .unwrap_or_else(|| Interval::new(-1e12, 1e12).unwrap_or(Interval::UNIT));
-        let low = curve.closest_parameter(from, search);
-        let high = curve.closest_parameter(to, search);
-        let range = match curve.period() {
-            Some(period) => {
-                let mut high = low + (high - low).rem_euclid(period);
-                if start == end || high - low <= period * 1e-12 {
-                    high = low + period;
-                }
-                Interval::new(low, high)
-            }
-            None if start == end => domain.bounded(),
-            None => Interval::new(low, high),
-        };
-        range.ok_or_else(|| Problem::new(id, "runs backwards along its curve"))
+        parameter_range(curve, from, to, start == end)
+            .ok_or_else(|| Problem::new(id, "runs backwards along its curve"))
     }
 
     fn order_bounds(&self, bounds: &mut [Bound], surface: &Surface, sense: Sense) {
@@ -810,7 +896,27 @@ impl<'g, 'a> Topology<'g, 'a> {
     }
 }
 
-fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, Option<f64>) {
+fn parameter_range(curve: &Curve, from: Point3, to: Point3, closed: bool) -> Option<Interval> {
+    let domain = curve.domain();
+    let search = domain
+        .bounded()
+        .unwrap_or_else(|| Interval::new(-1e12, 1e12).unwrap_or(Interval::UNIT));
+    let low = curve.closest_parameter(from, search);
+    let high = curve.closest_parameter(to, search);
+    match curve.period() {
+        Some(period) => {
+            let mut high = low + (high - low).rem_euclid(period);
+            if closed || high - low <= period * 1e-12 {
+                high = low + period;
+            }
+            Interval::new(low, high)
+        }
+        None if closed => domain.bounded(),
+        None => Interval::new(low, high),
+    }
+}
+
+pub(crate) fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, Option<f64>) {
     let worst = |at: Point3| {
         surfaces
             .iter()
@@ -1029,7 +1135,7 @@ fn describe_build(error: &BuildError, precision: Option<f64>) -> String {
     }
 }
 
-fn short(value: f64) -> String {
+pub(crate) fn short(value: f64) -> String {
     let digits = (1.0 - value.log10().floor()).clamp(0.0, 12.0) as usize;
     let written = format!("{value:.digits$}");
     if written.contains('.') {

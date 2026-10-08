@@ -1,3 +1,4 @@
+mod conform;
 mod geometry;
 mod graph;
 mod loose;
@@ -19,7 +20,7 @@ use crate::{
         geometry::{Geometry, MAX_WORK, Work},
         graph::{Entity, Graph, Problem},
         structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
-        topology::{Built, Healing, SolidShells, Topology},
+        topology::{Bending, Built, Healing, SolidShells, Topology, short},
         units::Units,
     },
 };
@@ -185,6 +186,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
     let mut converted: Vec<f64> = Vec::new();
     let mut repaired = 0;
     let mut faceted_bodies = Vec::new();
+    let mut bent_bodies = Vec::new();
     let mut unchecked_notes = Vec::new();
     let encloses = |entity: &Entity<'_>| {
         entity.fields().is_ok_and(|fields| {
@@ -273,11 +275,15 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                 healed,
                 unchecked,
                 faceted,
+                bent,
             }) => {
                 if faceted {
                     faceted_bodies.push(name.clone());
                 } else {
                     repaired += healed;
+                }
+                if let Some(bending) = bent.filter(|bending| bending.faces > 0) {
+                    bent_bodies.push((name.clone(), bending, units.precision));
                 }
                 if let Some(faces) = unchecked {
                     unchecked_notes.push(unchecked_note(&name, faces));
@@ -328,6 +334,11 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
     model
         .notes
         .extend(faceted_bodies.iter().map(|name| faceted_note(name)));
+    model.notes.extend(
+        bent_bodies
+            .iter()
+            .map(|(name, bending, precision)| bent_note(name, *bending, *precision)),
+    );
     model.notes.extend(unchecked_notes);
     model.notes.extend(damage_notes(&exchange));
     if structure.truncated {
@@ -473,6 +484,21 @@ fn faceted_note(name: &str) -> String {
     )
 }
 
+fn bent_note(name: &str, bending: Bending, precision: Option<f64>) -> String {
+    let faces = if bending.faces == 1 {
+        "1 curved face was".to_owned()
+    } else {
+        format!("{} curved faces were", bending.faces)
+    };
+    let within = precision.map_or_else(String::new, |precision| {
+        format!(", within the file's precision of {} mm", short(precision))
+    });
+    format!(
+        "In “{name}”, {faces} bent by up to {} mm so that they meet their neighbours exactly{within}.",
+        short(bending.farthest)
+    )
+}
+
 fn unchecked_note(name: &str, [first, second]: [u64; 2]) -> String {
     let what = if first == second {
         format!("the edges of its face #{first} cross each other")
@@ -544,8 +570,9 @@ impl<'a> Builder<'a> {
         let built = Topology::new(geometry, Healing::Exact)
             .solid(id, &key.0)
             .or_else(|problem| match geometry.units.precision {
-                Some(_) => Topology::new(geometry, Healing::Faceted)
+                Some(_) => Topology::new(geometry, Healing::Bent)
                     .solid(id, &key.0)
+                    .or_else(|_| Topology::new(geometry, Healing::Faceted).solid(id, &key.0))
                     .map_err(|_| problem),
                 None => Err(problem),
             });

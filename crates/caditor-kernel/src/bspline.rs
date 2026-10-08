@@ -306,6 +306,85 @@ impl<P: Coordinates> BSpline<P> {
             .unwrap_or(1.0)
     }
 
+    pub(crate) fn with_knots(&self, parameters: &[f64]) -> Option<Self> {
+        let degree = self.degree;
+        let mut knots = self.knots.clone();
+        let mut points = self.homogeneous_points();
+        for parameter in parameters {
+            let inside = self.domain.start() < *parameter && *parameter < self.domain.end();
+            let present = knots.iter().filter(|knot| **knot == *parameter).count();
+            if inside && present < degree {
+                insert_knot(&mut knots, &mut points, degree, *parameter)?;
+            }
+        }
+        self.rebuilt_from(knots, &points)
+    }
+
+    pub(crate) fn with_points(&self, control_points: Vec<P>) -> Result<Self, GeometryError> {
+        match &self.weights {
+            Some(weights) => Self::rational(
+                self.degree,
+                self.knots.clone(),
+                control_points,
+                weights.clone(),
+            ),
+            None => Self::new(self.degree, self.knots.clone(), control_points),
+        }
+    }
+
+    pub(crate) fn rational_basis(&self, parameter: f64) -> (usize, BasisRow) {
+        let parameter = self.domain.clamp(parameter);
+        let span = self.span(parameter);
+        let first = span - self.degree;
+        let table = self.basis_table(span, parameter);
+        let mut values = table.get(self.degree).copied().unwrap_or(ZERO_ROW);
+        let mut total = 0.0;
+        for (offset, value) in values.iter_mut().enumerate().take(self.degree + 1) {
+            *value *= self.weight(first + offset);
+            total += *value;
+        }
+        if total > 0.0 {
+            for value in values.iter_mut().take(self.degree + 1) {
+                *value /= total;
+            }
+        }
+        (first, values)
+    }
+
+    fn homogeneous_points(&self) -> Vec<Homogeneous<P>> {
+        self.control_points
+            .iter()
+            .enumerate()
+            .map(|(index, point)| {
+                let weight = self.weight(index);
+                Homogeneous {
+                    point: *point * weight,
+                    weight,
+                }
+            })
+            .collect()
+    }
+
+    fn rebuilt_from(&self, knots: Vec<f64>, points: &[Homogeneous<P>]) -> Option<Self> {
+        let control_points = points
+            .iter()
+            .map(|homogeneous| homogeneous.point * (1.0 / homogeneous.weight))
+            .collect();
+        let built = match self.weights {
+            Some(_) => Self::rational(
+                self.degree,
+                knots,
+                control_points,
+                points
+                    .iter()
+                    .map(|homogeneous| homogeneous.weight)
+                    .collect(),
+            ),
+            None => Self::new(self.degree, knots, control_points),
+        };
+        built.ok()
+    }
+
     pub(crate) fn control_points_over(&self, range: Interval) -> &[P] {
         let first = self.span(self.domain.clamp(range.start())) - self.degree;
         let last = self.span(self.domain.clamp(range.end()));
@@ -586,8 +665,8 @@ fn solve_collocation<P: Coordinates>(
         .then_some(right)
 }
 
-const ROW_WIDTH: usize = MAX_SPLINE_DEGREE + 1;
-type BasisRow = [f64; ROW_WIDTH];
+pub(crate) const ROW_WIDTH: usize = MAX_SPLINE_DEGREE + 1;
+pub(crate) type BasisRow = [f64; ROW_WIDTH];
 const ZERO_ROW: BasisRow = [0.0; ROW_WIDTH];
 
 fn ratio(numerator: f64, denominator: f64) -> f64 {

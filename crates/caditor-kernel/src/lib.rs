@@ -75,8 +75,9 @@ pub use crate::{
     sense::Sense,
     shell::{ShellError, shell},
     surface::{
-        BSplineSurface, Cone, Cylinder, Extrusion, PlaneSurface, Pole, Revolution, Sphere, Surface,
-        SurfaceDerivatives, Torus,
+        BSplineSurface, BendError, BendTarget, BentSide, Cone, Cylinder, Extrusion,
+        MAX_BENT_CONTROL_POINTS, MAX_SIDE_CONTROL_POINTS, PlaneSurface, Pole, Revolution, SideBend,
+        Sphere, Surface, SurfaceDerivatives, SurfaceSide, Torus,
     },
     tessellation::{
         EdgePolyline, FaceTriangles, MassProperties, Mesh, MeshVertex, TessellationError,

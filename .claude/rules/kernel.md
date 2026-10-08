@@ -49,6 +49,16 @@ paths:
   averaged knots (a banded solve, no pivoting, as the collocation matrix is totally positive).
 - `BSpline::restricted` is the exact piece of a spline over a range, by knot insertion in
   homogeneous coordinates; drawing export writes a trimmed spline edge with it.
+  `BSplineSurface::restricted` is the same over a uv box, `side` gives a side as a curve, and
+  `extended_evaluate` continues the boundary spans' polynomials past the domain, for closest points
+  that must not clamp.
+- `BSplineSurface::bent_side` refits one side of a spline surface (`SideBend`): the side curve, with
+  the requested knots (snapped to an existing one within `KNOT_SNAP` of a span) and a C0 knot at
+  each interior pin, is fitted by banded least squares to sampled `BendTarget`s, pins and held
+  corners fixed and the displacement slightly smoothed; spans missing a strict target are halved for
+  up to `MAX_REFINEMENTS` rounds and `MAX_SIDE_CONTROL_POINTS`. The knots join the whole surface, so
+  only the side row moves and the surface changes only across its first span from the side. A
+  linear side is raised to cubic first; a seam, pole or closed side is `BendError::Unbendable`.
 - Lengths are compared through `is_longer_than` (the chord, then a polyline through the seeds, and
   only then the integral) and capped with `length_up_to`, which stops once past the cap; building,
   validation, imprinting and profile arrangement never measure a whole spline to compare it with a

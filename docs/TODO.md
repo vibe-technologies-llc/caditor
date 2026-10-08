@@ -238,13 +238,18 @@ the unblocked ones; the entry that does the unblocking comes before it.
 ## STEP import and export
 
 - [high · hard] A body whose faces meet only within the file's declared precision (CATIA and
-  Autodesk exports whose tangent fillet splines sit micrometres apart) imports as flat facets, losing
-  its curved faces. Refit the spline faces to each other within that precision instead, so the body
-  stays exact: an experiment on the local `step-face-bending` branch bends each spline's control
-  net onto its rebuilt edges (side rows fitted in 1D, knots inserted where pins miss) but does not
-  yet converge on every face of such a file and takes minutes. Healing still traces an edge only
-  between exactly two distinct faces, so an edge used twice by one face (a cylinder seam) with a
-  vertex a few micrometres off is refused outright when the file declares no precision.
+  Autodesk exports whose tangent fillet splines sit micrometres apart) is bent where it can be
+  (`step-read.md`, "Bent faces") and otherwise imports as flat facets. On a CATIA V5 export of 11
+  bodies at 0.01 mm, bending makes one of the seven loose bodies exact. Two bend every side but
+  leave one traced edge off its face at validation (3.6e-6 and 8.2e-5 mm); one fails tracing an
+  end-to-end join of two fillets slanted on both (2.6e-3 rad apart); one has a side that is a pole
+  or seam; one has an iso-line edge whose neighbours' feet fall on both sides of it within the
+  file's noise (the bound test needs a tolerance from the precision rather than the domain); one
+  bends a face whose boundary then crosses itself in uv. The bent path has no STEP test yet (a
+  fixture of a spline tangent to its neighbour a few micrometres off), and that file now reads in
+  8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
+  edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
+  outright when the file declares no precision.
 - [medium · medium] Import canonicalises each placement by writing and re-reading it, and stores
   every placement of a product as its own STEP text. Build each representation once and store each
   product once with placements.
