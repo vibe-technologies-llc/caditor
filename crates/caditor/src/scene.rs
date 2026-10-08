@@ -95,6 +95,7 @@ const DRAWING_FACE: Color = Color::from_rgb8(236, 238, 242);
 const BACKGROUND_BODY_EDGE: Color = Color::from_rgb8(62, 64, 70);
 const CHOSEN_REGION: Color = translucent(canvas::SELECTED, CHOSEN_REGION_ALPHA);
 const OPEN_REGION: Color = Color::from_rgba8(210, 214, 224, 26);
+const CLOSED_REGION: Color = Color::from_rgba8(120, 170, 255, 52);
 const HOVERED_REGION_ALPHA: f32 = 0.4;
 const REVOLVE_AXIS: Color = Color::from_rgb8(255, 150, 60);
 const CHOSEN_EDGE: Color = SELECTED;
@@ -583,6 +584,9 @@ pub fn build(
     }
     if let Some(feature) = context.solid {
         builder.swept(sources, feature, reference_size);
+    }
+    if let Some((feature, displayed)) = &edited {
+        builder.closed_regions(evaluation, feature.id(), displayed);
     }
 
     let reference = Aabb::from_points(plane_corners(Plane::XY, reference_size))
@@ -1334,6 +1338,43 @@ impl Builder<'_> {
         }
     }
 
+    fn closed_regions(&mut self, evaluation: &Evaluation, feature: FeatureId, displayed: &Sketch) {
+        let Some(result) = evaluation
+            .feature(feature)
+            .and_then(|status| status.result.as_deref())
+            .and_then(FeatureResult::sketch)
+        else {
+            return;
+        };
+        let Some(Ok(regions)) = result.regions() else {
+            return;
+        };
+        if !result.geometry.same_geometry(displayed) {
+            return;
+        }
+        let plane = displayed.plane();
+        for mesh in regions.iter().filter_map(|region| region.mesh.as_ref()) {
+            let triangles = mesh
+                .triangles
+                .iter()
+                .filter_map(|triangle| {
+                    let [a, b, c] = triangle.map(|index| {
+                        mesh.points
+                            .get(index as usize)
+                            .map(|point| plane.to_world(*point))
+                    });
+                    Some([a?, b?, c?])
+                })
+                .collect();
+            self.scene.fills.push(Fill {
+                triangles,
+                color: CLOSED_REGION,
+                layer: Layer::Front,
+                pick: None,
+            });
+        }
+    }
+
     fn axis(&mut self, axis: Axis, size: f64) {
         let pickable = Pickable::Axis(axis);
         let [red, green, blue] = axis.rgb();
@@ -2015,6 +2056,54 @@ mod tests {
             .find(|line| line.pick == pick)
             .unwrap()
             .color
+    }
+
+    #[test]
+    fn the_edited_sketch_tints_its_closed_regions_once_found() {
+        let mut document = Document::default();
+        let mut sketch = Sketch::new(Plane::XY);
+        let corners = [
+            Point2::ZERO,
+            Point2::new(10.0, 0.0),
+            Point2::new(10.0, 5.0),
+            Point2::new(0.0, 5.0),
+        ];
+        for index in 0..4 {
+            sketch.add_line(corners[index], corners[(index + 1) % 4]);
+        }
+        sketch.add_line(Point2::new(20.0, 0.0), Point2::new(30.0, 0.0));
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Outline", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let evaluation = evaluate(&document);
+        let selection = Selection::default();
+        let highlight = Highlight {
+            selection: &selection,
+            hovered: &[],
+        };
+
+        let editing = build_for(&document, &evaluation, &highlight, Some(feature));
+        let looking = build_for(&document, &evaluation, &highlight, None);
+
+        let tinted: Vec<&Fill> = editing
+            .scene
+            .fills()
+            .filter(|fill| fill.color == CLOSED_REGION)
+            .collect();
+        assert_eq!(tinted.len(), 1);
+        let area: f64 = tinted[0]
+            .triangles
+            .iter()
+            .map(|[a, b, c]| (*b - *a).cross(*c - *a).length() / 2.0)
+            .sum();
+        assert!((area - 50.0).abs() < 1e-9, "{area}");
+        assert!(tinted.iter().all(|fill| fill.pick.is_none()));
+        assert!(
+            looking
+                .scene
+                .fills()
+                .all(|fill| fill.color != CLOSED_REGION)
+        );
     }
 
     #[test]

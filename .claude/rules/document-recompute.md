@@ -50,7 +50,8 @@ paths:
 
 - Computed on the worker and cached inside the shared results (`OnceLock`), so the UI only reads
   it: each body's final state is meshed at the recompute's `MeshQuality` (intermediate states are
-  not), and every sketch a solid feature sweeps gets its regions with a triangulation each.
+  not), and every sketch a solid feature sweeps, or of at most `MAX_UNSWEPT_REGION_ENTITIES`
+  entities, gets its regions with a triangulation each (the app tints them while it is edited).
 - A body settles once the walk passes the last active feature that changes or consumes it
   (`settling`, from `Feature::body` and `consumed_bodies`). Settled bodies are meshed during the
   feature loop by a display thread scoped to the run (`presenting.rs`), beside the features still

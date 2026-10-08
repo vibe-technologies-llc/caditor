@@ -556,6 +556,7 @@ impl CacheEntry {
 }
 
 const FEATURES_DONE_AFTER: Duration = Duration::from_millis(250);
+const MAX_UNSWEPT_REGION_ENTITIES: usize = 2_000;
 
 #[derive(Debug, Clone)]
 pub struct Recompute {
@@ -912,7 +913,16 @@ impl Recompute {
             .active_features()
             .filter_map(|feature| feature.kind.solid().map(SolidFeature::sketch))
             .collect();
-        for sketch in &swept {
+        let small: BTreeSet<FeatureId> = document
+            .active_features()
+            .filter(|feature| {
+                feature.kind.sketch().is_some_and(|sketch| {
+                    sketch.entities().len() <= MAX_UNSWEPT_REGION_ENTITIES
+                })
+            })
+            .map(Feature::id)
+            .collect();
+        for sketch in swept.union(&small) {
             if cancel.is_cancelled() {
                 break;
             }

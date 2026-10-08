@@ -739,7 +739,7 @@ mod tests {
             .unwrap();
         let moved = recompute(&mut engine, &document);
         assert!(moved.recomputed().contains(&ids.base));
-        assert!(!found_regions(&moved, ids.base));
+        assert!(found_regions(&moved, ids.base));
     }
 
     #[test]

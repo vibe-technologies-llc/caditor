@@ -302,6 +302,9 @@ paths:
   pill beside the sketch's status in the sketch bar ("2 open ends", its hover saying to join them)
   and in the 3D view's description, so an outline that will not close is seen while drawing
   rather than when the extrusion fails.
+- The edited sketch's closed regions (its result's display regions) are tinted `CLOSED_REGION` on
+  the front layer, unpicked (`scene::Builder::closed_regions`), while the shown geometry is the
+  result's (`same_geometry`), so a drag never shows regions it left behind.
 
 ## Displayed sketches
 
