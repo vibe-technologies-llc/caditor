@@ -256,6 +256,11 @@ paths:
   infinite carrier snaps to it (`Target::Extension`, a `Coincident` on the line, which the solver
   treats as the infinite line), with a dashed guide from the nearer end; directions and tracks
   join it as they do a curve.
+- Snap to the grid (`Command::ToggleGridSnapping`, View menu and palette, off by default, kept for
+  the session in `ViewportState::grid_snapping`) places a point no target, direction or track took
+  on the nearest crossing of the grid's minor lines (`grid_minor_spacing` of the view, handed to
+  `Drawing::snap_to_grid` each frame) when it lies within `POINT_TOLERANCE` on screen; the point
+  stays free, joined by no constraint.
 - Preview curves are faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take
   the scene's `Faceting`); the snap target and a direction's reference line
   (`Drawing::snap_entities`) replace the GPU hover while a drawing tool is active.

@@ -392,6 +392,7 @@ pub fn show(
         filter: viewport.filter(),
         style: viewport.style(),
         snapping: viewport.snapping(),
+        grid_snapping: viewport.grid_snapping(),
         glyphs: viewport.glyphs_shown(),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);

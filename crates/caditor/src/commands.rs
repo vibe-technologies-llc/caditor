@@ -139,6 +139,7 @@ pub enum Command {
     TogglePrincipal,
     ToggleProjection,
     ToggleSnapping,
+    ToggleGridSnapping,
     ToggleGlyphs,
     MinimizeWindow,
     MaximizeWindow,
@@ -457,6 +458,7 @@ plain_commands! {
     FitView,
     ToggleProjection,
     ToggleSnapping,
+    ToggleGridSnapping,
     ToggleGlyphs,
     Measure,
     Interference,
@@ -701,6 +703,7 @@ impl Command {
             Self::TogglePrincipal => "view.toggle_principal",
             Self::ToggleProjection => "view.toggle_projection",
             Self::ToggleSnapping => "view.toggle_snapping",
+            Self::ToggleGridSnapping => "view.toggle_grid_snapping",
             Self::ToggleGlyphs => "view.toggle_glyphs",
             Self::MinimizeWindow => "view.minimize_window",
             Self::MaximizeWindow => "view.maximize_window",
@@ -849,6 +852,7 @@ impl Command {
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
             Self::ToggleProjection => "Switch between perspective and orthographic",
             Self::ToggleSnapping => "Turn snapping on or off",
+            Self::ToggleGridSnapping => "Snap to the grid",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
             Self::MinimizeWindow => "Minimize the window",
             Self::MaximizeWindow => "Maximize or restore the window",
@@ -961,6 +965,7 @@ impl Command {
             | Self::TogglePrincipal
             | Self::ToggleProjection
             | Self::ToggleSnapping
+            | Self::ToggleGridSnapping
             | Self::ToggleGlyphs
             | Self::MinimizeWindow
             | Self::MaximizeWindow
@@ -1170,6 +1175,7 @@ impl Command {
             | Self::RollToEnd
             | Self::ToggleVisibility
             | Self::ToggleSnapping
+            | Self::ToggleGridSnapping
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::CloseFeature

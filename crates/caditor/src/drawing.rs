@@ -520,6 +520,7 @@ pub struct Drawing {
     sides: Sides,
     scrub: Option<Scrub>,
     free: bool,
+    grid: Option<f64>,
     acquired: Acquired,
     extension_guide: Option<[Point2; 2]>,
 }
@@ -681,6 +682,19 @@ impl Drawing {
 
     pub fn place_freely(&mut self, free: bool) {
         self.free = free;
+    }
+
+    pub fn snap_to_grid(&mut self, spacing: Option<f64>) {
+        self.grid = spacing.filter(|spacing| spacing.is_finite() && *spacing > 0.0);
+    }
+
+    fn unsnapped(&self, screen: &impl Screen, pointer: Pointer) -> Placement {
+        let on_grid = self.grid.and_then(|spacing| {
+            let nearest = (pointer.sketch / spacing).round() * spacing;
+            let offset = screen.to_screen(nearest)?.distance(pointer.screen);
+            (offset <= snap::POINT_TOLERANCE).then_some(nearest)
+        });
+        Placement::free(on_grid.unwrap_or(pointer.sketch))
     }
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
@@ -1731,7 +1745,7 @@ impl Drawing {
         let tracked_alone = || {
             tracking::alone(tracks, screen, pointer)
                 .map(|tracked| Placement::tracked(tracked, Snap::Free))
-                .unwrap_or(Placement::free(pointer.sketch))
+                .unwrap_or_else(|| self.unsnapped(screen, pointer))
         };
         if let Some(from) = self.levelled_from(shape) {
             return match snapped {

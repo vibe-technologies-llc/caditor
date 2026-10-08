@@ -244,6 +244,7 @@ pub struct ViewportState {
     filter_applies: bool,
     style: DisplayStyle,
     snapping: bool,
+    grid_snapping: bool,
     glyphs_shown: bool,
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
@@ -356,6 +357,7 @@ impl ViewportState {
             filter_applies: true,
             style: DisplayStyle::default(),
             snapping: true,
+            grid_snapping: false,
             glyphs_shown: true,
             manipulator: None,
             manipulator_hover: None,
@@ -366,6 +368,10 @@ impl ViewportState {
 
     pub fn snapping(&self) -> bool {
         self.snapping
+    }
+
+    pub fn grid_snapping(&self) -> bool {
+        self.grid_snapping
     }
 
     pub fn glyphs_shown(&self) -> bool {
@@ -1406,6 +1412,14 @@ impl ViewportState {
             .sync(editing.active(), editing.modes(), displayed.as_deref());
         self.drawing
             .place_freely(self.placing_freely || !self.snapping);
+        let grid = self
+            .scenes
+            .built()
+            .and_then(|built| built.scene.grid.as_ref())
+            .zip(self.view())
+            .map(|(grid, view)| grid_minor_spacing(grid, &view))
+            .filter(|_| self.grid_snapping);
+        self.drawing.snap_to_grid(grid);
         let scrub_from = self
             .cursor
             .filter(|_| self.scrubbing)
@@ -1653,6 +1667,9 @@ impl ViewportState {
         }
         if commands.available(Command::ToggleSnapping) {
             self.snapping = !self.snapping;
+        }
+        if commands.available(Command::ToggleGridSnapping) {
+            self.grid_snapping = !self.grid_snapping;
         }
         for style in DisplayStyle::ALL {
             if commands.available(Command::Style(style)) {

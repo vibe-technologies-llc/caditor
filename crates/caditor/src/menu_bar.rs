@@ -88,6 +88,7 @@ pub struct MenuContext<'a> {
     pub filter: SelectionFilter,
     pub style: DisplayStyle,
     pub snapping: bool,
+    pub grid_snapping: bool,
     pub glyphs: bool,
 }
 
@@ -124,6 +125,7 @@ pub fn show(
                     filter: context.filter,
                     style: context.style,
                     snapping: context.snapping,
+                    grid_snapping: context.grid_snapping,
                     glyphs: context.glyphs,
                     commands,
                     chosen: Vec::new(),
@@ -342,6 +344,7 @@ struct Menus<'a, 'b> {
     filter: SelectionFilter,
     style: DisplayStyle,
     snapping: bool,
+    grid_snapping: bool,
     glyphs: bool,
     commands: &'a CommandFrame<'b>,
     chosen: Vec<Command>,
@@ -464,6 +467,7 @@ impl Menus<'_, '_> {
             ui.separator();
             self.item(ui, Command::ToggleProjection);
             self.choice(ui, Command::ToggleSnapping, self.snapping);
+            self.choice(ui, Command::ToggleGridSnapping, self.grid_snapping);
             self.choice(ui, Command::ToggleGlyphs, self.glyphs);
             ui.separator();
             self.item(ui, Command::FullScreen);

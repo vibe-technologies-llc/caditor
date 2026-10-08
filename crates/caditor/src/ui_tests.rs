@@ -4179,6 +4179,28 @@ fn the_sketch_bar_counts_curve_ends_joined_to_nothing() {
 }
 
 #[test]
+fn snapping_to_the_grid_places_free_points_on_its_crossings() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    assert!(harness.shows("Grid 1 mm"));
+    run_from_palette(&mut harness, "snap to the grid");
+    harness.use_tool(Key::L);
+
+    harness.click_at(Point2::new(10.3, 10.2));
+    harness.click_at(Point2::new(30.4, 25.3));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let [line] = entities_of_kind(sketch, "Line")[..] else {
+        panic!("one line should be drawn");
+    };
+    let (start, end) = sketch.line_endpoints(line).unwrap();
+    assert!(near(start, Point2::new(10.0, 10.0)), "{start}");
+    assert!(near(end, Point2::new(30.0, 25.0)), "{end}");
+}
+
+#[test]
 fn holding_ctrl_places_a_point_where_the_pointer_is_instead_of_snapping_to_a_point() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);
