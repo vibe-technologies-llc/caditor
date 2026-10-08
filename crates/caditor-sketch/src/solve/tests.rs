@@ -938,9 +938,18 @@ fn thousands_of_independent_rectangles_solve_in_a_fraction_of_a_second() {
 
         let solved = solve(&sketch).unwrap();
 
-        let elapsed = started.elapsed();
-        println!("{count} rectangles: {elapsed:?}");
+        let cold = started.elapsed();
+        let started = std::time::Instant::now();
+
+        let again = sketch
+            .solve_from(&no_parameters, &|| false, &[], Some(&solved.memo))
+            .unwrap();
+
+        let warm = started.elapsed();
+        println!("{count} rectangles: {cold:?} cold, {warm:?} warm");
         assert!(solved.solution.is_fully_constrained());
+        assert_eq!(again.memo.recalled(), count);
+        assert_eq!(again.solution, solved.solution);
     }
 }
 

@@ -24,10 +24,10 @@ paths:
   `same_geometry`) is a curve and its points, or a lone point, whose position the document
   supplies. The solver holds it fixed like the origin: its points are `PointHandle::Fixed` and a
   projected circle's radius `RadiusHandle::Fixed`, so it adds no freedom and reads as fully
-  constrained, and every fixed value is part of each `SolveMemo` key. A constraint on projected or
-  reference geometry alone is `OnlyReference`. Trim, extend and the sketch fillet refuse a
-  projected curve (`Projected`); it still cuts, offsets, mirrors and takes constraints. It is
-  ordinary profile geometry unless made construction.
+  constrained, and a `SolveMemo` is recalled only under the fixed values it was made with. A
+  constraint on projected or reference geometry alone is `OnlyReference`. Trim, extend and the
+  sketch fillet refuse a projected curve (`Projected`); it still cuts, offsets, mirrors and takes
+  constraints. It is ordinary profile geometry unless made construction.
 - `Sketch::open_ends` lists the end points of profile curves (not construction) joined to nothing:
   an end whose class of points (shared or joined by `Coincident`) holds no other curve end and
   lies on no other profile curve (`Coincident` or `Midpoint` with it). Recompute keeps them in

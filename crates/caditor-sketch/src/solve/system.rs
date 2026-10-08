@@ -134,6 +134,10 @@ impl System {
         Ok(system)
     }
 
+    pub fn supports_move_with_values(&self) -> bool {
+        !self.parameter_variables.is_empty()
+    }
+
     pub fn anchor_bits(&self) -> Vec<u64> {
         self.fixed_points
             .values()

@@ -19,6 +19,10 @@ paths:
 - An attempt ends converged, at a least-squares minimum, pressed against a collapse (such a minimum
   with a moving line or arc span, or a radius, near the collapse length) or unfinished. Retries
   perturb each part by a fraction of its own extent.
+- The parts are worked out once per solve (`numeric::Parts`, from the starting values) and shared
+  by the memo, the solver and the analysis. Only a sketch with spline parameters works them out
+  again from the current values, since a parameter moving along its spline changes which control
+  points its equations reach.
 - A `Component` lists the spans (a line's ends, an arc's centre and start) with an end among its
   variables (`System::spans_at_variable`), so collapse checks look at a part's own spans, not the
   whole sketch's.
@@ -99,4 +103,8 @@ paths:
   good `SketchResult::memo`). Each part is keyed by its entities, constraints, dimension values,
   starting values and own scale, and remembered under both starting and solved values, so an
   untouched part starts from its old solution and reuses its rank analysis once its solved values
-  match exactly, however the rest of the sketch grew or moved.
+  match exactly, however the rest of the sketch grew or moved. A memo also holds the sketch's fixed
+  values (projected geometry) once, and is recalled only under the same ones.
+- An outcome lines up with its key's variables in order, so recalling it maps nothing by name:
+  its solved values and fixed columns follow the part's variables, and a part whose equations or
+  variables differ from the one its key was made from is analysed afresh.

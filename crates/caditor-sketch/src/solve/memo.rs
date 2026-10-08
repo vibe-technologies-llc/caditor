@@ -5,7 +5,7 @@ use crate::{
     sketch::DimensionValues,
     solve::{
         equation::value,
-        numeric::{Component, ComponentAnalysis, components},
+        numeric::{Component, ComponentAnalysis},
         system::System,
     },
 };
@@ -24,20 +24,20 @@ struct Key {
     entities: Vec<EntityId>,
     constraints: Vec<(ConstraintId, Option<u64>)>,
     start: Vec<(Variable, u64)>,
-    anchors: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Outcome {
     analysed: bool,
-    solved: Vec<(Variable, f64)>,
+    solved: Vec<f64>,
     rank: usize,
-    fixed: Vec<Variable>,
+    fixed_columns: Vec<usize>,
     contributions: Vec<(ConstraintId, bool, Vec<ConstraintId>)>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SolveMemo {
+    anchors: Vec<u64>,
     outcomes: BTreeMap<Key, Outcome>,
     recalled: usize,
 }
@@ -53,9 +53,9 @@ impl SolveMemo {
 }
 
 pub(crate) struct Recall<'a> {
-    names: BTreeMap<usize, Variable>,
-    indices: BTreeMap<Variable, usize>,
-    keys: BTreeMap<Vec<usize>, Key>,
+    parts: &'a [Component],
+    keys: Vec<Option<Key>>,
+    part_from_first_equation: Vec<Option<usize>>,
     previous: Option<&'a SolveMemo>,
     next: SolveMemo,
 }
@@ -64,48 +64,44 @@ impl<'a> Recall<'a> {
     pub fn new(
         system: &System,
         dimensions: &DimensionValues,
-        active: &[usize],
+        parts: &'a [Component],
         stiff: &BTreeSet<usize>,
         previous: Option<&'a SolveMemo>,
     ) -> Self {
-        let mut names = BTreeMap::new();
-        for (entity, x) in &system.points {
-            names.insert(*x, Variable::X(*entity));
-            names.insert(x + 1, Variable::Y(*entity));
-        }
-        for (entity, radius) in &system.radii {
-            names.insert(*radius, Variable::Radius(*entity));
-        }
-        for (constraint, parameter) in &system.parameters {
-            names.insert(*parameter, Variable::Parameter(*constraint));
-        }
-        let indices = names.iter().map(|(index, name)| (*name, *index)).collect();
-        let mut owners: BTreeMap<usize, Vec<EntityId>> = BTreeMap::new();
-        for (entity, variables) in &system.entity_variables {
-            for variable in variables {
-                owners.entry(*variable).or_default().push(*entity);
-            }
-        }
-        let keys = components(system, active, &system.values)
-            .into_iter()
-            .filter(|component| {
-                !component.variables.is_empty()
+        let names = Names::of(system);
+        let anchors = system.anchor_bits();
+        let keys = parts
+            .iter()
+            .map(|component| {
+                let remembered = !component.variables.is_empty()
                     && !component
                         .variables
                         .iter()
-                        .any(|variable| stiff.contains(variable))
-            })
-            .filter_map(|component| {
-                let key = Key::of(system, dimensions, &component, &names, &owners)?;
-                Some((component.equations, key))
+                        .any(|variable| stiff.contains(variable));
+                remembered
+                    .then(|| Key::of(system, dimensions, component, &names))
+                    .flatten()
             })
             .collect();
+        let mut part_from_first_equation = vec![None; system.equations.len()];
+        for (index, component) in parts.iter().enumerate() {
+            if let Some(slot) = component
+                .equations
+                .first()
+                .and_then(|first| part_from_first_equation.get_mut(*first))
+            {
+                *slot = Some(index);
+            }
+        }
         Self {
-            names,
-            indices,
+            parts,
             keys,
-            previous,
-            next: SolveMemo::default(),
+            part_from_first_equation,
+            previous: previous.filter(|previous| previous.anchors == anchors),
+            next: SolveMemo {
+                anchors,
+                ..SolveMemo::default()
+            },
         }
     }
 
@@ -113,16 +109,12 @@ impl<'a> Recall<'a> {
         let Some(previous) = self.previous else {
             return;
         };
-        for key in self.keys.values() {
-            let Some(outcome) = previous.outcomes.get(key) else {
+        for (component, key) in self.parts.iter().zip(&self.keys) {
+            let Some(outcome) = key.as_ref().and_then(|key| previous.outcomes.get(key)) else {
                 continue;
             };
-            for (variable, solved) in &outcome.solved {
-                if let Some(slot) = self
-                    .indices
-                    .get(variable)
-                    .and_then(|index| values.get_mut(*index))
-                {
+            for (variable, solved) in component.variables.iter().zip(&outcome.solved) {
+                if let Some(slot) = values.get_mut(*variable) {
                     *slot = *solved;
                 }
             }
@@ -135,105 +127,184 @@ impl<'a> Recall<'a> {
         values: &[f64],
         analyze: impl FnOnce() -> ComponentAnalysis,
     ) -> ComponentAnalysis {
-        let Some(key) = self.keys.get(&component.equations) else {
+        let Some(key) = self.key_of(component).cloned() else {
             return analyze();
         };
         let recalled = self
             .previous
-            .and_then(|previous| previous.outcomes.get(key))
-            .filter(|outcome| outcome.analysed && self.holds(outcome, values))
+            .and_then(|previous| previous.outcomes.get(&key))
+            .filter(|outcome| outcome.analysed && outcome.holds(component, values))
             .cloned();
         let outcome = match recalled {
             Some(outcome) => {
                 self.next.recalled += 1;
                 outcome
             }
-            None => self.outcome(component, values, &analyze()),
+            None => Outcome::analysed(component, values, analyze()),
         };
-        let analysis = self.restore(&outcome);
-        let settled = key.settled(&outcome);
-        if settled != *key {
-            self.next.outcomes.insert(settled, outcome.clone());
-        }
-        self.next.outcomes.insert(key.clone(), outcome);
+        let analysis = outcome.restore(component);
+        self.remember(key, outcome);
         analysis
     }
 
     pub fn remember_geometry(&mut self, component: &Component, values: &[f64]) {
-        let Some(key) = self.keys.get(&component.equations) else {
+        let Some(key) = self.key_of(component).cloned() else {
             return;
         };
-        let named = |index: &usize| self.names.get(index).copied();
         let outcome = Outcome {
             analysed: false,
-            solved: component
-                .variables
-                .iter()
-                .filter_map(|index| Some((named(index)?, value(values, *index))))
-                .collect(),
+            solved: solved_values(component, values),
             rank: 0,
-            fixed: Vec::new(),
+            fixed_columns: Vec::new(),
             contributions: Vec::new(),
         };
-        let settled = key.settled(&outcome);
-        if settled != *key {
-            self.next.outcomes.insert(settled, outcome.clone());
-        }
-        self.next.outcomes.insert(key.clone(), outcome);
+        self.remember(key, outcome);
     }
 
     pub fn finish(self) -> SolveMemo {
         self.next
     }
 
-    fn holds(&self, outcome: &Outcome, values: &[f64]) -> bool {
-        outcome.solved.iter().all(|(variable, solved)| {
-            self.indices
-                .get(variable)
-                .is_some_and(|index| value(values, *index).to_bits() == solved.to_bits())
-        })
-    }
-
-    fn outcome(
-        &self,
-        component: &Component,
-        values: &[f64],
-        analysis: &ComponentAnalysis,
-    ) -> Outcome {
-        let named = |index: &usize| self.names.get(index).copied();
-        Outcome {
-            analysed: true,
-            solved: component
-                .variables
-                .iter()
-                .filter_map(|index| Some((named(index)?, value(values, *index))))
-                .collect(),
-            rank: analysis.rank,
-            fixed: analysis.fixed.iter().filter_map(named).collect(),
-            contributions: analysis.contributions.clone(),
+    fn key_of(&self, component: &Component) -> Option<&Key> {
+        let index = component
+            .equations
+            .first()
+            .and_then(|first| self.part_from_first_equation.get(*first))
+            .copied()
+            .flatten()?;
+        let part = self.parts.get(index)?;
+        let same = part.equations == component.equations && part.variables == component.variables;
+        if !same {
+            return None;
         }
+        self.keys.get(index)?.as_ref()
     }
 
-    fn restore(&self, outcome: &Outcome) -> ComponentAnalysis {
-        ComponentAnalysis {
-            rank: outcome.rank,
-            fixed: outcome
+    fn remember(&mut self, key: Key, outcome: Outcome) {
+        let settled = key.settled(&outcome);
+        if settled != key {
+            self.next.outcomes.insert(settled, outcome.clone());
+        }
+        self.next.outcomes.insert(key, outcome);
+    }
+}
+
+fn solved_values(component: &Component, values: &[f64]) -> Vec<f64> {
+    component
+        .variables
+        .iter()
+        .map(|variable| value(values, *variable))
+        .collect()
+}
+
+impl Outcome {
+    fn analysed(component: &Component, values: &[f64], analysis: ComponentAnalysis) -> Self {
+        Self {
+            analysed: true,
+            solved: solved_values(component, values),
+            rank: analysis.rank,
+            fixed_columns: analysis
                 .fixed
                 .iter()
-                .filter_map(|variable| self.indices.get(variable).copied())
+                .filter_map(|variable| component.variables.binary_search(variable).ok())
                 .collect(),
-            contributions: outcome.contributions.clone(),
+            contributions: analysis.contributions,
         }
+    }
+
+    fn holds(&self, component: &Component, values: &[f64]) -> bool {
+        component.variables.len() == self.solved.len()
+            && component
+                .variables
+                .iter()
+                .zip(&self.solved)
+                .all(|(variable, solved)| value(values, *variable).to_bits() == solved.to_bits())
+    }
+
+    fn restore(&self, component: &Component) -> ComponentAnalysis {
+        ComponentAnalysis {
+            rank: self.rank,
+            fixed: self
+                .fixed_columns
+                .iter()
+                .filter_map(|column| component.variables.get(*column).copied())
+                .collect(),
+            contributions: self.contributions.clone(),
+        }
+    }
+}
+
+struct Names {
+    variables: Vec<Option<Variable>>,
+    first_owner: Vec<usize>,
+    owners: Vec<EntityId>,
+}
+
+impl Names {
+    fn of(system: &System) -> Self {
+        let mut variables = vec![None; system.values.len()];
+        let mut name = |index: usize, variable: Variable| {
+            if let Some(slot) = variables.get_mut(index) {
+                *slot = Some(variable);
+            }
+        };
+        for (entity, x) in &system.points {
+            name(*x, Variable::X(*entity));
+            name(x + 1, Variable::Y(*entity));
+        }
+        for (entity, radius) in &system.radii {
+            name(*radius, Variable::Radius(*entity));
+        }
+        for (constraint, parameter) in &system.parameters {
+            name(*parameter, Variable::Parameter(*constraint));
+        }
+        let mut counts = vec![0; system.values.len()];
+        for variable in system.entity_variables.values().flatten() {
+            if let Some(count) = counts.get_mut(*variable) {
+                *count += 1;
+            }
+        }
+        let first_owner: Vec<usize> = std::iter::once(0)
+            .chain(counts.iter().scan(0, |total, count| {
+                *total += count;
+                Some(*total)
+            }))
+            .collect();
+        let mut owners = vec![EntityId::ORIGIN; first_owner.last().copied().unwrap_or(0)];
+        let mut filled = first_owner.clone();
+        for (entity, variables) in &system.entity_variables {
+            for variable in variables {
+                let Some(next) = filled.get_mut(*variable) else {
+                    continue;
+                };
+                if let Some(slot) = owners.get_mut(*next) {
+                    *slot = *entity;
+                }
+                *next += 1;
+            }
+        }
+        Self {
+            variables,
+            first_owner,
+            owners,
+        }
+    }
+
+    fn owners_of(&self, variable: usize) -> &[EntityId] {
+        let first = self.first_owner.get(variable).copied().unwrap_or(0);
+        let end = self.first_owner.get(variable + 1).copied().unwrap_or(first);
+        self.owners.get(first..end).unwrap_or_default()
     }
 }
 
 impl Key {
     fn settled(&self, outcome: &Outcome) -> Self {
         Self {
-            start: outcome
-                .solved
+            start: self
+                .start
                 .iter()
-                .map(|(variable, solved)| (*variable, solved.to_bits()))
+                .zip(&outcome.solved)
+                .map(|((variable, _), solved)| (*variable, solved.to_bits()))
                 .collect(),
             ..self.clone()
         }
@@ -243,32 +314,34 @@ impl Key {
         system: &System,
         dimensions: &DimensionValues,
         component: &Component,
-        names: &BTreeMap<usize, Variable>,
-        owners: &BTreeMap<usize, Vec<EntityId>>,
+        names: &Names,
     ) -> Option<Self> {
-        let entities: BTreeSet<EntityId> = component
+        let mut entities: Vec<EntityId> = component
             .variables
             .iter()
-            .filter_map(|variable| owners.get(variable))
-            .flatten()
+            .flat_map(|variable| names.owners_of(*variable))
             .copied()
             .collect();
-        let constraints: BTreeSet<ConstraintId> = component
+        entities.sort_unstable();
+        entities.dedup();
+        let mut constraints: Vec<ConstraintId> = component
             .equations
             .iter()
             .filter_map(|index| system.equations.get(*index)?.owner)
             .collect();
+        constraints.sort_unstable();
+        constraints.dedup();
         let start = component
             .variables
             .iter()
             .map(|index| {
-                let name = names.get(index)?;
-                Some((*name, value(&system.values, *index).to_bits()))
+                let name = names.variables.get(*index).copied().flatten()?;
+                Some((name, value(&system.values, *index).to_bits()))
             })
             .collect::<Option<Vec<_>>>()?;
         Some(Self {
             scale: system.context_of(component).scale.to_bits(),
-            entities: entities.into_iter().collect(),
+            entities,
             constraints: constraints
                 .into_iter()
                 .map(|constraint| {
@@ -277,7 +350,6 @@ impl Key {
                 })
                 .collect(),
             start,
-            anchors: system.anchor_bits(),
         })
     }
 }

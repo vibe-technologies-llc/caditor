@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use nalgebra::{DMatrix, DVector, SVD};
 
@@ -122,6 +125,34 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
             spans: Vec::new(),
         }))
         .collect()
+}
+
+pub(crate) struct Parts {
+    drawn: Vec<Component>,
+    follow_values: Option<Vec<usize>>,
+}
+
+impl Parts {
+    pub fn of(system: &System) -> Self {
+        let every_equation: Vec<usize> = (0..system.equations.len()).collect();
+        let drawn = components(system, &every_equation, &system.values);
+        let follow_values = system.supports_move_with_values().then_some(every_equation);
+        Self {
+            drawn,
+            follow_values,
+        }
+    }
+
+    pub fn drawn(&self) -> &[Component] {
+        &self.drawn
+    }
+
+    pub fn at(&self, system: &System, values: &[f64]) -> Cow<'_, [Component]> {
+        match &self.follow_values {
+            Some(every_equation) => Cow::Owned(components(system, every_equation, values)),
+            None => Cow::Borrowed(&self.drawn),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -308,13 +339,24 @@ pub(crate) struct Failure {
 }
 
 impl Solver<'_> {
+    #[cfg(test)]
     pub fn solve(&self, active: &[usize], values: &mut [f64]) -> Result<Vec<Failure>, Cancelled> {
+        let parts = components(self.system, active, values);
+        self.solve_parts(&parts, values)
+    }
+
+    pub fn solve_parts(
+        &self,
+        parts: &[Component],
+        values: &mut [f64],
+    ) -> Result<Vec<Failure>, Cancelled> {
         let mut failed = Vec::new();
-        for component in components(self.system, active, values) {
-            if let Descent::Failed(settled) =
-                self.solve_component(&self.part(&component), values)?
-            {
-                failed.push(Failure { component, settled });
+        for component in parts {
+            if let Descent::Failed(settled) = self.solve_component(&self.part(component), values)? {
+                failed.push(Failure {
+                    component: component.clone(),
+                    settled,
+                });
             }
         }
         Ok(failed)
@@ -843,22 +885,27 @@ pub(crate) struct Analysis {
 impl Analysis {
     pub fn combine(parts: impl IntoIterator<Item = ComponentAnalysis>) -> Self {
         let mut analysis = Self::default();
-        let mut contributions: BTreeMap<ConstraintId, Contribution> = BTreeMap::new();
+        let mut contributions = Vec::new();
         for part in parts {
             analysis.rank += part.rank;
             analysis.fixed.extend(part.fixed);
-            for (constraint, adds_rank, duplicates) in part.contributions {
-                let contribution = contributions.entry(constraint).or_default();
-                contribution.adds_rank |= adds_rank;
-                contribution.duplicates.extend(duplicates);
-            }
+            contributions.extend(part.contributions);
         }
+        contributions.sort_by_key(|(constraint, _, _)| *constraint);
         analysis.redundancies = contributions
-            .into_iter()
-            .filter(|(_, contribution)| !contribution.adds_rank)
-            .map(|(constraint, contribution)| Redundancy {
-                constraint,
-                duplicates: contribution.duplicates.into_iter().collect(),
+            .chunk_by(|a, b| a.0 == b.0)
+            .filter(|group| !group.iter().any(|(_, adds_rank, _)| *adds_rank))
+            .filter_map(|group| {
+                let (constraint, _, _) = group.first()?;
+                let duplicates: BTreeSet<ConstraintId> = group
+                    .iter()
+                    .flat_map(|(_, _, duplicates)| duplicates)
+                    .copied()
+                    .collect();
+                Some(Redundancy {
+                    constraint: *constraint,
+                    duplicates: duplicates.into_iter().collect(),
+                })
             })
             .collect();
         analysis

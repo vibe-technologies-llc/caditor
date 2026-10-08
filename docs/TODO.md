@@ -128,10 +128,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases
   within minutes once it requires `solve_from` of a solved geometry to succeed; it does not yet (it
   discards that result), so the property is unchecked.
-- [low · medium] `components()` is worked out three times per solve (`Recall::new`, `Solver::solve`
-  and the analysis in `solve_from`), and a warm re-solve recalling every part costs nearly as much
-  as a cold one: 6,400 dimensioned rectangles take about 0.18 s either way
-  (`thousands_of_independent_rectangles_solve_in_a_fraction_of_a_second`, ignored, in release).
 - [low · medium] `10 mm^2` means (10 mm)², since a power binds to the measure before it; stored text
   relies on that reading, so changing it needs a new spelling or a format change.
 

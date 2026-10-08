@@ -15,7 +15,10 @@ mod tally;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use caditor_expression::{EvalError, ParameterId, Quantity};
 use caditor_geometry::Point2;
@@ -28,7 +31,7 @@ use crate::{
         diagnosis::{DIAGNOSIS_WORK, diagnose_failure},
         equation::value,
         memo::Recall,
-        numeric::{Analysis, Cancelled, FROZEN, STIFF, Solver, components},
+        numeric::{Analysis, Cancelled, Component, FROZEN, Parts, STIFF, Solver},
         system::System,
     },
 };
@@ -82,12 +85,18 @@ impl SketchSolution {
     }
 
     fn new(dimensions: DimensionValues, system: &System, analysis: Analysis) -> Self {
-        let fixed: BTreeSet<usize> = analysis.fixed.into_iter().collect();
+        let mut fixed = vec![false; system.values.len()];
+        for variable in analysis.fixed {
+            if let Some(slot) = fixed.get_mut(variable) {
+                *slot = true;
+            }
+        }
         let entity_states = system
             .entity_variables
             .iter()
             .map(|(entity, variables)| {
-                let state = if variables.iter().all(|variable| fixed.contains(variable)) {
+                let is_fixed = |variable: &usize| fixed.get(*variable).copied().unwrap_or(false);
+                let state = if variables.iter().all(is_fixed) {
                     EntityState::FullyConstrained
                 } else {
                     EntityState::UnderConstrained
@@ -140,6 +149,7 @@ struct Finished<'a> {
     dimensions: DimensionValues,
     system: &'a System,
     solver: &'a Solver<'a>,
+    parts: Cow<'a, [Component]>,
     values: Vec<f64>,
     recall: Recall<'a>,
 }
@@ -189,11 +199,11 @@ impl Sketch {
                 dimensions,
                 system,
                 solver,
+                parts,
                 values,
                 mut recall,
             } = finished;
-            let every_equation: Vec<usize> = (0..system.equations.len()).collect();
-            let parts: Vec<_> = components(system, &every_equation, &values)
+            let analyses: Vec<_> = parts
                 .iter()
                 .map(|component| {
                     recall.analysis(component, &values, || {
@@ -201,7 +211,7 @@ impl Sketch {
                     })
                 })
                 .collect();
-            let analysis = Analysis::combine(parts);
+            let analysis = Analysis::combine(analyses);
             Solved {
                 geometry: self.with_values(system, &values),
                 solution: SketchSolution::new(dimensions, system, analysis),
@@ -223,13 +233,13 @@ impl Sketch {
         self.solve_with(value_of, cancelled, drags, previous, |finished| {
             let Finished {
                 system,
+                parts,
                 values,
                 mut recall,
                 ..
             } = finished;
-            let every_equation: Vec<usize> = (0..system.equations.len()).collect();
-            for component in components(system, &every_equation, &values) {
-                recall.remember_geometry(&component, &values);
+            for component in parts.iter() {
+                recall.remember_geometry(component, &values);
             }
             (self.with_values(system, &values), recall.finish())
         })
@@ -261,10 +271,12 @@ impl Sketch {
                 stiff.insert(variable);
             }
         }
-        let every_equation: Vec<usize> = (0..system.equations.len()).collect();
-        let recall = Recall::new(&system, &dimensions, &every_equation, &stiff, previous);
+
+        let parts = Parts::of(&system);
+        let recall = Recall::new(&system, &dimensions, parts.drawn(), &stiff, previous);
         let mut start = system.values.clone();
         recall.start_from(&mut start);
+
         let frozen = Solver {
             system: &system,
             cancelled,
@@ -272,14 +284,17 @@ impl Sketch {
             stiffness: FROZEN,
         };
         let mut values = start.clone();
-        let held = !stiff.is_empty() && frozen.solve(&every_equation, &mut values)?.is_empty();
+        let held = !stiff.is_empty()
+            && frozen
+                .solve_parts(&parts.at(&system, &values), &mut values)?
+                .is_empty();
         let solver = Solver {
             stiffness: STIFF,
             ..frozen
         };
         if !held {
             values = start;
-            let failed = solver.solve(&every_equation, &mut values)?;
+            let failed = solver.solve_parts(&parts.at(&system, &values), &mut values)?;
             if !failed.is_empty() {
                 return Err(diagnose_failure(self, &solver, &failed, DIAGNOSIS_WORK)?);
             }
@@ -288,6 +303,7 @@ impl Sketch {
             dimensions,
             system: &system,
             solver: &solver,
+            parts: parts.at(&system, &values),
             values,
             recall,
         }))
