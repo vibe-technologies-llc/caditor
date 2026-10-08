@@ -8,12 +8,17 @@ paths:
 
 - `caditor-step` speaks STEP (ISO 10303-21, AP214, `SCHEMA`); it depends only on the kernel and
   geometry crates, and only `caditor-file` uses it.
-- `write_step` writes named kernel solids as one product (named after the model, or the body when
-  there is only one): one `MANIFOLD_SOLID_BREP` per lump, or a `BREP_WITH_VOIDS` whose voids are
-  `ORIENTED_CLOSED_SHELL`s of inverted faces. Millimetres and radians, uncertainty
+- `write_step` writes one body as one product named after it, and several as an assembly: a root
+  product named after the model whose `SHAPE_REPRESENTATION` holds one identity placement per
+  part, and one part product per body (named after it, with its own
+  `ADVANCED_BREP_SHAPE_REPRESENTATION`) placed by a `NEXT_ASSEMBLY_USAGE_OCCURRENCE` and a
+  `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION` with an identity `ITEM_DEFINED_TRANSFORMATION`, so other
+  programs list the bodies as parts and the reader gives them back by name. Each lump is one
+  `MANIFOLD_SOLID_BREP`, or a `BREP_WITH_VOIDS` whose voids are `ORIENTED_CLOSED_SHELL`s of
+  inverted faces; every representation shares one context. Millimetres and radians, uncertainty
   `LINEAR_RESOLUTION`, the application named by name and version only.
 - `write_step_detailed` takes `StepDetails` (empty in `write_step` and imports): the title names
-  the product (over the body or model name), the part number is the product's id, the description
+  the root product (over the body or model name), the part number is its id, the description
   the product's and the header's `FILE_DESCRIPTION` (else the model name), the revision the
   `PRODUCT_DEFINITION_FORMATION` id, and the author and organisation fill `FILE_NAME`, which are
   otherwise empty.
@@ -32,6 +37,9 @@ paths:
   negative half angle on a flipped axis, rational B-splines as the complex entity, intersection
   curves as the cubic B-spline of their Hermite segments over the edge. A face's `same_sense` is
   the kernel face sense (inverted for void shells), since kernel normals are STEP's.
+- The text is built in one buffer: the header first, then each entity as `Data::add` takes it; a
+  body that cannot be written truncates the buffer back to its `Checkpoint`, so the output is
+  never held twice.
 - `Data` writes each point, direction and placement once, keyed by the exact bits of its
   coordinates (`-0.0` as `0.0`) in `BTreeMap`s, since the coordinates come from imported files and
   the output must be deterministic.

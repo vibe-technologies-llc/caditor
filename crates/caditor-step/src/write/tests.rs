@@ -147,7 +147,7 @@ fn model_details_fill_the_header_product_and_revision() {
 }
 
 #[test]
-fn several_bodies_share_one_representation() {
+fn several_bodies_are_written_as_parts_of_an_assembly_and_read_back_in_place() {
     let plate = fixtures::plate_with_hole();
     let turned = fixtures::turned();
     let step = write_step(
@@ -167,7 +167,31 @@ fn several_bodies_share_one_representation() {
         SystemTime::UNIX_EPOCH,
     )
     .unwrap();
+    let read = read_step(&step).unwrap();
+    let names: Vec<&str> = read
+        .solids
+        .iter()
+        .map(|solid| solid.name.as_str())
+        .collect();
+
     assert_eq!(count(&step, "MANIFOLD_SOLID_BREP"), 2);
+    assert_eq!(count(&step, "ADVANCED_BREP_SHAPE_REPRESENTATION"), 2);
+    assert_eq!(count(&step, "PRODUCT"), 3);
+    assert_eq!(count(&step, "NEXT_ASSEMBLY_USAGE_OCCURRENCE"), 2);
+    assert!(step.contains("=PRODUCT('model','model','',("));
+    assert!(step.contains("=PRODUCT('Plate','Plate','',("));
+    assert_eq!(names, ["Plate", "Turned"]);
+    assert_eq!(read.solids[0].solid.bounding_box(), plate.bounding_box());
+    assert_eq!(read.solids[1].solid.bounding_box(), turned.bounding_box());
+    assert!(read.notes.is_empty(), "{:?}", read.notes);
+}
+
+#[test]
+fn one_body_is_written_as_a_single_part() {
+    let step = written("Plate", &fixtures::plate_with_hole());
+
+    assert_eq!(count(&step, "PRODUCT"), 1);
+    assert_eq!(count(&step, "NEXT_ASSEMBLY_USAGE_OCCURRENCE"), 0);
     assert_eq!(count(&step, "ADVANCED_BREP_SHAPE_REPRESENTATION"), 1);
 }
 
@@ -291,11 +315,12 @@ fn rolling_back_forgets_what_a_failed_body_wrote_and_what_it_shared() {
     data.real(f64::NAN);
     data.roll_back(checkpoint);
 
-    assert_eq!(data.entities.len(), 1);
+    assert_eq!(data.entities, 1);
     assert!(!data.take_unwritable());
     assert_eq!(data.point(Point3::new(1.0, 2.0, 3.0)), kept);
     assert_eq!(data.point(Point3::new(4.0, 5.0, 6.0)), dropped);
-    assert_eq!(data.entities.len(), 2);
+    assert_eq!(data.entities, 2);
+    assert_eq!(data.text.lines().count(), 2);
 }
 
 #[test]

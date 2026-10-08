@@ -2,7 +2,11 @@ mod shape;
 #[cfg(test)]
 mod tests;
 
-use std::{collections::BTreeMap, fmt, time::SystemTime};
+use std::{
+    collections::BTreeMap,
+    fmt::{self, Write},
+    time::SystemTime,
+};
 
 use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::Solid;
@@ -51,7 +55,8 @@ impl fmt::Display for Ref {
 
 #[derive(Default)]
 pub(crate) struct Data {
-    entities: Vec<String>,
+    text: String,
+    entities: usize,
     unwritable: bool,
     points: BTreeMap<[u64; 3], Ref>,
     directions: BTreeMap<[u64; 3], Ref>,
@@ -63,9 +68,22 @@ fn coordinate_key(coordinates: [f64; 3]) -> [u64; 3] {
 }
 
 impl Data {
-    pub fn add(&mut self, entity: impl Into<String>) -> Ref {
-        self.entities.push(entity.into());
-        Ref(self.entities.len())
+    fn after(header: String) -> Self {
+        Self {
+            text: header,
+            ..Self::default()
+        }
+    }
+
+    pub fn add(&mut self, entity: impl fmt::Display) -> Ref {
+        self.entities += 1;
+        let _ = writeln!(self.text, "#{}={entity};", self.entities);
+        Ref(self.entities)
+    }
+
+    fn finish(mut self) -> String {
+        self.text.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
+        self.text
     }
 
     pub fn real(&mut self, value: f64) -> String {
@@ -121,12 +139,17 @@ impl Data {
         written
     }
 
-    fn checkpoint(&self) -> usize {
-        self.entities.len()
+    fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            entities: self.entities,
+            length: self.text.len(),
+        }
     }
 
-    fn roll_back(&mut self, checkpoint: usize) {
-        self.entities.truncate(checkpoint);
+    fn roll_back(&mut self, Checkpoint { entities, length }: Checkpoint) {
+        self.text.truncate(length);
+        self.entities = entities;
+        let checkpoint = entities;
         self.unwritable = false;
         self.points.retain(|_, written| written.0 <= checkpoint);
         self.directions.retain(|_, written| written.0 <= checkpoint);
@@ -136,6 +159,12 @@ impl Data {
     fn take_unwritable(&mut self) -> bool {
         std::mem::take(&mut self.unwritable)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Checkpoint {
+    entities: usize,
+    length: usize,
 }
 
 pub(crate) fn real(value: f64) -> String {
@@ -216,44 +245,43 @@ pub fn write_step_detailed(
     if bodies.is_empty() {
         return Err(WriteError::Empty);
     }
-    let mut data = Data::default();
+    let mut data = Data::after(header(model_name, details, written));
     let application =
         data.add("APPLICATION_CONTEXT('core data for automotive mechanical design processes')");
     data.add(format!(
         "APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,{application})"
     ));
-    let product_context = data.add(format!("PRODUCT_CONTEXT('',{application},'mechanical')"));
+    let contexts = Contexts {
+        product: data.add(format!("PRODUCT_CONTEXT('',{application},'mechanical')")),
+        definition: data.add(format!(
+            "PRODUCT_DEFINITION_CONTEXT('part definition',{application},'design')"
+        )),
+        representation: representation_context(&mut data),
+    };
     let product_name = match bodies {
         _ if !details.title.is_empty() => details.title,
         [only] => only.name,
         _ => model_name,
     };
-    let name = text(product_name);
     let id = if details.part_number.is_empty() {
-        name.clone()
+        product_name
     } else {
-        text(details.part_number)
+        details.part_number
     };
-    let description = text(details.description);
-    let product = data.add(format!(
-        "PRODUCT({id},{name},{description},({product_context}))"
-    ));
-    data.add(format!(
-        "PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,({product}))"
-    ));
-    let formation = data.add(format!(
-        "PRODUCT_DEFINITION_FORMATION({},'',{product})",
-        text(details.revision)
-    ));
-    let definition_context = data.add(format!(
-        "PRODUCT_DEFINITION_CONTEXT('part definition',{application},'design')"
-    ));
-    let definition = data.add(format!(
-        "PRODUCT_DEFINITION('design','',{formation},{definition_context})"
-    ));
-    let shape = data.add(format!("PRODUCT_DEFINITION_SHAPE('','',{definition})"));
-    let context = representation_context(&mut data);
-    let mut items = vec![Shapes::origin(&mut data)];
+    let root = product(
+        &mut data,
+        &contexts,
+        &ProductText {
+            id,
+            name: product_name,
+            description: details.description,
+            revision: details.revision,
+        },
+    );
+    let origin = Shapes::origin(&mut data);
+    let assembly = bodies.len() > 1;
+    let mut items = vec![origin];
+    let mut parts = Vec::new();
     let mut shapes = Shapes::new(&mut data);
     let mut left_out = Vec::new();
     let mut coloured = Vec::new();
@@ -271,7 +299,11 @@ pub fn write_step_detailed(
                 if let Some(colour) = body.colour {
                     coloured.extend(solids.iter().map(|solid| (*solid, colour)));
                 }
-                items.extend(solids);
+                if assembly {
+                    parts.push(part(shapes.data(), &contexts, body.name, origin, &solids));
+                } else {
+                    items.extend(solids);
+                }
             }
             Err(error) => {
                 shapes.data().roll_back(checkpoint);
@@ -282,18 +314,139 @@ pub fn write_step_detailed(
     if left_out.len() == bodies.len() {
         return Err(left_out.remove(0).1);
     }
-    let representation = data.add(format!(
-        "ADVANCED_BREP_SHAPE_REPRESENTATION('',{},{context})",
-        list(items)
-    ));
-    data.add(format!(
-        "SHAPE_DEFINITION_REPRESENTATION({shape},{representation})"
-    ));
+    let context = contexts.representation;
+    if assembly {
+        let representation = data.add(format!(
+            "SHAPE_REPRESENTATION('',{},{context})",
+            list(std::iter::repeat_n(origin, parts.len() + 1))
+        ));
+        data.add(format!(
+            "SHAPE_DEFINITION_REPRESENTATION({},{representation})",
+            root.shape
+        ));
+        for (index, part) in parts.iter().enumerate() {
+            place_part(&mut data, &root, part, representation, index, origin);
+        }
+    } else {
+        let representation = data.add(format!(
+            "ADVANCED_BREP_SHAPE_REPRESENTATION('',{},{context})",
+            list(items)
+        ));
+        data.add(format!(
+            "SHAPE_DEFINITION_REPRESENTATION({},{representation})",
+            root.shape
+        ));
+    }
     styles(&mut data, &coloured, context);
     Ok(StepWritten {
-        text: document(&data, model_name, details, written),
+        text: data.finish(),
         left_out,
     })
+}
+
+struct Contexts {
+    product: Ref,
+    definition: Ref,
+    representation: Ref,
+}
+
+struct ProductText<'a> {
+    id: &'a str,
+    name: &'a str,
+    description: &'a str,
+    revision: &'a str,
+}
+
+struct Product {
+    definition: Ref,
+    shape: Ref,
+}
+
+struct Part {
+    name: String,
+    product: Product,
+    representation: Ref,
+}
+
+fn product(data: &mut Data, contexts: &Contexts, product: &ProductText<'_>) -> Product {
+    let product_context = contexts.product;
+    let entity = data.add(format!(
+        "PRODUCT({},{},{},({product_context}))",
+        text(product.id),
+        text(product.name),
+        text(product.description)
+    ));
+    data.add(format!(
+        "PRODUCT_RELATED_PRODUCT_CATEGORY('part',$,({entity}))"
+    ));
+    let formation = data.add(format!(
+        "PRODUCT_DEFINITION_FORMATION({},'',{entity})",
+        text(product.revision)
+    ));
+    let definition = data.add(format!(
+        "PRODUCT_DEFINITION('design','',{formation},{})",
+        contexts.definition
+    ));
+    let shape = data.add(format!("PRODUCT_DEFINITION_SHAPE('','',{definition})"));
+    Product { definition, shape }
+}
+
+fn part(data: &mut Data, contexts: &Contexts, name: &str, origin: Ref, solids: &[Ref]) -> Part {
+    let product = product(
+        data,
+        contexts,
+        &ProductText {
+            id: name,
+            name,
+            description: "",
+            revision: "",
+        },
+    );
+    let representation = data.add(format!(
+        "ADVANCED_BREP_SHAPE_REPRESENTATION({},{},{})",
+        text(name),
+        list(std::iter::once(origin).chain(solids.iter().copied())),
+        contexts.representation
+    ));
+    data.add(format!(
+        "SHAPE_DEFINITION_REPRESENTATION({},{representation})",
+        product.shape
+    ));
+    Part {
+        name: name.to_owned(),
+        product,
+        representation,
+    }
+}
+
+fn place_part(
+    data: &mut Data,
+    root: &Product,
+    part: &Part,
+    parent: Ref,
+    index: usize,
+    origin: Ref,
+) {
+    let usage = data.add(format!(
+        "NEXT_ASSEMBLY_USAGE_OCCURRENCE('{}',{},'',{},{},$)",
+        index + 1,
+        text(&part.name),
+        root.definition,
+        part.product.definition
+    ));
+    let placement_shape = data.add(format!(
+        "PRODUCT_DEFINITION_SHAPE('Placement','Placement of an item',{usage})"
+    ));
+    let transformation = data.add(format!(
+        "ITEM_DEFINED_TRANSFORMATION('','',{origin},{origin})"
+    ));
+    let relationship = data.add(format!(
+        "(REPRESENTATION_RELATIONSHIP('','',{},{parent}) REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION({transformation}) SHAPE_REPRESENTATION_RELATIONSHIP())",
+        part.representation
+    ));
+    data.add(format!(
+        "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION({relationship},{placement_shape})"
+    ));
 }
 
 fn styles(data: &mut Data, coloured: &[(Ref, [u8; 3])], context: Ref) {
@@ -343,12 +496,7 @@ fn representation_context(data: &mut Data) -> Ref {
     ))
 }
 
-fn document(
-    data: &Data,
-    model_name: &str,
-    details: &StepDetails<'_>,
-    written: SystemTime,
-) -> String {
+fn header(model_name: &str, details: &StepDetails<'_>, written: SystemTime) -> String {
     let description = if details.description.is_empty() {
         model_name
     } else {
@@ -373,10 +521,6 @@ fn document(
         "FILE_SCHEMA(({}));\nENDSEC;\nDATA;\n",
         text(SCHEMA)
     ));
-    for (index, entity) in data.entities.iter().enumerate() {
-        out.push_str(&format!("#{}={entity};\n", index + 1));
-    }
-    out.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
     out
 }
 
