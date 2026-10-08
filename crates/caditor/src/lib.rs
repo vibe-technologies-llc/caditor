@@ -17,6 +17,7 @@ mod cli;
 mod combine_panel;
 mod combine_tools;
 mod commands;
+mod constraint_trial;
 #[cfg(test)]
 mod conventions_tests;
 pub mod crash;

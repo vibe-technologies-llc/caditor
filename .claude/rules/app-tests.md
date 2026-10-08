@@ -18,3 +18,6 @@ paths:
   the button across frames (`hold_drag`, `release_drag`) so a test can read mid-drag state.
 - Overlap checks compare only the visible part of each text (`Harness::text_clips`), since
   content scrolled under a bar is clipped there.
+- A constraint trial (`app-sketching.md`) is waited for at the end of each harness frame
+  (`Model::finish_checking_constraints`), so a constraint button's result is in the document by
+  the next check as if applied at once.

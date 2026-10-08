@@ -10,6 +10,7 @@ use egui::{
 use crate::{
     appearance::{self, CONTROL_HEIGHT, ICON_SIZE, SPACE_M, SPACE_S, Tokens, WIDGET_RADIUS},
     commands::{Command, CommandFrame},
+    constraint_trial::ConstraintTrial,
     editing::{ActiveSketch, EditingCommand, SketchEditing, Tool},
     feature_tree::count,
     fonts, icons,
@@ -228,7 +229,20 @@ pub fn show(
                 constraint: *constraint,
             });
         }
-        actions.push(Action::Apply(added.transaction));
+        if tool.is_dimension() {
+            actions.push(Action::Apply(added.transaction));
+        } else {
+            actions.push(Action::Trial(ConstraintTrial {
+                feature: feature.id(),
+                added: added
+                    .constraints
+                    .iter()
+                    .copied()
+                    .filter(|constraint| !added.references.contains(constraint))
+                    .collect(),
+                transaction: added.transaction,
+            }));
+        }
         if !added.references.is_empty() {
             actions.push(Action::Inform(Notice::info(REFERENCE_ADDED)));
         }

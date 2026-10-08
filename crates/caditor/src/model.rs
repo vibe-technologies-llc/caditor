@@ -20,6 +20,7 @@ use caditor_sketch::{Constraint, Sketch, SketchSolution};
 use parking_lot::Mutex;
 
 use crate::{
+    constraint_trial::{ConstraintTrial, Trials, Verdict},
     display::{Display, Displayed},
     drag_solver::{self, DragCommand, Finished, Join, Polled},
     editing::EditingCommand,
@@ -45,6 +46,7 @@ pub enum Action {
     DismissNotice,
     Inform(Notice),
     Drag(DragCommand),
+    Trial(ConstraintTrial),
     Preview {
         feature: FeatureId,
         draft: Option<Transaction>,
@@ -187,6 +189,7 @@ pub struct Model {
     evaluation_generation: u64,
     draft: Option<DraftPreview>,
     drafts: u64,
+    trials: Trials,
 }
 
 impl Model {
@@ -225,6 +228,7 @@ impl Model {
             evaluation_generation: 0,
             draft: None,
             drafts: 0,
+            trials: Trials::default(),
         };
         model.start_storage(None, None);
         model.recompute(Retry::Nothing);
@@ -710,6 +714,10 @@ impl Model {
                 self.drag(command);
                 Ok(None)
             }
+            Action::Trial(trial) => {
+                self.try_constraints(trial);
+                Ok(None)
+            }
             Action::Preview { feature, draft } => {
                 self.preview(feature, draft);
                 Ok(None)
@@ -858,9 +866,47 @@ impl Model {
         recomputed | self.settle_held_draft()
     }
 
+    fn try_constraints(&mut self, trial: ConstraintTrial) {
+        let solved_before = !matches!(
+            self.evaluation
+                .feature(trial.feature)
+                .map(|status| &status.state),
+            Some(FeatureState::Failed(_))
+        );
+        if !solved_before || trial.added.is_empty() {
+            self.perform(Action::Apply(trial.transaction));
+            return;
+        }
+        let wake = (self.services.make_waker)();
+        let verdict = self.trials.start(trial, self.editor.document(), wake);
+        self.judged(verdict);
+    }
+
+    fn judged(&mut self, verdict: Option<Verdict>) -> bool {
+        match verdict {
+            Some(Verdict::Apply(transaction)) => self.perform(Action::Apply(transaction)),
+            Some(Verdict::Refuse(reason)) => self.set_notice(Notice::info(reason)),
+            None => return false,
+        }
+        true
+    }
+
+    pub fn is_checking_constraints(&self) -> bool {
+        self.trials.is_running()
+    }
+
+    #[cfg(test)]
+    pub fn finish_checking_constraints(&mut self) {
+        let verdict = self.trials.wait();
+        self.judged(verdict);
+    }
+
     fn poll_recompute(&mut self) -> bool {
+        let verdict = self.trials.poll();
+        let judged = self.judged(verdict);
         let polled = self.display.dragging.poll();
-        let stored = self.poll_storage()
+        let stored = judged
+            | self.poll_storage()
             | self.display.meshing.poll()
             | self.dragged(polled)
             | self.take_draft_result();
@@ -1004,6 +1050,7 @@ impl Model {
         replaces: Option<PathBuf>,
     ) {
         let predecessor = self.storage.take().map(|storage| storage.close(true));
+        self.trials.cancel();
         self.revision_offset = self.revision() + 1;
         self.editor = session.editor;
         self.saved = session.saved;

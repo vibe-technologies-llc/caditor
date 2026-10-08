@@ -342,6 +342,10 @@ impl Harness {
             &mut self.files,
             &mut self.workspace,
         );
+        if self.model.is_checking_constraints() {
+            self.model.finish_checking_constraints();
+            self.workspace.editing.sync(&self.model);
+        }
         self.render_image();
         self.render_thumbnail();
         self.model
@@ -3297,6 +3301,40 @@ fn undoing_the_creation_of_the_edited_sketch_ends_editing() {
     assert_eq!(harness.editing(), None);
     assert_eq!(harness.document().features().len(), 2);
     assert!(!harness.shows("Finish sketch"));
+}
+
+#[test]
+fn a_constraint_that_conflicts_only_once_solved_is_refused_naming_what_it_conflicts_with() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 10.0));
+    let (start, end) = line_ends(&sketch, line);
+    for (point, at) in [(start, Point2::ZERO), (end, Point2::new(30.0, 10.0))] {
+        sketch
+            .add_constraint(Constraint::Fix { point, at })
+            .unwrap();
+    }
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.settle();
+    let revision = harness.model.revision();
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: line,
+    }]);
+    harness.click_button("Horizontal");
+    harness.settle();
+
+    assert_eq!(harness.model.revision(), revision);
+    assert!(constraints_of_kind(harness.sketch(feature), "Horizontal").is_empty());
+    let notice = harness.model.notice().expect("the refusal is a notice");
+    assert!(
+        notice.text.contains("was not added: it conflicts with"),
+        "{}",
+        notice.text
+    );
+    assert!(notice.text.contains("Fix"), "{}", notice.text);
 }
 
 #[test]

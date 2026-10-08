@@ -328,9 +328,14 @@ paths:
 - A candidate the sketch already has (`Relations::restating`, from `Sketch::relations` built once
   per refresh of the offers) is left out of a batch and, when
   nothing is left, refused as already in the sketch; one that contradicts a constraint
-  (`Sketch::contradicting`) is refused naming it. These checks are structural: the UI thread never
-  solves, so a constraint that only fails once solved is reported afterwards as a conflict naming
-  its constraints.
+  (`Sketch::contradicting`) is refused naming it. These checks are structural, since the UI thread
+  never solves; a geometric (not dimension) constraint added to a sketch that solved is then tried
+  off the UI thread (`Action::Trial`, `constraint_trial.rs`): the document with the transaction
+  applied is solved on a thread of its own, and the transaction is applied once it solves, or
+  refused in a notice naming the constraints it conflicts with when the solve finds a conflict.
+  A trial past `PATIENCE` (or any other failure) applies it as before, so a slow sketch is never
+  held up and a conflict found later is reported afterwards as usual; a second constraint while one
+  is checked is refused saying so. Dimensions start at the measured value and are applied at once.
 - The candidates of every tool are kept in `PanelState::constraint_offers` and worked out again
   only when the selection, the revision, the evaluation, the displayed sketches or the units
   change (`sketch_toolbar::ConstraintOffers`).

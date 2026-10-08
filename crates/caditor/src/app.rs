@@ -25,7 +25,7 @@ use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     body_selection, canvas,
     commands::{self, Command, CommandFrame, Offer, Situation},
-    drawing_export, drop_target,
+    constraint_trial, drawing_export, drop_target,
     editing::SketchEditing,
     feature_tree,
     files::{self, FileCommand, Files},
@@ -313,6 +313,9 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     workspace.sync(model);
+    if model.is_checking_constraints() {
+        ui.ctx().request_repaint_after(constraint_trial::PATIENCE);
+    }
     match apply_appearance(ui.ctx(), workspace) {
         Applied::FontsPending => return,
         Applied::Changed => ui.set_style(ui.ctx().global_style()),

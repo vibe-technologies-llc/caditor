@@ -120,9 +120,6 @@ comes last.
 
 ## Sketching
 
-- [medium · medium] A constraint that fails only once solved (one contradicting the sketch through
-  other constraints) is still accepted and reported afterwards; trial-solve it off the UI thread
-  before committing.
 - [medium · medium] Constraint kinds missing: distance to a spline; angle to an arc; equal
   splines; spline–spline tangency; curvature continuity.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
