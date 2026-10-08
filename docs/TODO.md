@@ -398,8 +398,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
   distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
   at once, which only looks into the model and changes nothing. Measure works on what it shows.
-- [low · easy] The selection filter has no bodies, so a click cannot pick a whole body: a Bodies
-  filter, and a priority switch (body, face, edge) that sets the filter in one step.
 - [low · easy] A box or lasso selects only what is seen: a Select through switch to take the faces
   and bodies hidden behind others as well.
 - [low · easy] The shaded styles cannot show hidden edges: shaded with hidden edges dashed.

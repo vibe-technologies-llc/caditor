@@ -8402,6 +8402,60 @@ fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
 }
 
 #[test]
+fn the_bodies_filter_selects_a_whole_body_by_a_click_or_a_box_and_the_priority_cycles() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([]);
+
+    run_from_palette(&mut harness, "select whole bodies only");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.filter(), SelectionFilter::Bodies);
+    assert!(harness.shows("Selecting whole bodies only"));
+
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    assert_eq!(selected_kinds(&harness), (6, 0, 0));
+
+    let position = harness.hover_pickable(Plane::XY, Point2::new(10.0, 10.0), top);
+    harness
+        .events
+        .push(Event::ModifiersChanged(Modifiers::SHIFT));
+    harness.frame();
+    for pressed in [true, false] {
+        harness.events.push(Event::PointerButton {
+            pos: position,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::SHIFT,
+        });
+        harness.frame();
+    }
+    harness
+        .events
+        .push(Event::ModifiersChanged(Modifiers::NONE));
+    harness.frame();
+    assert_eq!(selected_kinds(&harness), (0, 0, 0));
+
+    run_from_palette(&mut harness, "cycle the selection priority");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.filter(), SelectionFilter::Faces);
+    run_from_palette(&mut harness, "cycle the selection priority");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.filter(), SelectionFilter::Edges);
+    run_from_palette(&mut harness, "cycle the selection priority");
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.filter(), SelectionFilter::Bodies);
+
+    run_from_palette(&mut harness, "fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    let margin = egui::vec2(12.0, 12.0);
+    drag_screen(&mut harness, low - margin, high + margin);
+    assert_eq!(selected_kinds(&harness), (6, 0, 0));
+}
+
+#[test]
 fn an_extrusion_takes_a_start_offset_from_its_panel_and_zero_clears_it() {
     let mut harness = Harness::new();
     let (extrude, _) = extruded_plate(&mut harness);

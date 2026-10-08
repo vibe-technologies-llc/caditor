@@ -464,6 +464,8 @@ impl Menus<'_, '_> {
                     for filter in SelectionFilter::ALL {
                         self.choice(ui, Command::Filter(filter), filter == self.filter);
                     }
+                    ui.separator();
+                    self.item(ui, Command::CycleSelectionPriority);
                 },
             );
             submenu(

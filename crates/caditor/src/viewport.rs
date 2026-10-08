@@ -701,7 +701,10 @@ impl ViewportState {
                 entities => entities,
             }
         } else {
-            highlighted.into_iter().collect()
+            highlighted
+                .into_iter()
+                .flat_map(|highlighted| self.whole_body_of(model, highlighted))
+                .collect()
         };
         let view = self.view();
         let sources = Sources {
@@ -1491,6 +1494,10 @@ impl ViewportState {
                     .collect()
             }
         };
+        if self.active_filter() == SelectionFilter::Bodies {
+            let touched: Vec<FeatureId> = caught.iter().filter_map(|item| item.body()).collect();
+            caught = body_selection::whole_bodies(model, &touched, body_selection::Kind::Faces);
+        }
         let context = editing.context();
         caught.retain(|pickable| pickable.is_available(document, evaluation, context));
         if !keep {
@@ -1709,7 +1716,7 @@ impl ViewportState {
         if click.double && self.select_chain(model, editing) {
             return;
         }
-        self.select(click.toggle);
+        self.select(model, click.toggle);
     }
 
     fn dimension_click(
@@ -1846,12 +1853,41 @@ impl ViewportState {
         true
     }
 
-    fn select(&mut self, toggle: bool) {
+    fn select(&mut self, model: &Model, toggle: bool) {
         match (self.hovered, toggle) {
-            (Some(pickable), true) => self.selection.toggle(pickable),
-            (Some(pickable), false) => self.selection.replace_with(pickable),
+            (Some(pickable), true) => self.toggle_chosen(model, pickable),
+            (Some(pickable), false) => {
+                let chosen = self.whole_body_of(model, pickable);
+                self.selection.replace_with_all(chosen);
+            }
             (None, false) => self.selection.clear(),
             (None, true) => {}
+        }
+    }
+
+    fn whole_body_of(&self, model: &Model, pickable: Pickable) -> Vec<Pickable> {
+        match pickable {
+            Pickable::Face { body, .. } if self.active_filter() == SelectionFilter::Bodies => {
+                let faces =
+                    body_selection::whole_bodies(model, &[body], body_selection::Kind::Faces);
+                if faces.is_empty() {
+                    vec![pickable]
+                } else {
+                    faces
+                }
+            }
+            _ => vec![pickable],
+        }
+    }
+
+    fn toggle_chosen(&mut self, model: &Model, pickable: Pickable) {
+        let chosen = self.whole_body_of(model, pickable);
+        if chosen.iter().all(|item| self.selection.contains(*item)) {
+            for item in chosen {
+                self.selection.toggle(item);
+            }
+        } else {
+            self.selection.extend(chosen);
         }
     }
 
@@ -1914,6 +1950,9 @@ impl ViewportState {
             if commands.available(Command::Filter(filter)) {
                 self.set_filter(filter);
             }
+        }
+        if commands.available(Command::CycleSelectionPriority) {
+            self.set_filter(self.filter.next_priority());
         }
         if commands.available(Command::ToggleProjection) {
             actions.push(Action::Preferences(PreferencesCommand::Change(
@@ -2000,7 +2039,7 @@ impl ViewportState {
             }
             match pick_action(Some(highlight), model, editing) {
                 Some(action) => actions.extend(action),
-                None => self.selection.toggle(highlight),
+                None => self.toggle_chosen(model, highlight),
             }
         }
     }

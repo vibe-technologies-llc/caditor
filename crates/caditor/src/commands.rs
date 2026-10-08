@@ -146,6 +146,7 @@ pub enum Command {
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
+    CycleSelectionPriority,
     ToggleTypedDimensions,
     ToggleGlyphs,
     MinimizeWindow,
@@ -474,6 +475,7 @@ plain_commands! {
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
+    CycleSelectionPriority,
     ToggleTypedDimensions,
     ToggleGlyphs,
     Measure,
@@ -741,6 +743,7 @@ impl Command {
             Self::ToggleSnapping => "view.toggle_snapping",
             Self::ToggleGridSnapping => "view.toggle_grid_snapping",
             Self::ToggleLasso => "view.toggle_lasso",
+            Self::CycleSelectionPriority => "select.priority",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
             Self::ToggleGlyphs => "view.toggle_glyphs",
             Self::MinimizeWindow => "view.minimize_window",
@@ -907,6 +910,7 @@ impl Command {
             Self::ToggleSnapping => "Turn snapping on or off",
             Self::ToggleGridSnapping => "Snap to the grid",
             Self::ToggleLasso => "Select with a lasso",
+            Self::CycleSelectionPriority => "Cycle the selection priority: body, face, edge",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
             Self::MinimizeWindow => "Minimize the window",
@@ -1031,6 +1035,7 @@ impl Command {
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
             | Self::ToggleLasso
+            | Self::CycleSelectionPriority
             | Self::ToggleGlyphs
             | Self::MinimizeWindow
             | Self::MaximizeWindow
@@ -1266,6 +1271,7 @@ impl Command {
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
             | Self::ToggleLasso
+            | Self::CycleSelectionPriority
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::CloseFeature

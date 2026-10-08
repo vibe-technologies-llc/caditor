@@ -23,19 +23,28 @@ use crate::{
 pub enum SelectionFilter {
     #[default]
     Everything,
+    Bodies,
     Faces,
     Edges,
     Vertices,
     SketchGeometry,
 }
 
-all_variants!(SelectionFilter: Everything, Faces, Edges, Vertices, SketchGeometry);
+all_variants!(SelectionFilter: Everything, Bodies, Faces, Edges, Vertices, SketchGeometry);
 
 impl SelectionFilter {
+    pub const PRIORITY: [Self; 3] = [Self::Bodies, Self::Faces, Self::Edges];
+
+    pub fn next_priority(self) -> Self {
+        let position = Self::PRIORITY.iter().position(|priority| *priority == self);
+        let next = position.map_or(0, |position| (position + 1) % Self::PRIORITY.len());
+        Self::PRIORITY.get(next).copied().unwrap_or(Self::Bodies)
+    }
+
     pub fn allows(self, pickable: Pickable) -> bool {
         match self {
             Self::Everything => true,
-            Self::Faces => matches!(pickable, Pickable::Face { .. }),
+            Self::Bodies | Self::Faces => matches!(pickable, Pickable::Face { .. }),
             Self::Edges => matches!(pickable, Pickable::Edge { .. }),
             Self::Vertices => matches!(pickable, Pickable::Vertex { .. }),
             Self::SketchGeometry => matches!(
@@ -51,6 +60,7 @@ impl SelectionFilter {
     pub fn id(self) -> &'static str {
         match self {
             Self::Everything => "select.everything",
+            Self::Bodies => "select.bodies",
             Self::Faces => "select.faces",
             Self::Edges => "select.edges",
             Self::Vertices => "select.vertices",
@@ -61,6 +71,7 @@ impl SelectionFilter {
     pub fn title(self) -> &'static str {
         match self {
             Self::Everything => "Select anything",
+            Self::Bodies => "Select whole bodies only",
             Self::Faces => "Select faces only",
             Self::Edges => "Select edges only",
             Self::Vertices => "Select vertices only",
@@ -71,6 +82,7 @@ impl SelectionFilter {
     pub fn status(self) -> &'static str {
         match self {
             Self::Everything => "Selecting anything",
+            Self::Bodies => "Selecting whole bodies only",
             Self::Faces => "Selecting faces only",
             Self::Edges => "Selecting edges only",
             Self::Vertices => "Selecting vertices only",

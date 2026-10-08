@@ -113,8 +113,13 @@ paths:
   Activate picks the highlighted item as a click would and Enter adds the dimension of a single
   pick (`app-sketching.md`).
 - The selection filter (`SelectionFilter`, commands `select.*`, View › Selection filter) makes
-  `PickTable::best_hit` and the highlight keys skip every pickable but one kind (faces, edges,
-  vertices or sketch geometry), reference geometry included. It applies only while no sketch or
+  `PickTable::best_hit` and the highlight keys skip every pickable but one kind (whole bodies,
+  faces, edges, vertices or sketch geometry), reference geometry included. Bodies picks faces
+  but acts on the whole body: hover and the keyboard highlight light every face of it, a click,
+  Activate or a box (`ViewportState::whole_body_of`) selects, or with Shift or Ctrl toggles, all
+  its faces, which is how every tool already reads a body from its faces. Cycle the selection
+  priority (`select.priority`, View menu, palette) sets the filter to the next of body, face and
+  edge in one step, from any other filter to body. It applies only while no sketch or
   tool is open and no plane is being chosen (`ViewportState::filter_applies`), so tools keep
   picking what they need; the status bar names an active filter and its button clears it. It is
   kept for the session, not saved.

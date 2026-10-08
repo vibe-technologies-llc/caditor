@@ -128,7 +128,9 @@ pub enum Catch {
 impl Catch {
     pub fn of(filter: SelectionFilter) -> Self {
         match filter {
-            SelectionFilter::Everything | SelectionFilter::Faces => Self::Faces,
+            SelectionFilter::Everything | SelectionFilter::Bodies | SelectionFilter::Faces => {
+                Self::Faces
+            }
             SelectionFilter::Edges => Self::Edges,
             SelectionFilter::Vertices => Self::Vertices,
             SelectionFilter::SketchGeometry => Self::SketchGeometry,
