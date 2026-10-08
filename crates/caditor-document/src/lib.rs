@@ -3,6 +3,7 @@ mod blend;
 mod body_appearance;
 mod combine;
 mod datum;
+mod datum_construction;
 mod dependencies;
 mod describe;
 mod document;
@@ -47,10 +48,11 @@ pub use crate::{
     },
     combine::{Combine, CombineOperation},
     datum::{
-        AxisReference, Datum, DatumAxis, DatumKind, DatumPlane, DatumPoint, DatumResult,
-        PlaneReference, PlaneRotation, PlaneThrough, PointReference, PrincipalAxis,
-        PrincipalGeometry, PrincipalPlane, capitalized, describe_axis, describe_plane,
-        describe_point, describe_points, displayed_axis,
+        AxisReference, CurveStation, Datum, DatumAxis, DatumKind, DatumPlane, DatumPoint,
+        DatumResult, FaceTangent, PlaneReference, PlaneRotation, PlaneThrough, PointBy,
+        PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane, capitalized,
+        describe_axis, describe_curve, describe_plane, describe_point, describe_points,
+        displayed_axis,
     },
     dependencies::DependencyGraph,
     describe::{describe_edge, describe_origin, edge_faces, origin_feature},
@@ -115,6 +117,8 @@ mod body_appearance_tests;
 mod combine_tests;
 #[cfg(test)]
 mod cut_several_tests;
+#[cfg(test)]
+mod datum_construction_tests;
 #[cfg(test)]
 mod datum_point_tests;
 #[cfg(test)]

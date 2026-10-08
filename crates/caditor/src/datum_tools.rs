@@ -1,7 +1,7 @@
 use caditor_document::{
-    AxisReference, Datum, DatumAxis, DatumKind, DatumPlane, DatumPoint, DatumResult, Document,
-    Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, PlaneReference, PlaneRotation,
-    PlaneThrough, PointReference, PrincipalPlane, Transaction,
+    AxisReference, CurveStation, Datum, DatumAxis, DatumKind, DatumPlane, DatumPoint, DatumResult,
+    Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, PlaneReference,
+    PlaneRotation, PlaneThrough, PointBy, PointReference, PrincipalPlane, Transaction,
 };
 use caditor_kernel::{EdgeReference, FaceReference, vertex_names};
 
@@ -227,6 +227,12 @@ pub fn point_reference(model: &Model, pickable: Pickable, index: usize) -> Optio
             let state = sketch_placement::body_state_before(model, body, index).ok()?;
             PointReference::capture_centre(body, state, reference.resolve(state).ok()?)
         }
+        Pickable::Face { body, face } => {
+            let shown = bodies::shown(model.evaluation(), body)?;
+            let reference = FaceReference::capture(&shown.solid, bodies::find_face(shown, face)?)?;
+            let state = sketch_placement::body_state_before(model, body, index).ok()?;
+            PointReference::capture_surface_centre(body, state, reference.resolve(state).ok()?)
+        }
         Pickable::SketchEntity { feature, entity } if comes_before(document, feature, index) => {
             let sketch = document.feature(feature)?.kind.sketch()?;
             sketch.point(entity)?;
@@ -237,6 +243,27 @@ pub fn point_reference(model: &Model, pickable: Pickable, index: usize) -> Optio
         }
         _ => None,
     }
+}
+
+fn curve_station(model: &Model, pickable: Pickable, index: usize) -> Option<CurveStation> {
+    let Pickable::Edge { body, edge } = pickable else {
+        return None;
+    };
+    let shown = bodies::shown(model.evaluation(), body)?;
+    let reference = EdgeReference::capture(&shown.solid, bodies::find_edge(shown, edge)?)?;
+    let state = sketch_placement::body_state_before(model, body, index).ok()?;
+    CurveStation::capture(
+        body,
+        state,
+        reference.resolve(state).ok()?,
+        model.length_unit().default_length(0.0),
+    )
+}
+
+fn only_pickable(selection: &Selection) -> Option<Pickable> {
+    let mut picked = selection.iter();
+    let first = picked.next()?;
+    picked.next().is_none().then_some(first)
 }
 
 struct Chosen {
@@ -303,14 +330,22 @@ fn why_unusable(model: &Model, pickable: Pickable, index: usize) -> Option<&'sta
 }
 
 pub const PLANE_CHOICES: &str = "Select a plane or flat face to offset (and an axis to turn about), \
-                             three points, two planes to lie midway between, or an axis and a \
-                             point";
+                             three points, two planes to lie midway between, an axis and a point, \
+                             two lines in one plane, or a round or curved edge to stand square to";
 
 pub fn plane_from_selection(
     model: &Model,
     selection: &Selection,
     index: usize,
 ) -> Result<Datum, &'static str> {
+    if let Some(station) = only_pickable(selection)
+        .filter(|pickable| axis_reference(model, *pickable, index).is_none())
+        .and_then(|pickable| curve_station(model, pickable, index))
+    {
+        return Ok(Datum::PlaneThrough(PlaneThrough::SquareToCurve(Box::new(
+            station,
+        ))));
+    }
     let Chosen {
         planes,
         axes,
@@ -321,6 +356,12 @@ pub fn plane_from_selection(
         return Err(reason);
     }
     match (planes.as_slice(), axes.as_slice(), points.as_slice()) {
+        ([], [first, second], []) => {
+            return Ok(Datum::PlaneThrough(PlaneThrough::Lines(
+                first.clone(),
+                second.clone(),
+            )));
+        }
         ([], [], [first, second, third]) => {
             return Ok(Datum::PlaneThrough(PlaneThrough::Points([
                 first.clone(),
@@ -395,11 +436,35 @@ pub fn axis_from_selection(
     }
 }
 
+pub const POINT_CHOICES: &str = "Select one corner, round edge, sphere or torus, sketch point or \
+                                 datum point to place it at, a straight or curved edge to measure \
+                                 along, two lines that cross, a line and a plane, or three planes";
+
 pub fn point_from_selection(
     model: &Model,
     selection: &Selection,
     index: usize,
-) -> Result<DatumPoint, &'static str> {
+) -> Result<Datum, &'static str> {
+    let unit = model.length_unit();
+    let placed = |base| {
+        Datum::Point(DatumPoint {
+            base,
+            offset: [0.0; 3].map(|value| unit.default_length(value)),
+        })
+    };
+    if let Some(pickable) = only_pickable(selection) {
+        if matches!(pickable, Pickable::Face { .. })
+            && let Some(centre) = point_reference(model, pickable, index)
+        {
+            return Ok(placed(centre));
+        }
+        if matches!(pickable, Pickable::Edge { .. })
+            && point_reference(model, pickable, index).is_none()
+            && let Some(station) = curve_station(model, pickable, index)
+        {
+            return Ok(Datum::PointBy(PointBy::Along(Box::new(station))));
+        }
+    }
     let Chosen {
         planes,
         axes,
@@ -409,14 +474,25 @@ pub fn point_from_selection(
     if let Some(reason) = unusable {
         return Err(reason);
     }
-    if !planes.is_empty() || !axes.is_empty() || points.len() > 1 {
-        return Err("Select one corner, round edge, sketch point or datum point to place it at");
+    match (planes.as_slice(), axes.as_slice(), points.as_slice()) {
+        ([], [first, second], []) => Ok(Datum::PointBy(PointBy::LinesCross(
+            first.clone(),
+            second.clone(),
+        ))),
+        ([plane], [axis], []) => Ok(Datum::PointBy(PointBy::AxisAndPlane(
+            axis.clone(),
+            plane.clone(),
+        ))),
+        ([first, second, third], [], []) => Ok(Datum::PointBy(PointBy::ThreePlanes([
+            first.clone(),
+            second.clone(),
+            third.clone(),
+        ]))),
+        ([], [], [] | [_]) => Ok(placed(
+            points.into_iter().next().unwrap_or(PointReference::Origin),
+        )),
+        _ => Err(POINT_CHOICES),
     }
-    let unit = model.length_unit();
-    Ok(DatumPoint {
-        base: points.into_iter().next().unwrap_or(PointReference::Origin),
-        offset: [0.0; 3].map(|value| unit.default_length(value)),
-    })
 }
 
 pub fn create(document: &Document, datum: Datum) -> (Transaction, FeatureId) {

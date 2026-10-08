@@ -331,8 +331,8 @@ paths:
 ## Datums
 
 - Points are taken from the selection by `datum_tools::point_reference`: the origin, a datum point,
-  a corner, the centre of a round edge or a sketch point made before the datum; a sketch line is an
-  axis (`axis_reference`).
+  a corner, the centre of a round edge, the centre of a spherical or toroidal face or a sketch
+  point made before the datum; a sketch line is an axis (`axis_reference`).
 - Plane starts from the selected plane or flat face (XY otherwise), turned about the selected
   axis, straight edge or round face if any, else offset; three selected points make a plane
   through them, two planes one midway between them, an axis and a point one through both. Axis
@@ -340,9 +340,21 @@ paths:
   or flat faces meet, through two points, or square to a plane through a point. Point (Alt+Shift+P)
   sits at the one selected point, else the origin, with zero offsets. A selected face, edge or
   corner giving nothing (curved, made later, not recomputed) refuses them with that reason.
+- Selections that give the constructed forms (`document.md`): Plane with two axes or straight
+  edges selected passes through both, and with one edge that is not straight (round or curved) and
+  nothing else stands square to it at 0 mm along (`PlaneThrough::SquareToCurve`); Point with two
+  axes or straight edges selected sits where they cross, with an axis and a plane where they meet,
+  with three planes where they meet, with one edge that is not round at 0 mm along it
+  (`PointBy::Along`) and with one sphere or torus face at its centre. Combinations keeping an
+  older meaning (an axis and a plane turn a plane; one round edge is a centre) keep it.
 - A plane through references, a point and the new axis forms show a Defined by (or At) row
   re-chosen from the selection, refused while nothing is selected; a plane through an axis and a
-  point switches between Contains it and Square to it; a point has Offset X, Y and Z fields.
+  point switches between Contains it and Square to it, and for a round face's axis also Tangent to
+  it (`PlaneThrough::Tangent`, the point picking the side), going back keeping the face and point;
+  a plane square to an edge and a point along an edge have a Distance along field; a point at a
+  round edge's centre switches to Along it; a point has Offset X, Y and Z fields. Choosing again
+  from the selection keeps the form a panel was switched to and its distance (`keeping_plane_mode`,
+  `keeping_point_mode`).
   Choosing them in the view holds up to two clicks (`Picking::pending`) until the selection makes
   one, the prompt saying what is still wanted.
 - The new feature opens; its panel has reference pickers for base and rotation axis and fields for

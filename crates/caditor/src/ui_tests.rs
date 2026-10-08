@@ -11939,16 +11939,20 @@ fn a_curved_face_or_a_round_edge_says_why_it_cannot_be_used() {
     harness.select([rim]);
     let end = harness.document().features().len();
     let selection = harness.workspace.viewport.selection();
-    assert_eq!(
+    assert!(matches!(
         crate::datum_tools::plane_from_selection(&harness.model, selection, end),
-        Err(crate::datum_tools::PLANE_CHOICES)
-    );
+        Ok(caditor_document::Datum::PlaneThrough(
+            caditor_document::PlaneThrough::SquareToCurve(_)
+        ))
+    ));
     assert!(matches!(
         crate::datum_tools::point_from_selection(&harness.model, selection, end),
-        Ok(caditor_document::DatumPoint {
-            base: caditor_document::PointReference::Centre { .. },
-            ..
-        })
+        Ok(caditor_document::Datum::Point(
+            caditor_document::DatumPoint {
+                base: caditor_document::PointReference::Centre { .. },
+                ..
+            }
+        ))
     ));
 }
 

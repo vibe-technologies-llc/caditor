@@ -3588,6 +3588,159 @@ fn an_unreadable_point_reference_falls_back_and_is_reported() {
     assert!(matches!(plane.kind, FeatureKind::Datum(Datum::Plane(_))));
 }
 
+fn constructed_datums_model() -> (Document, Transaction) {
+    use caditor_document::{
+        AxisReference, CurveStation, Datum, DatumPoint, FaceTangent, PlaneReference, PlaneThrough,
+        PointBy, PointReference, PrincipalAxis, PrincipalPlane,
+    };
+    use caditor_kernel::{EdgeName, EdgeReference, FaceName, FaceReference, VertexName};
+    let (mut document, base, _) = solid_model();
+    let edge = || {
+        Box::new(EdgeReference::new(
+            EdgeName::from_digest(0xed),
+            [FaceName::from_digest(1), FaceName::from_digest(2)],
+            [VertexName::from_digest(3), VertexName::from_digest(4)],
+        ))
+    };
+    let face = || FaceReference::new(FaceName::from_digest(0xfa), None, Vec::new());
+    let station = |distance: &str| CurveStation {
+        body: base,
+        edge: edge(),
+        distance: Expression::parse_stored(distance).unwrap(),
+    };
+    let mut transaction = document.transaction("Constructed datums");
+    transaction.add_feature(
+        "Plane 1",
+        FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::Tangent(Box::new(
+            FaceTangent {
+                body: base,
+                face: face(),
+                toward: PointReference::Origin,
+            },
+        )))),
+    );
+    transaction.add_feature(
+        "Plane 2",
+        FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::SquareToCurve(Box::new(
+            station("3 mm"),
+        )))),
+    );
+    transaction.add_feature(
+        "Plane 3",
+        FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::Lines(
+            AxisReference::Principal(PrincipalAxis::X),
+            AxisReference::Edge {
+                body: base,
+                edge: edge(),
+            },
+        ))),
+    );
+    transaction.add_feature(
+        "Point 1",
+        FeatureKind::Datum(Datum::PointBy(PointBy::LinesCross(
+            AxisReference::Principal(PrincipalAxis::X),
+            AxisReference::Principal(PrincipalAxis::Y),
+        ))),
+    );
+    transaction.add_feature(
+        "Point 2",
+        FeatureKind::Datum(Datum::PointBy(PointBy::AxisAndPlane(
+            AxisReference::Principal(PrincipalAxis::Z),
+            PlaneReference::Principal(PrincipalPlane::Xy),
+        ))),
+    );
+    transaction.add_feature(
+        "Point 3",
+        FeatureKind::Datum(Datum::PointBy(PointBy::ThreePlanes([
+            PlaneReference::Principal(PrincipalPlane::Xy),
+            PlaneReference::Principal(PrincipalPlane::Xz),
+            PlaneReference::Principal(PrincipalPlane::Yz),
+        ]))),
+    );
+    transaction.add_feature(
+        "Point 4",
+        FeatureKind::Datum(Datum::PointBy(PointBy::Along(Box::new(station("-2 mm"))))),
+    );
+    transaction.add_feature(
+        "Point 5",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: PointReference::SurfaceCentre {
+                body: base,
+                face: face(),
+            },
+            offset: [0, 1, 2].map(|_| Expression::parse_stored("0 mm").unwrap()),
+        })),
+    );
+    let add = transaction.finish();
+    document.apply(add.clone()).unwrap();
+    (document, add)
+}
+
+#[test]
+fn constructed_planes_and_points_are_kinds_older_readers_report_and_read_back() {
+    let (document, add) = constructed_datums_model();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("plane_construction", "plane_built"));
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&add)).unwrap());
+
+    assert!(
+        text.contains("\"plane_construction\":{\"tangent\":{"),
+        "{text}"
+    );
+    assert!(text.contains("\"plane_construction\":{\"square_to_curve\":{"));
+    assert!(text.contains("\"plane_construction\":{\"lines\":[{\"principal\":\"x\"}"));
+    assert!(text.contains("\"point_construction\":{\"lines_cross\":["));
+    assert!(text.contains("\"point_construction\":{\"axis_and_plane\":{"));
+    assert!(text.contains("\"point_construction\":{\"three_planes\":["));
+    assert!(text.contains("\"point_construction\":{\"along\":{"));
+    assert!(text.contains("{\"surface_centre\":{\"body\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(
+        older
+            .document
+            .features()
+            .all(|feature| !feature.name.starts_with("Plane"))
+    );
+    assert!(!older.issues.is_empty());
+    assert_eq!(format::restore_transaction(journaled), Some(add));
+}
+
+#[test]
+fn an_unreadable_constructed_datum_falls_back_and_is_reported() {
+    use caditor_document::Datum;
+    let (document, _) = constructed_datums_model();
+    let text = encode(&document).unwrap();
+
+    let station = decode_text(&text.replacen("\"distance\":\"3 mm\"", "\"distance\":\"((\"", 1));
+    let tangent = decode_text(&text.replacen(
+        "\"toward\":\"origin\"",
+        "\"toward\":{\"vertex\":{\"body\":1,\"vertex\":\"zz\"}}",
+        1,
+    ));
+
+    assert!(issues_mention(
+        &station,
+        "The distance of “Plane 2” could not be read, so it was set to 0 mm."
+    ));
+    assert!(issues_mention(
+        &tangent,
+        "What “Plane 1” is placed by could not be read, so it is the XY plane."
+    ));
+    assert!(matches!(
+        tangent
+            .document
+            .features()
+            .find(|feature| feature.name == "Plane 1")
+            .unwrap()
+            .kind,
+        FeatureKind::Datum(Datum::Plane(_))
+    ));
+}
+
 #[test]
 fn a_sketch_on_a_plane_that_is_gone_stays_on_it_as_saved() {
     let (document, plane, sketch) = datum_model();

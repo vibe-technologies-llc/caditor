@@ -134,11 +134,15 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
                  point"
             ),
             Some(Datum::PlaneThrough(_)) => {
-                "Click three points, two planes to lie midway between, or an axis and a point"
+                "Click three points, two planes to lie midway between, an axis and a point, two \
+                 lines in one plane, or a round or curved edge to stand square to"
                     .to_owned()
             }
-            Some(Datum::Point(_)) => {
-                "Click a corner, round edge, sketch point or datum point to place it at".to_owned()
+            Some(Datum::Point(_) | Datum::PointBy(_)) => {
+                "Click a corner, round edge, sphere or torus, sketch point or datum point to \
+                 place it at, a straight or curved edge to measure along, or lines and planes \
+                 that meet"
+                    .to_owned()
             }
             Some(Datum::Plane(_)) | None => "Click a plane or flat face to start from".to_owned(),
         },
@@ -219,6 +223,7 @@ fn may_hold(model: &Model, picking: Picking, pickable: Pickable) -> bool {
     match datum(model, picking.feature) {
         Some(Datum::Axis(_)) => picking.held_count() == 0 && (plane() || point()),
         Some(Datum::PlaneThrough(_)) => plane() || axis() || point(),
+        Some(Datum::PointBy(_)) => plane() || axis() || point(),
         Some(Datum::Plane(_) | Datum::Point(_)) | None => false,
     }
 }

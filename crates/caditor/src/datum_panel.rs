@@ -1,7 +1,8 @@
 use caditor_document::{
-    AxisReference, Datum, DatumAxis, DatumPlane, DatumPoint, Document, Feature, FeatureId,
-    PlaneReference, PlaneRotation, PlaneThrough, Transaction, capitalized, describe_axis,
-    describe_plane, describe_point, describe_points,
+    AxisReference, CurveStation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, FaceTangent,
+    Feature, FeatureId, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointReference,
+    Transaction, capitalized, describe_axis, describe_curve, describe_origin, describe_plane,
+    describe_point, describe_points,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -21,6 +22,9 @@ pub const AXIS_DESCRIPTION: &str = "A reference axis to revolve, pattern or turn
 pub const POINT_DESCRIPTION: &str = "A reference point to place planes and axes through";
 const CONTAINS_AXIS: &str = "Contains it";
 const SQUARE_TO_AXIS: &str = "Square to it";
+const TANGENT_TO_FACE: &str = "Tangent to it";
+const CENTRE_OF_EDGE: &str = "Its centre";
+const ALONG_THE_EDGE: &str = "Along it";
 const OFFSET_AXES: [(&str, &str); 3] = [
     ("Offset X", "offset-x"),
     ("Offset Y", "offset-y"),
@@ -77,14 +81,15 @@ impl Chooser<'_> {
                 })),
                 None => Err("Select a plane or flat face made before this plane"),
             },
-            Datum::PlaneThrough(_) if self.selection.is_empty() => {
-                Err("Select three points, two planes, or an axis and a point")
-            }
-            Datum::PlaneThrough(_) => {
-                match datum_tools::plane_from_selection(self.model, self.selection, self.index) {
-                    Ok(chosen) if &chosen == datum => Err("It already follows the selection"),
-                    Ok(chosen) => Ok(chosen),
-                    Err(reason) => Err(reason),
+            Datum::PlaneThrough(_) if self.selection.is_empty() => Err(
+                "Select three points, two planes, an axis and a point, two lines or a curved edge",
+            ),
+            Datum::PlaneThrough(held) => {
+                let chosen =
+                    datum_tools::plane_from_selection(self.model, self.selection, self.index)?;
+                match keeping_plane_mode(held, chosen) {
+                    chosen if &chosen == datum => Err("It already follows the selection"),
+                    chosen => Ok(chosen),
                 }
             }
             Datum::Axis(axis) => {
@@ -94,19 +99,27 @@ impl Chooser<'_> {
                     Err(reason) => Err(reason),
                 }
             }
-            Datum::Point(_) if self.selection.is_empty() => {
+            Datum::Point(_) | Datum::PointBy(_) if self.selection.is_empty() => {
                 Err("Select a corner, round edge, sketch point or datum point")
             }
             Datum::Point(point) => {
-                match datum_tools::point_from_selection(self.model, self.selection, self.index) {
-                    Ok(chosen) if chosen.base == point.base => {
+                match datum_tools::point_from_selection(self.model, self.selection, self.index)? {
+                    Datum::Point(chosen) if chosen.base == point.base => {
                         Err("It already sits at the selection")
                     }
-                    Ok(chosen) => Ok(Datum::Point(DatumPoint {
+                    Datum::Point(chosen) => Ok(Datum::Point(DatumPoint {
                         base: chosen.base,
                         offset: point.offset.clone(),
                     })),
-                    Err(reason) => Err(reason),
+                    chosen => Ok(chosen),
+                }
+            }
+            Datum::PointBy(held) => {
+                let chosen =
+                    datum_tools::point_from_selection(self.model, self.selection, self.index)?;
+                match keeping_point_mode(held, chosen) {
+                    chosen if &chosen == datum => Err("It already follows the selection"),
+                    chosen => Ok(chosen),
                 }
             }
         }
@@ -138,6 +151,40 @@ impl Chooser<'_> {
         datum
             .map_err(str::to_owned)
             .and_then(|datum| self.change(datum))
+    }
+}
+
+fn keeping_plane_mode(held: &PlaneThrough, chosen: Datum) -> Datum {
+    match (held, chosen) {
+        (
+            PlaneThrough::Tangent(_),
+            Datum::PlaneThrough(PlaneThrough::AxisAndPoint(
+                AxisReference::Face { body, face },
+                toward,
+            )),
+        ) => Datum::PlaneThrough(PlaneThrough::Tangent(Box::new(FaceTangent {
+            body,
+            face,
+            toward,
+        }))),
+        (
+            PlaneThrough::SquareToCurve(held),
+            Datum::PlaneThrough(PlaneThrough::SquareToCurve(mut chosen)),
+        ) => {
+            chosen.distance = held.distance.clone();
+            Datum::PlaneThrough(PlaneThrough::SquareToCurve(chosen))
+        }
+        (_, chosen) => chosen,
+    }
+}
+
+fn keeping_point_mode(held: &PointBy, chosen: Datum) -> Datum {
+    match (held, chosen) {
+        (PointBy::Along(held), Datum::PointBy(PointBy::Along(mut chosen))) => {
+            chosen.distance = held.distance.clone();
+            Datum::PointBy(PointBy::Along(chosen))
+        }
+        (_, chosen) => chosen,
     }
 }
 
@@ -400,10 +447,29 @@ impl Panel<'_> {
             "Pass through the three selected points, lie midway between the two selected \
              planes, or pass through the selected axis and point",
         );
-        let (axis, point, square) = match through {
-            PlaneThrough::AxisAndPoint(axis, point) => (axis, point, false),
-            PlaneThrough::NormalTo(axis, point) => (axis, point, true),
-            PlaneThrough::Points(_) | PlaneThrough::Midway(..) => return,
+        let (axis, point, mode) = match through {
+            PlaneThrough::AxisAndPoint(axis, point) => (axis.clone(), point.clone(), 0),
+            PlaneThrough::NormalTo(axis, point) => (axis.clone(), point.clone(), 1),
+            PlaneThrough::Tangent(tangent) => (
+                AxisReference::Face {
+                    body: tangent.body,
+                    face: tangent.face.clone(),
+                },
+                tangent.toward.clone(),
+                2,
+            ),
+            PlaneThrough::SquareToCurve(station) => {
+                self.station_row(ui, station, |distance| {
+                    Datum::PlaneThrough(PlaneThrough::SquareToCurve(Box::new(CurveStation {
+                        distance,
+                        ..station.as_ref().clone()
+                    })))
+                });
+                return;
+            }
+            PlaneThrough::Points(_) | PlaneThrough::Midway(..) | PlaneThrough::Lines(..) => {
+                return;
+            }
         };
         let choices = [
             (
@@ -414,17 +480,70 @@ impl Panel<'_> {
                 SQUARE_TO_AXIS,
                 "The plane stands square to the axis at the point",
             ),
+            (
+                TANGENT_TO_FACE,
+                "The plane touches the round face on the side of the point",
+            ),
         ];
-        let chosen = widgets::property(ui, "Axis", |ui| {
-            widgets::segmented(ui, &choices, usize::from(square))
-        });
-        let flipped = match chosen {
-            Some(0) => PlaneThrough::AxisAndPoint(axis.clone(), point.clone()),
-            Some(_) => PlaneThrough::NormalTo(axis.clone(), point.clone()),
-            None => return,
+        let tangent_offered = matches!(axis, AxisReference::Face { .. });
+        let offered: Vec<(&str, &str)> = choices
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| *index < 2 || tangent_offered)
+            .map(|(_, choice)| choice)
+            .collect();
+        let chosen = widgets::property(ui, "Axis", |ui| widgets::segmented(ui, &offered, mode));
+        let switched = match (chosen, &axis) {
+            (Some(0), _) => PlaneThrough::AxisAndPoint(axis, point),
+            (Some(1), _) => PlaneThrough::NormalTo(axis, point),
+            (Some(_), AxisReference::Face { body, face }) => {
+                PlaneThrough::Tangent(Box::new(FaceTangent {
+                    body: *body,
+                    face: face.clone(),
+                    toward: point,
+                }))
+            }
+            _ => return,
         };
-        let change = self.change(Datum::PlaneThrough(flipped));
+        let change = self.change(Datum::PlaneThrough(switched));
         self.apply(change);
+    }
+
+    fn station_row(
+        &mut self,
+        ui: &mut Ui,
+        station: &CurveStation,
+        rebuild: impl Fn(Expression) -> Datum,
+    ) {
+        self.expression(
+            ui,
+            "Distance along",
+            "distance",
+            &station.distance,
+            Dimension::LENGTH,
+            rebuild,
+        );
+    }
+
+    fn point_by_rows(&mut self, ui: &mut Ui, by: &PointBy) {
+        let document = self.model.document();
+        feature_fields::description_row(ui, POINT_DESCRIPTION);
+        self.defined_by_row(
+            ui,
+            "At",
+            describe_point_by(document, by),
+            &Datum::PointBy(by.clone()),
+            "Sit where the two selected lines cross, the selected line meets the selected plane, \
+             the three selected planes meet, or a distance along the selected edge",
+        );
+        if let PointBy::Along(station) = by {
+            self.station_row(ui, station, |distance| {
+                Datum::PointBy(PointBy::Along(Box::new(CurveStation {
+                    distance,
+                    ..station.as_ref().clone()
+                })))
+            });
+        }
     }
 
     fn point_rows(&mut self, ui: &mut Ui, point: &DatumPoint) {
@@ -437,6 +556,24 @@ impl Panel<'_> {
             &Datum::Point(point.clone()),
             "Sit at the selected corner, round edge's centre, sketch point or datum point",
         );
+        if let PointReference::Centre { body, edge } = &point.base {
+            let choices = [
+                (CENTRE_OF_EDGE, "Sit at the centre of the round edge"),
+                (
+                    ALONG_THE_EDGE,
+                    "Sit a distance along the edge from where it starts",
+                ),
+            ];
+            let chosen = widgets::property(ui, "Edge", |ui| widgets::segmented(ui, &choices, 0));
+            if chosen == Some(1) {
+                let change = self.change(Datum::PointBy(PointBy::Along(Box::new(CurveStation {
+                    body: *body,
+                    edge: edge.clone(),
+                    distance: self.model.length_unit().default_length(0.0),
+                }))));
+                self.apply(change);
+            }
+        }
         for (index, (caption, salt)) in OFFSET_AXES.into_iter().enumerate() {
             let Some(offset) = point.offset.get(index) else {
                 continue;
@@ -476,6 +613,41 @@ fn describe_through(document: &Document, through: &PlaneThrough) -> String {
             describe_axis(document, axis),
             describe_point(document, point)
         ),
+        PlaneThrough::Tangent(tangent) => format!(
+            "Tangent to {} on the side of {}",
+            describe_origin(document, tangent.face.origin()),
+            describe_point(document, &tangent.toward)
+        ),
+        PlaneThrough::SquareToCurve(station) => {
+            format!("Square to {}", describe_curve(document, station))
+        }
+        PlaneThrough::Lines(first, second) => format!(
+            "Through {} and {}",
+            describe_axis(document, first),
+            describe_axis(document, second)
+        ),
+    }
+}
+
+fn describe_point_by(document: &Document, by: &PointBy) -> String {
+    match by {
+        PointBy::LinesCross(first, second) => format!(
+            "Where {} crosses {}",
+            describe_axis(document, first),
+            describe_axis(document, second)
+        ),
+        PointBy::AxisAndPlane(axis, plane) => format!(
+            "Where {} meets {}",
+            describe_axis(document, axis),
+            describe_plane(document, plane)
+        ),
+        PointBy::ThreePlanes([first, second, third]) => format!(
+            "Where {}, {} and {} meet",
+            describe_plane(document, first),
+            describe_plane(document, second),
+            describe_plane(document, third)
+        ),
+        PointBy::Along(station) => format!("Along {}", describe_curve(document, station)),
     }
 }
 
@@ -500,5 +672,6 @@ pub fn show(
         Datum::PlaneThrough(through) => panel.plane_through_rows(ui, through),
         Datum::Axis(axis) => panel.axis_rows(ui, axis),
         Datum::Point(point) => panel.point_rows(ui, point),
+        Datum::PointBy(by) => panel.point_by_rows(ui, by),
     });
 }
