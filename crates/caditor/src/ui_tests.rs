@@ -15249,6 +15249,9 @@ fn trim_and_extend_act_on_the_keyboard_highlight() {
     assert_eq!(harness.tool(), Some(Tool::Extend));
     harness.key(Key::N, Modifiers::NONE);
     harness.frame();
+    assert!(harness.shows(&format!("Extend {line_label} to Vertical axis")));
+    harness.key(Key::N, Modifiers::NONE);
+    harness.frame();
     assert!(harness.shows(&format!("Extend {line_label} to {circle_label}")));
     harness.key(Key::Space, Modifiers::NONE);
     harness.frame();
@@ -17162,4 +17165,110 @@ fn the_hole_of_a_selected_wall_joins_the_selection_and_a_flat_face_is_no_hole() 
     assert_eq!(hole, walls.len());
     assert_eq!(selected_of(&harness, is_face), 1);
     assert!(harness.shows_containing(crate::body_selection::NO_HOLE));
+}
+
+#[test]
+fn trim_cuts_a_line_back_to_a_sketch_axis_and_joins_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(-30.0, 20.0), Point2::new(30.0, 20.0));
+    let line_label = sketch.entity_label(line);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    harness.use_tool(Key::K);
+    assert_eq!(harness.tool(), Some(Tool::Trim));
+    harness.point_at(Point2::new(-15.0, 20.0));
+    assert!(harness.shows(&format!("Trim {line_label} back to Vertical axis")));
+    harness.click_at(Point2::new(-15.0, 20.0));
+
+    let sketch = harness.sketch(feature);
+    let (start, end) = line_ends(sketch, line);
+    assert!(near(sketch.point(start).unwrap(), Point2::new(0.0, 20.0)));
+    assert!(near(sketch.point(end).unwrap(), Point2::new(30.0, 20.0)));
+    assert_eq!(
+        constraints_of_kind(sketch, "Coincident"),
+        vec![Constraint::Coincident(start, EntityId::VERTICAL_AXIS)]
+    );
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Trim {line_label}").as_str())
+    );
+
+    harness.settle();
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn extend_reaches_a_sketch_axis_and_the_axis_itself_is_not_offered() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 20.0), Point2::new(30.0, 20.0));
+    let line_label = sketch.entity_label(line);
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.use_tool(Key::J);
+    harness.point_at(Point2::new(12.0, 20.0));
+    assert!(harness.shows(&format!("Extend {line_label} to Vertical axis")));
+    harness.click_at(Point2::new(12.0, 20.0));
+
+    let sketch = harness.sketch(feature);
+    let (start, _) = line_ends(sketch, line);
+    assert!(near(sketch.point(start).unwrap(), Point2::new(0.0, 20.0)));
+    assert_eq!(
+        constraints_of_kind(sketch, "Coincident"),
+        vec![Constraint::Coincident(start, EntityId::VERTICAL_AXIS)]
+    );
+    harness.settle();
+
+    harness.point_at(Point2::new(40.0, 0.0));
+    assert!(!harness.shows("Extend Horizontal axis"));
+    assert!(!harness.shows("Trim Horizontal axis"));
+}
+
+#[test]
+fn trim_cuts_a_line_where_a_collinear_line_overlaps_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 20.0), Point2::new(70.0, 20.0));
+    let other = sketch.add_line(Point2::new(30.0, 20.0), Point2::new(50.0, 20.0));
+    let [line_label, other_label] = [line, other].map(|id| sketch.entity_label(id));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+    let (other_start, other_end) = line_ends(&before, other);
+
+    harness.use_tool(Key::K);
+    harness.point_at(Point2::new(40.0, 20.0));
+    assert!(harness.shows(&format!("Trim {line_label} back to {other_label}")));
+    harness.click_at(Point2::new(40.0, 20.0));
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    assert_eq!(lines.len(), 3);
+    let piece = lines
+        .into_iter()
+        .find(|id| ![line, other].contains(id))
+        .unwrap();
+    let (start, near_end) = line_ends(sketch, line);
+    let (far_start, end) = line_ends(sketch, piece);
+    assert!(near(sketch.point(start).unwrap(), Point2::new(10.0, 20.0)));
+    assert!(near(
+        sketch.point(near_end).unwrap(),
+        Point2::new(30.0, 20.0)
+    ));
+    assert!(near(
+        sketch.point(far_start).unwrap(),
+        Point2::new(50.0, 20.0)
+    ));
+    assert!(near(sketch.point(end).unwrap(), Point2::new(70.0, 20.0)));
+    let joints = constraints_of_kind(sketch, "Coincident");
+    assert!(joints.contains(&Constraint::Coincident(near_end, other_start)));
+    assert!(joints.contains(&Constraint::Coincident(far_start, other_end)));
+
+    harness.settle();
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
 }

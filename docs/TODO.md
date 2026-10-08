@@ -138,8 +138,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   a constraint keeping it there, as the sketch has no centroid or point-on-a-direction constraint;
   an odd outline with arcs has no centre at all. A drag snaps only its handle (the moving point
   nearest the press), not whichever moving point comes near a target.
-- [medium · hard] Splines cannot be trimmed or extended (`TrimError::Spline`), trim ignores
-  collinear and co-circular overlaps as cutters, and the sketch axes are not cutters. Offset takes
+- [medium · hard] Splines cannot be trimmed or extended (`TrimError::Spline`). Offset takes
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.

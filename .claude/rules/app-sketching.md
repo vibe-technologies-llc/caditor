@@ -207,7 +207,10 @@ paths:
   hold the tools' UI state; geometry and constraint rules are the sketch's (`sketch.md`). Each
   frame the tool aims through the displayed sketch, previews the result and puts its words, or
   why not, where hover descriptions go. Trim and Extend aim at splines too, so they can be refused
-  in words.
+  in words. The sketch axes and collinear or co-circular overlaps cut and bound them like any
+  curve (`sketch.md`): the words name "Vertical axis" or the overlapping curve, the preview marks
+  the cuts and the axis or overlapping curve is highlighted; the axes themselves are never aimed
+  at.
 - A click acts at once, without waiting for a GPU pick: one transaction built by `reshape_sketch`
   from a working copy (the definition with the displayed positions), settled first like any sketch
   transaction. A refusal is a notice, or for a typed value the field's error, and the tool stays

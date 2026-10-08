@@ -474,3 +474,90 @@ pub fn capitalized(text: &str) -> String {
         None => String::new(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use caditor_geometry::Plane;
+
+    use super::*;
+
+    fn hovering(sketch: &Sketch, tool: Tool, curve: EntityId, near: Point2) -> Trimming {
+        Trimming {
+            hover: Some(Aim::of(sketch, tool, curve, near)),
+            ..Trimming::default()
+        }
+    }
+
+    #[test]
+    fn a_trim_against_an_axis_previews_the_piece_removed_and_the_cut_marked() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(-30.0, 20.0), Point2::new(30.0, 20.0));
+        let trimming = hovering(&sketch, Tool::Trim, line, Point2::new(-15.0, 20.0));
+
+        let preview = trimming.preview(Faceting::within(0.01));
+        let aim = trimming.aim().unwrap();
+
+        assert_eq!(
+            aim.label(&sketch),
+            format!("Trim {} back to Vertical axis", sketch.entity_label(line))
+        );
+        assert_eq!(
+            preview.removed,
+            vec![vec![Point2::new(-30.0, 20.0), Point2::new(0.0, 20.0)]]
+        );
+        assert_eq!(preview.points, vec![Point2::new(0.0, 20.0)]);
+        assert_eq!(
+            trimming.highlighted_entities(),
+            vec![EntityId::VERTICAL_AXIS]
+        );
+    }
+
+    #[test]
+    fn a_trim_across_a_collinear_overlap_previews_the_overlapped_piece() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(0.0, 20.0), Point2::new(60.0, 20.0));
+        let other = sketch.add_line(Point2::new(20.0, 20.0), Point2::new(40.0, 20.0));
+        let trimming = hovering(&sketch, Tool::Trim, line, Point2::new(30.0, 20.0));
+
+        let preview = trimming.preview(Faceting::within(0.01));
+        let aim = trimming.aim().unwrap();
+
+        assert_eq!(
+            aim.label(&sketch),
+            format!(
+                "Trim {} back to {}",
+                sketch.entity_label(line),
+                sketch.entity_label(other)
+            )
+        );
+        assert_eq!(
+            preview.removed,
+            vec![vec![Point2::new(20.0, 20.0), Point2::new(40.0, 20.0)]]
+        );
+        assert_eq!(
+            preview.points,
+            vec![Point2::new(20.0, 20.0), Point2::new(40.0, 20.0)]
+        );
+        assert_eq!(trimming.highlighted_entities(), vec![other]);
+    }
+
+    #[test]
+    fn an_extension_to_an_axis_is_previewed_and_named() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(10.0, 5.0), Point2::new(20.0, 5.0));
+        let trimming = hovering(&sketch, Tool::Extend, line, Point2::new(11.0, 5.0));
+
+        let preview = trimming.preview(Faceting::within(0.01));
+        let aim = trimming.aim().unwrap();
+
+        assert_eq!(
+            aim.label(&sketch),
+            format!("Extend {} to Vertical axis", sketch.entity_label(line))
+        );
+        assert_eq!(preview.snap, Some(Point2::new(0.0, 5.0)));
+        assert_eq!(
+            trimming.highlighted_entities(),
+            vec![EntityId::VERTICAL_AXIS]
+        );
+    }
+}

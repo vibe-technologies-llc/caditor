@@ -106,9 +106,16 @@ Trim, extend, offset, mirror, fillet, chamfer and split work on a copy and repla
 succeeded. A changed curve is removed and inserted again under the same ID (`restructure`), with
 every constraint still true of it. Joints are judged by a `TOLERANCE` relative to the extent.
 
-- Trim and extend (`trim.rs`): cutters and targets are every other curve, construction curves and
-  splines included; reference axes and lone points are not. A crossing at a curve's own end is a
-  joint, not a cut. Splines cannot themselves be trimmed or extended.
+- Trim and extend (`trim.rs`): cutters are every other curve, construction curves and splines
+  included, and the two reference axes as the infinite lines they are (`Cutter::Axis`, the origin
+  and lone points are not cutters); targets are every curve but those, the axes never trimmed or
+  extended (`Reference`). A crossing at a curve's own end is a joint, not a cut. Splines cannot
+  themselves be trimmed or extended.
+  - A line cut by a collinear line, or a circle or arc by an arc on the same circle, is cut at the
+    ends of the overlap: the cutter's ends lying inside the target (`overlap_ends`, judged by the
+    same tolerance) are the cuts, and the overlap's own crossings are not looked for. A whole
+    circle on a circle, or a cutter whose ends lie outside the target, cuts nothing.
+    Extend does not look for overlaps.
   - `Midpoint` and `Equal` on a shortened line, and `Midpoint`, `ArcLength` and `Sweep` on a
     shortened or extended arc (`keeps_sweep`; the sketch fillet does the same), are dropped, as is any distance dimension between
     its two old ends or points joined to them by `Coincident` (one end often outlives the trim,
@@ -118,7 +125,8 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
     gets its own centre, `Concentric` and `Equal`. Tangent, parallel, perpendicular and angle
     constraints to a curve joined only at the far end move to the piece holding that end.
   - A new end joins its cutter: `Coincident` with the cutter's end point when the cut lies there,
-    else a point on the cutter. End points no curve uses any more are removed.
+    else a point on the cutter (an axis included, which the solver treats as the infinite line).
+    End points no curve uses any more are removed.
   - `extend` moves an end to the nearest crossing beyond it and joins it the same way; an end
     shared with another curve, coincident with another point or fixed is refused.
 - Offset (`offset.rs`): `offset_chain` orders the chosen lines and arcs into one open or closed
