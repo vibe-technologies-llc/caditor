@@ -372,7 +372,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         },
         FeatureKind::Datum(Datum::Plane(_) | Datum::PlaneThrough(_)) => PLANE,
         FeatureKind::Datum(Datum::Axis(_)) => AXIS,
-        FeatureKind::Datum(Datum::Point(_)) => POINT,
+        FeatureKind::Datum(Datum::Point(_) | Datum::PointBy(_)) => POINT,
         FeatureKind::Import(_) => IMPORTED,
         FeatureKind::Remove(_) => REMOVE_BODY,
     }

@@ -6,17 +6,17 @@ use std::{
 
 use caditor_document::{
     AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
-    BodyPlacement, CircularPattern, Combine, CombineOperation, Datum, DatumAxis, DatumPlane,
-    DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour,
-    Feature, FeatureId, FeatureKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing,
-    HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
-    MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT,
-    MetricSize, Mirror, ModelProperties, ModelProperty, Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
-    Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove,
-    Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment,
-    SketchFeature, SolidFeature, SolidStart, Split, Transaction, TurnCentre, group_name,
-    material_name,
+    BodyPlacement, CircularPattern, Combine, CombineOperation, CurveStation, Datum, DatumAxis,
+    DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment,
+    FaceColour, FaceTangent, Feature, FeatureId, FeatureKind, Hole, HoleBottom, HoleDepth, HoleFit,
+    HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
+    LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
+    MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty,
+    Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Parameter, Pattern, PatternKind, PlaneReference,
+    PlaneRotation, PlaneThrough, PointBy, PointReference, PrincipalAxis, PrincipalGeometry,
+    PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
+    Rgb, RollbackBar, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
+    Split, Transaction, TurnCentre, group_name, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -167,6 +167,8 @@ pub(crate) enum FeatureKindRecord {
     MoveAboutAxis(Box<MoveAboutAxisRecord>),
     CombineTools(Box<CombineToolsRecord>),
     DrillPointHole(Box<DrillPointHoleRecord>),
+    PlaneConstruction(Box<PlaneConstructionRecord>),
+    PointConstruction(Box<PointConstructionRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -235,7 +237,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 38] = [
+pub(crate) const FEATURE_KINDS: [&str; 40] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -274,6 +276,8 @@ pub(crate) const FEATURE_KINDS: [&str; 38] = [
     "move_about_axis",
     "combine_tools",
     "drill_point_hole",
+    "plane_construction",
+    "point_construction",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -385,6 +389,7 @@ pub(crate) enum PointReferenceRecord {
     Datum(u64),
     Vertex { body: u64, vertex: String },
     Centre { body: u64, edge: Box<EdgeRecord> },
+    SurfaceCentre { body: u64, face: FaceRecord },
     Sketch { sketch: u64, entity: u64 },
 }
 
@@ -407,6 +412,37 @@ pub(crate) enum PlaneThroughRecord {
         axis: AxisReferenceRecord,
         point: PointReferenceRecord,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CurveStationRecord {
+    pub body: u64,
+    pub edge: EdgeRecord,
+    pub distance: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PlaneConstructionRecord {
+    Tangent {
+        body: u64,
+        face: FaceRecord,
+        toward: PointReferenceRecord,
+    },
+    SquareToCurve(CurveStationRecord),
+    Lines([AxisReferenceRecord; 2]),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PointConstructionRecord {
+    LinesCross([AxisReferenceRecord; 2]),
+    AxisAndPlane {
+        axis: AxisReferenceRecord,
+        plane: PlaneReferenceRecord,
+    },
+    ThreePlanes([PlaneReferenceRecord; 3]),
+    Along(CurveStationRecord),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1411,23 +1447,58 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 offset: point.offset.clone().map(|value| value.to_stored_text()),
             }))
         }
-        FeatureKind::Datum(Datum::PlaneThrough(through)) => {
-            FeatureKindRecord::PlaneThrough(Box::new(match through {
-                PlaneThrough::Points(points) => {
-                    PlaneThroughRecord::Points(points.clone().map(|point| point_record(&point)))
-                }
-                PlaneThrough::Midway(first, second) => PlaneThroughRecord::Midway([
+        FeatureKind::Datum(Datum::PlaneThrough(through)) => match through {
+            PlaneThrough::Points(points) => FeatureKindRecord::PlaneThrough(Box::new(
+                PlaneThroughRecord::Points(points.clone().map(|point| point_record(&point))),
+            )),
+            PlaneThrough::Midway(first, second) => {
+                FeatureKindRecord::PlaneThrough(Box::new(PlaneThroughRecord::Midway([
                     plane_reference_record(first),
                     plane_reference_record(second),
-                ]),
-                PlaneThrough::AxisAndPoint(axis, point) => PlaneThroughRecord::AxisAndPoint {
+                ])))
+            }
+            PlaneThrough::AxisAndPoint(axis, point) => {
+                FeatureKindRecord::PlaneThrough(Box::new(PlaneThroughRecord::AxisAndPoint {
                     axis: axis_record(axis),
                     point: point_record(point),
-                },
-                PlaneThrough::NormalTo(axis, point) => PlaneThroughRecord::NormalTo {
+                }))
+            }
+            PlaneThrough::NormalTo(axis, point) => {
+                FeatureKindRecord::PlaneThrough(Box::new(PlaneThroughRecord::NormalTo {
                     axis: axis_record(axis),
                     point: point_record(point),
+                }))
+            }
+            PlaneThrough::Tangent(tangent) => {
+                FeatureKindRecord::PlaneConstruction(Box::new(PlaneConstructionRecord::Tangent {
+                    body: tangent.body.raw(),
+                    face: face_record(&tangent.face),
+                    toward: point_record(&tangent.toward),
+                }))
+            }
+            PlaneThrough::SquareToCurve(station) => FeatureKindRecord::PlaneConstruction(Box::new(
+                PlaneConstructionRecord::SquareToCurve(station_record(station)),
+            )),
+            PlaneThrough::Lines(first, second) => {
+                FeatureKindRecord::PlaneConstruction(Box::new(PlaneConstructionRecord::Lines([
+                    axis_record(first),
+                    axis_record(second),
+                ])))
+            }
+        },
+        FeatureKind::Datum(Datum::PointBy(by)) => {
+            FeatureKindRecord::PointConstruction(Box::new(match by {
+                PointBy::LinesCross(first, second) => {
+                    PointConstructionRecord::LinesCross([axis_record(first), axis_record(second)])
+                }
+                PointBy::AxisAndPlane(axis, plane) => PointConstructionRecord::AxisAndPlane {
+                    axis: axis_record(axis),
+                    plane: plane_reference_record(plane),
                 },
+                PointBy::ThreePlanes(planes) => PointConstructionRecord::ThreePlanes(
+                    planes.each_ref().map(plane_reference_record),
+                ),
+                PointBy::Along(station) => PointConstructionRecord::Along(station_record(station)),
             }))
         }
         FeatureKind::Shell(shell) => FeatureKindRecord::Shell(ShellRecord {
@@ -2064,6 +2135,14 @@ fn plane_reference_record(reference: &PlaneReference) -> PlaneReferenceRecord {
     }
 }
 
+fn station_record(station: &CurveStation) -> CurveStationRecord {
+    CurveStationRecord {
+        body: station.body.raw(),
+        edge: edge_record(&station.edge),
+        distance: station.distance.to_stored_text(),
+    }
+}
+
 fn point_record(reference: &PointReference) -> PointReferenceRecord {
     match reference {
         PointReference::Origin => PointReferenceRecord::Origin,
@@ -2075,6 +2154,10 @@ fn point_record(reference: &PointReference) -> PointReferenceRecord {
         PointReference::Centre { body, edge } => PointReferenceRecord::Centre {
             body: body.raw(),
             edge: Box::new(edge_record(edge)),
+        },
+        PointReference::SurfaceCentre { body, face } => PointReferenceRecord::SurfaceCentre {
+            body: body.raw(),
+            face: face_record(face),
         },
         PointReference::Sketch { sketch, entity } => PointReferenceRecord::Sketch {
             sketch: sketch.raw(),
@@ -3255,6 +3338,12 @@ fn restore_kind(
         FeatureKindRecord::AxisThrough(record) => {
             FeatureKind::Datum(Datum::Axis(restore_axis_through(record, name, issues)))
         }
+        FeatureKindRecord::PlaneConstruction(record) => {
+            FeatureKind::Datum(restore_plane_construction(record, name, issues))
+        }
+        FeatureKindRecord::PointConstruction(record) => {
+            FeatureKind::Datum(restore_point_construction(record, name, issues))
+        }
         FeatureKindRecord::Import(record) => FeatureKind::Import(restore_import(
             &StoredShape {
                 source: &record.source,
@@ -3532,6 +3621,10 @@ fn restore_point(record: &PointReferenceRecord) -> Option<PointReference> {
             body: FeatureId::from_raw(*body),
             edge: Box::new(restore_edge(edge)?),
         },
+        PointReferenceRecord::SurfaceCentre { body, face } => PointReference::SurfaceCentre {
+            body: FeatureId::from_raw(*body),
+            face: restore_face(&face.face, face.origin, face.copy, &face.neighbours)?,
+        },
         PointReferenceRecord::Sketch { sketch, entity } => PointReference::Sketch {
             sketch: FeatureId::from_raw(*sketch),
             entity: EntityId::from_raw(*entity),
@@ -3593,6 +3686,93 @@ fn restore_plane_through(
             })
         },
         Datum::PlaneThrough,
+    )
+}
+
+fn restore_station(
+    record: &CurveStationRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Option<CurveStation> {
+    Some(CurveStation {
+        body: FeatureId::from_raw(record.body),
+        edge: Box::new(restore_edge(&record.edge)?),
+        distance: restore_value(&record.distance, "distance", "0 mm", feature, issues),
+    })
+}
+
+fn restore_plane_construction(
+    record: &PlaneConstructionRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Datum {
+    let restored = match record {
+        PlaneConstructionRecord::Tangent { body, face, toward } => {
+            restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+                .zip(restore_point(toward))
+                .map(|(face, toward)| {
+                    PlaneThrough::Tangent(Box::new(FaceTangent {
+                        body: FeatureId::from_raw(*body),
+                        face,
+                        toward,
+                    }))
+                })
+        }
+        PlaneConstructionRecord::SquareToCurve(station) => {
+            restore_station(station, feature, issues)
+                .map(|station| PlaneThrough::SquareToCurve(Box::new(station)))
+        }
+        PlaneConstructionRecord::Lines([first, second]) => restore_axis(first)
+            .zip(restore_axis(second))
+            .map(|(first, second)| PlaneThrough::Lines(first, second)),
+    };
+    restored.map_or_else(
+        || {
+            issues.push(format!(
+                "What “{feature}” is placed by could not be read, so it is the XY plane."
+            ));
+            Datum::Plane(DatumPlane {
+                base: PlaneReference::Principal(PrincipalPlane::Xy),
+                rotation: None,
+                offset: Expression::Measure(0.0, Unit::Millimetre),
+            })
+        },
+        Datum::PlaneThrough,
+    )
+}
+
+fn restore_point_construction(
+    record: &PointConstructionRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Datum {
+    let restored = match record {
+        PointConstructionRecord::LinesCross([first, second]) => restore_axis(first)
+            .zip(restore_axis(second))
+            .map(|(first, second)| PointBy::LinesCross(first, second)),
+        PointConstructionRecord::AxisAndPlane { axis, plane } => restore_axis(axis)
+            .zip(restore_plane_reference(plane))
+            .map(|(axis, plane)| PointBy::AxisAndPlane(axis, plane)),
+        PointConstructionRecord::ThreePlanes([first, second, third]) => {
+            restore_plane_reference(first)
+                .zip(restore_plane_reference(second))
+                .zip(restore_plane_reference(third))
+                .map(|((first, second), third)| PointBy::ThreePlanes([first, second, third]))
+        }
+        PointConstructionRecord::Along(station) => restore_station(station, feature, issues)
+            .map(|station| PointBy::Along(Box::new(station))),
+    };
+    restored.map_or_else(
+        || {
+            issues.push(format!(
+                "What “{feature}” is placed by could not be read, so it is at the origin."
+            ));
+            Datum::Point(DatumPoint {
+                base: PointReference::Origin,
+                offset: [0, 1, 2].map(|_| Expression::Measure(0.0, Unit::Millimetre)),
+            })
+        },
+        Datum::PointBy,
     )
 }
 

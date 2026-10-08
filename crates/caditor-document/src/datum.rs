@@ -10,6 +10,7 @@ use caditor_sketch::EntityId;
 
 use crate::{
     attachment::{AttachmentError, FaceAttachment},
+    datum_construction,
     describe::describe_origin,
     document::{Document, Feature, FeatureId},
     origins,
@@ -226,6 +227,10 @@ pub enum PointReference {
         body: FeatureId,
         edge: Box<EdgeReference>,
     },
+    SurfaceCentre {
+        body: FeatureId,
+        face: FaceReference,
+    },
     Sketch {
         sketch: FeatureId,
         entity: EntityId,
@@ -236,6 +241,7 @@ impl PointReference {
     pub fn heap_size(&self) -> usize {
         match self {
             Self::Centre { .. } => size_of::<EdgeReference>(),
+            Self::SurfaceCentre { face, .. } => face.heap_size(),
             Self::Origin | Self::Datum(_) | Self::Vertex { .. } | Self::Sketch { .. } => 0,
         }
     }
@@ -243,13 +249,19 @@ impl PointReference {
     pub fn datum(&self) -> Option<FeatureId> {
         match self {
             Self::Datum(feature) => Some(*feature),
-            Self::Origin | Self::Vertex { .. } | Self::Centre { .. } | Self::Sketch { .. } => None,
+            Self::Origin
+            | Self::Vertex { .. }
+            | Self::Centre { .. }
+            | Self::SurfaceCentre { .. }
+            | Self::Sketch { .. } => None,
         }
     }
 
     pub fn body(&self) -> Option<FeatureId> {
         match self {
-            Self::Vertex { body, .. } | Self::Centre { body, .. } => Some(*body),
+            Self::Vertex { body, .. }
+            | Self::Centre { body, .. }
+            | Self::SurfaceCentre { body, .. } => Some(*body),
             Self::Origin | Self::Datum(_) | Self::Sketch { .. } => None,
         }
     }
@@ -257,17 +269,30 @@ impl PointReference {
     pub fn sketch(&self) -> Option<FeatureId> {
         match self {
             Self::Sketch { sketch, .. } => Some(*sketch),
-            Self::Origin | Self::Datum(_) | Self::Vertex { .. } | Self::Centre { .. } => None,
+            Self::Origin
+            | Self::Datum(_)
+            | Self::Vertex { .. }
+            | Self::Centre { .. }
+            | Self::SurfaceCentre { .. } => None,
         }
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Centre { edge, .. } => origins::of_edge(edge),
+            Self::SurfaceCentre { face, .. } => origins::of_face(face).into_iter().collect(),
             Self::Origin | Self::Datum(_) | Self::Vertex { .. } | Self::Sketch { .. } => {
                 BTreeSet::new()
             }
         }
+    }
+
+    pub fn capture_surface_centre(body: FeatureId, solid: &Solid, face: FaceId) -> Option<Self> {
+        surface_centre(solid, face)?;
+        Some(Self::SurfaceCentre {
+            body,
+            face: FaceReference::capture(solid, face)?,
+        })
     }
 
     pub fn capture_centre(body: FeatureId, solid: &Solid, edge: EdgeId) -> Option<Self> {
@@ -286,11 +311,51 @@ pub struct DatumPoint {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct CurveStation {
+    pub body: FeatureId,
+    pub edge: Box<EdgeReference>,
+    pub distance: Expression,
+}
+
+impl CurveStation {
+    pub fn capture(
+        body: FeatureId,
+        solid: &Solid,
+        edge: EdgeId,
+        distance: Expression,
+    ) -> Option<Self> {
+        Some(Self {
+            body,
+            edge: Box::new(EdgeReference::capture(solid, edge)?),
+            distance,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FaceTangent {
+    pub body: FeatureId,
+    pub face: FaceReference,
+    pub toward: PointReference,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlaneThrough {
     Points([PointReference; 3]),
     Midway(PlaneReference, PlaneReference),
     AxisAndPoint(AxisReference, PointReference),
     NormalTo(AxisReference, PointReference),
+    Tangent(Box<FaceTangent>),
+    SquareToCurve(Box<CurveStation>),
+    Lines(AxisReference, AxisReference),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PointBy {
+    LinesCross(AxisReference, AxisReference),
+    AxisAndPlane(AxisReference, PlaneReference),
+    ThreePlanes([PlaneReference; 3]),
+    Along(Box<CurveStation>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -320,6 +385,7 @@ pub enum Datum {
     PlaneThrough(PlaneThrough),
     Axis(DatumAxis),
     Point(DatumPoint),
+    PointBy(PointBy),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -369,13 +435,14 @@ impl Datum {
                         rotation.axis.heap_size() + rotation.angle.heap_size()
                     })
             }
-            Self::PlaneThrough(_) | Self::Axis(_) | Self::Point(_) => self
+            Self::PlaneThrough(_) | Self::Axis(_) | Self::Point(_) | Self::PointBy(_) => self
                 .planes()
                 .into_iter()
                 .map(PlaneReference::heap_size)
                 .chain(self.axes().into_iter().map(AxisReference::heap_size))
                 .chain(self.points().into_iter().map(PointReference::heap_size))
                 .chain(self.expressions().into_iter().map(Expression::heap_size))
+                .chain(self.held_references_heap_size())
                 .sum(),
         }
     }
@@ -392,7 +459,24 @@ impl Datum {
         match self {
             Self::Plane(_) | Self::PlaneThrough(_) => DatumKind::Plane,
             Self::Axis(_) => DatumKind::Axis,
-            Self::Point(_) => DatumKind::Point,
+            Self::Point(_) | Self::PointBy(_) => DatumKind::Point,
+        }
+    }
+
+    fn held_references_heap_size(&self) -> Option<usize> {
+        match self {
+            Self::PlaneThrough(PlaneThrough::Tangent(tangent)) => Some(tangent.face.heap_size()),
+            Self::PlaneThrough(PlaneThrough::SquareToCurve(_))
+            | Self::PointBy(PointBy::Along(_)) => Some(size_of::<EdgeReference>()),
+            _ => None,
+        }
+    }
+
+    fn station(&self) -> Option<&CurveStation> {
+        match self {
+            Self::PlaneThrough(PlaneThrough::SquareToCurve(station))
+            | Self::PointBy(PointBy::Along(station)) => Some(station),
+            _ => None,
         }
     }
 
@@ -418,7 +502,11 @@ impl Datum {
                 .chain(plane.rotation.as_ref().map(|rotation| &rotation.angle))
                 .collect(),
             Self::Point(point) => point.offset.iter().collect(),
-            Self::PlaneThrough(_) | Self::Axis(_) => Vec::new(),
+            Self::PlaneThrough(_) | Self::Axis(_) | Self::PointBy(_) => self
+                .station()
+                .map(|station| &station.distance)
+                .into_iter()
+                .collect(),
         }
     }
 
@@ -428,7 +516,9 @@ impl Datum {
                 .chain(plane.rotation.as_mut().map(|rotation| &mut rotation.angle))
                 .collect(),
             Self::Point(point) => point.offset.iter_mut().collect(),
-            Self::PlaneThrough(_) | Self::Axis(_) => Vec::new(),
+            Self::PlaneThrough(PlaneThrough::SquareToCurve(station))
+            | Self::PointBy(PointBy::Along(station)) => vec![&mut station.distance],
+            Self::PlaneThrough(_) | Self::Axis(_) | Self::PointBy(_) => Vec::new(),
         }
     }
 
@@ -437,13 +527,19 @@ impl Datum {
             Self::Plane(plane) => vec![&plane.base],
             Self::PlaneThrough(PlaneThrough::Midway(first, second))
             | Self::Axis(DatumAxis::Intersection(first, second)) => vec![first, second],
-            Self::Axis(DatumAxis::NormalTo(plane, _)) => vec![plane],
+            Self::Axis(DatumAxis::NormalTo(plane, _))
+            | Self::PointBy(PointBy::AxisAndPlane(_, plane)) => vec![plane],
+            Self::PointBy(PointBy::ThreePlanes(planes)) => planes.iter().collect(),
             Self::PlaneThrough(
                 PlaneThrough::Points(_)
                 | PlaneThrough::AxisAndPoint(..)
-                | PlaneThrough::NormalTo(..),
+                | PlaneThrough::NormalTo(..)
+                | PlaneThrough::Tangent(_)
+                | PlaneThrough::SquareToCurve(_)
+                | PlaneThrough::Lines(..),
             )
             | Self::Axis(DatumAxis::Along(_) | DatumAxis::Points(..))
+            | Self::PointBy(PointBy::LinesCross(..) | PointBy::Along(_))
             | Self::Point(_) => Vec::new(),
         }
     }
@@ -459,13 +555,22 @@ impl Datum {
             Self::Axis(DatumAxis::Along(axis))
             | Self::PlaneThrough(
                 PlaneThrough::AxisAndPoint(axis, _) | PlaneThrough::NormalTo(axis, _),
-            ) => {
+            )
+            | Self::PointBy(PointBy::AxisAndPlane(axis, _)) => {
                 vec![axis]
             }
+            Self::PlaneThrough(PlaneThrough::Lines(first, second))
+            | Self::PointBy(PointBy::LinesCross(first, second)) => vec![first, second],
             Self::Axis(
                 DatumAxis::Intersection(..) | DatumAxis::Points(..) | DatumAxis::NormalTo(..),
             )
-            | Self::PlaneThrough(PlaneThrough::Points(_) | PlaneThrough::Midway(..))
+            | Self::PlaneThrough(
+                PlaneThrough::Points(_)
+                | PlaneThrough::Midway(..)
+                | PlaneThrough::Tangent(_)
+                | PlaneThrough::SquareToCurve(_),
+            )
+            | Self::PointBy(PointBy::ThreePlanes(_) | PointBy::Along(_))
             | Self::Point(_) => Vec::new(),
         }
     }
@@ -479,9 +584,13 @@ impl Datum {
             )
             | Self::Axis(DatumAxis::NormalTo(_, point)) => vec![point],
             Self::Axis(DatumAxis::Points(first, second)) => vec![first, second],
+            Self::PlaneThrough(PlaneThrough::Tangent(tangent)) => vec![&tangent.toward],
             Self::Plane(_)
-            | Self::PlaneThrough(PlaneThrough::Midway(..))
-            | Self::Axis(DatumAxis::Along(_) | DatumAxis::Intersection(..)) => Vec::new(),
+            | Self::PlaneThrough(
+                PlaneThrough::Midway(..) | PlaneThrough::SquareToCurve(_) | PlaneThrough::Lines(..),
+            )
+            | Self::Axis(DatumAxis::Along(_) | DatumAxis::Intersection(..))
+            | Self::PointBy(_) => Vec::new(),
         }
     }
 
@@ -539,7 +648,16 @@ impl Datum {
             .filter_map(PlaneReference::body)
             .chain(self.axes().into_iter().filter_map(AxisReference::body))
             .chain(self.points().into_iter().filter_map(PointReference::body))
+            .chain(self.station().map(|station| station.body))
+            .chain(self.tangent().map(|tangent| tangent.body))
             .collect()
+    }
+
+    fn tangent(&self) -> Option<&FaceTangent> {
+        match self {
+            Self::PlaneThrough(PlaneThrough::Tangent(tangent)) => Some(tangent),
+            _ => None,
+        }
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
@@ -566,11 +684,21 @@ impl Datum {
                     .into_iter()
                     .flat_map(PointReference::origin_features),
             )
+            .chain(
+                self.station()
+                    .into_iter()
+                    .flat_map(|station| origins::of_edge(&station.edge)),
+            )
+            .chain(
+                self.tangent()
+                    .into_iter()
+                    .flat_map(|tangent| origins::of_face(&tangent.face)),
+            )
             .collect()
     }
 }
 
-fn feature_name(document: &Document, feature: FeatureId) -> String {
+pub(crate) fn feature_name(document: &Document, feature: FeatureId) -> String {
     document.feature(feature).map_or_else(
         || "a deleted feature".to_owned(),
         |feature| feature.name.clone(),
@@ -628,6 +756,9 @@ pub fn describe_point(document: &Document, reference: &PointReference) -> String
                 feature_name(document, *body)
             )
         }
+        PointReference::SurfaceCentre { face, .. } => {
+            format!("the centre of {}", describe_origin(document, face.origin()))
+        }
         PointReference::Sketch { sketch, entity } => {
             let label = document
                 .feature(*sketch)
@@ -639,6 +770,10 @@ pub fn describe_point(document: &Document, reference: &PointReference) -> String
             format!("{label} of {}", feature_name(document, *sketch))
         }
     }
+}
+
+pub fn describe_curve(document: &Document, station: &CurveStation) -> String {
+    format!("an edge of {}", feature_name(document, station.body))
 }
 
 pub fn describe_points(document: &Document, points: &[&PointReference]) -> String {
@@ -675,6 +810,14 @@ pub(crate) fn edge_centre(solid: &Solid, edge: EdgeId) -> Option<Point3> {
     match solid.edge(edge)?.curve() {
         Curve::Circle(circle) => Some(circle.center()),
         Curve::Ellipse(ellipse) => Some(ellipse.center()),
+        _ => None,
+    }
+}
+
+pub(crate) fn surface_centre(solid: &Solid, face: FaceId) -> Option<Point3> {
+    match solid.face(face)?.surface() {
+        Surface::Sphere(surface) => Some(surface.center()),
+        Surface::Torus(surface) => Some(surface.frame().origin()),
         _ => None,
     }
 }
@@ -758,7 +901,7 @@ pub(crate) struct Resolver<'a> {
 }
 
 impl Resolver<'_> {
-    fn error(&self, reason: String, remedy: String, fix: FeatureId) -> Failure {
+    pub(crate) fn error(&self, reason: String, remedy: String, fix: FeatureId) -> Failure {
         Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
@@ -768,7 +911,7 @@ impl Resolver<'_> {
         }))
     }
 
-    fn own_error(&self, reason: String, remedy: &str) -> Failure {
+    pub(crate) fn own_error(&self, reason: String, remedy: &str) -> Failure {
         self.error(reason, remedy.to_owned(), self.feature.id())
     }
 
@@ -788,7 +931,7 @@ impl Resolver<'_> {
         }
     }
 
-    fn body(&self, body: FeatureId) -> Result<&Solid, Failure> {
+    pub(crate) fn body(&self, body: FeatureId) -> Result<&Solid, Failure> {
         self.inputs
             .body(body)
             .ok_or_else(|| self.inputs.missing_body(body))
@@ -979,6 +1122,40 @@ impl Resolver<'_> {
                     )),
                 }
             }
+            PointReference::SurfaceCentre { body, face } => {
+                let solid = self.body(*body)?;
+                let described = describe_origin(document, face.origin());
+                let pieces = match face.resolve(solid) {
+                    Ok(found) => vec![found],
+                    Err(ReferenceError::Ambiguous(pieces)) => pieces,
+                    Err(ReferenceError::Missing) => {
+                        return Err(self.own_error(
+                            format!(
+                                "{described} is no longer part of {}.",
+                                feature_name(document, *body)
+                            ),
+                            "Choose another face or point for it.",
+                        ));
+                    }
+                };
+                let centres: Option<Vec<Point3>> = pieces
+                    .iter()
+                    .map(|piece| surface_centre(solid, *piece))
+                    .collect();
+                match centres.as_deref() {
+                    Some([first, rest @ ..])
+                        if rest
+                            .iter()
+                            .all(|other| other.distance(*first) <= LINEAR_RESOLUTION) =>
+                    {
+                        Ok(*first)
+                    }
+                    _ => Err(self.own_error(
+                        format!("{described} is no longer a sphere or a torus."),
+                        "Choose a spherical or toroidal face, or another point for it.",
+                    )),
+                }
+            }
             PointReference::Sketch { sketch, entity } => {
                 let name = feature_name(document, *sketch);
                 let result = self
@@ -1153,6 +1330,13 @@ fn plane_through(resolver: &Resolver<'_>, through: &PlaneThrough) -> Result<Plan
                 )
             })
         }
+        PlaneThrough::Tangent(tangent) => datum_construction::tangent_plane(resolver, tangent),
+        PlaneThrough::SquareToCurve(station) => {
+            datum_construction::square_to_curve(resolver, station)
+        }
+        PlaneThrough::Lines(first, second) => {
+            datum_construction::plane_through_lines(resolver, first, second)
+        }
     }
 }
 
@@ -1239,6 +1423,7 @@ pub(crate) fn evaluate(
     let result = match datum {
         Datum::PlaneThrough(through) => DatumResult::Plane(plane_through(&resolver, through)?),
         Datum::Point(point) => DatumResult::Point(datum_point(&resolver, point)?),
+        Datum::PointBy(by) => DatumResult::Point(datum_construction::point_by(&resolver, by)?),
         Datum::Plane(definition) => {
             let mut plane = resolver.plane(&definition.base)?;
             if let Some(rotation) = &definition.rotation {

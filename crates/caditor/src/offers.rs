@@ -1,4 +1,4 @@
-use caditor_document::{AxisReference, Datum, DatumAxis, DatumPoint, FeatureId};
+use caditor_document::{AxisReference, Datum, DatumAxis, FeatureId};
 
 use crate::{
     combine_tools::{self, BodyPair},
@@ -35,7 +35,7 @@ pub struct Offers {
     pub model_axes: Vec<(Pickable, AxisReference)>,
     pub datum_plane: Result<Datum, &'static str>,
     pub datum_axis: Result<DatumAxis, &'static str>,
-    pub datum_point: Result<DatumPoint, &'static str>,
+    pub datum_point: Result<Datum, &'static str>,
     pub shell: Result<FaceSource, &'static str>,
     pub combine: Result<BodyPair, &'static str>,
     pub movement: Result<FeatureId, &'static str>,

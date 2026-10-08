@@ -214,12 +214,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   rib) or faces across a plane, kept linked so editing the original updates the mirror as a
   pattern of features does its copies, is missing; today the feature is drawn again or the body is
   mirrored and combined.
-- [medium · medium] Datums lack the planes and points that sweeps, lofts and mating need: a plane
-  tangent to a cylindrical or conical face, a plane square to a face or curve at a point along it
-  (the section plane of a path), a plane through two edges or axes lying in one plane; and points
-  at the crossing of two edges, of an edge or axis and a plane, or of three planes, at a distance
-  along an edge or curve, and at the centre of a sphere or torus (only corners and round-edge
-  centres are offered).
 - [medium · medium] No thread feature: a tapped hole names its ISO thread only in its panel, and a
   shaft or boss takes none. A cosmetic thread on a cylindrical face (a bore, a shaft, a boss),
   chosen by designation (ISO metric coarse and fine, M3 to M64, internal or external, with the

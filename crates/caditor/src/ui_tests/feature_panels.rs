@@ -1,7 +1,8 @@
 use caditor_document::{
-    Datum, DatumAxis, DatumResult, Edit, PatternKind, PlaneThrough, Transaction,
+    Datum, DatumAxis, DatumResult, Edit, FeatureId, PatternKind, PlaneThrough, PointBy, Transaction,
 };
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
 use super::{CAMERA_SETTLE, Harness, datum_of, datum_plane_of, extruded_plate, pattern_of};
@@ -356,5 +357,161 @@ fn a_pattern_and_a_datum_axis_run_along_a_selected_sketch_line() {
         caditor_document::AxisReference::Sketch { sketch, .. } if sketch == guide
     ));
     assert_eq!(pattern_of(&harness, pattern).body, plate);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+const CONTAINS: &str = "Contains it";
+
+fn plate_edge(harness: &Harness, plate: FeatureId, middle: Point3) -> Pickable {
+    let edge = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .edges()
+        .find(|(_, edge)| {
+            let halfway = edge.curve().point(edge.interval().middle());
+            (halfway - middle).length() < 1e-6
+        })
+        .map(|(_, edge)| edge.name())
+        .expect("the plate has that edge");
+    Pickable::Edge { body: plate, edge }
+}
+
+#[test]
+fn two_selected_edges_give_a_plane_through_them_and_a_point_where_they_cross() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let along_x = plate_edge(&harness, plate, Point3::new(20.0, 0.0, 0.0));
+    let along_y = plate_edge(&harness, plate, Point3::new(0.0, 20.0, 0.0));
+    let raised_x = plate_edge(&harness, plate, Point3::new(20.0, 0.0, 10.0));
+
+    harness.select([along_x, along_y]);
+    harness.click("Point");
+    harness.settle();
+    let corner = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the point is open");
+    let crossing = matches!(
+        datum_of(&harness, corner),
+        Datum::PointBy(PointBy::LinesCross(..))
+    );
+    let shows_where = harness.shows_containing("Where an edge of Extrude 1 crosses");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([along_x, raised_x]);
+    harness.click("Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the plane is open");
+    let through_lines = matches!(
+        datum_of(&harness, plane),
+        Datum::PlaneThrough(PlaneThrough::Lines(..))
+    );
+
+    assert!(crossing);
+    assert!(shows_where);
+    assert!(through_lines);
+    assert_eq!(
+        result_of(&harness, corner),
+        DatumResult::Point(Point3::ZERO)
+    );
+    assert!(
+        result_of(&harness, plane)
+            .plane()
+            .unwrap()
+            .normal()
+            .cross(Vector3::Y)
+            .length()
+            < 1e-9
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_point_along_a_selected_edge_takes_a_typed_distance() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let along_x = plate_edge(&harness, plate, Point3::new(20.0, 0.0, 0.0));
+
+    harness.select([along_x]);
+    harness.click("Point");
+    harness.settle();
+    let point = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the point is open");
+    let along = matches!(datum_of(&harness, point), Datum::PointBy(PointBy::Along(_)));
+    harness.type_into_field(Id::new(("datum-field", "distance", point)), "15 mm");
+    harness.settle();
+
+    let found = result_of(&harness, point).point().unwrap();
+    assert!(along);
+    assert!(found.y.abs() < 1e-9 && found.z.abs() < 1e-9);
+    assert!((found.x - 15.0).abs() < 1e-9 || (found.x - 25.0).abs() < 1e-9);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn a_round_face_and_a_point_can_switch_from_holding_the_axis_to_touching_the_face() {
+    let mut harness = Harness::new();
+    let mut disc = Sketch::new(Plane::XY);
+    disc.add_circle(Point2::new(30.0, 0.0), 10.0);
+    harness.add_sketch(disc);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let side = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            pickable
+                .describe(harness.document(), harness.model.evaluation())
+                .contains("side")
+        })
+        .expect("the round side is pickable");
+
+    harness.select([side, Pickable::Origin]);
+    harness.click("Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the plane is open");
+    let holding = matches!(
+        datum_of(&harness, plane),
+        Datum::PlaneThrough(PlaneThrough::AxisAndPoint(..))
+    );
+    harness.select([]);
+    harness.frame();
+    if !harness.shows("Tangent to it") {
+        harness.click(CONTAINS);
+        harness.frame();
+    }
+    harness.click("Tangent to it");
+    harness.settle();
+    let touching = matches!(
+        datum_of(&harness, plane),
+        Datum::PlaneThrough(PlaneThrough::Tangent(_))
+    );
+
+    let found = result_of(&harness, plane).plane().unwrap();
+    assert!(holding);
+    assert!(touching);
+    assert!(found.normal().cross(Vector3::X).length() < 1e-9);
+    assert!(found.signed_distance(Point3::new(20.0, 0.0, 3.0)).abs() < 1e-9);
+    assert!(harness.shows_containing("Tangent to"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }

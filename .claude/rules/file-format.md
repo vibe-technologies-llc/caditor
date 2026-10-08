@@ -196,12 +196,20 @@ paths:
   and `angle` (stored text; unreadable: 118 deg, reported), since an older reader would drill a
   flat bottom; an inner record that is no hole loads without it, reported.
 - A datum point is a `point` record (`base`, a point reference: `origin`, `datum`, `vertex` with
-  `body` and the vertex name's digest, `centre` with `body` and an edge record, or `sketch` with
-  `sketch` and `entity`; `offset`, three stored texts). Planes through references are
+  `body` and the vertex name's digest, `centre` with `body` and an edge record, `surface_centre`
+  with `body` and a face record, or `sketch` with `sketch` and `entity`; `offset`, three stored
+  texts). Planes through references are
   `plane_through` records (`points`, `midway`, `axis_and_point`, `normal_to`) and the new axis forms
   `axis_through` records (`points`, `normal_to`), so an older reader reports them rather than
   misreading them; an unreadable reference loads as the XY plane, the Z axis or the origin,
   reported. An axis reference may be a `sketch_line` (`sketch`, `entity`).
+- The constructed planes are `plane_construction` records (`tangent` with `body`, `face` and
+  `toward`, a point reference; `square_to_curve` with `body`, an `edge` record and the `distance`
+  text; `lines`, two axis references) and the constructed points `point_construction` records
+  (`lines_cross`, two axis references; `axis_and_plane`; `three_planes`; `along`, a station like
+  `square_to_curve`'s), each a kind of its own so an older reader reports it. An unreadable
+  reference loads as the XY plane or a point at the origin, reported, and an unreadable distance
+  as 0 mm.
 - A `move` feature record holds `body` and the stored text of its three distances (`offset`) and
   three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported. A copying move is a
   `copy` record of the same fields, since an older reader taking it for a move would move the

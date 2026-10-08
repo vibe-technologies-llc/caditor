@@ -4,7 +4,10 @@ use caditor_kernel::{EdgeNaming, EdgeReference, FaceReference, RegionReference, 
 
 use crate::{
     attachment::SketchAttachment,
-    datum::{AxisReference, Datum, DatumAxis, PlaneReference, PlaneThrough, PointReference},
+    datum::{
+        AxisReference, CurveStation, Datum, DatumAxis, PlaneReference, PlaneThrough, PointBy,
+        PointReference,
+    },
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     edit::{Edit, Transaction},
     movement::TurnCentre,
@@ -202,6 +205,39 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visit_axis(axis, "axis", visitor);
                 visit_point(point, "point", visitor);
             }
+            PlaneThrough::Tangent(tangent) => {
+                visitor.face(
+                    tangent.body,
+                    &mut tangent.face,
+                    "the face it lies tangent to",
+                );
+                visit_point(&mut tangent.toward, "point", visitor);
+            }
+            PlaneThrough::SquareToCurve(station) => visit_station(station, visitor),
+            PlaneThrough::Lines(first, second) => {
+                visit_axis(first, "first line", visitor);
+                visit_axis(second, "second line", visitor);
+            }
+        },
+        FeatureKind::Datum(Datum::PointBy(by)) => match by {
+            PointBy::LinesCross(first, second) => {
+                visit_axis(first, "first line", visitor);
+                visit_axis(second, "second line", visitor);
+            }
+            PointBy::AxisAndPlane(axis, plane) => {
+                visit_axis(axis, "line", visitor);
+                visit_plane(plane, "the face it meets the line at", visitor);
+            }
+            PointBy::ThreePlanes(planes) => {
+                for (plane, role) in planes.iter_mut().zip([
+                    "the first face it lies at",
+                    "the second face it lies at",
+                    "the third face it lies at",
+                ]) {
+                    visit_plane(plane, role, visitor);
+                }
+            }
+            PointBy::Along(station) => visit_station(station, visitor),
         },
         FeatureKind::Import(_) => {}
     }
@@ -223,12 +259,29 @@ fn visit_axis(axis: &mut AxisReference, role: &str, visitor: &mut impl Reference
 }
 
 fn visit_point(point: &mut PointReference, role: &str, visitor: &mut impl ReferenceVisitor) {
-    if let PointReference::Centre { body, edge } = point {
-        let what = format!("the round edge giving its {role}");
-        visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
-            what.clone()
-        });
+    match point {
+        PointReference::Centre { body, edge } => {
+            let what = format!("the round edge giving its {role}");
+            visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
+                what.clone()
+            });
+        }
+        PointReference::SurfaceCentre { body, face } => {
+            visitor.face(*body, face, &format!("the face giving its {role}"));
+        }
+        PointReference::Origin
+        | PointReference::Datum(_)
+        | PointReference::Vertex { .. }
+        | PointReference::Sketch { .. } => {}
     }
+}
+
+fn visit_station(station: &mut CurveStation, visitor: &mut impl ReferenceVisitor) {
+    visitor.edges(
+        station.body,
+        std::slice::from_mut(station.edge.as_mut()),
+        &|_| "the edge it follows".to_owned(),
+    );
 }
 
 fn visit_plane(plane: &mut PlaneReference, what: &str, visitor: &mut impl ReferenceVisitor) {

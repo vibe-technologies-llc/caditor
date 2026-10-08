@@ -418,7 +418,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   point) is what `SetFeatureKind` keeps, so a plane may switch between offset and through forms.
 - A `PointReference` is the origin, a datum point, a body corner (`VertexName`, resolved when
   exactly one vertex has it), the centre of a round edge (an `EdgeReference`, pieces of one circle
-  accepted) or a sketch point (in its solved plane). An `AxisReference::Sketch` is a line of an
+  accepted), the centre of a spherical or toroidal face (`SurfaceCentre`, a `FaceReference`, pieces
+  of one surface accepted) or a sketch point (in its solved plane). An `AxisReference::Sketch` is a line of an
   earlier sketch. Sketches they use join `features()`, so recompute reuses the datum, pattern or
   revolve only while the sketch is unchanged.
 - `Datum::Point` places a `DatumPoint` at a point reference moved by three length offsets.
@@ -427,6 +428,20 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   angle), contains an axis and a point (refused when the point is on the axis) or stands square to
   an axis at a point. `DatumAxis` also runs through two points or stands square to a plane through
   a point. Each refusal names the references and what to choose instead.
+- `datum_construction.rs` holds the constructions that need geometry of a body or line crossings.
+  `PlaneThrough::Tangent` (`FaceTangent`: body, `FaceReference`, a `PointReference`) touches a
+  cylindrical or conical face along the line nearest the point, its normal facing the point's side
+  (refused when the point lies on the face's axis, or the face is no longer a cylinder or cone).
+  `PlaneThrough::SquareToCurve` stands square to an edge of any curve kind at a `CurveStation`
+  (body, `EdgeReference`, a length expression): the distance is arc length from where the edge
+  starts, counted back from its end when negative, and a distance past either end fails alone
+  naming the edge's length. `PlaneThrough::Lines` holds two lines (`AxisReference`s) that cross or
+  run parallel; the same line, or two that neither cross nor run parallel, fail naming both. A
+  `Datum::PointBy` is a datum point with no offsets: `LinesCross` (parallel or skew lines fail),
+  `AxisAndPlane` (a line parallel to the plane, or lying in it, fails), `ThreePlanes` (two parallel
+  or all three sharing a line fail) and `Along` a `CurveStation`. The stations' bodies and edge
+  origins count as used like an axis edge's, their distance is a parameter user, and healing
+  matches their edges and faces like any reference.
 - Whether geometry lies on a line or plane, runs along a plane or is parallel is decided in one
   place (`tolerance.rs`) for revolve axes, datums, attachments, patterns and blend pieces, so noisy
   imported geometry is accepted or refused the same way everywhere.

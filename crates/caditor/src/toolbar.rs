@@ -395,7 +395,8 @@ fn datum_buttons(
             Command::DatumPlane,
             "Add a plane offset from the selected plane or flat face (the XY plane when none is \
              selected) and turned about a selected axis, or through three selected points, \
-             midway between two planes, or through an axis and a point",
+             midway between two planes, through an axis and a point or two lines in one plane, \
+             or square to the selected round or curved edge",
         )),
         Err(reason) => Err(format!("{reason}.")),
     };
@@ -428,8 +429,10 @@ fn datum_buttons(
     let help = match &point {
         Ok(_) => Ok(commands.with_keys(
             Command::DatumPoint,
-            "Add a point at the selected corner, round edge's centre, sketch point or datum point \
-             (the origin when none is selected), moved by typed offsets",
+            "Add a point at the selected corner, round edge's centre, sphere or torus centre, \
+             sketch point or datum point (the origin when none is selected), moved by typed \
+             offsets, a distance along the selected edge, or where two lines, a line and a \
+             plane, or three planes meet",
         )),
         Err(reason) => Err(format!("Add a point. {reason}, then click here.")),
     };
@@ -437,7 +440,7 @@ fn datum_buttons(
     if (response.clicked() || invoked)
         && let Ok(point) = point
     {
-        actions.extend(datum_tools::create_actions(document, Datum::Point(point)));
+        actions.extend(datum_tools::create_actions(document, point));
     }
 }
 

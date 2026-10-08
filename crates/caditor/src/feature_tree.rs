@@ -275,7 +275,7 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         },
         FeatureKind::Datum(Datum::Plane(_) | Datum::PlaneThrough(_)) => &["datum plane", "plane"],
         FeatureKind::Datum(Datum::Axis(_)) => &["datum axis", "axis"],
-        FeatureKind::Datum(Datum::Point(_)) => &["datum point", "point"],
+        FeatureKind::Datum(Datum::Point(_) | Datum::PointBy(_)) => &["datum point", "point"],
         FeatureKind::Import(_) => &["import", "imported", "step"],
         FeatureKind::Remove(_) => &["remove", "body"],
     }
