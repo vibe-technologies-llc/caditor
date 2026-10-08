@@ -1,6 +1,7 @@
 use std::{
     cell::OnceCell,
     collections::{BTreeMap, BTreeSet},
+    f64::consts::FRAC_PI_2,
 };
 
 use caditor_geometry::{Point2, Vector2};
@@ -16,6 +17,7 @@ use crate::{
             fallback_direction, value,
         },
         numeric::Component,
+        spline::not_joined,
     },
 };
 
@@ -28,7 +30,7 @@ pub(crate) struct System {
     pub radii: BTreeMap<EntityId, usize>,
     pub fixed_radii: BTreeMap<EntityId, f64>,
     pub radius_variables: BTreeSet<usize>,
-    pub parameters: BTreeMap<ConstraintId, usize>,
+    pub parameters: BTreeMap<ConstraintId, Vec<usize>>,
     pub parameter_variables: BTreeSet<usize>,
     pub entity_variables: BTreeMap<EntityId, Vec<usize>>,
     pub spans: Vec<(EntityId, PointHandle, PointHandle)>,
@@ -115,11 +117,18 @@ impl System {
         }
         let joints = OnceCell::new();
         for (id, constraint) in sketch.active_constraints() {
-            if let Some(start) = system.parameter_start(sketch, &joints, constraint)? {
-                let index = system.values.len();
-                system.values.push(start);
-                system.parameters.insert(id, index);
-                system.parameter_variables.insert(index);
+            let starts = system.parameter_start(sketch, &joints, constraint)?;
+            if !starts.is_empty() {
+                let indices = starts
+                    .into_iter()
+                    .map(|start| {
+                        let index = system.values.len();
+                        system.values.push(start);
+                        system.parameter_variables.insert(index);
+                        index
+                    })
+                    .collect();
+                system.parameters.insert(id, indices);
             }
         }
         for (id, constraint) in sketch.active_constraints() {
@@ -440,17 +449,17 @@ impl System {
                 }
                 (Role::Spline, Role::Line | Role::Circular) => {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
-                    let parameter = self.parameters.get(&id).copied();
+                    let parameter = self.first_parameter(id);
                     self.spline_tangent(sketch, joints, (a, b), parameter)?
                 }
                 (Role::Line | Role::Circular, Role::Spline) => {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
-                    let parameter = self.parameters.get(&id).copied();
+                    let parameter = self.first_parameter(id);
                     self.spline_tangent(sketch, joints, (b, a), parameter)?
                 }
                 (Role::Spline, Role::Spline) => {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
-                    vec![self.spline_pair_tangent(sketch, joints, constraint, (a, b))?]
+                    self.spline_pair_tangent(sketch, joints, id, (a, b))?
                 }
                 _ => return Err(not_applicable(a, b)),
             },
@@ -478,6 +487,12 @@ impl System {
                     self.circle(sketch, a)?,
                     self.circle(sketch, b)?,
                 )],
+                (Role::Spline, Role::Spline | Role::Line) | (Role::Line, Role::Spline) => {
+                    vec![Form::SameLength(
+                        self.spline_length(sketch, a)?,
+                        self.spline_length(sketch, b)?,
+                    )]
+                }
                 _ => return Err(not_applicable(a, b)),
             },
             Constraint::Distance { from, to, .. } => {
@@ -500,6 +515,12 @@ impl System {
                     }
                     (Role::Spline, Role::Point) => {
                         self.spline_distance(sketch, (to, from), self.parameter_of(id)?, value)?
+                    }
+                    (Role::Spline, Role::Line | Role::Circular) => {
+                        self.spline_gap(sketch, (from, to), self.parameter_of(id)?, value)?
+                    }
+                    (Role::Line | Role::Circular, Role::Spline) => {
+                        self.spline_gap(sketch, (to, from), self.parameter_of(id)?, value)?
                     }
                     (Role::Point, Role::Line) => vec![self.line_distance(sketch, from, to, value)?],
                     (Role::Line, Role::Point) => vec![self.line_distance(sketch, to, from, value)?],
@@ -534,12 +555,18 @@ impl System {
             }
             Constraint::Angle {
                 from, to, reversed, ..
-            } => vec![Form::Angle {
-                from: self.line(sketch, from)?,
-                to: self.line(sketch, to)?,
-                reversed,
-                radians: dimension()?.to_radians(),
-            }],
+            } => {
+                let joints = joints.get_or_init(|| Joints::of(sketch));
+                let (first, first_turn) = self.angle_ray(sketch, joints, constraint, (from, to))?;
+                let (second, second_turn) =
+                    self.angle_ray(sketch, joints, constraint, (to, from))?;
+                vec![Form::Angle {
+                    from: first,
+                    to: second,
+                    reversed,
+                    radians: dimension()?.to_radians() - second_turn + first_turn,
+                }]
+            }
             Constraint::Radius { entity, .. } => vec![Form::Radius {
                 circle: self.circle(sketch, entity)?,
                 value: dimension()?,
@@ -747,6 +774,28 @@ impl System {
         })
     }
 
+    fn angle_ray(
+        &self,
+        sketch: &Sketch,
+        joints: &Joints,
+        constraint: &Constraint,
+        (entity, other): (EntityId, EntityId),
+    ) -> Result<(LineHandle, f64), SketchError> {
+        let Some(&Entity::Arc { center, .. }) = sketch.entity(entity) else {
+            return Ok((self.line(sketch, entity)?, 0.0));
+        };
+        let joint = joints
+            .arc_joint(sketch, entity, other)
+            .ok_or_else(|| not_joined(sketch, constraint, entity, other))?;
+        let (center, end) = (self.point(center)?, self.point(joint.end)?);
+        let radius = LineHandle {
+            start: center,
+            end,
+            fallback: self.initial_direction(center, end),
+        };
+        Ok((radius, joint.turn()))
+    }
+
     pub(super) fn radius_line(&self, point: PointHandle, center: PointHandle) -> LineHandle {
         LineHandle {
             start: point,
@@ -784,6 +833,22 @@ fn scale_of(magnitudes: impl IntoIterator<Item = f64>) -> f64 {
     } else {
         largest
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ArcJoint {
+    pub end: EntityId,
+    pub at_start: bool,
+}
+
+impl ArcJoint {
+    pub(crate) fn turn(self) -> f64 {
+        if self.at_start { FRAC_PI_2 } else { -FRAC_PI_2 }
+    }
+}
+
+pub(crate) fn arc_joint(sketch: &Sketch, arc: EntityId, other: EntityId) -> Option<ArcJoint> {
+    Joints::of(sketch).arc_joint(sketch, arc, other)
 }
 
 pub(super) struct Joints {
@@ -844,6 +909,26 @@ impl Joints {
             points.extend(on_curve);
         }
         points
+    }
+
+    pub(super) fn arc_joint(
+        &self,
+        sketch: &Sketch,
+        arc: EntityId,
+        other: EntityId,
+    ) -> Option<ArcJoint> {
+        let Some(&Entity::Arc { start, end, .. }) = sketch.entity(arc) else {
+            return None;
+        };
+        let on_other: BTreeSet<EntityId> = self
+            .points_on(sketch, other)
+            .into_iter()
+            .map(|point| self.class(point))
+            .collect();
+        [(start, true), (end, false)]
+            .into_iter()
+            .find(|(point, _)| on_other.contains(&self.class(*point)))
+            .map(|(end, at_start)| ArcJoint { end, at_start })
     }
 
     pub(super) fn class(&self, point: EntityId) -> EntityId {

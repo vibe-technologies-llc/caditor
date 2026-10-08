@@ -10,7 +10,8 @@ use crate::{
     sketch::{Sketch, SketchError},
     solve::{
         equation::{
-            CircleHandle, Form, LineHandle, SplineEndHandle, SplineHandle, fallback_direction,
+            CircleHandle, Form, LengthOf, LineHandle, PointHandle, SplineEndHandle, SplineHandle,
+            fallback_direction,
         },
         system::{Joints, System},
     },
@@ -32,40 +33,79 @@ impl System {
         sketch: &Sketch,
         joints: &OnceCell<Joints>,
         constraint: &Constraint,
-    ) -> Result<Option<f64>, SketchError> {
+    ) -> Result<Vec<f64>, SketchError> {
         let role = |entity: EntityId| sketch.role(entity);
         match *constraint {
             Constraint::Coincident(a, b) | Constraint::Distance { from: a, to: b, .. } => {
-                let (point, spline) = match (role(a), role(b)) {
-                    (Some(Role::Point), Some(Role::Spline)) => (a, b),
-                    (Some(Role::Spline), Some(Role::Point)) => (b, a),
-                    _ => return Ok(None),
-                };
-                let target = self.point(point)?.at(&self.values);
-                Ok(Some(start_on(
-                    &self.curve(sketch, spline)?,
-                    Wanted::Closest,
-                    |at| at.distance(target),
-                    |at, tangent, bend| {
-                        let offset = at - target;
-                        (offset.dot(tangent), tangent.dot(tangent) + offset.dot(bend))
-                    },
-                )))
+                match (role(a), role(b)) {
+                    (Some(Role::Point), Some(Role::Spline)) => self.closest_start(sketch, a, b),
+                    (Some(Role::Spline), Some(Role::Point)) => self.closest_start(sketch, b, a),
+                    (Some(Role::Spline), Some(Role::Line | Role::Circular))
+                        if matches!(constraint, Constraint::Distance { .. }) =>
+                    {
+                        Ok(vec![self.touching_start(sketch, a, b)?])
+                    }
+                    (Some(Role::Line | Role::Circular), Some(Role::Spline))
+                        if matches!(constraint, Constraint::Distance { .. }) =>
+                    {
+                        Ok(vec![self.touching_start(sketch, b, a)?])
+                    }
+                    _ => Ok(Vec::new()),
+                }
             }
             Constraint::Tangent(a, b) => {
-                let (spline, other) = match (role(a), role(b)) {
-                    (Some(Role::Spline), Some(Role::Line | Role::Circular)) => (a, b),
-                    (Some(Role::Line | Role::Circular), Some(Role::Spline)) => (b, a),
-                    _ => return Ok(None),
-                };
                 let joints = joints.get_or_init(|| Joints::of(sketch));
-                if joints.spline_end(sketch, spline, other).is_some() {
-                    return Ok(None);
+                match (role(a), role(b)) {
+                    (Some(Role::Spline), Some(Role::Spline)) => {
+                        if joints.spline_joint(sketch, a, b).is_some() {
+                            return Ok(Vec::new());
+                        }
+                        let (first, second) = (self.curve(sketch, a)?, self.curve(sketch, b)?);
+                        let (one, other) = closest_pair(&first, &second);
+                        Ok(vec![one, other])
+                    }
+                    (Some(Role::Spline), Some(Role::Line | Role::Circular)) => {
+                        self.tangent_start(sketch, joints, a, b)
+                    }
+                    (Some(Role::Line | Role::Circular), Some(Role::Spline)) => {
+                        self.tangent_start(sketch, joints, b, a)
+                    }
+                    _ => Ok(Vec::new()),
                 }
-                self.touching_start(sketch, spline, other).map(Some)
             }
-            _ => Ok(None),
+            _ => Ok(Vec::new()),
         }
+    }
+
+    fn closest_start(
+        &self,
+        sketch: &Sketch,
+        point: EntityId,
+        spline: EntityId,
+    ) -> Result<Vec<f64>, SketchError> {
+        let target = self.point(point)?.at(&self.values);
+        Ok(vec![start_on(
+            &self.curve(sketch, spline)?,
+            Wanted::Closest,
+            |at| at.distance(target),
+            |at, tangent, bend| {
+                let offset = at - target;
+                (offset.dot(tangent), tangent.dot(tangent) + offset.dot(bend))
+            },
+        )])
+    }
+
+    fn tangent_start(
+        &self,
+        sketch: &Sketch,
+        joints: &Joints,
+        spline: EntityId,
+        other: EntityId,
+    ) -> Result<Vec<f64>, SketchError> {
+        if joints.spline_end(sketch, spline, other).is_some() {
+            return Ok(Vec::new());
+        }
+        Ok(vec![self.touching_start(sketch, spline, other)?])
     }
 
     fn touching_start(
@@ -182,18 +222,54 @@ impl System {
             }]);
         }
         let parameter = parameter.ok_or(SketchError::MissingEntity(spline))?;
+        self.spline_contact(sketch, (spline, other), parameter, Contact::Touching)
+    }
+
+    pub(super) fn spline_gap(
+        &self,
+        sketch: &Sketch,
+        (spline, other): (EntityId, EntityId),
+        parameter: usize,
+        value: f64,
+    ) -> Result<Vec<Form>, SketchError> {
+        let size = self.span_context(
+            PointHandle::Fixed(Point2::ZERO),
+            PointHandle::Fixed(Point2::ZERO),
+            value,
+        );
+        let contact = if value.abs() <= size.degenerate_length {
+            Contact::Touching
+        } else {
+            Contact::Apart(value)
+        };
+        self.spline_contact(sketch, (spline, other), parameter, contact)
+    }
+
+    fn spline_contact(
+        &self,
+        sketch: &Sketch,
+        (spline, other): (EntityId, EntityId),
+        parameter: usize,
+        contact: Contact,
+    ) -> Result<Vec<Form>, SketchError> {
         let handle = self.spline_handle(sketch, spline)?;
         let curve = self.curve(sketch, spline)?;
-        let start = self.values.get(parameter).copied().unwrap_or(0.0);
+        let values = &self.values;
+        let start = values.get(parameter).copied().unwrap_or(0.0);
+        let at = curve.point_at(start);
         let [tangent, _] = curve.derivatives(start);
         let tangent_fallback = fallback_direction(tangent);
-        if is_line {
+        if sketch.role(other) == Some(Role::Line) {
             let line = self.line(sketch, other)?;
+            let normal = fallback_direction(line.end.at(values) - line.start.at(values)).perp();
+            let (side, value) = contact.side_and_value(normal.dot(at - line.start.at(values)));
             return Ok(vec![
                 Form::SplineOnLine {
                     spline: Arc::clone(&handle),
                     parameter,
                     line,
+                    side,
+                    value,
                 },
                 Form::SplineAlongLine {
                     spline: handle,
@@ -204,14 +280,17 @@ impl System {
             ]);
         }
         let circle: CircleHandle = self.circle(sketch, other)?;
-        let radial_fallback =
-            fallback_direction(curve.point_at(start) - circle.center.at(&self.values));
+        let center = circle.center.at(values);
+        let radial_fallback = fallback_direction(at - center);
+        let (side, value) = contact.side_and_value(at.distance(center) - circle.radius(values));
         Ok(vec![
             Form::SplineOnCircle {
                 spline: Arc::clone(&handle),
                 parameter,
                 circle,
                 fallback: radial_fallback,
+                side,
+                value,
             },
             Form::SplineAcrossRadius {
                 spline: handle,
@@ -223,10 +302,22 @@ impl System {
     }
 
     pub(super) fn parameter_of(&self, constraint: ConstraintId) -> Result<usize, SketchError> {
-        self.parameters
-            .get(&constraint)
-            .copied()
+        self.first_parameter(constraint)
             .ok_or(SketchError::MissingConstraint(constraint))
+    }
+
+    pub(super) fn first_parameter(&self, constraint: ConstraintId) -> Option<usize> {
+        self.parameters.get(&constraint)?.first().copied()
+    }
+
+    pub(super) fn parameter_pair(
+        &self,
+        constraint: ConstraintId,
+    ) -> Result<(usize, usize), SketchError> {
+        match self.parameters.get(&constraint).map(Vec::as_slice) {
+            Some(&[first, second]) => Ok((first, second)),
+            _ => Err(SketchError::MissingConstraint(constraint)),
+        }
     }
 
     fn spline_handle(
@@ -258,6 +349,22 @@ impl System {
             .map(|point| Ok(self.point(*point)?.at(&self.values)))
             .collect::<Result<Vec<Point2>, SketchError>>()?;
         BSpline::clamped(points).ok_or(SketchError::TooFewControlPoints)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Contact {
+    Touching,
+    Apart(f64),
+}
+
+impl Contact {
+    fn side_and_value(self, drawn: f64) -> (f64, f64) {
+        match self {
+            Self::Touching => (1.0, 0.0),
+            Self::Apart(value) if drawn < 0.0 => (-1.0, value),
+            Self::Apart(value) => (1.0, value),
+        }
     }
 }
 
@@ -404,16 +511,53 @@ impl System {
         &self,
         sketch: &Sketch,
         joints: &Joints,
-        constraint: &Constraint,
+        id: ConstraintId,
         (a, b): (EntityId, EntityId),
-    ) -> Result<Form, SketchError> {
-        let (first, second) = joints
-            .spline_joint(sketch, a, b)
-            .ok_or_else(|| not_joined(sketch, constraint, a, b))?;
-        Ok(Form::Parallel(
-            self.leg(first.end, first.next)?,
-            self.leg(second.end, second.next)?,
-        ))
+    ) -> Result<Vec<Form>, SketchError> {
+        if let Some((first, second)) = joints.spline_joint(sketch, a, b) {
+            return Ok(vec![Form::Parallel(
+                self.leg(first.end, first.next)?,
+                self.leg(second.end, second.next)?,
+            )]);
+        }
+        let parameters = self.parameter_pair(id)?;
+        let (first, second) = (
+            self.spline_handle(sketch, a)?,
+            self.spline_handle(sketch, b)?,
+        );
+        let fallback = |spline: EntityId, parameter: usize| -> Result<Vector2, SketchError> {
+            let start = self.values.get(parameter).copied().unwrap_or(0.0);
+            let [tangent, _] = self.curve(sketch, spline)?.derivatives(start);
+            Ok(fallback_direction(tangent))
+        };
+        let fallbacks = (fallback(a, parameters.0)?, fallback(b, parameters.1)?);
+        let meet = |along| Form::SplinesMeet {
+            first: Arc::clone(&first),
+            second: Arc::clone(&second),
+            parameters,
+            along,
+        };
+        Ok(vec![
+            meet(Vector2::X),
+            meet(Vector2::Y),
+            Form::SplinesAlong {
+                first: Arc::clone(&first),
+                second: Arc::clone(&second),
+                parameters,
+                fallbacks,
+            },
+        ])
+    }
+
+    pub(super) fn spline_length(
+        &self,
+        sketch: &Sketch,
+        entity: EntityId,
+    ) -> Result<LengthOf, SketchError> {
+        match sketch.role(entity) {
+            Some(Role::Spline) => Ok(LengthOf::Spline(self.spline_handle(sketch, entity)?)),
+            _ => Ok(LengthOf::Line(self.line(sketch, entity)?)),
+        }
     }
 
     pub(super) fn spline_curvature(
@@ -578,4 +722,105 @@ fn refine(
         }
     }
     (parameter, false)
+}
+
+fn closest_pair(first: &BSpline, second: &BSpline) -> (f64, f64) {
+    let samples = |curve: &BSpline| -> Vec<(f64, Point2)> {
+        let spans = curve
+            .control_points()
+            .len()
+            .saturating_sub(curve.degree())
+            .max(1);
+        let count = spans * SAMPLES_PER_SPAN;
+        (0..=count)
+            .map(|index| {
+                let parameter = index as f64 / count as f64;
+                (parameter, curve.point_at(parameter))
+            })
+            .collect()
+    };
+    let (ones, others) = (samples(first), samples(second));
+    let rough = ones
+        .iter()
+        .flat_map(|one| others.iter().map(move |other| (*one, *other)))
+        .min_by(|a, b| {
+            a.0.1
+                .distance_squared(a.1.1)
+                .total_cmp(&b.0.1.distance_squared(b.1.1))
+        })
+        .map_or((0.0, 0.0), |((one, _), (other, _))| (one, other));
+    let (mut one, mut other) = rough;
+    for _ in 0..REFINEMENTS {
+        let gap = first.point_at(one) - second.point_at(other);
+        let ([along, bend], [other_along, other_bend]) =
+            (first.derivatives(one), second.derivatives(other));
+        let gradient = (gap.dot(along), -gap.dot(other_along));
+        let across = -along.dot(other_along);
+        let hessian = (
+            along.dot(along) + gap.dot(bend),
+            across,
+            other_along.dot(other_along) - gap.dot(other_bend),
+        );
+        let determinant = hessian.0 * hessian.2 - hessian.1 * hessian.1;
+        if !(determinant.is_finite() && determinant.abs() > f64::EPSILON) {
+            break;
+        }
+        let step = (
+            (hessian.2 * gradient.0 - hessian.1 * gradient.1) / determinant,
+            (hessian.0 * gradient.1 - hessian.1 * gradient.0) / determinant,
+        );
+        let next = (
+            (one - step.0).clamp(0.0, 1.0),
+            (other - step.1).clamp(0.0, 1.0),
+        );
+        let moved = (next.0 - one).abs() + (next.1 - other).abs();
+        (one, other) = next;
+        if moved <= f64::EPSILON {
+            break;
+        }
+    }
+    let distance = |(one, other): (f64, f64)| first.point_at(one).distance(second.point_at(other));
+    if distance((one, other)) <= distance(rough) {
+        (one, other)
+    } else {
+        rough
+    }
+}
+
+pub(crate) fn spline_gap(
+    sketch: &Sketch,
+    spline: EntityId,
+    other: EntityId,
+) -> Option<(Point2, Point2)> {
+    let curve = sketch.spline(spline)?;
+    let slope_from = |center: Point2| {
+        move |at: Point2, tangent: Vector2, bend: Vector2| {
+            let offset = at - center;
+            (offset.dot(tangent), tangent.dot(tangent) + offset.dot(bend))
+        }
+    };
+    if let Some(direction) = sketch.line_direction(other) {
+        let normal = direction.try_normalize()?.perp();
+        let anchor = sketch
+            .line_endpoints(other)
+            .map_or(Point2::ZERO, |(start, _)| start);
+        let parameter = start_on(
+            &curve,
+            Wanted::Touching,
+            |at| normal.dot(at - anchor),
+            |_, tangent, bend| (normal.dot(tangent), normal.dot(bend)),
+        );
+        let at = curve.point_at(parameter);
+        return Some((at, at - normal * normal.dot(at - anchor)));
+    }
+    let (center, radius) = sketch.circle(other)?;
+    let parameter = start_on(
+        &curve,
+        Wanted::Touching,
+        |at| at.distance(center) - radius,
+        slope_from(center),
+    );
+    let at = curve.point_at(parameter);
+    let outward = (at - center).try_normalize().unwrap_or(Vector2::X);
+    Some((at, center + outward * radius))
 }

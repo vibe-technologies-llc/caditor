@@ -75,6 +75,18 @@ impl LineSpan {
         }
     }
 
+    fn along(sketch: &Sketch, id: EntityId, other: EntityId) -> Option<Self> {
+        let Some(arc) = sketch.arc(id) else {
+            return Self::of(sketch, id);
+        };
+        let direction = sketch.angle_direction(id, other)?.try_normalize()?;
+        Some(Self {
+            origin: sketch.angle_vertex(id, other)?,
+            direction,
+            length: Some(arc.radius * arc.sweep.min(1.0)),
+        })
+    }
+
     fn at(&self, parameter: f64) -> Point2 {
         self.origin + self.direction * parameter
     }
@@ -159,8 +171,8 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
         Constraint::Angle {
             from, to, reversed, ..
         } => Some(Measured::Angle(
-            LineSpan::of(sketch, from)?,
-            LineSpan::of(sketch, to)?,
+            LineSpan::along(sketch, from, to)?,
+            LineSpan::along(sketch, to, from)?,
             reversed,
         )),
         Constraint::Radius { entity, .. } => {
@@ -224,6 +236,14 @@ fn point_to_curve(sketch: &Sketch, point: Point2, curve: EntityId) -> Option<Mea
 }
 
 fn curve_to_curve(sketch: &Sketch, from: EntityId, to: EntityId) -> Option<Measured> {
+    let spline_gap = match (sketch.spline(from), sketch.spline(to)) {
+        (Some(_), _) => Some(sketch.spline_gap(from, to)?),
+        (None, Some(_)) => Some(sketch.spline_gap(to, from)?),
+        (None, None) => None,
+    };
+    if let Some((on_spline, on_other)) = spline_gap {
+        return Some(Measured::Points(on_spline, on_other));
+    }
     match (sketch.circle(from), sketch.circle(to)) {
         (None, None) => {
             let (anchor, other) = if to.is_reference() {

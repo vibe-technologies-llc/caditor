@@ -3451,6 +3451,34 @@ fn distance_dimensions_a_point_from_a_spline_square_to_it() {
     assert_eq!(*value, Expression::Measure(4.0, Unit::Millimetre));
 }
 
+#[test]
+fn distance_dimensions_a_line_from_where_a_spline_bulges_and_holds_it_there() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&[
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 0.0),
+    ]);
+    let line = sketch.add_line(Point2::new(0.0, 8.0), Point2::new(20.0, 8.0));
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.settle();
+
+    harness.select([spline, line].map(|entity| Pickable::SketchEntity { feature, entity }));
+    harness.frame();
+    harness.click_button("Distance");
+    harness.settle();
+
+    let distances = constraints_of_kind(harness.sketch(feature), "Distance");
+    let [Constraint::Distance { from, to, value }] = &distances[..] else {
+        panic!("one distance is added: {distances:?}");
+    };
+    assert_eq!((*from, *to), (spline, line));
+    assert_eq!(*value, Expression::Measure(3.0, Unit::Millimetre));
+    assert!(harness.shows("3 mm"));
+}
+
 fn only_constraint(sketch: &Sketch) -> (caditor_sketch::ConstraintId, Constraint) {
     let mut constraints = sketch.constraints();
     let (id, constraint) = constraints.next().unwrap();

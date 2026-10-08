@@ -15,7 +15,7 @@ enum Variable {
     X(EntityId),
     Y(EntityId),
     Radius(EntityId),
-    Parameter(ConstraintId),
+    Parameter(ConstraintId, usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -255,8 +255,10 @@ impl Names {
         for (entity, radius) in &system.radii {
             name(*radius, Variable::Radius(*entity));
         }
-        for (constraint, parameter) in &system.parameters {
-            name(*parameter, Variable::Parameter(*constraint));
+        for (constraint, parameters) in &system.parameters {
+            for (ordinal, parameter) in parameters.iter().enumerate() {
+                name(*parameter, Variable::Parameter(*constraint, ordinal));
+            }
         }
         let mut counts = vec![0; system.values.len()];
         for variable in system.entity_variables.values().flatten() {

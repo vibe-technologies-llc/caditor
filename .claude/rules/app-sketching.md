@@ -386,8 +386,11 @@ paths:
   beside them the vertical one, elsewhere (and always for level or upright ones) the aligned one;
   for a lone arc, beyond it within its sweep its length, inside it its sweep, outside its sweep its
   radius. Enter always adds the aligned distance, the length or the radius. A spline waits for a
-  point, whose distance from it is the dimension; with anything else it is refused in words, and a
-  lone point waits. The dimension goes
+  point, line, circle or arc, whose distance from it is the dimension (from a curve, the gap where
+  the spline bulges toward it, drawn between `Sketch::spline_gap`'s points); another spline is
+  refused in words, and a lone point waits. A line and an arc sharing an end take the angle
+  between them there instead of their distance, measured inside the corner as two lines' is
+  (`sketch_tools::angle_to_arc`), drawn from the arc's tangent at the joint. The dimension goes
   through the same candidates, checks, reference rule and inline field as the dimension buttons
   (`ConstraintTool::candidates_among`, `add_constraints`), the field taking the typed value. The
   prompt says what Enter would add and the hover what a click would; with the tool active labels

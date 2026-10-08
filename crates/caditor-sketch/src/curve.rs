@@ -7,6 +7,13 @@ const MIN_SEGMENT_ANGLE: f64 = 1e-3;
 const DEFAULT_SEGMENT_ANGLE: f64 = 5.0 * TAU / 360.0;
 const SPLINE_SEGMENTS_PER_SPAN: usize = 4;
 pub(crate) const MAX_SPLINE_DEGREE: usize = 3;
+const GAUSS_LEGENDRE: [(f64, f64); 5] = [
+    (-0.906_179_845_938_664, 0.236_926_885_056_189_1),
+    (-0.538_469_310_105_683_1, 0.478_628_670_499_366_5),
+    (0.0, 0.568_888_888_888_888_9),
+    (0.538_469_310_105_683_1, 0.478_628_670_499_366_5),
+    (0.906_179_845_938_664, 0.236_926_885_056_189_1),
+];
 const MIN_SEGMENTS_PER_TURN: f64 = 12.0;
 const MAX_SEGMENTS_PER_TURN: f64 = 1024.0;
 const CHORD_ERROR_PER_BENDING: f64 = 8.0;
@@ -175,6 +182,15 @@ impl BSpline {
         })
     }
 
+    pub fn length(&self) -> f64 {
+        length_nodes(self.control_points.len())
+            .map(|(parameter, weight)| {
+                let [tangent, _] = self.derivatives(parameter);
+                tangent.length() * weight
+            })
+            .sum()
+    }
+
     pub fn polyline(&self, max_segment_angle: f64) -> Vec<Point2> {
         let turning = self.control_polygon_turning();
         let by_angle = segments_for(turning, max_segment_angle);
@@ -307,6 +323,18 @@ pub(crate) fn basis_derivatives(
         span - degree,
         local_derivatives(degree, knots, span, parameter, order),
     )
+}
+
+pub(crate) fn length_nodes(count: usize) -> impl Iterator<Item = (f64, f64)> {
+    let degree = MAX_SPLINE_DEGREE.min(count.saturating_sub(1));
+    let spans = count.saturating_sub(degree).max(1);
+    let width = 1.0 / spans as f64;
+    (0..spans).flat_map(move |span| {
+        GAUSS_LEGENDRE.iter().map(move |&(abscissa, weight)| {
+            let parameter = (span as f64 + (1.0 + abscissa) / 2.0) * width;
+            (parameter, weight * width / 2.0)
+        })
+    })
 }
 
 pub(crate) fn clamped_knots(count: usize) -> (usize, Vec<f64>) {

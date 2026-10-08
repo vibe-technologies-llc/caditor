@@ -5,7 +5,10 @@ use std::{
 
 use caditor_geometry::{Point2, Vector2};
 
-use crate::{curve::basis_derivatives, id::ConstraintId};
+use crate::{
+    curve::{basis_derivatives, length_nodes},
+    id::ConstraintId,
+};
 
 pub(crate) type Gradient = Vec<(usize, f64)>;
 
@@ -183,6 +186,31 @@ impl SplineEndHandle {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LengthOf {
+    Line(LineHandle),
+    Spline(Arc<SplineHandle>),
+}
+
+impl LengthOf {
+    fn measure(
+        &self,
+        values: &[f64],
+        context: &Context,
+        gradient: &mut Gradient,
+        factor: f64,
+    ) -> f64 {
+        match self {
+            Self::Line(line) => {
+                let direction = line.direction(values, context);
+                line.push_vector(gradient, direction.unit * factor);
+                direction.length
+            }
+            Self::Spline(spline) => spline.length(values, gradient, factor),
+        }
+    }
+}
+
 struct SplineAt {
     point: Point2,
     tangent: Vector2,
@@ -221,6 +249,26 @@ impl SplineHandle {
             weights,
             slopes,
         }
+    }
+
+    fn length(&self, values: &[f64], gradient: &mut Gradient, factor: f64) -> f64 {
+        let count = self.points.len();
+        let mut total = 0.0;
+        for (parameter, weight) in length_nodes(count) {
+            let (first, slopes) = basis_derivatives(self.degree, &self.knots, count, parameter, 1);
+            let tangent = slopes
+                .iter()
+                .zip(self.points.iter().skip(first))
+                .fold(Vector2::ZERO, |sum, (slope, point)| {
+                    sum + point.at(values) * *slope
+                });
+            let speed = tangent.length();
+            total += speed * weight;
+            if speed > 0.0 && speed.is_finite() {
+                self.push(gradient, first, &slopes, tangent / speed * weight * factor);
+            }
+        }
+        total
     }
 
     fn push(&self, gradient: &mut Gradient, first: usize, weights: &[f64], partial: Vector2) {
@@ -395,6 +443,8 @@ pub(crate) enum Form {
         spline: Arc<SplineHandle>,
         parameter: usize,
         line: LineHandle,
+        side: f64,
+        value: f64,
     },
     SplineAlongLine {
         spline: Arc<SplineHandle>,
@@ -407,7 +457,22 @@ pub(crate) enum Form {
         parameter: usize,
         circle: CircleHandle,
         fallback: Vector2,
+        side: f64,
+        value: f64,
     },
+    SplinesMeet {
+        first: Arc<SplineHandle>,
+        second: Arc<SplineHandle>,
+        parameters: (usize, usize),
+        along: Vector2,
+    },
+    SplinesAlong {
+        first: Arc<SplineHandle>,
+        second: Arc<SplineHandle>,
+        parameters: (usize, usize),
+        fallbacks: (Vector2, Vector2),
+    },
+    SameLength(LengthOf, LengthOf),
     SplineAcrossRadius {
         spline: Arc<SplineHandle>,
         parameter: usize,
@@ -473,6 +538,8 @@ impl Form {
             | Self::CircleGap { value, .. }
             | Self::LineGap { value, .. }
             | Self::ArcLength { value, .. }
+            | Self::SplineOnLine { value, .. }
+            | Self::SplineOnCircle { value, .. }
             | Self::SplineDistance { value, .. } => Some(value),
             Self::SameX(a, b) => fixed_coordinate(a, b, |position| position.x),
             Self::SameY(a, b) => fixed_coordinate(a, b, |position| position.y),
@@ -493,10 +560,11 @@ impl Form {
             | Self::ArcBulge { .. }
             | Self::MirrorAcross { .. }
             | Self::OnSpline { .. }
-            | Self::SplineOnLine { .. }
             | Self::SplineAlongLine { .. }
-            | Self::SplineOnCircle { .. }
             | Self::SplineAcrossRadius { .. }
+            | Self::SplinesMeet { .. }
+            | Self::SplinesAlong { .. }
+            | Self::SameLength(..)
             | Self::SplineFoot { .. }
             | Self::EndCurvature { .. }
             | Self::MatchedCurvature(..) => None,
@@ -571,16 +639,53 @@ impl Form {
                 ref spline,
                 parameter,
                 line,
+                side,
+                value,
             } => {
                 let at = spline.at(values, parameter);
                 let direction = line.direction(values, context);
                 let offset = at.point - line.start.at(values);
-                let normal = direction.unit.perp();
+                let normal = direction.unit.perp() * side;
                 spline.push_point(&at, gradient, normal);
                 gradient.push((parameter, normal.dot(at.tangent)));
                 line.start.push(gradient, -normal);
-                line.push_vector(gradient, direction.back_from_unit(-offset.perp()));
-                direction.unit.perp_dot(offset)
+                line.push_vector(gradient, direction.back_from_unit(-offset.perp() * side));
+                direction.unit.perp_dot(offset) * side - value
+            }
+            Self::SplinesMeet {
+                ref first,
+                ref second,
+                parameters: (one, other),
+                along,
+            } => {
+                let (at, there) = (first.at(values, one), second.at(values, other));
+                first.push_point(&at, gradient, along);
+                gradient.push((one, along.dot(at.tangent)));
+                second.push_point(&there, gradient, -along);
+                gradient.push((other, -along.dot(there.tangent)));
+                along.dot(at.point - there.point)
+            }
+            Self::SplinesAlong {
+                ref first,
+                ref second,
+                parameters: (one, other),
+                fallbacks: (first_fallback, second_fallback),
+            } => {
+                let (at, there) = (first.at(values, one), second.at(values, other));
+                let one_way = at.tangent_line(first_fallback, context);
+                let other_way = there.tangent_line(second_fallback, context);
+                let scale = context.scale;
+                let turning = one_way.back_from_unit(-other_way.unit.perp() * scale);
+                let other_turning = other_way.back_from_unit(one_way.unit.perp() * scale);
+                first.push_tangent(&at, gradient, turning);
+                gradient.push((one, turning.dot(at.bend)));
+                second.push_tangent(&there, gradient, other_turning);
+                gradient.push((other, other_turning.dot(there.bend)));
+                one_way.unit.perp_dot(other_way.unit) * scale
+            }
+            Self::SameLength(ref first, ref second) => {
+                first.measure(values, context, gradient, 1.0)
+                    - second.measure(values, context, gradient, -1.0)
             }
             Self::SplineAlongLine {
                 ref spline,
@@ -603,15 +708,18 @@ impl Form {
                 parameter,
                 circle,
                 fallback,
+                side,
+                value,
             } => {
                 let at = spline.at(values, parameter);
                 let direction =
                     Direction::of(at.point - circle.center.at(values), fallback, context);
-                spline.push_point(&at, gradient, direction.unit);
-                gradient.push((parameter, direction.unit.dot(at.tangent)));
-                circle.center.push(gradient, -direction.unit);
-                circle.push_radius(values, context, gradient, -1.0);
-                direction.length - circle.radius(values)
+                let outward = direction.unit * side;
+                spline.push_point(&at, gradient, outward);
+                gradient.push((parameter, outward.dot(at.tangent)));
+                circle.center.push(gradient, -outward);
+                circle.push_radius(values, context, gradient, -side);
+                (direction.length - circle.radius(values)) * side - value
             }
             Self::SplineAcrossRadius {
                 ref spline,
@@ -1208,7 +1316,39 @@ mod tests {
                 spline: spline(0, 4),
                 parameter: 16,
                 line: line(10, 12),
+                side: 1.0,
+                value: 0.0,
             },
+            Form::SplineOnLine {
+                spline: spline(2, 5),
+                parameter: 17,
+                line: line(0, 14),
+                side: -1.0,
+                value: 1.25,
+            },
+            Form::SplinesMeet {
+                first: spline(0, 4),
+                second: spline(8, 4),
+                parameters: (16, 17),
+                along: Vector2::X,
+            },
+            Form::SplinesMeet {
+                first: spline(2, 3),
+                second: spline(6, 5),
+                parameters: (17, 16),
+                along: Vector2::Y,
+            },
+            Form::SplinesAlong {
+                first: spline(0, 5),
+                second: spline(6, 5),
+                parameters: (16, 17),
+                fallbacks: (Vector2::X, Vector2::Y),
+            },
+            Form::SameLength(
+                LengthOf::Spline(spline(0, 5)),
+                LengthOf::Spline(spline(4, 6)),
+            ),
+            Form::SameLength(LengthOf::Line(line(0, 14)), LengthOf::Spline(spline(2, 4))),
             Form::SplineAlongLine {
                 spline: spline(0, 6),
                 parameter: 17,
@@ -1220,6 +1360,16 @@ mod tests {
                 parameter: 16,
                 circle: circle(12, 10),
                 fallback: Vector2::X,
+                side: 1.0,
+                value: 0.0,
+            },
+            Form::SplineOnCircle {
+                spline: spline(2, 4),
+                parameter: 17,
+                circle: arc(12, 14),
+                fallback: Vector2::X,
+                side: -1.0,
+                value: 0.5,
             },
             Form::SplineAcrossRadius {
                 spline: spline(0, 5),

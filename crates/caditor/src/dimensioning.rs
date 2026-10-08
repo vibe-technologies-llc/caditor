@@ -15,8 +15,8 @@ pub const PICKED_KEYS: &str =
     "Enter: dimension it   Click empty space: dimension it as placed   Esc: start again";
 pub const PLACING_KEYS: &str = "Enter: the aligned distance   Esc: start again";
 pub const POINT_KEYS: &str = "Esc: start again";
-const SPLINE_REFUSED: &str = "A spline takes only a distance from a point; dimension the points or lines that shape \
-     it otherwise";
+const SPLINE_REFUSED: &str = "A spline takes only a distance from a point, line, circle or arc; dimension the points \
+     or lines that shape it otherwise";
 const NOT_IN_SKETCH: &str = "That is not part of the sketch being edited";
 const PARALLEL_TOLERANCE: f64 = 1e-9;
 const LEVEL_TOLERANCE: f64 = 1e-9;
@@ -59,7 +59,14 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
     };
     match kinds.as_slice() {
         [Kind::Spline] => return Fit::Waiting,
-        [Kind::Point, Kind::Spline] | [Kind::Spline, Kind::Point] => {
+        [
+            Kind::Point | Kind::Line | Kind::Circle | Kind::Arc,
+            Kind::Spline,
+        ]
+        | [
+            Kind::Spline,
+            Kind::Point | Kind::Line | Kind::Circle | Kind::Arc,
+        ] => {
             return Fit::Ready(ConstraintTool::Distance);
         }
         _ if kinds.contains(&Kind::Spline) => return Fit::Refused(SPLINE_REFUSED),
@@ -71,6 +78,11 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
         ([Kind::Circle], _) => Fit::Ready(ConstraintTool::Diameter),
         ([Kind::Arc], _) => Fit::Ready(ConstraintTool::Radius),
         ([Kind::Line, Kind::Line], &[first, second]) if !parallel(sketch, first, second) => {
+            Fit::Ready(ConstraintTool::Angle)
+        }
+        ([Kind::Line, Kind::Arc] | [Kind::Arc, Kind::Line], &[first, second])
+            if sketch.angle_vertex(first, second).is_some() =>
+        {
             Fit::Ready(ConstraintTool::Angle)
         }
         ([_, _], _) => Fit::Ready(ConstraintTool::Distance),
@@ -342,7 +354,34 @@ mod tests {
         );
         assert_eq!(
             fitting(&sketch, &[level, spline]),
+            Fit::Ready(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            fitting(&sketch, &[spline, circle]),
+            Fit::Ready(ConstraintTool::Distance)
+        );
+        let other_spline = sketch.add_spline(&[Point2::new(5.0, 0.0), Point2::new(6.0, 2.0)]);
+        assert_eq!(
+            fitting(&sketch, &[spline, other_spline]),
             Fit::Refused(SPLINE_REFUSED)
+        );
+        assert_eq!(
+            fitting(&sketch, &[level, arc]),
+            Fit::Ready(ConstraintTool::Distance)
+        );
+        let Some(&Entity::Arc { start, .. }) = sketch.entity(arc) else {
+            panic!("expected an arc");
+        };
+        let leaving = sketch.add_line(Point2::new(3.0, 0.0), Point2::new(3.0, -6.0));
+        let Some(&Entity::Line { start: joint, .. }) = sketch.entity(leaving) else {
+            panic!("expected a line");
+        };
+        sketch
+            .add_constraint(caditor_sketch::Constraint::Coincident(joint, start))
+            .unwrap();
+        assert_eq!(
+            fitting(&sketch, &[leaving, arc]),
+            Fit::Ready(ConstraintTool::Angle)
         );
         assert_eq!(
             fitting(&sketch, &[level, above, slanted]),

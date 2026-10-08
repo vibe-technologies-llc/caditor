@@ -100,11 +100,13 @@ impl ConstraintTool {
                 "Make a spline run on from a line, arc or spline it shares an end with, tangent \
                  and bending alike, so the joint shows no kink in its curvature"
             }
-            Self::Equal => "Give lines the same length, or circles and arcs the same radius",
+            Self::Equal => {
+                "Give lines and splines the same length, or circles and arcs the same radius"
+            }
             Self::Symmetric => "Mirror two points, lines, circles or arcs about a line or a point",
             Self::Distance => {
-                "Fix the distance between two points, lines or circles, any two of them, a point \
-                 and a spline, the ends of a line, or the length of an arc"
+                "Fix the distance between two points, lines or circles, any two of them, a spline \
+                 and a point, line or circle, the ends of a line, or the length of an arc"
             }
             Self::HorizontalDistance => {
                 "Fix the horizontal distance between two points or the ends of a line"
@@ -112,7 +114,10 @@ impl ConstraintTool {
             Self::VerticalDistance => {
                 "Fix the vertical distance between two points or the ends of a line"
             }
-            Self::Angle => "Fix the angle between two lines, or how far an arc sweeps",
+            Self::Angle => {
+                "Fix the angle between two lines or a line and an arc at their shared end, or \
+                 how far an arc sweeps"
+            }
             Self::Radius => "Fix the radius of circles and arcs",
             Self::Diameter => "Fix the diameter of circles and arcs",
         }
@@ -134,18 +139,19 @@ impl ConstraintTool {
                 "Select two or more lines, the others turning square to the first, or a line and \
                  a circle or arc"
             }
-            Self::Angle => "Select two lines or one arc",
+            Self::Angle => "Select two lines, a line and an arc sharing an end, or one arc",
             Self::Tangent => {
                 "Select a line, circle or arc, and one or more circles, arcs or splines to touch it"
             }
             Self::Curvature => "Select a spline and the line, arc or spline at one of its ends",
-            Self::Equal => "Select two or more lines, or two or more circles or arcs",
+            Self::Equal => "Select two or more lines or splines, or two or more circles or arcs",
             Self::Symmetric => {
                 "Select two points, lines, circles or arcs, and the line or point to mirror them \
                  about"
             }
             Self::Distance => {
-                "Select one line or arc, two of points, lines and circles, or a point and a spline"
+                "Select one line or arc, two of points, lines and circles, or a spline and a \
+                 point, line or circle"
             }
             Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
             Self::Radius | Self::Diameter => "Select one or more circles or arcs",
@@ -241,7 +247,8 @@ impl ConstraintTool {
                 Some(vec![Constraint::Tangent(a, b), Constraint::Curvature(a, b)])
             }
             (Self::Equal, _) => chained(items, Line, Constraint::Equal)
-                .or_else(|| chained(items, Circular, Constraint::Equal)),
+                .or_else(|| chained(items, Circular, Constraint::Equal))
+                .or_else(|| equal_lengths(items)),
             (Self::Symmetric, _) => symmetric(definition, shown, items),
             (Self::Distance, &[(line, Line)]) => {
                 let Some(&Entity::Line { start, end }) = definition.entity(line) else {
@@ -271,7 +278,9 @@ impl ConstraintTool {
                 Self::Distance,
                 &[(from, Point), (to, Circular)]
                 | &[(to, Circular), (from, Point)]
-                | &[(from, Line | Circular), (to, Line | Circular)],
+                | &[(from, Line | Circular), (to, Line | Circular)]
+                | &[(from, Shape::Spline), (to, Line | Circular)]
+                | &[(from, Line | Circular), (to, Shape::Spline)],
             ) => Some(vec![measured(shown, |value| Constraint::Distance {
                 from,
                 to,
@@ -287,6 +296,11 @@ impl ConstraintTool {
                 Some(vec![self.offset(shown, a, b)?])
             }
             (Self::Angle, &[(a, Line), (b, Line)]) => Some(vec![angle(shown, a, b)?]),
+            (Self::Angle, &[(line, Line), (arc, Circular)] | &[(arc, Circular), (line, Line)])
+                if is_arc(definition, arc) =>
+            {
+                Some(vec![angle_to_arc(shown, line, arc)?])
+            }
             (Self::Distance, &[(arc, Circular)]) if is_arc(definition, arc) => {
                 Some(vec![measured(shown, |value| Constraint::ArcLength {
                     arc,
@@ -433,6 +447,19 @@ fn chained(
     let all_needed = items.iter().all(|(_, shape)| *shape == needed);
     (all_needed && !rest.is_empty())
         .then(|| rest.iter().map(|(other, _)| make(*first, *other)).collect())
+}
+
+fn equal_lengths(items: &[Item]) -> Option<Vec<Constraint>> {
+    let lengths = items
+        .iter()
+        .all(|(_, shape)| matches!(shape, Shape::Line | Shape::Spline));
+    let splines = items.iter().any(|(_, shape)| *shape == Shape::Spline);
+    let ((first, _), rest) = items.split_first()?;
+    (lengths && splines && !rest.is_empty()).then(|| {
+        rest.iter()
+            .map(|(other, _)| Constraint::Equal(*first, *other))
+            .collect()
+    })
 }
 
 fn measured(shown: &Sketch, make: impl Fn(Expression) -> Constraint) -> Option<Constraint> {
@@ -698,6 +725,30 @@ fn angle(shown: &Sketch, a: EntityId, b: EntityId) -> Option<Constraint> {
         .atan2(from_ray.dot(second))
         .to_degrees();
     let (from, to) = if signed < 0.0 { (b, a) } else { (a, b) };
+    Some(Constraint::Angle {
+        from,
+        to,
+        reversed,
+        value: Expression::Measure(rounded_for_display(signed.abs()), Unit::Degree),
+    })
+}
+
+fn angle_to_arc(shown: &Sketch, line: EntityId, arc: EntityId) -> Option<Constraint> {
+    let vertex = shown.angle_vertex(arc, line)?;
+    let direction = shown.line_direction(line)?;
+    let (start, end) = shown.line_endpoints(line)?;
+    let reversed = ((start + end) / 2.0 - vertex).dot(direction) < 0.0;
+    let line_ray = if reversed { -direction } else { direction };
+    let arc_ray = shown.angle_direction(arc, line)?;
+    let signed = line_ray
+        .perp_dot(arc_ray)
+        .atan2(line_ray.dot(arc_ray))
+        .to_degrees();
+    let (from, to) = if signed < 0.0 {
+        (arc, line)
+    } else {
+        (line, arc)
+    };
     Some(Constraint::Angle {
         from,
         to,
@@ -1230,6 +1281,65 @@ mod tests {
     }
 
     #[test]
+    fn splines_take_equal_lengths_and_distances_from_lines_and_circles() {
+        let mut f = fixture();
+        let other = f.sketch.add_spline(&[
+            Point2::new(5.0, 0.0),
+            Point2::new(6.0, 3.0),
+            Point2::new(8.0, 0.0),
+        ]);
+
+        assert_eq!(
+            candidates(&f, ConstraintTool::Equal, &[f.spline, other, f.slanted]),
+            Ok(vec![
+                Constraint::Equal(f.spline, other),
+                Constraint::Equal(f.spline, f.slanted),
+            ])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Tangent, &[f.spline, other]),
+            Ok(vec![Constraint::Tangent(f.spline, other)])
+        );
+        let Ok(found) = candidates(&f, ConstraintTool::Distance, &[other, f.horizontal]) else {
+            panic!("a spline takes a distance from a line");
+        };
+        let [Constraint::Distance { from, to, value }] = found.as_slice() else {
+            panic!("expected one distance, found {found:?}");
+        };
+        assert_eq!((*from, *to), (other, f.horizontal));
+        assert_eq!(*value, measure(3.5, Unit::Millimetre));
+        assert!(candidates(&f, ConstraintTool::Distance, &[f.circle, other]).is_ok());
+    }
+
+    #[test]
+    fn an_angle_runs_from_a_line_to_the_arc_it_shares_an_end_with() {
+        let mut f = fixture();
+        let Some(&Entity::Arc { start, .. }) = f.sketch.entity(f.arc) else {
+            panic!("expected an arc");
+        };
+        let leaving = f
+            .sketch
+            .add_line(Point2::new(9.0, 0.0), Point2::new(3.0, 0.0));
+        let Some(&Entity::Line { end: joint, .. }) = f.sketch.entity(leaving) else {
+            panic!("expected a line");
+        };
+        f.sketch
+            .add_constraint(Constraint::Coincident(joint, start))
+            .unwrap();
+
+        assert_eq!(
+            candidates(&f, ConstraintTool::Angle, &[leaving, f.arc]),
+            Ok(vec![Constraint::Angle {
+                from: leaving,
+                to: f.arc,
+                reversed: true,
+                value: measure(90.0, Unit::Degree),
+            }])
+        );
+        assert!(candidates(&f, ConstraintTool::Angle, &[f.horizontal, f.arc]).is_err());
+    }
+
+    #[test]
     fn coincident_perpendicular_and_tangent_take_several_items() {
         let f = fixture();
         assert_eq!(
@@ -1521,7 +1631,7 @@ mod tests {
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Angle, &[f.circle]),
-            Err("Select two lines or one arc".to_owned())
+            Err("Select two lines, a line and an arc sharing an end, or one arc".to_owned())
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Distance, &[f.circle, f.horizontal]),

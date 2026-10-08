@@ -54,11 +54,23 @@ paths:
 ## Spline parameters (`solve/spline.rs`)
 
 - A point on a spline, a point at a distance from one (`Form::SplineFoot`, square to it there, and
-  `Form::SplineDistance`, the signed distance along its normal on the side the point started), and
-  a tangent between a spline and a curve not sharing one of its end points, get a parameter of
-  their own along the spline: an extra variable after the geometry's,
-  counted in the degrees of freedom, never perturbed, clamped to the spline's range (a point held
-  beyond the end of a spline that cannot move is a conflict), kept in the `SolveMemo`.
+  `Form::SplineDistance`, the signed distance along its normal on the side the point started), a
+  tangent between a spline and a curve not sharing one of its end points, and a distance from a
+  spline to a line or circle get a parameter of their own along the spline: an extra variable after
+  the geometry's, counted in the degrees of freedom, never perturbed, clamped to the spline's range
+  (a point held beyond the end of a spline that cannot move is a conflict), kept in the `SolveMemo`
+  (`System::parameters` lists each constraint's, named by constraint and position).
+- A distance from a spline to a line or circle is the tangency forms offset by the value
+  (`Form::SplineOnLine` and `SplineOnCircle` carry a side, taken from the start, and the value;
+  a tangency is side 1, value 0), with `SplineAlongLine` or `SplineAcrossRadius` keeping the
+  spline square to the gap there.
+- A tangent between two splines sharing no end takes a parameter on each (`closest_pair`: the
+  nearest pair of samples, refined by Newton on the squared distance): `Form::SplinesMeet` along x
+  and y and `Form::SplinesAlong`, their tangents parallel, three equations for two parameters.
+- Equal lengths with a spline (`Form::SameLength` of `LengthOf::Line` or `Spline`) differentiate
+  the Gauss–Legendre sum of the speed node by node.
+- An angle to an arc is `Form::Angle` on the radius from the centre to the joint, turned by a
+  right angle (counter-clockwise at the arc's start, clockwise at its end) through the target value.
 - It starts at the closest point (or the stationary point of the distance to the other curve),
   refined by Newton so geometry that already holds does not move; among starts equally near (within
   `TIE`) one with a non-vanishing first derivative wins, and where it vanishes a tangency uses the

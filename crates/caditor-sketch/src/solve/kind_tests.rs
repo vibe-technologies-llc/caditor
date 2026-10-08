@@ -1144,7 +1144,7 @@ fn two_splines_joined_end_to_end_turn_tangent_at_the_joint() {
 }
 
 #[test]
-fn tangent_and_curvature_between_splines_need_them_to_share_an_end() {
+fn curvature_between_splines_needs_them_to_share_an_end() {
     let mut sketch = Sketch::new(Plane::XY);
     let first = arch(&mut sketch);
     let apart = sketch.add_spline(&[
@@ -1167,15 +1167,15 @@ fn tangent_and_curvature_between_splines_need_them_to_share_an_end() {
             .map_err(|error| error.to_string())
     };
 
+    assert_eq!(refused(Constraint::Tangent(first, apart)), Ok(()));
     assert_eq!(
-        refused(Constraint::Tangent(first, apart)),
+        refused(Constraint::Curvature(first, apart)),
         Err(format!(
-            "Tangent needs {} and {} to share an end",
+            "Curvature needs {} and {} to share an end",
             sketch.entity_label(first),
             sketch.entity_label(apart)
         ))
     );
-    assert!(refused(Constraint::Curvature(first, apart)).is_err());
     assert!(refused(Constraint::Curvature(line, circle)).is_err());
     assert!(refused(Constraint::Curvature(first, straight)).is_err());
     assert_eq!(refused(Constraint::Tangent(first, straight)), Ok(()));
@@ -1337,4 +1337,181 @@ fn a_point_off_the_side_of_a_spline_slides_to_its_distance_along_a_guide() {
     assert_close(at(&solved, point).y, 1.0);
     assert!(at(&solved, point).x > 4.0);
     assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn a_line_and_a_circle_keep_their_distance_from_a_spline_where_it_bulges() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let line = sketch.add_line(Point2::new(4.0, 7.5), Point2::new(15.0, 7.0));
+    add(&mut sketch, Constraint::Horizontal(line));
+    let circle = sketch.add_circle(Point2::new(10.0, 14.0), 3.0);
+    let middle = center(&sketch, circle);
+    fix(&mut sketch, middle);
+    let gap = |from: EntityId, to: EntityId, value: f64| Constraint::Distance {
+        from,
+        to,
+        value: mm(value),
+    };
+    let measured_circle = sketch.measured(&gap(spline, circle, 0.0)).unwrap();
+    add(&mut sketch, gap(line, spline, 3.0));
+    add(&mut sketch, gap(spline, circle, 2.0));
+
+    let solved = solve(&sketch).unwrap();
+
+    let (start, end) = ends(&sketch, line);
+    assert_close(measured_circle, 6.0);
+    assert_close(at(&solved, start).y, 8.0);
+    assert_close(at(&solved, end).y, 8.0);
+    assert_close(solved.geometry.circle(circle).unwrap().1, 7.0);
+    assert_close(
+        solved.geometry.measured(&gap(line, spline, 0.0)).unwrap(),
+        3.0,
+    );
+    assert_eq!(solved.solution.degrees_of_freedom(), 2);
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn a_spline_below_a_spline_keeps_its_distance_on_the_side_it_was_drawn() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let line = sketch.add_line(Point2::new(0.0, -2.0), Point2::new(20.0, -2.5));
+    add(&mut sketch, Constraint::Horizontal(line));
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: spline,
+            to: line,
+            value: mm(1.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    let (start, _) = ends(&sketch, line);
+    assert!(at(&solved, start).y < 5.0);
+}
+
+#[test]
+fn two_splines_touch_tangent_away_from_their_ends() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let below = arch(&mut sketch);
+    let above = sketch.add_spline(&[
+        Point2::new(0.0, 12.0),
+        Point2::new(10.0, 2.0),
+        Point2::new(20.0, 12.0),
+    ]);
+    let points = control_points(&sketch, above);
+    fix(&mut sketch, points[0]);
+    fix(&mut sketch, points[2]);
+    let column = guide(&mut sketch, Point2::new(10.0, -20.0));
+    add(&mut sketch, Constraint::VerticalPoints(points[1], column));
+    add(&mut sketch, Constraint::Tangent(below, above));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, points[1]), Point2::new(10.0, -2.0));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn equal_splines_and_a_line_take_one_length() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let other = sketch.add_spline(&[
+        Point2::new(0.0, -10.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(16.0, -10.0),
+    ]);
+    let points = control_points(&sketch, other);
+    fix(&mut sketch, points[0]);
+    fix(&mut sketch, points[1]);
+    add(
+        &mut sketch,
+        Constraint::HorizontalPoints(points[0], points[2]),
+    );
+    add(&mut sketch, Constraint::Equal(spline, other));
+    let line = sketch.add_line(Point2::new(0.0, -20.0), Point2::new(5.0, -20.0));
+    let (start, end) = ends(&sketch, line);
+    fix(&mut sketch, start);
+    add(&mut sketch, Constraint::Horizontal(line));
+    add(&mut sketch, Constraint::Equal(line, spline));
+
+    let solved = solve(&sketch).unwrap();
+
+    let length = sketch.spline(spline).unwrap().length();
+    let fine: f64 = sketch
+        .spline(spline)
+        .unwrap()
+        .faceted(crate::Faceting::within(1e-6))
+        .windows(2)
+        .map(|pair| pair[0].distance(pair[1]))
+        .sum();
+    assert!((length - fine).abs() < 1e-3, "{length} against {fine}");
+    assert_near(at(&solved, points[2]), Point2::new(20.0, -10.0));
+    assert_near(at(&solved, end), Point2::new(length, -20.0));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn an_angle_to_an_arc_is_measured_along_it_from_their_shared_end() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    let Some(&Entity::Arc { center, start, end }) = sketch.entity(arc) else {
+        panic!("expected an arc");
+    };
+    for point in [center, start, end] {
+        fix(&mut sketch, point);
+    }
+    let line = sketch.add_line(Point2::new(10.0, 0.0), Point2::new(20.0, 1.0));
+    let (from, to) = ends(&sketch, line);
+    add(&mut sketch, Constraint::Coincident(from, start));
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from,
+            to,
+            value: mm(10.0),
+        },
+    );
+    let angle = |degrees: f64| Constraint::Angle {
+        from: line,
+        to: arc,
+        reversed: false,
+        value: Expression::Measure(degrees, Unit::Degree),
+    };
+    let drawn = sketch.measured(&angle(0.0)).unwrap();
+    add(&mut sketch, angle(60.0));
+
+    let solved = solve(&sketch).unwrap();
+
+    let turned = 30.0_f64.to_radians();
+    assert_close(drawn, 90.0 - 0.1_f64.atan().to_degrees());
+    assert_near(
+        at(&solved, to),
+        Point2::new(10.0 + 10.0 * turned.cos(), 10.0 * turned.sin()),
+    );
+    assert_close(solved.geometry.measured(&angle(0.0)).unwrap(), 60.0);
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+
+    let mut at_end = Sketch::new(Plane::XY);
+    let arc = at_end.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    let Some(&Entity::Arc { end, .. }) = at_end.entity(arc) else {
+        panic!("expected an arc");
+    };
+    let line = at_end.add_line(Point2::new(0.0, 10.0), Point2::new(-10.0, 10.0));
+    let (joint, _) = ends(&at_end, line);
+    add(&mut at_end, Constraint::Coincident(joint, end));
+    let reading = at_end
+        .measured(&Constraint::Angle {
+            from: arc,
+            to: line,
+            reversed: false,
+            value: mm(0.0),
+        })
+        .unwrap();
+    assert_close(reading, 180.0);
 }
