@@ -12,6 +12,7 @@ use super::{
     value::{from_bytes, to_bytes},
     *,
 };
+use crate::format::FORMAT_VERSION;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 enum Shape {
@@ -870,4 +871,254 @@ fn records_beside_a_damaged_one_are_still_written_back_as_stored() {
     assert!(reads_back(&resaved.bytes, &resaved.digest));
     assert_eq!(decode(&resaved.bytes).unwrap().document, loaded);
     assert!(history(&resaved.bytes).versions.is_empty());
+}
+
+fn listed_after(bytes: &[u8], label: &str) -> usize {
+    history(bytes)
+        .versions
+        .iter()
+        .find(|version| version.state.label.as_deref() == Some(label))
+        .map(|version| version.index)
+        .unwrap()
+}
+
+fn info_chunks(bytes: &[u8]) -> Vec<Vec<u8>> {
+    parse(bytes, &MODEL_MAGIC)
+        .unwrap()
+        .pieces
+        .iter()
+        .filter_map(|piece| match piece {
+            Piece::Chunk(chunk) if chunk.kind == Some(ChunkKind::VersionInfo) => {
+                chunk.unpack(None).ok()
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn info_contents(bytes: &[u8]) -> Vec<serde_json::Value> {
+    info_chunks(bytes)
+        .iter()
+        .map(|content| from_bytes(content).unwrap())
+        .collect()
+}
+
+fn with_info_field(bytes: &[u8], position: usize, name: &str, field: serde_json::Value) -> Vec<u8> {
+    let container = parse(bytes, &MODEL_MAGIC).unwrap();
+    let mut rewritten = start_file(&MODEL_MAGIC, container.version);
+    let mut infos = 0;
+    for piece in &container.pieces {
+        let Piece::Chunk(chunk) = piece else {
+            continue;
+        };
+        if chunk.kind == Some(ChunkKind::VersionInfo) {
+            infos += 1;
+            if infos - 1 == position {
+                let mut fields: serde_json::Map<String, serde_json::Value> =
+                    from_bytes(&chunk.unpack(None).unwrap()).unwrap();
+                fields.insert(name.to_owned(), field.clone());
+                push_packed(
+                    &mut rewritten,
+                    ChunkKind::VersionInfo,
+                    &to_bytes(&fields).unwrap(),
+                )
+                .unwrap();
+                continue;
+            }
+        }
+        rewritten.extend_from_slice(chunk.whole);
+    }
+    rewritten
+}
+
+#[test]
+fn versions_of_files_that_never_had_a_kept_flag_read_as_not_kept() {
+    let (_, bytes) = saved_series(6);
+
+    assert!(history(&bytes).versions.iter().all(|version| !version.kept));
+    assert!(
+        info_contents(&bytes)
+            .iter()
+            .all(|info| info.get("kept").is_none())
+    );
+}
+
+#[test]
+fn marking_a_version_kept_changes_only_that_version_and_round_trips() {
+    let (documents, bytes) = saved_series(8);
+    let before = history(&bytes);
+    let index = listed_after(&bytes, "First");
+
+    let marked = with_version_kept(&bytes, index, true).unwrap();
+
+    assert!(reads_back(&marked.bytes, &marked.digest));
+    assert_eq!(Some(marked.digest.clone()), head_digest(&bytes));
+    let after = history(&marked.bytes);
+    assert_eq!(after.current, before.current);
+    assert_eq!(after.versions.len(), before.versions.len());
+    for (earlier, later) in before.versions.iter().zip(&after.versions) {
+        assert_eq!(later.kept, later.index == index);
+        assert_eq!(later.state, earlier.state);
+        assert_eq!(later.available, earlier.available);
+    }
+    check_listed_versions(&marked.bytes, &documents);
+    assert_eq!(
+        decode(&marked.bytes).unwrap().document,
+        *documents.last().unwrap()
+    );
+
+    let resaved = save_bytes(
+        &edited(documents.last().unwrap(), 99),
+        Some(&marked.bytes),
+        later(20),
+        Some("Later"),
+    )
+    .unwrap();
+    assert!(history(&resaved).versions[listed_after(&resaved, "First")].kept);
+
+    let unmarked = with_version_kept(&marked.bytes, index, false).unwrap();
+    assert_eq!(history(&unmarked.bytes), before);
+    assert!(
+        info_contents(&unmarked.bytes)
+            .iter()
+            .all(|info| info.get("kept").is_none())
+    );
+}
+
+fn saved_on(
+    documents: &mut Vec<Document>,
+    mut bytes: Vec<u8>,
+    steps: std::ops::Range<u32>,
+    spacing: u64,
+) -> Vec<u8> {
+    for step in steps {
+        let next = edited(documents.last().unwrap(), 10 + step);
+        bytes = save_step(&next, &bytes, step, spacing);
+        documents.push(next);
+    }
+    bytes
+}
+
+#[test]
+fn a_version_marked_kept_outlives_the_thinning_that_removes_its_neighbours() {
+    const TEN_MINUTES: u64 = 600;
+    let (documents, bytes) = saved_series_every(30, TEN_MINUTES);
+    let newest: Vec<Version> = history(&bytes).versions.into_iter().take(10).collect();
+
+    let mut ordinary_documents = documents.clone();
+    let ordinary = saved_on(&mut ordinary_documents, bytes.clone(), 30..90, TEN_MINUTES);
+    let thinned_away: Vec<&Version> = newest
+        .iter()
+        .filter(|version| {
+            history(&ordinary)
+                .versions
+                .iter()
+                .all(|later| later.state != version.state)
+        })
+        .collect();
+    let marked_version = thinned_away.first().unwrap();
+    let marked_step: usize = marked_version
+        .state
+        .label
+        .as_deref()
+        .and_then(|label| label.strip_prefix("Step "))
+        .unwrap()
+        .parse()
+        .unwrap();
+
+    let marked = with_version_kept(&bytes, marked_version.index, true).unwrap();
+    let mut documents = documents;
+    let bytes = saved_on(&mut documents, marked.bytes, 30..90, TEN_MINUTES);
+
+    let listed = check_listed_versions(&bytes, &documents);
+    let kept: Vec<&Version> = listed
+        .versions
+        .iter()
+        .filter(|version| version.kept)
+        .collect();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].state, marked_version.state);
+    assert!(kept[0].available);
+    assert_eq!(
+        load_version(&bytes, kept[0].index).unwrap().document,
+        documents[marked_step]
+    );
+    assert_eq!(listed.versions.len(), history(&ordinary).versions.len() + 1);
+    assert!(longest_delta_run(&bytes) < 8);
+}
+
+#[test]
+fn only_a_listed_version_of_an_undamaged_current_file_can_be_marked() {
+    let (_, bytes) = saved_series(4);
+    let count = history(&bytes).versions.len();
+
+    assert_eq!(
+        with_version_kept(&bytes, count, true),
+        Err(KeepError::NoSuchVersion { index: count })
+    );
+
+    let damaged = corrupt_chunk(&bytes, &MODEL_MAGIC, 1);
+    assert_eq!(
+        with_version_kept(&damaged, 0, true),
+        Err(KeepError::FileDamaged)
+    );
+    assert_eq!(
+        with_version_kept(b"not a model", 0, true),
+        Err(KeepError::FileDamaged)
+    );
+
+    let mut newer = bytes.clone();
+    newer[8..12].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
+    assert_eq!(
+        with_version_kept(&newer, 0, true),
+        Err(KeepError::FromNewerVersion)
+    );
+
+    let mut needing_more = bytes;
+    push_foreign(&mut needing_more, 200, MUST_UNDERSTAND, b"future");
+    assert_eq!(
+        with_version_kept(&needing_more, 0, true),
+        Err(KeepError::FromNewerVersion)
+    );
+}
+
+#[test]
+fn an_older_reader_ignores_the_kept_flag_and_still_lists_the_version() {
+    #[derive(Deserialize)]
+    struct OlderStateRecord {
+        saved_at: u64,
+        label: Option<String>,
+        digest: String,
+    }
+
+    let (_, bytes) = saved_series(4);
+    let marked = with_version_kept(&bytes, 1, true).unwrap();
+
+    let older: Vec<OlderStateRecord> = info_chunks(&marked.bytes)
+        .iter()
+        .map(|content| from_bytes(content).unwrap())
+        .collect();
+
+    assert_eq!(older.len(), 3);
+    assert_eq!(
+        older[1].label,
+        history(&marked.bytes).versions[1].state.label
+    );
+    assert_eq!(older[1].saved_at, 1_000 + SAVE_SPACING);
+    assert!(!older[1].digest.is_empty());
+}
+
+#[test]
+fn fields_of_a_version_record_this_version_does_not_know_survive_marking() {
+    let (documents, bytes) = saved_series(4);
+    let future = with_info_field(&bytes, 1, "pinned_by", serde_json::json!("future"));
+    assert_eq!(history(&future), history(&bytes));
+
+    let marked = with_version_kept(&future, 1, true).unwrap();
+
+    let infos = info_contents(&marked.bytes);
+    assert_eq!(infos[1]["pinned_by"], "future");
+    assert_eq!(infos[1]["kept"], true);
+    assert!(infos[0].get("pinned_by").is_none());
+    check_listed_versions(&marked.bytes, &documents);
 }

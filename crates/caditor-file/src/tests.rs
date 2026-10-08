@@ -5683,3 +5683,130 @@ fn a_feature_group_is_saved_journaled_and_cut_to_its_limit_when_too_long() {
         Some(grouping)
     );
 }
+
+fn saved_twice(path: &Path) -> FileDigest {
+    save(&sample(), path, false).unwrap();
+    save(&Document::default(), path, false).unwrap().digest
+}
+
+#[test]
+fn a_kept_version_is_stored_in_the_file_and_stays_through_later_saves() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let head = saved_twice(&path);
+    let listed = crate::history(&path).unwrap();
+    assert_eq!(listed.versions.len(), 1);
+    assert!(!listed.versions[0].kept);
+
+    set_version_kept(&path, 0, true, Some(&head)).unwrap();
+
+    let kept = crate::history(&path).unwrap();
+    assert!(kept.versions[0].kept);
+    assert_eq!(kept.versions[0].state, listed.versions[0].state);
+    assert_eq!(load(&path).unwrap().digest, Some(head));
+    assert_eq!(load(&path).unwrap().document, Document::default());
+    assert_eq!(load_version(&path, 0).unwrap().document, sample());
+    assert_eq!(files_in(dir.path()), ["model.caditor"]);
+
+    save(&sample(), &path, false).unwrap();
+    let after_save = crate::history(&path).unwrap();
+    assert_eq!(after_save.versions.len(), 2);
+    assert!(after_save.versions[1].kept);
+    assert!(!after_save.versions[0].kept);
+    assert_eq!(load_version(&path, 1).unwrap().document, sample());
+
+    set_version_kept(&path, 1, false, None).unwrap();
+    assert!(
+        crate::history(&path)
+            .unwrap()
+            .versions
+            .iter()
+            .all(|version| !version.kept)
+    );
+}
+
+#[test]
+fn keeping_a_version_refuses_a_file_changed_outside_and_a_version_that_is_gone() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let head = saved_twice(&path);
+    let before = fs::read(&path).unwrap();
+    save(&sample(), &path, false).unwrap();
+    let outside = fs::read(&path).unwrap();
+
+    assert_eq!(
+        set_version_kept(&path, 0, true, Some(&head)),
+        Err(KeepVersionError::ChangedOnDisk)
+    );
+    assert_eq!(fs::read(&path).unwrap(), outside);
+    assert_ne!(outside, before);
+
+    assert_eq!(
+        set_version_kept(&path, 7, true, None),
+        Err(KeepVersionError::NoSuchVersion)
+    );
+    assert_eq!(
+        set_version_kept(&dir.path().join("missing.caditor"), 0, true, None),
+        Err(KeepVersionError::Unreadable {
+            name: "missing.caditor".to_owned(),
+            failure: crate::ReadFailure::NotFound,
+        })
+    );
+    assert_eq!(fs::read(&path).unwrap(), outside);
+    assert_eq!(files_in(dir.path()), ["model.caditor"]);
+}
+
+#[test]
+fn the_storage_worker_keeps_a_version_in_order_with_saves_and_only_for_its_own_file() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let head = saved_twice(&path);
+    let start = Start {
+        file: Some(path.clone()),
+        on_disk: Some(head),
+        ..untitled(&Document::default())
+    };
+    let storage = Storage::spawn(config(&dir), start, || {}).unwrap();
+
+    storage
+        .keep_version(KeepRequest {
+            path: path.clone(),
+            index: 0,
+            kept: true,
+        })
+        .unwrap();
+    let kept = wait_for_report(&storage);
+    storage
+        .save(save_request(1, &sample(), &path, false))
+        .unwrap();
+    let saved = wait_for_report(&storage);
+    storage
+        .keep_version(KeepRequest {
+            path: dir.path().join("other.caditor"),
+            index: 0,
+            kept: true,
+        })
+        .unwrap();
+    let refused = wait_for_report(&storage);
+
+    assert_eq!(
+        kept,
+        Report::VersionKept {
+            path: path.clone(),
+            index: 0,
+            kept: true,
+        }
+    );
+    assert!(matches!(saved, Report::Saved { ticket: 1, .. }));
+    assert_eq!(
+        refused,
+        Report::KeepFailed {
+            path: dir.path().join("other.caditor"),
+            error: KeepVersionError::NotTheOpenModel,
+        }
+    );
+    let listed = crate::history(&path).unwrap();
+    assert_eq!(listed.versions.len(), 2);
+    assert!(listed.versions[1].kept);
+    assert!(storage.close(true).wait(WAIT));
+}

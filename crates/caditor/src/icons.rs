@@ -35,6 +35,7 @@ pub const TIP: &str = phosphor::LIGHTBULB;
 pub const SELECTION: &str = phosphor::SELECTION;
 pub const UNIT: &str = phosphor::RULER;
 pub const RECENT: &str = phosphor::CLOCK;
+pub const KEPT_VERSION: &str = phosphor::BOOKMARK_SIMPLE;
 pub const RECOVER: &str = phosphor::LIFEBUOY;
 pub const SAMPLE: &str = phosphor::CUBE;
 pub const CHOOSE_IN_VIEW: &str = phosphor::CURSOR_CLICK;
