@@ -121,11 +121,23 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
-- [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
-  profile curves, which have no ellipse although its 3D curves do, and the file format),
-  rectangular and circular patterns, text, and fit-point,
+- [medium · medium] No Intersect: Project brings an existing edge, face outline or curve into the
+  sketch, but not the curves where a body, a face or a datum plane cuts the sketch plane, so the
+  outline of a cross-section (a wall seen through a bore, a casting at a given height) cannot be
+  drawn from the model. Intersect would add that outline as projected geometry, named from the
+  faces it cuts and following the model through recompute like any projection.
+- [medium · hard] Tools missing: ellipse and elliptical arc (a new entity kind across the solver,
+  the kernel's 2D profile curves, which have no ellipse although its 3D curves do, and the file
+  format), a conic curve (two ends and a point it passes, shaped by a rho value), rectangular and
+  circular patterns of sketch geometry and a pattern along a path, text (a font, a height, bold and
+  italic, set along a curve, its letters becoming closed regions that extrude), and fit-point,
   closed or periodic splines (`BSpline::through` serves only DXF import, `BSpline::interpolate`
   only its own tests, and the control polygon is not drawn).
+- [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
+  curvature handle to set the direction and pull of the curve there, which would be stored as
+  constraints on the point rather than as positions so the solver and dimensions keep reading
+  them; the degree cannot be chosen; and no point can be inserted or removed while keeping the
+  shape.
 - [medium · hard] No spur gears: a gear tool in the sketch should draw the outline of an involute
   spur gear from its module (or diametral pitch), tooth count, pressure angle, and optionally
   profile shift, root fillet and bore, as one closed profile ready to extrude. Teeth are involute
@@ -143,10 +155,37 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
+- [low · easy] The sketch chamfer takes one typed distance for both sides: a different distance on
+  each curve, or one distance and the angle of the cut, cannot be typed when it is made, and the
+  angle cannot be held as a dimension afterwards (the two distances can).
+- [low · medium] No blend curve: a curve joining the ends of two sketch curves or edges, tangent
+  (G1) or curvature-continuous (G2), as a spline held by `Tangent` and `Curvature` constraints so
+  it follows when either end moves, for a transition where a fillet's circular arc is not smooth
+  enough.
+- [low · medium] Circles are drawn from a centre, two points or three points only: a circle
+  tangent to two or three chosen lines, circles or arcs is missing, though the tangency
+  constraint it would hold exists.
+- [low · medium] No break: Split curve cuts one curve at one chosen point; breaking a curve at
+  every crossing with the curves around it in one click, to get the pieces a profile is made of,
+  is missing.
+- [low · medium] A revolved profile cannot be dimensioned as a lathe drawing shows it: the
+  distance from a point to the revolve axis (a construction line) reads as a radius, with no
+  option to show and hold it as the diameter across the axis (twice the distance).
 - [low · medium] Dimension labels cannot be dragged; only linear dimensions sharing a line stack
   clear of each other.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
-  points and traced, as a part copied from an existing object or a drawing needs.
+  points (or calibrated by a known distance), given an opacity, locked and traced, as a part
+  copied from an existing object or a drawing needs.
+- [medium · hard · blocked by: the sweep feature ("Sweep along a path" under Modelling features)]
+  Sketches lie on one plane, so a sweep path or rail that bends in space (a cable run, a handle)
+  cannot be drawn. A 3D sketch of lines, arcs and splines, with points placed by typed coordinates
+  in space or moved off the sketch plane, would be the path; with it a sketch curve projected onto
+  a curved face along a direction or to the nearest point, and the curve where two faces meet. The
+  solver then holds 3D points and directions and the constraints that mean something there
+  (coincident, horizontal and vertical in space, parallel, perpendicular, distance, fix).
+- [low · medium · blocked by: section planes ("Viewer")] No slice while sketching: the part of the
+  bodies in front of the sketch plane cannot be cut away for the time of the edit, so a sketch
+  inside a body is seen through its surfaces rather than on a section of it.
 
 ## Modelling features
 
@@ -167,13 +206,29 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · medium] A body splits only along a plane (`Split`), not along a curved face or a sketch
   curve swept through it, and cannot be placed by mating faces (a face onto another, flush or at a
   distance, an axis onto another).
+- [medium · medium] No solid primitives: a box, cylinder, sphere or torus always starts as a sketch
+  and an Extrude or Revolve. Primitive features placed on a plane or face by a click and sizes
+  (typed expressions allowed), starting at a corner, a centre or a chosen point, joining, cutting,
+  intersecting or making a new body, named from their faces (a box's six sides, a cylinder's wall
+  and caps) and previewed live, would start most simple parts in one step.
+- [medium · medium] Mirror reflects a whole body: mirroring only chosen features (a hole, a boss, a
+  rib) or faces across a plane, kept linked so editing the original updates the mirror as a
+  pattern of features does its copies, is missing; today the feature is drawn again or the body is
+  mirrored and combined.
+- [medium · medium] Datums lack the planes and points that sweeps, lofts and mating need: a plane
+  tangent to a cylindrical or conical face, a plane square to a face or curve at a point along it
+  (the section plane of a path), a plane through two edges or axes lying in one plane; and points
+  at the crossing of two edges, of an edge or axis and a plane, or of three planes, at a distance
+  along an edge or curve, and at the centre of a sphere or torus (only corners and round-edge
+  centres are offered).
 - [medium · medium] No thread feature: a tapped hole names its ISO thread only in its panel, and a
   shaft or boss takes none. A cosmetic thread on a cylindrical face (a bore, a shaft, a boss),
   chosen by designation (ISO metric coarse and fine, M3 to M64, internal or external, with the
   tolerance class and a length that may run to the end or a depth), is a feature of its own named
   from the face it threads and referring to it by name. It draws as the minor or major circle and a
-  dashed thread line in the view, carries its designation into the exports that can hold it, and the hole feature creates one for a tapped hole. Modelled threads are the item
-  below.
+  dashed thread line in the view, carries its designation into the exports that can hold it, and the hole feature creates one for a tapped hole. It is right- or left-handed, and beyond
+  the metric series it offers the SI pipe and trapezoidal threads (ISO 228 and ISO 7 pipe, ISO 2901
+  trapezoidal). Modelled threads are the item below.
 - [medium · hard] The whole model cannot be scaled: no command or feature resizes every body, sketch
   and datum by a factor (uniform, about the origin or a chosen point) as one undoable change.
   Scaling must keep references and names stable, and say what happens to dimensions and parameters
@@ -190,32 +245,93 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   surfaces; no ellipse, spline or intersection edges, not even a straight edge beside a spline
   extrusion face; ends at steps and T-junctions refused; no variable radius, two-distance or
   distance-angle chamfer; a round corner only for three convex straight edges meeting at three
-  planes (other corners mitre).
+  planes (other corners mitre). Missing as shapes of their own: a full-round fillet across a
+  narrow face between two others, a fillet sized by chord length, a fillet that runs by a rule
+  over every edge of a kind, setback corners where three fillets meet, a tangency weight, and a
+  curvature-continuous (G2) fillet.
 - [medium · hard] Shell: no spline, extrusion or revolution faces, only flat faces open, one
-  thickness for the whole body.
+  thickness for the whole body and always inward: no thickness per face, and no wall growing
+  outward or to both sides of the faces.
 - [medium · hard] No live preview of a shell while its panel is open (it shows the body before it
   for choosing faces), and no viewport handles for extents.
 - [medium · hard] No configurations: a model holds one set of parameter values, so sizes of one part
   (a bracket in M4, M6 and M8) are separate copies of the file. Named parameter sets, chosen as a
-  whole and kept in the model like versions, with export of each.
+  whole and kept in the model like versions, with export of each. A configuration could also
+  suppress features and set body colours, as Fusion's configuration table does, so one file holds
+  a part with and without a chamfer or a boss.
 - [medium · hard] Sweep along a path and loft between profiles: the kernel has only extrusion and
-  revolution, so both need new kernel operations first.
+  revolution, so both need new kernel operations first. A sweep takes a profile and a path (a
+  chain of edges or sketch curves), kept square to the path or parallel to the profile, with an
+  optional guide rail, taper and twist; a loft takes two or more profiles or faces (a point may
+  end it), open or closed back to the first, with optional rails or a centreline and tangent or
+  curvature-continuous conditions at its ends.
 - [medium · hard] Extrusions and revolves have no taper angle or thin wall (an open profile given a
-  thickness), which needs a tapered sweep and a wall of an open profile in the kernel.
+  thickness, placed inside, outside or centred on the profile), which needs a tapered sweep and a
+  wall of an open profile in the kernel.
 - [medium · hard] No pattern along a curve or driven by sketch points: a pattern repeats along one
-  or two axes (sketch lines included) or about one, never along a spline or arc, nor at the points
-  of a sketch.
-- [low · medium] Expressions cannot refer to measured values or sketch dimensions.
+  or two axes (sketch lines included) or about one, never along a spline or arc (the copies kept
+  as they are or turned to follow the curve), nor at the points of a sketch, and it repeats
+  features or whole bodies but never chosen faces.
+- [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
+  without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
+  in part can be had. It is a feature of its own, naming the faces it splits.
+- [low · easy] Combine takes one target and one tool and uses the tool up: a Keep tool switch, and
+  several tool bodies in one combine (one cutter for several targets, or several bodies joined),
+  are missing, so a cutter used for several cuts must be copied first.
+- [low · easy] A hole ends flat: a drilled hole whose bottom is the cone of a drill point (118°
+  unless set) with the depth counted to the full diameter, which is what a drill leaves, is
+  missing.
+- [low · medium] Expressions cannot refer to measured values or sketch dimensions, and a dimension
+  or a feature's value cannot be named and listed with the parameters (Fusion's model parameters)
+  for other expressions to use.
+- [low · medium] No user coordinate system: Measure, Move and the patterns read from the origin and
+  the principal axes. A coordinate system placed at a point, its axes taken from edges or faces,
+  would be a second origin to measure and place from.
+- [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
+  axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
+  surfaces do not have).
 - [medium · hard · blocked by: the sweep feature] No helix or spiral curve and no modelled threads:
   springs, coils and threaded holes and shafts cannot be modelled with real thread geometry (the
   cosmetic thread feature above covers drawing and exchange). The sweep feature (same list) needs
-  the helix, and the thread feature then offers a modelled form beside the cosmetic one.
+  the helix, and the thread feature then offers a modelled form beside the cosmetic one. A coil
+  feature would be the ready tool for springs: revolutions or height and pitch, a round or square
+  section, inside or outside the axis, and a taper angle.
+- [medium · hard · blocked by: the sweep feature] No pipe: a round, square or triangular section
+  swept along a path sketch, solid or with a wall thickness, with sharp or rounded corners, as the
+  ready tool for tubing, handrails and cable runs.
 - [medium · hard · blocked by: direct face edits ("Bodies cannot be edited directly")] Draft angle
-  on existing faces.
+  on existing faces: a fixed angle from a plane, a split at a parting line with an angle on each
+  side, and an angle per face, following tangent faces as one chain.
 - [medium · hard · blocked by: thin-wall extrusion ("Extrusions and revolves have no taper angle or thin wall")]
-  Rib from an open profile.
+  Rib and web from an open profile: a rib extrudes parallel to the sketch plane and a web square
+  to it, each thickened and run on to the nearest faces of the body.
 - [low · hard · blocked by: sketch text ("Tools missing" under Sketching)] Emboss or deboss sketch
-  text onto a face.
+  text, or any sketch profile, onto a face, flat or curved (wrapped around it), raised or
+  recessed by a depth.
+- [low · hard · blocked by: split face (above)] No silhouette split: dividing a body along its
+  outline seen from a chosen direction, so the parting line of a moulded or cast part can be a
+  face boundary for a draft to start from.
+- [low · hard · blocked by: draft angle (above), rib and web (above)] No plastic-part features:
+  the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
+  rest (a flat seat on a curved face), which moulded parts need.
+
+## Inspection and analysis
+
+- [medium · medium] No curvature comb: a comb of lines whose length follows the curvature along a
+  chosen edge or sketch curve (density and scale adjustable), also across the joint of two edges to
+  see whether the curvature continues, as splines and blends are judged by eye.
+- [medium · medium] No draft analysis: with a pull direction chosen from an axis, edge or face,
+  faces coloured by their draft angle against it, banded by a limit the user sets, showing
+  undercuts, parting lines and faces with too little draft before a part is moulded or cast.
+- [low · easy] No centre of mass in the view: Measure gives the centroid as numbers, but not as a
+  marker in the viewport that can be picked and measured from.
+- [low · medium] No minimum radius analysis: concave faces tighter than a radius the user types
+  coloured, to show where a cutter or a nozzle cannot reach.
+- [low · medium] No surface quality analyses: zebra stripes, a curvature map (Gaussian and the
+  principal curvatures), isocurves with combs, and a chrome reflection of the surroundings, all
+  shown on the bodies without changing the model.
+- [low · medium] No accessibility analysis: faces reachable from a chosen plane or direction
+  coloured against those that are not, to judge undercuts for a three-axis machine.
 
 ## STEP import and export
 
@@ -267,10 +383,31 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
-- [medium · hard] Section planes.
+- [medium · medium] No named views: the model keeps no saved view, so an angle and zoom worth
+  coming back to (a view of a hidden bore, the way a drawing was taken) is lost. Named views
+  stored in the model, restored from a list or the palette, with the Isometric home view
+  redefinable.
+- [medium · medium] A face, edge or body hidden behind another can be reached only by hiding the
+  one in front or by stepping the keyboard highlight: a click held on a spot, or a key, should list
+  everything under the pointer to choose from.
+- [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
+  distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
+  at once, which only looks into the model and changes nothing. Measure works on what it shows.
+- [low · easy] The selection filter has no bodies, so a click cannot pick a whole body: a Bodies
+  filter, and a priority switch (body, face, edge) that sets the filter in one step.
+- [low · easy] A box or lasso selects only what is seen: a Select through switch to take the faces
+  and bodies hidden behind others as well.
+- [low · easy] The shaded styles cannot show hidden edges: shaded with hidden edges dashed.
+- [low · easy] The camera is perspective or orthographic: a third mode that is perspective in
+  general and turns orthographic on looking square at a standard view.
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
-- [low · medium] Lighting and the MSAA resolve happen in gamma space; the model keeps no saved view.
+- [low · medium] Lighting and the MSAA resolve happen in gamma space.
+- [low · medium] Bodies are opaque or all see-through (X-ray): a body cannot be made translucent on
+  its own, to see a part inside another while modelling it.
+- [low · medium] Dragging a brush over faces to select them (paint selection), and named selection
+  sets: a group of faces, edges or bodies saved under a name, picked again later as the input of a
+  fillet, a hide or a pattern, and healed like other references when the model changes.
 
 ## Interface performance
 
@@ -333,6 +470,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   goes through the contrast checks `appearance.rs` runs today (4.5:1, 7:1 for body text in high
   contrast), and a loaded theme that fails them or cannot be read is refused in words, naming the
   colour pair, with the previous theme kept.
+- [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
+  add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
+  would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's
+  rules, and would need a decision on the language and on safety (a script cannot reach files
+  or the network unasked).
 - [low · hard] One document per process.
 - [low · hard] No localisation.
 - [low · hard · blocked by: winit 0.30 has no drag and drop on Wayland (0.31 is only a beta)]
@@ -372,7 +514,9 @@ decision recorded in `docs/` before work starts.
   keeping references stable across edits.
 - [medium · hard · blocked by: a scope decision recorded in `docs/`] Surface modelling: no surface
   bodies, so no thicken, offset surface, trim, extend, patch or knit to a solid, which shaped
-  consumer parts and repairing open STEP imports need.
+  consumer parts and repairing open STEP imports need. Also stitch and unstitch, boundary fill
+  (a solid from the cell several surfaces and bodies enclose), ruled and sweep or loft surfaces,
+  and freeform (T-spline) shaping, which Fusion keeps in its own environment.
 - [low · hard · blocked by: a scope decision recorded in `docs/`] Sheet metal: no flanges, bends
   with a bend allowance, or flat patterns, though laser-cut and bent parts are a common use; flat
   patterns would go out through the DXF export of a flat face.
