@@ -316,9 +316,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   same per constraint row, searching the list of involved constraints linearly for each; the
   `large_sketch` benchmark has no constraints. Cache per generation, cull off-screen marks and
   virtualise the tree.
-- [medium · medium] Meshes are uploaded whole on the UI thread in the frame that first shows them,
-  and never culled in the main or pick pass although each keeps its bounds; the render crate's
-  `frame_costs_of_drawing_a_large_scene` benchmark has no meshes, picking or hover.
+- [medium · medium] Meshes are uploaded whole on the UI thread in the frame that first shows them;
+  the render crate's `frame_costs_of_drawing_a_large_scene` benchmark has no meshes, picking or
+  hover.
 - [medium · medium] Image export submits every tile at once and holds every tile's readback buffer
   until the image is assembled beside them, about twice the image's size (some 540 MB at the 8192²
   limit), so memory is not yet bounded as `render.md` intends; reuse a few buffers and stream bands
@@ -333,7 +333,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
   every highlight change.
 - [low · medium] A pick or image readback in flight redraws full frames until polled complete;
   vertex records repeat per-layer data and both ends of shared segments; invisible vertex markers go
-  through the colour pass; each mesh's placement uniform is written every frame; resizing recreates
+  through the colour pass; resizing recreates
   the MSAA targets per pixel; and an MSAA change rebuilds all ten pipelines with no pipeline cache.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,

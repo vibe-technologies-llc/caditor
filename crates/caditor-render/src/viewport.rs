@@ -5,6 +5,7 @@ use glam::{DVec2, Vec3};
 
 use crate::{
     camera::{Projection, View},
+    culling::ClipWindow,
     gpu::{self, Bytes, GrowableBuffer},
     image::{self, Background, ChannelOrder, ImageReadback, ImageRequest, TileReadback},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
@@ -544,6 +545,7 @@ pub struct ViewportRenderer {
     targets_refused: Option<(u32, u32)>,
     picking: Picking,
     pick_refused: bool,
+    pick_window: Option<ClipWindow>,
 }
 
 impl ViewportRenderer {
@@ -596,6 +598,7 @@ impl ViewportRenderer {
             targets_refused: None,
             picking: Picking::new(device, DEPTH_FORMAT),
             pick_refused: false,
+            pick_window: None,
         }
     }
 
@@ -701,7 +704,11 @@ impl ViewportRenderer {
             1.0,
         );
         pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
-        self.draw_scene(&mut pass, viewport.scene.grid.is_some());
+        self.draw_scene(
+            &mut pass,
+            viewport.scene.grid.is_some(),
+            &ClipWindow::new(viewport.view, WHOLE_VIEW),
+        );
         drop(pass);
 
         if let Some(cursor) = viewport.pick_at {
@@ -755,6 +762,7 @@ impl ViewportRenderer {
         let mut readbacks = Vec::with_capacity(tiles.len());
         let anchor = self.anchor.unwrap_or_else(|| request.view.eye());
         for tile in tiles {
+            let transform = image::tile_transform(tile, size);
             view_uniform(
                 &mut self.staging,
                 &AnchoredView {
@@ -763,7 +771,7 @@ impl ViewportRenderer {
                 },
                 pixels_per_point,
                 self.shading,
-                image::tile_transform(tile, size),
+                transform,
             );
             queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -778,7 +786,7 @@ impl ViewportRenderer {
             let mut pass = targets.begin_pass(&mut encoder, clear);
             pass.set_viewport(0.0, 0.0, tile.width as f32, tile.height as f32, 0.0, 1.0);
             pass.set_scissor_rect(0, 0, tile.width, tile.height);
-            self.draw_scene(&mut pass, grid);
+            self.draw_scene(&mut pass, grid, &ClipWindow::new(request.view, transform));
             drop(pass);
             encoder.copy_texture_to_buffer(
                 targets.resolved.as_image_copy(),
@@ -802,13 +810,14 @@ impl ViewportRenderer {
         Some(ImageReadback::new(size, order, readbacks))
     }
 
-    fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool) {
+    fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool, window: &ClipWindow) {
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
-        self.meshes.draw(pass, &self.pipelines.meshes);
-        self.flat.draw(pass, &self.pipelines.flat_meshes);
+        self.meshes.draw(pass, &self.pipelines.meshes, window);
+        self.flat.draw(pass, &self.pipelines.flat_meshes, window);
         self.translucent
-            .draw(pass, &self.pipelines.translucent_meshes);
-        self.overlay.draw(pass, &self.pipelines.overlay_meshes);
+            .draw(pass, &self.pipelines.translucent_meshes, window);
+        self.overlay
+            .draw(pass, &self.pipelines.overlay_meshes, window);
         for batch in &self.batches {
             batch.draw_lines(pass, &self.pipelines.lines);
         }
@@ -847,7 +856,7 @@ impl ViewportRenderer {
     }
 
     fn draw_pick(&mut self, encoder: &mut wgpu::CommandEncoder, view: &View, cursor: DVec2) {
-        let Some(targets) = self.picking.prepared() else {
+        let (Some(targets), Some(window)) = (self.picking.prepared(), self.pick_window) else {
             return;
         };
         let mut behind = begin_pick_pass(encoder, targets, "pick reference fills", true);
@@ -862,10 +871,12 @@ impl ViewportRenderer {
         drop(behind);
         let mut pass = begin_pick_pass(encoder, targets, "pick", false);
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
-        self.meshes.draw(&mut pass, &self.pipelines.pick_meshes);
-        self.flat.draw(&mut pass, &self.pipelines.pick_meshes);
+        self.meshes
+            .draw(&mut pass, &self.pipelines.pick_meshes, &window);
+        self.flat
+            .draw(&mut pass, &self.pipelines.pick_meshes, &window);
         self.translucent
-            .draw(&mut pass, &self.pipelines.pick_translucent_meshes);
+            .draw(&mut pass, &self.pipelines.pick_translucent_meshes, &window);
         for batch in &self.batches {
             batch.draw_pick_fills(
                 &mut pass,
@@ -945,13 +956,16 @@ impl ViewportRenderer {
         let refused = matches!(prepared, Some((_, PickPrepared::Refused)));
         faults.picking = refused && !self.pick_refused;
         self.pick_refused = refused;
+        self.pick_window = None;
         if let Some((cursor, PickPrepared::Ready(window))) = prepared {
+            let transform = picking::pick_transform(cursor, view.size(), window);
+            self.pick_window = Some(ClipWindow::new(view, transform));
             view_uniform(
                 &mut self.staging,
                 &anchored,
                 pixels_per_point,
                 self.shading,
-                picking::pick_transform(cursor, view.size(), window),
+                transform,
             );
             queue.write_buffer(&self.pick_view_uniform.buffer, 0, self.staging.as_slice());
         }

@@ -5,6 +5,7 @@ use glam::Vec3;
 use wgpu::util::DeviceExt;
 
 use crate::{
+    culling::{ClipWindow, placed_corners},
     gpu::{self, Bytes},
     scene::{Color, PickId},
     viewport::relative_to_eye,
@@ -228,7 +229,15 @@ struct GpuMesh {
     placement: wgpu::Buffer,
     styles: wgpu::Texture,
     written: Option<Vec<FaceStyle>>,
+    placed: Option<PlacedAt>,
+    corners: Option<[Point3; 8]>,
     bind_group: wgpu::BindGroup,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PlacedAt {
+    placement: Option<RigidTransform>,
+    eye: Point3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -342,6 +351,8 @@ impl GpuMesh {
             placement,
             styles,
             written: None,
+            placed: None,
+            corners: None,
             bind_group,
         }
     }
@@ -353,7 +364,29 @@ impl GpuMesh {
         instance: &MeshInstance,
         eye: Point3,
     ) {
-        let placement = instance.placement.unwrap_or(RigidTransform::IDENTITY);
+        self.write_placement(queue, bytes, instance.placement, eye);
+        if self.written.as_deref() != Some(instance.faces.as_slice()) {
+            self.write_face_styles(queue, bytes, instance);
+        }
+    }
+
+    fn write_placement(
+        &mut self,
+        queue: &wgpu::Queue,
+        bytes: &mut Bytes,
+        placement: Option<RigidTransform>,
+        eye: Point3,
+    ) {
+        let placed = PlacedAt { placement, eye };
+        if self.placed == Some(placed) {
+            return;
+        }
+        self.placed = Some(placed);
+        self.corners = self
+            .mesh
+            .bounds
+            .map(|bounds| placed_corners(bounds, placement));
+        let placement = placement.unwrap_or(RigidTransform::IDENTITY);
         let turn = |axis: Vector3| placement.apply_vector(axis).as_vec3();
         bytes.clear();
         bytes
@@ -369,9 +402,14 @@ impl GpuMesh {
             .vec4(turn(Vector3::Y), 0.0)
             .vec4(turn(Vector3::Z), 0.0);
         queue.write_buffer(&self.placement, 0, bytes.as_slice());
-        if self.written.as_deref() == Some(instance.faces.as_slice()) {
-            return;
-        }
+    }
+
+    fn write_face_styles(
+        &mut self,
+        queue: &wgpu::Queue,
+        bytes: &mut Bytes,
+        instance: &MeshInstance,
+    ) {
         bytes.clear();
         for face in 0..self.layout.texels() {
             let style = instance.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
@@ -488,12 +526,22 @@ impl MeshCache {
         newly_rejected
     }
 
-    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
-        if self.meshes.is_empty() {
+    pub fn draw(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        window: &ClipWindow,
+    ) {
+        let mut seen = self
+            .meshes
+            .iter()
+            .filter(|mesh| mesh.corners.is_none_or(|corners| window.sees(&corners)))
+            .peekable();
+        if seen.peek().is_none() {
             return;
         }
         pass.set_pipeline(pipeline);
-        for mesh in &self.meshes {
+        for mesh in seen {
             pass.set_bind_group(1, &mesh.bind_group, &[]);
             for part in &mesh.parts {
                 pass.set_vertex_buffer(0, part.vertices.slice(..));

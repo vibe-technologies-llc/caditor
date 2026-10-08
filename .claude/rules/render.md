@@ -67,10 +67,13 @@ paths:
   upload once per `Arc` and drop when the mesh leaves the scene; a mesh past `max_buffer_size` is
   split into parts that each fit.
 - A `MeshInstance` may carry a `placement` (a `RigidTransform`) drawing the mesh moved and turned
-  without a new upload: the placement uniform, rewritten every frame, holds the turned axes and the
-  placed centre relative to the eye (worked out in f64), and `vs_mesh` turns positions and normals
-  by them. An `Arc` appears at most once in a scene, since buffers, styles and placement are kept
-  per mesh.
+  without a new upload: the placement uniform, rewritten only when the placement or the eye moved,
+  holds the turned axes and the placed centre relative to the eye (worked out in f64), and
+  `vs_mesh` turns positions and normals by them. An `Arc` appears at most once in a scene, since
+  buffers, styles and placement are kept per mesh.
+- A mesh whose placed bounds lie wholly beyond one side of the clip volume is not drawn
+  (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), tested against
+  the window in the main pass, the pick window in the pick pass and each tile in image export.
 - Per-face styles live in an `Rg32Uint` texture (`StyleLayout`) read by face index in the vertex
   shader, rewritten only when they differ, so hover and selection cost nothing in geometry.
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
