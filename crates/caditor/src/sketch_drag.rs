@@ -7,7 +7,7 @@ use caditor_sketch::{Drag, Entity, EntityId, Faceting, MAX_LENGTH, Sketch};
 use crate::{
     drag_solver::{DragCommand, Join},
     feature_tree::count,
-    snap::{Pointer, Screen},
+    snap::{Hold, Pointer, Screen},
     tracking::{self, Acquired, Landing},
 };
 
@@ -134,6 +134,7 @@ impl Grab {
         &mut self,
         cursor: Point2,
         snapping: Option<(&Sketch, &impl Screen)>,
+        hold: Option<Hold>,
     ) -> Option<DragCommand> {
         let offset = cursor - self.from;
         let landing = snapping
@@ -145,7 +146,8 @@ impl Grab {
                     sketch: moved,
                 };
                 let ignored = self.moving_with(sketch);
-                let landing = tracking::land(sketch, screen, pointer, &self.acquired, &ignored)?;
+                let landing =
+                    tracking::land(sketch, screen, pointer, &self.acquired, &ignored, hold)?;
                 Some((sketch, landing))
             });
         if let Some((sketch, landing)) = landing
@@ -975,7 +977,7 @@ mod tests {
         let lone = sketch.add_point(Point2::new(10.0, 10.0));
         let mut grab = Grab::of(&sketch, feature(), end, &[], Point2::new(4.1, 0.1)).unwrap();
 
-        let command = grab.follow(Point2::new(10.3, 9.8), Some((&sketch, &Scaled(10.0))));
+        let command = grab.follow(Point2::new(10.3, 9.8), Some((&sketch, &Scaled(10.0))), None);
 
         assert_eq!(grab.moving_with(&sketch), vec![end, line]);
         assert_eq!(
@@ -1013,9 +1015,11 @@ mod tests {
         let lone = sketch.add_point(Point2::new(30.0, 20.0));
         let mut grab = Grab::of(&sketch, feature(), line, &[], Point2::new(8.0, 0.0)).unwrap();
 
-        let Some(DragCommand::Move { drags, .. }) =
-            grab.follow(Point2::new(28.05, 20.02), Some((&sketch, &Scaled(10.0))))
-        else {
+        let Some(DragCommand::Move { drags, .. }) = grab.follow(
+            Point2::new(28.05, 20.02),
+            Some((&sketch, &Scaled(10.0))),
+            None,
+        ) else {
             panic!("the line is dragged");
         };
 
@@ -1051,7 +1055,11 @@ mod tests {
         let (start, end) = ends(&sketch, line);
         let mut grab = Grab::of(&sketch, feature(), end, &[], Point2::new(10.0, 15.0)).unwrap();
 
-        grab.follow(Point2::new(20.0, 10.2), Some((&sketch, &Scaled(10.0))));
+        grab.follow(
+            Point2::new(20.0, 10.2),
+            Some((&sketch, &Scaled(10.0))),
+            None,
+        );
         let landing = grab.landing().unwrap();
 
         assert_eq!(landing.position, Point2::new(20.0, 10.0));
@@ -1073,8 +1081,38 @@ mod tests {
         );
 
         let mut free = Grab::of(&sketch, feature(), end, &[], Point2::new(10.0, 15.0)).unwrap();
-        free.follow(Point2::new(20.0, 10.2), None::<(&Sketch, &Scaled)>);
+        free.follow(Point2::new(20.0, 10.2), None::<(&Sketch, &Scaled)>, None);
         assert_eq!(free.landing(), None);
         assert_eq!(free.finish(), DragCommand::Finish { join: None });
+    }
+
+    #[test]
+    fn a_point_grabbed_while_the_snap_is_held_lands_on_the_nearest_grid_crossing() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::new(4.0, 0.0));
+        let (_, end) = ends(&sketch, line);
+        let mut grab = Grab::of(&sketch, feature(), end, &[], Point2::new(4.0, 0.0)).unwrap();
+        let hold = Hold { grid: Some(5.0) };
+
+        grab.follow(
+            Point2::new(11.2, 9.3),
+            Some((&sketch, &Scaled(10.0))),
+            Some(hold),
+        );
+        let landing = grab.landing().unwrap();
+
+        assert_eq!(landing.position, Point2::new(10.0, 10.0));
+        assert_eq!(landing.target, None);
+        assert_eq!(landing.label(&sketch).as_deref(), Some("On the grid"));
+        assert_eq!(
+            grab.finish(),
+            DragCommand::Finish {
+                join: Some(Join {
+                    point: end,
+                    at: Point2::new(10.0, 10.0),
+                    constraints: Vec::new(),
+                }),
+            }
+        );
     }
 }

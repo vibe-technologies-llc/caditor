@@ -2,7 +2,7 @@ use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 
 use crate::{
-    snap::{self, Accept, Pointer, Screen, Target},
+    snap::{self, Accept, Held, Hold, Lookup, ON_THE_GRID, Pointer, Screen, Target},
     trimming,
 };
 
@@ -328,6 +328,7 @@ pub struct Landing {
     pub position: Point2,
     pub target: Option<Target>,
     pub tracks: Tracks,
+    pub on_grid: bool,
 }
 
 impl Landing {
@@ -343,6 +344,7 @@ impl Landing {
     pub fn label(self, sketch: &Sketch) -> Option<String> {
         let target = self.target.map(|target| target.label(sketch));
         match (target, self.tracks.label(sketch)) {
+            (None, None) if self.on_grid => Some(ON_THE_GRID.to_owned()),
             (target, None) => target,
             (Some(target), Some(tracked)) => Some(format!("{target}, {tracked}")),
             (None, Some(tracked)) => Some(trimming::capitalized(&tracked)),
@@ -364,7 +366,11 @@ pub fn land(
     pointer: Pointer,
     acquired: &Acquired,
     ignored: &[EntityId],
+    hold: Option<Hold>,
 ) -> Option<Landing> {
+    if let Some(hold) = hold {
+        return land_held(sketch, screen, pointer, acquired, ignored, hold);
+    }
     let snapped = snap::resolve(
         sketch,
         screen,
@@ -390,11 +396,13 @@ pub fn land(
                     position: snapped.position,
                     target: Some(snapped.target),
                     tracks: Tracks::default(),
+                    on_grid: false,
                 },
                 |tracked| Landing {
                     position: tracked.position,
                     target: Some(snapped.target),
                     tracks: tracked.tracks,
+                    on_grid: false,
                 },
             ),
         ),
@@ -402,8 +410,40 @@ pub fn land(
             position: tracked.position,
             target: None,
             tracks: tracked.tracks,
+            on_grid: false,
         }),
     }
+}
+
+fn land_held(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    acquired: &Acquired,
+    ignored: &[EntityId],
+    hold: Hold,
+) -> Option<Landing> {
+    let lookup = Lookup {
+        pending: &[],
+        accept: Accept::Anything,
+        extended: acquired.lines(),
+        ignored,
+    };
+    let landing = match snap::held(sketch, screen, pointer, lookup, hold.grid)? {
+        Held::Target(snapped) => Landing {
+            position: snapped.position,
+            target: Some(snapped.target),
+            tracks: Tracks::default(),
+            on_grid: false,
+        },
+        Held::Grid(position) => Landing {
+            position,
+            target: None,
+            tracks: Tracks::default(),
+            on_grid: true,
+        },
+    };
+    Some(landing)
 }
 
 pub fn alone(tracks: Tracks, screen: &impl Screen, pointer: Pointer) -> Option<Tracked> {

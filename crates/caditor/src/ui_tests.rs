@@ -4977,6 +4977,120 @@ fn holding_ctrl_places_a_point_where_the_pointer_is_instead_of_snapping_to_a_poi
 }
 
 #[test]
+fn holding_alt_snaps_to_grid_crossings_or_to_geometry_nearer_than_them() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    let mut transaction = harness.document().transaction("Add point");
+    let target = transaction.add_sketch_entity(feature, Entity::Point(Point2::new(40.5, 20.5)));
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    assert!(harness.shows("Grid 1 mm"));
+    harness.use_tool(Key::L);
+    assert!(harness.shows_hint("Alt: snap to the grid or nearby geometry"));
+
+    harness.hold(Modifiers::ALT);
+    harness.point_at(Point2::new(10.3, 10.2));
+    assert!(harness.shows("On the grid"));
+    harness.click_at(Point2::new(10.3, 10.2));
+    harness.point_at(Point2::new(30.4, 10.3));
+    assert!(harness.shows("On the grid, horizontal"));
+    harness.click_at(Point2::new(30.4, 10.3));
+    harness.hold(Modifiers::NONE);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.hold(Modifiers::ALT);
+    harness.click_at(Point2::new(10.2, 30.3));
+    harness.point_at(Point2::new(40.3, 20.3));
+    assert!(harness.shows(&format!("On Point {target}")));
+    harness.click_at(Point2::new(40.3, 20.3));
+    harness.hold(Modifiers::NONE);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let [level, slanted] = entities_of_kind(sketch, "Line")[..] else {
+        panic!("two lines should be drawn");
+    };
+    let (start, end) = sketch.line_endpoints(level).unwrap();
+    assert!(near(start, Point2::new(10.0, 10.0)), "{start}");
+    assert!(near(end, Point2::new(30.0, 10.0)), "{end}");
+    assert_eq!(
+        constraints_of_kind(sketch, "Horizontal"),
+        vec![Constraint::Horizontal(level)]
+    );
+    let (from, to) = line_ends(sketch, slanted);
+    assert!(near(sketch.point(from).unwrap(), Point2::new(10.0, 30.0)));
+    assert_eq!(
+        constraints_of_kind(sketch, "Coincident"),
+        vec![Constraint::Coincident(to, target)]
+    );
+}
+
+#[test]
+fn a_point_grabbed_with_alt_held_lands_on_the_grid_without_orbiting_in_laptop_mode() {
+    let mut harness = laptop_harness();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 10.0), Point2::new(30.0, 10.0));
+    let (_, end) = line_ends(&sketch, line);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+    let view = harness.workspace.viewport.viewpoint();
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(30.0, 10.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: end,
+        },
+    );
+    harness.events.push(Event::PointerButton {
+        pos: grabbed,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    harness
+        .events
+        .push(Event::PointerMoved(grabbed + egui::vec2(16.0, 0.0)));
+    harness.frame();
+    harness.hold(Modifiers::ALT);
+    let target = harness.on_screen(Point2::new(26.33, 14.27));
+    for step in 1..=4 {
+        let position = grabbed + (target - grabbed) * (step as f32 / 4.0);
+        harness.events.push(Event::PointerMoved(position));
+        harness.frame();
+    }
+    assert!(harness.shows("On the grid"));
+    harness.events.push(Event::PointerButton {
+        pos: target,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::ALT,
+    });
+    harness.frame();
+    harness.hold(Modifiers::NONE);
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(end) != before.point(end)
+    });
+    harness.settle();
+
+    assert!(harness.shows("Grid 0.1 mm"));
+    let dragged = harness.sketch(feature).point(end).unwrap();
+    let crossing = (dragged / 0.1).round() * 0.1;
+    assert!(
+        dragged.distance(Point2::new(26.33, 14.27)) < 0.1,
+        "{dragged}"
+    );
+    assert!(dragged.distance(crossing) < 1e-9, "{dragged}");
+    let after = harness.workspace.viewport.viewpoint();
+    assert!(after.forward().dot(view.forward()) > 0.999_999);
+    assert!(after.target.distance(view.target) < 1e-9);
+}
+
+#[test]
 fn a_press_that_slips_a_few_pixels_is_still_one_click_where_it_is_released() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

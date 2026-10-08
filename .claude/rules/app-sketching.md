@@ -51,8 +51,9 @@ paths:
   its own worker thread, which drops older unstarted ones and solves each from the previous
   solution of the same drag with `solve_from`. Results are shown through
   `DisplayedSketches::show_dragged`, which every consumer of a displayed sketch sees.
-- A grab snaps while snapping is on and Ctrl is not held (`ViewportState::grab_snapping`,
-  `Grab::follow`). Its handle, the grabbed point or, for a curve or selection, the moving point
+- A grab snaps while snapping is on or Alt is held, and Ctrl is not held
+  (`ViewportState::grab_snapping`, `Grab::follow`); with Alt it lands as a held snap does
+  (`tracking::land` with a `Hold`, see Snapping). Its handle, the grabbed point or, for a curve or selection, the moving point
   nearest the press, goes through `tracking::land` on the displayed sketch, ignoring every moving
   point and every curve using one, so a dragged line or selection lands that point on the target
   and moves the rest by the same offset. A circle dragged alone changes its radius and never snaps.
@@ -122,7 +123,9 @@ paths:
 - Holding Ctrl places the point exactly under the pointer: no snapping and no alignment guides
   (`Drawing::place_freely`). It also stops a tangent arc from starting, which needs a snapped
   point. Snapping on or off for good (`Command::ToggleSnapping`, View menu and palette, kept for the
-  session in `ViewportState::snapping`) has the same effect as holding Ctrl all the time.
+  session in `ViewportState::snapping`) has the same effect as holding Ctrl all the time, except
+  that holding Alt still snaps. Ctrl wins when both are held (AltGr arrives as Ctrl+Alt on
+  Windows).
 - The pointer is on the sketch only within `MAX_LENGTH` of the origin, so an edge-on view cannot
   place a point at an enormous distance.
 - Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last
@@ -305,7 +308,21 @@ paths:
   the session in `ViewportState::grid_snapping`) places a point no target, direction or track took
   on the nearest crossing of the grid's minor lines (`grid_minor_spacing` of the view, handed to
   `Drawing::snap_to_grid` each frame) when it lies within `POINT_TOLERANCE` on screen; the point
-  stays free, joined by no constraint.
+  stays free, joined by no constraint, and shows the snap marker labelled "On the grid"
+  (`Snap::Grid`).
+- Holding Alt while drawing or dragging holds the snap (`snap::held`, `Hold`, `Drawing::hold_snap`,
+  ahead of directions, tracks and the toggles, which stay as they are): the point always lands on
+  the nearest crossing of the grid's minor lines, whether or not grid snapping is on, unless a
+  snappable entity lies no further than it on screen. Point-like targets (pending point, points,
+  middles, centres, crossings, quadrants) pull from `HELD_POINT_PULL`, three times the hover's
+  tolerance, nearest first; failing those, curves and extensions from `HELD_CURVE_PULL`, and a
+  curve snap moves to the grid crossing nearest its foot when that crossing lies on the curve, so
+  Alt along a grid-aligned line or an axis steps by the grid and stays joined to it. Targets keep
+  their constraints and labels; a grid crossing is free, labelled "On the grid", and, for the
+  points that align or level from a start (`aligned_from`, `levelled_from`), exactly level or
+  upright with that start takes Horizontal or Vertical as an aligned point would ("On the grid,
+  horizontal"). Width points still never snap, typed points are untouched, and with the grid hidden
+  only entities are taken. The drawing tools' key hints name Alt beside Ctrl.
 - Preview curves are faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take
   the scene's `Faceting`); the snap target and a direction's reference line
   (`Drawing::snap_entities`) replace the GPU hover while a drawing tool is active.

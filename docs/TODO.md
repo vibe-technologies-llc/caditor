@@ -121,14 +121,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
-- [medium · medium] No snap mode held with a modifier while drawing: Ctrl places the point freely and
-  the grid snap is a toggle off by default (`Command::ToggleGridSnapping`), so snapping to the grid
-  means a trip to the View menu and back. Holding a modifier (Alt is free in the drawing tools;
-  Ctrl and Shift are taken by free placement and the polygon's side scrub, so the key is still to
-  choose) should snap the point to the grid's minor crossings, or to the nearest snappable entity
-  (point, curve, intersection, midpoint) when one lies nearer, with a wider pull than the hover
-  snap, a marker and label naming what it took, and the same behaviour in grabs and drags of
-  existing geometry. Typed coordinates and the toggles stay as they are.
 - [medium · medium] Constraint kinds missing: angle to an arc; equal splines; tangency between two
   splines touching away from their ends (only end-to-end joints take `Tangent` and `Curvature`);
   distance between a spline and a line or circle.

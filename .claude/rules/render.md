@@ -204,7 +204,8 @@ paths:
   mouse scheme above, or Laptop, for a touchpad: two-finger scroll orbits, Alt and scroll pans (egui
   turns Shift and scroll into horizontal-only scrolling, so Alt keeps both axes), pinch and
   Ctrl+scroll zoom, and Alt-drag orbits and Shift+Alt-drag pans, the Alt press never starting a
-  selection. Fusion 360 (middle-drag pans, Shift+middle-drag orbits), FreeCAD (its CAD style:
+  selection. Alt pressed once a primary drag has begun in the sketch (a grab, a box, a shape drawn
+  by press and drag) leaves the drag to it, where Alt holds the snap (`app-sketching.md`). Fusion 360 (middle-drag pans, Shift+middle-drag orbits), FreeCAD (its CAD style:
   middle-drag pans, the middle button held with the left or right one orbits) and Blender
   (middle-drag orbits, Shift+middle-drag pans, Ctrl+middle-drag zooms) follow those programs;
   every mode keeps right-drag orbiting and Shift+right-drag panning, the wheel zooms, and a primary

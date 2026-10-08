@@ -5,7 +5,11 @@ use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Sketch};
 
 pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
+pub const HELD_POINT_PULL: f64 = 3.0 * POINT_TOLERANCE;
+pub const HELD_CURVE_PULL: f64 = 3.0 * CURVE_TOLERANCE;
+pub const ON_THE_GRID: &str = "On the grid";
 const ON_CIRCLE_TOLERANCE: f64 = 1e-9;
+const ON_GRID_TOLERANCE: f64 = 1e-9;
 const PARALLEL_TOLERANCE: f64 = 1e-12;
 
 pub trait Screen {
@@ -235,35 +239,12 @@ pub fn resolve(
     extended: &[EntityId],
     ignored: &[EntityId],
 ) -> Option<Snapped> {
-    let pending = pending
-        .iter()
-        .map(|(index, position)| Snapped {
-            position: *position,
-            target: Target::Pending(*index),
-        })
-        .collect();
     let nearest = |candidates: Vec<Snapped>, tolerance: f64| {
-        candidates
-            .into_iter()
-            .filter(|candidate| !candidate.target.touches(ignored))
-            .filter_map(|candidate| {
-                let offset = screen
-                    .to_screen(candidate.position)?
-                    .distance(pointer.screen);
-                (offset <= tolerance).then_some((offset, candidate))
-            })
-            .min_by(|a, b| a.0.total_cmp(&b.0))
+        nearest_within(candidates, screen, pointer, ignored, tolerance)
             .map(|(_, candidate)| candidate)
     };
-    let points = match accept {
-        Accept::Anything | Accept::Points => points(sketch),
-        Accept::OnCircle { center, radius } => points(sketch)
-            .into_iter()
-            .filter(|candidate| on_circle(center, radius, candidate.position))
-            .collect(),
-    };
-    nearest(pending, POINT_TOLERANCE)
-        .or_else(|| nearest(points, POINT_TOLERANCE))
+    nearest(pending_snaps(pending), POINT_TOLERANCE)
+        .or_else(|| nearest(accepted_points(sketch, accept), POINT_TOLERANCE))
         .or_else(|| match accept {
             Accept::Anything => nearest(midpoints(sketch), POINT_TOLERANCE)
                 .or_else(|| nearest(centres(sketch, ignored), POINT_TOLERANCE))
@@ -285,6 +266,146 @@ pub fn resolve(
                 nearest(crossings(sketch, center, radius), CURVE_TOLERANCE)
             }
         })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Lookup<'a> {
+    pub pending: &'a [(usize, Point2)],
+    pub accept: Accept,
+    pub extended: &'a [EntityId],
+    pub ignored: &'a [EntityId],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Hold {
+    pub grid: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Held {
+    Target(Snapped),
+    Grid(Point2),
+}
+
+pub fn held(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    lookup: Lookup,
+    grid: Option<f64>,
+) -> Option<Held> {
+    let crossing = grid.and_then(|spacing| grid_crossing(spacing, screen, pointer));
+    let pull = |widest: f64| crossing.map_or(widest, |(offset, _)| widest.min(offset));
+    let nearest = |candidates: Vec<Snapped>, tolerance: f64| {
+        nearest_within(candidates, screen, pointer, lookup.ignored, tolerance)
+            .map(|(_, candidate)| candidate)
+    };
+    let mut point_like = pending_snaps(lookup.pending);
+    point_like.extend(accepted_points(sketch, lookup.accept));
+    let curve_like = match lookup.accept {
+        Accept::Anything => {
+            point_like.extend(midpoints(sketch));
+            point_like.extend(centres(sketch, lookup.ignored));
+            point_like.extend(intersections(sketch, screen, pointer));
+            point_like.extend(quadrants(sketch));
+            let mut curve_like = curves(sketch, pointer.sketch);
+            curve_like.extend(extensions(sketch, lookup.extended, pointer.sketch));
+            curve_like
+        }
+        Accept::Points => Vec::new(),
+        Accept::OnCircle { center, radius } => crossings(sketch, center, radius),
+    };
+    let on_curve = || {
+        let snapped = nearest(curve_like, pull(HELD_CURVE_PULL))?;
+        Some(
+            grid.and_then(|spacing| grid_crossing_on(sketch, snapped, spacing))
+                .unwrap_or(snapped),
+        )
+    };
+    nearest(point_like, pull(HELD_POINT_PULL))
+        .or_else(on_curve)
+        .map(Held::Target)
+        .or(crossing.map(|(_, position)| Held::Grid(position)))
+}
+
+fn grid_crossing_on(sketch: &Sketch, snapped: Snapped, spacing: f64) -> Option<Snapped> {
+    let crossing = (snapped.position / spacing).round() * spacing;
+    let foot = match snapped.target {
+        Target::Curve(axis) if axis == EntityId::HORIZONTAL_AXIS => Point2::new(crossing.x, 0.0),
+        Target::Curve(axis) if axis == EntityId::VERTICAL_AXIS => Point2::new(0.0, crossing.y),
+        Target::Curve(curve) => closest_on(sketch, curve, sketch.entity(curve)?, crossing)?,
+        Target::Extension(line) => {
+            let (start, end) = sketch.line_endpoints(line)?;
+            let along = end - start;
+            let length_squared = along.length_squared();
+            if length_squared == 0.0 {
+                return None;
+            }
+            start + along * ((crossing - start).dot(along) / length_squared)
+        }
+        Target::Pending(_)
+        | Target::Point(_)
+        | Target::Midpoint(_)
+        | Target::Quadrant { .. }
+        | Target::Tangent(_)
+        | Target::Intersection(..)
+        | Target::Centre { .. }
+        | Target::Centroid(_) => return None,
+    };
+    let on = foot.distance(crossing) <= ON_GRID_TOLERANCE * (1.0 + crossing.abs().max_element());
+    on.then_some(Snapped {
+        position: crossing,
+        target: snapped.target,
+    })
+}
+
+pub fn grid_crossing(
+    spacing: f64,
+    screen: &impl Screen,
+    pointer: Pointer,
+) -> Option<(f64, Point2)> {
+    let crossing = (pointer.sketch / spacing).round() * spacing;
+    let offset = screen.to_screen(crossing)?.distance(pointer.screen);
+    Some((offset, crossing))
+}
+
+fn pending_snaps(pending: &[(usize, Point2)]) -> Vec<Snapped> {
+    pending
+        .iter()
+        .map(|(index, position)| Snapped {
+            position: *position,
+            target: Target::Pending(*index),
+        })
+        .collect()
+}
+
+fn accepted_points(sketch: &Sketch, accept: Accept) -> Vec<Snapped> {
+    match accept {
+        Accept::Anything | Accept::Points => points(sketch),
+        Accept::OnCircle { center, radius } => points(sketch)
+            .into_iter()
+            .filter(|candidate| on_circle(center, radius, candidate.position))
+            .collect(),
+    }
+}
+
+fn nearest_within(
+    candidates: Vec<Snapped>,
+    screen: &impl Screen,
+    pointer: Pointer,
+    ignored: &[EntityId],
+    tolerance: f64,
+) -> Option<(f64, Snapped)> {
+    candidates
+        .into_iter()
+        .filter(|candidate| !candidate.target.touches(ignored))
+        .filter_map(|candidate| {
+            let offset = screen
+                .to_screen(candidate.position)?
+                .distance(pointer.screen);
+            (offset <= tolerance).then_some((offset, candidate))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
 }
 
 pub fn on_circle(center: Point2, radius: f64, point: Point2) -> bool {
@@ -1109,6 +1230,86 @@ pub mod tests {
 
     fn point_of(sketch: &Sketch, curve: EntityId, index: usize) -> EntityId {
         sketch.entity(curve).unwrap().points()[index]
+    }
+
+    fn held_at(sketch: &Sketch, at: Point2, grid: Option<f64>) -> Option<Held> {
+        let lookup = Lookup {
+            pending: &[],
+            accept: Accept::Anything,
+            extended: &[],
+            ignored: &[],
+        };
+        held(sketch, &Scaled(10.0), pointer_at(at), lookup, grid)
+    }
+
+    #[test]
+    fn a_held_snap_pulls_from_further_and_takes_a_grid_crossing_when_it_is_nearer() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let lone = sketch.add_point(Point2::new(21.0, 21.0));
+        let line = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(40.0, 30.0));
+        let on_point = Held::Target(Snapped {
+            position: Point2::new(21.0, 21.0),
+            target: Target::Point(lone),
+        });
+
+        assert_eq!(resolve_at(&sketch, Point2::new(22.5, 21.0)), None);
+        assert_eq!(
+            held_at(&sketch, Point2::new(22.5, 21.0), Some(5.0)),
+            Some(on_point)
+        );
+        assert_eq!(
+            held_at(&sketch, Point2::new(21.0, 22.8), Some(5.0)),
+            Some(on_point)
+        );
+        assert_eq!(
+            held_at(&sketch, Point2::new(22.5, 21.0), None),
+            Some(on_point)
+        );
+
+        assert_eq!(
+            held_at(&sketch, Point2::new(20.5, 20.2), Some(5.0)),
+            Some(Held::Grid(Point2::new(20.0, 20.0)))
+        );
+        assert_eq!(
+            held_at(&sketch, Point2::new(24.5, 20.5), Some(5.0)),
+            Some(Held::Grid(Point2::new(25.0, 20.0)))
+        );
+        assert_eq!(held_at(&sketch, Point2::new(24.5, 20.5), None), None);
+
+        let on_line_at_a_crossing = Held::Target(Snapped {
+            position: Point2::new(10.0, 30.0),
+            target: Target::Curve(line),
+        });
+        assert_eq!(
+            held_at(&sketch, Point2::new(12.0, 31.2), Some(5.0)),
+            Some(on_line_at_a_crossing)
+        );
+        assert_eq!(
+            held_at(&sketch, Point2::new(10.3, 30.4), Some(5.0)),
+            Some(on_line_at_a_crossing)
+        );
+        assert_eq!(
+            held_at(&sketch, Point2::new(12.0, 31.2), None),
+            Some(Held::Target(Snapped {
+                position: Point2::new(12.0, 30.0),
+                target: Target::Curve(line),
+            }))
+        );
+        assert_eq!(
+            held_at(&sketch, Point2::new(31.0, 0.4), Some(5.0)),
+            Some(Held::Target(Snapped {
+                position: Point2::new(30.0, 0.0),
+                target: Target::Curve(EntityId::HORIZONTAL_AXIS),
+            }))
+        );
+
+        let slanted = sketch.add_line(Point2::new(0.0, 50.0), Point2::new(40.0, 53.0));
+        let Some(Held::Target(off_the_grid)) = held_at(&sketch, Point2::new(12.0, 51.9), Some(5.0))
+        else {
+            panic!("the slanted line should take the point");
+        };
+        assert_eq!(off_the_grid.target, Target::Curve(slanted));
+        assert!((off_the_grid.position.y - (50.0 + 0.075 * off_the_grid.position.x)).abs() < 1e-9);
     }
 
     #[test]

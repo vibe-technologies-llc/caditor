@@ -10,7 +10,7 @@ use crate::{
     shape_modes::{CircleMode, PolygonMode, RectangleMode, ShapeMode, ShapeModes, SlotMode},
     shapes::{self, ArcSlot, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
-    snap::{self, Accept, Pointer, Screen, Snapped, Target},
+    snap::{self, Accept, Held, Hold, Lookup, ON_THE_GRID, Pointer, Screen, Snapped, Target},
     tracking::{self, Acquired, Tracked, Tracks},
     typed_point::{Measured, Placed, TypedDimension},
     units::Units,
@@ -351,6 +351,7 @@ struct NearbyLine {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Snap {
     Free,
+    Grid(Option<Direction>),
     Target(Target),
     Aligned(Direction),
     AlignedOn(Target, Direction),
@@ -360,15 +361,20 @@ impl Snap {
     fn target(self) -> Option<Target> {
         match self {
             Self::Target(target) | Self::AlignedOn(target, _) => Some(target),
-            Self::Free | Self::Aligned(_) => None,
+            Self::Free | Self::Grid(_) | Self::Aligned(_) => None,
         }
     }
 
     fn direction(self) -> Option<Direction> {
         match self {
             Self::Aligned(direction) | Self::AlignedOn(_, direction) => Some(direction),
+            Self::Grid(direction) => direction,
             Self::Free | Self::Target(_) => None,
         }
+    }
+
+    fn is_marked(self) -> bool {
+        matches!(self, Self::Grid(_)) || self.target().is_some()
     }
 
     fn entity(self) -> Option<EntityId> {
@@ -526,6 +532,7 @@ pub struct Drawing {
     scrub: Option<Scrub>,
     free: bool,
     grid: Option<f64>,
+    hold: Option<Hold>,
     acquired: Acquired,
     extension_guide: Option<[Point2; 2]>,
     typed: Vec<TypedMark>,
@@ -701,13 +708,59 @@ impl Drawing {
         self.grid = spacing.filter(|spacing| spacing.is_finite() && *spacing > 0.0);
     }
 
+    pub fn hold_snap(&mut self, hold: Option<Hold>) {
+        self.hold = hold;
+    }
+
     fn unsnapped(&self, screen: &impl Screen, pointer: Pointer) -> Placement {
-        let on_grid = self.grid.and_then(|spacing| {
-            let nearest = (pointer.sketch / spacing).round() * spacing;
-            let offset = screen.to_screen(nearest)?.distance(pointer.screen);
-            (offset <= snap::POINT_TOLERANCE).then_some(nearest)
-        });
-        Placement::free(on_grid.unwrap_or(pointer.sketch))
+        self.grid
+            .and_then(|spacing| snap::grid_crossing(spacing, screen, pointer))
+            .filter(|(offset, _)| *offset <= snap::POINT_TOLERANCE)
+            .map_or(Placement::free(pointer.sketch), |(_, crossing)| {
+                Placement::at(crossing, Snap::Grid(None))
+            })
+    }
+
+    fn place_held(
+        &self,
+        shape: Shape,
+        sketch: &Sketch,
+        screen: &impl Screen,
+        pointer: Pointer,
+        hold: Hold,
+    ) -> Placement {
+        let pending = self.pending(shape);
+        let lookup = Lookup {
+            pending: &pending,
+            accept: self.accept(shape),
+            extended: self.acquired.lines(),
+            ignored: &[],
+        };
+        match snap::held(sketch, screen, pointer, lookup, hold.grid) {
+            Some(Held::Target(snapped)) => Placement::snapped(snapped),
+            Some(Held::Grid(crossing)) => {
+                Placement::at(crossing, Snap::Grid(self.level_on_grid(shape, crossing)))
+            }
+            None => Placement::free(pointer.sketch),
+        }
+    }
+
+    fn level_on_grid(&self, shape: Shape, crossing: Point2) -> Option<Direction> {
+        let from = self
+            .levelled_from(shape)
+            .or_else(|| self.aligned_from(shape))?
+            .position;
+        let offset = crossing - from;
+        let tolerance = HELD_TOLERANCE * (1.0 + from.abs().max_element());
+        if offset.length() < DEGENERATE_LENGTH {
+            None
+        } else if offset.y.abs() <= tolerance {
+            Some(Direction::Horizontal)
+        } else if offset.x.abs() <= tolerance {
+            Some(Direction::Vertical)
+        } else {
+            None
+        }
     }
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
@@ -1434,7 +1487,7 @@ impl Drawing {
             points: placed.iter().copied().chain(hover).collect(),
             snap: self
                 .hover
-                .filter(|hover| hover.snap.target().is_some())
+                .filter(|hover| hover.snap.is_marked())
                 .map(|hover| hover.position),
             guides: self
                 .hover
@@ -1609,6 +1662,10 @@ impl Drawing {
         let hover = self.hover?;
         let snap = hover.snap;
         let label = match (snap.target(), snap.direction()) {
+            (None, direction) if matches!(snap, Snap::Grid(_)) => Some(match direction {
+                Some(direction) => format!("{ON_THE_GRID}, {}", direction.joined_label(sketch)),
+                None => ON_THE_GRID.to_owned(),
+            }),
             (None, None) => None,
             (None, Some(direction)) => Some(direction.label(sketch)),
             (Some(target), None) => Some(self.target_label(shape, sketch, target)),
@@ -1779,6 +1836,9 @@ impl Drawing {
     ) -> Placement {
         if self.free || shape.sizes_by_width(self.placed.len()) {
             return Placement::free(pointer.sketch);
+        }
+        if let Some(hold) = self.hold {
+            return self.place_held(shape, sketch, screen, pointer, hold);
         }
         let pending = self.pending(shape);
         let accept = self.accept(shape);
@@ -2902,6 +2962,34 @@ mod tests {
     fn hovered_at(drawing: &mut Drawing, sketch: &Sketch, at: Point2) -> Option<Placement> {
         drawing.hover(sketch, &Scaled(10.0), Some(pointer(at)));
         drawing.hover
+    }
+
+    #[test]
+    fn a_held_snap_puts_a_line_end_on_a_grid_crossing_and_keeps_it_level_with_its_start() {
+        let sketch = Sketch::new(caditor_geometry::Plane::XY);
+        let mut drawing = drawing_a_line(&sketch, Placement::free(Point2::new(10.0, 10.0)));
+        drawing.hold_snap(Some(Hold { grid: Some(5.0) }));
+
+        let level = hovered_at(&mut drawing, &sketch, Point2::new(31.0, 10.8)).unwrap();
+        assert_eq!(level.position, Point2::new(30.0, 10.0));
+        assert_eq!(level.snap, Snap::Grid(Some(Direction::Horizontal)));
+        assert_eq!(
+            drawing.snap_label(&sketch).as_deref(),
+            Some("On the grid, horizontal")
+        );
+
+        let slanted = hovered_at(&mut drawing, &sketch, Point2::new(31.0, 14.0)).unwrap();
+        assert_eq!(slanted.position, Point2::new(30.0, 15.0));
+        assert_eq!(slanted.snap, Snap::Grid(None));
+        assert_eq!(drawing.snap_label(&sketch).as_deref(), Some("On the grid"));
+        let preview = drawing.preview(Faceting::within(0.01));
+        assert_eq!(preview.snap, Some(Point2::new(30.0, 15.0)));
+
+        drawing.place_freely(true);
+        let free = hovered_at(&mut drawing, &sketch, Point2::new(31.0, 14.0)).unwrap();
+        assert_eq!(free.position, Point2::new(31.0, 14.0));
+        assert_eq!(free.snap, Snap::Free);
+        assert_eq!(drawing.snap_label(&sketch), None);
     }
 
     fn crosses(a: Vector2, b: Vector2) -> f64 {

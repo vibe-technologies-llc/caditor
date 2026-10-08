@@ -45,7 +45,7 @@ use crate::{
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
     sketch_placement::{self, FaceChoice},
     sketch_toolbar, sketch_tools,
-    snap::{Pointer, Screen},
+    snap::{Hold, Pointer, Screen},
     snapshot, solid_tools,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
@@ -100,6 +100,7 @@ const KEYBOARD_PAN_FRACTION: f64 = 0.1;
 const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
 const TYPED_POINT_OFFSET: f32 = 64.0;
 const FREE_PLACEMENT_HINT: &str = "Ctrl: place freely";
+const HELD_SNAP_HINT: &str = "Alt: snap to the grid or nearby geometry";
 const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
 const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes toward the pointer   \
                                 Enter: place   Esc: cancel";
@@ -240,6 +241,7 @@ pub struct ViewportState {
     press: Option<Press>,
     draw_press: Option<Vector2>,
     placing_freely: bool,
+    snap_held: bool,
     scrubbing: bool,
     primary: Option<PrimaryDrag>,
     hovered_in_tree: Option<Pickable>,
@@ -358,6 +360,7 @@ impl ViewportState {
             press: None,
             draw_press: None,
             placing_freely: false,
+            snap_held: false,
             scrubbing: false,
             primary: None,
             hovered_in_tree: None,
@@ -973,6 +976,7 @@ impl ViewportState {
 
     fn track_cursor(&mut self, ui: &egui::Ui, response: &Response, rect: Rect) {
         self.placing_freely = ui.input(|input| input.modifiers.command);
+        self.snap_held = ui.input(|input| input.modifiers.alt);
         self.scrubbing = ui.input(|input| input.modifiers.shift);
         if self.scrubbing && self.drawing.is_scrubbing() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
@@ -1020,8 +1024,9 @@ impl ViewportState {
             )
         });
         let drag = self.to_pixels(response.drag_delta());
+        let held_by_sketch = self.primary.is_some() || self.draw_press.is_some();
         let buttons = DragButtons {
-            primary: response.dragged_by(PointerButton::Primary),
+            primary: response.dragged_by(PointerButton::Primary) && !held_by_sketch,
             secondary: response.dragged_by(PointerButton::Secondary),
             middle: response.dragged_by(PointerButton::Middle),
             chorded: primary_down || secondary_down,
@@ -1179,6 +1184,7 @@ impl ViewportState {
         };
         let ray = cursor.and_then(|cursor| self.view()?.ray_through(cursor));
         let free = self.placing_freely;
+        let hold = self.hold();
         match &mut self.primary {
             Some(PrimaryDrag::Manipulate(manipulating))
                 if editing.solid() != Some(manipulating.feature) =>
@@ -1217,7 +1223,8 @@ impl ViewportState {
                 let snapping = grab_snapping
                     .as_ref()
                     .map(|(sketch, screen)| (&**sketch, screen));
-                if let Some(command) = sketch_cursor.and_then(|at| grab.follow(at, snapping)) {
+                if let Some(command) = sketch_cursor.and_then(|at| grab.follow(at, snapping, hold))
+                {
                     actions.push(Action::Drag(command));
                 }
             }
@@ -1308,13 +1315,27 @@ impl ViewportState {
         model: &'a Model,
         feature: FeatureId,
     ) -> Option<(Displayed<'a>, SketchScreen)> {
-        if self.placing_freely || !self.snapping {
+        if self.placing_freely || !(self.snapping || self.snap_held) {
             return None;
         }
         let owner = model.document().feature(feature)?;
         let sketch = model.displayed_sketch(owner)?;
         let screen = self.sketch_screen(sketch.plane())?;
         Some((sketch, screen))
+    }
+
+    fn minor_grid_spacing(&self) -> Option<f64> {
+        self.scenes
+            .built()
+            .and_then(|built| built.scene.grid.as_ref())
+            .zip(self.view())
+            .map(|(grid, view)| grid_minor_spacing(grid, &view))
+    }
+
+    fn hold(&self) -> Option<Hold> {
+        (self.snap_held && !self.placing_freely).then(|| Hold {
+            grid: self.minor_grid_spacing(),
+        })
     }
 
     fn begin_primary(
@@ -1491,15 +1512,10 @@ impl ViewportState {
         self.drawing
             .sync(editing.active(), editing.modes(), displayed.as_deref());
         self.drawing
-            .place_freely(self.placing_freely || !self.snapping);
-        let grid = self
-            .scenes
-            .built()
-            .and_then(|built| built.scene.grid.as_ref())
-            .zip(self.view())
-            .map(|(grid, view)| grid_minor_spacing(grid, &view))
-            .filter(|_| self.grid_snapping);
-        self.drawing.snap_to_grid(grid);
+            .place_freely(self.placing_freely || !(self.snapping || self.snap_held));
+        self.drawing
+            .snap_to_grid(self.minor_grid_spacing().filter(|_| self.grid_snapping));
+        self.drawing.hold_snap(self.hold());
         let scrub_from = self
             .cursor
             .filter(|_| self.scrubbing)
@@ -2966,7 +2982,7 @@ impl ViewportState {
                     (
                         prompt.text,
                         format!(
-                            "{mode}{reverse}{sides}{}   {FREE_PLACEMENT_HINT}   {TYPE_POINT_HINT}{typed_sides}",
+                            "{mode}{reverse}{sides}{}   {FREE_PLACEMENT_HINT}   {HELD_SNAP_HINT}   {TYPE_POINT_HINT}{typed_sides}",
                             prompt.keys
                         ),
                     )
