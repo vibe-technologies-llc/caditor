@@ -185,6 +185,71 @@ fn finer_tolerances_converge_on_the_exact_volume() {
 }
 
 #[test]
+fn second_moments_give_the_inertia_of_a_box_and_a_cylinder() {
+    let tolerance = SamplingTolerance::new(1e-3, 0.2).unwrap();
+    let cuboid = fixtures::cuboid(Vector3::new(4.0, 3.0, 2.0))
+        .tessellate(&tolerance)
+        .unwrap()
+        .mass_properties();
+    let inertia = MassProperties::inertia(&cuboid.second_moment);
+    let expected = [
+        [24.0 * (9.0 + 4.0) / 12.0, 0.0, 0.0],
+        [0.0, 24.0 * (16.0 + 4.0) / 12.0, 0.0],
+        [0.0, 0.0, 24.0 * (16.0 + 9.0) / 12.0],
+    ];
+    for (row, expected_row) in inertia.iter().zip(expected) {
+        for (entry, expected_entry) in row.iter().zip(expected_row) {
+            assert!((entry - expected_entry).abs() < 1e-9, "{inertia:?}");
+        }
+    }
+    let about_corner = MassProperties::inertia(&cuboid.second_moment_about(Point3::ZERO));
+    assert!((about_corner[0][0] - (26.0 + 24.0 * (2.25 + 1.0))).abs() < 1e-9);
+    assert!((about_corner[0][1] + 24.0 * 2.0 * 1.5).abs() < 1e-9);
+
+    let cylinder = fixtures::cylinder(3.0, 5.0)
+        .tessellate(&tolerance)
+        .unwrap()
+        .mass_properties();
+    let volume = 45.0 * PI;
+    let moments =
+        MassProperties::principal_moments(&MassProperties::inertia(&cylinder.second_moment));
+    let across = volume * (3.0 * 9.0 + 25.0) / 12.0;
+    let along = volume * 9.0 / 2.0;
+    let mut wanted = [across, across, along];
+    wanted.sort_by(f64::total_cmp);
+    for (moment, wanted) in moments.iter().zip(wanted) {
+        assert!(
+            (moment - wanted).abs() < 1e-3 * wanted,
+            "{moments:?} vs {wanted}"
+        );
+    }
+}
+
+#[test]
+fn principal_moments_of_a_turned_tensor_are_its_eigenvalues() {
+    let turn = 0.4f64;
+    let (sine, cosine) = turn.sin_cos();
+    let diagonal = [2.0, 5.0, 11.0];
+    let rotation = [[cosine, -sine, 0.0], [sine, cosine, 0.0], [0.0, 0.0, 1.0]];
+    let mut turned = [[0.0; 3]; 3];
+    for (row, out) in turned.iter_mut().enumerate() {
+        for (column, entry) in out.iter_mut().enumerate() {
+            *entry = (0..3)
+                .map(|k| rotation[row][k] * diagonal[k] * rotation[column][k])
+                .sum();
+        }
+    }
+    let moments = MassProperties::principal_moments(&turned);
+    for (moment, expected) in moments.iter().zip(diagonal) {
+        assert!((moment - expected).abs() < 1e-9, "{moments:?}");
+    }
+    assert_eq!(
+        MassProperties::principal_moments(&[[3.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 2.0]]),
+        [1.0, 2.0, 3.0]
+    );
+}
+
+#[test]
 fn normals_are_unit_and_face_outward() {
     for expected in expectations() {
         let mesh = expected

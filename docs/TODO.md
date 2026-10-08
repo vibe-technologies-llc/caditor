@@ -195,10 +195,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
   without redrawing it.
 - [medium · hard] Extrusions end only on flat faces and planes: up to face and up to next refuse a
   curved face, and up to next needs one flat face that the whole profile meets first.
-- [medium · hard] Mass properties are volume, area, centroid, bounding size and mass from the
-  body's density, exact only for bodies of flat faces and straight edges and otherwise taken from
-  the display mesh, with no inertia or total over several bodies. Integrate exactly over the
-  trimmed faces, as `planar_area` already does for planes.
+- [medium · hard] Mass properties (volume, area, centroid, size, mass and inertia, per body and
+  in total) are exact only for bodies of flat faces and straight edges and otherwise taken from
+  the display mesh. Integrate exactly over the trimmed faces, as `planar_area` already does for
+  planes.
 - [medium · hard] Blends: only line and circle edges along planes, parallel cylinders and coaxial
   surfaces; no ellipse, spline or intersection edges, not even a straight edge beside a spline
   extrusion face; ends at steps and T-junctions refused; no variable radius, two-distance or

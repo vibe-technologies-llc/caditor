@@ -80,7 +80,8 @@ pub use crate::{
         Sphere, Surface, SurfaceDerivatives, SurfaceSide, Torus,
     },
     tessellation::{
-        EdgePolyline, FaceTriangles, MassProperties, Mesh, MeshVertex, TessellationError,
+        EdgePolyline, FaceTriangles, MassProperties, Mesh, MeshVertex, SecondMoment,
+        TessellationError,
     },
     tolerance::{
         ANGULAR_RESOLUTION, INTERSECTION_TOLERANCE, LINEAR_RESOLUTION, MAX_SIZE, MODEL_EXTENT,

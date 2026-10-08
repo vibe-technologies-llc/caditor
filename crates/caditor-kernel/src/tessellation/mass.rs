@@ -1,4 +1,4 @@
-use std::f64::consts::EULER_GAMMA;
+use std::f64::consts::{EULER_GAMMA, PI};
 
 use caditor_geometry::{Aabb, Point3, Vector3};
 
@@ -24,11 +24,14 @@ const RAY_DIRECTIONS: [Vector3; 3] = [
 const EDGE_MARGIN: f64 = 1e-9;
 const PARALLEL_EPSILON: f64 = 1e-14;
 
+pub type SecondMoment = [[f64; 3]; 3];
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MassProperties {
     pub volume: f64,
     pub area: f64,
     pub centroid: Point3,
+    pub second_moment: SecondMoment,
 }
 
 impl MassProperties {
@@ -38,22 +41,82 @@ impl MassProperties {
         let mut volume = 0.0;
         let mut area = 0.0;
         let mut moment = Vector3::ZERO;
+        let mut second = [[0.0; 3]; 3];
         for [a, b, c] in triangles {
             let (a, b, c) = (*a - reference, *b - reference, *c - reference);
             let signed = a.dot(b.cross(c)) / 6.0;
             volume += signed;
             moment += (a + b + c) * (signed / 4.0);
             area += 0.5 * (b - a).cross(c - a).length();
+            let sum = a + b + c;
+            for corner in [a, b, c, sum] {
+                add_outer(&mut second, corner, corner, signed / 20.0);
+            }
         }
-        let centroid = if volume.abs() > f64::MIN_POSITIVE {
-            reference + moment / volume
+        let offset = if volume.abs() > f64::MIN_POSITIVE {
+            moment / volume
         } else {
-            reference
+            Vector3::ZERO
         };
+        add_outer(&mut second, offset, offset, -volume);
         Self {
             volume,
             area,
-            centroid,
+            centroid: reference + offset,
+            second_moment: second,
+        }
+    }
+
+    pub fn second_moment_about(&self, point: Point3) -> SecondMoment {
+        let mut second = self.second_moment;
+        let offset = self.centroid - point;
+        add_outer(&mut second, offset, offset, self.volume);
+        second
+    }
+
+    pub fn inertia(second_moment: &SecondMoment) -> SecondMoment {
+        let [[xx, xy, xz], [_, yy, yz], [_, _, zz]] = *second_moment;
+        [
+            [yy + zz, -xy, -xz],
+            [-xy, xx + zz, -yz],
+            [-xz, -yz, xx + yy],
+        ]
+    }
+
+    pub fn principal_moments(inertia: &SecondMoment) -> [f64; 3] {
+        let [[a, d, e], [_, b, f], [_, _, c]] = *inertia;
+        let off_diagonal = d * d + e * e + f * f;
+        let mut moments = if off_diagonal <= f64::EPSILON * (a * a + b * b + c * c) {
+            [a, b, c]
+        } else {
+            let mean = (a + b + c) / 3.0;
+            let spread = (((a - mean).powi(2)
+                + (b - mean).powi(2)
+                + (c - mean).powi(2)
+                + 2.0 * off_diagonal)
+                / 6.0)
+                .sqrt();
+            let scaled = |value: f64| (value - mean) / spread;
+            let (sa, sb, sc) = (scaled(a), scaled(b), scaled(c));
+            let (sd, se, sf) = (d / spread, e / spread, f / spread);
+            let half_determinant = (sa * (sb * sc - sf * sf) - sd * (sd * sc - sf * se)
+                + se * (sd * sf - sb * se))
+                / 2.0;
+            let angle = half_determinant.clamp(-1.0, 1.0).acos() / 3.0;
+            let largest = mean + 2.0 * spread * angle.cos();
+            let smallest = mean + 2.0 * spread * (angle + 2.0 * PI / 3.0).cos();
+            [smallest, 3.0 * mean - largest - smallest, largest]
+        };
+        moments.sort_by(f64::total_cmp);
+        moments
+    }
+}
+
+fn add_outer(sum: &mut SecondMoment, first: Vector3, second: Vector3, weight: f64) {
+    let (first, second) = (first.to_array(), second.to_array());
+    for (row, along) in sum.iter_mut().zip(first) {
+        for (entry, across) in row.iter_mut().zip(second) {
+            *entry += weight * along * across;
         }
     }
 }

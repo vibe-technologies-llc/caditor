@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use caditor_document::{DensityError, FeatureId};
 use caditor_expression::format_number;
-use caditor_geometry::Vector3;
-use caditor_kernel::Accuracy;
+use caditor_geometry::{Point3, Vector3};
+use caditor_kernel::{Accuracy, MassProperties, SecondMoment};
 use egui::{Label, ScrollArea, TextWrapMode, Ui};
 
 use crate::{
@@ -37,6 +37,8 @@ const NO_DENSITY: &str = "No density set";
 const GRAMS_PER_KILOGRAM: f64 = 1000.0;
 const GRAMS_PER_CUBIC_MILLIMETRE: f64 = 1e-3;
 const ALL_BODIES: &str = "Every body shown; select a face, edge or vertex for one body alone.";
+const INERTIA_DIGITS: i32 = 4;
+const NOT_EVERY_DENSITY: &str = "Not every body has a density";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
@@ -203,6 +205,54 @@ fn mass_rows(
     (material.into_iter().chain([mass]).collect(), problem)
 }
 
+fn significant(value: f64) -> String {
+    if value == 0.0 || !value.is_finite() {
+        return format_number(value);
+    }
+    let decimals = INERTIA_DIGITS - 1 - value.abs().log10().floor() as i32;
+    let step = 10f64.powi(decimals);
+    format_number((value * step).round() / step)
+}
+
+fn inertia_text(grams_square_millimetres: [f64; 3], unit: LengthUnit) -> String {
+    let scaled = grams_square_millimetres.map(|value| value / unit.millimetres().powi(2));
+    let largest = scaled
+        .iter()
+        .fold(0.0, |most: f64, value| most.max(value.abs()));
+    let (factor, mass) = if largest >= GRAMS_PER_KILOGRAM {
+        (GRAMS_PER_KILOGRAM.recip(), "kg")
+    } else {
+        (1.0, "g")
+    };
+    let [x, y, z] = scaled.map(|value| significant(value * factor));
+    format!("{x}, {y}, {z} {mass}·{}²", unit.symbol())
+}
+
+fn inertia_rows(
+    second_moment: &SecondMoment,
+    density: f64,
+    unit: LengthUnit,
+    approximate: bool,
+) -> [Row; 2] {
+    let grams_per_volume = density * GRAMS_PER_CUBIC_MILLIMETRE;
+    let inertia =
+        MassProperties::inertia(second_moment).map(|row| row.map(|entry| entry * grams_per_volume));
+    let [[xx, ..], [_, yy, _], [.., zz]] = inertia;
+    [
+        Row {
+            label: "Inertia about the centroid (x, y, z)".to_owned(),
+            text: approximately(inertia_text([xx, yy, zz], unit), approximate),
+        },
+        Row {
+            label: "Principal moments".to_owned(),
+            text: approximately(
+                inertia_text(MassProperties::principal_moments(&inertia), unit),
+                approximate,
+            ),
+        },
+    ]
+}
+
 fn mass_card(
     name: String,
     mass: Option<&BodyMass>,
@@ -237,6 +287,12 @@ fn mass_card(
     let properties = mass.properties;
     let centroid = properties.centroid;
     let (substance_rows, problem) = mass_rows(substance, properties.volume, approximate);
+    let inertia = match substance.density {
+        Some(Ok(density)) => {
+            inertia_rows(&properties.second_moment, density, unit, approximate).to_vec()
+        }
+        None | Some(Err(_)) => Vec::new(),
+    };
     let notes = problem
         .map(|problem| (Tone::Warning, problem))
         .into_iter()
@@ -270,9 +326,96 @@ fn mass_card(
                     ),
                 },
             ])
+            .chain(inertia)
             .collect(),
         notes,
     }
+}
+
+fn total_card(parts: &[(&BodyMass, Substance<'_>)], unit: LengthUnit) -> Option<Card> {
+    if parts.len() < 2 {
+        return None;
+    }
+    let approximate = parts
+        .iter()
+        .any(|(mass, _)| mass.accuracy != MassAccuracy::Exact);
+    let densities: Option<Vec<f64>> = parts
+        .iter()
+        .map(|(_, substance)| {
+            substance
+                .density
+                .as_ref()
+                .and_then(|density| density.as_ref().ok().copied())
+        })
+        .collect();
+    let weights: Vec<f64> = match &densities {
+        Some(densities) => densities.clone(),
+        None => vec![1.0; parts.len()],
+    };
+    let volume: f64 = parts.iter().map(|(mass, _)| mass.properties.volume).sum();
+    let area: f64 = parts.iter().map(|(mass, _)| mass.properties.area).sum();
+    let weighted: f64 = parts
+        .iter()
+        .zip(&weights)
+        .map(|((mass, _), weight)| mass.properties.volume * weight)
+        .sum();
+    let centroid = if weighted.abs() > f64::MIN_POSITIVE {
+        parts
+            .iter()
+            .zip(&weights)
+            .fold(Point3::ZERO, |sum, ((mass, _), weight)| {
+                sum + mass.properties.centroid * (mass.properties.volume * weight / weighted)
+            })
+    } else {
+        Point3::ZERO
+    };
+    let mass_row = Row {
+        label: "Mass".to_owned(),
+        text: match &densities {
+            Some(_) => approximately(
+                mass_text(weighted * GRAMS_PER_CUBIC_MILLIMETRE),
+                approximate,
+            ),
+            None => NOT_EVERY_DENSITY.to_owned(),
+        },
+    };
+    let inertia = densities.map(|densities| {
+        let mut second: SecondMoment = [[0.0; 3]; 3];
+        for ((mass, _), density) in parts.iter().zip(densities) {
+            let about = mass.properties.second_moment_about(centroid);
+            for (row, part_row) in second.iter_mut().zip(about) {
+                for (entry, part) in row.iter_mut().zip(part_row) {
+                    *entry += part * density;
+                }
+            }
+        }
+        inertia_rows(&second, 1.0, unit, approximate)
+    });
+    Some(Card {
+        title: format!("All {} bodies", parts.len()),
+        rows: [
+            Row {
+                label: "Volume".to_owned(),
+                text: approximately(unit.measured_volume(volume), approximate),
+            },
+            mass_row,
+            Row {
+                label: "Surface area".to_owned(),
+                text: approximately(unit.measured_area(area), approximate),
+            },
+            Row {
+                label: "Centroid".to_owned(),
+                text: approximately(
+                    unit.measured_position([centroid.x, centroid.y, centroid.z]),
+                    approximate,
+                ),
+            },
+        ]
+        .into_iter()
+        .chain(inertia.into_iter().flatten())
+        .collect(),
+        notes: Vec::new(),
+    })
 }
 
 fn measured_bodies(context: &MeasureContext<'_>) -> (Vec<FeatureId>, bool) {
@@ -306,6 +449,7 @@ fn measured_bodies(context: &MeasureContext<'_>) -> (Vec<FeatureId>, bool) {
 
 pub struct Masses {
     pub cards: Vec<Card>,
+    pub total: Option<Card>,
     pub everything: bool,
     pub bodies: usize,
 }
@@ -315,29 +459,44 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
     let (bodies, everything) = measured_bodies(context);
     let count = bodies.len();
     let parameters = context.model.parameters();
+    let substance_of = |body: FeatureId| {
+        context
+            .model
+            .document()
+            .feature(body)
+            .map_or(Substance::UNKNOWN, |feature| Substance {
+                material: feature.appearance.material.as_deref(),
+                density: feature.appearance.density_value(parameters),
+            })
+    };
     let cards = bodies
-        .into_iter()
+        .iter()
         .take(MAX_MASS_CARDS)
         .map(|body| {
-            let feature = context.model.document().feature(body);
-            let name = feature.map_or_else(
+            let name = context.model.document().feature(*body).map_or_else(
                 || "A deleted body".to_owned(),
                 |feature| feature.name.clone(),
             );
-            let substance = feature.map_or(Substance::UNKNOWN, |feature| Substance {
-                material: feature.appearance.material.as_deref(),
-                density: feature.appearance.density_value(parameters),
-            });
             mass_card(
                 name,
-                context.bodies.get(body).map(|mesh| &mesh.mass),
+                context.bodies.get(*body).map(|mesh| &mesh.mass),
                 unit,
-                &substance,
+                &substance_of(*body),
             )
+        })
+        .collect();
+    let parts: Option<Vec<(&BodyMass, Substance<'_>)>> = bodies
+        .iter()
+        .map(|body| {
+            context
+                .bodies
+                .get(*body)
+                .map(|mesh| (&mesh.mass, substance_of(*body)))
         })
         .collect();
     Masses {
         cards,
+        total: parts.and_then(|parts| total_card(&parts, unit)),
         everything,
         bodies: count,
     }
@@ -425,6 +584,10 @@ fn mass_section(ui: &mut Ui, masses: &Masses) {
             if masses.cards.is_empty() {
                 ui.label(widgets::muted("There are no bodies yet.", ui));
             }
+            if let Some(total) = &masses.total {
+                show_card(ui, ("mass-total", 0), total);
+                ui.add_space(SPACE_S);
+            }
             for (index, card) in masses.cards.iter().enumerate() {
                 show_card(ui, ("mass", index), card);
                 ui.add_space(SPACE_S);
@@ -511,6 +674,7 @@ mod tests {
                 volume: 1000.0,
                 area: 600.0,
                 centroid: Point3::new(5.0, 5.0, 5.0),
+                second_moment: [[0.0; 3]; 3],
             },
             accuracy: MassAccuracy::Mesh {
                 chord: 0.01,
@@ -541,6 +705,50 @@ mod tests {
         assert!(waiting.rows.is_empty());
     }
 
+    fn cube_second_moment() -> SecondMoment {
+        let along = 8000.0 * 400.0 / 12.0;
+        [[along, 0.0, 0.0], [0.0, along, 0.0], [0.0, 0.0, along]]
+    }
+
+    #[test]
+    fn several_bodies_add_up_about_their_common_centroid() {
+        let cube = |x: f64| BodyMass {
+            properties: MassProperties {
+                volume: 8000.0,
+                area: 2400.0,
+                centroid: Point3::new(x, 0.0, 0.0),
+                second_moment: cube_second_moment(),
+            },
+            accuracy: MassAccuracy::Exact,
+            size: Some([20.0; 3]),
+        };
+        let (left, right) = (cube(-20.0), cube(20.0));
+        let water = || Substance {
+            material: None,
+            density: Some(Ok(1.0)),
+        };
+
+        let total = total_card(
+            &[(&left, water()), (&right, water())],
+            LengthUnit::Millimetre,
+        )
+        .unwrap();
+        let unknown = total_card(
+            &[(&left, water()), (&right, Substance::UNKNOWN)],
+            LengthUnit::Millimetre,
+        )
+        .unwrap();
+
+        assert_eq!(total.title, "All 2 bodies");
+        assert_eq!(total.rows[0].text, "16000.0 mm³");
+        assert_eq!(total.rows[1].text, "16.00 g");
+        assert_eq!(total.rows[3].text, "0.000, 0.000, 0.000 mm");
+        assert_eq!(total.rows[4].text, "1.067, 7.467, 7.467 kg·mm²");
+        assert_eq!(unknown.rows[1].text, NOT_EVERY_DENSITY);
+        assert_eq!(unknown.rows.len(), 4);
+        assert!(total_card(&[(&left, water())], LengthUnit::Millimetre).is_none());
+    }
+
     #[test]
     fn a_body_with_a_density_shows_its_material_and_mass() {
         let mass = BodyMass {
@@ -548,6 +756,7 @@ mod tests {
                 volume: 8000.0,
                 area: 2400.0,
                 centroid: Point3::ZERO,
+                second_moment: cube_second_moment(),
             },
             accuracy: MassAccuracy::Exact,
             size: Some([20.0; 3]),
@@ -577,7 +786,9 @@ mod tests {
         assert_eq!(
             card.text(),
             "Block\n  Volume: 8000.0 mm³\n  Material: Steel\n  Mass: 62.80 g\n  Surface area: \
-             2400.00 mm²\n  Size: 20.000 × 20.000 × 20.000 mm\n  Centroid: 0.000, 0.000, 0.000 mm"
+             2400.00 mm²\n  Size: 20.000 × 20.000 × 20.000 mm\n  Centroid: 0.000, 0.000, 0.000 \
+             mm\n  Inertia about the centroid (x, y, z): 4.187, 4.187, 4.187 kg·mm²\n  Principal \
+             moments: 4.187, 4.187, 4.187 kg·mm²"
         );
         assert!(card.notes.is_empty());
         assert_eq!(refused.rows[1].text, "Not available");

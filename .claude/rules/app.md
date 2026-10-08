@@ -172,7 +172,11 @@ paths:
   fewer, without describing or measuring any. Approximate values are marked with a note, a callout under its card. Mass properties are
   read each frame from `BodyMass` for the selected items' bodies, else every shown body, with the
   body's material and its mass from the density (No density set without one, a warning note when
-  the density cannot be evaluated).
+  the density cannot be evaluated) and, with a density, the moments of inertia about the centroid
+  along the model axes and the principal moments (`MassProperties::second_moment`, integrated
+  over the mesh's tetrahedra). Two or more bodies also get an "All N bodies" card first: summed
+  volume and area, the centroid weighted by mass (by volume unless every body has a density), and
+  the total mass and inertia about that centroid only when every body has a density.
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
   label in `canvas::MEASURE`.
 
