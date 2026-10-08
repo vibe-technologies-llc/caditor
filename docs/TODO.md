@@ -138,15 +138,15 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] No smart-dimension tool that takes the entities after the command, and a
   sketch of more than `MAX_UNSWEPT_REGION_ENTITIES` entities shows its closed regions only once a
   feature sweeps it.
-- [medium · medium] Snapping has no centre of an outline with odd sides (a triangle, a
-  pentagon). Only a lone dragged point snaps (not a dragged curve or selection), without tracks or
-  extensions. Tracks run only horizontal and vertical from acquired points, not along other
-  angles.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
   profile curves, which have no ellipse although its 3D curves do, and the file format), sketch
   chamfer, rectangular and circular patterns, rotate, scale and copy of a selection, split at a
   point, text, and fit-point, closed or periodic splines (`BSpline::through` serves only DXF import,
   `BSpline::interpolate` only its own tests, and the control polygon is not drawn).
+- [medium · hard] The centre of an outline of odd sides and a slanted track place a point without
+  a constraint keeping it there, as the sketch has no centroid or point-on-a-direction constraint;
+  an odd outline with arcs has no centre at all. A drag snaps only its handle (the moving point
+  nearest the press), not whichever moving point comes near a target.
 - [medium · hard] Splines cannot be trimmed or extended (`TrimError::Spline`), trim ignores
   collinear and co-circular overlaps as cutters, and the sketch axes are not cutters. Offset takes
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot

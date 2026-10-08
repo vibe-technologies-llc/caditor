@@ -23,7 +23,6 @@ const ALIGN_TOLERANCE: f64 = 6.0;
 const MIN_ALIGN_LENGTH: f64 = 12.0;
 const NEARBY_LINES: usize = 6;
 const HELD_TOLERANCE: f64 = 1e-9;
-const ALIGNED_CROSSING_TOLERANCE: f64 = 12.0;
 const TYPED_TOLERANCE: f64 = 1e-6;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
 const CANCEL_RECTANGLE: &str = "Esc: cancel the rectangle";
@@ -478,7 +477,8 @@ fn point_target(snap: Snap) -> Option<EntityId> {
         | Target::Quadrant { .. }
         | Target::Tangent(_)
         | Target::Intersection(..)
-        | Target::Centre { .. } => None,
+        | Target::Centre { .. }
+        | Target::Centroid(_) => None,
     }
 }
 
@@ -1816,7 +1816,7 @@ impl Drawing {
                 tracks,
                 screen,
                 pointer,
-                ALIGNED_CROSSING_TOLERANCE,
+                tracking::ALIGNED_CROSSING_TOLERANCE,
             )
             .map(|tracked| Placement::tracked(tracked, Snap::Target(snapped.target)))
         };
@@ -1873,7 +1873,7 @@ impl Drawing {
                             along,
                             screen,
                             pointer,
-                            ALIGNED_CROSSING_TOLERANCE,
+                            tracking::ALIGNED_CROSSING_TOLERANCE,
                         )
                         .filter(|tracked| {
                             tracked.position.distance(start.position) >= DEGENERATE_LENGTH
@@ -1951,7 +1951,8 @@ fn round_under(sketch: &Sketch, start: Placement) -> Option<(EntityId, Point2)> 
         | Target::Extension(_)
         | Target::Midpoint(_)
         | Target::Intersection(..)
-        | Target::Centre { .. } => return None,
+        | Target::Centre { .. }
+        | Target::Centroid(_) => return None,
     };
     let (centre, _) = sketch.circle(curve)?;
     Some((curve, centre))
@@ -2084,7 +2085,8 @@ fn aligned_on(
         | Target::Quadrant { .. }
         | Target::Tangent(_)
         | Target::Intersection(..)
-        | Target::Centre { .. } => {
+        | Target::Centre { .. }
+        | Target::Centroid(_) => {
             held(start, snapped.position, guides).map(|direction| on(snapped.position, direction))
         }
         Target::Curve(_) | Target::Extension(_) => alignments(start, screen, pointer, guides)
@@ -2099,7 +2101,7 @@ fn aligned_on(
                 )?;
                 let offset = screen.to_screen(crossing)?.distance(pointer.screen);
                 let away = crossing.distance(start) >= DEGENERATE_LENGTH;
-                (away && offset <= ALIGNED_CROSSING_TOLERANCE)
+                (away && offset <= tracking::ALIGNED_CROSSING_TOLERANCE)
                     .then(|| on(crossing, aligned.guide.direction))
             }),
     }

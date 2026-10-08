@@ -64,6 +64,7 @@ pub enum Target {
         outline: EntityId,
         corners: (EntityId, EntityId),
     },
+    Centroid(EntityId),
 }
 
 impl Target {
@@ -87,6 +88,10 @@ impl Target {
             Self::Centre { outline, .. } => {
                 format!("Centre of the outline of {}", sketch.entity_label(outline))
             }
+            Self::Centroid(outline) => format!(
+                "Centre of the outline of {}, not kept there",
+                sketch.entity_label(outline)
+            ),
             Self::Intersection(first, second) => format!(
                 "Crossing of {} and {}",
                 sketch.entity_label(first),
@@ -103,7 +108,7 @@ impl Target {
 
     pub fn joins(self, point: EntityId) -> Vec<Constraint> {
         match self {
-            Self::Pending(_) => Vec::new(),
+            Self::Pending(_) | Self::Centroid(_) => Vec::new(),
             Self::Midpoint(curve) => vec![Constraint::Midpoint { point, curve }],
             Self::Quadrant {
                 curve,
@@ -149,7 +154,8 @@ impl Target {
             | Self::Curve(entity)
             | Self::Extension(entity)
             | Self::Midpoint(entity)
-            | Self::Tangent(entity) => vec![entity],
+            | Self::Tangent(entity)
+            | Self::Centroid(entity) => vec![entity],
         };
         involved.iter().any(|entity| ignored.contains(entity))
     }
@@ -163,7 +169,8 @@ impl Target {
             | Self::Quadrant { .. }
             | Self::Tangent(_)
             | Self::Intersection(..)
-            | Self::Centre { .. } => true,
+            | Self::Centre { .. }
+            | Self::Centroid(_) => true,
         }
     }
 
@@ -177,7 +184,8 @@ impl Target {
             | Self::Midpoint(_)
             | Self::Quadrant { .. }
             | Self::Tangent(_)
-            | Self::Centre { .. } => None,
+            | Self::Centre { .. }
+            | Self::Centroid(_) => None,
         }
     }
 
@@ -191,6 +199,7 @@ impl Target {
             | Self::Quadrant { curve: entity, .. }
             | Self::Tangent(entity)
             | Self::Intersection(entity, _)
+            | Self::Centroid(entity)
             | Self::Centre {
                 outline: entity, ..
             } => Some(entity),
@@ -257,7 +266,7 @@ pub fn resolve(
         .or_else(|| nearest(points, POINT_TOLERANCE))
         .or_else(|| match accept {
             Accept::Anything => nearest(midpoints(sketch), POINT_TOLERANCE)
-                .or_else(|| nearest(centres(sketch), POINT_TOLERANCE))
+                .or_else(|| nearest(centres(sketch, ignored), POINT_TOLERANCE))
                 .or_else(|| nearest(intersections(sketch, screen, pointer), POINT_TOLERANCE))
                 .or_else(|| nearest(quadrants(sketch), POINT_TOLERANCE)),
             Accept::Points | Accept::OnCircle { .. } => None,
@@ -572,7 +581,7 @@ fn outline_pieces(sketch: &Sketch) -> Vec<OutlineLine> {
         .collect()
 }
 
-fn centres(sketch: &Sketch) -> Vec<Snapped> {
+fn centres(sketch: &Sketch, ignored: &[EntityId]) -> Vec<Snapped> {
     let lines = outline_pieces(sketch);
     let extent = lines
         .iter()
@@ -592,18 +601,70 @@ fn centres(sketch: &Sketch) -> Vec<Snapped> {
         let Some(id) = lines.get(first).map(|line| line.id) else {
             continue;
         };
-        found.extend(
-            symmetric_centre(&lines, &outline, tolerance).map(|(position, corners)| Snapped {
-                position,
-                target: Target::Centre {
-                    outline: id,
-                    corners,
+        if moves(&lines, &outline, ignored) {
+            continue;
+        }
+        if outline.len().is_multiple_of(2) {
+            found.extend(symmetric_centre(&lines, &outline, tolerance).map(
+                |(position, corners)| Snapped {
+                    position,
+                    target: Target::Centre {
+                        outline: id,
+                        corners,
+                    },
                 },
-            }),
-        );
+            ));
+        } else {
+            found.extend(centroid(&lines, &outline).map(|position| Snapped {
+                position,
+                target: Target::Centroid(id),
+            }));
+        }
     }
     found
 }
+
+fn moves(lines: &[OutlineLine], steps: &[OutlineStep], ignored: &[EntityId]) -> bool {
+    steps
+        .iter()
+        .filter_map(|step| lines.get(step.piece))
+        .any(|piece| {
+            [piece.id, piece.start.0, piece.end.0]
+                .iter()
+                .any(|id| ignored.contains(id))
+        })
+}
+
+fn centroid(lines: &[OutlineLine], steps: &[OutlineStep]) -> Option<Point2> {
+    let straight = steps.iter().all(|step| {
+        lines
+            .get(step.piece)
+            .is_some_and(|piece| piece.round.is_none())
+    });
+    if steps.len() < 3 || !straight {
+        return None;
+    }
+    let corners: Vec<Point2> = steps.iter().map(|step| step.corner.1).collect();
+    let anchor = *corners.first()?;
+    let (twice_area, weighted) = corners
+        .iter()
+        .zip(corners.iter().cycle().skip(1))
+        .map(|(from, to)| (*from - anchor, *to - anchor))
+        .fold((0.0, Vector2::ZERO), |(area, sum), (from, to)| {
+            let cross = from.perp_dot(to);
+            (area + cross, sum + (from + to) * cross)
+        });
+    let span = corners
+        .iter()
+        .map(|corner| corner.distance(anchor))
+        .fold(0.0, f64::max);
+    if twice_area.abs() <= DEGENERATE_AREA * span * span {
+        return None;
+    }
+    Some(anchor + weighted / (3.0 * twice_area))
+}
+
+const DEGENERATE_AREA: f64 = 1e-9;
 
 const JOINED_CORNER_TOLERANCE: f64 = 1e-7;
 const MAX_OUTLINE_LINES: usize = 64;
@@ -913,7 +974,8 @@ pub fn crossing_along(
         | Target::Quadrant { .. }
         | Target::Tangent(_)
         | Target::Intersection(..)
-        | Target::Centre { .. } => return None,
+        | Target::Centre { .. }
+        | Target::Centroid(_) => return None,
     };
     let on_part = |fraction: f64| (0.0..=1.0).contains(&fraction) != extended;
     let crossings: Vec<Point2> = if curve == EntityId::HORIZONTAL_AXIS {
@@ -1183,6 +1245,46 @@ pub mod tests {
         assert!(matches!(hexagon_centre.target, Target::Centre { .. }));
         assert!(hexagon_centre.position.distance(Point2::new(80.0, 20.0)) < 1e-9);
         assert_eq!(trapezoid_middle, None);
+    }
+
+    #[test]
+    fn an_outline_of_odd_sides_snaps_to_its_centre_without_holding_a_point_there() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let triangle = outline(
+            &mut sketch,
+            &[
+                Point2::new(0.0, 0.0),
+                Point2::new(30.0, 0.0),
+                Point2::new(0.0, 30.0),
+            ],
+        );
+        let pentagon: Vec<Point2> = (0..5)
+            .map(|step| {
+                Point2::new(80.0, 20.0) + Vector2::from_angle(f64::from(step) * TAU / 5.0) * 10.0
+            })
+            .collect();
+        outline(&mut sketch, &pentagon);
+        let corner = sketch.entity(triangle[1]).unwrap().points()[0];
+
+        let centre = resolve_at(&sketch, Point2::new(10.3, 9.8)).unwrap();
+        let pentagon_centre = resolve_at(&sketch, Point2::new(80.2, 19.7)).unwrap();
+        let moving = resolve(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(Point2::new(10.3, 9.8)),
+            &[],
+            Accept::Anything,
+            &[],
+            &[corner],
+        );
+
+        assert_eq!(centre.target, Target::Centroid(triangle[0]));
+        assert!(centre.position.distance(Point2::new(10.0, 10.0)) < 1e-9);
+        assert_eq!(centre.target.joins(EntityId::from_raw(99)), Vec::new());
+        assert!(centre.target.label(&sketch).ends_with("not kept there"));
+        assert!(matches!(pentagon_centre.target, Target::Centroid(_)));
+        assert!(pentagon_centre.position.distance(Point2::new(80.0, 20.0)) < 1e-9);
+        assert_eq!(moving, None);
     }
 
     #[test]

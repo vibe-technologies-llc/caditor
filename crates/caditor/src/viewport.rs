@@ -44,7 +44,7 @@ use crate::{
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenBox},
     sketch_placement::{self, FaceChoice},
     sketch_tools,
-    snap::{self, Accept, Pointer, Screen, Snapped},
+    snap::{Pointer, Screen},
     solid_tools,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
@@ -1141,8 +1141,8 @@ impl ViewportState {
             .map(|active| active.feature);
         let cursor = self.cursor;
         let sketch_cursor = self.sketch_cursor;
-        let grab_snap = match &self.primary {
-            Some(PrimaryDrag::Grab(grab)) => self.grab_snap(model, grab),
+        let grab_snapping = match &self.primary {
+            Some(PrimaryDrag::Grab(grab)) => self.grab_snapping(model, grab.feature()),
             _ => None,
         };
         let ray = cursor.and_then(|cursor| self.view()?.ray_through(cursor));
@@ -1182,7 +1182,10 @@ impl ViewportState {
                 self.primary = None;
             }
             Some(PrimaryDrag::Grab(grab)) => {
-                if let Some(command) = sketch_cursor.and_then(|at| grab.snap_to(at, grab_snap)) {
+                let snapping = grab_snapping
+                    .as_ref()
+                    .map(|(sketch, screen)| (&**sketch, screen));
+                if let Some(command) = sketch_cursor.and_then(|at| grab.follow(at, snapping)) {
                     actions.push(Action::Drag(command));
                 }
             }
@@ -1260,35 +1263,26 @@ impl ViewportState {
     fn grab_preview(&self) -> Preview {
         match &self.primary {
             Some(PrimaryDrag::Grab(grab)) => Preview {
-                snap: grab.snapped().map(|snapped| snapped.position),
+                snap: grab.landing().map(|landing| landing.position),
+                guides: grab.guides().to_vec(),
                 ..Preview::default()
             },
             _ => Preview::default(),
         }
     }
 
-    fn grab_snap(&self, model: &Model, grab: &Grab) -> Option<Snapped> {
+    fn grab_snapping<'a>(
+        &self,
+        model: &'a Model,
+        feature: FeatureId,
+    ) -> Option<(Displayed<'a>, SketchScreen)> {
         if self.placing_freely || !self.snapping {
             return None;
         }
-        grab.lone_point()?;
-        let owner = model.document().feature(grab.feature())?;
+        let owner = model.document().feature(feature)?;
         let sketch = model.displayed_sketch(owner)?;
         let screen = self.sketch_screen(sketch.plane())?;
-        let pointer = Pointer {
-            screen: self.cursor? / f64::from(self.pixels_per_point),
-            sketch: self.sketch_cursor?,
-        };
-        let ignored = grab.moving_with(&sketch);
-        snap::resolve(
-            &sketch,
-            &screen,
-            pointer,
-            &[],
-            Accept::Anything,
-            &[],
-            &ignored,
-        )
+        Some((sketch, screen))
     }
 
     fn begin_primary(
@@ -2494,7 +2488,7 @@ impl ViewportState {
                     .snap_label(sketch)
                     .or_else(|| match &self.primary {
                         Some(PrimaryDrag::Grab(grab)) => {
-                            grab.snapped().map(|snapped| snapped.target.label(sketch))
+                            grab.landing().and_then(|landing| landing.label(sketch))
                         }
                         _ => None,
                     })

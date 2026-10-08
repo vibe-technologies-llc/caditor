@@ -7,7 +7,8 @@ use caditor_sketch::{Drag, Entity, EntityId, Faceting, Sketch};
 use crate::{
     drag_solver::{DragCommand, Join},
     feature_tree::count,
-    snap::{Screen, Snapped},
+    snap::{Pointer, Screen},
+    tracking::{self, Acquired, Landing},
 };
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
@@ -30,8 +31,11 @@ pub struct Grab {
     label: String,
     from: Point2,
     handles: Handles,
+    handle: Option<(EntityId, Point2)>,
     sent: Option<Vec<Drag>>,
-    snapped: Option<Snapped>,
+    landing: Option<Landing>,
+    guides: Vec<[Point2; 2]>,
+    acquired: Acquired,
 }
 
 impl Grab {
@@ -62,52 +66,99 @@ impl Grab {
             },
             _ => Handles::Points(points_of(sketch, &together)),
         };
-        Some(Self {
+        let handle = match &handles {
+            Handles::Points(points) => points.iter().copied().min_by(|a, b| {
+                a.1.distance_squared(from)
+                    .total_cmp(&b.1.distance_squared(from))
+            }),
+            Handles::Radius { .. } => None,
+        };
+        let mut grab = Self {
             feature,
             label: format!("Drag {}", subject(sketch, &together)),
             from,
             handles,
+            handle,
             sent: None,
-            snapped: None,
-        })
+            landing: None,
+            guides: Vec::new(),
+            acquired: Acquired::default(),
+        };
+        grab.acquire_neighbours(sketch);
+        Some(grab)
     }
 
-    pub fn lone_point(&self) -> Option<EntityId> {
+    fn acquire_neighbours(&mut self, sketch: &Sketch) {
+        let Some((handle, _)) = self.handle else {
+            return;
+        };
+        let moving = self.moving_points();
+        let neighbours: Vec<EntityId> = sketch
+            .entities()
+            .map(|(_, entity)| entity.points())
+            .filter(|points| points.contains(&handle))
+            .flatten()
+            .filter(|point| !moving.contains(point))
+            .collect();
+        for point in neighbours.into_iter().rev() {
+            self.acquired.point(point);
+        }
+    }
+
+    fn moving_points(&self) -> Vec<EntityId> {
         match &self.handles {
-            Handles::Points(points) => match points.as_slice() {
-                [(point, _)] => Some(*point),
-                _ => None,
-            },
-            Handles::Radius { .. } => None,
+            Handles::Points(points) => points.iter().map(|(point, _)| *point).collect(),
+            Handles::Radius { .. } => Vec::new(),
         }
     }
 
     pub fn moving_with(&self, sketch: &Sketch) -> Vec<EntityId> {
-        let Some(point) = self.lone_point() else {
-            return Vec::new();
-        };
-        std::iter::once(point)
-            .chain(
-                sketch
-                    .entities()
-                    .filter(|(_, entity)| entity.points().contains(&point))
-                    .map(|(id, _)| id),
-            )
-            .collect()
+        let points = self.moving_points();
+        let curves: Vec<EntityId> = sketch
+            .entities()
+            .filter(|(_, entity)| entity.points().iter().any(|point| points.contains(point)))
+            .map(|(id, _)| id)
+            .collect();
+        points.into_iter().chain(curves).collect()
     }
 
-    pub fn snapped(&self) -> Option<Snapped> {
-        self.snapped
+    pub fn landing(&self) -> Option<Landing> {
+        self.landing
     }
 
-    pub fn snap_to(&mut self, cursor: Point2, snapped: Option<Snapped>) -> Option<DragCommand> {
-        let snapped = snapped.filter(|_| self.lone_point().is_some());
-        self.snapped = snapped;
-        let target = match (snapped, &self.handles) {
-            (Some(snapped), Handles::Points(points)) => match points.as_slice() {
-                [(_, original)] => self.from + (snapped.position - *original),
-                _ => cursor,
-            },
+    pub fn guides(&self) -> &[[Point2; 2]] {
+        &self.guides
+    }
+
+    pub fn follow(
+        &mut self,
+        cursor: Point2,
+        snapping: Option<(&Sketch, &impl Screen)>,
+    ) -> Option<DragCommand> {
+        let offset = cursor - self.from;
+        let landing = snapping
+            .zip(self.handle)
+            .and_then(|((sketch, screen), (_, original))| {
+                let moved = original + offset;
+                let pointer = Pointer {
+                    screen: screen.to_screen(moved)?,
+                    sketch: moved,
+                };
+                let ignored = self.moving_with(sketch);
+                let landing = tracking::land(sketch, screen, pointer, &self.acquired, &ignored)?;
+                Some((sketch, landing))
+            });
+        if let Some((sketch, landing)) = landing
+            && let Some(target) = landing.target
+        {
+            self.acquired.note(sketch, target);
+        }
+        self.guides = landing
+            .map(|(sketch, landing)| landing.guides(sketch))
+            .unwrap_or_default();
+        self.landing = landing.map(|(_, landing)| landing);
+        let target = match (self.landing, self.handle) {
+            (Some(landing), Some((_, original))) => self.from + (landing.position - original),
             _ => cursor,
         };
         self.to(target)
@@ -115,12 +166,12 @@ impl Grab {
 
     pub fn finish(&self) -> DragCommand {
         let join = self
-            .lone_point()
-            .zip(self.snapped)
-            .map(|(point, snapped)| Join {
+            .handle
+            .zip(self.landing)
+            .map(|((point, _), landing)| Join {
                 point,
-                at: snapped.position,
-                constraints: snapped.target.joins(point),
+                at: landing.position,
+                constraints: landing.joins(point),
             });
         DragCommand::Finish { join }
     }
@@ -386,7 +437,7 @@ mod tests {
     use caditor_sketch::Constraint;
 
     use super::*;
-    use crate::snap::Target;
+    use crate::snap::{Target, tests::Scaled};
 
     struct Flat;
 
@@ -553,13 +604,9 @@ mod tests {
         let lone = sketch.add_point(Point2::new(10.0, 10.0));
         let mut grab = Grab::of(&sketch, feature(), end, &[], Point2::new(4.1, 0.1)).unwrap();
 
-        assert_eq!(grab.moving_with(&sketch), vec![end, line]);
-        let snapped = Snapped {
-            position: Point2::new(10.0, 10.0),
-            target: Target::Point(lone),
-        };
-        let command = grab.snap_to(Point2::new(10.3, 9.8), Some(snapped));
+        let command = grab.follow(Point2::new(10.3, 9.8), Some((&sketch, &Scaled(10.0))));
 
+        assert_eq!(grab.moving_with(&sketch), vec![end, line]);
         assert_eq!(
             command,
             Some(DragCommand::Move {
@@ -572,6 +619,10 @@ mod tests {
             })
         );
         assert_eq!(
+            grab.landing().and_then(|landing| landing.target),
+            Some(Target::Point(lone))
+        );
+        assert_eq!(
             grab.finish(),
             DragCommand::Finish {
                 join: Some(Join {
@@ -581,8 +632,78 @@ mod tests {
                 }),
             }
         );
+    }
 
-        let whole = Grab::of(&sketch, feature(), line, &[], Point2::new(2.0, 0.0)).unwrap();
-        assert_eq!(whole.lone_point(), None);
+    #[test]
+    fn a_grabbed_line_lands_its_nearer_end_on_a_snap_and_moves_the_rest_with_it() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+        let (start, end) = ends(&sketch, line);
+        let lone = sketch.add_point(Point2::new(30.0, 20.0));
+        let mut grab = Grab::of(&sketch, feature(), line, &[], Point2::new(8.0, 0.0)).unwrap();
+
+        let Some(DragCommand::Move { drags, .. }) =
+            grab.follow(Point2::new(28.05, 20.02), Some((&sketch, &Scaled(10.0))))
+        else {
+            panic!("the line is dragged");
+        };
+
+        assert_eq!(
+            drags,
+            vec![
+                Drag::Point {
+                    point: start,
+                    to: Point2::new(20.0, 20.0)
+                },
+                Drag::Point {
+                    point: end,
+                    to: Point2::new(30.0, 20.0)
+                },
+            ]
+        );
+        assert_eq!(
+            grab.finish(),
+            DragCommand::Finish {
+                join: Some(Join {
+                    point: end,
+                    at: Point2::new(30.0, 20.0),
+                    constraints: vec![Constraint::Coincident(end, lone)],
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn a_grabbed_point_tracks_the_other_end_of_its_line_and_keeps_it_level() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(10.0, 15.0));
+        let (start, end) = ends(&sketch, line);
+        let mut grab = Grab::of(&sketch, feature(), end, &[], Point2::new(10.0, 15.0)).unwrap();
+
+        grab.follow(Point2::new(20.0, 10.2), Some((&sketch, &Scaled(10.0))));
+        let landing = grab.landing().unwrap();
+
+        assert_eq!(landing.position, Point2::new(20.0, 10.0));
+        assert_eq!(landing.target, None);
+        assert_eq!(
+            landing.label(&sketch),
+            Some(format!("Horizontal from {}", sketch.entity_label(start)))
+        );
+        assert_eq!(grab.guides(), &[[Point2::new(0.0, 10.0), landing.position]]);
+        assert_eq!(
+            grab.finish(),
+            DragCommand::Finish {
+                join: Some(Join {
+                    point: end,
+                    at: Point2::new(20.0, 10.0),
+                    constraints: vec![Constraint::HorizontalPoints(end, start)],
+                }),
+            }
+        );
+
+        let mut free = Grab::of(&sketch, feature(), end, &[], Point2::new(10.0, 15.0)).unwrap();
+        free.follow(Point2::new(20.0, 10.2), None::<(&Sketch, &Scaled)>);
+        assert_eq!(free.landing(), None);
+        assert_eq!(free.finish(), DragCommand::Finish { join: None });
     }
 }

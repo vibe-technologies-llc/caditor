@@ -1,13 +1,17 @@
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 
-use crate::snap::{self, Pointer, Screen, Target};
+use crate::{
+    snap::{self, Accept, Pointer, Screen, Target},
+    trimming,
+};
 
 pub const MAX_ACQUIRED_POINTS: usize = 6;
 pub const MAX_ACQUIRED_LINES: usize = 4;
 pub const TRACK_TOLERANCE: f64 = 6.0;
 const MIN_TRACK_LENGTH: f64 = 12.0;
 const PARALLEL_TOLERANCE: f64 = 1e-9;
+pub const ALIGNED_CROSSING_TOLERANCE: f64 = 12.0;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Acquired {
@@ -18,7 +22,10 @@ pub struct Acquired {
 impl Acquired {
     pub fn note(&mut self, sketch: &Sketch, target: Target) {
         match target {
-            Target::Pending(_) | Target::Intersection(..) | Target::Centre { .. } => {}
+            Target::Pending(_)
+            | Target::Intersection(..)
+            | Target::Centre { .. }
+            | Target::Centroid(_) => {}
             Target::Point(point) => {
                 self.point(point);
                 for line in lines_ending_at(sketch, point) {
@@ -79,10 +86,15 @@ fn lines_ending_at(sketch: &Sketch, point: EntityId) -> Vec<EntityId> {
         .collect()
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Axis {
     Level,
     Upright,
+    Slanted {
+        line: EntityId,
+        square: bool,
+        along: Vector2,
+    },
 }
 
 impl Axis {
@@ -90,13 +102,22 @@ impl Axis {
         match self {
             Self::Level => Vector2::X,
             Self::Upright => Vector2::Y,
+            Self::Slanted { along, .. } => along,
         }
     }
 
-    fn words(self) -> &'static str {
+    fn words(self, sketch: &Sketch) -> String {
         match self {
-            Self::Level => "horizontal from",
-            Self::Upright => "vertical from",
+            Self::Level => "horizontal from".to_owned(),
+            Self::Upright => "vertical from".to_owned(),
+            Self::Slanted {
+                line, square: true, ..
+            } => format!("perpendicular to {} from", sketch.entity_label(line)),
+            Self::Slanted {
+                line,
+                square: false,
+                ..
+            } => format!("parallel to {} from", sketch.entity_label(line)),
         }
     }
 }
@@ -113,24 +134,35 @@ impl Track {
         match self.axis {
             Axis::Level => Point2::new(at.x, self.from.y),
             Axis::Upright => Point2::new(self.from.x, at.y),
+            Axis::Slanted { along, .. } => {
+                let fraction = (at - self.from).dot(along) / along.length_squared();
+                self.from + along * fraction
+            }
         }
     }
 
-    fn constraint(self, point: EntityId) -> Constraint {
+    fn constraint(self, point: EntityId) -> Option<Constraint> {
         match self.axis {
-            Axis::Level => Constraint::HorizontalPoints(point, self.point),
-            Axis::Upright => Constraint::VerticalPoints(point, self.point),
+            Axis::Level => Some(Constraint::HorizontalPoints(point, self.point)),
+            Axis::Upright => Some(Constraint::VerticalPoints(point, self.point)),
+            Axis::Slanted { .. } => None,
         }
     }
 
     fn crossing(self, through: Point2, along: Vector2) -> Option<Point2> {
         let direction = self.axis.along();
         let denominator = along.perp_dot(direction);
-        if denominator.abs() <= PARALLEL_TOLERANCE * along.length() {
+        if denominator.abs() <= PARALLEL_TOLERANCE * along.length() * direction.length() {
             return None;
         }
         let fraction = direction.perp_dot(through - self.from) / denominator;
         Some(through + along * fraction)
+    }
+
+    fn meeting(self, other: Self) -> Option<Point2> {
+        other
+            .crossing(self.from, self.axis.along())
+            .map(|crossing| self.project(crossing))
     }
 }
 
@@ -138,6 +170,7 @@ impl Track {
 pub struct Tracks {
     pub level: Option<Track>,
     pub upright: Option<Track>,
+    pub slanted: Option<Track>,
 }
 
 impl Tracks {
@@ -145,17 +178,24 @@ impl Tracks {
         match track.axis {
             Axis::Level => Self {
                 level: Some(track),
-                upright: None,
+                ..Self::default()
             },
             Axis::Upright => Self {
-                level: None,
                 upright: Some(track),
+                ..Self::default()
+            },
+            Axis::Slanted { .. } => Self {
+                slanted: Some(track),
+                ..Self::default()
             },
         }
     }
 
     pub fn iter(self) -> impl Iterator<Item = Track> {
-        self.level.into_iter().chain(self.upright)
+        self.level
+            .into_iter()
+            .chain(self.upright)
+            .chain(self.slanted)
     }
 
     pub fn points(self) -> impl Iterator<Item = EntityId> {
@@ -163,7 +203,7 @@ impl Tracks {
     }
 
     pub fn constraints(self, point: EntityId) -> impl Iterator<Item = Constraint> {
-        self.iter().map(move |track| track.constraint(point))
+        self.iter().filter_map(move |track| track.constraint(point))
     }
 
     pub fn guides(self, to: Point2) -> impl Iterator<Item = [Point2; 2]> {
@@ -176,7 +216,7 @@ impl Tracks {
             .map(|track| {
                 format!(
                     "{} {}",
-                    track.axis.words(),
+                    track.axis.words(sketch),
                     sketch.entity_label(track.point)
                 )
             })
@@ -185,10 +225,15 @@ impl Tracks {
     }
 
     fn position(self, at: Point2) -> Option<Point2> {
-        match (self.level, self.upright) {
-            (Some(level), Some(upright)) => Some(Point2::new(upright.from.x, level.from.y)),
-            (Some(track), None) | (None, Some(track)) => Some(track.project(at)),
-            (None, None) => None,
+        match (self.level, self.upright, self.slanted) {
+            (Some(level), Some(upright), _) => Some(Point2::new(upright.from.x, level.from.y)),
+            (Some(track), None, Some(slanted)) | (None, Some(track), Some(slanted)) => {
+                Some(track.meeting(slanted).unwrap_or_else(|| track.project(at)))
+            }
+            (Some(track), None, None) | (None, Some(track), None) | (None, None, Some(track)) => {
+                Some(track.project(at))
+            }
+            (None, None, None) => None,
         }
     }
 }
@@ -206,7 +251,7 @@ pub fn nearby(
     acquired: &Acquired,
     excluded: &[EntityId],
 ) -> Tracks {
-    let mut best: [Option<(f64, Track)>; 2] = [None, None];
+    let mut best: [Option<(f64, Track)>; 3] = [None, None, None];
     for &point in &acquired.points {
         if excluded.contains(&point) {
             continue;
@@ -220,22 +265,144 @@ pub fn nearby(
         if from_on_screen.distance(pointer.screen) < MIN_TRACK_LENGTH {
             continue;
         }
-        for (slot, axis) in best.iter_mut().zip([Axis::Level, Axis::Upright]) {
+        let axes = [(0, Axis::Level), (1, Axis::Upright)]
+            .into_iter()
+            .chain(slanted_axes(sketch, acquired, from).map(|axis| (2, axis)));
+        for (slot, axis) in axes {
             let track = Track { point, from, axis };
             let Some(on_screen) = screen.to_screen(track.project(pointer.sketch)) else {
                 continue;
             };
             let offset = on_screen.distance(pointer.screen);
-            let nearer = slot.is_none_or(|(kept, _)| offset < kept);
-            if offset <= TRACK_TOLERANCE && nearer {
-                *slot = Some((offset, track));
+            let Some(kept) = best.get_mut(slot) else {
+                continue;
+            };
+            if offset <= TRACK_TOLERANCE && kept.is_none_or(|(kept, _)| offset < kept) {
+                *kept = Some((offset, track));
             }
         }
     }
-    let [level, upright] = best.map(|found| found.map(|(_, track)| track));
+    let [level, upright, slanted] = best.map(|found| found.map(|(_, track)| track));
+    let shares_a_point = |track: Track| {
+        level
+            .into_iter()
+            .chain(upright)
+            .any(|other| other.point == track.point)
+    };
     match (level, upright) {
         (Some(level), Some(upright)) if level.point == upright.point => Tracks::default(),
-        (level, upright) => Tracks { level, upright },
+        (level, upright) => Tracks {
+            level,
+            upright,
+            slanted: slanted.filter(|track| !shares_a_point(*track)),
+        },
+    }
+}
+
+fn slanted_axes(sketch: &Sketch, acquired: &Acquired, from: Point2) -> impl Iterator<Item = Axis> {
+    acquired.lines.iter().flat_map(move |&line| {
+        let Some(along) = sketch.line_direction(line).and_then(Vector2::try_normalize) else {
+            return Vec::new();
+        };
+        let through = sketch.line_endpoints(line).map_or(from, |(start, _)| start);
+        let on_line = along.perp_dot(from - through).abs()
+            <= ON_LINE_TOLERANCE * (1.0 + through.distance(from));
+        [(false, along), (true, along.perp())]
+            .into_iter()
+            .filter(|(square, _)| *square || !on_line)
+            .filter(|(_, along)| along.x.abs() > LEVEL_TOLERANCE && along.y.abs() > LEVEL_TOLERANCE)
+            .map(|(square, along)| Axis::Slanted {
+                line,
+                square,
+                along,
+            })
+            .collect()
+    })
+}
+
+const ON_LINE_TOLERANCE: f64 = 1e-9;
+const LEVEL_TOLERANCE: f64 = 1e-6;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Landing {
+    pub position: Point2,
+    pub target: Option<Target>,
+    pub tracks: Tracks,
+}
+
+impl Landing {
+    pub fn joins(self, point: EntityId) -> Vec<Constraint> {
+        self.target
+            .map(|target| target.joins(point))
+            .unwrap_or_default()
+            .into_iter()
+            .chain(self.tracks.constraints(point))
+            .collect()
+    }
+
+    pub fn label(self, sketch: &Sketch) -> Option<String> {
+        let target = self.target.map(|target| target.label(sketch));
+        match (target, self.tracks.label(sketch)) {
+            (target, None) => target,
+            (Some(target), Some(tracked)) => Some(format!("{target}, {tracked}")),
+            (None, Some(tracked)) => Some(trimming::capitalized(&tracked)),
+        }
+    }
+
+    pub fn guides(self, sketch: &Sketch) -> Vec<[Point2; 2]> {
+        let extension = match self.target {
+            Some(Target::Extension(line)) => snap::extension_guide(sketch, line, self.position),
+            _ => None,
+        };
+        self.tracks.guides(self.position).chain(extension).collect()
+    }
+}
+
+pub fn land(
+    sketch: &Sketch,
+    screen: &impl Screen,
+    pointer: Pointer,
+    acquired: &Acquired,
+    ignored: &[EntityId],
+) -> Option<Landing> {
+    let snapped = snap::resolve(
+        sketch,
+        screen,
+        pointer,
+        &[],
+        Accept::Anything,
+        acquired.lines(),
+        ignored,
+    );
+    let tracks = nearby(sketch, screen, pointer, acquired, ignored);
+    match snapped {
+        Some(snapped) => Some(
+            on_curve(
+                sketch,
+                snapped.target,
+                tracks,
+                screen,
+                pointer,
+                ALIGNED_CROSSING_TOLERANCE,
+            )
+            .map_or(
+                Landing {
+                    position: snapped.position,
+                    target: Some(snapped.target),
+                    tracks: Tracks::default(),
+                },
+                |tracked| Landing {
+                    position: tracked.position,
+                    target: Some(snapped.target),
+                    tracks: tracked.tracks,
+                },
+            ),
+        ),
+        None => alone(tracks, screen, pointer).map(|tracked| Landing {
+            position: tracked.position,
+            target: None,
+            tracks: tracked.tracks,
+        }),
     }
 }
 
@@ -488,6 +655,65 @@ mod tests {
                 12.0
             ),
             None
+        );
+    }
+
+    #[test]
+    fn an_acquired_line_guides_points_square_to_it_from_its_end_and_parallel_to_it_elsewhere() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 40.0));
+        let end = sketch.entity(line).unwrap().points()[1];
+        let other = sketch.add_point(Point2::new(50.0, 0.0));
+        let mut acquired = Acquired::default();
+        acquired.note(&sketch, Target::Point(end));
+        acquired.point(other);
+        let screen = Scaled(10.0);
+        let square = pointer(Point2::new(10.2, 55.1));
+        let parallel = pointer(Point2::new(74.1, 31.9));
+        let crossing = pointer(Point2::new(83.4, 0.1));
+
+        let squared = nearby(&sketch, &screen, square, &acquired, &[]);
+        let placed = alone(squared, &screen, square).unwrap();
+        let along = nearby(&sketch, &screen, parallel, &acquired, &[]);
+        let on_extension = nearby(
+            &sketch,
+            &screen,
+            pointer(Point2::new(45.0, 60.1)),
+            &acquired,
+            &[],
+        );
+        let both = nearby(&sketch, &screen, crossing, &acquired, &[]);
+        let met = alone(both, &screen, crossing).unwrap();
+
+        assert_eq!(
+            squared.label(&sketch),
+            Some(format!(
+                "perpendicular to {} from {}",
+                sketch.entity_label(line),
+                sketch.entity_label(end)
+            ))
+        );
+        assert!(
+            (placed.position - Point2::new(30.0, 40.0))
+                .dot(Vector2::new(3.0, 4.0))
+                .abs()
+                < 1e-9
+        );
+        assert_eq!(squared.constraints(EntityId::from_raw(99)).count(), 0);
+        assert!(matches!(
+            along.slanted,
+            Some(Track {
+                axis: Axis::Slanted { square: false, .. },
+                point,
+                ..
+            }) if point == other
+        ));
+        assert_eq!(on_extension.slanted, None);
+        assert_eq!(both.level.map(|track| track.point), Some(other));
+        assert!(met.position.distance(Point2::new(250.0 / 3.0, 0.0)) < 1e-9);
+        assert_eq!(
+            both.constraints(EntityId::from_raw(99)).collect::<Vec<_>>(),
+            vec![Constraint::HorizontalPoints(EntityId::from_raw(99), other)]
         );
     }
 }

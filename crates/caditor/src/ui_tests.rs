@@ -12074,6 +12074,164 @@ fn a_point_dragged_onto_another_snaps_and_joins_it_in_the_same_change() {
 }
 
 #[test]
+fn a_line_dragged_by_its_middle_lands_its_nearer_end_on_a_point_and_joins_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
+    let (start, end) = line_ends(&sketch, line);
+    let lone = sketch.add_point(Point2::new(40.0, 20.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(15.0, 0.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: line,
+        },
+    );
+    drag_in_sketch(&mut harness, grabbed, Point2::new(35.03, 20.02));
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(end) != before.point(end)
+    });
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert!(
+        sketch
+            .constraints()
+            .any(|(_, constraint)| *constraint == Constraint::Coincident(end, lone))
+    );
+    assert!(sketch.point(end).unwrap().distance(Point2::new(40.0, 20.0)) < 1e-6);
+    assert!(
+        sketch
+            .point(start)
+            .unwrap()
+            .distance(Point2::new(20.0, 20.0))
+            < 1e-3
+    );
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Drag {}", before.entity_label(line)).as_str())
+    );
+}
+
+#[test]
+fn a_dragged_point_tracks_the_other_end_of_its_line_and_is_kept_level_with_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(20.0, 25.0));
+    let (start, end) = line_ends(&sketch, line);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    let grabbed = harness.hover_pickable(
+        Plane::XY,
+        Point2::new(20.0, 25.0),
+        Pickable::SketchEntity {
+            feature,
+            entity: end,
+        },
+    );
+    let to = harness.on_screen(Point2::new(12.0, 10.03));
+    hold_drag(&mut harness, grabbed, to);
+    assert!(harness.shows(&format!("Horizontal from {}", before.entity_label(start))));
+    release_drag(&mut harness, to);
+    harness.wait_until("the drag is committed", |harness| {
+        harness.sketch(feature).point(end) != before.point(end)
+    });
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert_eq!(
+        aligned_point_pairs(sketch),
+        vec![Constraint::HorizontalPoints(end, start)]
+    );
+    let (from, to) = (sketch.point(start).unwrap(), sketch.point(end).unwrap());
+    assert!((from.y - to.y).abs() < 1e-6, "{from} {to}");
+}
+
+#[test]
+fn a_point_placed_at_the_centre_of_a_triangle_lands_there_but_is_not_kept_there() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    for corner in [
+        Point2::new(10.0, 10.0),
+        Point2::new(40.0, 10.0),
+        Point2::new(10.0, 40.0),
+        Point2::new(10.0, 10.0),
+    ] {
+        harness.click_at(corner);
+    }
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 3);
+
+    harness.use_tool(Key::P);
+    harness.point_at(Point2::new(20.3, 19.8));
+    assert!(harness.shows_containing("Centre of the outline of Line"));
+    assert!(harness.shows_containing("not kept there"));
+    harness.click_at(Point2::new(20.3, 19.8));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    let owned: Vec<EntityId> = lines
+        .iter()
+        .flat_map(|line| sketch.entity(*line).unwrap().points())
+        .collect();
+    let [placed] = entities_of_kind(sketch, "Point")
+        .into_iter()
+        .filter(|point| !owned.contains(point))
+        .collect::<Vec<_>>()[..]
+    else {
+        panic!("one lone point should be placed");
+    };
+    assert!(near(sketch.point(placed).unwrap(), Point2::new(20.0, 20.0)));
+    assert!(
+        !sketch
+            .constraints()
+            .any(|(_, constraint)| constraint.entities().contains(&placed))
+    );
+}
+
+#[test]
+fn a_point_drawn_square_to_a_line_from_its_end_lands_on_the_perpendicular() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(15.0, 20.0));
+    let (_, end) = line_ends(&sketch, line);
+    sketch.add_point(Point2::new(30.0, 0.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.use_tool(Key::P);
+    harness.point_at(Point2::new(15.0, 20.0));
+    harness.point_at(Point2::new(23.05, 14.03));
+    let label = harness.sketch(feature).entity_label(line);
+    let end_label = harness.sketch(feature).entity_label(end);
+    assert!(harness.shows(&format!("Perpendicular to {label} from {end_label}")));
+    harness.click_at(Point2::new(23.05, 14.03));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    let placed = entities_of_kind(sketch, "Point")
+        .into_iter()
+        .rfind(|point| !sketch.entity(line).unwrap().points().contains(point))
+        .expect("a point is placed");
+    let at = sketch.point(placed).unwrap();
+    assert!(
+        (at - Point2::new(15.0, 20.0))
+            .dot(Vector2::new(3.0, 4.0))
+            .abs()
+            < 1e-6,
+        "{at}"
+    );
+}
+
+#[test]
 fn a_crowded_entity_shows_a_few_glyphs_and_counts_the_rest() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

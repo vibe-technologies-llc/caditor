@@ -50,12 +50,18 @@ paths:
   its own worker thread, which drops older unstarted ones and solves each from the previous
   solution of the same drag with `solve_from`. Results are shown through
   `DisplayedSketches::show_dragged`, which every consumer of a displayed sketch sees.
-- A grab of one point snaps it while snapping is on and Ctrl is not held (`ViewportState::grab_snap`):
-  `snap::resolve` on the displayed sketch, ignoring the point and every curve using it, puts the
-  point exactly on the target, shown with the snap marker and label. Release sends the target's
-  constraints (`Target::joins`) with `DragCommand::Finish`, and `Model::commit_drag` adds them to
-  the settle transaction when the solved point reached the target, leaving out any the sketch
-  refuses, already has or contradicts.
+- A grab snaps while snapping is on and Ctrl is not held (`ViewportState::grab_snapping`,
+  `Grab::follow`). Its handle, the grabbed point or, for a curve or selection, the moving point
+  nearest the press, goes through `tracking::land` on the displayed sketch, ignoring every moving
+  point and every curve using one, so a dragged line or selection lands that point on the target
+  and moves the rest by the same offset. A circle dragged alone changes its radius and never snaps.
+  Tracks and extensions work as while drawing, from the grab's own `Acquired`: at the start the
+  other points of the curves using the handle (so a line end dragged level with its start is kept
+  horizontal), then whatever the drag snaps to. The landing shows the snap marker, its label and
+  dashed guides. Release sends the target's and tracks' constraints (`Landing::joins`) with
+  `DragCommand::Finish`, and `Model::commit_drag` adds them to the settle transaction when the
+  solved point reached the landing, leaving out any the sketch refuses, already has or
+  contradicts.
 - Release commits one `settle_sketch` transaction and the dragged shape stays until an evaluation
   of that revision reaches the sketch, so it never jumps back. Escape, another edit or document,
   or a drag begun on an older revision drops it.
@@ -234,7 +240,10 @@ paths:
   midpoint and whose opposite pieces are both lines or both arcs of one radius with centres mirrored
   about it: a rectangle, a parallelogram, an even regular polygon, a slot, a rounded rectangle. A
   corner where a third piece meets breaks the loop (a rectangle with its diagonals snaps to their
-  crossing instead).
+  crossing instead). A loop of an odd count of lines (a triangle, a pentagon) has the centroid of
+  its area as centre (`Target::Centroid`): the point lands there exactly but no constraint holds it,
+  since the sketch has no constraint for a centroid, and the label ends "not kept there". A loop
+  with a piece or corner that is moving in a drag offers no centre.
 - `Accept` keeps every shown snap a constraint that already holds: a circle's rim takes points
   only (a rim on a curve would add no constraint); an arc's end takes points on its circle and
   where it crosses other curves (splines through `Sketch::circle_crossings`) and the axes.
@@ -262,8 +271,14 @@ paths:
   `HorizontalPoints`/`VerticalPoints` constraint (`Tracks`), on both at once where a horizontal
   and a vertical from two points cross. A track joins a curve snap where it crosses the curve
   (never along a line it runs on) and a line's direction where they cross, within
-  `ALIGNED_CROSSING_TOLERANCE`; point snaps never take one. The preview draws each track as a
-  dashed guide from its point (`Preview::guides`) and highlights the point.
+  `ALIGNED_CROSSING_TOLERANCE` (`tracking.rs`); point snaps never take one. The preview draws each
+  track as a dashed guide from its point (`Preview::guides`) and highlights the point.
+- An acquired point also tracks along each acquired line's direction and square to it
+  (`Axis::Slanted`, "parallel to" or "perpendicular to" the line in the label), never along a line
+  through the point itself (its extension covers that) nor where the direction is level or upright.
+  The point lands on a slanted track exactly but no constraint holds it, as the sketch has none for
+  a point on a slanted line through another; a slanted track crosses a horizontal or vertical one
+  from another point as those cross each other, keeping that one's constraint.
 - An acquired line extends past its ends: after curves, the pointer within `CURVE_TOLERANCE` of its
   infinite carrier snaps to it (`Target::Extension`, a `Coincident` on the line, which the solver
   treats as the infinite line), with a dashed guide from the nearer end; directions and tracks
