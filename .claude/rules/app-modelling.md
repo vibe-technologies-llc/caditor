@@ -143,14 +143,19 @@ paths:
   another body are selected; the panel's Body list is `Document::bodies_before`. `SketchEditing` holds at most
   one open solid feature, never together with an edited sketch; `editing::Context` carries both to
   the scene and to availability checks.
-- With curves of the sketch selected that close up (every open end meets another), a new
-  extrusion or revolve chooses the regions whose anchor lies inside them, even-odd
-  (`solid_tools::with_selected_outline`, a revolve leaving its axis line out), so selecting a
-  rectangle overlapping a circle sweeps the rectangle and their overlap; curves that do not close
-  sweep every region as before.
+- With regions of the sketch selected (`Pickable::SketchRegion`, `app-sketching.md`), a new
+  extrusion or revolve chooses them (`solid_tools::selected_regions`), and the button's hover says
+  it takes the selected regions; with curves of the sketch selected that close up (every open end
+  meets another), it chooses the regions whose anchor lies inside them, even-odd, adding them to any
+  selected regions (`solid_tools::with_selected_outline`, a revolve leaving its axis line out), so
+  selecting a rectangle overlapping a circle sweeps the rectangle and their overlap; curves that do
+  not close and no selected region sweep every region as before. Any area cut out by crossing
+  curves therefore sweeps alone without trimming the sketch.
 - An open feature's tree row is its property panel; every change is one `SetFeatureKind`, checked
-  before it is offered. Regions are fills; `Pickable::Region` clicks add or leave out, turning
-  `RegionChoice::All` into explicit keys. Double-clicking a face opens the feature that made it.
+  before it is offered. Regions are fills on the front layer, so the see-through preview of the
+  body they sweep (whose faces still pick) never covers them; `Pickable::Region` clicks add or
+  leave out, turning `RegionChoice::All` into explicit keys. Double-clicking a face opens the
+  feature that made it.
 - Each extrusion side has an end kind; one that cannot apply is offered disabled with the reason
   on hover. Up to face takes the selected face or plane captured where the extrusion sits in the
   tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), each refusal

@@ -392,9 +392,14 @@ paths:
   counted in an info pill ("1 point beyond its curve", its hover `sketch_status::BEYOND_HELP`)
   and in the 3D view's description. It is information, not a warning, since a point on a line's
   extension is often meant (`Target::Extension`).
-- The edited sketch's closed regions (its result's display regions) are tinted `CLOSED_REGION` on
-  the front layer, unpicked (`scene::Builder::closed_regions`), while the shown geometry is the
-  result's (`same_geometry`), so a drag never shows regions it left behind. A sketch too large for
+- The edited sketch's closed regions (its result's display regions) are tinted `closed_region` on
+  the front layer (`scene::Builder::closed_regions`), while the shown geometry is the result's
+  (`same_geometry`), so a drag never shows regions it left behind. With the Select tool active
+  (`Context::selecting`) each is `Pickable::SketchRegion`, the area between crossings rather than
+  whole curves: hover tints it, a click selects it, Shift or Ctrl adds more, and curves and points
+  win near them (surface pick priority); a drag starting on one draws a box. Other tools leave
+  them unpicked, so drawing, modifying and dimensioning never take a region. Extrude and Revolve
+  take the selected regions (`app-modelling.md`). A sketch too large for
   recompute to find them unasked gets them asked for each frame it is edited
   (`Model::request_regions`, one request per result), and their arrival moves the displayed
   sketches' generation so the cached scene picks them up.

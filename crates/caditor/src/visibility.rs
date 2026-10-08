@@ -44,7 +44,9 @@ pub fn is_principal_shown(document: &Document, geometry: PrincipalGeometry) -> b
 
 pub fn owner(pickable: Pickable) -> Option<FeatureId> {
     match pickable {
-        Pickable::SketchEntity { feature, .. } | Pickable::Datum(feature) => Some(feature),
+        Pickable::SketchEntity { feature, .. }
+        | Pickable::SketchRegion { feature, .. }
+        | Pickable::Datum(feature) => Some(feature),
         Pickable::Face { body, .. }
         | Pickable::Edge { body, .. }
         | Pickable::Vertex { body, .. } => Some(body),
@@ -69,6 +71,7 @@ pub fn principal(pickable: Pickable) -> Option<PrincipalGeometry> {
         | Pickable::Edge { .. }
         | Pickable::Vertex { .. }
         | Pickable::SketchConstraint { .. }
+        | Pickable::SketchRegion { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
         | Pickable::ShellFace { .. } => None,

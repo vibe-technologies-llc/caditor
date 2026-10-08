@@ -42,6 +42,7 @@ impl SelectionFilter {
                 pickable,
                 Pickable::SketchEntity { .. }
                     | Pickable::SketchConstraint { .. }
+                    | Pickable::SketchRegion { .. }
                     | Pickable::Region { .. }
             ),
         }
@@ -146,6 +147,10 @@ pub enum Pickable {
         feature: FeatureId,
         constraint: ConstraintId,
     },
+    SketchRegion {
+        feature: FeatureId,
+        region: RegionKey,
+    },
     Face {
         body: FeatureId,
         face: FaceKey,
@@ -173,21 +178,25 @@ pub enum Pickable {
     Datum(FeatureId),
 }
 
-pub fn swept_regions<'a>(
-    document: &Document,
-    evaluation: &'a Evaluation,
-    feature: FeatureId,
-) -> Option<(FeatureId, &'a [SketchRegion])> {
-    let sketch = document.feature(feature)?.kind.solid()?.sketch();
-    let regions = evaluation
+pub fn sketch_regions(evaluation: &Evaluation, sketch: FeatureId) -> Option<&[SketchRegion]> {
+    evaluation
         .feature(sketch)?
         .result
         .as_deref()
         .and_then(FeatureResult::sketch)?
         .regions()?
         .as_ref()
-        .ok()?;
-    Some((sketch, regions.as_slice()))
+        .ok()
+        .map(Vec::as_slice)
+}
+
+pub fn swept_regions<'a>(
+    document: &Document,
+    evaluation: &'a Evaluation,
+    feature: FeatureId,
+) -> Option<(FeatureId, &'a [SketchRegion])> {
+    let sketch = document.feature(feature)?.kind.solid()?.sketch();
+    Some((sketch, sketch_regions(evaluation, sketch)?))
 }
 
 fn body_name(document: &Document, body: FeatureId) -> &str {
@@ -265,6 +274,12 @@ impl Pickable {
                     }
                     None => format!("{name} › Vertex"),
                 }
+            }
+            Self::SketchRegion { feature, .. } => {
+                let sketch = document
+                    .feature(feature)
+                    .map_or("the sketch", |sketch| sketch.name.as_str());
+                format!("{sketch} › Region")
             }
             Self::Region { feature, .. } => {
                 let sketch = document
@@ -387,6 +402,15 @@ impl Pickable {
                     && visibility::is_shown(document, body)
                     && bodies::shown(evaluation, body)
                         .is_some_and(|solid| bodies::find_vertex(solid, vertex).is_some())
+            }
+            Self::SketchRegion { feature, region } => {
+                editing == Some(feature)
+                    && context.selecting
+                    && sketch_regions(evaluation, feature).is_some_and(|regions| {
+                        regions
+                            .iter()
+                            .any(|candidate| candidate.region.key() == region)
+                    })
             }
             Self::Region { feature, region } => {
                 context.solid == Some(feature)

@@ -9,7 +9,7 @@ use caditor_document::{
     body_parts, displayed_axis,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
-use caditor_kernel::{RegionKey, RegionReference, resolve_regions};
+use caditor_kernel::{RegionKey, RegionMesh, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
     PickResult, Scene, Stroke,
@@ -506,7 +506,7 @@ pub fn build(
         builder.swept(sources, feature, reference_size);
     }
     if let Some((feature, displayed)) = &edited {
-        builder.closed_regions(evaluation, feature.id(), displayed);
+        builder.closed_regions(evaluation, feature.id(), displayed, context.selecting);
     }
 
     let reference = Aabb::from_points(plane_corners(Plane::XY, reference_size))
@@ -1269,35 +1269,37 @@ impl Builder<'_> {
                 feature,
                 region: key,
             };
-            let color = if self.highlight.is_hovered(pickable) {
-                self.palette.lines.hovered.with_alpha(HOVERED_REGION_ALPHA)
-            } else if chosen.contains(&key) {
+            let base = if chosen.contains(&key) {
                 self.palette.chosen_region
             } else {
                 self.palette.open_region
             };
-            let triangles = mesh
-                .triangles
-                .iter()
-                .filter_map(|triangle| {
-                    let [a, b, c] = triangle.map(|index| {
-                        mesh.points
-                            .get(index as usize)
-                            .map(|point| plane.to_world(*point))
-                    });
-                    Some([a?, b?, c?])
-                })
-                .collect();
             self.scene.fills.push(Fill {
-                triangles,
-                color,
-                layer: Layer::Model,
+                triangles: region_triangles(mesh, &plane),
+                color: self.region_color(pickable, base),
+                layer: Layer::Front,
                 pick: self.picks.register(pickable, PickPriority::Surface),
             });
         }
     }
 
-    fn closed_regions(&mut self, evaluation: &Evaluation, feature: FeatureId, displayed: &Sketch) {
+    fn region_color(&self, pickable: Pickable, base: Color) -> Color {
+        if self.highlight.is_hovered(pickable) {
+            self.palette.lines.hovered.with_alpha(HOVERED_REGION_ALPHA)
+        } else if self.highlight.selection.contains(pickable) {
+            self.palette.chosen_region
+        } else {
+            base
+        }
+    }
+
+    fn closed_regions(
+        &mut self,
+        evaluation: &Evaluation,
+        feature: FeatureId,
+        displayed: &Sketch,
+        pickable: bool,
+    ) {
         let Some(result) = evaluation
             .feature(feature)
             .and_then(|status| status.result.as_deref())
@@ -1312,24 +1314,23 @@ impl Builder<'_> {
             return;
         }
         let plane = displayed.plane();
-        for mesh in regions.iter().filter_map(|region| region.mesh.as_ref()) {
-            let triangles = mesh
-                .triangles
-                .iter()
-                .filter_map(|triangle| {
-                    let [a, b, c] = triangle.map(|index| {
-                        mesh.points
-                            .get(index as usize)
-                            .map(|point| plane.to_world(*point))
-                    });
-                    Some([a?, b?, c?])
-                })
-                .collect();
+        for region in regions {
+            let Some(mesh) = &region.mesh else {
+                continue;
+            };
+            let region = Pickable::SketchRegion {
+                feature,
+                region: region.region.key(),
+            };
+            let pick = match pickable {
+                true => self.picks.register(region, PickPriority::Surface),
+                false => None,
+            };
             self.scene.fills.push(Fill {
-                triangles,
-                color: self.palette.closed_region,
+                triangles: region_triangles(mesh, &plane),
+                color: self.region_color(region, self.palette.closed_region),
                 layer: Layer::Front,
-                pick: None,
+                pick,
             });
         }
     }
@@ -1823,22 +1824,45 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .and_then(|open| open.before.edge_points(edge))
             .map(<[Point3]>::to_vec)
             .unwrap_or_default(),
-        Pickable::Region { feature, region } => {
-            let Some((sketch, regions)) = selection::swept_regions(document, evaluation, feature)
-            else {
-                return Vec::new();
-            };
-            let Some(plane) = sketch_plane(document, evaluation, sketch) else {
-                return Vec::new();
-            };
-            regions
-                .iter()
-                .filter(|candidate| candidate.region.key() == region)
-                .filter_map(|candidate| candidate.mesh.as_ref())
-                .flat_map(|mesh| mesh.points.iter().map(|point| plane.to_world(*point)))
-                .collect()
-        }
+        Pickable::Region { feature, region } => selection::swept_regions(document, evaluation, feature)
+            .map(|(sketch, regions)| region_points(document, evaluation, sketch, regions, region))
+            .unwrap_or_default(),
+        Pickable::SketchRegion { feature, region } => selection::sketch_regions(evaluation, feature)
+            .map(|regions| region_points(document, evaluation, feature, regions, region))
+            .unwrap_or_default(),
     }
+}
+
+fn region_triangles(mesh: &RegionMesh, plane: &Plane) -> Vec<[Point3; 3]> {
+    mesh.triangles
+        .iter()
+        .filter_map(|triangle| {
+            let [a, b, c] = triangle.map(|index| {
+                mesh.points
+                    .get(index as usize)
+                    .map(|point| plane.to_world(*point))
+            });
+            Some([a?, b?, c?])
+        })
+        .collect()
+}
+
+fn region_points(
+    document: &Document,
+    evaluation: &Evaluation,
+    sketch: FeatureId,
+    regions: &[SketchRegion],
+    region: RegionKey,
+) -> Vec<Point3> {
+    let Some(plane) = sketch_plane(document, evaluation, sketch) else {
+        return Vec::new();
+    };
+    regions
+        .iter()
+        .filter(|candidate| candidate.region.key() == region)
+        .filter_map(|candidate| candidate.mesh.as_ref())
+        .flat_map(|mesh| mesh.points.iter().map(|point| plane.to_world(*point)))
+        .collect()
 }
 
 fn model_bounds(sources: &Sources<'_>) -> Option<Aabb> {

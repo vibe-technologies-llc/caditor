@@ -194,6 +194,7 @@ pub struct Context {
     pub solid: Option<FeatureId>,
     pub choosing_plane: bool,
     pub projecting: bool,
+    pub selecting: bool,
     pub choosing_in_view: bool,
 }
 
@@ -230,6 +231,9 @@ impl SketchEditing {
             solid: self.solid,
             choosing_plane: self.choosing_plane,
             projecting: self.active.is_some_and(|active| active.tool.projects()),
+            selecting: self
+                .active
+                .is_some_and(|active| active.tool == Tool::Select),
             choosing_in_view: self.picking.is_some(),
         }
     }

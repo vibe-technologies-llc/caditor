@@ -23,23 +23,8 @@ most to the least important and from the easiest to the hardest. An entry that c
 tagged `blocked by: <blocker>` with the specific item, decision or external fact, and follows
 the unblocked ones; the entry that does the unblocking comes before it. An entry tagged `later` instead of
 an importance is deliberately not a priority: it waits until the rest is done, and its category
-comes last.
-
-## Extruding part of a sketch
-
-- [high · medium] A region cut by overlapping shapes cannot be picked as the area it is. With a
-  square and a second one crossing its corner, the part of the second square outside the first (an
-  L-shaped area) is wanted for a single extrusion, but clicking in the sketch selects whole curves
-  (the second square's four sides and two sides of the first), not the pieces between crossings, and
-  Extrude on that selection takes the even-odd interior of the closed outline, which is not that
-  area. Regions exist as fills only while an extrusion or revolve is open
-  (`scene.rs`, `Pickable::Region`), so the sketch gives no sign that they can be chosen. The fix is
-  to make the regions of the edited sketch pickable in the sketch itself (hover fills the area under
-  the pointer, a click selects it, Shift or Ctrl adds more), and to let Extrude and Revolve take the
-  selected regions as they take selected curves, so any area cut out by crossing curves, outside the
-  overlap, inside it or outside both, extrudes alone without trimming or redrawing the sketch.
-  Clicking the area with the Extrude panel open does not pick it either, so the region fills
-  themselves are wrong or missing for crossing outlines, not only hidden outside the panel.
+comes last. An entry tagged `next` is taken before every other item, whatever its tag, and carries
+a note saying why; it loses the tag when its change lands, like any implemented item.
 
 ## Kernel correctness
 

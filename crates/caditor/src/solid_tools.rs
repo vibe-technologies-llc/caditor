@@ -3,7 +3,8 @@ use std::collections::BTreeSet;
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeExtent, Feature,
     FeatureId, FeatureKind, FeatureResult, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction, describe_axis,
+    SketchAttachment, SketchFeature, SketchRegion, SolidFeature, SolidStart, Transaction,
+    describe_axis,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::Point2;
@@ -86,7 +87,8 @@ pub fn sweep_source(
     let picked = selection.in_pick_order();
     let mut selected: Vec<FeatureId> = Vec::new();
     for pickable in &picked {
-        if let Pickable::SketchEntity { feature, .. } = *pickable
+        if let Pickable::SketchEntity { feature, .. } | Pickable::SketchRegion { feature, .. } =
+            *pickable
             && !selected.contains(&feature)
         {
             selected.push(feature);
@@ -208,9 +210,12 @@ pub fn face_to_extrude(
     selection: &Selection,
     editing: &SketchEditing,
 ) -> Option<Result<FaceChoice, &'static str>> {
-    let sketch_chosen = selection
-        .iter()
-        .any(|pickable| matches!(pickable, Pickable::SketchEntity { .. }));
+    let sketch_chosen = selection.iter().any(|pickable| {
+        matches!(
+            pickable,
+            Pickable::SketchEntity { .. } | Pickable::SketchRegion { .. }
+        )
+    });
     if editing.feature().is_some() || sketch_chosen {
         return None;
     }
@@ -322,10 +327,28 @@ pub fn with_selected_outline(
     source: SweepSource,
     selection: &Selection,
 ) -> SweepSource {
-    match enclosed_regions(model, sweep, &source, selection) {
-        Some(regions) => SweepSource { regions, ..source },
-        None => source,
+    let Some(regions) = selection::sketch_regions(model.evaluation(), source.sketch) else {
+        return source;
+    };
+    let mut chosen = selected_regions(selection, source.sketch);
+    chosen.extend(enclosed_regions(model, sweep, &source, selection, regions));
+    if chosen.is_empty() {
+        return source;
     }
+    SweepSource {
+        regions: RegionChoice::Chosen(scene::region_references(&chosen, regions)),
+        ..source
+    }
+}
+
+pub fn selected_regions(selection: &Selection, sketch: FeatureId) -> BTreeSet<RegionKey> {
+    selection
+        .iter()
+        .filter_map(|pickable| match pickable {
+            Pickable::SketchRegion { feature, region } if feature == sketch => Some(region),
+            _ => None,
+        })
+        .collect()
 }
 
 fn enclosed_regions(
@@ -333,9 +356,14 @@ fn enclosed_regions(
     sweep: Sweep,
     source: &SweepSource,
     selection: &Selection,
-) -> Option<RegionChoice> {
-    let feature = model.document().feature(source.sketch)?;
-    let displayed = model.displayed_sketch(feature)?;
+    regions: &[SketchRegion],
+) -> BTreeSet<RegionKey> {
+    let Some(feature) = model.document().feature(source.sketch) else {
+        return BTreeSet::new();
+    };
+    let Some(displayed) = model.displayed_sketch(feature) else {
+        return BTreeSet::new();
+    };
     let axis = match (sweep, &source.axis) {
         (Sweep::Revolve, Some(RevolveAxis::Sketch(axis))) => Some(*axis),
         _ => None,
@@ -352,18 +380,9 @@ fn enclosed_regions(
         })
         .collect();
     if outline.is_empty() || !closed(&outline) {
-        return None;
+        return BTreeSet::new();
     }
-    let regions = model
-        .evaluation()
-        .feature(source.sketch)?
-        .result
-        .as_deref()
-        .and_then(FeatureResult::sketch)?
-        .regions()?
-        .as_ref()
-        .ok()?;
-    let enclosed: BTreeSet<RegionKey> = regions
+    regions
         .iter()
         .filter(|region| {
             region
@@ -372,9 +391,7 @@ fn enclosed_regions(
                 .is_some_and(|anchor| encloses(&outline, anchor))
         })
         .map(|region| region.region.key())
-        .collect();
-    (!enclosed.is_empty())
-        .then(|| RegionChoice::Chosen(scene::region_references(&enclosed, regions)))
+        .collect()
 }
 
 fn closed(outline: &[Vec<Point2>]) -> bool {

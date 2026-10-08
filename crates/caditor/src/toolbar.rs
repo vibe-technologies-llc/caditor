@@ -273,15 +273,21 @@ fn solid_buttons(
                 let sketch = document
                     .feature(source.sketch)
                     .map_or("the sketch", |feature| feature.name.as_str());
+                let which = match solid_tools::selected_regions(context.selection, source.sketch)
+                    .is_empty()
+                {
+                    true => "closed",
+                    false => "selected",
+                };
                 let hover = match (sweep, &source.axis) {
-                    (Sweep::Extrude, _) => format!("Extrude the closed regions of {sketch}"),
+                    (Sweep::Extrude, _) => format!("Extrude the {which} regions of {sketch}"),
                     (Sweep::Revolve, Some(axis)) => {
                         let axis = solid_tools::axis_name(document, source.sketch, axis);
-                        format!("Revolve the closed regions of {sketch} about {axis}")
+                        format!("Revolve the {which} regions of {sketch} about {axis}")
                     }
                     (Sweep::Revolve, None) => format!(
-                        "Revolve the closed regions of {sketch} about its vertical axis, or about \
-                         a line or axis you select first"
+                        "Revolve the {which} regions of {sketch} about its vertical axis, or \
+                         about a line or axis you select first"
                     ),
                 };
                 Ok(commands.with_keys(command, &hover))

@@ -204,6 +204,7 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
             DatumResult::Point(point) => Subject::Point(point),
         },
         Pickable::SketchConstraint { .. }
+        | Pickable::SketchRegion { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
         | Pickable::ShellFace { .. } => Subject::Unmeasurable,
