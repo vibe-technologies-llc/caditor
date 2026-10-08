@@ -1,18 +1,41 @@
-use caditor_document::{Feature, FeatureId, Move, MoveAxis, Transaction};
+use caditor_document::{Feature, FeatureId, Move, MoveAxis, Transaction, TurnCentre};
 use caditor_expression::Dimension;
 use egui::{Id, Ui};
 
 use crate::{
-    feature_fields::{self, Quantity, Rule},
+    feature_fields::{self, Quantity, Rule, Segment},
     field,
     model::{Action, Model},
     move_tools, widgets,
 };
 
 pub const DESCRIPTION: &str = "Turns the body about the axes through the origin, then shifts it";
+pub const CENTRED_DESCRIPTION: &str =
+    "Turns the body about the axes through the centre of its box, then shifts it";
 pub const COPY_DESCRIPTION: &str = "Makes a new body from a copy of the body, turned about the axes through the origin, then \
      shifted; the original stays where it is";
+pub const CENTRED_COPY_DESCRIPTION: &str = "Makes a new body from a copy of the body, turned about the axes through the centre of its \
+     box, then shifted; the original stays where it is";
+pub const TURN_ABOUT: &str = "Turn about";
+pub const ABOUT_CENTRE: &str = "Body centre";
+pub const ABOUT_ORIGIN: &str = "Origin";
 pub const MAKE_A_COPY: &str = "Make a copy";
+
+fn centre_label(about: TurnCentre) -> &'static str {
+    match about {
+        TurnCentre::Body => ABOUT_CENTRE,
+        TurnCentre::Origin => ABOUT_ORIGIN,
+    }
+}
+
+fn centre_hover(about: TurnCentre) -> &'static str {
+    match about {
+        TurnCentre::Body => {
+            "Turn about axes through the centre of the body's box, so it turns in place"
+        }
+        TurnCentre::Origin => "Turn about the X, Y and Z axes through the origin",
+    }
+}
 
 fn change(model: &Model, feature: FeatureId, movement: Move) -> Result<Transaction, String> {
     let document = model.document();
@@ -92,12 +115,32 @@ pub fn show(
         actions,
     };
     widgets::properties(ui, ("move-properties", feature.id()), |ui| {
-        let description = if movement.copy {
-            COPY_DESCRIPTION
-        } else {
-            DESCRIPTION
+        let description = match (movement.copy, movement.about) {
+            (false, TurnCentre::Origin) => DESCRIPTION,
+            (false, TurnCentre::Body) => CENTRED_DESCRIPTION,
+            (true, TurnCentre::Origin) => COPY_DESCRIPTION,
+            (true, TurnCentre::Body) => CENTRED_COPY_DESCRIPTION,
         };
         feature_fields::description_row(ui, description);
+        let segments = [TurnCentre::Body, TurnCentre::Origin]
+            .into_iter()
+            .map(|about| Segment {
+                label: centre_label(about),
+                hover: centre_hover(about),
+                change: (about != movement.about).then(|| {
+                    change(
+                        model,
+                        feature.id(),
+                        Move {
+                            about,
+                            ..movement.clone()
+                        },
+                    )
+                }),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, TURN_ABOUT, &feature.name, segments);
+        panel.actions.extend(chosen);
         for axis in MoveAxis::ALL {
             panel.turn_row(ui, axis);
         }

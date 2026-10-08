@@ -63,6 +63,7 @@ fn a_feature_using_a_removed_body_fails_naming_the_removal() {
         &mut pair.document,
         "Move 1",
         FeatureKind::Move(Move {
+            about: TurnCentre::Origin,
             body: pair.peg,
             offset: [0.0, 0.0, 1.0].map(|value| {
                 caditor_expression::Expression::Measure(value, caditor_expression::Unit::Millimetre)

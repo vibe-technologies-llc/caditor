@@ -7,14 +7,14 @@ use std::{
 
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult,
-    FeatureState, ModelEvaluator, Outcome, ParameterValues, Prepared, Progress, Recomputer,
-    SketchResult, Stale, Transaction,
+    FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Prepared, Progress, Recomputer,
+    SketchResult, Stale, Transaction, TurnCentre,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, JournalEntry, JournalFailure, Recovered, Report, SaveRequest,
     Start, Storage, StorageConfig,
 };
-use caditor_geometry::RigidTransform;
+use caditor_geometry::{Point3, RigidTransform};
 use caditor_kernel::MeshQuality;
 use caditor_sketch::{Constraint, Sketch, SketchSolution};
 use parking_lot::Mutex;
@@ -307,7 +307,8 @@ impl Model {
         } else {
             drafted.body
         };
-        let placement = drafted.placement(&self.parameters)?;
+        let pivot = self.move_pivot(draft.feature, drafted)?;
+        let placement = drafted.placement(&self.parameters, pivot)?;
         Some((body, committed.inverse().then(&placement)))
     }
 
@@ -365,8 +366,20 @@ impl Model {
                 .feature(feature)
                 .is_some_and(|status| status.state == FeatureState::UpToDate);
         match &self.document().feature(feature)?.kind {
-            FeatureKind::Move(committed) if up_to_date => committed.placement(&self.parameters),
+            FeatureKind::Move(committed) if up_to_date => {
+                let pivot = self.move_pivot(feature, committed)?;
+                committed.placement(&self.parameters, pivot)
+            }
             _ => None,
+        }
+    }
+
+    pub fn move_pivot(&self, feature: FeatureId, movement: &Move) -> Option<Point3> {
+        match movement.about {
+            TurnCentre::Origin => Some(Point3::ZERO),
+            TurnCentre::Body => {
+                movement.pivot(self.evaluation.body_seen_by(feature, movement.body)?)
+            }
         }
     }
 

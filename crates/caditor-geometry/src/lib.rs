@@ -13,5 +13,5 @@ pub use crate::{
     plane::Plane,
     ray::Ray,
     similarity::Similarity,
-    transform::{RigidTransform, RigidTransform2},
+    transform::{RigidTransform, RigidTransform2, rotation_from_turns, turns_about_axes},
 };

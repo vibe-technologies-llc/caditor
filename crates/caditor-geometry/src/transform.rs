@@ -1,4 +1,4 @@
-use glam::DMat3;
+use glam::{DMat3, EulerRot};
 
 use crate::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 
@@ -130,6 +130,15 @@ impl RigidTransform2 {
     }
 }
 
+pub fn turns_about_axes(rotation: Rotation3) -> [f64; 3] {
+    let (z, y, x) = rotation.to_euler(EulerRot::ZYX);
+    [x, y, z]
+}
+
+pub fn rotation_from_turns([x, y, z]: [f64; 3]) -> Rotation3 {
+    Rotation3::from_euler(EulerRot::ZYX, z, y, x)
+}
+
 #[cfg(test)]
 mod tests {
     use std::f64::consts::FRAC_PI_2;
@@ -210,5 +219,23 @@ mod tests {
                 .distance(point)
                 < EPSILON
         );
+    }
+
+    #[test]
+    fn turns_about_x_then_y_then_z_round_trip_through_a_rotation() {
+        let turns = [0.3, -0.7, 2.1];
+
+        let rotation = rotation_from_turns(turns);
+        let stepwise = RigidTransform::rotation_about(Point3::ZERO, Vector3::X, turns[0])
+            .unwrap()
+            .then(&RigidTransform::rotation_about(Point3::ZERO, Vector3::Y, turns[1]).unwrap())
+            .then(&RigidTransform::rotation_about(Point3::ZERO, Vector3::Z, turns[2]).unwrap());
+
+        let found = turns_about_axes(rotation);
+        for (found, turn) in found.iter().zip(turns) {
+            assert!((found - turn).abs() < 1e-12, "{found} {turn}");
+        }
+        let point = Point3::new(1.0, 2.0, 3.0);
+        assert!((rotation * point).distance(stepwise.apply_point(point)) < 1e-12);
     }
 }

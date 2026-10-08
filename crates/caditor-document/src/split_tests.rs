@@ -103,6 +103,7 @@ fn the_split_off_body_takes_later_features_of_its_own() {
     let moved = transaction.add_feature(
         "Move 1",
         FeatureKind::Move(Move {
+            about: TurnCentre::Origin,
             body: model.split,
             offset: [
                 Expression::parse_stored("-5 mm").unwrap(),

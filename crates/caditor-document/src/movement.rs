@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Unit};
 use caditor_geometry::{Point3, RigidTransform, Vector3};
+use caditor_kernel::Solid;
 
 use crate::{
     document::{Feature, FeatureId},
@@ -63,12 +64,20 @@ impl MoveAxis {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TurnCentre {
+    #[default]
+    Origin,
+    Body,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Move {
     pub body: FeatureId,
     pub offset: [Expression; 3],
     pub turn: [Expression; 3],
     pub copy: bool,
+    pub about: TurnCentre,
 }
 
 impl Move {
@@ -95,8 +104,15 @@ impl Move {
         self.expressions().map(Expression::heap_size).sum()
     }
 
-    pub fn placement(&self, parameters: &ParameterValues) -> Option<RigidTransform> {
-        evaluated(&self.offset, &self.turn, parameters)
+    pub fn pivot(&self, body: &Solid) -> Option<Point3> {
+        match self.about {
+            TurnCentre::Origin => Some(Point3::ZERO),
+            TurnCentre::Body => Some(body.bounding_box()?.center()),
+        }
+    }
+
+    pub fn placement(&self, parameters: &ParameterValues, pivot: Point3) -> Option<RigidTransform> {
+        evaluated(&self.offset, &self.turn, parameters, pivot)
     }
 }
 
@@ -146,7 +162,7 @@ impl BodyPlacement {
     }
 
     pub fn transform(&self, parameters: &ParameterValues) -> Option<RigidTransform> {
-        evaluated(&self.offset, &self.turn, parameters)
+        evaluated(&self.offset, &self.turn, parameters, Point3::ZERO)
     }
 }
 
@@ -154,10 +170,10 @@ fn evaluated(
     offset: &[Expression; 3],
     turn: &[Expression; 3],
     parameters: &ParameterValues,
+    pivot: Point3,
 ) -> Option<RigidTransform> {
     placed(
-        offset,
-        turn,
+        (offset, turn, pivot),
         |expression, dimension, _| {
             expression
                 .evaluate_as(dimension, &|id| parameters.value(id))
@@ -222,10 +238,13 @@ impl Context<'_> {
     }
 }
 
-fn transform(context: &Context<'_>, definition: &Move) -> Result<RigidTransform, Failure> {
+fn transform(
+    context: &Context<'_>,
+    definition: &Move,
+    pivot: Point3,
+) -> Result<RigidTransform, Failure> {
     placed(
-        &definition.offset,
-        &definition.turn,
+        (&definition.offset, &definition.turn, pivot),
         |expression, dimension, what| context.value(expression, dimension, what),
         || unusable(context),
     )
@@ -238,8 +257,7 @@ pub(crate) fn placement_transform(
 ) -> Result<RigidTransform, Failure> {
     let context = Context { feature, inputs };
     placed(
-        &placement.offset,
-        &placement.turn,
+        (&placement.offset, &placement.turn, Point3::ZERO),
         |expression, dimension, what| context.value(expression, dimension, what),
         || {
             context.error(
@@ -251,8 +269,7 @@ pub(crate) fn placement_transform(
 }
 
 fn placed<E>(
-    offset: &[Expression; 3],
-    turn: &[Expression; 3],
+    (offset, turn, pivot): (&[Expression; 3], &[Expression; 3], Point3),
     value: impl Fn(&Expression, Dimension, &str) -> Result<f64, E>,
     unusable: impl Fn() -> E,
 ) -> Result<RigidTransform, E> {
@@ -260,8 +277,8 @@ fn placed<E>(
     for axis in MoveAxis::ALL {
         let what = format!("turn about {}", axis.name());
         let angle = value(axis.of(turn), Dimension::ANGLE, &what)?.to_radians();
-        let turned = RigidTransform::rotation_about(Point3::ZERO, axis.direction(), angle)
-            .ok_or_else(&unusable)?;
+        let turned =
+            RigidTransform::rotation_about(pivot, axis.direction(), angle).ok_or_else(&unusable)?;
         placed = placed.then(&turned);
     }
     let mut shift = Vector3::ZERO;
@@ -287,7 +304,6 @@ pub(crate) fn evaluate(
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
     let context = Context { feature, inputs };
-    let placement = transform(&context, definition)?;
     let body_name = inputs
         .document
         .feature(definition.body)
@@ -296,6 +312,13 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
+    let pivot = definition.pivot(solid).ok_or_else(|| {
+        context.error(
+            format!("The body of {body_name} has no size to find its centre from."),
+            "Turn it about the origin instead.".to_owned(),
+        )
+    })?;
+    let placement = transform(&context, definition, pivot)?;
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }

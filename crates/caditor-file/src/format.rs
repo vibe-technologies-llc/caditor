@@ -15,7 +15,7 @@ use caditor_document::{
     PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference, PrincipalAxis,
     PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve,
     RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, Transaction, group_name, material_name,
+    SolidFeature, SolidStart, Split, Transaction, TurnCentre, group_name, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -162,6 +162,12 @@ pub(crate) enum FeatureKindRecord {
     RevolveOneSide(Box<RevolveOneSideRecord>),
     SteppedHole(Box<SteppedHoleRecord>),
     FeaturePattern(Box<FeaturePatternRecord>),
+    MoveAboutCentre(Box<MoveAboutCentreRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MoveAboutCentreRecord {
+    pub feature: FeatureKindRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -203,7 +209,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 34] = [
+pub(crate) const FEATURE_KINDS: [&str; 35] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -238,6 +244,7 @@ pub(crate) const FEATURE_KINDS: [&str; 34] = [
     "revolve_one_side",
     "stepped_hole",
     "feature_pattern",
+    "move_about_centre",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1409,10 +1416,16 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 offset: movement.offset.each_ref().map(Expression::to_stored_text),
                 turn: movement.turn.each_ref().map(Expression::to_stored_text),
             };
-            if movement.copy {
+            let feature = if movement.copy {
                 FeatureKindRecord::Copy(record)
             } else {
                 FeatureKindRecord::Move(record)
+            };
+            match movement.about {
+                TurnCentre::Origin => feature,
+                TurnCentre::Body => {
+                    FeatureKindRecord::MoveAboutCentre(Box::new(MoveAboutCentreRecord { feature }))
+                }
             }
         }
         FeatureKind::Mirror(mirror) => FeatureKindRecord::Mirror(MirrorRecord {
@@ -2820,6 +2833,17 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::MoveAboutCentre(centred) => {
+            let mut kind = restore_kind(&centred.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Move(movement) => movement.about = TurnCentre::Body,
+                _ => issues.push(format!(
+                    "“{name}” was to turn about its body's centre, but it is not a move, so that \
+                     was left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::RevolveOneSide(one_side) => {
             let mut kind = restore_kind(&one_side.feature, name, texts, issues);
             match &mut kind {
@@ -3662,6 +3686,7 @@ fn restore_move(record: &MoveRecord, copy: bool, feature: &str, issues: &mut Vec
         offset: read(&record.offset, "distance", "0 mm"),
         turn: read(&record.turn, "turn", "0 deg"),
         copy,
+        about: TurnCentre::Origin,
     }
 }
 

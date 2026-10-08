@@ -1,4 +1,4 @@
-use caditor_document::{Document, Edit, FeatureId, FeatureKind, Move, Transaction};
+use caditor_document::{Document, Edit, FeatureId, FeatureKind, Move, Transaction, TurnCentre};
 
 use crate::{
     bodies, body_selection,
@@ -81,6 +81,7 @@ pub fn create(
             offset: std::array::from_fn(|_| unit.default_length(0.0)),
             turn: std::array::from_fn(|_| solid_tools::degrees(0.0)),
             copy,
+            about: TurnCentre::Body,
         }),
     );
     (transaction.finish(), feature)

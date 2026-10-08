@@ -281,8 +281,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Move (`movement.rs`)
 
-- `Move { body, offset, turn, copy }` places an existing body: turns about the X, Y then Z axes
-  through the origin, then shifts by the three distances, all expressions (any sign). It modifies
+- `Move { body, offset, turn, copy, about }` places an existing body: turns about the X, Y then Z
+  axes through the origin, or with `about: TurnCentre::Body` through the centre of the body's box
+  as it stands before the move (`Move::pivot`), then shifts by the three distances, all
+  expressions (any sign). It modifies
   its body like a blend does, keeps every face and edge name (`Solid::transformed`) so references
   held through it survive, and fails alone when a value is not a length or angle or the result is
   not finite. With `copy` it leaves the body alone and makes a new body of its own (`makes_body`,

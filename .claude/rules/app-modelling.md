@@ -220,9 +220,10 @@ paths:
   of zero turns and distances, then opens it. Copy body (Alt+Shift+C, Model menu, palette, a body's
   right-click menu; not on the ribbon, which it would widen past one row) does the same with
   `copy` set, named Copy N, so the copy is placed from its panel; Make a copy in the panel switches
-  between the two. The panel has a field for the turn about each axis
-  and the distance along each, all expressions (key `move-field`, `offset` or `turn`, axis index).
-  Nothing is chosen in the view while it is open.
+  between the two. New moves turn about the body's centre; the panel's Turn about switch (Body
+  centre, Origin) changes it, its description saying which. The panel has a field for the turn
+  about each axis and the distance along each, all expressions (key `move-field`, `offset` or
+  `turn`, axis index). Nothing is chosen in the view while it is open.
 - While a move is open (and nothing is being chosen in the view) a manipulator stands at the centre
   of the moved body's box, following its preview (`move_manipulator.rs`): an arrow along each
   world axis in the axis colours (`selection::Axis::rgb`) and a square for each plane, drawn on the
@@ -236,8 +237,15 @@ paths:
   from where it was grabbed, in steps of 1, 2 or 5 of a power of ten about `STEP_POINTS` on screen
   (Ctrl drags freely). Each change is a preview of the move (`Action::Preview`, drawn as typing
   draws it) with a readout of the distances beside the pointer; release commits one edit setting
-  the dragged distances to measured values, Escape or leaving the feature drops it. Turning is
-  typed only, since a move turns about the origin's axes and a ring at the body would mislead.
+  the dragged distances to measured values, Escape or leaving the feature drops it.
+- A move turning about its body's centre stands its manipulator at that centre (as moved) and adds
+  a ring about each axis (`Handle::Turn`, `RING_REACH` beyond the arrows, left out when seen
+  edge-on). Dragging one turns the body by the angle swept round the centre in the ring's plane,
+  in steps of `TURN_STEP_DEGREES` (Ctrl drags freely), previewed and committed like an arrow: a
+  turn about an axis applied after the others (Z, or Y with no Z turn, or X alone) adds to its own
+  field, any other is composed with the turns there and written back as three turns
+  (`turns_about_axes`), changing only the fields whose value changed. A move turning about the
+  origin has no rings, since a ring at the body would mislead.
 
 ## Mirror and scale
 

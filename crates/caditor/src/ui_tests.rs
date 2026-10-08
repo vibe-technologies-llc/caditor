@@ -8309,6 +8309,84 @@ fn dragging_a_move_arrow_moves_the_body_along_it_in_one_change() {
 }
 
 #[test]
+fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the_origin() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Move body");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let movement = harness.workspace.editing.solid().expect("the move is open");
+    let about_z = Handle::Turn(MoveAxis::Z);
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(about_z, 3.0)
+        .expect("the Z ring is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(about_z, 12.0)
+        .unwrap();
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+    let described = harness.shows("Drag to turn the body about Z through its centre");
+
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+
+    assert!(described);
+    assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+    let moved = |harness: &Harness| match harness
+        .document()
+        .feature(movement)
+        .map(|feature| feature.kind.clone())
+    {
+        Some(FeatureKind::Move(moved)) => moved,
+        other => panic!("the move is still a move: {other:?}"),
+    };
+    let turned = moved(&harness);
+    assert_eq!(turned.about, caditor_document::TurnCentre::Body);
+    let parameters = harness.model.parameters();
+    let z = turned.turn[2]
+        .evaluate_as(caditor_expression::Dimension::ANGLE, &|id| {
+            parameters.value(id)
+        })
+        .unwrap();
+    assert!((z - 45.0).abs() < 1e-9, "{z}");
+    let bounds = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!((bounds.center().x - 20.0).abs() < 1e-6);
+    assert!((bounds.max().x - bounds.min().x - 40.0 * 2.0_f64.sqrt()).abs() < 1e-6);
+
+    assert!(harness.shows(crate::move_panel::TURN_ABOUT));
+    harness.click(crate::move_panel::ABOUT_ORIGIN);
+    harness.settle();
+    assert_eq!(moved(&harness).about, caditor_document::TurnCentre::Origin);
+    let bounds = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!(
+        bounds.center().distance(caditor_geometry::Point3::new(
+            0.0,
+            20.0 * 2.0_f64.sqrt(),
+            5.0
+        )) < 1e-6
+    );
+}
+
+#[test]
 fn an_open_fillet_listing_long_edge_names_keeps_the_side_panel_width() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);
@@ -8773,11 +8851,7 @@ fn a_body_is_moved_by_distances_and_turns_typed_in_the_panel() {
         .unwrap()
         .bounding_box()
         .unwrap();
-    assert!(
-        (bounds.min().x - (-40.0 + 5.0)).abs() < 1e-6,
-        "{:?}",
-        bounds.min()
-    );
+    assert!((bounds.min().x - 5.0).abs() < 1e-6, "{:?}", bounds.min());
 
     harness.type_into_field(Id::new(("move-field", "offset", 1usize, movement)), "5 deg");
     assert!(harness.shows_containing("length"));

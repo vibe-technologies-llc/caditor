@@ -12,6 +12,7 @@ fn moved(pair: &mut Pair, offset: [&str; 3], turn: [&str; 3]) -> FeatureId {
     let mut transaction = pair.document.transaction("Move");
     let expressions = |texts: [&str; 3]| texts.map(|text| transaction.parse(text).unwrap());
     let movement = Move {
+        about: TurnCentre::Origin,
         body: plate,
         offset: expressions(offset),
         turn: expressions(turn),
@@ -162,6 +163,7 @@ fn copied(pair: &mut Pair, offset: [&str; 3]) -> FeatureId {
     let mut transaction = pair.document.transaction("Copy");
     let expressions = |texts: [&str; 3]| texts.map(|text| transaction.parse(text).unwrap());
     let copy = Move {
+        about: TurnCentre::Origin,
         body: plate,
         offset: expressions(offset),
         turn: expressions(["0 deg", "0 deg", "0 deg"]),

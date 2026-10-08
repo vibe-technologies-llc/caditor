@@ -185,7 +185,9 @@ paths:
 - A `move` feature record holds `body` and the stored text of its three distances (`offset`) and
   three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported. A copying move is a
   `copy` record of the same fields, since an older reader taking it for a move would move the
-  original.
+  original. A move or copy turning about its body's centre is a `move_about_centre` record whose
+  `feature` is that record, since an older reader would turn it about the origin; an inner
+  record that is no move loads without it, reported.
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as
   the YZ plane, reported) and `keep_original`. A `scale` record holds `body`, the stored text of
   `factor` (unreadable: 1) and of the three `center` lengths (unreadable: 0 mm).
