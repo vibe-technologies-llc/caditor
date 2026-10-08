@@ -45,7 +45,7 @@ use crate::{
     sketch_placement::{self, FaceChoice},
     sketch_toolbar, sketch_tools,
     snap::{Pointer, Screen},
-    solid_tools,
+    snapshot, solid_tools,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
     view_cube::{self, CubeAction},
@@ -852,6 +852,16 @@ impl ViewportState {
             view,
             scene: built.scene,
             pixels_per_point: self.pixels_per_point * size.height as f32 / shown_height as f32,
+        }
+    }
+
+    pub fn thumbnail(&self, model: &Model, bodies: &[FeatureId], size: SurfaceSize) -> ImageView {
+        let meshes = self.bodies.only(bodies);
+        let snapshot = snapshot::of_bodies(model.document(), model.evaluation(), &meshes, size);
+        ImageView {
+            view: snapshot.view,
+            scene: snapshot.scene,
+            pixels_per_point: snapshot.pixels_per_point,
         }
     }
 

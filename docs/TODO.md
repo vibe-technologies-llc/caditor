@@ -257,8 +257,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
     another tolerance later without breaking what references its faces.
   - Units: STL has none, so the import guesses from the size (a part 0.05 mm across is likely in
     metres) and offers a scale before committing, rather than leaving it to the scale item.
-- [low · medium] 3MF has no thumbnail, builds everything in memory and cannot exceed 4 GiB without
-  ZIP64.
 
 ## Accessibility
 

@@ -1,5 +1,5 @@
 use std::{
-    fs::File,
+    convert::Infallible,
     io::{self, BufWriter, Write},
     path::Path,
 };
@@ -12,6 +12,52 @@ use crate::{reason::WriteFailure, save::replace_atomically};
 pub const PNG_EXTENSION: &str = "png";
 const TEXEL_BYTES: u64 = 4;
 const COMPRESSED_CHUNK_BYTES: usize = 1 << 18;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RgbaImage<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: &'a [u8],
+}
+
+struct WholeImage<'a> {
+    image: RgbaImage<'a>,
+    given: bool,
+}
+
+impl PixelRows for WholeImage<'_> {
+    type Error = Infallible;
+
+    fn width(&self) -> u32 {
+        self.image.width
+    }
+
+    fn height(&self) -> u32 {
+        self.image.height
+    }
+
+    fn next_rows(&mut self) -> Option<Result<&[u8], Infallible>> {
+        if self.given {
+            return None;
+        }
+        self.given = true;
+        Some(Ok(self.image.pixels))
+    }
+}
+
+pub(super) fn encode_png(image: RgbaImage<'_>) -> Result<Vec<u8>, ImageExportError> {
+    let mut encoded = Vec::new();
+    let mut rows = WholeImage {
+        image,
+        given: false,
+    };
+    write_png(&mut encoded, &mut rows, &CancelToken::never()).map_err(|halt| match halt {
+        Halt::Stopped(PngExportError::Export(error)) => error,
+        Halt::Stopped(PngExportError::Pixels(never)) => match never {},
+        Halt::Io(error) => ImageExportError::Writing(WriteFailure::of(&error)),
+    })?;
+    Ok(encoded)
+}
 
 pub trait PixelRows {
     type Error;
@@ -80,7 +126,7 @@ pub fn export_png<R: PixelRows + ?Sized>(
     }
     let mut stopped = None;
     let written = replace_atomically(path, |file| {
-        write_png(file, rows, cancel).map_err(|halt| match halt {
+        write_png(BufWriter::new(file), rows, cancel).map_err(|halt| match halt {
             Halt::Io(error) => error,
             Halt::Stopped(error) => {
                 stopped = Some(error);
@@ -96,7 +142,7 @@ pub fn export_png<R: PixelRows + ?Sized>(
 }
 
 fn write_png<R: PixelRows + ?Sized>(
-    file: &mut File,
+    out: impl Write,
     rows: &mut R,
     cancel: &CancelToken,
 ) -> Result<(), Halt<R::Error>> {
@@ -111,7 +157,7 @@ fn write_png<R: PixelRows + ?Sized>(
         })
     };
 
-    let mut encoder = Encoder::new(BufWriter::new(file), width, height);
+    let mut encoder = Encoder::new(out, width, height);
     encoder.set_color(ColorType::Rgba);
     encoder.set_depth(BitDepth::Eight);
     encoder.set_compression(Compression::Fast);
@@ -142,7 +188,7 @@ fn write_png<R: PixelRows + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::VecDeque, convert::Infallible, fs};
+    use std::{collections::VecDeque, fs};
 
     use tempfile::TempDir;
 
@@ -229,7 +275,7 @@ mod tests {
     }
 
     fn decoded(path: &Path) -> (png::OutputInfo, Vec<u8>, bool) {
-        let mut reader = png::Decoder::new(std::io::BufReader::new(File::open(path).unwrap()))
+        let mut reader = png::Decoder::new(std::io::BufReader::new(fs::File::open(path).unwrap()))
             .read_info()
             .unwrap();
         let mut pixels = vec![0; reader.output_buffer_size().unwrap()];

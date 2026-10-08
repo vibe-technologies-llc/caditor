@@ -80,6 +80,12 @@ paths:
   option saying what it costs on hover. A binary STL moved near the origin says by how much and
   how to move it back, in a notice that outlasts edits (`export::moved_note`; the command line
   prints it as a warning).
+- A 3MF export first has its thumbnail drawn: the `Exporter` holds the job (`thumbnail_job`)
+  until the session draws the bodies chosen, alone, framed from the initial view on a transparent
+  background at `THUMBNAIL_SIZE` (`ViewportState::thumbnail` from the meshes already shown, through
+  `snapshot::of_bodies`), with `Renderer::render_image`; the export thread reads the bands before
+  writing. When the renderer is busy with an image export or drawing fails, the 3MF goes without
+  one. The command line draws it offscreen when a graphics adapter exists.
 - A path lacking the format's extension gets it appended, so an export never replaces a model
   file; when the appended name exists, `files.rs` asks "Replace …?" as Save As does, and Cancel
   returns to the export dialog.

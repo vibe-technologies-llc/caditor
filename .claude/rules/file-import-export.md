@@ -92,7 +92,8 @@ paths:
 
 - `export_bodies` writes STEP (a body with a look styled with its colour), or tessellates at a `MeshResolution` (a chord fraction of the
   largest body's diagonal plus an angle between triangles) into STL (`MeshOptions::stl`, see
-  below), 3MF (one named object per body, millimetres; a body with a colour or material points
+  below), 3MF (one named object per body, millimetres, a thumbnail when given; a body with a
+  colour or material points
   into one `basematerials` group, its `base` named after the material or else the body and coloured
   with the body's colour or the app's default, via `ExportBody::look`), OBJ (one named object per body, global
   1-based indices, millimetres, Z up, no normals; bodies with a look name a material, `<index>_<material
@@ -157,8 +158,18 @@ paths:
   atomically, streaming whatever `PixelRows` yields (bands of whole rows) into the encoder, so
   the image is never held whole; it checks the pixel count and cancellation between bands. Its
   errors are `PngExportError`: the source's own error as `Pixels`, else an `ImageExportError`.
-- 3MF is a ZIP from a small writer (`zip.rs`; deflate through `miniz_oxide` unless storing is
-  smaller, CRC32, no ZIP64): deflate and CRC32 live only here, for the foreign format.
+- 3MF is a ZIP from a small writer (`zip.rs`, `ZipWriter`) streamed into the temporary like STL:
+  the content types, the package relationships and the thumbnail go first, whole (deflated through
+  `miniz_oxide` unless storing is smaller), then the model, written straight into `miniz_oxide`'s
+  streaming compressor with its CRC32 alongside and its sizes patched into the local header once
+  known, so the XML is never held. ZIP64 is used only where needed: the model reserves a ZIP64
+  field in its local header when `model_size_bound` (from the counts of vertices and triangles,
+  the longest coordinate and the escaped names) allows more than 4 GiB, and the central directory
+  and end records switch to ZIP64 fields and records for any size, offset or count past their
+  32 or 16 bits. Deflate and CRC32 live only here, for the foreign format.
+- A 3MF thumbnail is `MeshOptions::thumbnail` (RGBA) encoded to `Metadata/thumbnail.png` in memory
+  (`image::encode_png`), with a `png` content type and a package relationship of the OPC thumbnail
+  type; one that cannot be encoded is left out with a log line, never failing the export.
 
 ## Failures
 

@@ -33,7 +33,7 @@ use crate::{
     dialog_parts,
     drawing_export::{self, DrawingSource, FACE_HINT, NOT_A_FACE, NOT_A_SKETCH, SKETCH_HINT},
     editing::{self, SketchEditing},
-    export::{self, ExportCommand, Exporter},
+    export::{self, ExportCommand, Exporter, ThumbnailJob},
     history::{self, HistoryCommand, VersionHistory},
     icons,
     image_export::{
@@ -952,6 +952,14 @@ impl Files {
 
     pub fn image_job(&mut self) -> Option<RenderJob> {
         self.image.render_job()
+    }
+
+    pub fn thumbnail_job(&mut self) -> Option<ThumbnailJob> {
+        self.exporter.thumbnail_job()
+    }
+
+    pub fn thumbnail_rendered(&mut self, pixels: Option<ReadPixels>) {
+        self.exporter.thumbnail_rendered(pixels);
     }
 
     #[cfg(test)]

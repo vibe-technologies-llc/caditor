@@ -27,7 +27,7 @@ use caditor_step::{StepBody, StepDetails, StepWritten, WriteError, write_step_de
 
 use self::figure::Figure;
 pub use self::{
-    image::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, export_png},
+    image::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, RgbaImage, export_png},
     stl::StlEncoding,
 };
 use crate::{
@@ -294,9 +294,10 @@ fn extent(bounds: impl IntoIterator<Item = Aabb>) -> f64 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct MeshOptions {
+pub struct MeshOptions<'a> {
     pub resolution: MeshResolution,
     pub stl: StlEncoding,
+    pub thumbnail: Option<RgbaImage<'a>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -375,7 +376,7 @@ fn exported_properties(
 pub fn export_bodies(
     path: &Path,
     format: ExportFormat,
-    options: &MeshOptions,
+    options: &MeshOptions<'_>,
     bodies: &[ExportBody<'_>],
     properties: &ModelProperties,
     cancel: &CancelToken,
@@ -411,6 +412,21 @@ pub fn export_bodies(
             StlEncoding::Text => stl::write_text(out, &meshes, cancel),
         })?;
         return Ok(exported(moved));
+    }
+    if format == ExportFormat::ThreeMf {
+        let thumbnail = options
+            .thumbnail
+            .and_then(|image| match image::encode_png(image) {
+                Ok(png) => Some(png),
+                Err(error) => {
+                    log::warn!("the 3MF thumbnail was left out: {error}");
+                    None
+                }
+            });
+        write_streamed(path, |out| {
+            three_mf::write(out, &meshes, properties, thumbnail.as_deref(), cancel)
+        })?;
+        return Ok(exported(None));
     }
     let library = (format == ExportFormat::Obj)
         .then(|| obj::Library::beside(path, &meshes))
@@ -546,8 +562,9 @@ fn encode(
     properties: &ModelProperties,
 ) -> Result<Vec<u8>, ExportError> {
     match format {
-        ExportFormat::Stl | ExportFormat::Step => Err(ExportError::Encoding),
-        ExportFormat::ThreeMf => three_mf::encode(bodies, properties),
+        ExportFormat::Stl | ExportFormat::ThreeMf | ExportFormat::Step => {
+            Err(ExportError::Encoding)
+        }
         ExportFormat::Obj => obj::encode(bodies, library, properties),
         ExportFormat::Gltf => gltf::encode(bodies, properties),
     }

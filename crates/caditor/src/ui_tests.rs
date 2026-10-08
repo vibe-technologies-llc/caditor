@@ -342,6 +342,7 @@ impl Harness {
             &mut self.workspace,
         );
         self.render_image();
+        self.render_thumbnail();
         self.model
             .mesh_before(self.workspace.editing.context().solid);
         self.workspace
@@ -379,6 +380,19 @@ impl Harness {
             }
         };
         self.files.image_rendered(pixels, &mut self.model);
+    }
+
+    fn render_thumbnail(&mut self) {
+        let Some(job) = self.files.thumbnail_job() else {
+            return;
+        };
+        let (width, height) = (job.size.width, job.size.height);
+        self.files.thumbnail_rendered(Some(Box::new(SolidRows {
+            width,
+            height,
+            pixels: Some([90, 120, 200, 255].repeat(width as usize * height as usize)),
+            sent: Vec::new(),
+        })));
     }
 
     fn answer_pick(&mut self) {
@@ -1486,6 +1500,11 @@ fn exporting_writes_the_chosen_bodies_in_the_chosen_format_beside_the_model() {
     });
     let package = std::fs::read(dir.path().join("plate.3mf")).unwrap();
     assert!(package.starts_with(b"PK\x03\x04"));
+    assert!(
+        package
+            .windows(b"Metadata/thumbnail.png".len())
+            .any(|name| name == b"Metadata/thumbnail.png")
+    );
 
     harness.command(FileCommand::Export(ExportCommand::Show));
     harness.click("STL");

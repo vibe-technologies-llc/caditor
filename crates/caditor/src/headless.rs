@@ -10,12 +10,12 @@ use caditor_document::{
 };
 use caditor_file::{
     DXF_EXTENSION, ExportBody, ExportFormat, MeshOptions, MeshResolution, PNG_EXTENSION,
-    PngExportError, bodies_transaction, export_png,
+    PngExportError, RgbaImage, bodies_transaction, export_png,
 };
 use caditor_render::{Background, GraphicsSettings, ImageRequest, OffscreenRenderer, SurfaceSize};
 
 use crate::{
-    export::{self, ExportSource, OwnedLook},
+    export::{self, ExportSource, OwnedLook, THUMBNAIL_SIZE},
     image_export::RenderedRows,
     import,
     model::display_name,
@@ -89,12 +89,9 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
         issues: mut warnings,
     } = open(model)?;
     let evaluation = match target {
-        Target::Mesh(_) => Recompute::default().run_without_display(
-            &document,
-            &ModelEvaluator,
-            &CancelToken::never(),
-        ),
-        Target::Image => Recompute::default().run(
+        Target::Mesh(format) if format != ExportFormat::ThreeMf => Recompute::default()
+            .run_without_display(&document, &ModelEvaluator, &CancelToken::never()),
+        Target::Mesh(_) | Target::Image => Recompute::default().run(
             &document,
             &ModelEvaluator,
             &CancelToken::never(),
@@ -129,11 +126,20 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
                     })
                 })
                 .collect();
+            let thumbnail = match format {
+                ExportFormat::ThreeMf => draw_thumbnail(&document, &evaluation),
+                _ => None,
+            };
             let exported = caditor_file::export_bodies(
                 output,
                 format,
                 &MeshOptions {
                     resolution: *resolution,
+                    thumbnail: thumbnail.as_ref().map(|(size, pixels)| RgbaImage {
+                        width: size.width,
+                        height: size.height,
+                        pixels,
+                    }),
                     ..MeshOptions::default()
                 },
                 &export_bodies,
@@ -165,6 +171,26 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
         warnings,
         failed_features,
     })
+}
+
+fn draw_thumbnail(document: &Document, evaluation: &Evaluation) -> Option<(SurfaceSize, Vec<u8>)> {
+    let drawn = snapshot::take(document, evaluation, THUMBNAIL_SIZE).and_then(|snapshot| {
+        let mut renderer = OffscreenRenderer::new(GraphicsSettings::default())?;
+        Ok(renderer.render(&ImageRequest {
+            size: THUMBNAIL_SIZE,
+            view: &snapshot.view,
+            scene: &snapshot.scene,
+            pixels_per_point: snapshot.pixels_per_point,
+            background: Background::Transparent,
+        })?)
+    });
+    match drawn {
+        Ok(bands) => export::read_thumbnail(Box::new(RenderedRows(bands))),
+        Err(error) => {
+            log::info!("the 3MF goes without a thumbnail: {error}");
+            None
+        }
+    }
 }
 
 fn draw_image(
@@ -363,6 +389,23 @@ mod tests {
                 .starts_with("Exported 1 body of “plate.caditor” to “plate.png”")
         );
         assert_eq!((info.width, info.height), (320, 200));
+    }
+
+    #[test]
+    fn a_3mf_carries_a_thumbnail_when_a_graphics_adapter_can_draw_one() {
+        let folder = TempDir::new().unwrap();
+        let model = saved_sample(&folder);
+        let output = folder.path().join("plate.3mf");
+
+        let converted = convert(&conversion(&model, &output)).unwrap();
+        let package = std::fs::read(&output).unwrap();
+        let thumbnail = b"Metadata/thumbnail.png";
+        let has_thumbnail = package
+            .windows(thumbnail.len())
+            .any(|name| name == thumbnail);
+
+        assert!(converted.warnings.is_empty(), "{:?}", converted.warnings);
+        assert!(has_thumbnail || std::env::var_os("CADITOR_REQUIRE_GPU").is_none());
     }
 
     #[test]

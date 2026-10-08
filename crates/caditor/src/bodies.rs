@@ -403,6 +403,19 @@ impl BodyMeshes {
         self.generation
     }
 
+    pub fn only(&self, kept: &[FeatureId]) -> Self {
+        Self {
+            bodies: self
+                .bodies
+                .iter()
+                .filter(|(body, _)| kept.contains(body))
+                .map(|(body, mesh)| (*body, Arc::clone(mesh)))
+                .collect(),
+            generation: self.generation,
+            ..Self::default()
+        }
+    }
+
     fn changed(&mut self) {
         self.generation = self.generation.wrapping_add(1);
     }

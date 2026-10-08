@@ -16,7 +16,7 @@ use tempfile::TempDir;
 
 use super::{
     stl::{FACET_LENGTH, HEADER_LENGTH},
-    three_mf::{CONTENT_TYPES_PATH, Coordinate, MODEL_PATH, RELATIONSHIPS_PATH},
+    three_mf::{CONTENT_TYPES_PATH, Coordinate, MODEL_PATH, RELATIONSHIPS_PATH, THUMBNAIL_PATH},
     zip::{CENTRAL_HEADER_SIGNATURE, DEFLATED, END_SIGNATURE, LOCAL_HEADER_SIGNATURE, STORED},
     *,
 };
@@ -166,6 +166,8 @@ fn unzip(bytes: &[u8]) -> BTreeMap<String, Vec<u8>> {
         assert_eq!(read_u32(bytes, local), LOCAL_HEADER_SIGNATURE);
         assert_eq!(read_u16(bytes, local + 8), method);
         assert_eq!(read_u32(bytes, local + 14), crc);
+        assert_eq!(read_u32(bytes, local + 18) as usize, compressed);
+        assert_eq!(read_u32(bytes, local + 22) as usize, size);
         let data_start = local + 30 + name_length + read_u16(bytes, local + 28) as usize;
         let data = &bytes[data_start..data_start + compressed];
         let contents = match method {
@@ -332,6 +334,7 @@ fn a_text_stl_keeps_each_body_as_a_named_solid_with_exact_coordinates() {
     let options = MeshOptions {
         resolution: MeshResolution::Coarse,
         stl: StlEncoding::Text,
+        ..MeshOptions::default()
     };
 
     let exported = export_bodies(
@@ -423,6 +426,81 @@ fn a_binary_stl_far_from_the_origin_is_moved_near_it_and_says_by_how_much() {
     );
     assert!((signed_volume(&facets) - 40.0 * 20.0 * 10.0).abs() < 1e-6);
     assert_eq!(unmoved.moved, None);
+}
+
+#[test]
+fn a_3mf_thumbnail_is_a_png_the_package_relationships_point_to() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("part.3mf");
+    let block = block();
+    let bodies = [ExportBody {
+        name: "Block",
+        solid: &block,
+        look: None,
+    }];
+    let pixels: Vec<u8> = (0..4 * 3)
+        .flat_map(|index| [index * 20, 40, 200, 255])
+        .collect();
+    let options = MeshOptions {
+        thumbnail: Some(RgbaImage {
+            width: 4,
+            height: 3,
+            pixels: &pixels,
+        }),
+        ..MeshOptions::default()
+    };
+
+    export_bodies(
+        &path,
+        ExportFormat::ThreeMf,
+        &options,
+        &bodies,
+        &ModelProperties::default(),
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let entries = unzip(&std::fs::read(&path).unwrap());
+    let plain = unzip(
+        &three_mf::encode(
+            &[mesh_of(&block, MeshResolution::Coarse)],
+            &ModelProperties::default(),
+        )
+        .unwrap(),
+    );
+    let relationships = String::from_utf8(entries[RELATIONSHIPS_PATH].clone()).unwrap();
+    let types = String::from_utf8(entries[CONTENT_TYPES_PATH].clone()).unwrap();
+    let mut reader = png::Decoder::new(std::io::Cursor::new(entries[THUMBNAIL_PATH].clone()))
+        .read_info()
+        .unwrap();
+    let mut decoded = vec![0; reader.output_buffer_size().unwrap()];
+    let frame = reader.next_frame(&mut decoded).unwrap();
+
+    assert_eq!(
+        entries.keys().collect::<Vec<_>>(),
+        [
+            MODEL_PATH,
+            THUMBNAIL_PATH,
+            CONTENT_TYPES_PATH,
+            RELATIONSHIPS_PATH
+        ]
+    );
+    assert!(relationships.contains(
+        r#"<Relationship Target="/Metadata/thumbnail.png" Id="rel1" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/thumbnail"/>"#
+    ));
+    assert!(types.contains(r#"<Default Extension="png" ContentType="image/png"/>"#));
+    assert_eq!((frame.width, frame.height), (4, 3));
+    assert_eq!(&decoded[..frame.buffer_size()], pixels.as_slice());
+    assert!(!plain.contains_key(THUMBNAIL_PATH));
+    assert!(
+        !String::from_utf8(plain[RELATIONSHIPS_PATH].clone())
+            .unwrap()
+            .contains("thumbnail")
+    );
+    assert!(
+        !String::from_utf8(plain[CONTENT_TYPES_PATH].clone())
+            .unwrap()
+            .contains("png")
+    );
 }
 
 #[test]

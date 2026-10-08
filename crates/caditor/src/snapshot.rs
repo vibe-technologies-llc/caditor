@@ -32,11 +32,20 @@ pub struct Snapshot {
 
 pub fn take(document: &Document, evaluation: &Evaluation, size: SurfaceSize) -> Result<Snapshot> {
     let meshes = meshed(evaluation)?;
+    Ok(of_bodies(document, evaluation, &meshes, size))
+}
+
+pub fn of_bodies(
+    document: &Document,
+    evaluation: &Evaluation,
+    meshes: &BodyMeshes,
+    size: SurfaceSize,
+) -> Snapshot {
     let sketches = DisplayedSketches::default();
     let sources = Sources {
         document,
         evaluation,
-        bodies: &meshes,
+        bodies: meshes,
         sketches: &sketches,
         style: DisplayStyle::default(),
         contrast: Contrast::default(),
@@ -49,11 +58,11 @@ pub fn take(document: &Document, evaluation: &Evaluation, size: SurfaceSize) -> 
     let level = FacetLevel::fitting(FacetLevel::wanted_chord(&framed));
     let built = build(&sources, level);
 
-    Ok(Snapshot {
+    Snapshot {
         view: framed.reaching(built.everything),
         scene: built.scene,
         pixels_per_point: size.height as f32 / REFERENCE_HEIGHT_POINTS,
-    })
+    }
 }
 
 fn build(sources: &Sources<'_>, level: FacetLevel) -> scene::BuiltScene {

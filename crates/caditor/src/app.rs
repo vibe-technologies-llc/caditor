@@ -7,7 +7,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use caditor_render::{
-    FrameStart, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake, WindowTarget,
+    Background, FrameStart, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake,
+    WindowTarget,
 };
 use egui_winit::accesskit_winit;
 use parking_lot::Mutex;
@@ -1323,6 +1324,27 @@ impl Session {
             });
             let rows = started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels);
             files.image_rendered(rows, model);
+        }
+        if let Some(job) = files.thumbnail_job() {
+            let image = self
+                .workspace
+                .viewport
+                .thumbnail(model, &job.bodies, job.size);
+            let started = self.renderer.render_image(&ImageRequest {
+                size: job.size,
+                view: &image.view,
+                scene: &image.scene,
+                pixels_per_point: image.pixels_per_point,
+                background: Background::Transparent,
+            });
+            let rows = match started {
+                Ok(bands) => Some(Box::new(RenderedRows(bands)) as ReadPixels),
+                Err(error) => {
+                    log::warn!("the 3MF thumbnail could not be drawn: {error}");
+                    None
+                }
+            };
+            files.thumbnail_rendered(rows);
         }
         self.renderer.advance_image();
     }

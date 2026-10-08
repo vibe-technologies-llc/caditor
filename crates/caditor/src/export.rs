@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeSet,
     ffi::OsString,
+    panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -13,9 +14,11 @@ use caditor_document::{
     BodyAppearance, CancelToken, FeatureId, FeatureResult, ModelProperties, Rgb,
 };
 use caditor_file::{
-    ExportBody, ExportError, ExportFormat, Exported, Look, MeshOptions, MeshResolution, StlEncoding,
+    ExportBody, ExportError, ExportFormat, Exported, Look, MeshOptions, MeshResolution, RgbaImage,
+    StlEncoding,
 };
 use caditor_geometry::Vector3;
+use caditor_render::{ImageError, SurfaceSize};
 use egui::{ScrollArea, Sides, Ui};
 use parking_lot::Mutex;
 
@@ -25,6 +28,7 @@ use crate::{
     feature_tree::count,
     files::FileCommand,
     icons,
+    image_export::ReadPixels,
     model::{Action, Model, Notice, RecomputeStatus, display_name},
     preferences,
     units::LengthUnit,
@@ -54,9 +58,37 @@ pub enum ExportCommand {
 
 pub type Finished = Box<dyn FnOnce(PathBuf, Result<Exported, ExportError>) + Send>;
 
+pub const THUMBNAIL_SIZE: SurfaceSize = SurfaceSize {
+    width: 256,
+    height: 256,
+};
+
 struct Running {
     path: PathBuf,
     cancelled: Arc<AtomicBool>,
+}
+
+struct Job {
+    path: PathBuf,
+    format: ExportFormat,
+    resolution: MeshResolution,
+    stl: StlEncoding,
+    bodies: Vec<ExportSource>,
+    chosen: Vec<FeatureId>,
+    properties: ModelProperties,
+    cancel: CancelToken,
+    finished: Finished,
+}
+
+struct Waiting {
+    job: Job,
+    rendering: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThumbnailJob {
+    pub size: SurfaceSize,
+    pub bodies: Vec<FeatureId>,
 }
 
 #[derive(Default)]
@@ -67,6 +99,7 @@ pub struct Exporter {
     stl: StlEncoding,
     left_out: BTreeSet<FeatureId>,
     running: Option<Running>,
+    waiting: Option<Waiting>,
     session: u64,
 }
 
@@ -170,37 +203,87 @@ impl Exporter {
         model: &Model,
         finished: Finished,
     ) {
-        let bodies: Vec<ExportSource> = self
+        let (chosen, bodies): (Vec<FeatureId>, Vec<ExportSource>) = self
             .chosen(model)
-            .map(|body| (body.name, body.result, body.look))
-            .collect();
+            .map(|body| (body.id, (body.name, body.result, body.look)))
+            .unzip();
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&cancelled);
-        let cancel = CancelToken::new(move || flag.load(Ordering::SeqCst));
-        let options = MeshOptions {
+        let job = Job {
+            path: path.clone(),
+            format,
             resolution: self.resolution,
             stl: self.stl,
+            bodies,
+            chosen,
+            properties: model.document().properties().clone(),
+            cancel: CancelToken::new(move || flag.load(Ordering::SeqCst)),
+            finished,
         };
-        let properties = model.document().properties().clone();
+        self.running = Some(Running { path, cancelled });
+        if format == ExportFormat::ThreeMf {
+            self.waiting = Some(Waiting {
+                job,
+                rendering: false,
+            });
+        } else {
+            self.spawn(job, None);
+        }
+    }
+
+    pub fn thumbnail_job(&mut self) -> Option<ThumbnailJob> {
+        let waiting = self.waiting.as_mut().filter(|waiting| !waiting.rendering)?;
+        waiting.rendering = true;
+        Some(ThumbnailJob {
+            size: THUMBNAIL_SIZE,
+            bodies: waiting.job.chosen.clone(),
+        })
+    }
+
+    pub fn thumbnail_rendered(&mut self, pixels: Option<ReadPixels>) {
+        if let Some(waiting) = self.waiting.take() {
+            self.spawn(waiting.job, pixels);
+        }
+    }
+
+    fn spawn(&mut self, job: Job, pixels: Option<ReadPixels>) {
+        let Job {
+            path,
+            format,
+            resolution,
+            stl,
+            bodies,
+            properties,
+            cancel,
+            finished,
+            ..
+        } = job;
         let target = path.clone();
         let slot = Arc::new(Mutex::new(Some(finished)));
         let worker_slot = Arc::clone(&slot);
         let spawned = thread::Builder::new()
             .name("export".to_owned())
             .spawn(move || {
+                let thumbnail = pixels.and_then(read_thumbnail);
+                let options = MeshOptions {
+                    resolution,
+                    stl,
+                    thumbnail: thumbnail.as_ref().map(|(size, pixels)| RgbaImage {
+                        width: size.width,
+                        height: size.height,
+                        pixels,
+                    }),
+                };
                 let exported =
                     export_results(&target, format, &options, &bodies, &properties, &cancel);
                 if let Some(finished) = worker_slot.lock().take() {
                     finished(target, exported);
                 }
             });
-        match spawned {
-            Ok(_) => self.running = Some(Running { path, cancelled }),
-            Err(error) => {
-                log::error!("could not start the export: {error}");
-                if let Some(finished) = slot.lock().take() {
-                    finished(path, Err(ExportError::WorkerUnavailable));
-                }
+        if let Err(error) = spawned {
+            log::error!("could not start the export: {error}");
+            if let Some(finished) = slot.lock().take() {
+                finished(path, Err(ExportError::WorkerUnavailable));
             }
         }
     }
@@ -212,6 +295,7 @@ impl Exporter {
             .is_some_and(|running| running.path == path)
         {
             self.running = None;
+            self.waiting = None;
         }
         let name = display_name(Some(path));
         match result {
@@ -277,6 +361,31 @@ pub fn moved_note(moved: Vector3) -> String {
          ({}, {}, {}) mm to put it back.",
         moved.x, moved.y, moved.z, back.x, back.y, back.z
     )
+}
+
+pub fn read_thumbnail(mut rows: ReadPixels) -> Option<(SurfaceSize, Vec<u8>)> {
+    let size = SurfaceSize {
+        width: rows.width(),
+        height: rows.height(),
+    };
+    let read = panic::catch_unwind(AssertUnwindSafe(move || {
+        let mut pixels = Vec::new();
+        while let Some(band) = rows.next_rows() {
+            pixels.extend_from_slice(band?);
+        }
+        Ok::<_, ImageError>(pixels)
+    }));
+    match read {
+        Ok(Ok(pixels)) => Some((size, pixels)),
+        Ok(Err(error)) => {
+            log::warn!("the 3MF thumbnail was left out: {error}");
+            None
+        }
+        Err(_) => {
+            log::error!("reading the 3MF thumbnail panicked");
+            None
+        }
+    }
 }
 
 fn export_results(
