@@ -102,7 +102,7 @@ paths:
 
 ## Editing operations
 
-Trim, extend, offset, mirror, patterns, fillet, chamfer and split work on a copy and replace the sketch only if every step
+Trim, extend, offset, mirror, patterns, fillet, chamfer, split and break work on a copy and replace the sketch only if every step
 succeeded. A changed curve is removed and inserted again under the same ID (`restructure`), with
 every constraint still true of it. Joints are judged by a `TOLERANCE` relative to the extent.
 
@@ -173,11 +173,20 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   end (`TooLarge`). `fillet` adds the arc `Tangent` to both with a `Radius` dimension and keeps the
   corner point as a sharp held on both carriers by `Coincident`, so dimensions, fixes and symmetry
   on the corner still hold.
-- Chamfer (`fillet.rs`, same corners): `bevel` finds the points at the distance from the corner on
-  each curve (along a line, by the chord on an arc), refusing one past a curve's far end
-  (`TooFar`); `chamfer` shortens both to them (`shorten_to`, shared with the fillet), joins them
-  with a line and keeps the sharp the same way, with one `Distance` from the sharp to each new
-  end holding the typed expression, so either side can be changed alone afterwards.
+- Chamfer (`fillet.rs`, same corners): a `ChamferSize` is one distance for both curves (`Equal`),
+  a distance on each (`Distances`) or a distance on the first and the angle of the cut
+  (`DistanceAndAngle`), each a `Dimensioned` (typed expression and its value). `bevel` finds the
+  points at the distances from the corner on each curve (along a line, by the chord on an arc),
+  refusing one past a curve's far end (`TooFar`) or a distance not above zero. With an angle the
+  first point is at the distance and the second where a ray from it, turned by the angle from the
+  direction back to the corner toward the second curve, meets that curve (`AngleMisses` when it
+  never does, `AngleOutOfRange` outside 0° to 180°). `chamfer` shortens both curves to the points
+  (`shorten_to`, shared with the fillet), joins them with a line and keeps the sharp the same
+  way. It holds a `Distance` from the sharp to each new end with the typed expression of that
+  side, so either side can be changed alone afterwards; with an angle, the first end's `Distance`
+  and an `Angle` between the cut and the first curve measured inside the cut-off triangle (the
+  `from`, `to` and `reversed` that make the drawn value positive are found by measuring,
+  `AngleNotHeld` if none does), so the angle is a dimension like the distance.
 - Split (`split.rs`): `split_at` cuts a line or arc at an existing point lying on it between its
   ends (`check_split`), which becomes the end both pieces share, its `Coincident` on the curve
   dropped. A line's pieces are `Collinear`, or each keeps its horizontal or vertical; a point that
@@ -185,6 +194,39 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   keep one radius with no constraint added. Tangent, parallel, perpendicular and angle
   constraints joined at the far end move to the far piece (`far_constraints`, as trim does);
   circles, splines and projected curves are refused.
+- Break (`breaking.rs`): `break_curve` splits a line or arc at every crossing with the other curves
+  and the two axes, found as trim finds its cuts (`open_cuts`: a collinear overlap cuts at its
+  ends, a crossing at a curve's own end is a joint). Each cut goes through `split_at` from the
+  start of the curve toward its end, the next cut lying on the piece just made, so the pieces'
+  `Collinear` constraints chain without repeating one another. The cut point is the end point of
+  the cutter lying there when one does (so two curves broken one after the other, or a line
+  ending on another, share one point), else a new point held on the cutter by `Coincident`
+  (an axis included); a crossing shared by several cutters is joined to one of them. The
+  pieces keep the curve's constraints as a split does and are fully determined by the crossings,
+  so the sketch's degrees of freedom do not change. `break_curves` breaks each of several curves
+  in turn on a working copy, skipping those that cannot break (circles, splines, reference or
+  projected curves, curves crossing nothing); `BreakError` names the curve for a single refusal
+  and says `NothingToBreak` or `NothingSelected` otherwise. Circles are refused like split, since
+  breaking one would replace it with arcs.
+
+## Tangent circles (`tangent_circle.rs`)
+
+- `tangent_circle` draws a circle tangent to three of the sketch's lines, circles and arcs (an
+  arc counts as its full circle, an axis as the infinite line it is), or to two of them at a
+  given radius, and holds it with a `Tangent` to each and, for two, a `Radius` holding the typed
+  expression (`Dimensioned`), so it follows when the curves move. Any other count, a radius with
+  three curves, none with two, a curve chosen twice, a point or spline, a radius not above zero,
+  no circle touching them and one reaching past `MAX_LENGTH` are refused (`TangentError`).
+- `tangent_circle_near` finds every circle first (`TangentCircle`), then takes the one whose
+  centre is nearest the given point, the smallest when there is none. For three curves each of
+  the eight choices of side (outside or inside a circle, either side of a line) is a system
+  whose circle equations differ by linear terms: two linear equations leave a line in
+  (centre, radius) space that the first circle's quadratic cuts in at most two points. For two
+  curves each choice of side offsets both curves by the radius and the circle centres are where
+  the offset curves cross (`fillet::centers`). Candidates are kept only when they touch every
+  curve within a tolerance relative to their reach.
+- Circles tangent to curves whose offsets coincide (two parallel lines at twice the radius, three
+  parallel lines) have no discrete solution and are refused as no circle.
 
 ## Faceting and splines (`curve.rs`, `fit.rs`)
 

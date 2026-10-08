@@ -1,14 +1,21 @@
 use caditor_document::{FeatureId, Transaction};
+use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::Point2;
-use caditor_sketch::{Bevel, Corner, Entity, EntityId, Faceting, FilletError, Rounding, Sketch};
+use caditor_sketch::{
+    Bevel, ChamferSize, Corner, Dimensioned, Entity, EntityId, Faceting, FilletError, Rounding,
+    Sketch,
+};
 
 use crate::{
     drawing::Preview,
     editing::Tool,
+    field::Expected,
     model::Model,
     modifying::{Hint, Outcome, Prompt, Value, ValueField, length_text},
+    patterning,
     snap::{self, Pointer, Screen},
     trimming::{self, capitalized},
+    typed_point,
     units::LengthUnit,
 };
 
@@ -17,12 +24,11 @@ pub const CORNER_PROMPT: &str =
 pub const RADIUS_PROMPT: &str = "Click where the fillet should pass, or type its radius";
 pub const CHAMFER_CORNER_PROMPT: &str =
     "Click the corner to cut, where two lines or arcs meet, or drag from it";
-pub const DISTANCE_PROMPT: &str =
-    "Click where the chamfer should pass, or type how far from the corner it cuts";
+pub const DISTANCE_PROMPT: &str = "Click where the chamfer should pass, or type how far from the corner it cuts: 5, or 5, 3 for a different distance on each curve, or 5 < 45 for a distance and an angle";
 pub const TRANSACTION: &str = "Fillet corner";
 pub const CHAMFER_TRANSACTION: &str = "Chamfer corner";
 const RADIUS_KEYS: &str = "Type the radius   Enter: round it here   Esc: choose another corner";
-const DISTANCE_KEYS: &str = "Type the distance   Enter: cut it here   Esc: choose another corner";
+const DISTANCE_KEYS: &str = "Type a distance, two distances, or a distance < angle   Enter: cut it here   Esc: choose another corner";
 const NO_CORNER_HIGHLIGHTED: &str =
     "Highlight a corner first, with Highlight the next item in the view";
 const NOTHING_TO_ROUND: &str = "The sketch has no corner where two lines or arcs meet";
@@ -33,9 +39,14 @@ pub const FIELD: ValueField = ValueField {
     action: "round the corner",
 };
 pub const CHAMFER_FIELD: ValueField = ValueField {
-    label: "Chamfer distance",
-    placeholder: "distance",
+    label: "Chamfer",
+    placeholder: "5  or  5, 3  or  5 < 45",
     action: "cut the corner",
+};
+const CHAMFER_FORMS: &str = "Type a distance such as 5, two distances such as 5, 3, or a distance and an angle such as 5 < 45";
+const LENGTH: Expected = Expected {
+    dimension: Some(Dimension::LENGTH),
+    non_negative: false,
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -71,7 +82,7 @@ impl Cut {
     fn size(self) -> f64 {
         match self {
             Self::Round(rounding) => rounding.radius,
-            Self::Bevel(bevel) => bevel.distance,
+            Self::Bevel(bevel) => bevel.distances[0],
         }
     }
 
@@ -90,6 +101,12 @@ impl Cut {
     }
 }
 
+#[derive(Debug, Clone)]
+enum Size {
+    Radius(Value),
+    Chamfer(ChamferSize),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Filleting {
     cut: CornerCut,
@@ -98,6 +115,7 @@ pub struct Filleting {
     highlight: Option<Corner>,
     pointer: Option<Point2>,
     typed: Option<f64>,
+    typed_chamfer: Option<Result<ChamferSize, String>>,
     rounding: Option<Result<Cut, FilletError>>,
 }
 
@@ -145,32 +163,70 @@ impl Filleting {
                 .map(|point| sketch.corner_at(point)),
         };
         let cut = self.cut;
-        self.rounding = self.target().and_then(|corner| {
-            let size = self.typed.or_else(|| {
-                let chosen = self.chosen?;
-                let pointer = self.pointer?;
-                match cut {
-                    CornerCut::Round => sketch.radius_through(&chosen, pointer),
-                    CornerCut::Chamfer => sketch.distance_through(&chosen, pointer),
-                }
-            })?;
-            Some(match cut {
-                CornerCut::Round => sketch.rounding(&corner, size).map(Cut::Round),
-                CornerCut::Chamfer => sketch.bevel(&corner, size).map(Cut::Bevel),
-            })
+        self.rounding = self.target().and_then(|corner| match cut {
+            CornerCut::Round => {
+                let radius = self
+                    .typed
+                    .or_else(|| sketch.radius_through(&self.chosen?, self.pointer?))?;
+                Some(sketch.rounding(&corner, radius).map(Cut::Round))
+            }
+            CornerCut::Chamfer => {
+                let size = match &self.typed_chamfer {
+                    Some(Ok(size)) => size.clone(),
+                    Some(Err(_)) => return None,
+                    None => {
+                        let distance = sketch.distance_through(&self.chosen?, self.pointer?)?;
+                        pointed(distance)
+                    }
+                };
+                Some(sketch.bevel(&corner, &size).map(Cut::Bevel))
+            }
         });
     }
 
     pub fn leave(&mut self) {
         self.pointer = None;
         self.hover = None;
-        if self.typed.is_none() {
+        if self.typed.is_none() && self.typed_chamfer.is_none() {
             self.rounding = None;
         }
     }
 
-    pub fn show_typed(&mut self, typed: Option<f64>) {
-        self.typed = typed;
+    pub fn show_text(&mut self, model: &Model, text: Option<&str>) {
+        match self.cut {
+            CornerCut::Round => {
+                self.typed = text
+                    .and_then(|text| Value::typed(model, text).ok())
+                    .map(|value| value.millimetres);
+            }
+            CornerCut::Chamfer => {
+                self.typed_chamfer = text
+                    .filter(|text| !text.trim().is_empty())
+                    .map(|text| parse_chamfer(model, text));
+            }
+        }
+    }
+
+    pub fn enter_text(
+        &mut self,
+        model: &Model,
+        feature: FeatureId,
+        text: &str,
+    ) -> Result<Outcome, String> {
+        match self.cut {
+            CornerCut::Round => {
+                let value = Value::typed(model, text)?;
+                self.enter_value(model, feature, value)
+            }
+            CornerCut::Chamfer => {
+                let size = parse_chamfer(model, text)?;
+                let corner = self
+                    .target()
+                    .ok_or_else(|| trimming::refusal(self.cut.tool(), CHOOSE_FIRST))?;
+                self.round(model, feature, corner, Size::Chamfer(size))
+                    .map(Outcome::Apply)
+            }
+        }
     }
 
     fn target(&self) -> Option<Corner> {
@@ -213,12 +269,12 @@ impl Filleting {
                 "{subject} with a radius of {}",
                 length_text(unit, rounding.radius)
             ),
-            Some(Ok(Cut::Bevel(bevel))) => format!(
-                "{subject} {} from it on each side",
-                length_text(unit, bevel.distance)
-            ),
+            Some(Ok(Cut::Bevel(bevel))) => format!("{subject} {}", bevel_words(unit, bevel)),
             Some(Err(error)) => capitalized(&error.to_string()),
-            None => subject,
+            None => match &self.typed_chamfer {
+                Some(Err(reason)) if self.cut == CornerCut::Chamfer => capitalized(reason),
+                _ => subject,
+            },
         })
     }
 
@@ -292,7 +348,8 @@ impl Filleting {
         let Some(value) = Value::pointed(model, cut.size()) else {
             return Outcome::Nothing;
         };
-        self.round(model, feature, corner, value).into()
+        self.round(model, feature, corner, Size::Radius(value))
+            .into()
     }
 
     pub fn enter_value(
@@ -304,7 +361,7 @@ impl Filleting {
         let corner = self
             .target()
             .ok_or_else(|| trimming::refusal(self.cut.tool(), CHOOSE_FIRST))?;
-        self.round(model, feature, corner, value)
+        self.round(model, feature, corner, Size::Radius(value))
             .map(Outcome::Apply)
     }
 
@@ -313,7 +370,7 @@ impl Filleting {
         model: &Model,
         feature: FeatureId,
         corner: Corner,
-        value: Value,
+        size: Size,
     ) -> Result<Transaction, String> {
         let cut = self.cut;
         let label = match cut {
@@ -321,16 +378,21 @@ impl Filleting {
             CornerCut::Chamfer => CHAMFER_TRANSACTION,
         };
         let rounded = trimming::reshaped(model, feature, label.to_owned(), |sketch| {
-            match cut {
-                CornerCut::Round => sketch.fillet(&corner, value.millimetres, value.expression),
-                CornerCut::Chamfer => sketch.chamfer(&corner, value.millimetres, value.expression),
+            match (cut, &size) {
+                (CornerCut::Round, Size::Radius(value)) => sketch
+                    .fillet(&corner, value.millimetres, value.expression.clone())
+                    .map(|_| ()),
+                (CornerCut::Chamfer, Size::Radius(value)) => {
+                    sketch.chamfer(&corner, &equal(value)).map(|_| ())
+                }
+                (_, Size::Chamfer(size)) => sketch.chamfer(&corner, size).map(|_| ()),
             }
-            .map(|_| ())
             .map_err(|error| trimming::refusal(cut.tool(), &error.to_string()))
         })?;
         self.chosen = None;
         self.highlight = None;
         self.rounding = None;
+        self.typed_chamfer = None;
         Ok(rounded)
     }
 
@@ -411,4 +473,53 @@ fn end_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Option<
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, point)| point)
+}
+
+fn equal(value: &Value) -> ChamferSize {
+    ChamferSize::Equal(Dimensioned {
+        expression: value.expression.clone(),
+        value: value.millimetres,
+    })
+}
+
+fn pointed(millimetres: f64) -> ChamferSize {
+    ChamferSize::Equal(Dimensioned {
+        expression: Expression::Measure(millimetres, Unit::Millimetre),
+        value: millimetres,
+    })
+}
+
+fn bevel_words(unit: LengthUnit, bevel: &Bevel) -> String {
+    let [first, second] = bevel.distances.map(|distance| length_text(unit, distance));
+    if first == second {
+        format!("{first} from it on each side")
+    } else {
+        format!("{first} from it on the first and {second} on the second")
+    }
+}
+
+fn parse_chamfer(model: &Model, text: &str) -> Result<ChamferSize, String> {
+    let distance = |term: &str| patterning::quantity(model, term, LENGTH, "distance");
+    let terms = typed_point::coordinates(text);
+    match terms.as_slice() {
+        [term] => match typed_point::polar(term).as_slice() {
+            [only] => Ok(ChamferSize::Equal(distance(only)?)),
+            [only, angle] => Ok(ChamferSize::DistanceAndAngle {
+                distance: distance(only)?,
+                angle: patterning::degrees(model, angle)?,
+            }),
+            _ => Err(CHAMFER_FORMS.to_owned()),
+        },
+        [first, second] => {
+            let plain = |term: &&str| typed_point::polar(term).len() == 1;
+            if !(plain(first) && plain(second)) {
+                return Err(CHAMFER_FORMS.to_owned());
+            }
+            Ok(ChamferSize::Distances {
+                first: distance(first)?,
+                second: distance(second)?,
+            })
+        }
+        _ => Err(CHAMFER_FORMS.to_owned()),
+    }
 }

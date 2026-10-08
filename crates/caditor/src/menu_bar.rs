@@ -638,6 +638,7 @@ impl Menus<'_, '_> {
                 ui,
                 [
                     Command::SplitCurve,
+                    Command::BreakCurves,
                     Command::MoveGeometry,
                     Command::RotateGeometry,
                     Command::ScaleGeometry,

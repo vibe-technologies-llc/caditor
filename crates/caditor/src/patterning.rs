@@ -2,8 +2,8 @@ use caditor_document::{FeatureId, Transaction};
 use caditor_expression::{BinaryOperator, Dimension, Expression, Unit};
 use caditor_geometry::Point2;
 use caditor_sketch::{
-    CircularPattern, Entity, EntityId, Faceting, PatternError, PatternImage, PatternRow,
-    PatternValue, RectangularPattern, Sketch, Spread,
+    CircularPattern, Dimensioned, Entity, EntityId, Faceting, PatternError, PatternImage,
+    PatternRow, RectangularPattern, Sketch, Spread,
 };
 
 use crate::{
@@ -432,7 +432,7 @@ const RECTANGULAR_FORMS: &str =
 fn parse_row(
     model: &Model,
     term: &str,
-    beside: Option<&PatternValue>,
+    beside: Option<&Dimensioned>,
 ) -> Result<PatternRow, String> {
     let (body, angle) = match typed_point::polar(term).as_slice() {
         [body] => (*body, None),
@@ -478,14 +478,14 @@ fn whole_count(model: &Model, text: &str) -> Result<usize, String> {
     Ok(rounded as usize)
 }
 
-fn degrees(model: &Model, text: &str) -> Result<PatternValue, String> {
+pub(crate) fn degrees(model: &Model, text: &str) -> Result<Dimensioned, String> {
     let angle = quantity(model, text, ANGLE, "angle")?;
     let plain = model
         .parameters()
         .evaluate_expression(&angle.expression)
         .is_ok_and(|found| found.dimension.is_plain());
     Ok(if plain {
-        PatternValue {
+        Dimensioned {
             expression: attach_unit(angle.expression, Unit::Degree),
             value: angle.value,
         }
@@ -494,19 +494,19 @@ fn degrees(model: &Model, text: &str) -> Result<PatternValue, String> {
     })
 }
 
-fn turned(angle: f64) -> PatternValue {
-    PatternValue {
+fn turned(angle: f64) -> Dimensioned {
+    Dimensioned {
         expression: Expression::measure(angle, Unit::Degree),
         value: angle,
     }
 }
 
-fn square_to(first: &PatternValue) -> PatternValue {
+fn square_to(first: &Dimensioned) -> Dimensioned {
     let value = first.value + QUARTER_TURN_DEGREES;
     if first.expression.is_literal() {
         return turned(value);
     }
-    PatternValue {
+    Dimensioned {
         expression: Expression::binary(
             BinaryOperator::Add,
             first.expression.clone(),
@@ -516,12 +516,12 @@ fn square_to(first: &PatternValue) -> PatternValue {
     }
 }
 
-fn quantity(
+pub(crate) fn quantity(
     model: &Model,
     text: &str,
     expected: Expected,
     label: &str,
-) -> Result<PatternValue, String> {
+) -> Result<Dimensioned, String> {
     let text = text.trim();
     if text.is_empty() {
         return Err(format!("The {label} is missing"));
@@ -538,7 +538,7 @@ fn quantity(
     let value = expression
         .evaluate_as(dimension, &|id| model.parameters().value(id))
         .map_err(|error| format!("{label}: {}", field::sentence(&error.to_string())))?;
-    Ok(PatternValue { expression, value })
+    Ok(Dimensioned { expression, value })
 }
 
 fn is_times(previous: Option<char>, rest: &str) -> Option<usize> {
@@ -623,7 +623,7 @@ mod tests {
     #[test]
     fn a_second_direction_defaults_to_square_to_the_first() {
         assert_eq!(square_to(&turned(30.0)).value, 120.0);
-        let slanted = square_to(&PatternValue {
+        let slanted = square_to(&Dimensioned {
             expression: Expression::Parameter(caditor_expression::ParameterId::from_raw(1)),
             value: 10.0,
         });

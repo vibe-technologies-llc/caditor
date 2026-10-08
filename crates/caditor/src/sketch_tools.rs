@@ -1833,6 +1833,8 @@ mod tests {
 pub const NOTHING_TO_SPLIT: &str =
     "Select a point lying on a line or arc, with that curve when the point lies on several";
 pub const SPLIT_TITLE: &str = "Split curve";
+pub const NOTHING_TO_BREAK: &str = "Select the lines and arcs to break at their crossings";
+pub const BREAK_TITLE: &str = "Break curves";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SplitChange {
@@ -1891,6 +1893,41 @@ impl SplitChange {
                 .split_at(self.curve, self.point)
                 .map(|_| ())
                 .map_err(|error| format!("{SPLIT_TITLE}: {error}."))
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BreakChange {
+    pub curves: Vec<EntityId>,
+}
+
+impl BreakChange {
+    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, String> {
+        let curves: Vec<EntityId> = selected
+            .iter()
+            .copied()
+            .filter(|id| {
+                !id.is_reference()
+                    && matches!(
+                        sketch.entity(*id),
+                        Some(Entity::Line { .. } | Entity::Arc { .. })
+                    )
+            })
+            .collect();
+        if curves.is_empty() {
+            Err(NOTHING_TO_BREAK.to_owned())
+        } else {
+            Ok(Self { curves })
+        }
+    }
+
+    pub fn transaction(&self, model: &Model, feature: FeatureId) -> Result<Transaction, String> {
+        crate::trimming::reshaped(model, feature, BREAK_TITLE.to_owned(), |sketch| {
+            sketch
+                .break_curves(&self.curves)
+                .map(|_| ())
+                .map_err(|error| format!("{BREAK_TITLE}: {error}."))
         })
     }
 }

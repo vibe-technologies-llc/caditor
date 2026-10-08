@@ -82,6 +82,12 @@ paths:
   the one line or arc the point lies on by `Coincident`, and splits it there in one transaction;
   anything else is refused with `NOTHING_TO_SPLIT` or the sketch's reason. A point placed on a
   curve first (the Point tool snaps onto it) gives a split anywhere.
+- Break the selected curves at every crossing (`Command::BreakCurves`, Sketch menu, palette;
+  `sketch_tools::BreakChange`) takes the selected lines and arcs and breaks each at every
+  crossing with the other curves and the axes in one transaction (`sketch.md`, Break), so the
+  pieces of a profile come in one command rather than one point at a time. Nothing selected, or
+  nothing selected that crosses another curve, is refused with `NOTHING_TO_BREAK` or the
+  sketch's reason in a notice.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", committed and
   solved like a drag; button and command share availability (`Moving::offered`).
 - Rotate and Scale selected geometry (`Command::RotateGeometry`, `ScaleGeometry`, Sketch menu,
@@ -237,16 +243,29 @@ paths:
   one selected point no selected curve uses, else a point clicked or highlighted (the origin
   included, Highlight the next item steps through points and Space or Enter chooses), shown
   highlighted until Escape lets it go; the preview and Enter use it.
+- Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Sketch menu and palette, no
+  default key and not on the sketch bar, `sketch_toolbar::OFF_RIBBON`) takes the lines, circles
+  and arcs the new circle touches (`sketch.md`, Tangent circles): the one or two of them selected
+  when it starts, then each one clicked or highlighted and chosen with Space or Enter (an axis
+  included; clicking a chosen curve lets it go, Escape lets go of the last). A third curve
+  finishes it at once, previewed live while the pointer is over it, as the circle whose centre is
+  nearest the pointer, so inside or outside a triangle's sides picks its incircle or an
+  excircle. With two chosen the typed-point field ("Radius", opens on a digit) draws the circle
+  of that radius nearest the pointer instead, previewed while the text parses and kept as typed
+  with parameters. Each draw is one undoable "Draw tangent circle" transaction.
 - Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes a corner (a
   selected one, else the curve end under the pointer, `Sketch::corner_at`, refused in words when
   it is no corner); then the pointer sets the radius (`radius_through`). The chosen corner is
   cleared after each fillet. Sketch chamfer (`Tool::Chamfer`) is the same tool cutting the corner
-  instead (`filleting::CornerCut`): the pointer sets the distance (`distance_through`) and the
-  field is "Chamfer distance". It is not on the sketch bar, whose Modify group would widen past
+  instead (`filleting::CornerCut`): the pointer sets one distance for both sides
+  (`distance_through`) and the field is "Chamfer", which reads `5` (the same on both curves),
+  `5, 3` (a distance on each, in the order of the corner's curves) or `5 < 45` (a distance on the
+  first curve and the angle of the cut from it) as a `ChamferSize` (`sketch.md`), previewed
+  while it parses and kept as typed, parameters included. It is not on the sketch bar, whose Modify group would widen past
   one row (`sketch_toolbar::OFF_RIBBON`, its command still offered there); the Sketch menu, the
   palette and its key reach it.
-- Offset, Sketch fillet and Sketch chamfer take a typed value in the typed-point field ("Offset
-  by", "Fillet radius", "Chamfer distance"): the preview follows the text while it parses, Enter commits the expression as typed
+- Offset and Sketch fillet take a typed value in the typed-point field ("Offset
+  by", "Fillet radius"), and Sketch chamfer its text above: the preview follows the text while it parses, Enter commits the expression as typed
   (parameters included) and an error keeps the field open. A negative offset goes to the other
   side, so the keyboard alone does it: select, Offset, the distance, Enter.
 - With any of them active the highlight commands step through that tool's targets instead of the

@@ -85,6 +85,7 @@ pub enum Command {
     Construction,
     ToggleConstraintActive,
     SplitCurve,
+    BreakCurves,
     RotateGeometry,
     ScaleGeometry,
     MoveGeometry,
@@ -542,6 +543,7 @@ plain_commands! {
     Construction,
     ToggleConstraintActive,
     SplitCurve,
+    BreakCurves,
     RotateGeometry,
     ScaleGeometry,
     MoveGeometry,
@@ -644,6 +646,7 @@ impl Command {
             Self::Construction => "sketch.construction",
             Self::ToggleConstraintActive => "sketch.toggle_constraint_active",
             Self::SplitCurve => "sketch.split_curve",
+            Self::BreakCurves => "sketch.break_curves",
             Self::RotateGeometry => "sketch.rotate",
             Self::ScaleGeometry => "sketch.scale",
             Self::MoveGeometry => "sketch.move",
@@ -669,6 +672,7 @@ impl Command {
                 Tool::Mirror => "sketch.mirror",
                 Tool::RectangularPattern => "sketch.rectangular_pattern",
                 Tool::CircularPattern => "sketch.circular_pattern",
+                Tool::TangentCircle => "sketch.tangent_circle",
                 Tool::Fillet => "sketch.fillet",
                 Tool::Chamfer => "sketch.chamfer",
                 Tool::Project => "sketch.project",
@@ -855,6 +859,7 @@ impl Command {
             Self::Construction => "Switch to or from construction geometry",
             Self::ToggleConstraintActive => "Disable or enable the selected constraints",
             Self::SplitCurve => "Split the selected curve at the selected point",
+            Self::BreakCurves => "Break the selected curves at every crossing",
             Self::RotateGeometry => "Rotate selected sketch geometry",
             Self::ScaleGeometry => "Scale selected sketch geometry",
             Self::MoveGeometry => "Move selected sketch geometry",
@@ -869,6 +874,7 @@ impl Command {
             Self::SketchTool(Tool::Mirror) => "Mirror sketch geometry",
             Self::SketchTool(Tool::RectangularPattern) => "Repeat sketch geometry in a grid",
             Self::SketchTool(Tool::CircularPattern) => "Repeat sketch geometry about a point",
+            Self::SketchTool(Tool::TangentCircle) => "Draw a circle tangent to sketch curves",
             Self::SketchTool(Tool::Fillet) => "Fillet a sketch corner",
             Self::SketchTool(Tool::Chamfer) => "Chamfer a sketch corner",
             Self::SketchTool(Tool::Project) => "Project model geometry into the sketch",
@@ -1137,6 +1143,7 @@ impl Command {
             | Self::Construction
             | Self::ToggleConstraintActive
             | Self::SplitCurve
+            | Self::BreakCurves
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
@@ -1160,6 +1167,7 @@ impl Command {
             | Self::Construction
             | Self::ToggleConstraintActive
             | Self::SplitCurve
+            | Self::BreakCurves
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
@@ -1276,6 +1284,7 @@ impl Command {
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive
             | Self::SplitCurve
+            | Self::BreakCurves
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
@@ -1366,7 +1375,7 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::Mirror => plain(Key::Y),
         Tool::Fillet => plain(Key::B),
         Tool::Chamfer => Some(KeyboardShortcut::new(Modifiers::SHIFT, Key::B)),
-        Tool::RectangularPattern | Tool::CircularPattern => None,
+        Tool::RectangularPattern | Tool::CircularPattern | Tool::TangentCircle => None,
         Tool::Project => Some(KeyboardShortcut::new(Modifiers::ALT, Key::P)),
         Tool::Dimension => plain(Key::D),
     }

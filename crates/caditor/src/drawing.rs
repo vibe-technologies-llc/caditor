@@ -146,6 +146,7 @@ impl Shape {
             | Tool::Mirror
             | Tool::RectangularPattern
             | Tool::CircularPattern
+            | Tool::TangentCircle
             | Tool::Fillet
             | Tool::Chamfer
             | Tool::Project

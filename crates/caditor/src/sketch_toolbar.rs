@@ -21,7 +21,9 @@ use crate::{
     shape_modes::{ShapeMode, ShapeModes},
     sketch_drag::{self, Moving},
     sketch_status::{self, SketchSummary},
-    sketch_tools::{self, ActivityChange, ConstraintTool, ConstructionChange, SplitChange},
+    sketch_tools::{
+        self, ActivityChange, BreakChange, ConstraintTool, ConstructionChange, SplitChange,
+    },
     units::Units,
     widgets::{self, ToolButton},
 };
@@ -30,10 +32,11 @@ pub const FINISH_LABEL: &str = "Finish sketch";
 pub const ARC_LABEL: &str = "Arc";
 pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
-pub const OFF_RIBBON: [Tool; 3] = [
+pub const OFF_RIBBON: [Tool; 4] = [
     Tool::Chamfer,
     Tool::RectangularPattern,
     Tool::CircularPattern,
+    Tool::TangentCircle,
 ];
 pub const OFF_RIBBON_CONSTRAINTS: [ConstraintTool; 1] = [ConstraintTool::Curvature];
 pub const DELETE_LABEL: &str = "Delete";
@@ -173,6 +176,7 @@ pub fn show(
     };
     let construction = ConstructionChange::of(definition, &selected);
     let split = SplitChange::of(&shown, &selected);
+    let breaking = BreakChange::of(&shown, &selected);
     let activity = ActivityChange::of(
         definition,
         &sketch_tools::selected_constraints(selection, feature.id()),
@@ -190,6 +194,7 @@ pub fn show(
         construction: construction.as_ref(),
         activity: activity.as_ref(),
         split: split.as_ref().map(|_| ()).map_err(String::clone),
+        breaking: breaking.as_ref().map(|_| ()).map_err(String::clone),
         deletable: if deletable.is_empty() {
             Err(NOTHING_TO_DELETE.to_owned())
         } else {
@@ -275,6 +280,14 @@ pub fn show(
             Err(reason) => Action::Inform(Notice::info(reason)),
         });
     }
+    if request.breaking
+        && let Ok(change) = &breaking
+    {
+        actions.push(match change.transaction(model, feature.id()) {
+            Ok(transaction) => Action::Apply(transaction),
+            Err(reason) => Action::Inform(Notice::info(reason)),
+        });
+    }
     if request.delete && !deletable.is_empty() {
         let label = deletable.label(definition);
         actions.push(Action::Apply(sketch_tools::remove_items(
@@ -321,6 +334,7 @@ struct Request {
     construction: bool,
     activity: bool,
     split: bool,
+    breaking: bool,
     delete: bool,
     finish: bool,
 }
@@ -372,6 +386,7 @@ struct Bar<'a, 'b> {
     construction: Option<&'a ConstructionChange>,
     activity: Option<&'a ActivityChange>,
     split: Result<(), String>,
+    breaking: Result<(), String>,
     deletable: Result<(), String>,
     moving: Result<(), String>,
     select_all: Result<(), String>,
@@ -646,6 +661,9 @@ impl Bar<'_, '_> {
     fn edit_buttons(&mut self, ui: &mut Ui) -> f32 {
         if self.commands.invoke(Command::SplitCurve, &self.split) {
             self.request.split = true;
+        }
+        if self.commands.invoke(Command::BreakCurves, &self.breaking) {
+            self.request.breaking = true;
         }
         for tool in OFF_RIBBON {
             if self

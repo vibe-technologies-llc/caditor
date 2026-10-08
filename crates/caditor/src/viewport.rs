@@ -1449,6 +1449,7 @@ impl ViewportState {
             | Tool::Mirror
             | Tool::RectangularPattern
             | Tool::CircularPattern
+            | Tool::TangentCircle
             | Tool::Project
             | Tool::Dimension => return None,
             _ => {}

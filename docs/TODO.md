@@ -154,19 +154,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
-- [low · easy] The sketch chamfer takes one typed distance for both sides: a different distance on
-  each curve, or one distance and the angle of the cut, cannot be typed when it is made, and the
-  angle cannot be held as a dimension afterwards (the two distances can).
 - [low · medium] No blend curve: a curve joining the ends of two sketch curves or edges, tangent
   (G1) or curvature-continuous (G2), as a spline held by `Tangent` and `Curvature` constraints so
   it follows when either end moves, for a transition where a fillet's circular arc is not smooth
   enough.
-- [low · medium] Circles are drawn from a centre, two points or three points only: a circle
-  tangent to two or three chosen lines, circles or arcs is missing, though the tangency
-  constraint it would hold exists.
-- [low · medium] No break: Split curve cuts one curve at one chosen point; breaking a curve at
-  every crossing with the curves around it in one click, to get the pieces a profile is made of,
-  is missing.
 - [low · medium] A revolved profile cannot be dimensioned as a lathe drawing shows it: the
   distance from a point to the revolve axis (a construction line) reads as a radius, with no
   option to show and hold it as the diameter across the axis (twice the distance).

@@ -69,8 +69,11 @@ mod feature_panels;
 mod import_jobs;
 mod screenshots;
 mod selection_targets;
+mod sketch_breaks;
+mod sketch_chamfers;
 mod sketch_patterns;
 mod sketch_regions;
+mod sketch_tangent_circles;
 
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(10);
