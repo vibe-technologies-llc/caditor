@@ -266,9 +266,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 - [medium · medium] Drawing export takes one sketch or one flat face at a time: several faces (the
   parts of a nest) cannot go into one file, construction geometry is left out with no option to keep
-  it on a layer, and the files hold no text or dimensions. A face's intersection edges are written
-  as polylines, which some CAM software joins poorly; fitting them as splines within the chord would
-  keep each one a single curve.
+  it on a layer, and the files hold no text or dimensions.
 
 ## Mesh import and export
 

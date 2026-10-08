@@ -1221,6 +1221,59 @@ fn a_flat_face_exports_its_outline_and_holes_exactly_on_layers_of_their_own() {
 }
 
 #[test]
+fn a_flat_face_cut_through_a_torus_writes_each_traced_edge_as_one_spline() {
+    let ring = caditor_kernel::revolve(
+        &Plane::XZ,
+        &Profile::new(&[ProfileCurve::circle(1, Point2::new(20.0, 0.0), 5.0)])
+            .unwrap()
+            .select(&Selection::EvenDepth)
+            .unwrap(),
+        caditor_kernel::Axis2::new(Point2::ZERO, Point2::new(0.0, 1.0)).unwrap(),
+        caditor_kernel::AngularExtent::new(0.0, 2.0 * PI).unwrap(),
+        1,
+    )
+    .unwrap();
+    let slab = extruded(
+        &[
+            ProfileCurve::line(11, Point2::new(-40.0, -40.0), Point2::new(40.0, -40.0)),
+            ProfileCurve::line(12, Point2::new(40.0, -40.0), Point2::new(40.0, 40.0)),
+            ProfileCurve::line(13, Point2::new(40.0, 40.0), Point2::new(-40.0, 40.0)),
+            ProfileCurve::line(14, Point2::new(-40.0, 40.0), Point2::new(-40.0, -40.0)),
+        ],
+        40.0,
+    );
+    let tilt = caditor_geometry::RigidTransform::rotation_about(
+        Point3::new(0.0, 0.0, 1.0),
+        Vector3::Y,
+        0.15,
+    )
+    .unwrap();
+    let cutter = slab.transformed(&tilt).unwrap();
+    let cut = caditor_kernel::boolean(&ring, &cutter, caditor_kernel::BooleanOperation::Difference)
+        .unwrap();
+    let normal = tilt.apply_vector(Vector3::Z);
+    let face = face_facing(&cut, normal);
+
+    let (figure, exported) = outline::face_figure(&cut, face).unwrap();
+
+    assert!(
+        exported.approximated > 0,
+        "{exported:?} {:?}",
+        figure.shapes
+    );
+    assert!(
+        figure
+            .shapes
+            .iter()
+            .all(|(_, shape)| !matches!(shape, figure::Shape::Polyline(_))),
+        "{:?}",
+        figure.shapes
+    );
+    let drawing = crate::parse_dxf(dxf::encode(&figure).as_bytes()).unwrap();
+    assert_eq!(drawing.curves.len(), exported.curves);
+}
+
+#[test]
 fn faces_are_drawn_as_seen_from_outside_with_z_or_y_up() {
     let solid = rounded_plate();
     let near = |a: Point2, b: Point2| a.distance(b) < 1e-9;

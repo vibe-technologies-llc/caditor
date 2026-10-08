@@ -5,7 +5,9 @@ use std::{
 
 use caditor_document::face_plane;
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
-use caditor_kernel::{Curve, Edge, FaceId, Interval, LINEAR_RESOLUTION, SamplingTolerance, Solid};
+use caditor_kernel::{
+    BSpline, Curve, Edge, FaceId, Interval, LINEAR_RESOLUTION, SamplingTolerance, Solid,
+};
 
 use super::{
     ExportError, FaceExported,
@@ -16,6 +18,7 @@ const POLYLINE_CHORD: f64 = 1e-3;
 const POLYLINE_CHORD_FRACTION: f64 = 1e-6;
 const POLYLINE_ANGLE: f64 = 2.0 * std::f64::consts::PI / 180.0;
 const CONIC_ALIGNMENT: f64 = 1e-6;
+const FITTED_DEGREE: usize = 3;
 
 pub(super) fn face_figure(
     solid: &Solid,
@@ -140,11 +143,54 @@ fn edge_shape(
     };
     match exact {
         Some(shape) => Some((shape, true)),
-        None => Some((
-            Shape::Polyline(sampled(edge, frame, tolerance, start, end)),
-            false,
-        )),
+        None => {
+            let polyline = sampled(edge, frame, tolerance, start, end);
+            let shape = match fitted(edge, frame, tolerance, &polyline) {
+                Some(spline) => Shape::Spline(spline),
+                None => Shape::Polyline(polyline),
+            };
+            Some((shape, false))
+        }
     }
+}
+
+fn fitted(
+    edge: &Edge,
+    frame: &Plane,
+    tolerance: &SamplingTolerance,
+    polyline: &[Point2],
+) -> Option<Spline> {
+    if polyline.len() <= FITTED_DEGREE {
+        return None;
+    }
+    let spline = BSpline::interpolating(FITTED_DEGREE, polyline).ok()?;
+    let samples = edge.curve().sample(edge.interval(), tolerance);
+    if samples.len() != polyline.len() {
+        return None;
+    }
+    let mut travelled = 0.0;
+    for (pair, points) in samples.windows(2).zip(polyline.windows(2)) {
+        let ([before, after], [from, to]) = (pair, points) else {
+            return None;
+        };
+        let step = from.distance(*to);
+        let middle = spline.point(travelled + step / 2.0);
+        let wanted = frame.to_local(
+            edge.curve()
+                .point((before.parameter + after.parameter) / 2.0),
+        );
+        if middle.distance(wanted) > tolerance.chord() {
+            return None;
+        }
+        travelled += step;
+    }
+    Some(Spline {
+        degree: spline.degree(),
+        knots: spline.knots().to_vec(),
+        control_points: spline.control_points().to_vec(),
+        weights: None,
+        polyline: polyline.to_vec(),
+    })
 }
 
 fn sampled(

@@ -117,8 +117,10 @@ paths:
   so a top face keeps the model's X and Y and a bottom one is mirrored. Lines, circles and arcs stay
   exact, an ellipse becomes an elliptical arc (major axis the longer one, parameters negated when
   its frame faces away), a spline edge is the exact piece of its curve (`BSpline::restricted`,
-  rational weights kept), and anything else (intersection curves) a polyline within 1 µm or a
-  millionth of the body's diagonal, counted in `FaceExported::approximated`. A curved face is
+  rational weights kept), and anything else (intersection curves) is sampled within 1 µm or a
+  millionth of the body's diagonal and written as one cubic `SPLINE` interpolating the samples
+  (`outline::fitted`, kept only when its middle between every two samples lies within that chord of
+  the curve's), else as a polyline of them; either is counted in `FaceExported::approximated`. A curved face is
   `ExportError::FaceNotFlat`; outlining runs under `catch_unwind`.
 - DXF is ASCII, version AC1015, millimetres (`$INSUNITS` 4), header and entities only (layers are
   named by the entities, without a table): `LINE`, `CIRCLE`, `ARC` (a full sweep is a circle),
