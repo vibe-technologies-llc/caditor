@@ -127,9 +127,9 @@ comes last.
   splines; spline–spline tangency; curvature continuity; symmetric curves.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
   profile curves, which have no ellipse although its 3D curves do, and the file format),
-  rectangular and circular patterns, rotate, scale and copy of a selection, split at a
-  point, text, and fit-point, closed or periodic splines (`BSpline::through` serves only DXF import,
-  `BSpline::interpolate` only its own tests, and the control polygon is not drawn).
+  rectangular and circular patterns, rotate, scale and copy of a selection, text, and fit-point,
+  closed or periodic splines (`BSpline::through` serves only DXF import, `BSpline::interpolate`
+  only its own tests, and the control polygon is not drawn).
 - [medium · hard] The centre of an outline of odd sides and a slanted track place a point without
   a constraint keeping it there, as the sketch has no centroid or point-on-a-direction constraint;
   an odd outline with arcs has no centre at all. A drag snaps only its handle (the moving point

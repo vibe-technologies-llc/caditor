@@ -82,7 +82,7 @@ paths:
 
 ## Editing operations
 
-Trim, extend, offset, mirror, fillet and chamfer work on a copy and replace the sketch only if every step
+Trim, extend, offset, mirror, fillet, chamfer and split work on a copy and replace the sketch only if every step
 succeeded. A changed curve is removed and inserted again under the same ID (`restructure`), with
 every constraint still true of it. Joints are judged by a `TOLERANCE` relative to the extent.
 
@@ -123,6 +123,13 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   (`TooFar`); `chamfer` shortens both to them (`shorten_to`, shared with the fillet), joins them
   with a line and keeps the sharp the same way, with one `Distance` from the sharp to each new
   end holding the typed expression, so either side can be changed alone afterwards.
+- Split (`split.rs`): `split_at` cuts a line or arc at an existing point lying on it between its
+  ends (`check_split`), which becomes the end both pieces share, its `Coincident` on the curve
+  dropped. A line's pieces are `Collinear`, or each keeps its horizontal or vertical; a point that
+  was the line's `Midpoint` makes the pieces `Equal`. An arc's pieces share the centre, so they
+  keep one radius with no constraint added. Tangent, parallel, perpendicular and angle
+  constraints joined at the far end move to the far piece (`far_constraints`, as trim does);
+  circles, splines and projected curves are refused.
 
 ## Faceting and splines (`curve.rs`, `fit.rs`)
 

@@ -75,6 +75,11 @@ paths:
   faceted as drawn, `app.md`), right to left a crossing box taking what it touches; with Select
   with a lasso on, a freehand outline taking what lies inside it (`app-input.md`). It replaces
   the selection (Shift or Ctrl adds); a point is left out when a curve it belongs to was taken.
+- Split the selected curve at the selected point (`Command::SplitCurve`, Sketch menu, palette;
+  `sketch_tools::SplitChange`) takes one selected point and the line or arc selected with it, or
+  the one line or arc the point lies on by `Coincident`, and splits it there in one transaction;
+  anything else is refused with `NOTHING_TO_SPLIT` or the sketch's reason. A point placed on a
+  curve first (the Point tool snaps onto it) gives a split anywhere.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", committed and
   solved like a drag; button and command share availability (`Moving::offered`).
 - Copy, Cut and Paste (`Command::CopyGeometry`, `CutGeometry`, `PasteGeometry`, Ctrl+C, Ctrl+X,

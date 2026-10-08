@@ -14,6 +14,7 @@ mod open_ends;
 mod relation;
 mod sketch;
 mod solve;
+mod split;
 mod trim;
 
 pub use crate::{
@@ -30,5 +31,6 @@ pub use crate::{
     relation::Relations,
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{Drag, EntityState, Redundancy, SketchSolution, SolveMemo, Solved},
+    split::SplitError,
     trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},
 };

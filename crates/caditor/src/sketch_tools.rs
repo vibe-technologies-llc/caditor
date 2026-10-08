@@ -1565,3 +1565,68 @@ mod tests {
         assert_eq!(rounded_for_display(1e-320), 1e-320);
     }
 }
+
+pub const NOTHING_TO_SPLIT: &str =
+    "Select a point lying on a line or arc, with that curve when the point lies on several";
+pub const SPLIT_TITLE: &str = "Split curve";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SplitChange {
+    pub curve: EntityId,
+    pub point: EntityId,
+}
+
+impl SplitChange {
+    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, String> {
+        let (points, curves): (Vec<EntityId>, Vec<EntityId>) = selected
+            .iter()
+            .copied()
+            .filter(|id| !id.is_reference())
+            .partition(|id| matches!(sketch.entity(*id), Some(Entity::Point(_))));
+        let change = match (points.as_slice(), curves.as_slice()) {
+            ([point], [curve]) => Self {
+                curve: *curve,
+                point: *point,
+            },
+            ([point], []) => {
+                let carriers: BTreeSet<EntityId> = sketch
+                    .constraints_using(*point)
+                    .into_iter()
+                    .filter_map(|id| match sketch.constraint(id)? {
+                        Constraint::Coincident(a, b) if a == point => Some(*b),
+                        Constraint::Coincident(a, b) if b == point => Some(*a),
+                        _ => None,
+                    })
+                    .filter(|curve| {
+                        matches!(
+                            sketch.entity(*curve),
+                            Some(Entity::Line { .. } | Entity::Arc { .. })
+                        )
+                    })
+                    .collect();
+                let mut carriers = carriers.into_iter();
+                match (carriers.next(), carriers.next()) {
+                    (Some(curve), None) => Self {
+                        curve,
+                        point: *point,
+                    },
+                    _ => return Err(NOTHING_TO_SPLIT.to_owned()),
+                }
+            }
+            _ => return Err(NOTHING_TO_SPLIT.to_owned()),
+        };
+        sketch
+            .check_split(change.curve, change.point)
+            .map_err(|error| crate::trimming::capitalized(&error.to_string()))?;
+        Ok(change)
+    }
+
+    pub fn transaction(&self, model: &Model, feature: FeatureId) -> Result<Transaction, String> {
+        crate::trimming::reshaped(model, feature, SPLIT_TITLE.to_owned(), |sketch| {
+            sketch
+                .split_at(self.curve, self.point)
+                .map(|_| ())
+                .map_err(|error| format!("{SPLIT_TITLE}: {error}."))
+        })
+    }
+}

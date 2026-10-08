@@ -20,7 +20,7 @@ use crate::{
     shape_modes::{ShapeMode, ShapeModes},
     sketch_drag::{self, Moving},
     sketch_status::{self, SketchSummary},
-    sketch_tools::{self, ActivityChange, ConstraintTool, ConstructionChange},
+    sketch_tools::{self, ActivityChange, ConstraintTool, ConstructionChange, SplitChange},
     units::Units,
     widgets::{self, ToolButton},
 };
@@ -166,6 +166,7 @@ pub fn show(
         constraints: sketch_tools::selected_constraints(selection, feature.id()),
     };
     let construction = ConstructionChange::of(definition, &selected);
+    let split = SplitChange::of(&shown, &selected);
     let activity = ActivityChange::of(
         definition,
         &sketch_tools::selected_constraints(selection, feature.id()),
@@ -182,6 +183,7 @@ pub fn show(
         offers: &offers,
         construction: construction.as_ref(),
         activity: activity.as_ref(),
+        split: split.as_ref().map(|_| ()).map_err(String::clone),
         deletable: if deletable.is_empty() {
             Err(NOTHING_TO_DELETE.to_owned())
         } else {
@@ -246,6 +248,14 @@ pub fn show(
             definition,
         )));
     }
+    if request.split
+        && let Ok(change) = &split
+    {
+        actions.push(match change.transaction(model, feature.id()) {
+            Ok(transaction) => Action::Apply(transaction),
+            Err(reason) => Action::Inform(Notice::info(reason)),
+        });
+    }
     if request.delete && !deletable.is_empty() {
         let label = deletable.label(definition);
         actions.push(Action::Apply(sketch_tools::remove_items(
@@ -291,6 +301,7 @@ struct Request {
     constraints: Option<(ConstraintTool, Vec<Constraint>)>,
     construction: bool,
     activity: bool,
+    split: bool,
     delete: bool,
     finish: bool,
 }
@@ -341,6 +352,7 @@ struct Bar<'a, 'b> {
     offers: &'a [Offer],
     construction: Option<&'a ConstructionChange>,
     activity: Option<&'a ActivityChange>,
+    split: Result<(), String>,
     deletable: Result<(), String>,
     moving: Result<(), String>,
     select_all: Result<(), String>,
@@ -613,6 +625,9 @@ impl Bar<'_, '_> {
     }
 
     fn edit_buttons(&mut self, ui: &mut Ui) -> f32 {
+        if self.commands.invoke(Command::SplitCurve, &self.split) {
+            self.request.split = true;
+        }
         for tool in OFF_RIBBON {
             if self
                 .commands

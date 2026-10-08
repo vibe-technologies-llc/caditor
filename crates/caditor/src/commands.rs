@@ -84,6 +84,7 @@ pub enum Command {
     FewerSides,
     Construction,
     ToggleConstraintActive,
+    SplitCurve,
     MoveGeometry,
     SelectAll,
     CopyGeometry,
@@ -521,6 +522,7 @@ plain_commands! {
     FewerSides,
     Construction,
     ToggleConstraintActive,
+    SplitCurve,
     MoveGeometry,
     SelectAll,
     CopyGeometry,
@@ -617,6 +619,7 @@ impl Command {
             Self::FewerSides => "sketch.fewer_sides",
             Self::Construction => "sketch.construction",
             Self::ToggleConstraintActive => "sketch.toggle_constraint_active",
+            Self::SplitCurve => "sketch.split_curve",
             Self::MoveGeometry => "sketch.move",
             Self::SelectAll => "sketch.select_all",
             Self::CopyGeometry => "sketch.copy",
@@ -812,6 +815,7 @@ impl Command {
             Self::FewerSides => "Give the polygon one side fewer",
             Self::Construction => "Switch to or from construction geometry",
             Self::ToggleConstraintActive => "Disable or enable the selected constraints",
+            Self::SplitCurve => "Split the selected curve at the selected point",
             Self::MoveGeometry => "Move selected sketch geometry",
             Self::SelectAll => "Select all sketch geometry",
             Self::CopyGeometry => "Copy selected sketch geometry",
@@ -1069,6 +1073,7 @@ impl Command {
             | Self::FewerSides
             | Self::Construction
             | Self::ToggleConstraintActive
+            | Self::SplitCurve
             | Self::ToggleTypedDimensions
             | Self::MoveGeometry
             | Self::SelectAll
@@ -1089,6 +1094,7 @@ impl Command {
             | Self::FewerSides
             | Self::Construction
             | Self::ToggleConstraintActive
+            | Self::SplitCurve
             | Self::ToggleTypedDimensions
             | Self::MoveGeometry
             | Self::SelectAll
@@ -1201,6 +1207,7 @@ impl Command {
             | Self::FinishSketch
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive
+            | Self::SplitCurve
             | Self::ToggleTypedDimensions
             | Self::Filter(_)
             | Self::Style(_)

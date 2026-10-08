@@ -15257,6 +15257,45 @@ fn a_sketch_chamfer_cuts_the_clicked_corner_with_a_typed_distance_kept_as_dimens
 }
 
 #[test]
+fn a_line_is_split_at_the_selected_point_on_it_from_the_palette() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let point = sketch.add_point(Point2::new(15.0, 0.0));
+    sketch
+        .add_constraint(Constraint::Coincident(point, line))
+        .unwrap();
+    let off = sketch.add_point(Point2::new(15.0, 5.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: off,
+    }]);
+    run_from_palette(&mut harness, "split the selected curve");
+    harness.settle();
+    let refused = entities_of_kind(harness.sketch(feature), "Line").len() == 1
+        && harness.shows_containing(crate::sketch_tools::NOTHING_TO_SPLIT);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([Pickable::SketchEntity {
+        feature,
+        entity: point,
+    }]);
+    run_from_palette(&mut harness, "split the selected curve");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert!(refused);
+    assert_eq!(entities_of_kind(sketch, "Line").len(), 2);
+    assert_eq!(constraints_of_kind(sketch, "Collinear").len(), 1);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(crate::sketch_tools::SPLIT_TITLE)
+    );
+}
+
+#[test]
 fn a_sketch_fillet_takes_its_radius_from_the_pointer_and_escape_backs_out_a_step() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

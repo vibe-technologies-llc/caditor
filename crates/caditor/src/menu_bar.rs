@@ -588,7 +588,14 @@ impl Menus<'_, '_> {
             ui.separator();
             self.item(ui, Command::Construction);
             self.items(ui, modifying.into_iter().map(Command::SketchTool));
-            self.items(ui, [Command::MoveGeometry, Command::SelectAll]);
+            self.items(
+                ui,
+                [
+                    Command::SplitCurve,
+                    Command::MoveGeometry,
+                    Command::SelectAll,
+                ],
+            );
             self.items(
                 ui,
                 [

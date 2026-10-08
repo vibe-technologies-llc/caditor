@@ -818,7 +818,11 @@ impl Sketch {
         joined
     }
 
-    fn add_piece(&mut self, curve: EntityId, entity: Entity) -> Result<EntityId, SketchError> {
+    pub(crate) fn add_piece(
+        &mut self,
+        curve: EntityId,
+        entity: Entity,
+    ) -> Result<EntityId, SketchError> {
         let piece = EntityId::from_raw(self.next_id());
         self.insert_entity(piece, entity)?;
         if self.is_construction(curve) {
@@ -827,7 +831,7 @@ impl Sketch {
         Ok(piece)
     }
 
-    fn move_constraints(
+    pub(crate) fn move_constraints(
         &mut self,
         moved: Vec<(ConstraintId, Constraint, bool)>,
         from: EntityId,
@@ -842,7 +846,7 @@ impl Sketch {
         Ok(())
     }
 
-    fn far_constraints(
+    pub(crate) fn far_constraints(
         &self,
         curve: EntityId,
         near: EntityId,
