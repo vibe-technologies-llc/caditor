@@ -237,11 +237,18 @@ paths:
   view" and described in words (`scene_description.rs`, rebuilt only when the revision, the
   evaluation or the edited sketch changes): the shown bodies, sketches and datums by name and
   count and how many bodies are hidden, the first `NAMED_AT_MOST` bodies with their size and
-  lowest corner and sketches with the plane they face (`LengthUnit::spoken_length`, trailing zeros
-  dropped), or while a sketch is edited its curves, points, constraints, how constrained it is and
-  the span of its points, and text painted over it (prompt, hover description, snap and measure labels) is also a
-  `Label` node (`canvas::announce`), the prompt and keyboard-highlight description polite live
-  regions.
+  lowest corner, sketches with the plane they face and datums with where they lie (a plane as a
+  sketch's, an axis along its direction through a point, a point at its position;
+  `LengthUnit::spoken_length`, trailing zeros dropped), or while a sketch is edited its curves,
+  points, constraints, how constrained it is and the span of its points. Its children are one
+  label node per item (`SceneDescription::items`, `viewport::scene_items`, built only while
+  AccessKit is on, at most `ITEMS_AT_MOST`): each shown body with its size and face count, its
+  faces as nodes beneath it (at most `FACES_AT_MOST`, then how many more), each shown sketch and
+  datum; while a sketch is edited each curve and point with where it lies, its size, construction
+  and whether it is fully constrained, so a screen reader steps through them one by one. They are
+  zero-sized and sense only hover, so they take no room, pointer or Tab stop. Text painted over
+  it (prompt, hover description, snap and measure labels) is also a `Label` node
+  (`canvas::announce`), the prompt and keyboard-highlight description polite live regions.
 - Wayland app ID, X11 class and Windows window class are `about::APP_ID`, which must match the
   desktop entry's name.
 - The logo is `packaging/caditor.svg`; `packaging/render-icons.sh` renders it into

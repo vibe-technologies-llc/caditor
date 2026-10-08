@@ -413,8 +413,3 @@ Linux is the primary platform and Windows the only other one; macOS is not a goa
   URL] No Flatpak or AUR package: both need a maintainer identity and repository URL in their
   metadata, which the project does not publish (`docs/RELEASING.md`); `packaging/arch/PKGBUILD` only
   builds locally.
-
-## Accessibility
-
-- [later · medium] In the 3D view's description, single bodies, faces or sketch curves have no
-  nodes of their own to step through, and datums are named without where they lie.

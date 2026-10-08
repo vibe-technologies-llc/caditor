@@ -8180,6 +8180,98 @@ fn the_3d_view_tells_screen_readers_what_it_shows() {
 }
 
 #[test]
+fn the_3d_view_lists_each_body_with_its_faces_each_datum_where_it_lies_and_each_sketch_curve() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    harness.key(Key::P, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    let labelled = |harness: &Harness, start: &str| {
+        harness
+            .accessible
+            .iter()
+            .find(|(_, node)| spoken(node).is_some_and(|label| label.starts_with(start)))
+            .map(|(id, node)| (*id, node.clone()))
+    };
+    let shown = harness.view_description().unwrap_or_default();
+
+    let (_, body) = labelled(&harness, "Body Extrude 1").expect("the body has a node");
+    let faces: Vec<String> = descendants(&harness, &body)
+        .into_iter()
+        .filter(|label| label.contains("Extrude 1"))
+        .collect();
+    let (_, datum) = labelled(&harness, "Datum ").expect("the datum has a node");
+
+    assert_eq!(
+        spoken(&body),
+        Some("Body Extrude 1, 40 mm by 40 mm by 10 mm, lowest corner at 0, 0, 0 mm, 6 faces")
+    );
+    assert_eq!(faces.len(), 6, "{faces:?}");
+    assert!(
+        faces.iter().any(|face| face.contains("end face")),
+        "{faces:?}"
+    );
+    assert!(
+        spoken(&datum).is_some_and(|label| label.ends_with(", at 0, 0, 0 mm")),
+        "{:?}",
+        spoken(&datum)
+    );
+    assert!(shown.contains("(at 0, 0, 0 mm)"), "{shown}");
+    let (_, view) = labelled(&harness, "3D view").expect("the view has a node");
+    let listed = descendants(&harness, &view);
+    assert!(
+        listed
+            .iter()
+            .any(|label| label.starts_with("Body Extrude 1")),
+        "{listed:?}"
+    );
+    assert!(
+        listed.iter().any(|label| label.starts_with("Sketch ")),
+        "{listed:?}"
+    );
+
+    let sketch = harness
+        .document()
+        .features()
+        .find(|feature| feature.name == "Base sketch")
+        .map(caditor_document::Feature::id)
+        .unwrap();
+    harness.edit(sketch);
+    harness.frame();
+    harness.frame();
+    let (_, line) = labelled(&harness, "Line ").expect("each curve has a node");
+
+    assert!(
+        spoken(&line).is_some_and(|label| label.contains(" long") && label.contains(" from ")),
+        "{:?}",
+        spoken(&line)
+    );
+    assert!(labelled(&harness, "Body Extrude 1").is_none());
+}
+
+fn spoken(node: &Node) -> Option<&str> {
+    node.label().or_else(|| node.value())
+}
+
+fn descendants(harness: &Harness, node: &Node) -> Vec<String> {
+    node.children()
+        .iter()
+        .filter_map(|child| harness.accessible.iter().find(|(id, _)| id == child))
+        .flat_map(|(_, child)| {
+            spoken(child)
+                .map(str::to_owned)
+                .into_iter()
+                .chain(descendants(harness, child))
+        })
+        .collect()
+}
+
+#[test]
 fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);

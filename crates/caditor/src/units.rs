@@ -127,6 +127,11 @@ impl LengthUnit {
         format!("{x}, {y}, {z} {}", self.symbol())
     }
 
+    pub fn spoken_point(self, coordinates: [f64; 2]) -> String {
+        let [x, y] = coordinates.map(|millimetres| self.spoken_number(millimetres));
+        format!("{x}, {y} {}", self.symbol())
+    }
+
     fn spoken_number(self, millimetres: f64) -> String {
         let number = self.measured_number(millimetres, 1, MEASURED_LENGTH_DECIMALS);
         if number.contains('.') {

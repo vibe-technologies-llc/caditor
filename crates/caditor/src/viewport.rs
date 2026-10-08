@@ -7,8 +7,8 @@ use caditor_render::{
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
-    Align, Align2, Key, PointerButton, Rect, Response, Sense, Shape, Stroke, WidgetInfo,
-    WidgetType, accesskit::Live, pos2, vec2,
+    Align, Align2, Id, Key, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke, Ui,
+    UiBuilder, Vec2, WidgetInfo, WidgetType, accesskit::Live, pos2, vec2,
 };
 
 use crate::{
@@ -37,7 +37,7 @@ use crate::{
     projecting, reference_picking,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
-    scene_description::SceneDescription,
+    scene_description::{Item, SceneDescription},
     scene_palette::Contrast,
     selection::{Pickable, Selection, SelectionFilter},
     shape_modes::ShapeMode,
@@ -591,8 +591,14 @@ impl ViewportState {
             let response = ui.interact(rect, ui.id().with("viewport"), Sense::click_and_drag());
             response.widget_info(|| WidgetInfo::labeled(WidgetType::Other, true, VIEWPORT_NAME));
             let described = self.description.of(model, editing.feature()).to_owned();
-            ui.ctx()
-                .accesskit_node_builder(response.id, |node| node.set_description(described));
+            let accessible = ui
+                .ctx()
+                .accesskit_node_builder(response.id, |node| node.set_description(described))
+                .is_some();
+            if accessible {
+                let items = self.description.items(model, editing.feature());
+                scene_items(ui, response.id, rect.min, items);
+            }
 
             self.track_cursor(ui, &response, rect);
             self.track_manipulator(model, editing);
@@ -4044,4 +4050,26 @@ mod navigation_tests {
         );
         assert_eq!(motion(InputMode::Blender, NONE, false, false), None);
     }
+}
+
+fn scene_items(ui: &mut Ui, view: Id, corner: Pos2, items: &[Item]) {
+    let nowhere = Rect::from_min_size(corner, Vec2::ZERO);
+    let node = |ui: &mut Ui, id: Id, name: &str| {
+        let response = ui.interact(nowhere, id, Sense::hover());
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, name));
+        response.id
+    };
+    ui.scope_builder(UiBuilder::new().accessibility_parent(view), |ui| {
+        for (index, item) in items.iter().enumerate() {
+            let parent = node(ui, view.with(("scene item", index)), &item.name);
+            if item.parts.is_empty() {
+                continue;
+            }
+            ui.scope_builder(UiBuilder::new().accessibility_parent(parent), |ui| {
+                for (part_index, part) in item.parts.iter().enumerate() {
+                    node(ui, parent.with(("part", part_index)), part);
+                }
+            });
+        }
+    });
 }
