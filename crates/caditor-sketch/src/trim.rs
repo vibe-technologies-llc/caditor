@@ -306,6 +306,14 @@ impl Sketch {
         }
     }
 
+    pub fn circle_crossings(&self, curve: EntityId, center: Point2, radius: f64) -> Vec<Point2> {
+        let Some(shape) = self.shape_of(curve) else {
+            return Vec::new();
+        };
+        let tolerance = TOLERANCE * shape.extent().max(1.0);
+        intersect::crossings(Carrier::Circle { center, radius }, &shape, tolerance)
+    }
+
     pub fn segment_crossings(&self, curve: EntityId, from: Point2, to: Point2) -> Vec<Point2> {
         let (Some(shape), Some(direction)) = (self.shape_of(curve), (to - from).try_normalize())
         else {

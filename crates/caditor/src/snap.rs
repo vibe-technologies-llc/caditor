@@ -851,7 +851,8 @@ fn crossings_with(
                     .collect()
             })
             .unwrap_or_default(),
-        Entity::Point(_) | Entity::Spline { .. } => Vec::new(),
+        Entity::Spline { .. } => sketch.circle_crossings(id, center, radius),
+        Entity::Point(_) => Vec::new(),
     }
 }
 
@@ -1318,6 +1319,38 @@ pub mod tests {
             Some(Target::Pending(3))
         );
     }
+    #[test]
+    fn a_point_on_a_circle_snaps_where_a_spline_crosses_it() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let spline = sketch.add_spline(&[
+            Point2::new(20.0, 30.0),
+            Point2::new(32.0, 52.0),
+            Point2::new(60.0, 44.0),
+        ]);
+        let center = Point2::new(40.0, 40.0);
+        let [crossing, ..] = sketch.circle_crossings(spline, center, 10.0)[..] else {
+            panic!("the spline crosses the circle");
+        };
+
+        let snapped = resolve(
+            &sketch,
+            &Scaled(10.0),
+            pointer_at(crossing + Vector2::new(0.2, 0.1)),
+            &[],
+            Accept::OnCircle {
+                center,
+                radius: 10.0,
+            },
+            &[],
+            &[],
+        )
+        .unwrap();
+
+        assert_eq!(snapped.target, Target::Curve(spline));
+        assert!(snapped.position.distance(crossing) < 1e-9);
+        assert!((snapped.position.distance(center) - 10.0).abs() < 1e-6);
+    }
+
     #[test]
     fn a_point_on_a_circle_snaps_only_to_its_points_and_crossings() {
         let mut sketch = Sketch::new(Plane::XY);

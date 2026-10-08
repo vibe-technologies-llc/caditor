@@ -151,7 +151,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] No smart-dimension tool that takes the entities after the command, and a
   sketch of more than `MAX_UNSWEPT_REGION_ENTITIES` entities shows its closed regions only once a
   feature sweeps it.
-- [medium · medium] Snapping has no spline end landing on a circle being drawn, and no centre of an outline with odd sides (a triangle, a pentagon). Only a
+- [medium · medium] Snapping has no centre of an outline with odd sides (a triangle, a pentagon). Only a
   lone dragged point snaps (not a dragged curve or selection), without tracks or extensions. Tracks
   run only horizontal and vertical from acquired points, not along other angles.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D

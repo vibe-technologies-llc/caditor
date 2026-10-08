@@ -224,7 +224,7 @@ paths:
   crossing instead).
 - `Accept` keeps every shown snap a constraint that already holds: a circle's rim takes points
   only (a rim on a curve would add no constraint); an arc's end takes points on its circle and
-  where it crosses other curves and the axes.
+  where it crosses other curves (splines through `Sketch::circle_crossings`) and the axes.
 - A line end (and the second point of either straight slot, of a three-point rectangle's first
   side and of a polygon's side) within `ALIGN_ANGLE_DEGREES` or `ALIGN_TOLERANCE` of a direction
   from its start takes it exactly (`Snap::Aligned`). Horizontal and vertical win whenever either
