@@ -120,6 +120,7 @@ impl Marks {
         let screen_centre = centre.and_then(|centre| screen.to_screen(centre));
         let mut dimensions = Vec::new();
         let mut groups: BTreeMap<EntityId, Vec<(ConstraintId, GlyphKind)>> = BTreeMap::new();
+        let mut measured_dimensions = Vec::new();
         for (id, constraint) in definition.constraints() {
             let Some(expression) = constraint.dimension() else {
                 for (entity, kind) in annotation_layout::glyphs_of(&shown, constraint) {
@@ -127,8 +128,23 @@ impl Marks {
                 }
                 continue;
             };
-            let layout = annotation_layout::measured(&shown, constraint)
-                .and_then(|measured| annotation_layout::layout(&measured, screen, centre));
+            measured_dimensions.push((
+                id,
+                constraint,
+                expression,
+                annotation_layout::measured(&shown, constraint),
+            ));
+        }
+        let measured: Vec<_> = measured_dimensions
+            .iter()
+            .map(|(_, _, _, measured)| *measured)
+            .collect();
+        let lanes = annotation_layout::lanes(&measured, centre, extent_of(&shown));
+        for ((id, constraint, expression, measured), lane) in
+            measured_dimensions.into_iter().zip(lanes)
+        {
+            let layout = measured
+                .and_then(|measured| annotation_layout::layout(&measured, screen, centre, lane));
             if let Some(layout) = layout {
                 dimensions.push(DimensionMark {
                     constraint: id,
@@ -273,6 +289,19 @@ impl<'a> Standings<'a> {
             Standing::Normal
         }
     }
+}
+
+fn extent_of(sketch: &Sketch) -> f64 {
+    sketch
+        .entities()
+        .filter_map(|(_, entity)| match entity {
+            Entity::Point(position) => Some(position.x.abs().max(position.y.abs())),
+            Entity::Line { .. }
+            | Entity::Circle { .. }
+            | Entity::Arc { .. }
+            | Entity::Spline { .. } => None,
+        })
+        .fold(0.0, f64::max)
 }
 
 fn centre_of(sketch: &Sketch) -> Option<Point2> {

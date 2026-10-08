@@ -323,7 +323,9 @@ paths:
 
 - Drawn with the egui painter (`annotations.rs`, placement in `annotation_layout.rs`) from the
   displayed geometry through the current view, with offsets and sizes in screen points and no
-  stored positions. Dimensions sit away from the sketch's centre; other constraints are glyphs
+  stored positions. Dimensions sit away from the sketch's centre, and linear ones measured along
+  one line on one side whose spans overlap stack into lanes (`annotation_layout::lanes`, shortest
+  nearest, `LANE_SPACING` apart), so an overall dimension clears the chain beneath it; other constraints are glyphs
   stacked beside each constrained entity on the opposite side.
 - Glyphs keep clear of dimension labels and of each other (`annotation_layout::place_glyphs` over
   `Obstacles`); when nothing is free the least covered place wins. An entity's anchor is clipped to

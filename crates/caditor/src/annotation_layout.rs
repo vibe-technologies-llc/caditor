@@ -9,6 +9,9 @@ use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Reference, Sketc
 use crate::snap::Screen;
 
 const DIMENSION_OFFSET: f64 = 28.0;
+const LANE_SPACING: f64 = 22.0;
+const LANE_TOLERANCE: f64 = 1e-6;
+const LANE_DIRECTION_TOLERANCE: f64 = 1e-6;
 const EXTENSION_GAP: f64 = 4.0;
 const EXTENSION_OVERSHOOT: f64 = 5.0;
 const MIN_EXTENSION: f64 = 1.0;
@@ -329,10 +332,14 @@ pub fn layout(
     measured: &Measured,
     screen: &impl Screen,
     centre: Option<Point2>,
+    lane: usize,
 ) -> Option<DimensionLayout> {
+    let offset = DIMENSION_OFFSET + LANE_SPACING * lane as f64;
     match *measured {
-        Measured::Points(a, b) => points_layout(screen, a, b, centre),
-        Measured::Aligned { from, to, along } => aligned_layout(screen, from, to, along, centre),
+        Measured::Points(a, b) => points_layout(screen, a, b, centre, offset),
+        Measured::Aligned { from, to, along } => {
+            aligned_layout(screen, from, to, along, centre, offset)
+        }
         Measured::PointToLine(point, line) => point_to_line_layout(screen, point, line, centre),
         Measured::PointToCircle {
             point,
@@ -391,6 +398,94 @@ fn along_arc_layout(
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Track {
+    along: Vector2,
+    side: Vector2,
+    baseline: f64,
+    span: (f64, f64),
+}
+
+impl Track {
+    fn of(measured: &Measured, centre: Option<Point2>) -> Option<Self> {
+        let (from, to, along) = match *measured {
+            Measured::Points(a, b) => (a, b, (b - a).try_normalize()?),
+            Measured::Aligned { from, to, along } => (from, to, along.try_normalize()?),
+            _ => return None,
+        };
+        let along = if along.x < -DEGENERATE || (along.x.abs() <= DEGENERATE && along.y < 0.0) {
+            -along
+        } else {
+            along
+        };
+        let side = away_from(along.perp(), (from + to) / 2.0, centre);
+        let baseline = match measured {
+            Measured::Aligned { .. } => from.dot(side).max(to.dot(side)),
+            _ => from.dot(side),
+        };
+        let (first, second) = (from.dot(along), to.dot(along));
+        Some(Self {
+            along,
+            side,
+            baseline,
+            span: (first.min(second), first.max(second)),
+        })
+    }
+
+    fn shares_line_with(&self, other: &Self, tolerance: f64) -> bool {
+        self.along.distance(other.along) <= LANE_DIRECTION_TOLERANCE
+            && self.side.dot(other.side) > 0.0
+            && (self.baseline - other.baseline).abs() <= tolerance
+            && self.span.0 < other.span.1 - tolerance
+            && other.span.0 < self.span.1 - tolerance
+    }
+
+    fn length(&self) -> f64 {
+        self.span.1 - self.span.0
+    }
+}
+
+pub fn lanes(measured: &[Option<Measured>], centre: Option<Point2>, extent: f64) -> Vec<usize> {
+    let tolerance = extent.max(1.0) * LANE_TOLERANCE;
+    let tracks: Vec<Option<Track>> = measured
+        .iter()
+        .map(|measured| {
+            measured
+                .as_ref()
+                .and_then(|measured| Track::of(measured, centre))
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..tracks.len()).collect();
+    order.sort_by(|a, b| {
+        let length = |index: &usize| {
+            tracks
+                .get(*index)
+                .copied()
+                .flatten()
+                .map_or(0.0, |track| track.length())
+        };
+        length(a).total_cmp(&length(b))
+    });
+    let mut lanes = vec![0; tracks.len()];
+    let mut placed: Vec<(Track, usize)> = Vec::new();
+    for index in order {
+        let Some(track) = tracks.get(index).copied().flatten() else {
+            continue;
+        };
+        let taken: Vec<usize> = placed
+            .iter()
+            .filter(|(other, _)| track.shares_line_with(other, tolerance))
+            .map(|(_, lane)| *lane)
+            .collect();
+        let lane = (0..).find(|lane| !taken.contains(lane)).unwrap_or(0);
+        if let Some(slot) = lanes.get_mut(index) {
+            *slot = lane;
+        }
+        placed.push((track, lane));
+    }
+    lanes
+}
+
 fn away_from(normal: Vector2, at: Point2, centre: Option<Point2>) -> Vector2 {
     let outward = centre.map_or(0.0, |centre| normal.dot(at - centre));
     let preference = if outward.abs() > DEGENERATE {
@@ -420,16 +515,17 @@ fn points_layout(
     a: Point2,
     b: Point2,
     centre: Option<Point2>,
+    reach: f64,
 ) -> Option<DimensionLayout> {
     let middle = (a + b) / 2.0;
     let projector = Projector::new(screen, middle)?;
     let along = (b - a).try_normalize().unwrap_or(Vector2::X);
     let normal = away_from(along.perp(), middle, centre);
-    let offset = normal * projector.units(DIMENSION_OFFSET);
+    let offset = normal * projector.units(reach);
     let extension = |point: Point2| {
         projector.polyline(&[
             point + normal * projector.units(EXTENSION_GAP),
-            point + normal * projector.units(DIMENSION_OFFSET + EXTENSION_OVERSHOOT),
+            point + normal * projector.units(reach + EXTENSION_OVERSHOOT),
         ])
     };
     let (start, end) = (a + offset, b + offset);
@@ -454,11 +550,12 @@ fn aligned_layout(
     to: Point2,
     along: Vector2,
     centre: Option<Point2>,
+    offset: f64,
 ) -> Option<DimensionLayout> {
     let middle = (from + to) / 2.0;
     let projector = Projector::new(screen, middle)?;
     let side = away_from(along.perp(), middle, centre);
-    let reach = from.dot(side).max(to.dot(side)) + projector.units(DIMENSION_OFFSET);
+    let reach = from.dot(side).max(to.dot(side)) + projector.units(offset);
     let foot = |point: Point2| point + side * (reach - point.dot(side));
     let (start, end) = (foot(from), foot(to));
     let extension = |point: Point2, foot: Point2| {
@@ -1047,7 +1144,7 @@ mod tests {
     #[test]
     fn a_horizontal_distance_sits_above_the_line_away_from_the_sketch() {
         let measured = Measured::Points(Point2::ZERO, Point2::new(40.0, 0.0));
-        let layout = layout(&measured, &Flat, Some(Point2::new(20.0, -10.0))).unwrap();
+        let layout = layout(&measured, &Flat, Some(Point2::new(20.0, -10.0)), 0).unwrap();
 
         assert_close(layout.label, Vector2::new(140.0, 272.0));
         assert_eq!(layout.label_side, Vector2::ZERO);
@@ -1062,14 +1159,14 @@ mod tests {
             vec![Vector2::new(100.0, 272.0), Vector2::new(180.0, 272.0)]
         );
 
-        let below = self::layout(&measured, &Flat, Some(Point2::new(20.0, 10.0))).unwrap();
+        let below = self::layout(&measured, &Flat, Some(Point2::new(20.0, 10.0)), 0).unwrap();
         assert_close(below.label, Vector2::new(140.0, 328.0));
     }
 
     #[test]
     fn a_rotated_distance_is_parallel_to_the_measured_segment() {
         let measured = Measured::Points(Point2::ZERO, Point2::new(30.0, 40.0));
-        let layout = layout(&measured, &Flat, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0).unwrap();
 
         assert_close(layout.arrows[0].tip, Vector2::new(77.6, 283.2));
         assert_close(layout.arrows[0].direction, Vector2::new(-0.6, 0.8));
@@ -1092,7 +1189,7 @@ mod tests {
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0).unwrap();
 
         assert_close(layout.arrows[0].tip, Vector2::new(140.0, 300.0));
         assert_close(layout.arrows[0].direction, Vector2::new(0.0, 1.0));
@@ -1119,7 +1216,7 @@ mod tests {
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0).unwrap();
 
         let half = PI / 8.0;
         assert_close(
@@ -1161,7 +1258,7 @@ mod tests {
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0).unwrap();
 
         assert!(layout.arrows.is_empty());
         assert_close(
@@ -1182,7 +1279,7 @@ mod tests {
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, None).unwrap();
+        let layout = layout(&measured, &Flat, None, 0).unwrap();
 
         let outward = Vector2::new(FRAC_1_SQRT_2, -FRAC_1_SQRT_2);
         let on_curve = Vector2::new(120.0, 280.0) + outward * 10.0;
@@ -1207,7 +1304,7 @@ mod tests {
             },
         )
         .unwrap();
-        let layout = layout(&measured, &Flat, Some(Point2::new(15.0, -20.0))).unwrap();
+        let layout = layout(&measured, &Flat, Some(Point2::new(15.0, -20.0)), 0).unwrap();
 
         assert_close(layout.arrows[0].tip, Vector2::new(100.0, 252.0));
         assert_close(layout.arrows[0].direction, Vector2::new(-1.0, 0.0));
@@ -1236,7 +1333,7 @@ mod tests {
             },
         )
         .unwrap();
-        let spanned = layout(&diameter, &Flat, None).unwrap();
+        let spanned = layout(&diameter, &Flat, None, 0).unwrap();
 
         let outward = Vector2::new(FRAC_1_SQRT_2, -FRAC_1_SQRT_2);
         let centre = Vector2::new(120.0, 280.0);
@@ -1255,7 +1352,7 @@ mod tests {
             },
         )
         .unwrap();
-        let squarely = layout(&distance, &Flat, None).unwrap();
+        let squarely = layout(&distance, &Flat, None, 0).unwrap();
         assert_close(squarely.arrows[0].tip, Vector2::new(130.0, 280.0));
         assert_close(squarely.arrows[1].tip, Vector2::new(150.0, 280.0));
         assert_close(squarely.label, Vector2::new(140.0, 280.0));
@@ -1276,7 +1373,7 @@ mod tests {
         .unwrap();
         let sweep = measured(&sketch, &Constraint::Sweep { arc, value }).unwrap();
 
-        let along = layout(&length, &Flat, None).unwrap();
+        let along = layout(&length, &Flat, None, 0).unwrap();
         let centre = Vector2::new(100.0, 300.0);
         let reach = 20.0 + DIMENSION_OFFSET;
         let half = FRAC_1_SQRT_2;
@@ -1290,9 +1387,36 @@ mod tests {
             Vector2::new(120.0 + EXTENSION_GAP, 300.0),
         );
 
-        let turned = layout(&sweep, &Flat, None).unwrap();
+        let turned = layout(&sweep, &Flat, None, 0).unwrap();
         assert_close(turned.strokes[1][0], centre);
         assert_close(turned.strokes[2][0], centre);
+    }
+
+    #[test]
+    fn an_overall_dimension_over_a_chain_moves_out_a_lane_and_the_chain_shares_one() {
+        let level = |from: f64, to: f64| Measured::Aligned {
+            from: Point2::new(from, 0.0),
+            to: Point2::new(to, 0.0),
+            along: Vector2::X,
+        };
+        let measured = vec![
+            Some(level(0.0, 40.0)),
+            Some(level(0.0, 15.0)),
+            Some(level(15.0, 40.0)),
+            Some(Measured::Points(
+                Point2::new(0.0, 30.0),
+                Point2::new(0.0, 60.0),
+            )),
+            None,
+        ];
+        let centre = Some(Point2::new(20.0, 20.0));
+
+        let lanes = lanes(&measured, centre, 60.0);
+
+        assert_eq!(lanes, vec![1, 0, 0, 0, 0]);
+        let near = layout(measured[1].as_ref().unwrap(), &Flat, centre, 0).unwrap();
+        let far = layout(measured[0].as_ref().unwrap(), &Flat, centre, 1).unwrap();
+        assert_close(far.label - near.label, Vector2::new(25.0, LANE_SPACING));
     }
 
     #[test]
