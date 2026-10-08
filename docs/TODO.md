@@ -151,9 +151,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] No smart-dimension tool that takes the entities after the command, and a
   sketch of more than `MAX_UNSWEPT_REGION_ENTITIES` entities shows its closed regions only once a
   feature sweeps it.
-- [medium · medium] Snapping has no centre of an outline with odd sides (a triangle, a pentagon). Only a
-  lone dragged point snaps (not a dragged curve or selection), without tracks or extensions. Tracks
-  run only horizontal and vertical from acquired points, not along other angles.
+- [medium · medium] Snapping has no centre of an outline with odd sides (a triangle, a
+  pentagon). Only a lone dragged point snaps (not a dragged curve or selection), without tracks or
+  extensions. Tracks run only horizontal and vertical from acquired points, not along other
+  angles.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
   profile curves, which have no ellipse although its 3D curves do, and the file format), sketch
   chamfer, rectangular and circular patterns, rotate, scale and copy of a selection, split at a
@@ -294,8 +295,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
 ## Accessibility
 
 - [medium · medium] Constraints and dimensions are not scene pickables, so N never reaches them and
-  a dimension can be re-edited only by double-click or from the tree. While drawing, Space places
-  only at a highlighted point, not on a highlighted curve.
+  a dimension can be re-edited only by double-click or from the tree.
 - [medium · medium] High contrast reaches neither the scene colours nor the colour-only sketch
   states.
 - [low · medium] The 3D view's description names the bodies, sketches and datums it shows and

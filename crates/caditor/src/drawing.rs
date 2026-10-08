@@ -15,6 +15,8 @@ use crate::{
     units::Units,
 };
 
+const ONLY_AT_POINTS: &str = "This point can only go at a point: highlight one of the sketch's \
+                              points or the origin";
 const ALIGN_ANGLE_DEGREES: f64 = 3.0;
 const ALIGN_TOLERANCE: f64 = 6.0;
 const MIN_ALIGN_LENGTH: f64 = 12.0;
@@ -882,6 +884,47 @@ impl Drawing {
             sweep.aim(placement.position);
         }
         self.find_tangent(shape, sketch);
+    }
+
+    pub fn type_on_curve(&mut self, sketch: &Sketch, curve: EntityId) -> Result<(), &'static str> {
+        let Some((_, shape)) = self.context else {
+            return Err(ONLY_AT_POINTS);
+        };
+        if self.accept(shape) != Accept::Anything {
+            return Err(ONLY_AT_POINTS);
+        }
+        let (position, target) = match sketch.entity(curve) {
+            Some(Entity::Line { .. }) => {
+                let (start, end) = sketch.line_endpoints(curve).ok_or(ONLY_AT_POINTS)?;
+                (start.midpoint(end), Target::Midpoint(curve))
+            }
+            Some(Entity::Arc { .. }) => {
+                let arc = sketch.arc(curve).ok_or(ONLY_AT_POINTS)?;
+                (
+                    arc.point_at(arc.start_angle + arc.sweep / 2.0),
+                    Target::Midpoint(curve),
+                )
+            }
+            Some(Entity::Circle { .. }) => {
+                let (center, radius) = sketch.circle(curve).ok_or(ONLY_AT_POINTS)?;
+                (center + Vector2::X * radius, Target::Curve(curve))
+            }
+            Some(Entity::Spline { .. }) => {
+                let spline = sketch.spline(curve).ok_or(ONLY_AT_POINTS)?;
+                (spline.point_at(0.5), Target::Curve(curve))
+            }
+            Some(Entity::Point(_)) | None => return Err(ONLY_AT_POINTS),
+        };
+        let placement = Placement::at(position, Snap::Target(target));
+        self.hover = Some(placement);
+        self.extension_guide = None;
+        if self.choosing_arc_end()
+            && let Some(sweep) = &mut self.sweep
+        {
+            sweep.aim(placement.position);
+        }
+        self.find_tangent(shape, sketch);
+        Ok(())
     }
 
     pub fn reversible(&self) -> Result<(), &'static str> {

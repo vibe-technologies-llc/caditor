@@ -60,8 +60,8 @@ const PROMPT_MAX_WIDTH: f32 = 720.0;
 const READOUT_ROOM: f32 = 200.0;
 const DRAG_DRAWS_FROM_PRESS: f64 = 12.0;
 const SIZE_READOUT_OFFSET: egui::Vec2 = vec2(14.0, 26.0);
-pub const PLACE_AT_A_POINT: &str = "While drawing, Space places at the highlighted point: highlight \
-                                    one of the sketch's points or the origin.";
+pub const PLACE_AT_A_POINT: &str = "While drawing, Space places at the highlighted point or curve: \
+                                    highlight one of the sketch's points or curves, or the origin.";
 const VIEWPORT_NAME: &str = "3D view";
 const NOT_IN_A_SKETCH: &str = "Edit a sketch to look straight at it";
 pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
@@ -1775,20 +1775,21 @@ impl ViewportState {
     ) -> Option<Option<Action>> {
         let active = editing.active().filter(|active| active.tool.draws())?;
         let sketch = edited_sketch(model, editing)?;
-        let position = match highlight {
-            Pickable::Origin => Some(Point2::ZERO),
+        match highlight {
+            Pickable::Origin => self.drawing.type_point(&sketch, Point2::ZERO),
             Pickable::SketchEntity { feature, entity } if feature == active.feature => {
                 match sketch.entity(entity) {
-                    Some(Entity::Point(position)) => Some(*position),
-                    _ => None,
+                    Some(Entity::Point(position)) => self.drawing.type_point(&sketch, *position),
+                    Some(_) => {
+                        if let Err(reason) = self.drawing.type_on_curve(&sketch, entity) {
+                            return Some(Some(Action::Inform(Notice::info(format!("{reason}.")))));
+                        }
+                    }
+                    None => return Some(Some(Action::Inform(Notice::info(PLACE_AT_A_POINT)))),
                 }
             }
-            _ => None,
-        };
-        let Some(position) = position else {
-            return Some(Some(Action::Inform(Notice::info(PLACE_AT_A_POINT))));
-        };
-        self.drawing.type_point(&sketch, position);
+            _ => return Some(Some(Action::Inform(Notice::info(PLACE_AT_A_POINT)))),
+        }
         Some(match self.drawing.click(model) {
             Ok(transaction) => transaction.map(Action::Apply),
             Err(refusal) => Some(Action::Inform(Notice::info(refusal.reason()))),

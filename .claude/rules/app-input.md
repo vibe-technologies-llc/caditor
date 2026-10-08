@@ -101,8 +101,10 @@ paths:
   With Trim, Extend, Mirror or Sketch fillet active they step through that tool's targets instead
   (`app-sketching.md`). With a drawing tool active, Activate on a highlighted point of the edited
   sketch or the origin places the shape's next point there, snapped to it as a click would
-  (`place_at_highlight` through `Drawing::type_point`), so keyboard drawing starts from existing
-  geometry; on anything else it says to highlight a point.
+  (`place_at_highlight` through `Drawing::type_point`), and on a highlighted curve at its middle
+  (`Drawing::type_on_curve`: a line's or arc's with `Midpoint`, a circle's rightmost point or a
+  spline's halfway point on it), so keyboard drawing starts from existing geometry; where the shape
+  takes only points, or on anything else, it says what to highlight.
 - The selection filter (`SelectionFilter`, commands `select.*`, View › Selection filter) makes
   `PickTable::best_hit` and the highlight keys skip every pickable but one kind (faces, edges,
   vertices or sketch geometry), reference geometry included. It applies only while no sketch or
