@@ -404,8 +404,13 @@ impl Pickable {
                         .is_some_and(|solid| bodies::find_vertex(solid, vertex).is_some())
             }
             Self::SketchRegion { feature, region } => {
-                editing == Some(feature)
-                    && context.selecting
+                let in_context = match editing {
+                    Some(edited) => edited == feature && context.selecting,
+                    None => {
+                        context.picks_shown_regions() && visibility::is_shown(document, feature)
+                    }
+                };
+                in_context
                     && sketch_regions(evaluation, feature).is_some_and(|regions| {
                         regions
                             .iter()

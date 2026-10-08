@@ -506,7 +506,15 @@ pub fn build(
         builder.swept(sources, feature, reference_size);
     }
     if let Some((feature, displayed)) = &edited {
-        builder.closed_regions(evaluation, feature.id(), displayed, context.selecting);
+        let pickable = context.selecting;
+        builder.closed_regions(evaluation, feature.id(), displayed, pickable, Layer::Front);
+    }
+    if context.picks_shown_regions() {
+        for (feature, _) in drawn_sketches(document, editing, context.projecting) {
+            if let Some(displayed) = sketches.get(evaluation, feature) {
+                builder.closed_regions(evaluation, feature.id(), &displayed, true, Layer::Model);
+            }
+        }
     }
 
     let reference = Aabb::from_points(plane_corners(Plane::XY, reference_size))
@@ -1299,6 +1307,7 @@ impl Builder<'_> {
         feature: FeatureId,
         displayed: &Sketch,
         pickable: bool,
+        layer: Layer,
     ) {
         let Some(result) = evaluation
             .feature(feature)
@@ -1329,7 +1338,7 @@ impl Builder<'_> {
             self.scene.fills.push(Fill {
                 triangles: region_triangles(mesh, &plane),
                 color: self.region_color(region, self.palette.closed_region),
-                layer: Layer::Front,
+                layer,
                 pick,
             });
         }
@@ -2093,7 +2102,7 @@ mod tests {
     }
 
     #[test]
-    fn the_edited_sketch_tints_its_closed_regions_once_found() {
+    fn sketches_tint_their_closed_regions_once_found_and_pick_them_outside_editing() {
         let mut document = Document::default();
         let mut sketch = Sketch::new(Plane::XY);
         let corners = [
@@ -2132,12 +2141,14 @@ mod tests {
             .sum();
         assert!((area - 50.0).abs() < 1e-9, "{area}");
         assert!(tinted.iter().all(|fill| fill.pick.is_none()));
-        assert!(
-            looking
-                .scene
-                .fills()
-                .all(|fill| fill.color != STANDARD.closed_region)
-        );
+        let shown: Vec<&Fill> = looking
+            .scene
+            .fills()
+            .filter(|fill| fill.color == STANDARD.closed_region)
+            .collect();
+        assert_eq!(shown.len(), 1);
+        assert_eq!(shown[0].layer, Layer::Model);
+        assert!(shown[0].pick.is_some());
     }
 
     #[test]

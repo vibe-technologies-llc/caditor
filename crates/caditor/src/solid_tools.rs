@@ -596,6 +596,25 @@ pub fn toggle_region(model: &Model, feature: FeatureId, region: RegionKey) -> Op
     ))
 }
 
+pub fn clear_regions(model: &Model, feature: &Feature) -> Result<Transaction, String> {
+    let Some(solid) = feature.kind.solid() else {
+        return Err(format!("{} is not an extrusion or a revolve", feature.name));
+    };
+    let id = feature.id();
+    let nothing_chosen = selection::swept_regions(model.document(), model.evaluation(), id)
+        .is_some_and(|(_, regions)| scene::chosen_regions(solid.regions(), regions).is_empty());
+    if nothing_chosen {
+        return Err(format!("{} has no region chosen", feature.name));
+    }
+    Ok(Transaction::single(
+        format!("Clear the chosen regions of {}", feature.name),
+        Edit::SetFeatureKind {
+            id,
+            kind: FeatureKind::Solid(with_regions(solid, RegionChoice::Chosen(Vec::new()))),
+        },
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use caditor_geometry::{Plane, Point2};

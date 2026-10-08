@@ -9,6 +9,7 @@ use caditor_sketch::{Entity, EntityId, Reference};
 use egui::{Id, Ui};
 
 use crate::{
+    commands::Command,
     datum_tools,
     editing::EditingCommand,
     feature_fields::{
@@ -34,6 +35,8 @@ pub const KEEP_OTHER_SIDE: &str = "Keep the other side of the axis";
 pub const ALSO_CUTS: &str = "Also cuts";
 pub const ADD_CUT_BODY: &str = "Add another body";
 const START_OFFSET: &str = "Start offset";
+pub const CLEAR_REGIONS: &str = "Clear";
+const CLEAR_REGIONS_HOVER: &str = "Choose no region, then click in the view the regions to sweep";
 const START_BY_OFFSET: &str = "Sketch plane, offset";
 const START_ON_FACE: &str = "Face or plane";
 const THROUGH_ALL_NEEDS_A_CUT: &str = "Through all cuts into a body or intersects with it; choose Remove from body or Intersect \
@@ -218,10 +221,22 @@ impl Panel<'_> {
                 }
                 None => {}
             }
-            if !all {
-                let chosen = format!("{} chosen", count(chosen_count, "region", "regions"));
-                ui.label(widgets::muted(chosen, ui));
-            }
+            ui.horizontal(|ui| {
+                if !all {
+                    let chosen = format!("{} chosen", count(chosen_count, "region", "regions"));
+                    ui.label(widgets::muted(chosen, ui));
+                }
+                if chosen_count > 0 {
+                    let clear = widgets::small_button(
+                        ui,
+                        icons::command(Command::ClearChosenRegions),
+                        CLEAR_REGIONS,
+                    );
+                    if ui.add(clear).on_hover_text(CLEAR_REGIONS_HOVER).clicked() {
+                        change = Some(solid_tools::clear_regions(self.model, self.feature));
+                    }
+                }
+            });
             if widgets::choose_in_view(
                 ui,
                 feature_fields::choosing_list(ui, opened),

@@ -415,7 +415,10 @@ paths:
   (`Context::selecting`) each is `Pickable::SketchRegion`, the area between crossings rather than
   whole curves: hover tints it, a click selects it, Shift or Ctrl adds more, and curves and points
   win near them (surface pick priority); a drag starting on one draws a box. Other tools leave
-  them unpicked, so drawing, modifying and dimensioning never take a region. Extrude and Revolve
+  them unpicked, so drawing, modifying and dimensioning never take a region. Outside sketch
+  editing, with no feature open and nothing chosen in the view (`Context::picks_shown_regions`),
+  every shown sketch's regions are drawn and picked the same way, like faces, on `Layer::Model`
+  (so a body in front hides them, while one lying on a face draws over it). Extrude and Revolve
   take the selected regions (`app-modelling.md`). A sketch too large for
   recompute to find them unasked gets them asked for each frame it is edited
   (`Model::request_regions`, one request per result), and their arrival moves the displayed

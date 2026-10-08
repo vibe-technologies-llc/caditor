@@ -198,6 +198,15 @@ pub struct Context {
     pub choosing_in_view: bool,
 }
 
+impl Context {
+    pub fn picks_shown_regions(self) -> bool {
+        self.sketch.is_none()
+            && self.solid.is_none()
+            && !self.choosing_plane
+            && !self.choosing_in_view
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SketchEditing {
     active: Option<ActiveSketch>,

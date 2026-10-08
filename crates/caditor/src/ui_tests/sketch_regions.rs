@@ -180,3 +180,84 @@ fn a_chosen_region_of_an_open_extrusion_is_picked_in_front_of_its_preview() {
     harness.settle();
     assert_eq!(chosen_keys(&harness, extrude), [other]);
 }
+
+#[test]
+fn a_shown_sketch_offers_its_regions_like_faces_once_editing_ends() {
+    let mut harness = Harness::new();
+    let sketch = crossing_squares(&mut harness);
+    harness.click("Finish sketch");
+    harness.settle();
+    let outside = sketch_region(&harness, sketch, OUTSIDE_THE_FIRST);
+
+    let offered = sketch_regions_offered(&mut harness);
+    harness.click_pickable(Plane::XY, OUTSIDE_THE_FIRST, outside);
+    let built = harness.built();
+    let fill = built
+        .scene
+        .fills()
+        .find(|fill| fill.pick == built.picks.id_of(outside))
+        .expect("the region is drawn outside the sketch");
+    let selected: Vec<Pickable> = harness.workspace.viewport.selection().iter().collect();
+
+    assert_eq!(harness.editing(), None);
+    assert_eq!(offered, 3);
+    assert_eq!(fill.layer, Layer::Model, "a body in front still hides it");
+    assert_eq!(selected, [outside]);
+
+    let extrude = extrude_selection(&mut harness);
+    let offered_while_open = sketch_regions_offered(&mut harness);
+
+    assert_eq!(
+        chosen_keys(&harness, extrude),
+        [region_holding(&harness, sketch, OUTSIDE_THE_FIRST)]
+    );
+    assert_eq!(offered_while_open, 0);
+}
+
+#[test]
+fn clearing_the_chosen_regions_leaves_none_until_one_is_clicked() {
+    let mut harness = Harness::new();
+    let sketch = crossing_squares(&mut harness);
+    let outside = sketch_region(&harness, sketch, OUTSIDE_THE_FIRST);
+    harness.click_pickable(Plane::XY, OUTSIDE_THE_FIRST, outside);
+    let extrude = extrude_selection(&mut harness);
+
+    harness.key(Key::R, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    harness.settle();
+
+    assert!(chosen_keys(&harness, extrude).is_empty());
+    let Some(caditor_document::FeatureState::Failed(error)) = harness
+        .model
+        .evaluation()
+        .feature(extrude)
+        .map(|status| status.state.clone())
+    else {
+        panic!("an extrusion of no region fails");
+    };
+    assert_eq!(error.reason, "No region of the sketch is chosen.");
+    assert!(!harness.shows(crate::solid_panel::CLEAR_REGIONS));
+
+    let other = region_holding(&harness, sketch, OUTSIDE_THE_SECOND);
+    harness.click_pickable(
+        Plane::XY,
+        OUTSIDE_THE_SECOND,
+        Pickable::Region {
+            feature: extrude,
+            region: other,
+        },
+    );
+    harness.settle();
+
+    assert_eq!(chosen_keys(&harness, extrude), [other]);
+
+    harness.click(crate::solid_panel::CLEAR_REGIONS);
+    harness.settle();
+
+    assert!(chosen_keys(&harness, extrude).is_empty());
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.settle();
+
+    assert_eq!(chosen_keys(&harness, extrude), [other]);
+}

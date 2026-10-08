@@ -177,6 +177,7 @@ pub enum Command {
     PlaceSketch,
     UseSelectedAxis,
     ExtrudeUpToSelected,
+    ClearChosenRegions,
     StartAtSelected,
     MirrorAcrossSelected,
     SplitAlongSelected,
@@ -558,6 +559,7 @@ plain_commands! {
     PlaceSketch,
     UseSelectedAxis,
     ExtrudeUpToSelected,
+    ClearChosenRegions,
     StartAtSelected,
     MirrorAcrossSelected,
     SplitAlongSelected,
@@ -770,6 +772,7 @@ impl Command {
             Self::PlaceSketch => "model.place_sketch",
             Self::UseSelectedAxis => "model.use_selected_axis",
             Self::ExtrudeUpToSelected => "model.extrude_up_to_selected",
+            Self::ClearChosenRegions => "model.clear_chosen_regions",
             Self::StartAtSelected => "model.start_at_selected",
             Self::MirrorAcrossSelected => "model.mirror_across_selected",
             Self::SplitAlongSelected => "model.split_along_selected",
@@ -928,6 +931,7 @@ impl Command {
             Self::PlaceSketch => "Place sketch on selected plane or face",
             Self::UseSelectedAxis => "Revolve about selected axis",
             Self::ExtrudeUpToSelected => "Extrude up to selected face or plane",
+            Self::ClearChosenRegions => "Clear the chosen regions",
             Self::StartAtSelected => "Start extrusion or revolution at selected face or plane",
             Self::MirrorAcrossSelected => "Mirror across selected face or plane",
             Self::SplitAlongSelected => "Split along selected face or plane",
@@ -1063,6 +1067,7 @@ impl Command {
             | Self::PlaceSketch
             | Self::UseSelectedAxis
             | Self::ExtrudeUpToSelected
+            | Self::ClearChosenRegions
             | Self::StartAtSelected
             | Self::MirrorAcrossSelected
             | Self::SplitAlongSelected
@@ -1209,6 +1214,7 @@ impl Command {
             Self::DatumPlane => vec![alt(Key::D)],
             Self::DatumAxis => vec![alt_shift(Key::D)],
             Self::DatumPoint => vec![alt_shift(Key::P)],
+            Self::ClearChosenRegions => vec![alt_shift(Key::R)],
             Self::TogglePrincipal => vec![plain(Key::P)],
             Self::VersionHistory
             | Self::ModelProperties

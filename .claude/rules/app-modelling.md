@@ -154,8 +154,11 @@ paths:
 - An open feature's tree row is its property panel; every change is one `SetFeatureKind`, checked
   before it is offered. Regions are fills on the front layer, so the see-through preview of the
   body they sweep (whose faces still pick) never covers them; `Pickable::Region` clicks add or
-  leave out, turning `RegionChoice::All` into explicit keys. Double-clicking a face opens the
-  feature that made it.
+  leave out, turning `RegionChoice::All` into explicit keys. Clear the chosen regions
+  (`Command::ClearChosenRegions`, Alt+Shift+R, the panel's Clear beside the count, the palette;
+  `solid_tools::clear_regions`, on the open feature else the tree's row) chooses none in one
+  undoable change, so a single region is picked from nothing; the feature then fails saying no
+  region is chosen until one is clicked. Double-clicking a face opens the feature that made it.
 - Each extrusion side has an end kind; one that cannot apply is offered disabled with the reason
   on hover. Up to face takes the selected face or plane captured where the extrusion sits in the
   tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), each refusal

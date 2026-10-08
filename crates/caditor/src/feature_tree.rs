@@ -35,7 +35,7 @@ use crate::{
     shell_panel,
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
-    sketch_tools, solid_panel, split_panel, split_tools,
+    sketch_tools, solid_panel, solid_tools, split_panel, split_tools,
     tree_row::{self, Look},
     visibility,
     widgets::{self, DialogWidth, Tone},
@@ -1936,7 +1936,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = open_feature.or(current);
-    let changes: [(Command, FeatureChange<'_>); 11] = [
+    let changes: [(Command, FeatureChange<'_>); 12] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -1945,6 +1945,9 @@ fn feature_commands(
         }),
         (Command::ExtrudeUpToSelected, &|feature| {
             up_to_change(model, selection, feature)
+        }),
+        (Command::ClearChosenRegions, &|feature| {
+            solid_tools::clear_regions(model, feature)
         }),
         (Command::StartAtSelected, &|feature| {
             start_at_change(model, selection, feature)
