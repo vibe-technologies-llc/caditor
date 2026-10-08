@@ -163,7 +163,20 @@ paths:
   (`sketch_tools::ConstructionChange`), ordinary when all already are; with no curve selected it
   switches drawing (`ActiveSketch::construction`): new curves are construction, points stay
   points. Construction curves are dashed (`scene::curve_segments`) and coloured by constraint
-  state like any curve.
+  state like any curve, so dashes never carry a constraint state.
+
+## Constraint states without colour
+
+- Each sketch entity has a `SketchState` (under or fully constrained, conflicting, redundant,
+  failed, projected, background) drawn by the palette's `Look`. In high contrast the form says
+  whether it can move: fully constrained, projected, redundant and conflicting curves are heavy
+  (`heavy_curve_width`) and their points solid; under-constrained curves are regular and their
+  points hollow (a ring: the point marker with a smaller unpicked marker in the canvas colour,
+  `hole`, drawn after it at the same place). The standard palette draws every state in one form.
+- Which problem a sketch has is named by its status pill, and conflict and redundancy never share
+  a sketch (a conflict fails the solve); in high contrast the constraint marks involved also get a
+  frame (`annotations::paint_frame`): solid for conflicting, dashed for redundant, in the mark's
+  colour.
 
 ## Trim, extend, offset, mirror and sketch fillet
 

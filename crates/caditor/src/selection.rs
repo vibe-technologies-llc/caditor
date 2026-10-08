@@ -96,7 +96,7 @@ impl Axis {
         }
     }
 
-    pub fn rgb(self) -> [u8; 3] {
+    pub const fn rgb(self) -> [u8; 3] {
         match self {
             Self::X => [226, 84, 84],
             Self::Y => [112, 196, 88],

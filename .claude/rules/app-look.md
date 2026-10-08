@@ -6,6 +6,7 @@ paths:
   - "crates/caditor/src/widgets.rs"
   - "crates/caditor/src/dialog_parts.rs"
   - "crates/caditor/src/canvas.rs"
+  - "crates/caditor/src/scene_palette.rs"
   - "crates/caditor/src/view_cube.rs"
   - "crates/caditor/src/layout.rs"
   - "crates/caditor/src/menu_bar.rs"
@@ -51,6 +52,12 @@ paths:
   opaque `PANEL`. A test holds every canvas colour to 4.5:1 (body 7:1) over the backdrop on black,
   white and the hover colour, key caps and canvas controls in every state, and the view cube's
   labels on each cell state.
+- Geometry in the 3D view takes its colours and weights from `scene_palette.rs`: `STANDARD`, and
+  `HIGH_CONTRAST` while High contrast is on. Its tests hold every high-contrast line and point
+  colour to 3:1 against the canvas (`caditor_render::BACKGROUND`) and the dimmed body colour,
+  edges and hovered or selected faces to 3:1 on the default body colour (so selected faces are a
+  dark blue and hovered ones a dark amber there), and check that the standard palette keeps one
+  form for every sketch state.
 - Key hints (`canvas::Hints`) are `Key: action` text, items three spaces apart, laid out as key
   caps (alternatives joined by " or ") beside a muted action, plain where the part before ": " is
   not keys. Each key, "or" and action is its own text, so tests use `shows_hint`.

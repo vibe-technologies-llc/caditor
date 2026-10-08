@@ -215,8 +215,11 @@ pub fn tokens(ui: &Ui) -> &'static Tokens {
 }
 
 pub fn tokens_for(visuals: &Visuals) -> &'static Tokens {
-    let high_contrast = Tokens::of(visuals.dark_mode, true).panel == visuals.panel_fill;
-    Tokens::of(visuals.dark_mode, high_contrast)
+    Tokens::of(visuals.dark_mode, is_high_contrast(visuals))
+}
+
+pub fn is_high_contrast(visuals: &Visuals) -> bool {
+    Tokens::of(visuals.dark_mode, true).panel == visuals.panel_fill
 }
 
 pub fn visuals(dark: bool, high_contrast: bool) -> Visuals {

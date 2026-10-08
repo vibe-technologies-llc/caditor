@@ -37,6 +37,7 @@ use crate::{
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::SceneDescription,
+    scene_palette::Contrast,
     selection::{Pickable, Selection, SelectionFilter},
     shape_modes::ShapeMode,
     shell_tools,
@@ -243,6 +244,7 @@ pub struct ViewportState {
     filter: SelectionFilter,
     filter_applies: bool,
     style: DisplayStyle,
+    contrast: Contrast,
     snapping: bool,
     grid_snapping: bool,
     typed_dimensions: bool,
@@ -357,6 +359,7 @@ impl ViewportState {
             filter: SelectionFilter::default(),
             filter_applies: true,
             style: DisplayStyle::default(),
+            contrast: Contrast::default(),
             snapping: true,
             grid_snapping: false,
             typed_dimensions: true,
@@ -390,6 +393,10 @@ impl ViewportState {
 
     pub fn set_style(&mut self, style: DisplayStyle) {
         self.style = style;
+    }
+
+    pub fn set_contrast(&mut self, contrast: Contrast) {
+        self.contrast = contrast;
     }
 
     pub fn filter(&self) -> SelectionFilter {
@@ -672,6 +679,7 @@ impl ViewportState {
             bodies: &self.bodies,
             sketches: &display.sketches,
             style: self.style,
+            contrast: self.contrast,
         };
         self.scenes.update(&SceneInputs {
             sources: &sources,
@@ -681,6 +689,7 @@ impl ViewportState {
                 sketches: display.sketches.generation(),
                 bodies: self.bodies.generation(),
                 style: self.style,
+                contrast: self.contrast,
             },
             context,
             highlight: Highlight {
@@ -693,6 +702,7 @@ impl ViewportState {
         let plane = self.scenes.edited_plane();
         self.problems = problems(model);
         self.scenes.show(Overlay {
+            contrast: self.contrast,
             plane,
             previews: vec![
                 self.drawing.preview(faceting),
@@ -816,6 +826,7 @@ impl ViewportState {
             bodies: &self.bodies,
             sketches: &model.display().sketches,
             style: self.style,
+            contrast: Contrast::Standard,
         };
         let context = editing.context();
         let view = self

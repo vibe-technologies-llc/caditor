@@ -42,6 +42,9 @@ finished. Each rule below avoids a failure mode FreeCAD is known for.
   high contrast), tested in `appearance.rs`. Colours come from `appearance::tokens` or the current
   visuals, never fixed values; text on the dark 3D view uses the tested colours and backdrop of
   `canvas.rs`.
+- High contrast reaches the 3D view: its scene palette holds every line and point to 3:1 against
+  the canvas and dimmed bodies, edges and highlighted faces to 3:1 on a body (`scene_palette.rs`),
+  and no state is told by colour alone (`app-sketching.md`).
 - The interface scales from 75% to 200%; panels and toolbars wrap rather than clip.
 
 ## Look

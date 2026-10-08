@@ -15,6 +15,7 @@ use crate::{
     faceting::FacetLevel,
     model::Waker,
     scene::{self, Highlight, SketchShapes, Sources},
+    scene_palette::Contrast,
     selection::Selection,
     viewport::initial_viewpoint,
 };
@@ -38,6 +39,7 @@ pub fn take(document: &Document, evaluation: &Evaluation, size: SurfaceSize) -> 
         bodies: &meshes,
         sketches: &sketches,
         style: DisplayStyle::default(),
+        contrast: Contrast::default(),
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));
 

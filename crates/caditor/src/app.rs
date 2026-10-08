@@ -54,6 +54,7 @@ use crate::{
         PreferencesView, Restored, TitleBar,
     },
     reference_picking,
+    scene_palette::Contrast,
     selection::SelectionFilter,
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
@@ -501,6 +502,7 @@ pub fn show(
         Vec::new()
     };
     viewport.set_interference(marks);
+    viewport.set_contrast(Contrast::of(preferences.appearance.high_contrast));
     let selected_before = viewport.selection().clone();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
     if viewport.selection() != &selected_before && !viewport.selection().is_empty() {

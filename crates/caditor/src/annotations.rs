@@ -5,14 +5,15 @@ use caditor_expression::{Dimension, Expression, Quantity};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchSolution};
 use egui::{
-    Align2, Color32, Galley, Id, Key, Order, Pos2, Rect, Sense, Shape, Stroke, TextEdit, Ui,
+    Align2, Color32, Galley, Id, Key, Order, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
+    TextEdit, Ui,
     text::{CCursor, CCursorRange},
     vec2,
 };
 
 use crate::{
     annotation_layout::{self, DimensionLayout, Footprint, GlyphAnchor, GlyphKind, Obstacles},
-    canvas,
+    appearance, canvas,
     field::{self, DimensionTarget},
     model::{Action, Model},
     selection::{Pickable, Selection},
@@ -56,6 +57,10 @@ const LOCK_BOTTOM: f32 = 4.2;
 const SHACKLE_RADIUS: f32 = 2.2;
 const SHACKLE_STEPS: usize = 8;
 const MIRROR_TIP: f32 = 1.2;
+const FRAME_GAP: f32 = 1.5;
+pub const FRAME_WIDTH: f32 = 2.0;
+const FRAME_DASH: f32 = 4.0;
+const FRAME_DASH_GAP: f32 = 3.0;
 const EDIT_HINT: &str = "Double-click to change it.";
 
 pub fn field_id(feature: FeatureId, constraint: ConstraintId) -> Id {
@@ -68,6 +73,22 @@ enum Standing {
     Conflicting,
     Redundant,
     Inactive,
+}
+
+impl Standing {
+    fn frame(self) -> Option<Frame> {
+        match self {
+            Self::Conflicting => Some(Frame::Solid),
+            Self::Redundant => Some(Frame::Dashed),
+            Self::Normal | Self::Inactive => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Frame {
+    Solid,
+    Dashed,
 }
 
 struct DimensionMark {
@@ -597,14 +618,18 @@ impl Annotations {
                 }
             }
         };
+        let framed = |standing: Standing| {
+            appearance::is_high_contrast(ui.visuals())
+                .then(|| standing.frame())
+                .flatten()
+        };
         for (mark, label) in marks.dimensions.iter().zip(labels) {
-            paint_dimension(
-                &painter,
-                surface.rect,
-                &mark.layout,
-                label,
-                color(mark.constraint, mark.standing),
-            );
+            let tint = color(mark.constraint, mark.standing);
+            let frame = framed(mark.standing).zip(label.as_ref().map(|(_, rect)| *rect));
+            paint_dimension(&painter, surface.rect, &mark.layout, label, tint);
+            if let Some((frame, rect)) = frame {
+                paint_frame(&painter, rect, frame, tint);
+            }
         }
         for mark in &glyphs {
             let center = to_pos(surface.rect, mark.center);
@@ -613,6 +638,10 @@ impl Annotations {
                 Hover::Beyond(hidden) => paint_beyond(&painter, center, hidden.len(), tint),
                 Hover::Dimension(_) | Hover::Glyph(_) => {
                     paint_glyph(&painter, center, mark.kind, tint);
+                    if let Some(frame) = framed(mark.standing) {
+                        let glyph = Rect::from_center_size(center, egui::Vec2::splat(GLYPH_SIZE));
+                        paint_frame(&painter, glyph, frame, tint);
+                    }
                 }
             }
         }
@@ -857,6 +886,31 @@ fn paint_dimension(
     if let Some((galley, label)) = label {
         canvas::paint_backdrop(painter, label);
         painter.galley(label.min + canvas::PADDING, galley, color);
+    }
+}
+
+fn paint_frame(painter: &egui::Painter, rect: Rect, frame: Frame, color: Color32) {
+    let outline = rect.expand(FRAME_GAP);
+    let stroke = Stroke::new(FRAME_WIDTH, color);
+    match frame {
+        Frame::Solid => {
+            painter.rect_stroke(outline, canvas::RADIUS, stroke, StrokeKind::Outside);
+        }
+        Frame::Dashed => {
+            let corners = [
+                outline.left_top(),
+                outline.right_top(),
+                outline.right_bottom(),
+                outline.left_bottom(),
+                outline.left_top(),
+            ];
+            painter.extend(Shape::dashed_line(
+                &corners,
+                stroke,
+                FRAME_DASH,
+                FRAME_DASH_GAP,
+            ));
+        }
     }
 }
 

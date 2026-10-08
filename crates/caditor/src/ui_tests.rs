@@ -52,7 +52,7 @@ use crate::{
     preferences::{
         InputMode, PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, TitleBar,
     },
-    scene,
+    scene, scene_palette,
     selection::{Axis, Pickable, PrincipalPlane, SelectionFilter},
     shape_modes::{CircleMode, RectangleMode, ShapeMode},
     sketch_toolbar,
@@ -3355,6 +3355,107 @@ fn a_conflict_colours_the_dimensions_and_glyphs_involved() {
         assert_eq!(harness.color_of(mark), canvas::ERROR, "{mark}");
     }
     assert_ne!(harness.color_of("width = 40 mm"), canvas::ERROR);
+}
+
+fn frame_strokes(harness: &Harness, color: Color32) -> (usize, usize) {
+    fn walk(shape: &Shape, color: Color32, counts: &mut (usize, usize)) {
+        match shape {
+            Shape::Rect(rect)
+                if rect.stroke.color == color
+                    && rect.stroke.width == annotations::FRAME_WIDTH
+                    && rect.fill == Color32::TRANSPARENT =>
+            {
+                counts.0 += 1;
+            }
+            Shape::LineSegment { stroke, .. }
+                if stroke.color == color && stroke.width == annotations::FRAME_WIDTH =>
+            {
+                counts.1 += 1;
+            }
+            Shape::Vec(shapes) => {
+                for shape in shapes {
+                    walk(shape, color, counts);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut counts = (0, 0);
+    for clipped in harness.painted.iter().flat_map(|painted| &painted.shapes) {
+        walk(&clipped.shape, color, &mut counts);
+    }
+    counts
+}
+
+fn set_high_contrast(harness: &mut Harness, on: bool) {
+    harness.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::HighContrast(on),
+    )));
+    harness.frame();
+    harness.frame();
+}
+
+#[test]
+fn high_contrast_frames_redundant_constraints_dashed_and_conflicting_ones_solid() {
+    let mut harness = Harness::new();
+    harness.painted = Some(Painted {
+        shapes: Vec::new(),
+        pixels_per_point: 1.0,
+    });
+    let base = edit_base_sketch(&mut harness);
+    let line = entities_of_kind(harness.sketch(base), "Line")[0];
+
+    harness.add_stored_constraint(base, Constraint::Horizontal(line));
+    harness.frame();
+    assert!(harness.shows("1 redundant constraint"));
+    assert_eq!(frame_strokes(&harness, canvas::WARNING), (0, 0));
+
+    set_high_contrast(&mut harness, true);
+    let (solid, dashes) = frame_strokes(&harness, canvas::WARNING);
+    assert_eq!(solid, 0);
+    assert!(dashes >= 8, "{dashes} dashes");
+    assert_eq!(frame_strokes(&harness, canvas::ERROR), (0, 0));
+
+    harness.add_stored_constraint(base, Constraint::Vertical(line));
+    harness.frame();
+    assert!(harness.shows("Conflicting constraints"));
+    let (solid, dashes) = frame_strokes(&harness, canvas::ERROR);
+    assert!(solid >= 2, "{solid} frames");
+    assert_eq!(dashes, 0);
+
+    set_high_contrast(&mut harness, false);
+    assert_eq!(frame_strokes(&harness, canvas::ERROR), (0, 0));
+}
+
+#[test]
+fn high_contrast_reaches_the_scene_and_draws_free_points_hollow() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 10.0));
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    let standard = harness.built();
+    let hole = |built: &scene::BuiltScene| {
+        built
+            .scene
+            .markers()
+            .filter(|marker| {
+                marker.pick.is_none() && marker.color == scene_palette::HIGH_CONTRAST.hole
+            })
+            .count()
+    };
+    let grid = |built: &scene::BuiltScene| built.scene.grid.as_ref().map(|grid| grid.color);
+
+    assert_eq!(grid(&standard), Some(scene_palette::STANDARD.grid));
+    assert_eq!(hole(&standard), 0);
+
+    set_high_contrast(&mut harness, true);
+    let high = harness.built();
+    assert_eq!(grid(&high), Some(scene_palette::HIGH_CONTRAST.grid));
+    assert_eq!(hole(&high), 2);
+
+    set_high_contrast(&mut harness, false);
+    assert_eq!(grid(&harness.built()), Some(scene_palette::STANDARD.grid));
 }
 
 #[test]

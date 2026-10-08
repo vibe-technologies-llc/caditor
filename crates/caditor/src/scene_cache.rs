@@ -12,6 +12,7 @@ use crate::{
     interference_panel::Mark,
     move_manipulator::Drawn,
     scene::{self, BuiltScene, Highlight, SketchShapes, Sources},
+    scene_palette::Contrast,
     selection::{Pickable, Selection},
 };
 
@@ -22,6 +23,7 @@ pub struct Revisions {
     pub sketches: u64,
     pub bodies: u64,
     pub style: DisplayStyle,
+    pub contrast: Contrast,
 }
 
 pub struct SceneInputs<'a> {
@@ -34,6 +36,7 @@ pub struct SceneInputs<'a> {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Overlay {
+    pub contrast: Contrast,
     pub plane: Option<Plane>,
     pub previews: Vec<Preview>,
     pub measured: Option<[Point3; 2]>,
@@ -47,7 +50,7 @@ impl Overlay {
         let mut batch = Batch::default();
         if let Some(plane) = self.plane {
             for preview in &self.previews {
-                scene::add_preview(&mut batch, plane, preview);
+                scene::add_preview(&mut batch, self.contrast.palette(), plane, preview);
             }
         }
         if let Some([from, to]) = self.measured {

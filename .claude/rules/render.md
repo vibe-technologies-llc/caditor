@@ -122,6 +122,10 @@ paths:
   pick pass draws dashed lines whole, so a gap still picks its curve.
 - A marker or line whose colour has no alpha draws nothing but is still picked, so pickable points
   and edges can stay invisible until hovered or selected.
+- Markers at one place in one layer have equal depths, which `GreaterEqual` passes, so they draw in
+  batch order: a smaller unpicked marker after a larger one makes a ring that still picks whole
+  (the app's hollow sketch points). `BACKGROUND`, the canvas clear colour, is public so the app
+  tests its scene colours against it.
 
 ## Projection
 

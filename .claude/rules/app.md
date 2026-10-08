@@ -20,6 +20,7 @@ paths:
   - "crates/caditor/src/cli.rs"
   - "crates/caditor/src/scene.rs"
   - "crates/caditor/src/scene_cache.rs"
+  - "crates/caditor/src/scene_palette.rs"
   - "crates/caditor/src/faceting.rs"
   - "crates/caditor/src/selection.rs"
   - "crates/caditor/src/measure.rs"
@@ -53,15 +54,20 @@ paths:
   built afresh each frame. The base scene (bodies, sketches, references, hover and selection
   colours, a `PickTable`) is rebuilt only when its content or highlight changes; an idle frame or a
   camera move reuses it whole. Content is everything that can change what is drawn (document
-  revision, evaluation, displayed sketches, body meshes, editing `Context`, faceting level);
-  anything new that affects the drawing must feed that key.
+  revision, evaluation, displayed sketches, body meshes, display style, `Contrast`, editing
+  `Context`, faceting level); anything new that affects the drawing must feed that key.
 - Previews, the trim preview and the measured line form a second batch, rebuilt only when it
   differs; it has no pick ids, so it never asks for a pick.
 - A pick is asked for when the cursor, the view or the base's generation differs from the last
   (`PickKey`). None is asked while the camera's viewpoint moves, so hover stays put and one pick
   follows when it settles.
-- `SketchShapes` caches faceted outlines and constraint palettes, so a hover or selection change
-  only restyles them. Image export builds its own scene, without highlights.
+- `SketchShapes` caches faceted outlines and each entity's `SketchState`, so a hover or selection
+  change only restyles them. Image export and the headless PNG build their own scene, without
+  highlights and in the standard palette, since high contrast is a viewing aid.
+- Every scene colour and line weight comes from the `ScenePalette` of the viewport's `Contrast`
+  (`scene_palette.rs`, set from the High contrast preference each frame), never a constant in
+  `scene.rs`; the overlay batch carries the contrast too. Colours shared with canvas labels
+  (hover, selection, snap, measure, problems) stay `canvas` colours in both palettes.
 
 ## Sketch faceting
 
