@@ -74,8 +74,8 @@ paths:
 
 - A conflict is named only on evidence that its constraints cannot hold together, never because one
   solve from one start failed: constraints the solver merely cannot reach together from the drawn
-  shape (a line that would have to fold back) are `SketchError::Unsolvable`. The evidence is
-  numerical, not a proof.
+  shape (a line that would have to fold back) are solved from where diagnosis reached, or
+  `SketchError::Unsolvable` when it reached nowhere. The evidence is numerical, not a proof.
 - The first candidate is the support of the failed solve's least-squares point (skipped when it is
   pressed against a collapse); when it holds, or there is none, QuickXplain-style divide and conquer
   over the part's constraints holding the newest one looks for one. Probes solve the sub-parts
@@ -91,10 +91,16 @@ paths:
 - Only a set judged unable to hold is reported, minimal by its witnesses; recompute reports it as
   the feature's error with `FeatureError.constraints` and `FixTarget::Constraint`.
 - Every failed part is diagnosed on its own budget, newest first, up to `DIAGNOSED_PARTS` (the rest
-  are `Unsolvable`). Two or more are `SketchError::Several`, so the user meets every problem at
-  once; recompute merges them into one `FeatureError`.
-- A failure with no such set (budget spent, the part holding after all from a warm start,
-  inconclusive evidence) is `SketchError::Unsolvable` with the part's curves, free points and newest
+  are `Unsolvable`). Two or more reports are `SketchError::Several`, so the user meets every
+  problem at once; recompute merges them into one `FeatureError`.
+- When the search ends with no such set (or its budget is spent) and the part holds after all (a
+  probe of all its equations converged, else one more descent of the whole part from the closest
+  known state, on what is left of the budget, converges), that solution is the part's
+  (`diagnosis::Found`): the solve succeeds with it when every failed part found one, and the memo
+  keeps it under the drawn start, so the next solve starts there without diagnosing again. A part
+  that found one is never reported.
+- A failure with neither (budget spent, inconclusive evidence, no descent of the whole part
+  converging) is `SketchError::Unsolvable` with the part's curves, free points and newest
   constraint; recompute words it as that geometry not solving from its current shape.
 
 ## SolveMemo (`memo.rs`)

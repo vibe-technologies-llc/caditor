@@ -296,7 +296,9 @@ impl Sketch {
             values = start;
             let failed = solver.solve_parts(&parts.at(&system, &values), &mut values)?;
             if !failed.is_empty() {
-                return Err(diagnose_failure(self, &solver, &failed, DIAGNOSIS_WORK)?);
+                for found in diagnose_failure(self, &solver, &failed, DIAGNOSIS_WORK)? {
+                    found.apply(&mut values);
+                }
             }
         }
         Ok(finish(Finished {

@@ -122,22 +122,109 @@ fn out_of_reach(count: usize) -> Chain {
     Chain::along(&level_steps(count), true, count as f64 + 5.0)
 }
 
+const HELD: f64 = 1e-6;
+
+fn assert_every_constraint_holds(solved: &Solved) {
+    let geometry = &solved.geometry;
+    for (id, constraint) in geometry.constraints() {
+        match *constraint {
+            Constraint::Coincident(a, b) => {
+                let (a, b) = (geometry.point(a).unwrap(), geometry.point(b).unwrap());
+                assert!(a.distance(b) < HELD, "{id:?} leaves {a} apart from {b}");
+            }
+            Constraint::Distance { .. } => {
+                let measured = geometry.measured(constraint).unwrap();
+                let wanted = solved.solution.dimension(id).unwrap();
+                assert!(
+                    (measured - wanted).abs() < HELD,
+                    "{id:?}: {measured} is not {wanted}"
+                );
+            }
+            Constraint::Horizontal(line) => {
+                let (start, end) = ends(geometry, line);
+                let rise = geometry.point(end).unwrap().y - geometry.point(start).unwrap().y;
+                assert!(rise.abs() < HELD, "{id:?} rises by {rise}");
+            }
+            ref other => panic!("no check for {other:?}"),
+        }
+    }
+}
+
+fn reversed_lines(chain: &Chain, solved: &Solved) -> usize {
+    chain
+        .lines
+        .iter()
+        .filter(|line| {
+            let (start, end) = ends(&solved.geometry, **line);
+            solved.geometry.point(end).unwrap().x < solved.geometry.point(start).unwrap().x
+        })
+        .count()
+}
+
 #[test]
-fn a_chain_that_must_fold_a_line_back_is_not_called_a_conflict() {
+fn a_chain_that_must_fold_a_line_back_solves_from_what_diagnosis_finds() {
     let straight = Chain::along(&level_steps(8), true, 6.0);
     let mut one_back = level_steps(8);
     one_back[3] = -Vector2::X;
     let folded = Chain::along(&one_back, true, 6.0);
 
-    let from_straight = solve(&straight.sketch);
-    let from_folded = solve(&folded.sketch);
+    let from_straight = solve(&straight.sketch).unwrap();
+    let from_folded = solve(&folded.sketch).unwrap();
 
-    assert_eq!(from_straight, Err(straight.unsolvable()));
-    assert!(from_folded.is_ok(), "{from_folded:?}");
+    assert_every_constraint_holds(&from_straight);
+    assert_every_constraint_holds(&from_folded);
+    assert_eq!(reversed_lines(&straight, &from_straight), 1);
+    assert_eq!(reversed_lines(&folded, &from_folded), 1);
+    assert!(from_straight.solution.is_fully_constrained());
 }
 
 #[test]
-fn a_chain_that_must_curl_up_far_from_its_drawing_is_not_called_a_conflict() {
+fn a_part_solved_by_diagnosis_is_recalled_without_diagnosing_it_again() {
+    let straight = Chain::along(&level_steps(8), true, 6.0);
+
+    let (first, diagnosed) = super::tally::measure(|| solve(&straight.sketch).unwrap());
+    let (again, recalled) = super::tally::measure(|| {
+        straight
+            .sketch
+            .solve_from(&no_parameters, &|| false, &[], Some(&first.memo))
+            .unwrap()
+    });
+
+    assert_eq!(again.geometry, first.geometry);
+    assert_eq!(again.solution, first.solution);
+    assert_eq!(again.memo.recalled(), 1);
+    assert_eq!(recalled, 0, "diagnosing took {diagnosed}");
+}
+
+#[test]
+fn a_part_solved_by_diagnosis_leaves_a_conflict_elsewhere_reported_alone() {
+    let mut chain = Chain::along(&level_steps(8), true, 6.0);
+    let (open, _) = triangle([3.0, 4.0, 10.0]);
+    let offset = Vector2::new(0.0, 50.0);
+    let corners: Vec<EntityId> = open
+        .entities()
+        .map(|(_, entity)| match entity {
+            Entity::Point(at) => chain.sketch.add_point(*at + offset),
+            other => panic!("the triangle has only points, not {other:?}"),
+        })
+        .collect();
+    let lengths: Vec<ConstraintId> = [(0, 1, 3.0), (1, 2, 4.0), (0, 2, 10.0)]
+        .into_iter()
+        .map(|(from, to, length)| distance(&mut chain.sketch, corners[from], corners[to], length))
+        .collect();
+
+    let result = solve(&chain.sketch);
+
+    assert_eq!(
+        result,
+        Err(SketchError::Conflict {
+            constraints: lengths
+        })
+    );
+}
+
+#[test]
+fn a_chain_that_must_curl_up_far_from_its_drawing_solves_from_what_diagnosis_finds() {
     let count = 50;
     let quarter = count as f64 / 4.0;
     let straight = Chain::along(&level_steps(count), false, quarter);
@@ -150,11 +237,11 @@ fn a_chain_that_must_curl_up_far_from_its_drawing_is_not_called_a_conflict() {
         .collect();
     let curled = Chain::along(&zigzag, false, quarter);
 
-    let from_straight = solve(&straight.sketch);
-    let from_curled = solve(&curled.sketch);
+    let from_straight = solve(&straight.sketch).unwrap();
+    let from_curled = solve(&curled.sketch).unwrap();
 
-    assert_eq!(from_straight, Err(straight.unsolvable()));
-    assert!(from_curled.is_ok(), "{from_curled:?}");
+    assert_every_constraint_holds(&from_straight);
+    assert_every_constraint_holds(&from_curled);
 }
 
 fn triangle(sides: [f64; 3]) -> (Sketch, Vec<ConstraintId>) {
@@ -266,9 +353,9 @@ fn a_conflict_spanning_a_whole_part_of_over_a_hundred_entities_is_named_within_t
     let mut values = system.values.clone();
     let failed = solver.solve(&every, &mut values).unwrap();
 
-    let tenth = diagnose_failure(&chain.sketch, &solver, &failed, DIAGNOSIS_WORK / 10).unwrap();
+    let tenth = diagnose_failure(&chain.sketch, &solver, &failed, DIAGNOSIS_WORK / 10).unwrap_err();
     let hundredth =
-        diagnose_failure(&chain.sketch, &solver, &failed, DIAGNOSIS_WORK / 100).unwrap();
+        diagnose_failure(&chain.sketch, &solver, &failed, DIAGNOSIS_WORK / 100).unwrap_err();
 
     assert_eq!(chain.sketch.entities().len(), 3 * 40);
     assert_eq!(chain.spanning().len(), 2 * 40);
@@ -309,15 +396,15 @@ fn a_conflict_across_hundreds_of_entities_is_named_within_seconds() {
 #[test]
 fn diagnosis_gives_the_same_answer_every_time() {
     let sketches = [
-        out_of_reach(6).sketch,
-        Chain::along(&level_steps(6), true, 4.0).sketch,
-        triangle([3.0, 4.0, 10.0]).0,
+        (out_of_reach(6).sketch, false),
+        (Chain::along(&level_steps(6), true, 4.0).sketch, true),
+        (triangle([3.0, 4.0, 10.0]).0, false),
     ];
-    for sketch in sketches {
+    for (sketch, holds) in sketches {
         let first = solve(&sketch);
         let again = solve(&sketch.clone());
 
-        assert!(first.is_err());
+        assert_eq!(first.is_ok(), holds, "{first:?}");
         assert_eq!(first, again);
     }
 }

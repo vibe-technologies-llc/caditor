@@ -18,19 +18,36 @@ pub(super) const DIAGNOSIS_WORK: usize = 500_000;
 const MID_RANGE: f64 = 0.5;
 const DIAGNOSED_PARTS: usize = 8;
 
+#[derive(Debug)]
+pub(super) struct Found {
+    variables: Vec<usize>,
+    values: Vec<f64>,
+}
+
+impl Found {
+    pub fn apply(&self, values: &mut [f64]) {
+        overlay(values, &self.variables, &self.values);
+    }
+}
+
+enum Diagnosed {
+    Report(SketchError),
+    Solved(Found),
+}
+
 pub(super) fn diagnose_failure(
     sketch: &Sketch,
     solver: &Solver<'_>,
     failed: &[Failure],
     work: usize,
-) -> Result<SketchError, SketchError> {
+) -> Result<Vec<Found>, SketchError> {
     let collapsed = failed.iter().find_map(|failure| {
         solver
             .collapsed(&solver.part(&failure.component), &solver.system.values)
             .next()
     });
     if let Some(entity) = collapsed {
-        return Ok(SketchError::NoLength {
+        return Err(SketchError::NoLength {
             entity,
             label: sketch.entity_label(entity),
         });
@@ -44,21 +61,22 @@ pub(super) fn diagnose_failure(
         .collect();
     parts.sort_by_key(|(_, suspects)| std::cmp::Reverse(suspects.first().copied()));
     let mut reports = Vec::new();
+    let mut found = Vec::new();
     for (index, (failure, suspects)) in parts.iter().enumerate() {
-        let report = if index < DIAGNOSED_PARTS {
+        let diagnosed = if index < DIAGNOSED_PARTS {
             diagnose_part(sketch, solver, failure, suspects, work)?
         } else {
-            unsolvable(sketch, solver, failure, suspects)
+            Diagnosed::Report(unsolvable(sketch, solver, failure, suspects))
         };
-        reports.push(report);
+        match diagnosed {
+            Diagnosed::Report(report) => reports.push(report),
+            Diagnosed::Solved(solution) => found.push(solution),
+        }
     }
     match reports.len() {
-        0 => Ok(SketchError::Unsolvable {
-            entities: Vec::new(),
-            newest: None,
-        }),
-        1 => Ok(reports.swap_remove(0)),
-        _ => Ok(SketchError::Several(reports)),
+        0 => Ok(found),
+        1 => Err(reports.swap_remove(0)),
+        _ => Err(SketchError::Several(reports)),
     }
 }
 
@@ -68,12 +86,21 @@ fn diagnose_part(
     failure: &Failure,
     suspects: &[ConstraintId],
     work: usize,
-) -> Result<SketchError, SketchError> {
+) -> Result<Diagnosed, SketchError> {
     let mut diagnosis = Diagnosis::new(solver, failure, work);
     let support = diagnosis.irreducible_where_it_settled(failure);
-    match diagnosis.minimal_conflict(suspects, support) {
-        Ok(Some(constraints)) => Ok(SketchError::Conflict { constraints }),
-        Ok(None) | Err(Stop::Exhausted) => Ok(unsolvable(sketch, solver, failure, suspects)),
+    let found = match diagnosis.minimal_conflict(suspects, support) {
+        Ok(Some(constraints)) => {
+            return Ok(Diagnosed::Report(SketchError::Conflict { constraints }));
+        }
+        Ok(None) | Err(Stop::Exhausted) => diagnosis.whole_part_solved(&failure.component),
+        Err(Stop::Cancelled) => Err(Stop::Cancelled),
+    };
+    match found {
+        Ok(Some(found)) => Ok(Diagnosed::Solved(found)),
+        Ok(None) | Err(Stop::Exhausted) => Ok(Diagnosed::Report(unsolvable(
+            sketch, solver, failure, suspects,
+        ))),
         Err(Stop::Cancelled) => Err(SketchError::Cancelled),
     }
 }
@@ -201,6 +228,27 @@ impl<'a> Diagnosis<'a> {
             settled,
             work_left: Cell::new(work),
         }
+    }
+
+    fn whole_part_solved(&mut self, component: &Component) -> Result<Option<Found>, Stop> {
+        let known = self
+            .probes
+            .get(&component.equations)
+            .filter(|probe| probe.holds);
+        if let Some(probe) = known {
+            return Ok(Some(Found {
+                variables: probe.variables.clone(),
+                values: probe.end.clone(),
+            }));
+        }
+        let (mut values, _) = self.start_for(component);
+        Ok(match self.budgeted(component, &mut values)? {
+            Descent::Solved => Some(Found {
+                variables: component.variables.clone(),
+                values: gather(&values, &component.variables),
+            }),
+            Descent::Failed(_) => None,
+        })
     }
 
     fn irreducible_where_it_settled(&self, failure: &Failure) -> Vec<ConstraintId> {

@@ -105,9 +105,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Sketch solver and expressions
 
-- [medium · medium] When conflict diagnosis finds that a part which failed from its drawn shape
-  holds after all (a chain whose line must fold back, reached from a solution of all but one
-  constraint), the solve still fails; the solution found could be offered instead.
 - [medium · hard] The rank and null-space analysis (`analyze_sparse`, `Echelon::spans_unit` once per
   column) is near cubic on closed chains and never checks `cancelled`: solving the sketch left by
   offsetting a closed, fully dimensioned chain takes 0.2 s at 100 lines, 1.8 s at 200 and 15 s at

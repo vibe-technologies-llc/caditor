@@ -801,3 +801,65 @@ fn a_reshape_keeps_which_constraints_are_inactive_and_changes_them_when_asked() 
     editor.undo().unwrap();
     assert_eq!(sketch_of(editor.document(), feature).inactive().count(), 0);
 }
+
+#[test]
+fn a_chain_whose_line_must_fold_back_recomputes_to_the_shape_diagnosis_found() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("New sketch");
+    let feature = transaction.add_feature("Chain", FeatureKind::from(Sketch::new(Plane::XY)));
+    document.apply(transaction.finish()).unwrap();
+
+    let mut transaction = document.transaction("Draw chain");
+    let points: Vec<EntityId> = (0..=4)
+        .map(|index| {
+            let at = Point2::new(f64::from(index) * 10.0, 0.0);
+            transaction.add_sketch_entity(feature, Entity::Point(at))
+        })
+        .collect();
+    transaction.add_sketch_constraint(feature, Constraint::Coincident(points[0], EntityId::ORIGIN));
+    for pair in points.windows(2) {
+        let line = transaction.add_sketch_entity(
+            feature,
+            Entity::Line {
+                start: pair[0],
+                end: pair[1],
+            },
+        );
+        let value = transaction.parse("10 mm").unwrap();
+        transaction.add_sketch_constraint(feature, Constraint::Horizontal(line));
+        transaction.add_sketch_constraint(
+            feature,
+            Constraint::Distance {
+                from: pair[0],
+                to: pair[1],
+                value,
+            },
+        );
+    }
+    let closing = Constraint::Distance {
+        from: points[0],
+        to: points[4],
+        value: transaction.parse("20 mm").unwrap(),
+    };
+    transaction.add_sketch_constraint(feature, closing.clone());
+    document.apply(transaction.finish()).unwrap();
+
+    let mut engine = crate::Recompute::default();
+    let outcome = engine.run(
+        &document,
+        &crate::ModelEvaluator,
+        &crate::CancelToken::never(),
+        &|_, _| {},
+    );
+    let status = outcome.feature(feature).unwrap();
+    let result = status
+        .result
+        .as_deref()
+        .and_then(crate::FeatureResult::sketch)
+        .unwrap();
+    let reach = result.geometry.measured(&closing).unwrap();
+
+    assert_eq!(status.state, crate::FeatureState::UpToDate);
+    assert!(result.solution.is_fully_constrained());
+    assert!((reach - 20.0).abs() < 1e-6, "{reach}");
+}

@@ -1639,9 +1639,9 @@ fn a_diagnosis_out_of_work_names_the_part_and_its_newest_constraint() {
     let failed = solver.solve(&every, &mut values).unwrap();
 
     let enough_once_stalled_attempts_stop = 10_000;
-    let starved = diagnose_failure(&sketch, &solver, &failed, 100).unwrap();
+    let starved = diagnose_failure(&sketch, &solver, &failed, 100).unwrap_err();
     let funded =
-        diagnose_failure(&sketch, &solver, &failed, enough_once_stalled_attempts_stop).unwrap();
+        diagnose_failure(&sketch, &solver, &failed, enough_once_stalled_attempts_stop).unwrap_err();
 
     assert!(enough_once_stalled_attempts_stop < DIAGNOSIS_WORK);
     assert_eq!(components(&system, &every, &system.values).len(), 1);
