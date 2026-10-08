@@ -310,10 +310,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   that to upload for a sketch of 24,000 curves in a release build. A batch per feature, with pick
   ids of its own, would limit both to what changed. Face styles are likewise rewritten whole on
   every highlight change.
-- [low · medium] A pick readback in flight redraws full frames until polled complete;
-  vertex records repeat per-layer data and both ends of shared segments; invisible vertex markers go
-  through the colour pass; resizing recreates
-  the MSAA targets per pixel; and an MSAA change rebuilds all ten pipelines with no pipeline cache.
+- [low · medium] Vertex records repeat per-layer data and both ends of shared segments, and
+  resizing recreates the MSAA targets per pixel: they must match the surface they resolve into, so
+  keeping larger ones would need a resolve pass of their own.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,
   mostly walking the entities, and a line or slot end walks every line again to find the nearest for

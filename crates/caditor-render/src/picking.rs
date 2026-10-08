@@ -253,6 +253,23 @@ impl Picking {
         in_flight.stage = Stage::Mapping(outcome);
     }
 
+    pub fn is_answered(&self, device: &wgpu::Device) -> bool {
+        let Some(in_flight) = &self.in_flight else {
+            return false;
+        };
+        let Stage::Mapping(outcome) = &in_flight.stage else {
+            return true;
+        };
+        if outcome.lock().is_some() {
+            return true;
+        }
+        if let Err(error) = device.poll(wgpu::PollType::Poll) {
+            log::warn!("could not poll the graphics device for picking: {error}");
+            return true;
+        }
+        outcome.lock().is_some()
+    }
+
     pub fn poll(&mut self, device: &wgpu::Device) -> PickPoll {
         let outcome = match &self.in_flight {
             Some(InFlight {

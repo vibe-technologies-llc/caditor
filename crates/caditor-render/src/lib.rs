@@ -512,6 +512,12 @@ impl Renderer {
         self.viewport.is_pick_pending()
     }
 
+    pub fn is_pick_answered(&mut self) -> bool {
+        self.pick_dropped
+            || self.gpu.loss.is_lost()
+            || self.viewport.picking().is_answered(&self.gpu.device)
+    }
+
     pub fn render_image(&mut self, request: &ImageRequest<'_>) -> Result<ImageBands, ImageError> {
         if self.image.is_some() {
             return Err(ImageError::Busy);

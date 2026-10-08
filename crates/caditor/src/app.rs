@@ -98,6 +98,7 @@ const MAX_RETRY: Duration = Duration::from_secs(1);
 const MAX_RETRY_DOUBLINGS: u32 = 6;
 const HIDDEN_PROBE: Duration = Duration::from_secs(5);
 const LAYOUT_SAVE_DELAY: Duration = Duration::from_secs(1);
+const PICK_CHECK: Duration = Duration::from_millis(1);
 const SETTINGS_FLUSH: Duration = Duration::from_secs(2);
 const NO_TIP: &str = "No tip is shown";
 const GIVE_UP_AFTER_FAILED_FRAMES: u32 = 5;
@@ -894,16 +895,22 @@ impl ApplicationHandler<AppEvent> for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(session) = &mut self.session {
-            session.redraw_when_due(Instant::now());
+            let now = Instant::now();
+            session.check_pick(now);
+            session.redraw_when_due(now);
         }
         let flow = self
             .session
             .as_ref()
             .and_then(|session| {
-                [session.next_repaint, session.layout_deadline()]
-                    .into_iter()
-                    .flatten()
-                    .min()
+                [
+                    session.next_repaint,
+                    session.layout_deadline(),
+                    session.pick_check,
+                ]
+                .into_iter()
+                .flatten()
+                .min()
             })
             .map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
         event_loop.set_control_flow(flow);
@@ -1131,6 +1138,7 @@ struct Session {
     layout_seen: Layout,
     layout_stored: Layout,
     layout_changed_at: Option<Instant>,
+    pick_check: Option<Instant>,
 }
 
 impl Session {
@@ -1178,6 +1186,7 @@ impl Session {
             layout_seen: layout,
             layout_stored: layout,
             layout_changed_at: None,
+            pick_check: None,
         })
     }
 
@@ -1225,6 +1234,18 @@ impl Session {
 
     fn schedule_redraw(&mut self, at: Instant) {
         self.next_repaint = Some(self.next_repaint.map_or(at, |scheduled| scheduled.min(at)));
+    }
+
+    fn check_pick(&mut self, now: Instant) {
+        if self.pick_check.is_none_or(|at| at > now) {
+            return;
+        }
+        if self.renderer.is_pick_answered() {
+            self.pick_check = None;
+            self.request_redraw();
+        } else {
+            self.pick_check = now.checked_add(PICK_CHECK);
+        }
     }
 
     fn redraw_when_due(&mut self, now: Instant) {
@@ -1409,13 +1430,14 @@ impl Session {
         }
 
         let repaint_now = changed || repaint_after.is_some_and(|delay| delay.is_zero());
+        let drawn = wait.is_none();
+        self.pick_check = (drawn && self.renderer.is_pick_pending())
+            .then(|| now.checked_add(PICK_CHECK))
+            .flatten();
         self.next_repaint = None;
         if let Some(wait) = wait {
             self.next_repaint = now.checked_add(wait);
-        } else if repaint_now
-            || self.workspace.viewport.is_animating()
-            || self.renderer.is_pick_pending()
-        {
+        } else if repaint_now || self.workspace.viewport.is_animating() {
             self.request_redraw();
         } else {
             self.last_redraw = None;

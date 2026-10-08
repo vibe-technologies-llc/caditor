@@ -11,7 +11,7 @@ use crate::{
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
-    scene::{Batch, Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
+    scene::{Batch, Color, Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
     settings::Shading,
 };
 
@@ -107,12 +107,17 @@ struct Pipelines {
     fills: wgpu::RenderPipeline,
     reference_fills: wgpu::RenderPipeline,
     grid: wgpu::RenderPipeline,
-    pick_lines: wgpu::RenderPipeline,
-    pick_markers: wgpu::RenderPipeline,
-    pick_fills: wgpu::RenderPipeline,
-    pick_reference_fills: wgpu::RenderPipeline,
-    pick_meshes: wgpu::RenderPipeline,
-    pick_translucent_meshes: wgpu::RenderPipeline,
+    pick: PickPipelines,
+}
+
+#[derive(Clone)]
+struct PickPipelines {
+    lines: wgpu::RenderPipeline,
+    markers: wgpu::RenderPipeline,
+    fills: wgpu::RenderPipeline,
+    reference_fills: wgpu::RenderPipeline,
+    meshes: wgpu::RenderPipeline,
+    translucent_meshes: wgpu::RenderPipeline,
 }
 
 pub struct ImagePlan {
@@ -328,7 +333,9 @@ struct GpuBatch {
     fills: GrowableBuffer,
     pick_fills: GrowableBuffer,
     line_count: u32,
+    shown_lines: u32,
     marker_count: u32,
+    shown_markers: u32,
     fill_vertices: u32,
     fill_spans: Vec<FillSpan>,
     reference_pick_vertices: u32,
@@ -345,7 +352,9 @@ impl GpuBatch {
             fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
             pick_fills: GrowableBuffer::new(device, "pick fills", wgpu::BufferUsages::VERTEX),
             line_count: 0,
+            shown_lines: 0,
             marker_count: 0,
+            shown_markers: 0,
             fill_vertices: 0,
             fill_spans: Vec::new(),
             reference_pick_vertices: 0,
@@ -382,7 +391,8 @@ impl GpuBatch {
             slot,
         } = uploaded;
         staging.clear();
-        for line in &batch.lines {
+        let (shown_lines, lines) = shown_first(&batch.lines, |line| line.color);
+        for line in lines {
             staging
                 .vec3(relative_to_eye(line.start, anchor))
                 .vec3(relative_to_eye(line.end, anchor))
@@ -394,9 +404,11 @@ impl GpuBatch {
                 .u32(u32::from(line.layer.draws_in_front()));
         }
         self.line_count = count(self.lines.upload(device, queue, staging, LINE_STRIDE));
+        self.shown_lines = count(shown_lines).min(self.line_count);
 
         staging.clear();
-        for marker in &batch.markers {
+        let (shown_markers, markers) = shown_first(&batch.markers, |marker| marker.color);
+        for marker in markers {
             staging
                 .vec3(relative_to_eye(marker.position, anchor))
                 .floats(&marker.color.to_array())
@@ -406,6 +418,7 @@ impl GpuBatch {
                 .u32(u32::from(marker.layer.draws_in_front()));
         }
         self.marker_count = count(self.markers.upload(device, queue, staging, MARKER_STRIDE));
+        self.shown_markers = count(shown_markers).min(self.marker_count);
 
         staging.clear();
         let mut written = 0u32;
@@ -471,29 +484,32 @@ impl GpuBatch {
             nearer_written.min(uploaded.saturating_sub(self.reference_pick_vertices));
     }
 
-    fn draw_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
-        if self.line_count == 0 {
+    fn draw_lines(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        instances: u32,
+    ) {
+        if instances == 0 {
             return;
         }
         pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(
-            0,
-            self.lines.slice(u64::from(self.line_count) * LINE_STRIDE),
-        );
-        pass.draw(0..QUAD_VERTICES, 0..self.line_count);
+        pass.set_vertex_buffer(0, self.lines.slice(u64::from(instances) * LINE_STRIDE));
+        pass.draw(0..QUAD_VERTICES, 0..instances);
     }
 
-    fn draw_markers(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
-        if self.marker_count == 0 {
+    fn draw_markers(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        instances: u32,
+    ) {
+        if instances == 0 {
             return;
         }
         pass.set_pipeline(pipeline);
-        pass.set_vertex_buffer(
-            0,
-            self.markers
-                .slice(u64::from(self.marker_count) * MARKER_STRIDE),
-        );
-        pass.draw(0..QUAD_VERTICES, 0..self.marker_count);
+        pass.set_vertex_buffer(0, self.markers.slice(u64::from(instances) * MARKER_STRIDE));
+        pass.draw(0..QUAD_VERTICES, 0..instances);
     }
 
     fn bind_fills(&self, pass: &mut wgpu::RenderPass<'_>) {
@@ -534,6 +550,19 @@ impl GpuBatch {
     }
 }
 
+fn shown_first<T>(
+    items: &[T],
+    color: impl Fn(&T) -> Color + Copy,
+) -> (u64, impl Iterator<Item = &T>) {
+    let shown = move |item: &&T| color(item).alpha > 0.0;
+    let shown_count = items.iter().filter(shown).count() as u64;
+    let ordered = items
+        .iter()
+        .filter(shown)
+        .chain(items.iter().filter(move |item| !shown(item)));
+    (shown_count, ordered)
+}
+
 struct Uploaded<'a> {
     batch: &'a Arc<Batch>,
     anchor: Point3,
@@ -547,6 +576,7 @@ pub struct ViewportRenderer {
     view_layout: wgpu::BindGroupLayout,
     grid_layout: wgpu::BindGroupLayout,
     pipelines: Pipelines,
+    set_aside: Vec<(u32, Pipelines)>,
     view_uniform: Uniform,
     pick_view_uniform: Uniform,
     grid_uniform: Uniform,
@@ -597,7 +627,8 @@ impl ViewportRenderer {
             format,
             sample_count,
             shading: Shading::default(),
-            pipelines: Pipelines::new(device, format, sample_count, &layouts),
+            pipelines: Pipelines::new(device, format, sample_count, &layouts, None),
+            set_aside: Vec::new(),
             view_uniform: Uniform::new(device, &view_layout, "view", VIEW_UNIFORM_SIZE),
             pick_view_uniform: Uniform::new(device, &view_layout, "pick view", VIEW_UNIFORM_SIZE),
             grid_uniform: Uniform::new(device, &grid_layout, "grid", GRID_UNIFORM_SIZE),
@@ -634,12 +665,31 @@ impl ViewportRenderer {
         if sample_count == self.sample_count {
             return;
         }
-        let layouts = Layouts {
-            view: &self.view_layout,
-            grid: &self.grid_layout,
-            mesh: self.meshes.layout(),
-        };
-        self.pipelines = Pipelines::new(device, self.format, sample_count, &layouts);
+        let kept = self
+            .set_aside
+            .iter()
+            .position(|(samples, _)| *samples == sample_count)
+            .map(|index| self.set_aside.swap_remove(index).1);
+        let pipelines = kept.unwrap_or_else(|| {
+            #[cfg(test)]
+            {
+                self.work.pipeline_builds += 1;
+            }
+            let layouts = Layouts {
+                view: &self.view_layout,
+                grid: &self.grid_layout,
+                mesh: self.meshes.layout(),
+            };
+            Pipelines::new(
+                device,
+                self.format,
+                sample_count,
+                &layouts,
+                Some(&self.pipelines.pick),
+            )
+        });
+        let replaced = std::mem::replace(&mut self.pipelines, pipelines);
+        self.set_aside.push((self.sample_count, replaced));
         self.sample_count = sample_count;
         self.targets = None;
         self.targets_refused = None;
@@ -744,6 +794,7 @@ impl ViewportRenderer {
             view_layout: self.view_layout.clone(),
             grid_layout: self.grid_layout.clone(),
             pipelines: self.pipelines.clone(),
+            set_aside: Vec::new(),
             view_uniform: Uniform::new(device, &self.view_layout, "view", VIEW_UNIFORM_SIZE),
             pick_view_uniform: Uniform::new(
                 device,
@@ -880,10 +931,10 @@ impl ViewportRenderer {
         self.overlay
             .draw(pass, &self.pipelines.overlay_meshes, window);
         for batch in &self.batches {
-            batch.draw_lines(pass, &self.pipelines.lines);
+            batch.draw_lines(pass, &self.pipelines.lines, batch.shown_lines);
         }
         for batch in &self.batches {
-            batch.draw_markers(pass, &self.pipelines.markers);
+            batch.draw_markers(pass, &self.pipelines.markers, batch.shown_markers);
         }
         if grid {
             pass.set_pipeline(&self.pipelines.grid);
@@ -925,7 +976,7 @@ impl ViewportRenderer {
         for batch in &self.batches {
             batch.draw_pick_fills(
                 &mut behind,
-                &self.pipelines.pick_reference_fills,
+                &self.pipelines.pick.reference_fills,
                 batch.reference_pick_fills(),
             );
         }
@@ -933,23 +984,23 @@ impl ViewportRenderer {
         let mut pass = begin_pick_pass(encoder, targets, "pick", false);
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
         self.meshes
-            .draw(&mut pass, &self.pipelines.pick_meshes, &window);
+            .draw(&mut pass, &self.pipelines.pick.meshes, &window);
         self.flat
-            .draw(&mut pass, &self.pipelines.pick_meshes, &window);
+            .draw(&mut pass, &self.pipelines.pick.meshes, &window);
         self.translucent
-            .draw(&mut pass, &self.pipelines.pick_translucent_meshes, &window);
+            .draw(&mut pass, &self.pipelines.pick.translucent_meshes, &window);
         for batch in &self.batches {
             batch.draw_pick_fills(
                 &mut pass,
-                &self.pipelines.pick_fills,
+                &self.pipelines.pick.fills,
                 batch.nearer_pick_fills(),
             );
         }
         for batch in &self.batches {
-            batch.draw_lines(&mut pass, &self.pipelines.pick_lines);
+            batch.draw_lines(&mut pass, &self.pipelines.pick.lines, batch.line_count);
         }
         for batch in &self.batches {
-            batch.draw_markers(&mut pass, &self.pipelines.pick_markers);
+            batch.draw_markers(&mut pass, &self.pipelines.pick.markers, batch.marker_count);
         }
         drop(pass);
         self.picking.encode_readback(encoder, *view, cursor);
@@ -1147,6 +1198,21 @@ impl ViewportRenderer {
     }
 
     #[cfg(test)]
+    pub fn instances(&self) -> [(u32, u32); 2] {
+        self.batches
+            .iter()
+            .fold([(0, 0); 2], |[lines, markers], batch| {
+                [
+                    (lines.0 + batch.shown_lines, lines.1 + batch.line_count),
+                    (
+                        markers.0 + batch.shown_markers,
+                        markers.1 + batch.marker_count,
+                    ),
+                ]
+            })
+    }
+
+    #[cfg(test)]
     pub fn uploaded(&self) -> Vec<Option<Arc<Batch>>> {
         self.batches
             .iter()
@@ -1174,6 +1240,7 @@ impl ViewportRenderer {
 pub struct Work {
     pub uploads: usize,
     pub sorts: usize,
+    pub pipeline_builds: usize,
 }
 
 struct AnchoredView<'a> {
@@ -1242,6 +1309,7 @@ impl Pipelines {
         format: wgpu::TextureFormat,
         sample_count: u32,
         layouts: &Layouts<'_>,
+        reused_picking: Option<&PickPipelines>,
     ) -> Self {
         let module = device.create_shader_module(wgpu::include_wgsl!("viewport.wgsl"));
         let pipeline_layout = |label, groups: &[Option<&wgpu::BindGroupLayout>]| {
@@ -1317,7 +1385,7 @@ impl Pipelines {
                 },
             )
         };
-        let pick = |label, layout, vertex, buffers, fragment, depth_write| {
+        let pick_pipeline = |label, layout, vertex, buffers, fragment, depth_write| {
             build_pipeline(
                 device,
                 &PipelineSpec {
@@ -1403,54 +1471,56 @@ impl Pipelines {
                 "fs_grid",
                 false,
             ),
-            pick_lines: pick(
-                "pick lines",
-                &scene_layout,
-                "vs_line",
-                &lines,
-                "fs_pick",
-                true,
-            ),
-            pick_markers: pick(
-                "pick markers",
-                &scene_layout,
-                "vs_marker",
-                &markers,
-                "fs_marker_pick",
-                true,
-            ),
-            pick_fills: pick(
-                "pick fills",
-                &scene_layout,
-                "vs_fill",
-                &fills,
-                "fs_pick",
-                false,
-            ),
-            pick_reference_fills: pick(
-                "pick reference fills",
-                &scene_layout,
-                "vs_fill",
-                &fills,
-                "fs_pick",
-                true,
-            ),
-            pick_meshes: pick(
-                "pick meshes",
-                &mesh_pipeline_layout,
-                "vs_mesh",
-                &meshes,
-                "fs_mesh_pick",
-                true,
-            ),
-            pick_translucent_meshes: pick(
-                "pick translucent meshes",
-                &mesh_pipeline_layout,
-                "vs_mesh",
-                &meshes,
-                "fs_pick",
-                true,
-            ),
+            pick: reused_picking.cloned().unwrap_or_else(|| PickPipelines {
+                lines: pick_pipeline(
+                    "pick lines",
+                    &scene_layout,
+                    "vs_line",
+                    &lines,
+                    "fs_pick",
+                    true,
+                ),
+                markers: pick_pipeline(
+                    "pick markers",
+                    &scene_layout,
+                    "vs_marker",
+                    &markers,
+                    "fs_marker_pick",
+                    true,
+                ),
+                fills: pick_pipeline(
+                    "pick fills",
+                    &scene_layout,
+                    "vs_fill",
+                    &fills,
+                    "fs_pick",
+                    false,
+                ),
+                reference_fills: pick_pipeline(
+                    "pick reference fills",
+                    &scene_layout,
+                    "vs_fill",
+                    &fills,
+                    "fs_pick",
+                    true,
+                ),
+                meshes: pick_pipeline(
+                    "pick meshes",
+                    &mesh_pipeline_layout,
+                    "vs_mesh",
+                    &meshes,
+                    "fs_mesh_pick",
+                    true,
+                ),
+                translucent_meshes: pick_pipeline(
+                    "pick translucent meshes",
+                    &mesh_pipeline_layout,
+                    "vs_mesh",
+                    &meshes,
+                    "fs_pick",
+                    true,
+                ),
+            }),
         }
     }
 }

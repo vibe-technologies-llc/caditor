@@ -822,7 +822,7 @@ fn reference_fills_are_picked_only_where_nothing_else_is() {
 }
 
 #[test]
-fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read() {
+fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read_once_answered() {
     let Some((device, queue)) = gpu() else {
         return;
     };
@@ -873,18 +873,29 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read() {
         encoder
     };
 
+    let idle = renderer.picking().is_answered(&device);
     drop(draw(&mut renderer));
     let pending = renderer.picking().poll(&device);
     renderer.picking().abandon_unsubmitted();
+    let abandoned_is_answered = renderer.picking().is_answered(&device);
     let abandoned = renderer.picking().poll(&device);
     let encoder = draw(&mut renderer);
     queue.submit([encoder.finish()]);
     renderer.picking().after_submit();
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let answered = (0..5_000).any(|_| {
+        let answered = renderer.picking().is_answered(&device);
+        if !answered {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        answered
+    });
     let read = renderer.picking().poll(&device);
 
+    assert!(!idle);
     assert_eq!(pending, crate::PickPoll::Pending);
+    assert!(abandoned_is_answered);
     assert_eq!(abandoned, crate::PickPoll::Failed);
+    assert!(answered);
     assert!(matches!(read, crate::PickPoll::Ready(pick) if !pick.hits.is_empty()));
 }
 
@@ -1363,6 +1374,59 @@ fn a_line_without_alpha_draws_nothing_but_is_still_picked() {
 
     assert!(is_background(pixel(&rendered, middle)));
     assert_eq!(rendered.pick.hits[0].id, hidden);
+}
+
+#[test]
+fn invisible_lines_and_markers_stay_out_of_the_colour_pass_but_are_still_picked() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let picks = [0, 1, 2, 3].map(|index| PickId::from_index(index).unwrap());
+    let line = |y: f64, alpha: u8, pick: PickId| Line {
+        start: Point3::new(-20.0, y, 0.0),
+        end: Point3::new(20.0, y, 0.0),
+        color: Color::from_rgba8(255, 255, 255, alpha),
+        width: 4.0,
+        layer: Layer::Model,
+        pick: Some(pick),
+        stroke: Stroke::Solid,
+    };
+    let marker = |x: f64, alpha: u8, pick: PickId| Marker {
+        position: Point3::new(x, 0.0, 0.0),
+        color: Color::from_rgba8(255, 255, 255, alpha),
+        diameter: 9.0,
+        layer: Layer::Model,
+        pick: Some(pick),
+    };
+    let scene = Scene::from(Batch {
+        lines: vec![line(10.0, 0, picks[0]), line(-10.0, 255, picks[1])],
+        markers: vec![marker(10.0, 0, picks[2]), marker(-10.0, 255, picks[3])],
+        ..Batch::default()
+    });
+    let at = |x: f64, y: f64| view.project(Point3::new(x, y, 0.0)).unwrap();
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+
+    let on_hidden_line = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &scene, at(0.0, 10.0)),
+    );
+    let on_hidden_marker = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &scene, at(10.0, 0.0)),
+    );
+
+    assert_eq!(renderer.instances(), [(1, 2), (1, 2)]);
+    assert_eq!(on_hidden_line.pick.hits[0].id, picks[0]);
+    assert_eq!(on_hidden_marker.pick.hits[0].id, picks[2]);
+    assert!(is_background(pixel(&on_hidden_line, at(0.0, 10.0))));
+    assert!(is_background(pixel(&on_hidden_line, at(10.0, 0.0))));
+    assert!(!is_background(pixel(&on_hidden_line, at(0.0, -10.0))));
+    assert!(!is_background(pixel(&on_hidden_line, at(-10.0, 0.0))));
 }
 
 #[test]
@@ -1973,7 +2037,7 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
 
     assert!(offered.contains(&Msaa::Off));
     assert!(offered.contains(&Msaa::X4), "{offered:?}");
-    for level in offered {
+    for &level in &offered {
         renderer.set_sample_count(device, level.samples());
         let edges = render_with(
             &mut renderer,
@@ -2009,6 +2073,22 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
                 < 0.5
         );
     }
+
+    let built = renderer.work().pipeline_builds;
+    for level in offered.iter().rev() {
+        renderer.set_sample_count(device, level.samples());
+        let again = render_with(
+            &mut renderer,
+            device,
+            queue,
+            &full_frame(&view, &through_a_box, inside),
+        );
+
+        assert_eq!(again.pick.hits[0].id, PickId::from_index(0).unwrap());
+    }
+
+    assert_eq!(built, offered.len() - 1);
+    assert_eq!(renderer.work().pipeline_builds, built);
 }
 
 #[test]
@@ -2655,14 +2735,16 @@ fn an_unchanged_scene_is_uploaded_once_and_the_camera_moves_without_uploading_it
         after_idle,
         Work {
             uploads: 1,
-            sorts: 1
+            sorts: 1,
+            pipeline_builds: 0,
         }
     );
     assert_eq!(
         after_turning,
         Work {
             uploads: 1,
-            sorts: 2
+            sorts: 2,
+            pipeline_builds: 0,
         }
     );
     assert_eq!(idle.pixels, first.pixels);
@@ -2873,7 +2955,8 @@ fn translucent_fills_are_ordered_again_when_the_view_turns_over() {
         renderer.work(),
         Work {
             uploads: 1,
-            sorts: 2
+            sorts: 2,
+            pipeline_builds: 0,
         }
     );
     assert_eq!(above_draws, vec![(0, 6..12), (0, 0..6)]);

@@ -41,8 +41,10 @@ paths:
   `Renderer::set_graphics`, which changes only what differs; a changed adapter preference opens a
   new device the way device loss does (frames are skipped until it answers, and a failure keeps
   the old device); `graphics_info` reports what is actually in use. MSAA uses the
-  offered level closest to the one asked for (`Msaa::closest`); a change rebuilds pipelines and
-  scene targets but keeps mesh buffers and picking. The pick pass is always single-sampled.
+  offered level closest to the one asked for (`Msaa::closest`); a change rebuilds the scene
+  targets and only the colour pipelines (the pick pass is always single-sampled, so its pipelines
+  stay), keeps mesh buffers and picking, and sets the old level's pipelines aside, so going back to
+  a level used before builds nothing (offscreen test).
   Shading is a uniform flag, so switching is free.
 - Device loss: `DeviceLoss::watch` wakes the app. The next `begin_frame` opens a new device on a
   worker thread (same surface, else a new one); until it answers frames are `Skipped`. The answer
@@ -121,7 +123,9 @@ paths:
   (`DASH_PERIOD_POINTS`) run on across a polyline's segments at any zoom and interface size. The
   pick pass draws dashed lines whole, so a gap still picks its curve.
 - A marker or line whose colour has no alpha draws nothing but is still picked, so pickable points
-  and edges can stay invisible until hovered or selected.
+  and edges can stay invisible until hovered or selected. Such ones are uploaded after the drawn
+  ones of their batch (`shown_first`, order kept within each) and the colour pass draws only the
+  drawn ones, so body vertices and the edges of a style without them cost the colour pass nothing.
 - Markers at one place in one layer have equal depths, which `GreaterEqual` passes, so they draw in
   batch order: a smaller unpicked marker after a larger one makes a ring that still picks whole
   (the app's hollow sketch points). `BACKGROUND`, the canvas clear colour, is public so the app
@@ -152,7 +156,8 @@ paths:
 - Hits report their distance from the cursor in points (`offset_points`, for the app's pick
   tolerances) and their world position (orbit pivot, pan grab point, zoom anchor).
 - `poll_pick` says `Pending`, `Ready` or `Failed` (failed readback, or a pick whose frame was
-  dropped before `submit`); the app asks again after a failure.
+  dropped before `submit`); the app asks again after a failure. `is_pick_answered` polls the device
+  without drawing and says whether `poll_pick` would answer, so a pick in flight needs no frames.
 - Reference-layer pick fills (principal and datum planes) are drawn first in a pass of their own
   and everything else over them: a translucent plane owns a pixel only where no face, line,
   marker or model or front fill covers it, and a face seen through a plane is picked.
