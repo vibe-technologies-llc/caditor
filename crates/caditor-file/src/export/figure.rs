@@ -6,13 +6,14 @@ use std::{
 use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_sketch::{Entity, Sketch};
 
-use super::SketchExported;
+use super::{Construction, SketchExported};
 
 pub(super) const SEGMENT_ANGLE: f64 = 5.0 * PI / 180.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Layer {
     Sketch,
+    Construction,
     Outline,
     Holes,
 }
@@ -21,6 +22,7 @@ impl Layer {
     pub(super) fn name(self) -> &'static str {
         match self {
             Self::Sketch => "0",
+            Self::Construction => "Construction",
             Self::Outline => "Outline",
             Self::Holes => "Holes",
         }
@@ -189,11 +191,12 @@ impl Figure {
         self.shapes.iter().map(|(layer, _)| *layer).collect()
     }
 
-    pub(super) fn of_sketch(sketch: &Sketch) -> (Self, SketchExported) {
+    pub(super) fn of_sketch(sketch: &Sketch, construction: Construction) -> (Self, SketchExported) {
         let mut figure = Self::default();
         let mut exported = SketchExported {
             curves: 0,
             points: 0,
+            construction: 0,
             construction_left_out: 0,
         };
         let anchors: BTreeSet<_> = sketch
@@ -201,10 +204,14 @@ impl Figure {
             .flat_map(|(_, entity)| entity.points())
             .collect();
         for (id, entity) in sketch.entities() {
-            if sketch.is_construction(id) {
-                exported.construction_left_out += 1;
-                continue;
-            }
+            let layer = match (sketch.is_construction(id), construction) {
+                (false, _) => Layer::Sketch,
+                (true, Construction::OnLayer) => Layer::Construction,
+                (true, Construction::LeftOut) => {
+                    exported.construction_left_out += 1;
+                    continue;
+                }
+            };
             let shape = match entity {
                 Entity::Point(_) if anchors.contains(&id) => None,
                 Entity::Point(position) => Some(Shape::Point(*position)),
@@ -242,11 +249,12 @@ impl Figure {
             let Some(shape) = shape else {
                 continue;
             };
-            match shape {
-                Shape::Point(_) => exported.points += 1,
+            match (layer, &shape) {
+                (Layer::Construction, _) => exported.construction += 1,
+                (_, Shape::Point(_)) => exported.points += 1,
                 _ => exported.curves += 1,
             }
-            figure.push(Layer::Sketch, shape);
+            figure.push(layer, shape);
         }
         (figure, exported)
     }

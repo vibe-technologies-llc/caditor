@@ -96,6 +96,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ExportImage => phosphor::IMAGE,
         Command::ExportSketch => phosphor::EXPORT,
         Command::ExportFace => phosphor::EXPORT,
+        Command::KeepDrawingConstruction => CONSTRUCTION,
         Command::Preferences => phosphor::GEAR,
         Command::KeyboardShortcuts => phosphor::KEYBOARD,
         Command::Quit => phosphor::SIGN_OUT,

@@ -1226,7 +1226,7 @@ fn drawn_sketch() -> Sketch {
 fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
     let sketch = drawn_sketch();
 
-    let (figure, exported) = Figure::of_sketch(&sketch);
+    let (figure, exported) = Figure::of_sketch(&sketch, Construction::LeftOut);
     let text = dxf::encode(&figure);
     let drawing = crate::parse_dxf(text.as_bytes()).unwrap();
 
@@ -1235,6 +1235,7 @@ fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
         SketchExported {
             curves: 4,
             points: 1,
+            construction: 0,
             construction_left_out: 1,
         }
     );
@@ -1270,8 +1271,44 @@ fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
 }
 
 #[test]
+fn construction_kept_goes_on_its_own_dashed_layer_and_reads_back_as_construction() {
+    let sketch = drawn_sketch();
+
+    let (figure, exported) = Figure::of_sketch(&sketch, Construction::OnLayer);
+    let text = dxf::encode(&figure);
+    let drawing = crate::parse_dxf(text.as_bytes()).unwrap();
+    let image = svg::encode(&figure).unwrap();
+    let only_construction = {
+        let mut guides = Sketch::new(Plane::XY);
+        let guide = guides.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+        guides.set_construction(guide, true).unwrap();
+        Figure::of_sketch(&guides, Construction::OnLayer).1
+    };
+
+    assert_eq!(
+        exported,
+        SketchExported {
+            curves: 4,
+            points: 1,
+            construction: 1,
+            construction_left_out: 0,
+        }
+    );
+    assert!(text.contains("  8\nConstruction\n  6\nDASHED\n"));
+    assert_eq!(drawing.curves.len(), 6);
+    assert_eq!(drawing.construction.len(), 1);
+    let guide = drawing.construction.iter().next().copied().unwrap();
+    assert!(matches!(
+        drawing.curves[guide],
+        crate::DrawingCurve::Line { start, .. } if start.distance(Point2::new(0.0, -10.0)) < 1e-9
+    ));
+    assert!(image.contains(r##"<g id="Construction" stroke="#808080" stroke-dasharray="1 0.5">"##));
+    assert_eq!(only_construction.construction, 1);
+}
+
+#[test]
 fn a_dxf_names_its_unit_so_importing_it_needs_no_conversion() {
-    let text = dxf::encode(&Figure::of_sketch(&drawn_sketch()).0);
+    let text = dxf::encode(&Figure::of_sketch(&drawn_sketch(), Construction::LeftOut).0);
 
     assert!(text.contains("$INSUNITS\n 70\n4\n"));
     assert!(text.ends_with("  0\nEOF\n"));
@@ -1285,7 +1322,13 @@ fn a_sketch_of_only_construction_has_nothing_to_export() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("guide.dxf");
 
-    let result = export_sketch(&path, &sketch, SketchFormat::Dxf, &CancelToken::never());
+    let result = export_sketch(
+        &path,
+        &sketch,
+        SketchFormat::Dxf,
+        Construction::LeftOut,
+        &CancelToken::never(),
+    );
 
     assert_eq!(result, Err(ExportError::NoCurves));
     assert!(!path.exists());
@@ -1301,6 +1344,7 @@ fn exporting_a_sketch_writes_the_file_and_a_cancelled_one_writes_nothing() {
         &path,
         &drawn_sketch(),
         SketchFormat::Dxf,
+        Construction::LeftOut,
         &CancelToken::never(),
     )
     .unwrap();
@@ -1308,6 +1352,7 @@ fn exporting_a_sketch_writes_the_file_and_a_cancelled_one_writes_nothing() {
         &cancelled,
         &drawn_sketch(),
         SketchFormat::Dxf,
+        Construction::LeftOut,
         &CancelToken::new(|| true),
     );
 
@@ -1321,7 +1366,7 @@ fn exporting_a_sketch_writes_the_file_and_a_cancelled_one_writes_nothing() {
 fn a_sketch_exports_to_an_svg_in_millimetres_with_y_pointing_down() {
     let sketch = drawn_sketch();
 
-    let (figure, exported) = Figure::of_sketch(&sketch);
+    let (figure, exported) = Figure::of_sketch(&sketch, Construction::LeftOut);
     let text = svg::encode(&figure).unwrap();
 
     assert_eq!(
@@ -1329,6 +1374,7 @@ fn a_sketch_exports_to_an_svg_in_millimetres_with_y_pointing_down() {
         SketchExported {
             curves: 4,
             points: 1,
+            construction: 0,
             construction_left_out: 1,
         }
     );
@@ -1346,7 +1392,7 @@ fn an_svg_frames_the_drawing_with_a_margin_in_its_viewbox() {
     let mut sketch = Sketch::new(Plane::XY);
     sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
 
-    let text = svg::encode(&Figure::of_sketch(&sketch).0).unwrap();
+    let text = svg::encode(&Figure::of_sketch(&sketch, Construction::LeftOut).0).unwrap();
 
     assert!(
         text.contains(r#"width="42mm" height="22mm" viewBox="-1 -21 42 22""#),

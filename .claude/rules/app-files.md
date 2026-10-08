@@ -101,8 +101,11 @@ paths:
   (`Purpose::Drawing`, titled for the source, `.dxf` appended to any other and replacing asked as
   for the other outputs) and write on the files worker: a clone of the displayed sketch, or each face
   found again by its key in the shown body's result (an `Arc`, not a copy). The sketch notice counts
-  what was written and the construction curves left out; the face notice counts curves and loops
-  and says how many became polylines (`drawing_export.rs`).
+  what was written and the construction curves left out or kept; the face notice counts curves and
+  loops and says how many became polylines (`drawing_export.rs`).
+- Keep construction geometry in drawings (`Command::KeepDrawingConstruction`, a File menu choice
+  under the exports, palette) makes Export sketch write construction curves on their own dashed
+  layer instead of leaving them out; it is kept for the session in `Files`, not saved.
 
 ## Image export
 

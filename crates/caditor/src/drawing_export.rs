@@ -111,15 +111,20 @@ pub fn finished(path: &Path, sketch: &str, result: Result<SketchExported, Export
     let name = display_name(Some(path));
     match result {
         Ok(exported) => {
-            let drawn = exported.curves + exported.points;
+            let drawn = exported.curves + exported.points + exported.construction;
             let summary = format!(
                 "Exported {} of “{sketch}” to “{name}”.",
                 count(drawn, "object", "objects")
             );
-            match exported.construction_left_out {
-                0 => Notice::info(summary),
-                left_out => Notice::info(format!(
-                    "{summary} {} left out.",
+            match (exported.construction_left_out, exported.construction) {
+                (0, 0) => Notice::info(summary),
+                (0, kept) => Notice::info(format!(
+                    "{summary} {} on the Construction layer.",
+                    count(kept, "construction curve is", "construction curves are")
+                )),
+                (left_out, _) => Notice::info(format!(
+                    "{summary} {} left out; File › Keep construction geometry in drawings keeps \
+                     them.",
                     count(
                         left_out,
                         "construction curve was",
@@ -130,7 +135,8 @@ pub fn finished(path: &Path, sketch: &str, result: Result<SketchExported, Export
         }
         Err(ExportError::Cancelled) => Notice::info("The export was cancelled."),
         Err(ExportError::NoCurves) => Notice::failure(format!(
-            "“{sketch}” has no curves or points to export. Construction geometry is not exported."
+            "“{sketch}” has no curves or points to export. Construction geometry is left out \
+             unless File › Keep construction geometry in drawings is on."
         )),
         Err(error) => Notice::failure(format!("Could not export “{name}”: {error}.")),
     }
@@ -193,14 +199,27 @@ mod tests {
         let exported = SketchExported {
             curves: 3,
             points: 1,
+            construction: 0,
             construction_left_out: 2,
+        };
+        let kept = SketchExported {
+            construction: 2,
+            construction_left_out: 0,
+            ..exported
         };
 
         let notice = finished(Path::new("/tmp/a.dxf"), "Sketch 1", Ok(exported));
+        let on_layer = finished(Path::new("/tmp/a.dxf"), "Sketch 1", Ok(kept));
 
         assert_eq!(
             notice.text,
-            "Exported 4 objects of “Sketch 1” to “a.dxf”. 2 construction curves were left out."
+            "Exported 4 objects of “Sketch 1” to “a.dxf”. 2 construction curves were left out; \
+             File › Keep construction geometry in drawings keeps them."
+        );
+        assert_eq!(
+            on_layer.text,
+            "Exported 6 objects of “Sketch 1” to “a.dxf”. 2 construction curves are on the \
+             Construction layer."
         );
         assert_eq!(
             finished(
@@ -209,7 +228,8 @@ mod tests {
                 Err(ExportError::NoCurves)
             )
             .text,
-            "“Sketch 1” has no curves or points to export. Construction geometry is not exported."
+            "“Sketch 1” has no curves or points to export. Construction geometry is left out \
+             unless File › Keep construction geometry in drawings is on."
         );
     }
 

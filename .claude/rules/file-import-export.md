@@ -128,9 +128,11 @@ paths:
   `SketchFormat::of` picks DXF or SVG from the path. Both are written atomically, cancellation
   checked before writing.
 - `export_sketch` writes the solved curves of one sketch in its own 2D coordinates on layer 0, and a
-  `POINT` for a point no curve uses. Construction curves are counted and left out; a sketch with
-  nothing else is `ExportError::NoCurves`. The DXF reads back through `parse_dxf` as the same
-  curves.
+  `POINT` for a point no curve uses. Construction curves are counted and left out
+  (`Construction::LeftOut`), or with `Construction::OnLayer` written on layer `Construction` in a
+  dashed linetype and counted in `SketchExported::construction`; a sketch with nothing to write
+  is `ExportError::NoCurves`. The DXF reads back through `parse_dxf` as the same curves, the
+  construction ones as construction.
 - `export_face` (`export/outline.rs`) writes a flat face's outer loop on layer `Outline` and its
   inner loops on `Holes`, as seen from outside the body: the face's plane with its origin where the
   model origin projects onto it, up along Z for a face more upright than 45° and along Y otherwise,
@@ -145,15 +147,17 @@ paths:
 - `export_faces` writes several faces into one drawing: the first in its own frame as
   `export_face` does, each next one shifted to the right of what is placed by a gap of a tenth of
   the largest face (at least 10 mm), bottoms level, the counts summed (`FaceExported::faces`).
-- DXF is ASCII, version AC1015, millimetres (`$INSUNITS` 4), header and entities only (layers are
-  named by the entities, without a table): `LINE`, `CIRCLE`, `ARC` (a full sweep is a circle),
+- DXF is ASCII, version AC1015, millimetres (`$INSUNITS` 4), header and entities (layers are
+  named by the entities), plus, only when the Construction layer is used, a TABLES section of the
+  `CONTINUOUS` and `DASHED` linetypes and that layer (grey, dashed), each construction entity also
+  naming `DASHED`, since `parse_dxf` takes a dashed linetype for construction: `LINE`, `CIRCLE`, `ARC` (a full sweep is a circle),
   `ELLIPSE` (a full one from 0 to 2π), clamped planar `SPLINE` with knots, weights when rational
   (flag 12) and control points, open `LWPOLYLINE` and `POINT`.
 - SVG is in millimetres with y flipped (`-y`), a 1 mm margin in the viewBox, a 0.1 mm black
   hairline, `line`, `circle`, elliptical-arc `path`s (sweep flag 0, since the flip keeps the drawn
   direction; a rotation for an ellipse, a full one in two halves), splines and polylines as
   `polyline`s and points as small filled circles. Shapes off layer 0 are grouped in a `g` whose `id`
-  is the layer's name.
+  is the layer's name; the Construction group is grey and dashed.
 - `export_png` writes 8-bit RGBA, straight alpha, sRGB chunk, through the pure-Rust `png` crate,
   atomically, streaming whatever `PixelRows` yields (bands of whole rows) into the encoder, so
   the image is never held whole; it checks the pixel count and cancellation between bands. Its

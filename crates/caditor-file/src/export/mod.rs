@@ -130,17 +130,26 @@ impl SketchFormat {
 pub struct SketchExported {
     pub curves: usize,
     pub points: usize,
+    pub construction: usize,
     pub construction_left_out: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Construction {
+    #[default]
+    LeftOut,
+    OnLayer,
 }
 
 pub fn export_sketch(
     path: &Path,
     sketch: &Sketch,
     format: SketchFormat,
+    construction: Construction,
     cancel: &CancelToken,
 ) -> Result<SketchExported, ExportError> {
-    let (figure, exported) = Figure::of_sketch(sketch);
-    if exported.curves + exported.points == 0 {
+    let (figure, exported) = Figure::of_sketch(sketch, construction);
+    if exported.curves + exported.points + exported.construction == 0 {
         return Err(ExportError::NoCurves);
     }
     write_figure(path, &figure, format, cancel)?;

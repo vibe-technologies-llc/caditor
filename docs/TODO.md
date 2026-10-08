@@ -230,8 +230,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
 ## Drawing import and export
 
 - [medium · medium] Drawing export takes one sketch at a time (several flat faces go side by side
-  into one file, but are not nested to save material), construction geometry is left out with no
-  option to keep it on a layer, and the files hold no text or dimensions.
+  into one file, but are not nested to save material), and the files hold no text or dimensions.
 
 ## Mesh import and export
 

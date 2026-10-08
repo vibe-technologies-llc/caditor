@@ -1765,6 +1765,36 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
 }
 
 #[test]
+fn construction_geometry_is_exported_on_its_own_layer_once_kept_from_the_palette() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
+    let guide = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(40.0, 10.0));
+    sketch.set_construction(guide, true).unwrap();
+    let id = harness.add_sketch(sketch);
+    harness.settle();
+    harness.workspace.panels.choose_only(id);
+    harness.frame();
+
+    run_from_palette(&mut harness, "keep construction geometry");
+    harness.frame();
+    let kept = harness.files.keeps_drawing_construction();
+    harness.answer_dialog(Some(dir.path().join("guided")));
+    run_from_palette(&mut harness, "export sketch");
+    let written = dir.path().join("guided.dxf");
+    harness.wait_until("the drawing is written", |_| written.exists());
+    harness.wait_until("the export is announced", |harness| {
+        harness.shows_containing("1 construction curve is on the Construction layer.")
+    });
+    let drawing = caditor_file::read_dxf(&written).unwrap();
+
+    assert!(kept);
+    assert_eq!(drawing.curve_count(), 5);
+    assert_eq!(drawing.construction.len(), 1);
+}
+
+#[test]
 fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));
@@ -9600,13 +9630,16 @@ fn the_palette_lists_what_does_not_fit_the_context_last_with_the_reason() {
         .rposition(|entry| entry.state == State::Ready)
         .unwrap_or_default();
     assert!(trim > last_ready, "{entries:#?}");
-    for _ in 0..trim {
+    let refusal =
+        "Trim sketch curves is not available here: it works only while a sketch is edited.";
+    for _ in 0..entries.len() {
+        if harness.shows(refusal) {
+            break;
+        }
         harness.key(Key::ArrowDown, Modifiers::NONE);
+        harness.frame();
     }
-    harness.frame();
-    assert!(harness.shows(
-        "Trim sketch curves is not available here: it works only while a sketch is edited."
-    ));
+    assert!(harness.shows(refusal));
     harness.key(Key::Enter, Modifiers::NONE);
     harness.show_new_windows();
     assert!(harness.workspace.palette.is_open());

@@ -14,11 +14,11 @@ use std::{
 
 use caditor_document::{CancelToken, Document, FeatureId, FeatureResult};
 use caditor_file::{
-    Closing, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION,
-    FaceExported, FileJournal, History, ImportError, LoadError, Loaded, MESH_IMPORT_EXTENSIONS,
-    ModelImport, PNG_EXTENSION, RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS,
-    STEP_IMPORT_EXTENSIONS, SavedState, Settings, SketchExported, SketchFormat, describe_set_aside,
-    journal_for, load, load_version, read_dxf, scan,
+    Closing, Construction, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported,
+    FILE_EXTENSION, FaceExported, FileJournal, History, ImportError, LoadError, Loaded,
+    MESH_IMPORT_EXTENSIONS, ModelImport, PNG_EXTENSION, RecentChange, RecentFiles, Recovered,
+    STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings, SketchExported, SketchFormat,
+    describe_set_aside, journal_for, load, load_version, read_dxf, scan,
 };
 use caditor_kernel::{FaceId, Solid};
 use caditor_render::{ImageError, SurfaceSize};
@@ -51,6 +51,9 @@ use crate::{
 };
 
 const OPEN_RECENT: &str = "Open recent";
+pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geometry dashed on a \
+                                          layer of its own named Construction, instead of leaving \
+                                          it out";
 const OPEN_SAMPLE: &str = "Open sample";
 const NO_RECENT: &str = "No model has been opened or saved yet";
 const QUIT_ANYWAY_AFTER: Duration = Duration::from_secs(5);
@@ -120,6 +123,7 @@ pub enum FileCommand {
     ClearRecent,
     CancelOpen,
     CancelPick,
+    KeepDrawingConstruction(bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -509,6 +513,7 @@ pub struct Files {
     exporter: Exporter,
     image: ImageExporter,
     drawing_export: Option<DrawingSource>,
+    drawing_construction: Construction,
     history: VersionHistory,
     picking: Option<(u64, Purpose)>,
     pick_ticket: u64,
@@ -544,6 +549,7 @@ impl Files {
             exporter: Exporter::default(),
             image: ImageExporter::default(),
             drawing_export: None,
+            drawing_construction: Construction::LeftOut,
             history: VersionHistory::default(),
             picking: None,
             pick_ticket: 0,
@@ -601,6 +607,10 @@ impl Files {
 
     pub fn recent(&self) -> &[PathBuf] {
         self.recent.paths()
+    }
+
+    pub fn keeps_drawing_construction(&self) -> bool {
+        self.drawing_construction == Construction::OnLayer
     }
 
     pub fn has_recoverable(&self) -> bool {
@@ -778,6 +788,13 @@ impl Files {
             }
             FileCommand::Drop { paths, into } => self.dropped(paths, into, model),
             FileCommand::ClearRecent => self.change_recent(RecentChange::Cleared),
+            FileCommand::KeepDrawingConstruction(keep) => {
+                self.drawing_construction = if keep {
+                    Construction::OnLayer
+                } else {
+                    Construction::LeftOut
+                };
+            }
             FileCommand::CancelPick => self.stop_picking(model),
             FileCommand::CancelOpen => {
                 if self.opening.take().is_some() {
@@ -1387,11 +1404,17 @@ impl Files {
             return;
         };
         let failed = (path.clone(), name.clone());
+        let construction = self.drawing_construction;
         self.spawn(
             move || {
                 let format = SketchFormat::of(&path).unwrap_or_default();
-                let result =
-                    caditor_file::export_sketch(&path, &sketch, format, &CancelToken::never());
+                let result = caditor_file::export_sketch(
+                    &path,
+                    &sketch,
+                    format,
+                    construction,
+                    &CancelToken::never(),
+                );
                 Event::SketchExported {
                     path,
                     sketch: name,
@@ -2057,6 +2080,17 @@ pub fn menu(
                     chosen.push(command);
                 }
             }
+            let keep = widgets::menu_choice(
+                ui,
+                icons::command(Command::KeepDrawingConstruction),
+                &Command::KeepDrawingConstruction.title(),
+                commands.keys(Command::KeepDrawingConstruction),
+                files.keeps_drawing_construction(),
+            )
+            .on_hover_text(KEEP_CONSTRUCTION_HINT);
+            if keep.clicked() {
+                chosen.push(Command::KeepDrawingConstruction);
+            }
             if files.has_recoverable() {
                 ui.separator();
                 item(ui, &mut chosen, Command::RecoverUnsaved);
@@ -2068,6 +2102,13 @@ pub fn menu(
             item(ui, &mut chosen, Command::Quit);
         });
     });
+    if commands.invoke(Command::KeepDrawingConstruction, &Ok::<(), String>(()))
+        || chosen.contains(&Command::KeepDrawingConstruction)
+    {
+        actions.push(Action::File(FileCommand::KeepDrawingConstruction(
+            !files.keeps_drawing_construction(),
+        )));
+    }
     let recoverable = if files.has_recoverable() {
         Ok(())
     } else {

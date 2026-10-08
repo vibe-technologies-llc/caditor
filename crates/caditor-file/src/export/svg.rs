@@ -14,6 +14,8 @@ const MARGIN: f64 = 1.0;
 const STROKE_WIDTH: f64 = 0.1;
 const POINT_RADIUS: f64 = 0.25;
 const DECIMALS: usize = 6;
+const DASH: f64 = 1.0;
+const GAP: f64 = 0.5;
 
 pub(super) fn encode(figure: &Figure) -> Result<String, ExportError> {
     let Some((low, high)) = extent(figure) else {
@@ -62,8 +64,16 @@ fn write_document(
     )?;
     for layer in figure.layers() {
         let grouped = layer != Layer::Sketch;
-        if grouped {
-            writeln!(text, r#"<g id="{}">"#, layer.name())?;
+        match layer {
+            Layer::Sketch => {}
+            Layer::Construction => writeln!(
+                text,
+                r##"<g id="{}" stroke="#808080" stroke-dasharray="{} {}">"##,
+                layer.name(),
+                Real(DASH),
+                Real(GAP)
+            )?,
+            Layer::Outline | Layer::Holes => writeln!(text, r#"<g id="{}">"#, layer.name())?,
         }
         for (_, shape) in figure.shapes.iter().filter(|(on, _)| *on == layer) {
             write_shape(text, shape)?;

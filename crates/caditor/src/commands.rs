@@ -70,6 +70,7 @@ pub enum Command {
     ExportImage,
     ExportSketch,
     ExportFace,
+    KeepDrawingConstruction,
     Preferences,
     KeyboardShortcuts,
     Quit,
@@ -448,6 +449,7 @@ plain_commands! {
     ExportImage,
     ExportSketch,
     ExportFace,
+    KeepDrawingConstruction,
     Preferences,
     KeyboardShortcuts,
     Welcome,
@@ -593,6 +595,7 @@ impl Command {
             Self::ExportImage => "file.export_image",
             Self::ExportSketch => "file.export_sketch",
             Self::ExportFace => "file.export_face",
+            Self::KeepDrawingConstruction => "file.keep_drawing_construction",
             Self::Preferences => "file.preferences",
             Self::KeyboardShortcuts => "file.shortcuts",
             Self::Quit => "file.quit",
@@ -782,6 +785,7 @@ impl Command {
             Self::ExportImage => "Export image…",
             Self::ExportSketch => "Export sketch…",
             Self::ExportFace => "Export face…",
+            Self::KeepDrawingConstruction => "Keep construction geometry in drawings",
             Self::Preferences => "Preferences…",
             Self::KeyboardShortcuts => "Keyboard shortcuts…",
             Self::Quit => "Quit",
@@ -930,6 +934,7 @@ impl Command {
             | Self::ExportImage
             | Self::ExportSketch
             | Self::ExportFace
+            | Self::KeepDrawingConstruction
             | Self::Preferences
             | Self::KeyboardShortcuts
             | Self::Quit
@@ -1163,6 +1168,7 @@ impl Command {
             | Self::KeyboardShortcuts
             | Self::ExportSketch
             | Self::ExportFace
+            | Self::KeepDrawingConstruction
             | Self::Interference
             | Self::BodyAppearance
             | Self::RenameBody
