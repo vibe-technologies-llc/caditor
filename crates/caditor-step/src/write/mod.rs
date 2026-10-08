@@ -302,7 +302,10 @@ pub fn write_step_detailed(
                     coloured.extend(solids.iter().map(|solid| (*solid, colour)));
                 }
                 if let Some(layer) = body.layer.filter(|layer| !layer.trim().is_empty()) {
-                    layered.entry(layer).or_default().extend(solids.iter().copied());
+                    layered
+                        .entry(layer)
+                        .or_default()
+                        .extend(solids.iter().copied());
                 }
                 if assembly {
                     parts.push(part(shapes.data(), &contexts, body.name, origin, &solids));
