@@ -161,9 +161,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] Circles are drawn from a centre, two points or three points only: a circle
   tangent to two or three chosen lines, circles or arcs is missing, though the tangency
   constraint it would hold exists.
-- [low · medium] No break: Split curve cuts one curve at one chosen point; breaking a curve at
-  every crossing with the curves around it in one click, to get the pieces a profile is made of,
-  is missing.
 - [low · medium] A revolved profile cannot be dimensioned as a lathe drawing shows it: the
   distance from a point to the revolve axis (a construction line) reads as a radius, with no
   option to show and hold it as the diameter across the axis (twice the distance).

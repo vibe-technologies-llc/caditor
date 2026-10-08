@@ -82,6 +82,12 @@ paths:
   the one line or arc the point lies on by `Coincident`, and splits it there in one transaction;
   anything else is refused with `NOTHING_TO_SPLIT` or the sketch's reason. A point placed on a
   curve first (the Point tool snaps onto it) gives a split anywhere.
+- Break the selected curves at every crossing (`Command::BreakCurves`, Sketch menu, palette;
+  `sketch_tools::BreakChange`) takes the selected lines and arcs and breaks each at every
+  crossing with the other curves and the axes in one transaction (`sketch.md`, Break), so the
+  pieces of a profile come in one command rather than one point at a time. Nothing selected, or
+  nothing selected that crosses another curve, is refused with `NOTHING_TO_BREAK` or the
+  sketch's reason in a notice.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", committed and
   solved like a drag; button and command share availability (`Moving::offered`).
 - Rotate and Scale selected geometry (`Command::RotateGeometry`, `ScaleGeometry`, Sketch menu,

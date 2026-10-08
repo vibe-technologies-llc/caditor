@@ -66,7 +66,7 @@ pub struct Cut {
     pub position: Point2,
     pub cutter: EntityId,
     pub point: Option<EntityId>,
-    parameter: f64,
+    pub(crate) parameter: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -444,6 +444,11 @@ impl Sketch {
             .or(pieces.last())
             .cloned()
             .ok_or(TrimError::NoSuchCurve(curve))
+    }
+
+    pub(crate) fn open_cuts(&self, curve: EntityId) -> Result<Option<Vec<Cut>>, TrimError> {
+        let course = self.trim_course(curve)?;
+        Ok((!course.is_closed()).then(|| self.cuts(curve, &course)))
     }
 
     pub fn trim(&mut self, curve: EntityId, near: Point2) -> Result<Trimmed, TrimError> {

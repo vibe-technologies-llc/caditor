@@ -102,7 +102,7 @@ paths:
 
 ## Editing operations
 
-Trim, extend, offset, mirror, patterns, fillet, chamfer and split work on a copy and replace the sketch only if every step
+Trim, extend, offset, mirror, patterns, fillet, chamfer, split and break work on a copy and replace the sketch only if every step
 succeeded. A changed curve is removed and inserted again under the same ID (`restructure`), with
 every constraint still true of it. Joints are judged by a `TOLERANCE` relative to the extent.
 
@@ -194,6 +194,20 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   keep one radius with no constraint added. Tangent, parallel, perpendicular and angle
   constraints joined at the far end move to the far piece (`far_constraints`, as trim does);
   circles, splines and projected curves are refused.
+- Break (`breaking.rs`): `break_curve` splits a line or arc at every crossing with the other curves
+  and the two axes, found as trim finds its cuts (`open_cuts`: a collinear overlap cuts at its
+  ends, a crossing at a curve's own end is a joint). Each cut goes through `split_at` from the
+  start of the curve toward its end, the next cut lying on the piece just made, so the pieces'
+  `Collinear` constraints chain without repeating one another. The cut point is the end point of
+  the cutter lying there when one does (so two curves broken one after the other, or a line
+  ending on another, share one point), else a new point held on the cutter by `Coincident`
+  (an axis included); a crossing shared by several cutters is joined to one of them. The
+  pieces keep the curve's constraints as a split does and are fully determined by the crossings,
+  so the sketch's degrees of freedom do not change. `break_curves` breaks each of several curves
+  in turn on a working copy, skipping those that cannot break (circles, splines, reference or
+  projected curves, curves crossing nothing); `BreakError` names the curve for a single refusal
+  and says `NothingToBreak` or `NothingSelected` otherwise. Circles are refused like split, since
+  breaking one would replace it with arcs.
 
 ## Faceting and splines (`curve.rs`, `fit.rs`)
 

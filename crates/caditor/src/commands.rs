@@ -85,6 +85,7 @@ pub enum Command {
     Construction,
     ToggleConstraintActive,
     SplitCurve,
+    BreakCurves,
     RotateGeometry,
     ScaleGeometry,
     MoveGeometry,
@@ -528,6 +529,7 @@ plain_commands! {
     Construction,
     ToggleConstraintActive,
     SplitCurve,
+    BreakCurves,
     RotateGeometry,
     ScaleGeometry,
     MoveGeometry,
@@ -630,6 +632,7 @@ impl Command {
             Self::Construction => "sketch.construction",
             Self::ToggleConstraintActive => "sketch.toggle_constraint_active",
             Self::SplitCurve => "sketch.split_curve",
+            Self::BreakCurves => "sketch.break_curves",
             Self::RotateGeometry => "sketch.rotate",
             Self::ScaleGeometry => "sketch.scale",
             Self::MoveGeometry => "sketch.move",
@@ -834,6 +837,7 @@ impl Command {
             Self::Construction => "Switch to or from construction geometry",
             Self::ToggleConstraintActive => "Disable or enable the selected constraints",
             Self::SplitCurve => "Split the selected curve at the selected point",
+            Self::BreakCurves => "Break the selected curves at every crossing",
             Self::RotateGeometry => "Rotate selected sketch geometry",
             Self::ScaleGeometry => "Scale selected sketch geometry",
             Self::MoveGeometry => "Move selected sketch geometry",
@@ -1102,6 +1106,7 @@ impl Command {
             | Self::Construction
             | Self::ToggleConstraintActive
             | Self::SplitCurve
+            | Self::BreakCurves
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
@@ -1125,6 +1130,7 @@ impl Command {
             | Self::Construction
             | Self::ToggleConstraintActive
             | Self::SplitCurve
+            | Self::BreakCurves
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
@@ -1241,6 +1247,7 @@ impl Command {
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive
             | Self::SplitCurve
+            | Self::BreakCurves
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
