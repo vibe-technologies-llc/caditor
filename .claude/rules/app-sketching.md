@@ -243,6 +243,16 @@ paths:
   one selected point no selected curve uses, else a point clicked or highlighted (the origin
   included, Highlight the next item steps through points and Space or Enter chooses), shown
   highlighted until Escape lets it go; the preview and Enter use it.
+- Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Sketch menu and palette, no
+  default key and not on the sketch bar, `sketch_toolbar::OFF_RIBBON`) takes the lines, circles
+  and arcs the new circle touches (`sketch.md`, Tangent circles): the one or two of them selected
+  when it starts, then each one clicked or highlighted and chosen with Space or Enter (an axis
+  included; clicking a chosen curve lets it go, Escape lets go of the last). A third curve
+  finishes it at once, previewed live while the pointer is over it, as the circle whose centre is
+  nearest the pointer, so inside or outside a triangle's sides picks its incircle or an
+  excircle. With two chosen the typed-point field ("Radius", opens on a digit) draws the circle
+  of that radius nearest the pointer instead, previewed while the text parses and kept as typed
+  with parameters. Each draw is one undoable "Draw tangent circle" transaction.
 - Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes a corner (a
   selected one, else the curve end under the pointer, `Sketch::corner_at`, refused in words when
   it is no corner); then the pointer sets the radius (`radius_through`). The chosen corner is

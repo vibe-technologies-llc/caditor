@@ -114,6 +114,7 @@ mod solid_tools;
 mod split_panel;
 mod split_tools;
 mod status_bar;
+mod tangent_circling;
 mod toolbar;
 mod tracking;
 mod tree_row;

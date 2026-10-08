@@ -888,7 +888,7 @@ fn tolerance_at(position: Point2) -> f64 {
     TOLERANCE * position.abs().max_element().max(1.0)
 }
 
-fn centers(first: Carrier, second: Carrier, tolerance: f64) -> Vec<Point2> {
+pub(crate) fn centers(first: Carrier, second: Carrier, tolerance: f64) -> Vec<Point2> {
     match (first, second) {
         (
             Carrier::Line { through, direction },

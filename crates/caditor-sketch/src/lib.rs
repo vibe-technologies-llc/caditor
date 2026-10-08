@@ -17,6 +17,7 @@ mod relation;
 mod sketch;
 mod solve;
 mod split;
+mod tangent_circle;
 mod trim;
 
 pub use crate::{
@@ -39,5 +40,6 @@ pub use crate::{
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{Drag, EntityState, Redundancy, SketchSolution, SolveMemo, Solved},
     split::SplitError,
+    tangent_circle::{TangentCircle, TangentError},
     trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},
 };

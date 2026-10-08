@@ -33,13 +33,14 @@ pub enum Tool {
     Mirror,
     RectangularPattern,
     CircularPattern,
+    TangentCircle,
     Fillet,
     Chamfer,
     Project,
     Dimension,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, Fillet, Chamfer, Project, Dimension);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Dimension);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -61,6 +62,7 @@ impl Tool {
             Self::Mirror => "Mirror",
             Self::RectangularPattern => "Rectangular pattern",
             Self::CircularPattern => "Circular pattern",
+            Self::TangentCircle => "Tangent circle",
             Self::Fillet => "Sketch fillet",
             Self::Chamfer => "Sketch chamfer",
             Self::Project => "Project",
@@ -109,6 +111,10 @@ impl Tool {
                 "Repeat the selected geometry about a point, turned by equal steps, kept \
                  repeated as the original changes"
             }
+            Self::TangentCircle => {
+                "Draw a circle tangent to three lines, circles or arcs, or to two of them at a \
+                 typed radius, kept tangent as they change"
+            }
             Self::Fillet => {
                 "Round the corner where two lines or arcs meet with an arc tangent to both"
             }
@@ -136,6 +142,7 @@ impl Tool {
             | Self::Mirror
             | Self::RectangularPattern
             | Self::CircularPattern
+            | Self::TangentCircle
             | Self::Fillet
             | Self::Chamfer
             | Self::Project
@@ -168,6 +175,7 @@ impl Tool {
                 | Self::Mirror
                 | Self::RectangularPattern
                 | Self::CircularPattern
+                | Self::TangentCircle
                 | Self::Fillet
                 | Self::Chamfer
         )

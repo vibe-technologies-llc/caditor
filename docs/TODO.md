@@ -158,9 +158,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   (G1) or curvature-continuous (G2), as a spline held by `Tangent` and `Curvature` constraints so
   it follows when either end moves, for a transition where a fillet's circular arc is not smooth
   enough.
-- [low · medium] Circles are drawn from a centre, two points or three points only: a circle
-  tangent to two or three chosen lines, circles or arcs is missing, though the tangency
-  constraint it would hold exists.
 - [low · medium] A revolved profile cannot be dimensioned as a lathe drawing shows it: the
   distance from a point to the revolve axis (a construction line) reads as a radius, with no
   option to show and hold it as the diameter across the axis (twice the distance).

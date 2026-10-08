@@ -209,6 +209,25 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   and says `NothingToBreak` or `NothingSelected` otherwise. Circles are refused like split, since
   breaking one would replace it with arcs.
 
+## Tangent circles (`tangent_circle.rs`)
+
+- `tangent_circle` draws a circle tangent to three of the sketch's lines, circles and arcs (an
+  arc counts as its full circle, an axis as the infinite line it is), or to two of them at a
+  given radius, and holds it with a `Tangent` to each and, for two, a `Radius` holding the typed
+  expression (`Dimensioned`), so it follows when the curves move. Any other count, a radius with
+  three curves, none with two, a curve chosen twice, a point or spline, a radius not above zero,
+  no circle touching them and one reaching past `MAX_LENGTH` are refused (`TangentError`).
+- `tangent_circle_near` finds every circle first (`TangentCircle`), then takes the one whose
+  centre is nearest the given point, the smallest when there is none. For three curves each of
+  the eight choices of side (outside or inside a circle, either side of a line) is a system
+  whose circle equations differ by linear terms: two linear equations leave a line in
+  (centre, radius) space that the first circle's quadratic cuts in at most two points. For two
+  curves each choice of side offsets both curves by the radius and the circle centres are where
+  the offset curves cross (`fillet::centers`). Candidates are kept only when they touch every
+  curve within a tolerance relative to their reach.
+- Circles tangent to curves whose offsets coincide (two parallel lines at twice the radius, three
+  parallel lines) have no discrete solution and are refused as no circle.
+
 ## Faceting and splines (`curve.rs`, `fit.rs`)
 
 - Curves are drawn as polylines within a chord tolerance (`Faceting`, bounded counts per turn and

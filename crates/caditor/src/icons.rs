@@ -268,6 +268,7 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::Mirror => phosphor::SQUARE_SPLIT_HORIZONTAL,
         Tool::RectangularPattern => LINEAR_PATTERN,
         Tool::CircularPattern => CIRCULAR_PATTERN,
+        Tool::TangentCircle => phosphor::CIRCLES_THREE,
         Tool::Fillet => blend(BlendKind::Fillet),
         Tool::Chamfer => blend(BlendKind::Chamfer),
         Tool::Project => phosphor::ARROW_FAT_LINES_DOWN,
