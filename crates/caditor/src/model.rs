@@ -181,6 +181,7 @@ pub struct Model {
     angle_unit: AngleUnit,
     mesh_quality: MeshQuality,
     mesh_requested: Vec<Arc<FeatureResult>>,
+    regions_requested: Option<Arc<FeatureResult>>,
     display: Display,
     shown_before: Vec<Arc<FeatureResult>>,
     evaluation_generation: u64,
@@ -218,6 +219,7 @@ impl Model {
             angle_unit: AngleUnit::default(),
             mesh_quality: MeshQuality::default(),
             mesh_requested: Vec::new(),
+            regions_requested: None,
             display: Display::default(),
             shown_before: Vec::new(),
             evaluation_generation: 0,
@@ -611,6 +613,43 @@ impl Model {
             if sent {
                 self.mesh_requested.push(result);
             }
+        }
+    }
+
+    pub fn request_regions(&mut self, sketch: Option<FeatureId>) {
+        let current = sketch
+            .and_then(|feature| self.evaluation.feature(feature))
+            .and_then(|status| status.result.clone())
+            .filter(|result| result.sketch().is_some());
+        if let Some(requested) = self.regions_requested.take() {
+            if requested
+                .sketch()
+                .is_some_and(|result| result.regions().is_some())
+            {
+                self.display.sketches.regions_arrived();
+            } else if current
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &requested))
+            {
+                self.regions_requested = Some(requested);
+                return;
+            }
+        }
+        let Some(result) = current else {
+            return;
+        };
+        if result
+            .sketch()
+            .is_none_or(|sketch| sketch.regions().is_some())
+        {
+            return;
+        }
+        let sent = self
+            .recomputer
+            .as_ref()
+            .is_some_and(|recomputer| recomputer.regions(Arc::clone(&result)).is_ok());
+        if sent {
+            self.regions_requested = Some(result);
         }
     }
 

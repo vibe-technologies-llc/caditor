@@ -1395,6 +1395,7 @@ impl Session {
         }
 
         model.mesh_before(self.workspace.editing.context().solid);
+        model.request_regions(self.workspace.editing.feature());
         self.export_image(model, files);
         let workspace = &mut self.workspace;
         workspace.viewport.build_scene(model, &workspace.editing);

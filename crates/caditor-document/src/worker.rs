@@ -257,6 +257,16 @@ impl Recomputer {
             .map_err(|_| WorkerStopped)
     }
 
+    pub fn regions(&self, result: Arc<FeatureResult>) -> Result<(), WorkerStopped> {
+        self.handle
+            .jobs
+            .send(Message::Mesh {
+                result,
+                name: String::new(),
+            })
+            .map_err(|_| WorkerStopped)
+    }
+
     pub fn set_mesh_quality(&mut self, quality: MeshQuality) -> Result<(), WorkerStopped> {
         self.quality = Some(quality);
         self.handle
@@ -596,6 +606,12 @@ fn mesh_pending(
                 solid.tessellate(&pending.name, quality)
             });
             if !solid.is_meshed() {
+                return;
+            }
+            wake();
+        } else if let Some(sketch) = pending.result.sketch() {
+            interruptible(cancel.interrupt(), || sketch.find_regions());
+            if sketch.regions().is_none() {
                 return;
             }
             wake();

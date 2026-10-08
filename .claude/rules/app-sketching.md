@@ -364,7 +364,10 @@ paths:
   extension is often meant (`Target::Extension`).
 - The edited sketch's closed regions (its result's display regions) are tinted `CLOSED_REGION` on
   the front layer, unpicked (`scene::Builder::closed_regions`), while the shown geometry is the
-  result's (`same_geometry`), so a drag never shows regions it left behind.
+  result's (`same_geometry`), so a drag never shows regions it left behind. A sketch too large for
+  recompute to find them unasked gets them asked for each frame it is edited
+  (`Model::request_regions`, one request per result), and their arrival moves the displayed
+  sketches' generation so the cached scene picks them up.
 
 ## Displayed sketches
 

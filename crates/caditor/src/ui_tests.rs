@@ -345,6 +345,7 @@ impl Harness {
         self.render_thumbnail();
         self.model
             .mesh_before(self.workspace.editing.context().solid);
+        self.model.request_regions(self.workspace.editing.feature());
         self.workspace
             .viewport
             .build_scene(&self.model, &self.workspace.editing);
@@ -3641,6 +3642,43 @@ fn high_contrast_reaches_the_scene_and_draws_free_points_hollow() {
 
     set_high_contrast(&mut harness, false);
     assert_eq!(grid(&harness.built()), Some(scene_palette::STANDARD.grid));
+}
+
+#[test]
+fn a_large_sketch_being_edited_shows_its_closed_regions_once_they_are_found() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 20.0));
+    for index in 0..2_000 {
+        sketch.add_point(Point2::new(
+            60.0 + f64::from(index % 50),
+            f64::from(index / 50),
+        ));
+    }
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.settle();
+    let found = |harness: &Harness| {
+        harness
+            .model
+            .evaluation()
+            .feature(feature)
+            .and_then(|status| status.result.as_deref())
+            .and_then(caditor_document::FeatureResult::sketch)
+            .is_some_and(
+                |result| matches!(result.regions(), Some(Ok(regions)) if !regions.is_empty()),
+            )
+    };
+
+    harness.wait_until("the regions are found", found);
+    harness.frame();
+    let tinted = harness
+        .built()
+        .scene
+        .fills()
+        .any(|fill| fill.color == scene_palette::STANDARD.closed_region);
+
+    assert!(tinted);
 }
 
 #[test]

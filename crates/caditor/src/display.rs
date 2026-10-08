@@ -59,6 +59,10 @@ impl DisplayedSketches {
         self.generation
     }
 
+    pub fn regions_arrived(&mut self) {
+        self.changed();
+    }
+
     pub fn forget(&mut self) {
         self.shown.get_mut().clear();
         self.bounds.get_mut().clear();

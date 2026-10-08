@@ -61,6 +61,8 @@ paths:
   the display, under the run's cancel token (a build cancelled midway is not kept). A sketch that
   solves again to the same geometry (`Sketch::same_geometry`) shares the last result's arrangement
   and regions, so display data already found is not rebuilt.
+- A sketch result's regions can also be asked for (`Recomputer::regions`, queued with the
+  requested meshes), which the app does for the edited sketch past `MAX_UNSWEPT_REGION_ENTITIES`.
 - The state before an open blend or shell, and the tools of an open cut (`SolidResult::cuts`: the
   swept tool of an extrusion or revolve removing from a body, each drill of a hole, kept with the
   result), are meshed only when the app asks (`Recomputer::mesh`).
