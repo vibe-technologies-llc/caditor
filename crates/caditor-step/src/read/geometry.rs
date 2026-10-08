@@ -8,7 +8,8 @@ use std::{
 use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
     BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, GeometryError,
-    Interval, Line, MAX_SPLINE_DEGREE, PlaneSurface, Revolution, Sphere, Surface, Torus,
+    Interval, Line, MAX_SPLINE_DEGREE, MODEL_EXTENT, PlaneSurface, Revolution, Sphere, Surface,
+    Torus,
 };
 
 use crate::read::{
@@ -18,9 +19,73 @@ use crate::read::{
 };
 
 const MAX_CURVE_DEPTH: usize = 8;
+const MAX_HYPERBOLA_SPAN: f64 = 0.5;
 const PIECE_SAMPLES: usize = 64;
 const OFFSET_SAMPLES: usize = 256;
 pub(crate) const MAX_WORK: usize = 4_000_000;
+
+fn hyperbola(
+    frame: &Plane,
+    semi_axis: f64,
+    imaginary: f64,
+) -> Result<BSpline<Point3>, GeometryError> {
+    for size in [semi_axis, imaginary] {
+        if size.is_nan() || size <= 0.0 {
+            return Err(GeometryError::NonPositive(size));
+        }
+    }
+    let point = |cosh: f64, sinh: f64| {
+        frame.origin() + frame.x_axis() * (semi_axis * cosh) + frame.y_axis() * (imaginary * sinh)
+    };
+    let reach = (MODEL_EXTENT / semi_axis.min(imaginary)).max(1.0).acosh();
+    let segments = ((2.0 * reach / MAX_HYPERBOLA_SPAN).ceil() as usize).max(1);
+    let step = 2.0 * reach / segments as f64;
+    let half = 0.5 * step;
+    let mut points = Vec::with_capacity(2 * segments + 1);
+    let mut weights = Vec::with_capacity(2 * segments + 1);
+    let mut knots = vec![-reach; 3];
+    for index in 0..segments {
+        let start = -reach + step * index as f64;
+        let middle = start + half;
+        points.push(point(start.cosh(), start.sinh()));
+        weights.push(1.0);
+        points.push(point(
+            middle.cosh() / half.cosh(),
+            middle.sinh() / half.cosh(),
+        ));
+        weights.push(half.cosh());
+        let end = start + step;
+        knots.extend(if index + 1 == segments {
+            vec![end; 3]
+        } else {
+            vec![end; 2]
+        });
+    }
+    points.push(point(reach.cosh(), reach.sinh()));
+    weights.push(1.0);
+    BSpline::rational(2, knots, points, weights)
+}
+
+fn parabola(frame: &Plane, focal: f64) -> Result<BSpline<Point3>, GeometryError> {
+    if focal.is_nan() || focal <= 0.0 {
+        return Err(GeometryError::NonPositive(focal));
+    }
+    let reach = (MODEL_EXTENT / focal)
+        .sqrt()
+        .max(MODEL_EXTENT / (2.0 * focal))
+        .min(MODEL_EXTENT);
+    let point = |t: f64| {
+        frame.origin() + frame.x_axis() * (focal * t * t) + frame.y_axis() * (2.0 * focal * t)
+    };
+    let start = point(-reach);
+    let tangent = frame.x_axis() * (-2.0 * focal * reach) + frame.y_axis() * (2.0 * focal);
+    let middle = start + tangent * reach;
+    BSpline::new(
+        2,
+        vec![-reach, -reach, -reach, reach, reach, reach],
+        vec![start, middle, point(reach)],
+    )
+}
 
 fn sampled(curve: &Curve, range: Interval) -> Vec<Point3> {
     range
@@ -198,6 +263,21 @@ impl<'a> Geometry<'a> {
                 let minor = self.length(&fields, 3)?;
                 Ok(Ellipse::new(frame, major, minor).map_err(kernel)?.into())
             }
+            "HYPERBOLA" => {
+                let fields = entity.record("HYPERBOLA")?;
+                let frame = self.placement(fields.reference(1)?)?;
+                let semi_axis = self.length(&fields, 2)?;
+                let imaginary = self.length(&fields, 3)?;
+                Ok(Curve::BSpline(
+                    hyperbola(&frame, semi_axis, imaginary).map_err(kernel)?,
+                ))
+            }
+            "PARABOLA" => {
+                let fields = entity.record("PARABOLA")?;
+                let frame = self.placement(fields.reference(1)?)?;
+                let focal = self.length(&fields, 2)?;
+                Ok(Curve::BSpline(parabola(&frame, focal).map_err(kernel)?))
+            }
             "SURFACE_CURVE" | "SEAM_CURVE" | "INTERSECTION_CURVE" | "BOUNDED_SURFACE_CURVE" => {
                 let basis = match entity.fields() {
                     Ok(fields) => fields.reference(1)?,
@@ -300,13 +380,14 @@ impl<'a> Geometry<'a> {
                 .bounded()
                 .or_else(|| curve.period().and_then(|period| Interval::new(0.0, period)))
                 .unwrap_or_else(|| Interval::new(-1e12, 1e12).unwrap_or(Interval::UNIT));
-            match by_point {
-                Some(point) => Ok(curve.closest_parameter(point, search)),
-                None => options
-                    .iter()
-                    .find_map(crate::part21::Parameter::real)
-                    .map(|value| value * scale)
-                    .ok_or_else(|| Problem::new(id, "is trimmed by nothing it can read")),
+            let by_value = options.iter().find_map(crate::part21::Parameter::real);
+            match (by_point, by_value) {
+                (Some(point), _) => Ok(curve.closest_parameter(point, search)),
+                (None, Some(value)) => match self.hyperbola_point(basis_id, value)? {
+                    Some(point) => Ok(curve.closest_parameter(point, search)),
+                    None => Ok(value * scale),
+                },
+                (None, None) => Err(Problem::new(id, "is trimmed by nothing it can read")),
             }
         };
         let (first, second) = (trim(2)?, trim(3)?);
@@ -329,6 +410,21 @@ impl<'a> Geometry<'a> {
             points.reverse();
         }
         Ok(points)
+    }
+
+    fn hyperbola_point(&self, basis: u64, parameter: f64) -> Read<Option<Point3>> {
+        let entity = self.graph.entity(basis)?;
+        if entity.kind() != "HYPERBOLA" {
+            return Ok(None);
+        }
+        let fields = entity.record("HYPERBOLA")?;
+        let frame = self.placement(fields.reference(1)?)?;
+        let (semi_axis, imaginary) = (self.length(&fields, 2)?, self.length(&fields, 3)?);
+        Ok(Some(
+            frame.origin()
+                + frame.x_axis() * (semi_axis * parameter.cosh())
+                + frame.y_axis() * (imaginary * parameter.sinh()),
+        ))
     }
 
     fn parameter_scale(&self, basis: u64) -> Read<f64> {
@@ -886,6 +982,41 @@ pub(crate) fn cartesian(points: &[Homogeneous]) -> Option<(Vec<Point3>, Vec<f64>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hyperbolas_and_parabolas_are_exact_conics_reaching_across_the_model() {
+        let frame = Plane::with_x_axis(
+            Point3::new(1.0, 2.0, 3.0),
+            Vector3::new(0.0, 0.3, 1.0),
+            Vector3::X,
+        )
+        .unwrap();
+        let wide = Curve::BSpline(hyperbola(&frame, 2.0, 3.0).unwrap());
+        let narrow = Curve::BSpline(parabola(&frame, 0.5).unwrap());
+
+        let on_hyperbola: fn(f64, f64) -> f64 = |x, y| x * x / 4.0 - y * y / 9.0 - 1.0;
+        let on_parabola: fn(f64, f64) -> f64 = |x, y| y * y - 2.0 * x;
+
+        for (curve, on_conic) in [(&wide, on_hyperbola), (&narrow, on_parabola)] {
+            let range = curve.domain().bounded().unwrap();
+            let far =
+                [range.start(), range.end()].map(|end| curve.point(end).distance(frame.origin()));
+            assert!(
+                far.iter().all(|reach| *reach >= MODEL_EXTENT * 0.99),
+                "{far:?}"
+            );
+            for index in 0..=400 {
+                let local = frame.to_local(curve.point(range.at(index as f64 / 400.0)));
+                let scale = 1.0 + local.length();
+                assert!(
+                    on_conic(local.x, local.y).abs() < 1e-9 * scale * scale,
+                    "{local}"
+                );
+            }
+        }
+        assert!(hyperbola(&frame, 0.0, 3.0).is_err());
+        assert!(parabola(&frame, -1.0).is_err());
+    }
 
     #[test]
     fn spline_degrees_above_the_kernel_limit_are_refused_before_any_work() {

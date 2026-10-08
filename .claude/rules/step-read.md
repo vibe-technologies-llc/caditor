@@ -95,7 +95,10 @@ paths:
 ## Geometry and healing
 
 - Every kernel surface and curve, B-splines in all forms (unclamped ones clamped by knot
-  insertion), trimmed and composite curves, `OFFSET_CURVE_3D` as dense polylines that healing
+  insertion), trimmed and composite curves, `HYPERBOLA` as rational quadratic arcs of at most
+  `MAX_HYPERBOLA_SPAN` in its parameter and `PARABOLA` as one quadratic Bézier (its parameter kept),
+  both reaching `MODEL_EXTENT` from their centre (a hyperbola trimmed by a parameter value is
+  trimmed at the point it names), `OFFSET_CURVE_3D` as dense polylines that healing
   rebuilds on the faces.
 - `DEGENERATE_TOROIDAL_SURFACE`: a spindle is the revolution of the tube's rational arc on one side
   of the axis; a horn turns the whole tube circle about its touch point, so its two poles are one
