@@ -113,7 +113,7 @@ impl From<Sketch> for FeatureKind {
 impl FeatureKind {
     pub fn stored_text_len(&self) -> usize {
         match self {
-            Self::Import(import) => import.source.len() + import.step.len(),
+            Self::Import(import) => import.source.len() + import.path_len() + import.step.len(),
             _ => 0,
         }
     }
@@ -158,7 +158,10 @@ impl FeatureKind {
             Self::Scale(scale) => scale.heap_size(),
             Self::Hole(hole) => hole.heap_size(),
             Self::Import(import) => {
-                import.source.len() + import.step.len() + import.solid.approximate_size()
+                import.source.len()
+                    + import.path_len()
+                    + import.step.len()
+                    + import.solid.approximate_size()
             }
             Self::Pattern(pattern) => size_of::<Pattern>() + pattern.heap_size(),
             Self::Datum(datum) => datum.heap_size(),

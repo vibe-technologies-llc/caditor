@@ -126,6 +126,10 @@ paths:
   applies one `SetFeatureKind` putting its body in place of the import, so features using the body
   keep it and find its faces again by name. A file of several bodies gives the one named like the
   feature (or like it before a " 2" suffix), else nothing with the reason; a drawing is refused.
+- Reload import from its file (`Command::ReloadImport`, the import's details, its right-click menu,
+  the palette) does the same with the path the import kept (`import::kept_source`, made absolute
+  by `import::read_model`) without a dialog; a body imported before paths were kept, or whose file
+  has gone, says so and points to Replace from file.
 - The worker plans the change on the model as it was at the start (`import::plan_drawing` with
   the `Arrangement`, `Model::base`); the UI thread only commits it (`Model::commit`) and replans
   on `Placement::Stale`. Results arriving after another document opened are dropped.

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use caditor_kernel::Solid;
 
@@ -11,6 +11,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Import {
     pub source: String,
+    pub path: Option<PathBuf>,
     pub solid: Arc<Solid>,
     pub step: Arc<str>,
 }
@@ -19,15 +20,26 @@ impl Import {
     pub fn new(source: impl Into<String>, solid: Solid, step: impl Into<Arc<str>>) -> Self {
         Self {
             source: source.into(),
+            path: None,
             solid: Arc::new(solid),
             step: step.into(),
         }
+    }
+
+    pub fn from_file(mut self, path: PathBuf) -> Self {
+        self.path = path.to_str().is_some().then_some(path);
+        self
+    }
+
+    pub fn path_len(&self) -> usize {
+        self.path.as_ref().map_or(0, |path| path.as_os_str().len())
     }
 }
 
 impl PartialEq for Import {
     fn eq(&self, other: &Self) -> bool {
         self.source == other.source
+            && self.path == other.path
             && (Arc::ptr_eq(&self.step, &other.step) || self.step == other.step)
     }
 }

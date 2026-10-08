@@ -364,6 +364,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Import (`import.rs`)
 
-- Keeps the source file's name, the solid and the canonical single-solid STEP text it was read from
-  (what the file stores); equality compares the text. The body is `Solid::imported`, so later
+- Keeps the source file's name, the path it was read from (`Import::path`, set by
+  `Import::from_file` only for a path that is valid UTF-8, so it can be stored), the solid and the
+  canonical single-solid STEP text it was read from (what the file stores); equality compares the
+  name, path and text. The body is `Solid::imported`, so later
   features hold its faces and edges like any body's.

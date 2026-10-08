@@ -2419,6 +2419,44 @@ fn cube_stl(side: f64) -> String {
 }
 
 #[test]
+fn an_imported_body_reloads_from_the_file_it_came_from_without_asking() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let path = dir.path().join("cube.stl");
+    std::fs::write(&path, cube_stl(10.0)).unwrap();
+    let before = harness.document().features().len();
+    harness.answer_dialog(Some(path.clone()));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_until("the cube is imported", |harness| {
+        harness.document().features().len() == before + 1
+    });
+    harness.settle();
+    let body = harness.document().features().last().unwrap().id();
+    let kept = harness
+        .document()
+        .feature(body)
+        .and_then(|feature| feature.kind.import())
+        .and_then(|import| import.path.clone());
+    assert_eq!(kept, Some(path.clone()));
+
+    std::fs::write(&path, cube_stl(20.0)).unwrap();
+    harness.command(FileCommand::ReloadImport(body));
+    harness.wait_until("the cube is reloaded", |harness| {
+        harness
+            .model
+            .undo_label()
+            .is_some_and(|label| label.starts_with("Replace"))
+    });
+    harness.settle();
+    assert!(volume_about(&harness, body, 8000.0));
+
+    std::fs::remove_file(&path).unwrap();
+    harness.command(FileCommand::ReloadImport(body));
+    harness.frame();
+    assert!(harness.shows_containing("is no longer there"));
+}
+
+#[test]
 fn an_imported_body_is_replaced_from_a_file_in_place_and_undone_as_one_step() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

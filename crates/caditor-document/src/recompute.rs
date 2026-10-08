@@ -916,9 +916,10 @@ impl Recompute {
         let small: BTreeSet<FeatureId> = document
             .active_features()
             .filter(|feature| {
-                feature.kind.sketch().is_some_and(|sketch| {
-                    sketch.entities().len() <= MAX_UNSWEPT_REGION_ENTITIES
-                })
+                feature
+                    .kind
+                    .sketch()
+                    .is_some_and(|sketch| sketch.entities().len() <= MAX_UNSWEPT_REGION_ENTITIES)
             })
             .map(Feature::id)
             .collect();

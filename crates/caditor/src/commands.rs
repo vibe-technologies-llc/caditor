@@ -182,6 +182,7 @@ pub enum Command {
     ShowFirstFailed,
     UpdateReferences,
     ReplaceImport,
+    ReloadImport,
     DismissNotice,
     DismissTip,
     HideTips,
@@ -550,6 +551,7 @@ plain_commands! {
     ShowFirstFailed,
     UpdateReferences,
     ReplaceImport,
+    ReloadImport,
     DismissNotice,
     DismissTip,
     HideTips,
@@ -746,6 +748,7 @@ impl Command {
             Self::ShowFirstFailed => "model.first_failed",
             Self::UpdateReferences => "model.update_references",
             Self::ReplaceImport => "file.replace_import",
+            Self::ReloadImport => "file.reload_import",
             Self::DismissNotice => "edit.dismiss_notice",
             Self::DismissTip => "help.dismiss_tip",
             Self::HideTips => "help.hide_tips",
@@ -889,6 +892,7 @@ impl Command {
             Self::ShowFirstFailed => "Go to the first failed feature",
             Self::UpdateReferences => "Update references",
             Self::ReplaceImport => "Replace import from file…",
+            Self::ReloadImport => "Reload import from its file",
             Self::DismissNotice => "Dismiss the notice",
             Self::DismissTip => "Dismiss the tip",
             Self::HideTips => "Hide tips",
@@ -1014,7 +1018,8 @@ impl Command {
             | Self::ParameterNote
             | Self::ShowFirstFailed
             | Self::UpdateReferences
-            | Self::ReplaceImport => Category::Model,
+            | Self::ReplaceImport
+            | Self::ReloadImport => Category::Model,
             Self::FinishSketch
             | Self::ReverseArc
             | Self::MoreSides
@@ -1186,6 +1191,7 @@ impl Command {
             | Self::ParameterNote
             | Self::UpdateReferences
             | Self::ReplaceImport
+            | Self::ReloadImport
             | Self::DismissNotice
             | Self::DismissTip
             | Self::HideTips

@@ -1428,6 +1428,36 @@ fn added_constraint_kinds_round_trip() {
 }
 
 #[test]
+fn an_import_keeps_the_path_it_was_read_from_only_when_known() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Import");
+    let kept = caditor_document::Import::new("cube.step", caditor_kernel::Solid::default(), "")
+        .from_file(std::path::PathBuf::from("/models/cube.step"));
+    let unknown = caditor_document::Import::new("old.step", caditor_kernel::Solid::default(), "");
+    let first = transaction.add_feature("Cube", FeatureKind::Import(kept));
+    let second = transaction.add_feature("Old", FeatureKind::Import(unknown));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"path\":\"/models/cube.step\""), "{text}");
+    assert_eq!(text.matches("\"path\"").count(), 1);
+
+    let loaded = decode_text(&text);
+    let path_of = |feature| {
+        loaded
+            .document
+            .feature(feature)
+            .and_then(|feature| feature.kind.import())
+            .and_then(|import| import.path.clone())
+    };
+    assert_eq!(
+        path_of(first),
+        Some(std::path::PathBuf::from("/models/cube.step"))
+    );
+    assert_eq!(path_of(second), None);
+}
+
+#[test]
 fn arc_dimensions_round_trip_and_fall_back_to_their_drawn_values() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Arc dimensions");

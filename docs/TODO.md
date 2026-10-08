@@ -250,8 +250,7 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Import canonicalises each placement by writing and re-reading it, and stores
   every placement of a product as its own STEP text. Build each representation once and store each
   product once with placements.
-- [medium · medium] Imports cannot be positioned (`Import` has no placement), and Replace from file
-  asks for the file every time, since the source path is not kept.
+- [medium · medium] Imports cannot be positioned (`Import` has no placement).
 - [medium · hard] One unsupported surface or curve loses the whole body: an `OFFSET_SURFACE` of a
   spline, extrusion or revolution (it would need a surface fitted within tolerance), `PARABOLA`,
   `HYPERBOLA` and the `*_REPLICA` forms. Fit a spline within the declared precision, or keep the

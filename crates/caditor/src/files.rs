@@ -110,6 +110,7 @@ pub enum FileCommand {
         into: Option<FeatureId>,
     },
     ReplaceImport(FeatureId),
+    ReloadImport(FeatureId),
     Drop {
         paths: Vec<PathBuf>,
         into: Option<FeatureId>,
@@ -763,6 +764,16 @@ impl Files {
                     replacing: Some(feature),
                 });
                 self.pick(Purpose::Import, model);
+            }
+            FileCommand::ReloadImport(feature) => {
+                if self.importing.is_some() {
+                    model.set_notice(Notice::info("An import is already running."));
+                    return;
+                }
+                match import::kept_source(model.document(), feature) {
+                    Ok(path) => self.replace_import(path, feature, model),
+                    Err(reason) => model.set_notice(Notice::info(reason)),
+                }
             }
             FileCommand::Drop { paths, into } => self.dropped(paths, into, model),
             FileCommand::ClearRecent => self.change_recent(RecentChange::Cleared),

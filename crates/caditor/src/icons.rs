@@ -207,6 +207,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ShowFirstFailed => FAILED,
         Command::UpdateReferences => UPDATE_REFERENCES,
         Command::ReplaceImport => phosphor::FILE_ARROW_UP,
+        Command::ReloadImport => phosphor::ARROW_CLOCKWISE,
         Command::DismissNotice | Command::DismissTip => CLOSE,
         Command::HideTips => phosphor::EYE_SLASH,
         Command::Welcome => phosphor::HAND_WAVING,

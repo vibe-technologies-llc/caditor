@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{self, Path, PathBuf};
 
 use caditor_document::{Document, Edit, EditError, FeatureId, FeatureKind, Prepared, Transaction};
 use caditor_file::{
@@ -148,10 +148,40 @@ pub fn is_model(path: &Path) -> bool {
 }
 
 pub fn read_model(path: &Path) -> Result<ModelImport, ImportError> {
-    match MeshFormat::of(path) {
+    let mut imported = match MeshFormat::of(path) {
         Some(_) => read_mesh_file(path),
         None => read_step_file(path),
+    }?;
+    let kept = path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    for body in &mut imported.bodies {
+        body.import = body.import.clone().from_file(kept.clone());
     }
+    Ok(imported)
+}
+
+pub fn kept_source(document: &Document, feature: FeatureId) -> Result<PathBuf, String> {
+    let owner = document
+        .feature(feature)
+        .ok_or_else(|| "The imported body no longer exists.".to_owned())?;
+    let FeatureKind::Import(import) = &owner.kind else {
+        return Err(format!("{} is not an imported body.", owner.name));
+    };
+    let path = import.path.clone().ok_or_else(|| {
+        format!(
+            "{} was imported before caditor kept where files came from. Use Replace from file \
+             to choose “{}”.",
+            owner.name, import.source
+        )
+    })?;
+    if !path.is_file() {
+        return Err(format!(
+            "{} cannot be reloaded: “{}” is no longer there. Use Replace from file to choose \
+             where it is now.",
+            owner.name,
+            path.display()
+        ));
+    }
+    Ok(path)
 }
 
 fn starts_like_step(path: &Path) -> bool {

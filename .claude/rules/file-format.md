@@ -70,8 +70,9 @@ paths:
 - Records carry stable IDs. Expressions are canonical text with parameters as `$<id>`
   (`to_stored_text`, `parse_stored`); region keys and topology names are 32-digit hex; numbers
   exact f64.
-- An import is an `import` record (source name, STEP text); one that cannot be read loads empty,
-  reported. Parsing goes through `step_cache.rs`, a process-wide LRU cache of solids by the blake3
+- An import is an `import` record (source name, STEP text, and the absolute `path` it was read
+  from when known and valid UTF-8, written only then, so older readers drop it and lose only
+  Reload); one that cannot be read loads empty, reported. Parsing goes through `step_cache.rs`, a process-wide LRU cache of solids by the blake3
   digest of the text, so a load, a journal replay and a recovery scan parse each import once.
 - `ValueError::Refused` is what serde's `custom` becomes and carries no message: no type of ours
   raises it, only serde's own derives.

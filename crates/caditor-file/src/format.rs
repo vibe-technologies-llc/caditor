@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, CircularPattern, Combine,
@@ -196,6 +196,8 @@ pub(crate) const FEATURE_KINDS: [&str; 29] = [
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ImportRecord {
     pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub step: String,
 }
 
@@ -1319,6 +1321,11 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
         FeatureKind::Import(import) => FeatureKindRecord::Import(ImportRecord {
             source: import.source.clone(),
+            path: import
+                .path
+                .as_ref()
+                .and_then(|path| path.to_str())
+                .map(str::to_owned),
             step: import.step.to_string(),
         }),
     }
@@ -2925,7 +2932,11 @@ fn restore_import(record: &ImportRecord, name: &str, issues: &mut Vec<String>) -
             Solid::default()
         }
     };
-    Import::new(record.source.clone(), solid, record.step.as_str())
+    let import = Import::new(record.source.clone(), solid, record.step.as_str());
+    match &record.path {
+        Some(path) => import.from_file(PathBuf::from(path)),
+        None => import,
+    }
 }
 
 fn restore_plane_reference(record: &PlaneReferenceRecord) -> Option<PlaneReference> {
