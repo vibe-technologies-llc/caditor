@@ -355,6 +355,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
+- [medium · easy] Selecting a face, edge or body with no measure tool open shows its size as text
+  in the status line: the area of a face, the length of an edge, the bounding box of a body, so a
+  dimension is one click away without starting Measure.
 - [medium · medium] A face, edge or body hidden behind another can be reached only by hiding the
   one in front or by stepping the keyboard highlight: a click held on a spot, or a key, should list
   everything under the pointer to choose from.
