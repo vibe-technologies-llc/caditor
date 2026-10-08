@@ -5,10 +5,11 @@ use egui::{
     Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType, accesskit::Live, vec2,
 };
 
-use crate::{appearance::CONTROL_HEIGHT, fonts};
+use crate::{appearance::CONTROL_HEIGHT, fonts, scene_palette::Contrast};
 
 pub const BACKDROP: Color32 = Color32::from_rgba_premultiplied(16, 18, 23, 225);
 pub const PANEL: Color32 = Color32::from_rgb(BACKDROP.r(), BACKDROP.g(), BACKDROP.b());
+const CONTRAST_KEY: &str = "canvas-contrast";
 pub const TEXT: Color32 = Color32::from_rgb(228, 231, 238);
 pub const MUTED: Color32 = Color32::from_rgb(170, 176, 188);
 pub const DIMENSION: Color32 = Color32::from_rgb(200, 206, 222);
@@ -96,8 +97,24 @@ pub fn cube_face(facing: f64) -> Color32 {
     )
 }
 
+pub fn set_contrast(ctx: &egui::Context, contrast: Contrast) {
+    ctx.data_mut(|data| data.insert_temp(Id::new(CONTRAST_KEY), contrast));
+}
+
+fn contrast(ctx: &egui::Context) -> Contrast {
+    ctx.data(|data| data.get_temp(Id::new(CONTRAST_KEY)))
+        .unwrap_or_default()
+}
+
+pub fn backdrop(contrast: Contrast) -> Color32 {
+    match contrast {
+        Contrast::Standard => BACKDROP,
+        Contrast::High => PANEL,
+    }
+}
+
 pub fn paint_backdrop(painter: &Painter, rect: Rect) {
-    painter.rect_filled(rect, RADIUS, BACKDROP);
+    painter.rect_filled(rect, RADIUS, backdrop(contrast(painter.ctx())));
 }
 
 pub fn announce(ui: &Ui, rect: Rect, name: &str, text: &str, live: Option<Live>) {
@@ -488,6 +505,29 @@ mod tests {
                 assert!(ratio >= READABLE, "{what} over {below:?} is {ratio:.2}:1");
             }
         }
+    }
+
+    #[test]
+    fn high_contrast_labels_sit_on_an_opaque_backdrop_holding_every_colour_to_seven_to_one() {
+        let backdrop = backdrop(Contrast::High);
+        assert_eq!(backdrop.a(), 255);
+        for (what, color) in [
+            ("text", TEXT),
+            ("muted", MUTED),
+            ("dimension", DIMENSION),
+            ("hovered", HOVERED),
+            ("selected", SELECTED),
+            ("error", ERROR),
+            ("warning", WARNING),
+            ("prompt", PROMPT),
+            ("snap", SNAP),
+            ("measure", MEASURE),
+            ("focus", FOCUS),
+        ] {
+            let ratio = contrast_ratio(color, backdrop);
+            assert!(ratio >= HIGHLY_READABLE, "{what} is {ratio:.2}:1");
+        }
+        assert_eq!(super::backdrop(Contrast::Standard), BACKDROP);
     }
 
     #[test]

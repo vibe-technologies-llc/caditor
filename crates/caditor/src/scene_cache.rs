@@ -63,7 +63,7 @@ impl Overlay {
             scene::add_interference(&mut batch, mark);
         }
         if let Some(manipulator) = &self.manipulator {
-            manipulator.add_to(&mut batch);
+            manipulator.add_to(&mut batch, self.contrast.palette());
         }
         (!batch.is_empty()).then(|| Arc::new(batch))
     }

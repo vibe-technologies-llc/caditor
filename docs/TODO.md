@@ -254,9 +254,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Accessibility
 
-- [low · medium] In high contrast, hovered and selected geometry still differ only by colour (both
-  widen alike), failed and outdated bodies are told by tint alone, and the canvas labels and the
-  move arrows keep their standard colours.
 - [low · medium] The 3D view's description names the bodies, sketches and datums it shows and
   counts an edited sketch's geometry, but says nothing of where anything is, and single bodies,
   faces or sketch curves have no nodes of their own to step through.

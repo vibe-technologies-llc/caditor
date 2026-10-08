@@ -44,7 +44,10 @@ finished. Each rule below avoids a failure mode FreeCAD is known for.
   `canvas.rs`.
 - High contrast reaches the 3D view: its scene palette holds every line and point to 3:1 against
   the canvas and dimmed bodies, edges and highlighted faces to 3:1 on a body (`scene_palette.rs`),
-  and no state is told by colour alone (`app-sketching.md`).
+  and no state is told by colour alone (`app-sketching.md`): selected geometry widens twice as
+  much as hovered geometry (`selection_widening`), a failed or outdated body's edges are dashed
+  (`troubled_edges_dashed`), canvas labels sit on an opaque backdrop holding every label colour to
+  7:1 (`canvas::backdrop`), and the move arrows take the palette's axis colours.
 - The interface scales from 75% to 200%; panels and toolbars wrap rather than clip.
 
 ## Look

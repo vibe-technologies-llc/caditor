@@ -7,6 +7,7 @@ use crate::{
     canvas,
     model::Model,
     move_tools, scene,
+    scene_palette::ScenePalette,
     selection::Axis,
     units::{LengthUnit, Units},
 };
@@ -61,14 +62,12 @@ impl Handle {
     }
 }
 
-fn axis_colour(axis: MoveAxis) -> Color {
-    let shown = match axis {
+fn axis_colour(palette: &ScenePalette, axis: MoveAxis) -> Color {
+    palette.axis(match axis {
         MoveAxis::X => Axis::X,
         MoveAxis::Y => Axis::Y,
         MoveAxis::Z => Axis::Z,
-    };
-    let [red, green, blue] = shown.rgb();
-    Color::from_rgb8(red, green, blue)
+    })
 }
 
 const HIGHLIGHTED: Color = scene::opaque(canvas::HOVERED);
@@ -200,13 +199,13 @@ impl Manipulator {
 }
 
 impl Drawn {
-    pub fn add_to(&self, batch: &mut Batch) {
+    pub fn add_to(&self, batch: &mut Batch, palette: &ScenePalette) {
         let manipulator = &self.manipulator;
         let colour = |handle: Handle, axis: MoveAxis| {
             if self.highlighted == Some(handle) {
                 HIGHLIGHTED
             } else {
-                axis_colour(axis)
+                axis_colour(palette, axis)
             }
         };
         for normal in MoveAxis::ALL {

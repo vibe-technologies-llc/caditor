@@ -174,11 +174,11 @@ impl Highlight<'_> {
         }
     }
 
-    fn emphasis(&self, pickable: Pickable) -> f32 {
-        if self.is_hovered(pickable) || self.selection.contains(pickable) {
-            1.0
-        } else {
-            0.0
+    fn emphasis(&self, pickable: Pickable, selection_widening: f32) -> f32 {
+        match (self.selection.contains(pickable), self.is_hovered(pickable)) {
+            (true, _) => selection_widening,
+            (false, true) => 1.0,
+            (false, false) => 0.0,
         }
     }
 }
@@ -478,10 +478,13 @@ pub fn build(
             }
             Some(_) | None => BTreeMap::new(),
         };
+        let dashed = palette.troubled_edges_dashed
+            && editing.is_none()
+            && body_health(document, evaluation, body) != Health::Sound;
         builder.body(
             body,
             mesh,
-            (color, &faces),
+            (color, &faces, dashed),
             opacity,
             editing.is_none() || context.projecting,
             moved
@@ -707,6 +710,11 @@ struct Builder<'a> {
 }
 
 impl Builder<'_> {
+    fn emphasis(&self, pickable: Pickable) -> f32 {
+        self.highlight
+            .emphasis(pickable, self.palette.selection_widening)
+    }
+
     fn principal_plane(&mut self, plane: PrincipalPlane, size: f64) {
         let pickable = Pickable::Plane(plane);
         let pick = self.picks.register(pickable, PickPriority::Surface);
@@ -714,7 +722,7 @@ impl Builder<'_> {
         let edge = self
             .highlight
             .color(&self.palette.lines, pickable, self.palette.plane_edge);
-        let width = PLANE_EDGE_WIDTH + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+        let width = PLANE_EDGE_WIDTH + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
         for (index, start) in corners.iter().enumerate() {
             let Some(end) = corners.get((index + 1) % corners.len()) else {
                 continue;
@@ -757,8 +765,7 @@ impl Builder<'_> {
         } else {
             0.0
         };
-        let width =
-            PLANE_EDGE_WIDTH + extra + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+        let width = PLANE_EDGE_WIDTH + extra + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
         let color = self.highlight.color(&self.palette.lines, pickable, edge);
         let pick = self.picks.register(pickable, PickPriority::Curve);
         let line = |start: Point3, end: Point3, width: f32| Line {
@@ -804,7 +811,7 @@ impl Builder<'_> {
                     color,
                     diameter: DATUM_POINT_DIAMETER
                         + extra
-                        + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
+                        + self.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
                     layer: Layer::Reference,
                     pick: self.picks.register(pickable, PickPriority::Point),
                 });
@@ -817,7 +824,7 @@ impl Builder<'_> {
         &mut self,
         body: FeatureId,
         mesh: &BodyMesh,
-        (color, face_colours): (Option<Color>, &BTreeMap<FaceKey, Color>),
+        (color, face_colours, dashed): (Option<Color>, &BTreeMap<FaceKey, Color>, bool),
         opacity: Option<f32>,
         pickable: bool,
         placement: Option<RigidTransform>,
@@ -937,7 +944,7 @@ impl Builder<'_> {
                 Some(_) => (
                     self.highlight
                         .color(&self.palette.lines, pickable, edge_color),
-                    edge_width + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
+                    edge_width + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
                     self.picks.register(pickable, PickPriority::Curve),
                 ),
                 None if pickable_edges => (
@@ -946,21 +953,32 @@ impl Builder<'_> {
                         pickable,
                         self.palette.background_body_edge,
                     ),
-                    edge_width + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
+                    edge_width + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
                     self.picks.register(pickable, PickPriority::Curve),
                 ),
                 None => (self.palette.background_body_edge, edge_width, None),
             };
+            let mut along = 0.0;
             let segments = edge.points.windows(2).filter_map(|pair| match pair {
-                [start, end] => Some(Line {
-                    start: placed(*start),
-                    end: placed(*end),
-                    color,
-                    width,
-                    layer: Layer::Model,
-                    pick,
-                    stroke: Stroke::Solid,
-                }),
+                [start, end] => {
+                    let stroke = if dashed {
+                        Stroke::Dashed {
+                            along: along as f32,
+                        }
+                    } else {
+                        Stroke::Solid
+                    };
+                    along += start.distance(*end);
+                    Some(Line {
+                        start: placed(*start),
+                        end: placed(*end),
+                        color,
+                        width,
+                        layer: Layer::Model,
+                        pick,
+                        stroke,
+                    })
+                }
                 _ => None,
             });
             self.scene.lines.extend(segments);
@@ -979,7 +997,7 @@ impl Builder<'_> {
                     .highlight
                     .color(&self.palette.lines, pickable, UNMARKED_VERTEX),
                 diameter: self.palette.point_diameter
-                    + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
+                    + self.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
                 layer: Layer::Model,
                 pick: self.picks.register(pickable, PickPriority::Point),
             });
@@ -1135,7 +1153,7 @@ impl Builder<'_> {
                     };
                     let width = self.palette.body_edge_width
                         + extra
-                        + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+                        + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
                     (
                         color,
                         width,
@@ -1323,7 +1341,7 @@ impl Builder<'_> {
             start: Point3::ZERO,
             end: axis.direction() * size,
             color: self.highlight.color(&self.palette.lines, pickable, base),
-            width: AXIS_WIDTH + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
+            width: AXIS_WIDTH + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
             layer: Layer::Reference,
             pick: self.picks.register(pickable, PickPriority::Curve),
             stroke: Stroke::Solid,
@@ -1337,8 +1355,7 @@ impl Builder<'_> {
             color: self
                 .highlight
                 .color(&self.palette.lines, pickable, self.palette.origin),
-            diameter: ORIGIN_DIAMETER
-                + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
+            diameter: ORIGIN_DIAMETER + self.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
             layer: Layer::Reference,
             pick: self.picks.register(pickable, PickPriority::Point),
         });
@@ -1361,8 +1378,7 @@ impl Builder<'_> {
                 start,
                 end,
                 color: self.highlight.color(&self.palette.lines, pickable, color),
-                width: SKETCH_AXIS_WIDTH
-                    + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
+                width: SKETCH_AXIS_WIDTH + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
                 layer: Layer::Front,
                 pick: self.picks.register(pickable, PickPriority::Curve),
                 stroke: Stroke::Solid,
@@ -1377,8 +1393,7 @@ impl Builder<'_> {
             color: self
                 .highlight
                 .color(&self.palette.lines, pickable, self.palette.origin),
-            diameter: ORIGIN_DIAMETER
-                + self.highlight.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
+            diameter: ORIGIN_DIAMETER + self.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
             layer: Layer::Front,
             pick: self.picks.register(pickable, PickPriority::Point),
         });
@@ -1395,14 +1410,12 @@ impl Builder<'_> {
                 Presence::Background => (SketchState::Background, 0.0, None),
                 Presence::Projectable => (
                     SketchState::Background,
-                    self.highlight.emphasis(pickable),
+                    self.emphasis(pickable),
                     (!shape.entity.is_reference()).then_some(pickable),
                 ),
-                Presence::Normal | Presence::Edited => (
-                    shape.state,
-                    self.highlight.emphasis(pickable),
-                    Some(pickable),
-                ),
+                Presence::Normal | Presence::Edited => {
+                    (shape.state, self.emphasis(pickable), Some(pickable))
+                }
             };
             let look = self.palette.look(state);
             let color = |base: Color| match pickable {
@@ -1669,25 +1682,40 @@ fn painted(document: &Document, body: FeatureId) -> Color {
         })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Health {
+    Sound,
+    Outdated,
+    Failed,
+}
+
+fn body_health(document: &Document, evaluation: &Evaluation, body: FeatureId) -> Health {
+    let mut health = Health::Sound;
+    for feature in document
+        .features()
+        .filter(|feature| feature.body() == Some(body))
+    {
+        match evaluation.feature(feature.id()).map(|status| &status.state) {
+            Some(FeatureState::Failed(_)) => return Health::Failed,
+            Some(FeatureState::Outdated) => health = Health::Outdated,
+            Some(FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack)
+            | None => {}
+        }
+    }
+    health
+}
+
 fn body_color(
     palette: &ScenePalette,
     document: &Document,
     evaluation: &Evaluation,
     body: FeatureId,
 ) -> Color {
-    let mut color = painted(document, body);
-    for feature in document
-        .features()
-        .filter(|feature| feature.body() == Some(body))
-    {
-        match evaluation.feature(feature.id()).map(|status| &status.state) {
-            Some(FeatureState::Failed(_)) => return palette.failed_body,
-            Some(FeatureState::Outdated) => color = palette.outdated_body,
-            Some(FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack)
-            | None => {}
-        }
+    match body_health(document, evaluation, body) {
+        Health::Sound => painted(document, body),
+        Health::Outdated => palette.outdated_body,
+        Health::Failed => palette.failed_body,
     }
-    color
 }
 
 fn reference_points(plane: Plane, reference: Reference, size: f64) -> [Point3; 2] {
@@ -2440,6 +2468,44 @@ mod tests {
                 SelectionFilter::Faces
             ),
             None
+        );
+    }
+
+    #[test]
+    fn high_contrast_widens_selected_geometry_more_than_hovered_geometry() {
+        let mut document = Document::default();
+        let mut sketch = Sketch::new(Plane::XY);
+        let chosen = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+        let pointed = sketch.add_line(Point2::new(0.0, 10.0), Point2::new(40.0, 10.0));
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Lines", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let entity = |entity| Pickable::SketchEntity { feature, entity };
+        let mut selection = Selection::default();
+        selection.replace_with(entity(chosen));
+        let hovered = [entity(pointed)];
+        let highlight = Highlight {
+            selection: &selection,
+            hovered: &hovered,
+        };
+
+        let high = build_in(
+            Contrast::High,
+            &document,
+            &Evaluation::default(),
+            &highlight,
+            Some(feature),
+        );
+        let standard = build_for(&document, &Evaluation::default(), &highlight, Some(feature));
+
+        assert!(line_width(&high, entity(chosen)) > line_width(&high, entity(pointed)));
+        assert_eq!(
+            line_width(&standard, entity(chosen)),
+            line_width(&standard, entity(pointed))
+        );
+        assert_ne!(
+            HIGH_CONTRAST.troubled_edges_dashed,
+            STANDARD.troubled_edges_dashed
         );
     }
 

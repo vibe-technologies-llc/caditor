@@ -57,7 +57,13 @@ paths:
   colour to 3:1 against the canvas (`caditor_render::BACKGROUND`) and the dimmed body colour,
   edges and hovered or selected faces to 3:1 on the default body colour (so selected faces are a
   dark blue and hovered ones a dark amber there), and check that the standard palette keeps one
-  form for every sketch state.
+  form for every sketch state. `Highlight::emphasis` widens hovered geometry by one
+  `HIGHLIGHT_EXTRA_WIDTH` and selected geometry by the palette's `selection_widening` (1 in
+  standard, 2 in high contrast); the high-contrast palette also dashes the edges of a failed or
+  outdated body (`scene::body_health`), outside sketch editing.
+- `canvas::set_contrast` publishes the contrast to egui temp data each frame (from `app.rs`), and
+  `paint_backdrop` draws labels on the opaque `PANEL` in high contrast, where every label colour
+  meets 7:1, and on the translucent `BACKDROP` otherwise.
 - Key hints (`canvas::Hints`) are `Key: action` text, items three spaces apart, laid out as key
   caps (alternatives joined by " or ") beside a muted action, plain where the part before ": " is
   not keys. Each key, "or" and action is its own text, so tests use `shows_hint`.

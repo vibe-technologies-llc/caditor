@@ -147,6 +147,8 @@ pub struct ScenePalette {
     pub body_edge_width: f32,
     pub point_diameter: f32,
     pub hole_diameter: f32,
+    pub selection_widening: f32,
+    pub troubled_edges_dashed: bool,
 }
 
 impl ScenePalette {
@@ -264,6 +266,8 @@ pub const STANDARD: ScenePalette = ScenePalette {
     body_edge_width: 1.5,
     point_diameter: POINT_DIAMETER,
     hole_diameter: 0.0,
+    selection_widening: 1.0,
+    troubled_edges_dashed: false,
 };
 
 pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
@@ -345,6 +349,8 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     body_edge_width: 2.0,
     point_diameter: 9.0,
     hole_diameter: 4.0,
+    selection_widening: 2.0,
+    troubled_edges_dashed: true,
 };
 
 #[cfg(test)]

@@ -3644,6 +3644,29 @@ fn high_contrast_reaches_the_scene_and_draws_free_points_hollow() {
 }
 
 #[test]
+fn high_contrast_dashes_the_edges_of_a_failed_body() {
+    let mut harness = Harness::new();
+    combine_nearly_touching_blocks(&mut harness);
+    let dashed = |harness: &mut Harness| {
+        harness
+            .built()
+            .scene
+            .lines()
+            .filter(|line| {
+                line.pick.is_some() && matches!(line.stroke, caditor_render::Stroke::Dashed { .. })
+            })
+            .count()
+    };
+
+    let standard = dashed(&mut harness);
+    set_high_contrast(&mut harness, true);
+    let high = dashed(&mut harness);
+
+    assert_eq!(standard, 0);
+    assert!(high > 0);
+}
+
+#[test]
 fn with_the_line_tool_active_clicking_on_a_glyph_draws_instead_of_selecting() {
     let mut harness = Harness::new();
     let base = edit_base_sketch(&mut harness);
