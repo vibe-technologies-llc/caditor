@@ -48,7 +48,7 @@ const MODEL_BODIES: [&[Command]; 2] = [
         Command::RemoveBody,
     ],
 ];
-const MODEL_FEATURES: [&[Command]; 2] = [
+const MODEL_FEATURES: [&[Command]; 3] = [
     &[
         Command::EditFeature,
         Command::CloseFeature,
@@ -57,6 +57,11 @@ const MODEL_FEATURES: [&[Command]; 2] = [
         Command::MoveFeatureDown,
         Command::SuppressFeature,
         Command::DeleteFeature,
+    ],
+    &[
+        Command::GroupFeatures,
+        Command::RenameGroup,
+        Command::Ungroup,
     ],
     &[Command::FilterFeatures],
 ];

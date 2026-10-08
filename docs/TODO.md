@@ -320,7 +320,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   added to the `icons` font family or as painted shapes.
 - [low · medium] Text outside Latin, Greek and Cyrillic shows as missing glyphs in feature and file
   names, since only Inter and egui's defaults are loaded.
-- [low · medium] The feature tree has no groups (folders).
 - [low · hard] Themes are four fixed `Tokens` sets in `appearance.rs` (dark, light and their
   high-contrast variants) and the 3D view is dark in all of them. Add themes as data: a few shipped
   ones beyond dark and light, a choice of accent colour, a light 3D view (background, grid, edges

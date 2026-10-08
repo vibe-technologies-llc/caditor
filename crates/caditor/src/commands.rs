@@ -156,6 +156,9 @@ pub enum Command {
     Recompute,
     CancelRecompute,
     RenameFeature,
+    GroupFeatures,
+    Ungroup,
+    RenameGroup,
     MoveFeatureUp,
     MoveFeatureDown,
     DeleteFeature,
@@ -529,6 +532,9 @@ plain_commands! {
     Recompute,
     CancelRecompute,
     RenameFeature,
+    GroupFeatures,
+    Ungroup,
+    RenameGroup,
     MoveFeatureUp,
     MoveFeatureDown,
     DeleteFeature,
@@ -731,6 +737,9 @@ impl Command {
             Self::Recompute => "model.recompute",
             Self::CancelRecompute => "model.cancel_recompute",
             Self::RenameFeature => "model.rename_feature",
+            Self::GroupFeatures => "model.group_features",
+            Self::Ungroup => "model.ungroup",
+            Self::RenameGroup => "model.rename_group",
             Self::MoveFeatureUp => "model.move_feature_up",
             Self::MoveFeatureDown => "model.move_feature_down",
             Self::DeleteFeature => "model.delete_feature",
@@ -880,6 +889,9 @@ impl Command {
             Self::Recompute => "Recompute the model",
             Self::CancelRecompute => "Cancel the recompute",
             Self::RenameFeature => "Rename feature",
+            Self::GroupFeatures => "Group features",
+            Self::Ungroup => "Ungroup",
+            Self::RenameGroup => "Rename group",
             Self::MoveFeatureUp => "Move feature up",
             Self::MoveFeatureDown => "Move feature down",
             Self::DeleteFeature => "Delete feature",
@@ -1010,6 +1022,9 @@ impl Command {
             | Self::Recompute
             | Self::CancelRecompute
             | Self::RenameFeature
+            | Self::GroupFeatures
+            | Self::Ungroup
+            | Self::RenameGroup
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown
             | Self::DeleteFeature
@@ -1137,6 +1152,7 @@ impl Command {
             Self::CutGeometry => vec![command(Key::X)],
             Self::PasteGeometry => vec![command(Key::V)],
             Self::RenameFeature => vec![plain(Key::F2)],
+            Self::GroupFeatures => vec![command(Key::G)],
             Self::Recompute => vec![plain(Key::F5)],
             Self::EditFeature => vec![plain(Key::E)],
             Self::ShowFirstFailed => vec![plain(Key::F8)],
@@ -1188,6 +1204,8 @@ impl Command {
             | Self::CancelExport
             | Self::CancelImageExport
             | Self::CancelRecompute
+            | Self::Ungroup
+            | Self::RenameGroup
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown
             | Self::DeleteFeature

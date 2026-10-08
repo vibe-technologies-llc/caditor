@@ -21,6 +21,7 @@ use crate::{
         Document, FIRST_UNSTORABLE_ID, Feature, FeatureId, FeatureKind, Parameter, RollbackBar,
         list_names,
     },
+    grouping::{MAX_GROUP_NAME_CHARS, group_name},
     projection::ProjectionSource,
     properties::{ModelProperties, ModelProperty},
     solid::BodyOperation,
@@ -75,6 +76,10 @@ pub enum Edit {
     SetFeatureSuppressed {
         id: FeatureId,
         suppressed: bool,
+    },
+    SetFeatureGroup {
+        id: FeatureId,
+        group: Option<String>,
     },
     SetBodyAppearance {
         id: FeatureId,
@@ -204,6 +209,7 @@ impl Transaction {
                 | Edit::MoveFeature { id, .. }
                 | Edit::SetFeatureHidden { id, .. }
                 | Edit::SetFeatureSuppressed { id, .. }
+                | Edit::SetFeatureGroup { id, .. }
                 | Edit::SetBodyAppearance { id, .. }
                 | Edit::SetFeatureKind { id, .. } => {
                     touched.features.insert(*id);
@@ -251,6 +257,7 @@ impl Transaction {
                 }
                 Edit::RenameParameter { name, .. } | Edit::RenameFeature { name, .. } => name.len(),
                 Edit::SetParameterNote { note, .. } => note.len(),
+                Edit::SetFeatureGroup { group, .. } => group.as_ref().map_or(0, String::len),
                 Edit::SetModelProperties { properties } => {
                     size_of::<ModelProperties>() + properties.heap_size()
                 }
@@ -361,6 +368,10 @@ pub enum EditError {
         "A body's name may be at most {MAX_BODY_NAME_CHARS} characters long, and this one has {0}"
     )]
     BodyNameTooLong(usize),
+    #[error(
+        "A group's name may be at most {MAX_GROUP_NAME_CHARS} characters long, and this one has {0}"
+    )]
+    GroupNameTooLong(usize),
     #[error("A body may be see-through down to {MIN_OPACITY_PERCENT}% opacity, and {0}% is less")]
     OpacityTooLow(u8),
     #[error("{0} is not a plane")]
@@ -570,6 +581,7 @@ impl Document {
             Edit::SetFeatureSuppressed { id, suppressed } => {
                 self.set_feature_suppressed(id, suppressed)
             }
+            Edit::SetFeatureGroup { id, group } => self.set_feature_group(id, group),
             Edit::SetBodyAppearance { id, appearance } => self.set_body_appearance(id, appearance),
             Edit::SetRollbackBar { bar } => self.set_rollback_bar(bar),
             Edit::SetPrincipalHidden { geometry, hidden } => {
@@ -1031,6 +1043,26 @@ impl Document {
         Ok(Edit::SetFeatureSuppressed {
             id,
             suppressed: previous,
+        })
+    }
+
+    fn set_feature_group(
+        &mut self,
+        id: FeatureId,
+        group: Option<String>,
+    ) -> Result<Edit, EditError> {
+        let group = group.as_deref().and_then(group_name);
+        if let Some(name) = &group {
+            let length = name.chars().count();
+            if length > MAX_GROUP_NAME_CHARS {
+                return Err(EditError::GroupNameTooLong(length));
+            }
+        }
+        let feature = self.feature_mut(id)?;
+        let previous = std::mem::replace(&mut feature.group, group);
+        Ok(Edit::SetFeatureGroup {
+            id,
+            group: previous,
         })
     }
 

@@ -64,6 +64,10 @@ paths:
   record and keeps the `.damaged` copy rather than dropping them silently. Loading normalises them
   as the edit does and cuts a field past its limit, reported. The journal snapshot carries the same
   record as `properties`, and `set_model_properties` holds it.
+- A feature record carries `group`, its folder's name, only when it has one; losing it changes
+  nothing computed, so it is a field, and an older reader drops it. A name too long for this
+  version is cut at `MAX_GROUP_NAME_CHARS`, reported. The journal's `set_feature_group` holds the
+  same name, absent for none.
 - A parameter record's `note` is written only when not empty, like a feature's `hidden`; an older
   reader drops it. A note too long for this version is cut at `MAX_PARAMETER_NOTE_CHARS`,
   reported.

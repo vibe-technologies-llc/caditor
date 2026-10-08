@@ -58,6 +58,21 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`Edit::SetPrincipalHidden`), compared by `same_content` and carried by `transaction_to`, so
   hiding a mixed selection and undoing it are one change and a model reopens as it was left.
 
+## Feature groups (`grouping.rs`)
+
+- A feature's `group` is the name of the folder it sits in, or none: content like `hidden`
+  (compared by `same_content`, carried by `InsertFeature`, counted by `heap_size`), ignored by
+  recompute. `Edit::SetFeatureGroup` sets it, kept on one trimmed line (`group_name`; blank is
+  none), refused past `MAX_GROUP_NAME_CHARS` as `GroupNameTooLong`.
+- A folder is a run of consecutive features sharing the name (`group_run`), so membership needs no
+  table of its own and a folder is always contiguous where it is drawn. `grouping` names the
+  chosen features in one transaction, first moving them together under the first of them
+  (`move_features`, refusing as a move would) when they are apart; `regrouping` renames or ungroups
+  a run; `unused_group_name` gives "Group N".
+- Moves keep folders whole: a feature moved (`move_row`, `move_features`) between two members of
+  one group joins it, and a member moved where neither neighbour shares its group leaves it
+  (`membership_edits`), in the same transaction as the move.
+
 ## Model properties (`properties.rs`)
 
 - `ModelProperties` (title, part number, revision, author, organisation, description, notes) is

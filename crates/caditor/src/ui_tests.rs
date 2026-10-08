@@ -10540,6 +10540,51 @@ fn a_feature_chosen_in_the_tree_is_moved_renamed_and_deleted_from_the_keyboard()
 }
 
 #[test]
+fn chosen_features_are_grouped_named_folded_and_ungrouped_from_the_tree() {
+    let mut harness = Harness::new();
+    let ids: Vec<FeatureId> = harness
+        .document()
+        .features()
+        .map(|feature| feature.id())
+        .collect();
+    let groups = |harness: &Harness| -> Vec<Option<String>> {
+        harness
+            .document()
+            .features()
+            .map(|feature| feature.group.clone())
+            .collect()
+    };
+    harness.workspace.panels.choose_all(&ids);
+    harness.frame();
+
+    harness.key(Key::G, Modifiers::COMMAND);
+    harness.settle();
+    harness.frame();
+    let first = groups(&harness);
+    harness.replace_text("Profiles");
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.settle();
+    let renamed = groups(&harness);
+    let shown_open = harness.shows("Base sketch");
+    harness.click_button("Hide details of Profiles");
+    harness.frame();
+    harness.frame();
+    let shown_folded = harness.shows("Base sketch");
+    let folder_shown = harness.shows("Profiles");
+    run_from_palette(&mut harness, "ungroup");
+    harness.settle();
+
+    let named = |name: &str| vec![Some(name.to_owned()); ids.len()];
+    assert_eq!(first, named("Group 1"));
+    assert_eq!(renamed, named("Profiles"));
+    assert!(shown_open);
+    assert!(!shown_folded);
+    assert!(folder_shown);
+    assert_eq!(groups(&harness), vec![None; ids.len()]);
+    assert!(harness.shows("Base sketch"));
+}
+
+#[test]
 fn recent_models_notices_and_recompute_are_commands() {
     let dir = TempDir::new().unwrap();
     let root = canonical(&dir);

@@ -9,13 +9,13 @@ use caditor_document::{
     CircularPattern, Combine, CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document,
     Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour, Feature, FeatureId,
     FeatureKind, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep,
-    HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
+    HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT, MetricSize, Mirror,
     ModelProperties, ModelProperty, Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Parameter, Pattern,
     PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference, PrincipalAxis,
     PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve,
     RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, Transaction, material_name,
+    SolidFeature, SolidStart, Split, Transaction, group_name, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -96,6 +96,8 @@ pub(crate) struct FeatureRecord {
     pub hidden: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub appearance: Option<Lenient<AppearanceRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     #[serde(flatten)]
     pub kind: FeatureKindRecord,
 }
@@ -192,7 +194,7 @@ pub(crate) struct RevolveOneSideRecord {
     pub side: AxisSideRecord,
 }
 
-pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
+pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
 pub(crate) const FEATURE_KINDS: [&str; 33] = [
     "sketch",
@@ -973,6 +975,11 @@ pub(crate) enum EditRecord {
         id: u64,
         suppressed: bool,
     },
+    SetFeatureGroup {
+        id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
+    },
     SetBodyAppearance {
         id: u64,
         appearance: AppearanceRecord,
@@ -1140,6 +1147,7 @@ fn feature_record_sharing(feature: &Feature, shares: Option<String>) -> FeatureR
         hidden: feature.hidden,
         appearance: (!feature.appearance.is_default())
             .then(|| Lenient::Read(appearance_record(&feature.appearance))),
+        group: feature.group.clone(),
         kind: match &feature.kind {
             FeatureKind::Import(import) => import_record(import, shares),
             kind => feature_kind_record(kind),
@@ -2348,6 +2356,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id: id.raw(),
             hidden: *hidden,
         },
+        Edit::SetFeatureGroup { id, group } => EditRecord::SetFeatureGroup {
+            id: id.raw(),
+            group: group.clone(),
+        },
         Edit::SetFeatureSuppressed { id, suppressed } => EditRecord::SetFeatureSuppressed {
             id: id.raw(),
             suppressed: *suppressed,
@@ -2375,6 +2387,7 @@ fn edit_record(edit: &Edit) -> EditRecord {
                 name: String::new(),
                 hidden: false,
                 appearance: None,
+                group: None,
                 kind: feature_kind_record(kind),
             },
         },
@@ -2538,6 +2551,10 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             id: FeatureId::from_raw(id),
             hidden,
         },
+        EditRecord::SetFeatureGroup { id, group } => Edit::SetFeatureGroup {
+            id: FeatureId::from_raw(id),
+            group,
+        },
         EditRecord::SetFeatureSuppressed { id, suppressed } => Edit::SetFeatureSuppressed {
             id: FeatureId::from_raw(id),
             suppressed,
@@ -2682,7 +2699,23 @@ pub(crate) fn restore_feature_sharing(
     if let Some(appearance) = &record.appearance {
         feature.appearance = restore_appearance(appearance, &feature.name, issues);
     }
+    feature.group = record
+        .group
+        .as_deref()
+        .and_then(|group| restore_group(group, &feature.name, issues));
     feature
+}
+
+fn restore_group(group: &str, feature: &str, issues: &mut Vec<String>) -> Option<String> {
+    let name = group_name(group)?;
+    if name.chars().count() <= MAX_GROUP_NAME_CHARS {
+        return Some(name);
+    }
+    issues.push(format!(
+        "The name of the group holding “{feature}” was longer than {MAX_GROUP_NAME_CHARS} \
+         characters, so it was cut."
+    ));
+    Some(name.chars().take(MAX_GROUP_NAME_CHARS).collect())
 }
 
 fn restore_kind(

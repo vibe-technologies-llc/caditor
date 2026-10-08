@@ -8,6 +8,7 @@ mod describe;
 mod document;
 mod edit;
 mod editor;
+mod grouping;
 mod healing;
 mod hole;
 mod hole_standard;
@@ -57,6 +58,7 @@ pub use crate::{
     },
     edit::{Edit, EditError, MAX_PARAMETER_NOTE_CHARS, Touched, Transaction, TransactionBuilder},
     editor::{Base, Editor, Prepared, Stale},
+    grouping::{MAX_GROUP_NAME_CHARS, group_name},
     healing::Healing,
     hole::{
         CircleSize, Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
@@ -113,6 +115,8 @@ mod datum_point_tests;
 mod datum_tests;
 #[cfg(test)]
 mod extent_tests;
+#[cfg(test)]
+mod grouping_tests;
 #[cfg(test)]
 mod hole_tests;
 #[cfg(test)]

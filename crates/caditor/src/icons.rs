@@ -20,6 +20,7 @@ pub const COPY_BODY: &str = phosphor::COPY;
 pub const REMOVE: &str = phosphor::X;
 pub const CLOSE: &str = phosphor::X;
 pub const ADD: &str = phosphor::PLUS;
+pub const FEATURE_GROUP: &str = phosphor::FOLDER_SIMPLE;
 pub const SUBTRACT: &str = phosphor::MINUS;
 pub const EXPANDED: &str = phosphor::CARET_DOWN;
 pub const COLLAPSED: &str = phosphor::CARET_RIGHT;
@@ -180,7 +181,9 @@ pub fn command(command: Command) -> &'static str {
             phosphor::STOP_CIRCLE
         }
         Command::Recompute => phosphor::ARROW_CLOCKWISE,
-        Command::RenameFeature => RENAME,
+        Command::RenameFeature | Command::RenameGroup => RENAME,
+        Command::GroupFeatures => FEATURE_GROUP,
+        Command::Ungroup => phosphor::FOLDER_MINUS,
         Command::MoveFeatureUp => MOVE_UP,
         Command::MoveFeatureDown => MOVE_DOWN,
         Command::DeleteFeature => DELETE,

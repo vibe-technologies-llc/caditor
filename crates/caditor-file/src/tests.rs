@@ -5505,3 +5505,35 @@ fn a_slotted_hole_of_a_standard_size_is_saved_journaled_and_loaded() {
     assert_eq!(read.standard, None);
     assert!(matches!(read.shape, HoleShape::Slot { .. }));
 }
+
+#[test]
+fn a_feature_group_is_saved_journaled_and_cut_to_its_limit_when_too_long() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let first = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
+    let second = transaction.add_feature("Holes", FeatureKind::from(Sketch::new(Plane::XY)));
+    document.apply(transaction.finish()).unwrap();
+    let grouping = document
+        .grouping(&[first, second], "Base sketches", "Group features")
+        .unwrap();
+    document.apply(grouping.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let long = "x".repeat(caditor_document::MAX_GROUP_NAME_CHARS + 5);
+    let cut = decode_text(&text.replacen("Base sketches", &long, 1));
+    let journaled = serde_json::to_string(&format::transaction_record(&grouping)).unwrap();
+
+    assert!(text.contains("\"group\":\"Base sketches\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(cut.issues.len(), 1, "{:?}", cut.issues);
+    assert_eq!(
+        cut.document.feature(first).unwrap().group.as_deref(),
+        Some(&long[..caditor_document::MAX_GROUP_NAME_CHARS])
+    );
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(grouping)
+    );
+}

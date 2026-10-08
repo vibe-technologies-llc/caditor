@@ -99,6 +99,7 @@ struct PendingFocus {
 pub struct PanelState {
     focus: Option<PendingFocus>,
     pub renaming: Option<Renaming>,
+    pub renaming_group: Option<Renaming>,
     pub opened_for_editing: Option<FeatureId>,
     pub finished_editing: Option<FeatureId>,
     pub selected: Option<FeatureId>,
@@ -199,6 +200,11 @@ impl PanelState {
     pub fn choose_only(&mut self, feature: FeatureId) {
         self.selected = Some(feature);
         self.also_selected.clear();
+    }
+
+    pub fn choose_all(&mut self, features: &[FeatureId]) {
+        self.selected = features.first().copied();
+        self.also_selected = features.iter().skip(1).copied().collect();
     }
 
     pub fn toggle_chosen(&mut self, feature: FeatureId) {

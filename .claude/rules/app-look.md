@@ -275,6 +275,15 @@ paths:
   never lands on a hidden row. While it filters, the rollback bar is hidden and rows do not drag,
   since gaps between the shown rows are not the model's; with no match an empty state offers
   Clear the filter.
+- Consecutive features of one group (`document.md`) sit under a folder row
+  (`feature_groups.rs`): chevron, folder icon, name, member count and a "⋯" menu (Rename group,
+  Ungroup), members indented by `GROUP_INDENT`. A click or tab chooses every member; a
+  double-click renames in place (blank refused); the chevron folds it, a folded folder's members
+  taking zero-height places at its foot so drops still map to tree gaps; a folder opens by itself
+  when a member is revealed or wanted for focus. Group features (Ctrl+G, a row's menu, Model ›
+  Features, palette) groups the chosen rows as "Group N" and starts renaming it; Ungroup and
+  Rename group act on the current feature's folder. While the tree filters, folders are not
+  drawn, and a group's name matches the filter like a feature's.
 - Deleting features others depend on opens the delete dialog (`feature_tree::delete_dialog`,
   counted as a modal): the dependents in tree order with what each uses, Delete with dependents
   (`danger_button`, leftmost), Keep dependents and Cancel (rightmost). Cancel takes focus whenever

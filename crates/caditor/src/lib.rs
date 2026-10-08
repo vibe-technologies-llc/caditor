@@ -34,6 +34,7 @@ mod editing;
 mod export;
 mod faceting;
 mod feature_fields;
+mod feature_groups;
 mod feature_tree;
 mod field;
 mod files;

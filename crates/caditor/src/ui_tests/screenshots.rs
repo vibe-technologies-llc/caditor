@@ -490,6 +490,14 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         shoot(model, gpu, out, "rename", look);
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
+
+        if let Ok(grouping) = model.document().grouping(&rows[..2], "Profiles", "Group") {
+            model.perform(Action::Apply(grouping));
+            model.settle();
+            shoot(model, gpu, out, "tree-group", look);
+            model.perform(Action::Undo);
+            model.settle();
+        }
     }
 
     let body = model

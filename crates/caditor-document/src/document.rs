@@ -725,6 +725,7 @@ pub struct Feature {
     pub hidden: bool,
     pub suppressed: bool,
     pub appearance: BodyAppearance,
+    pub group: Option<String>,
 }
 
 impl Feature {
@@ -736,6 +737,7 @@ impl Feature {
             hidden: false,
             suppressed: false,
             appearance: BodyAppearance::default(),
+            group: None,
         }
     }
 
@@ -749,6 +751,7 @@ impl Feature {
             && self.hidden == other.hidden
             && self.suppressed == other.suppressed
             && self.appearance == other.appearance
+            && self.group == other.group
             && self.kind.same_content(&other.kind)
     }
 
@@ -763,7 +766,10 @@ impl Feature {
     }
 
     pub fn heap_size(&self) -> usize {
-        self.name.len() + self.kind.approximate_size() + self.appearance.heap_size()
+        self.name.len()
+            + self.kind.approximate_size()
+            + self.appearance.heap_size()
+            + self.group.as_ref().map_or(0, String::len)
     }
 
     pub fn body(&self) -> Option<FeatureId> {

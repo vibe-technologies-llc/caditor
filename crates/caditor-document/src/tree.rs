@@ -118,6 +118,7 @@ impl Document {
             && self.feature_index(id) != Some(index)
         {
             edits.push(Edit::MoveFeature { id, index });
+            edits.extend(self.membership_edits(&order, &BTreeSet::from([id])));
         }
         if bar != self.rollback {
             edits.push(Edit::SetRollbackBar { bar });
@@ -218,6 +219,9 @@ impl Document {
         for id in sinking.iter().rev() {
             place(&mut current, *id, Slot::Before(before));
             before = Some(*id);
+        }
+        if !edits.is_empty() {
+            edits.extend(self.membership_edits(&order, &chosen));
         }
         if bar != self.rollback {
             edits.push(Edit::SetRollbackBar { bar });

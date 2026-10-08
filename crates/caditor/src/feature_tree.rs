@@ -20,6 +20,7 @@ use crate::{
     datum_panel,
     drawing_export::{self, DrawingSource},
     editing::{EditingCommand, SketchEditing},
+    feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
     fonts, hole_panel, icons, import_panel, mirror_panel, mirror_tools,
@@ -89,6 +90,7 @@ const DEPENDENTS_HEIGHT: f32 = 220.0;
 const AUTOSCROLL_EDGE: f32 = 24.0;
 const AUTOSCROLL_RATE: f32 = 0.5;
 const FILTER_FROM_FEATURES: usize = 6;
+const GROUP_INDENT: f32 = SPACE_L;
 pub const FILTER_HINT: &str = "Filter features by name or kind";
 const NOTHING_TO_FILTER: &str = "The model has no features to filter yet";
 pub const CLEAR_FILTER_LABEL: &str = "Clear the filter";
@@ -136,6 +138,8 @@ fn rows(
     let bar = document.bar_index();
     let chosen = state.chosen();
     let mut placed = Vec::with_capacity(count + 1);
+    let mut previous_group: Option<&str> = None;
+    let mut folded: Option<Rect> = None;
     for (index, feature) in document.features().enumerate() {
         if index == bar && !filtering {
             placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
@@ -144,12 +148,28 @@ fn rows(
         if filtering && !kept_by_filter(state, editing, feature, &query) {
             continue;
         }
+        let group = feature.group.as_deref().filter(|_| !filtering);
+        if group != previous_group {
+            folded = None;
+            if let Some(name) = group {
+                let run = document.group_run(id);
+                let header = feature_groups::header(ui, document, state, actions, &run, name);
+                folded = (!header.open).then_some(header.rect);
+            }
+        }
+        previous_group = group;
+        if let Some(header) = folded {
+            let hidden = Rect::from_min_size(header.left_bottom(), vec2(header.width(), 0.0));
+            placed.push((TreeRow::Feature(id), hidden));
+            continue;
+        }
         let row = Row {
             feature,
             selection,
             edited: editing.feature() == Some(id) || editing.solid() == Some(id),
             selected: chosen.contains(&id),
             rolled_back: index >= bar,
+            grouped: group.is_some(),
         };
         let rect = ui
             .push_id(("feature", id), |ui| {
@@ -211,6 +231,10 @@ fn kept_by_filter(
 ) -> bool {
     let id = feature.id();
     feature.name.to_lowercase().contains(query)
+        || feature
+            .group
+            .as_deref()
+            .is_some_and(|group| group.to_lowercase().contains(query))
         || kind_words(&feature.kind)
             .iter()
             .any(|word| word.contains(query))
@@ -302,6 +326,7 @@ struct Row<'a> {
     edited: bool,
     selected: bool,
     rolled_back: bool,
+    grouped: bool,
 }
 
 impl Row<'_> {
@@ -574,6 +599,9 @@ fn feature_row(
         ui,
         look,
         |ui| {
+            if row.grouped {
+                ui.add_space(GROUP_INDENT);
+            }
             let toggle = tree_row::chevron(ui, open, &feature.name);
             widgets::icon_label(ui, icons::feature(&feature.kind), kind_color(tokens, row));
             let name = match renaming {
@@ -1175,6 +1203,30 @@ fn context_menu(
             actions.push(Action::Apply(transaction));
         }
     }
+    let grouped: Vec<FeatureId> = targets.iter().map(|target| target.id()).collect();
+    let grouping = feature_groups::grouping(document, &grouped);
+    if menu_entry(
+        ui,
+        icons::command(Command::GroupFeatures),
+        &Command::GroupFeatures.title(),
+        &grouping,
+    ) && let Ok(transaction) = grouping
+    {
+        actions.push(Action::Apply(transaction));
+        feature_groups::start_renaming(state, feature.id());
+    }
+    if feature.group.is_some() {
+        let ungrouping = feature_groups::ungrouping(document, feature.id());
+        if menu_entry(
+            ui,
+            icons::command(Command::Ungroup),
+            feature_groups::UNGROUP_LABEL,
+            &ungrouping,
+        ) && let Ok(transaction) = ungrouping
+        {
+            actions.push(Action::Apply(transaction));
+        }
+    }
     if matches!(feature.kind, FeatureKind::Import(_))
         && widgets::menu_item(
             ui,
@@ -1227,6 +1279,52 @@ fn context_menu(
         && let Ok(deletion) = delete
     {
         deletion.perform(state, actions);
+    }
+}
+
+fn group_commands(
+    document: &Document,
+    current: Option<&Feature>,
+    targets: &[&Feature],
+    detail: Option<String>,
+    state: &mut PanelState,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let grouped: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
+    let grouping = feature_groups::grouping(document, &grouped);
+    if commands.invoke_detailed(Command::GroupFeatures, detail, &grouping)
+        && let Ok(transaction) = grouping
+    {
+        actions.push(Action::Apply(transaction));
+        if let Some(first) = grouped
+            .iter()
+            .copied()
+            .min_by_key(|id| document.feature_index(*id))
+        {
+            feature_groups::start_renaming(state, first);
+        }
+    }
+    let member = current.ok_or(NO_FEATURE_CHOSEN).and_then(|feature| {
+        feature
+            .group
+            .as_ref()
+            .map(|_| feature)
+            .ok_or(feature_groups::NOT_IN_A_GROUP)
+    });
+    let group_detail = member.ok().and_then(|feature| feature.group.clone());
+    let ungrouping = member
+        .map_err(str::to_owned)
+        .and_then(|feature| feature_groups::ungrouping(document, feature.id()));
+    if commands.invoke_detailed(Command::Ungroup, group_detail.clone(), &ungrouping)
+        && let Ok(transaction) = ungrouping
+    {
+        actions.push(Action::Apply(transaction));
+    }
+    if commands.invoke_detailed(Command::RenameGroup, group_detail, &member)
+        && let Ok(feature) = member
+    {
+        feature_groups::start_renaming(state, feature.id());
     }
 }
 
@@ -1900,6 +1998,15 @@ pub fn commands(
     {
         actions.push(Action::Apply(transaction));
     }
+    group_commands(
+        document,
+        current,
+        &targets,
+        detail.clone(),
+        state,
+        commands,
+        actions,
+    );
     let exportable = current
         .filter(|feature| feature.kind.sketch().is_some())
         .ok_or(drawing_export::NOT_A_SKETCH)
