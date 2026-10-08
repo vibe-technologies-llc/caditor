@@ -269,6 +269,8 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] No user coordinate system: Measure, Move and the patterns read from the origin and
   the principal axes. A coordinate system placed at a point, its axes taken from edges or faces,
   would be a second origin to measure and place from.
+- [low · easy] Scale body starts at a factor of 2 (`DEFAULT_FACTOR` in `scale_tools.rs`, and
+  `app-modelling.md` says "by 2"); start it at 1.0, so the body is unchanged until a factor is typed.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
   axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
   surfaces do not have).
