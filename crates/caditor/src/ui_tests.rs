@@ -7993,6 +7993,43 @@ fn a_lasso_drawn_around_the_model_takes_what_lies_inside_it() {
 }
 
 #[test]
+fn select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    run_from_palette(&mut harness, "fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    let margin = egui::vec2(12.0, 12.0);
+
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Vertices);
+    drag_screen(&mut harness, low - margin, high + margin);
+    let seen = selected_kinds(&harness);
+
+    run_from_palette(&mut harness, "select through to what is hidden");
+    harness.frame();
+    assert!(harness.workspace.viewport.select_through());
+    drag_screen(&mut harness, low - margin, high + margin);
+    let through = selected_kinds(&harness);
+
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Edges);
+    drag_screen(&mut harness, low - margin, high + margin);
+    let edges_through = selected_kinds(&harness);
+
+    assert_eq!(seen, (0, 0, 7));
+    assert_eq!(through, (0, 0, 8));
+    assert_eq!(edges_through, (0, 12, 0));
+}
+
+#[test]
 fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);

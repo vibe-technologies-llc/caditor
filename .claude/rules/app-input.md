@@ -129,12 +129,17 @@ paths:
   right a window taking what lies wholly inside, right to left a crossing box taking what it
   touches, replacing the selection (Shift or Ctrl adds). It takes faces (Everything or Faces),
   edges, vertices or the curves of shown sketches by the selection filter, of shown bodies only.
-  Faces count by their triangles facing the camera, so faces turned away are left out. Edges and
+  Faces count by their triangles facing the camera, so faces turned away are left out, and only
+  when one of those triangles is seen (a corner or its middle, `triangle_is_seen`). Faces, edges and
   vertices hidden behind a shown body are left out: `box_selection::Occlusion` rasterises the
   shown bodies' triangles into a depth map over the box (at most `MAX_CELLS` a side), a point
   counting as seen when it lies within `SLACK_CELLS` cells' worth of depth of the nearest surface
   there; an edge is sampled every `SAMPLE_POINTS` on screen and counts only when at least half of
   it is seen, judged by its seen samples alone. A box under `SMALLEST_BOX` points takes nothing.
+  Select through (`Command::ToggleSelectThrough`, View menu, palette; kept for the session in
+  `ViewportState::select_through`, not saved) swaps the depth map for `Occlusion::open`, which
+  shows everything, so boxes and lassos also take the faces, edges, vertices and bodies (with the
+  Bodies filter) hidden behind others.
 - Select with a lasso (`Command::ToggleLasso`, View menu, palette; kept for the session in
   `ViewportState::lasso`, not saved, since Alt-drag already navigates in the Laptop input mode)
   makes those drags, and the edited sketch's, draw a freehand outline instead

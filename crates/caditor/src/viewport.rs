@@ -262,6 +262,7 @@ pub struct ViewportState {
     snapping: bool,
     grid_snapping: bool,
     lasso: bool,
+    select_through: bool,
     typed_dimensions: bool,
     glyphs_shown: bool,
     manipulator: Option<Manipulator>,
@@ -381,6 +382,7 @@ impl ViewportState {
             snapping: true,
             grid_snapping: false,
             lasso: false,
+            select_through: false,
             typed_dimensions: true,
             glyphs_shown: true,
             manipulator: None,
@@ -401,6 +403,10 @@ impl ViewportState {
 
     pub fn lasso(&self) -> bool {
         self.lasso
+    }
+
+    pub fn select_through(&self) -> bool {
+        self.select_through
     }
 
     pub fn typed_dimensions(&self) -> bool {
@@ -1475,13 +1481,17 @@ impl ViewportState {
                     .iter()
                     .filter(|(body, _)| visibility::is_shown(document, *body))
                     .collect();
-                let occlusion = box_selection::Occlusion::of(
-                    shown
-                        .iter()
-                        .filter_map(|(_, mesh)| mesh.source().solid()?.mesh()),
-                    &seen,
-                    area,
-                );
+                let occlusion = if self.select_through {
+                    box_selection::Occlusion::open()
+                } else {
+                    box_selection::Occlusion::of(
+                        shown
+                            .iter()
+                            .filter_map(|(_, mesh)| mesh.source().solid()?.mesh()),
+                        &seen,
+                        area,
+                    )
+                };
                 let looking = box_selection::Looking {
                     seen: &seen,
                     occlusion: &occlusion,
@@ -1937,6 +1947,9 @@ impl ViewportState {
         }
         if commands.available(Command::ToggleLasso) {
             self.lasso = !self.lasso;
+        }
+        if commands.available(Command::ToggleSelectThrough) {
+            self.select_through = !self.select_through;
         }
         if commands.available(Command::ToggleTypedDimensions) {
             self.typed_dimensions = !self.typed_dimensions;

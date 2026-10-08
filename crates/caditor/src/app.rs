@@ -404,6 +404,7 @@ pub fn show(
         snapping: viewport.snapping(),
         grid_snapping: viewport.grid_snapping(),
         lasso: viewport.lasso(),
+        select_through: viewport.select_through(),
         typed_dimensions: viewport.typed_dimensions(),
         glyphs: viewport.glyphs_shown(),
     };

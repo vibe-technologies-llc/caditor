@@ -146,6 +146,7 @@ pub enum Command {
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
+    ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
     ToggleGlyphs,
@@ -475,6 +476,7 @@ plain_commands! {
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
+    ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
     ToggleGlyphs,
@@ -743,6 +745,7 @@ impl Command {
             Self::ToggleSnapping => "view.toggle_snapping",
             Self::ToggleGridSnapping => "view.toggle_grid_snapping",
             Self::ToggleLasso => "view.toggle_lasso",
+            Self::ToggleSelectThrough => "view.toggle_select_through",
             Self::CycleSelectionPriority => "select.priority",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
             Self::ToggleGlyphs => "view.toggle_glyphs",
@@ -910,6 +913,7 @@ impl Command {
             Self::ToggleSnapping => "Turn snapping on or off",
             Self::ToggleGridSnapping => "Snap to the grid",
             Self::ToggleLasso => "Select with a lasso",
+            Self::ToggleSelectThrough => "Select through to what is hidden",
             Self::CycleSelectionPriority => "Cycle the selection priority: body, face, edge",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
@@ -1035,6 +1039,7 @@ impl Command {
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
             | Self::ToggleLasso
+            | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::ToggleGlyphs
             | Self::MinimizeWindow
@@ -1271,6 +1276,7 @@ impl Command {
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
             | Self::ToggleLasso
+            | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::MinimizeWindow
             | Self::MaximizeWindow

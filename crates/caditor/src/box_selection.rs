@@ -31,6 +31,16 @@ pub struct Occlusion {
 }
 
 impl Occlusion {
+    pub fn open() -> Self {
+        Self {
+            origin: Vector2::ZERO,
+            cell: 1.0,
+            columns: 0,
+            rows: 0,
+            depths: Vec::new(),
+        }
+    }
+
     pub fn of<'a>(
         meshes: impl IntoIterator<Item = &'a Mesh>,
         seen: &impl Fn(Point3) -> Option<Seen>,
@@ -163,9 +173,8 @@ pub fn within_body<S: Fn(Point3) -> Option<Seen>>(
     area: &ScreenArea,
     catch: Catch,
 ) -> Vec<Pickable> {
-    let screen = |point: Point3| (looking.seen)(point).map(|seen| seen.at);
     match catch {
-        Catch::Faces => faces_within(body, mesh, &screen, area),
+        Catch::Faces => faces_within(body, mesh, looking, area),
         Catch::Edges => mesh
             .edges
             .iter()
@@ -248,12 +257,13 @@ fn polyline_caught<S: Fn(Point3) -> Option<Seen>>(
     }
 }
 
-fn faces_within(
+fn faces_within<S: Fn(Point3) -> Option<Seen>>(
     body: FeatureId,
     mesh: &BodyMesh,
-    screen: &impl Fn(Point3) -> Option<Vector2>,
+    looking: &Looking<'_, S>,
     area: &ScreenArea,
 ) -> Vec<Pickable> {
+    let screen = |point: Point3| (looking.seen)(point).map(|seen| seen.at);
     let Some(solid) = mesh.source().solid() else {
         return Vec::new();
     };
@@ -270,6 +280,10 @@ fn faces_within(
         let position = triangulated.vertices().get(vertex as usize)?.position;
         projected.get(position as usize).copied().flatten()
     };
+    let world = |vertex: u32| {
+        let position = triangulated.vertices().get(vertex as usize)?.position;
+        triangulated.positions().get(position as usize).copied()
+    };
     let centre = area.centre();
     let mode = area.mode();
     triangulated
@@ -283,14 +297,26 @@ fn faces_within(
             if triangles.is_empty() {
                 return false;
             }
-            let facing: Vec<[Vector2; 3]> = triangles
+            let facing_in_space: Vec<([Vector2; 3], [Point3; 3])> = triangles
                 .iter()
-                .filter_map(|triangle| match triangle.map(corner) {
-                    [Some(a), Some(b), Some(c)] => Some([a, b, c]),
-                    _ => None,
-                })
-                .filter(|[a, b, c]| (*b - *a).perp_dot(*c - *a) < 0.0)
+                .filter_map(
+                    |triangle| match (triangle.map(corner), triangle.map(world)) {
+                        ([Some(a), Some(b), Some(c)], [Some(x), Some(y), Some(z)]) => {
+                            Some(([a, b, c], [x, y, z]))
+                        }
+                        _ => None,
+                    },
+                )
+                .filter(|([a, b, c], _)| (*b - *a).perp_dot(*c - *a) < 0.0)
                 .collect();
+            if !facing_in_space
+                .iter()
+                .any(|(_, corners)| triangle_is_seen(looking, *corners))
+            {
+                return false;
+            }
+            let facing: Vec<[Vector2; 3]> =
+                facing_in_space.iter().map(|(screen, _)| *screen).collect();
             match mode {
                 BoxMode::Window => {
                     !facing.is_empty() && facing.iter().flatten().all(|point| area.contains(*point))
@@ -306,6 +332,16 @@ fn faces_within(
         .filter_map(|face| keys.get(&face.face).copied())
         .map(|key| Pickable::Face { body, face: key })
         .collect()
+}
+
+fn triangle_is_seen<S: Fn(Point3) -> Option<Seen>>(
+    looking: &Looking<'_, S>,
+    [a, b, c]: [Point3; 3],
+) -> bool {
+    let middle = (a + b + c) / 3.0;
+    [a, b, c, middle]
+        .into_iter()
+        .any(|point| looking.visible(point).is_some())
 }
 
 fn inside_triangle(point: Vector2, [a, b, c]: [Vector2; 3]) -> bool {
@@ -344,5 +380,49 @@ mod tests {
         assert!(occlusion.shows(&seen(20.0, 20.0, 5.0)));
         assert!(occlusion.shows(&seen(80.0, 80.0, 50.0)));
         assert!(occlusion.shows(&seen(150.0, 20.0, 50.0)));
+    }
+
+    #[test]
+    fn a_triangle_is_seen_unless_a_nearer_one_covers_all_its_samples_and_select_through_opens_it() {
+        let area = ScreenArea::Box(crate::sketch_drag::ScreenBox {
+            from: Vector2::ZERO,
+            to: Vector2::new(100.0, 100.0),
+        });
+        let project = |point: Point3| {
+            Some(Seen {
+                at: Vector2::new(point.x, point.y),
+                depth: point.z,
+                units_per_point: 0.01,
+            })
+        };
+        let mut covered = Occlusion::of(std::iter::empty(), &|_| None, &area);
+        covered.fill([
+            (Vector2::new(0.0, 0.0), 5.0),
+            (Vector2::new(100.0, 0.0), 5.0),
+            (Vector2::new(0.0, 100.0), 5.0),
+        ]);
+        covered.fill([
+            (Vector2::new(100.0, 0.0), 5.0),
+            (Vector2::new(100.0, 100.0), 5.0),
+            (Vector2::new(0.0, 100.0), 5.0),
+        ]);
+        let behind = [
+            Point3::new(20.0, 20.0, 50.0),
+            Point3::new(60.0, 20.0, 50.0),
+            Point3::new(20.0, 60.0, 50.0),
+        ];
+
+        let hidden = Looking {
+            seen: &project,
+            occlusion: &covered,
+        };
+        let open = Occlusion::open();
+        let through = Looking {
+            seen: &project,
+            occlusion: &open,
+        };
+
+        assert!(!triangle_is_seen(&hidden, behind));
+        assert!(triangle_is_seen(&through, behind));
     }
 }
