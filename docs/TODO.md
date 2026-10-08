@@ -137,9 +137,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Sketching
 
-- [medium · medium] Typed lengths and angles (`@40, 20`, `25 < 30`, `width / 2, 10`) are evaluated
-  once and place free points, keeping neither a dimension nor the parameter link; offer to create
-  the dimensions.
 - [medium · medium] A constraint that fails only once solved (one contradicting the sketch through
   other constraints) is still accepted and reported afterwards; trial-solve it off the UI thread
   before committing.

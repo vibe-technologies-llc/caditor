@@ -245,6 +245,7 @@ pub struct ViewportState {
     style: DisplayStyle,
     snapping: bool,
     grid_snapping: bool,
+    typed_dimensions: bool,
     glyphs_shown: bool,
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
@@ -358,6 +359,7 @@ impl ViewportState {
             style: DisplayStyle::default(),
             snapping: true,
             grid_snapping: false,
+            typed_dimensions: true,
             glyphs_shown: true,
             manipulator: None,
             manipulator_hover: None,
@@ -372,6 +374,10 @@ impl ViewportState {
 
     pub fn grid_snapping(&self) -> bool {
         self.grid_snapping
+    }
+
+    pub fn typed_dimensions(&self) -> bool {
+        self.typed_dimensions
     }
 
     pub fn glyphs_shown(&self) -> bool {
@@ -1676,6 +1682,9 @@ impl ViewportState {
         if commands.available(Command::ToggleGridSnapping) {
             self.grid_snapping = !self.grid_snapping;
         }
+        if commands.available(Command::ToggleTypedDimensions) {
+            self.typed_dimensions = !self.typed_dimensions;
+        }
         for style in DisplayStyle::ALL {
             if commands.available(Command::Style(style)) {
                 self.set_style(style);
@@ -2121,9 +2130,12 @@ impl ViewportState {
             last: self.drawing.last_placed(),
             toward: self.drawing.pointer_position(),
         };
-        match typed_point::parse(model, &typed.text, from) {
-            Ok(position) => {
-                self.drawing.type_point(&sketch, position);
+        match typed_point::parse_placed(model, &typed.text, from) {
+            Ok(mut placed) => {
+                if !self.typed_dimensions {
+                    placed.dimensions.clear();
+                }
+                self.drawing.type_dimensioned(&sketch, placed);
                 match self.drawing.click(model) {
                     Ok(Some(transaction)) => actions.push(Action::Apply(transaction)),
                     Ok(None) => {}

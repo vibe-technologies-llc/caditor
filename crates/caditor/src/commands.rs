@@ -140,6 +140,7 @@ pub enum Command {
     ToggleProjection,
     ToggleSnapping,
     ToggleGridSnapping,
+    ToggleTypedDimensions,
     ToggleGlyphs,
     MinimizeWindow,
     MaximizeWindow,
@@ -459,6 +460,7 @@ plain_commands! {
     ToggleProjection,
     ToggleSnapping,
     ToggleGridSnapping,
+    ToggleTypedDimensions,
     ToggleGlyphs,
     Measure,
     Interference,
@@ -704,6 +706,7 @@ impl Command {
             Self::ToggleProjection => "view.toggle_projection",
             Self::ToggleSnapping => "view.toggle_snapping",
             Self::ToggleGridSnapping => "view.toggle_grid_snapping",
+            Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
             Self::ToggleGlyphs => "view.toggle_glyphs",
             Self::MinimizeWindow => "view.minimize_window",
             Self::MaximizeWindow => "view.maximize_window",
@@ -853,6 +856,7 @@ impl Command {
             Self::ToggleProjection => "Switch between perspective and orthographic",
             Self::ToggleSnapping => "Turn snapping on or off",
             Self::ToggleGridSnapping => "Snap to the grid",
+            Self::ToggleTypedDimensions => "Keep typed values as dimensions",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
             Self::MinimizeWindow => "Minimize the window",
             Self::MaximizeWindow => "Maximize or restore the window",
@@ -1031,6 +1035,7 @@ impl Command {
             | Self::FewerSides
             | Self::Construction
             | Self::ToggleConstraintActive
+            | Self::ToggleTypedDimensions
             | Self::MoveGeometry
             | Self::SelectAll
             | Self::CopyGeometry
@@ -1050,6 +1055,7 @@ impl Command {
             | Self::FewerSides
             | Self::Construction
             | Self::ToggleConstraintActive
+            | Self::ToggleTypedDimensions
             | Self::MoveGeometry
             | Self::SelectAll
             | Self::CopyGeometry
@@ -1158,6 +1164,7 @@ impl Command {
             | Self::FinishSketch
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive
+            | Self::ToggleTypedDimensions
             | Self::Filter(_)
             | Self::Style(_)
             | Self::OpenSample(_)

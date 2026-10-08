@@ -145,6 +145,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleProjection => phosphor::PERSPECTIVE,
         Command::ToggleSnapping => phosphor::MAGNET,
         Command::ToggleGridSnapping => phosphor::GRID_FOUR,
+        Command::ToggleTypedDimensions => phosphor::RULER,
         Command::ToggleGlyphs => phosphor::SHAPES,
         Command::MinimizeWindow => MINIMIZE,
         Command::MaximizeWindow => MAXIMIZE,

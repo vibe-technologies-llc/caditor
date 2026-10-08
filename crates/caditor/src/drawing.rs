@@ -12,6 +12,7 @@ use crate::{
     sketch_tools,
     snap::{self, Accept, Pointer, Screen, Snapped, Target},
     tracking::{self, Acquired, Tracked, Tracks},
+    typed_point::{Measured, Placed, TypedDimension},
     units::Units,
 };
 
@@ -525,6 +526,14 @@ pub struct Drawing {
     grid: Option<f64>,
     acquired: Acquired,
     extension_guide: Option<[Point2; 2]>,
+    typed: Vec<TypedMark>,
+    typed_hover: Option<TypedMark>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct TypedMark {
+    position: Point2,
+    dimensions: Vec<TypedDimension>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -886,6 +895,17 @@ impl Drawing {
         self.find_tangent(shape, sketch);
     }
 
+    pub fn type_dimensioned(&mut self, sketch: &Sketch, placed: Placed) {
+        self.type_point(sketch, placed.position);
+        self.typed_hover = self
+            .hover
+            .filter(|hover| hover.snap == Snap::Free && !placed.dimensions.is_empty())
+            .map(|hover| TypedMark {
+                position: hover.position,
+                dimensions: placed.dimensions,
+            });
+    }
+
     pub fn type_on_curve(&mut self, sketch: &Sketch, curve: EntityId) -> Result<(), &'static str> {
         let Some((_, shape)) = self.context else {
             return Err(ONLY_AT_POINTS);
@@ -1019,6 +1039,8 @@ impl Drawing {
 
     pub fn cancel(&mut self) {
         self.placed.clear();
+        self.typed.clear();
+        self.typed_hover = None;
         self.sweep = None;
         self.tangent = None;
         self.scrub = None;
@@ -1078,6 +1100,18 @@ impl Drawing {
         shape: Shape,
         placement: Placement,
     ) -> Result<Option<Transaction>, Refusal> {
+        if let Some(mark) = self
+            .typed_hover
+            .take()
+            .filter(|mark| mark.position == placement.position)
+        {
+            self.typed.push(mark);
+        }
+        let placed = &self.placed;
+        self.typed.retain(|mark| {
+            mark.position == placement.position
+                || placed.iter().any(|placed| placed.position == mark.position)
+        });
         let draft = |name: &str| Draft::new(model, feature, name, self.construction);
         let apart = |from: Placement, refusal: Refusal| {
             if from.position.distance(placement.position) < DEGENERATE_LENGTH {
@@ -1116,7 +1150,7 @@ impl Drawing {
                         Snap::Target(Target::Point(end)),
                     )];
                 }
-                return Ok(Some(draft.finish()));
+                return Ok(Some(draft.finish(&std::mem::take(&mut self.typed))));
             }
             (Shape::Rectangle(RectangleMode::Corners), &[corner]) => {
                 if (placement.position - corner.position).abs().min_element() < DEGENERATE_LENGTH {
@@ -1251,7 +1285,7 @@ impl Drawing {
                     }
                     Some(_) | None => self.cancel(),
                 }
-                return Ok(Some(draft.finish()));
+                return Ok(Some(draft.finish(&std::mem::take(&mut self.typed))));
             }
             (Shape::Slot(SlotMode::Ends), &[first]) => {
                 apart(first, Refusal::SlotLength)?;
@@ -1353,7 +1387,8 @@ impl Drawing {
         if shape != Shape::Point {
             self.cancel();
         }
-        Ok(finished.map(Draft::finish))
+        let typed = std::mem::take(&mut self.typed);
+        Ok(finished.map(|draft| draft.finish(&typed)))
     }
 
     fn counter_clockwise(&self) -> bool {
@@ -1380,7 +1415,7 @@ impl Drawing {
         }
         let mut draft = Draft::new(model, feature, shape.name(), self.construction)?;
         draft.spline(&placed);
-        Some(draft.finish())
+        Some(draft.finish(&std::mem::take(&mut self.typed)))
     }
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
@@ -2191,8 +2226,80 @@ impl<'a> Draft<'a> {
         })
     }
 
-    fn finish(self) -> Transaction {
+    fn finish(mut self, typed: &[TypedMark]) -> Transaction {
+        for mark in typed {
+            self.dimension(mark);
+        }
         self.transaction.finish()
+    }
+
+    fn dimension(&mut self, mark: &TypedMark) {
+        let Some(point) = self.newest_point_at(mark.position) else {
+            return;
+        };
+        for dimension in &mark.dimensions {
+            let from = match dimension.from {
+                None => EntityId::ORIGIN,
+                Some(at) => match self.newest_point_at(at) {
+                    Some(from) => from,
+                    None => continue,
+                },
+            };
+            if from == point {
+                continue;
+            }
+            let value = dimension.value.clone();
+            let constraint = match dimension.measured {
+                Measured::Across => Constraint::HorizontalDistance {
+                    from,
+                    to: point,
+                    value,
+                },
+                Measured::Up => Constraint::VerticalDistance {
+                    from,
+                    to: point,
+                    value,
+                },
+                Measured::Length => Constraint::Distance {
+                    from,
+                    to: point,
+                    value,
+                },
+                Measured::Angle => {
+                    let Some(line) = self.newest_line(from, point) else {
+                        continue;
+                    };
+                    Constraint::Angle {
+                        from: EntityId::HORIZONTAL_AXIS,
+                        to: line,
+                        reversed: false,
+                        value,
+                    }
+                }
+            };
+            self.constrain(constraint);
+        }
+    }
+
+    fn newest_point_at(&self, position: Point2) -> Option<EntityId> {
+        self.shadow
+            .entities()
+            .filter(|(_, entity)| {
+                matches!(entity, Entity::Point(at) if at.distance(position) <= TYPED_TOLERANCE)
+            })
+            .map(|(id, _)| id)
+            .filter(|id| !id.is_reference() || *id == EntityId::ORIGIN)
+            .last()
+    }
+
+    fn newest_line(&self, start: EntityId, end: EntityId) -> Option<EntityId> {
+        self.shadow
+            .entities()
+            .filter(|(_, entity)| {
+                matches!(entity, Entity::Line { start: from, end: to } if *from == start && *to == end)
+            })
+            .map(|(id, _)| id)
+            .last()
     }
 
     fn entity(&mut self, entity: Entity) -> EntityId {

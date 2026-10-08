@@ -1,4 +1,4 @@
-use caditor_expression::Dimension;
+use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::MAX_LENGTH;
 use egui::{
@@ -34,6 +34,7 @@ const ANGLE: Expected = Expected {
     non_negative: false,
 };
 const SIDES_WORDS: [&str; 2] = ["sides", "side"];
+const FULL_TURN_DEGREES: f64 = 360.0;
 const FORMS: &str = "Type x, y such as 10, 20, or a length and an angle such as 25 < 30";
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -51,6 +52,65 @@ pub struct TypedPoint {
 
 pub struct Typed {
     pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Measured {
+    Across,
+    Up,
+    Length,
+    Angle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypedDimension {
+    pub measured: Measured,
+    pub from: Option<Point2>,
+    pub value: Expression,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Placed {
+    pub position: Point2,
+    pub dimensions: Vec<TypedDimension>,
+}
+
+struct TypedValue {
+    measured: Measured,
+    expression: Expression,
+    value: f64,
+}
+
+impl TypedValue {
+    fn dimension(self, from: Option<Point2>) -> Option<TypedDimension> {
+        let value = match self.measured {
+            Measured::Angle if self.value > 0.0 && self.value < FULL_TURN_DEGREES => {
+                self.expression
+            }
+            Measured::Angle => return None,
+            Measured::Across | Measured::Up | Measured::Length if self.value == 0.0 => {
+                return None;
+            }
+            Measured::Across | Measured::Up | Measured::Length => {
+                magnitude(self.expression, self.value)
+            }
+        };
+        Some(TypedDimension {
+            measured: self.measured,
+            from,
+            value,
+        })
+    }
+}
+
+fn magnitude(expression: Expression, value: f64) -> Expression {
+    if value >= 0.0 {
+        return expression;
+    }
+    match expression {
+        Expression::Negate(inner) => *inner,
+        other => Expression::Negate(Box::new(other)),
+    }
 }
 
 pub fn sides(text: &str) -> Option<usize> {
@@ -282,7 +342,12 @@ const DIRECTION: Part = Part {
     expected: ANGLE,
 };
 
-fn value(model: &Model, text: &str, part: Part) -> Result<f64, String> {
+fn typed_value(
+    model: &Model,
+    text: &str,
+    part: Part,
+    measured: Measured,
+) -> Result<TypedValue, String> {
     let Part {
         label,
         noun,
@@ -301,23 +366,38 @@ fn value(model: &Model, text: &str, part: Part) -> Result<f64, String> {
     )
     .map_err(|error| format!("{label}: {error}"))?;
     let dimension = expected.dimension.unwrap_or(Dimension::NONE);
-    expression
+    let value = expression
         .evaluate_as(dimension, &|id| model.parameters().value(id))
-        .map_err(|error| format!("{label}: {}", field::sentence(&error.to_string())))
+        .map_err(|error| format!("{label}: {}", field::sentence(&error.to_string())))?;
+    Ok(TypedValue {
+        measured,
+        expression,
+        value,
+    })
 }
 
-fn offset(model: &Model, text: &str, from: From) -> Result<Vector2, String> {
+fn offset(model: &Model, text: &str, from: From) -> Result<(Vector2, Vec<TypedValue>), String> {
     let coordinates = coordinates(text);
     let polar = polar(text);
     match (coordinates.as_slice(), polar.as_slice()) {
-        ([x, y], [_]) => Ok(Vector2::new(value(model, x, X)?, value(model, y, Y)?)),
+        ([x, y], [_]) => {
+            let x = typed_value(model, x, X, Measured::Across)?;
+            let y = typed_value(model, y, Y, Measured::Up)?;
+            Ok((Vector2::new(x.value, y.value), vec![x, y]))
+        }
         ([_], [length, angle]) => {
-            let length = value(model, length, DISTANCE)?;
-            let angle = value(model, angle, DIRECTION)?;
-            Ok(Vector2::from_angle(angle.to_radians()) * length)
+            let length = typed_value(model, length, DISTANCE, Measured::Length)?;
+            let angle = typed_value(model, angle, DIRECTION, Measured::Angle)?;
+            let offset = Vector2::from_angle(angle.value.to_radians()) * length.value;
+            let typed = if length.value < 0.0 {
+                vec![length]
+            } else {
+                vec![length, angle]
+            };
+            Ok((offset, typed))
         }
         ([length], [_]) => {
-            let length = value(model, length, DISTANCE)?;
+            let length = typed_value(model, length, DISTANCE, Measured::Length)?;
             let Some(last) = from.last else {
                 return Err(format!(
                     "{FORMS}; a length alone needs a placed point to measure from"
@@ -329,32 +409,38 @@ fn offset(model: &Model, text: &str, from: From) -> Result<Vector2, String> {
                 .ok_or_else(|| {
                     "Point the way the length should go, or type length < angle".to_owned()
                 })?;
-            Ok(direction * length)
+            Ok((direction * length.value, vec![length]))
         }
         _ => Err(FORMS.to_owned()),
     }
 }
 
 pub fn parse(model: &Model, text: &str, from: From) -> Result<Point2, String> {
+    parse_placed(model, text, from).map(|placed| placed.position)
+}
+
+pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, String> {
     let (relative, text) = match text.strip_prefix(RELATIVE_MARK) {
         Some(rest) => (true, rest),
         None => (false, text),
     };
     let alone = coordinates(text).len() == 1 && polar(text).len() == 1;
-    let offset = offset(model, text, from)?;
-    let base = if relative || alone {
-        from.last.unwrap_or(Point2::ZERO)
-    } else {
-        Point2::ZERO
-    };
-    let point = base + offset;
+    let (offset, typed) = offset(model, text, from)?;
+    let measured_from = if relative || alone { from.last } else { None };
+    let point = measured_from.unwrap_or(Point2::ZERO) + offset;
     if point.abs().max_element() > MAX_LENGTH {
         return Err(format!(
             "Keep the point within {} m of the sketch's origin",
             MAX_LENGTH / 1_000.0
         ));
     }
-    Ok(point)
+    Ok(Placed {
+        position: point,
+        dimensions: typed
+            .into_iter()
+            .filter_map(|typed| typed.dimension(measured_from))
+            .collect(),
+    })
 }
 
 #[cfg(test)]

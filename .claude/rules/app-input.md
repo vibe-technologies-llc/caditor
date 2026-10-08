@@ -158,3 +158,13 @@ paths:
   pending point snaps to it, like a click); an error keeps it open with the reason; Escape closes
   it without touching the shape. It is handled after the drawing syncs with the displayed sketch
   each frame, so a typed chain carries on from the end the previous segment added.
+- A point placed free keeps what was typed as dimensions, as typed (parameters included, a negative
+  value as its magnitude, a zero left out): x and y as horizontal and vertical distances from the
+  origin, or from the last placed point with `@` (`typed_point::parse_placed`, `TypedDimension`); a
+  length as a distance from the origin or last point; and an angle between 0° and 360° as an
+  `Angle` from the horizontal axis to the line drawn from that point, when the shape draws one.
+  `Drawing::type_dimensioned` keeps them with the placement and `Draft::finish` adds them to the
+  shape's transaction against the points at those places, through the shadow check like any
+  inferred constraint. Keep typed values as dimensions (`Command::ToggleTypedDimensions`, Sketch
+  menu, palette; on by default, kept for the session in `ViewportState::typed_dimensions`) turns
+  this off.

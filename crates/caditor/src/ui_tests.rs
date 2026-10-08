@@ -5230,6 +5230,7 @@ fn a_three_point_arc_runs_from_its_start_through_the_third_point_to_its_end() {
 fn tangent_arcs_continue_smoothly_from_a_line_and_from_each_other() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
+    keep_typed_values_free(&mut harness);
     harness.use_tool(Key::L);
     type_point(&mut harness, "0, 0");
     type_point(&mut harness, "20, 0");
@@ -5654,6 +5655,7 @@ fn a_rectangle_from_three_points_turns_with_its_first_side_and_stays_square() {
 fn a_circle_through_the_ends_of_a_diameter_is_centred_between_them() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
+    keep_typed_values_free(&mut harness);
     harness.use_tool(Key::P);
     type_point(&mut harness, "10, 10");
     type_point(&mut harness, "30, 10");
@@ -5690,6 +5692,7 @@ fn a_circle_through_the_ends_of_a_diameter_is_centred_between_them() {
 fn a_circle_through_three_points_passes_through_each() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();
+    keep_typed_values_free(&mut harness);
     harness.use_tool(Key::P);
     type_point(&mut harness, "0, 10");
     harness.use_tool(Key::C);
@@ -9034,6 +9037,12 @@ fn the_palette_lists_what_does_not_fit_the_context_last_with_the_reason() {
     harness.show_new_windows();
     assert!(harness.workspace.palette.is_open());
     assert_eq!(harness.tool(), None);
+}
+
+fn keep_typed_values_free(harness: &mut Harness) {
+    run_from_palette(harness, "Keep typed values as dimensions");
+    harness.frame();
+    assert!(!harness.workspace.viewport.typed_dimensions());
 }
 
 fn run_from_palette(harness: &mut Harness, query: &str) {
@@ -14805,5 +14814,62 @@ fn a_point_held_past_the_end_of_its_line_is_counted_and_explained() {
         harness
             .view_description()
             .is_some_and(|description| description.contains("1 point beyond its curve"))
+    );
+}
+
+#[test]
+fn typed_values_are_kept_as_dimensions_unless_turned_off() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "10, 0");
+    type_point(&mut harness, "@30 < 45");
+    type_point(&mut harness, "@-5, 8");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let kept: Vec<String> = harness
+        .sketch(feature)
+        .constraints()
+        .filter(|(_, constraint)| constraint.dimension().is_some())
+        .map(|(id, _)| harness.sketch(feature).describe_constraint(id))
+        .collect();
+
+    run_from_palette(&mut harness, "Keep typed values as dimensions");
+    harness.frame();
+    let before = harness.sketch(feature).constraints().len();
+    type_point(&mut harness, "50, 50");
+    type_point(&mut harness, "@10, 0");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let dimensions = harness
+        .sketch(feature)
+        .constraints()
+        .filter(|(_, constraint)| constraint.dimension().is_some())
+        .count();
+
+    assert_eq!(
+        kept,
+        [
+            "Horizontal distance between Origin and Point 0",
+            "Distance between Point 0 and Point 1",
+            "Angle between Horizontal axis and Line 2",
+            "Horizontal distance between Point 6 and Point 8",
+            "Vertical distance between Point 6 and Point 8",
+        ]
+    );
+    assert!(harness.sketch(feature).constraints().len() >= before);
+    assert_eq!(dimensions, 5);
+    let lines = entities_of_kind(harness.sketch(feature), "Line");
+    let ends: Vec<Point2> = lines
+        .iter()
+        .take(2)
+        .map(|line| harness.sketch(feature).line_endpoints(*line).unwrap().1)
+        .collect();
+    let corner = Point2::new(10.0, 0.0) + Vector2::from_angle(45f64.to_radians()) * 30.0;
+    assert!(near(ends[0], corner), "{}", ends[0]);
+    assert!(
+        near(ends[1], corner + Vector2::new(-5.0, 8.0)),
+        "{}",
+        ends[1]
     );
 }

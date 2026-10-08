@@ -89,6 +89,7 @@ pub struct MenuContext<'a> {
     pub style: DisplayStyle,
     pub snapping: bool,
     pub grid_snapping: bool,
+    pub typed_dimensions: bool,
     pub glyphs: bool,
 }
 
@@ -126,6 +127,7 @@ pub fn show(
                     style: context.style,
                     snapping: context.snapping,
                     grid_snapping: context.grid_snapping,
+                    typed_dimensions: context.typed_dimensions,
                     glyphs: context.glyphs,
                     commands,
                     chosen: Vec::new(),
@@ -345,6 +347,7 @@ struct Menus<'a, 'b> {
     style: DisplayStyle,
     snapping: bool,
     grid_snapping: bool,
+    typed_dimensions: bool,
     glyphs: bool,
     commands: &'a CommandFrame<'b>,
     chosen: Vec<Command>,
@@ -570,6 +573,7 @@ impl Menus<'_, '_> {
                 ui,
                 [Command::ReverseArc, Command::MoreSides, Command::FewerSides],
             );
+            self.choice(ui, Command::ToggleTypedDimensions, self.typed_dimensions);
             ui.separator();
             self.item(ui, Command::Construction);
             self.items(ui, modifying.into_iter().map(Command::SketchTool));
