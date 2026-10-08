@@ -229,8 +229,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   spline, extrusion or revolution (it would need a surface fitted within tolerance), `PARABOLA`,
   `HYPERBOLA` and the `*_REPLICA` forms. Fit a spline within the declared precision, or keep the
   other faces and say which were lost. Colours and layers are not read.
-- [low · medium] The parse tree still holds several times the file size (a boxed slice per record
-  and per list); a flat arena of values would bring it near the file size.
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
 

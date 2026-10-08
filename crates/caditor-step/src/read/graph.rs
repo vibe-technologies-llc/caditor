@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::part21::{Exchange, Instance, Parameter, Record};
+use crate::part21::{Exchange, Instance, List, Parameter, Record};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Problem {
@@ -33,7 +33,7 @@ pub(crate) struct Graph<'a> {
 #[derive(Clone, Copy)]
 pub(crate) struct Entity<'a> {
     pub id: u64,
-    pub instance: &'a Instance<'a>,
+    pub instance: Instance<'a>,
 }
 
 impl<'a> Graph<'a> {
@@ -57,19 +57,19 @@ impl<'a> Graph<'a> {
 
 impl<'a> Entity<'a> {
     pub fn kind(&self) -> &'a str {
-        match self.instance {
-            Instance::Simple(record) => record.name.as_str(),
-            Instance::Complex(records) => records
-                .iter()
-                .map(|record| record.name.as_str())
-                .find(|name| {
-                    !matches!(
-                        *name,
-                        "REPRESENTATION_ITEM" | "GEOMETRIC_REPRESENTATION_ITEM"
-                    )
-                })
-                .unwrap_or_default(),
+        if let Some(record) = self.instance.simple() {
+            return record.name();
         }
+        self.instance
+            .records()
+            .map(Record::name)
+            .find(|name| {
+                !matches!(
+                    *name,
+                    "REPRESENTATION_ITEM" | "GEOMETRIC_REPRESENTATION_ITEM"
+                )
+            })
+            .unwrap_or_default()
     }
 
     pub fn is(&self, name: &str) -> bool {
@@ -89,26 +89,26 @@ impl<'a> Entity<'a> {
     }
 
     pub fn fields(&self) -> Read<Fields<'a>> {
-        match self.instance {
-            Instance::Simple(record) => Ok(Fields {
+        self.instance
+            .simple()
+            .map(|record| Fields {
                 id: self.id,
                 record,
-            }),
-            Instance::Complex(_) => Err(Problem::new(self.id, "combines several kinds")),
-        }
+            })
+            .ok_or_else(|| Problem::new(self.id, "combines several kinds"))
     }
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct Fields<'a> {
     pub id: u64,
-    record: &'a Record<'a>,
+    record: Record<'a>,
 }
 
 impl<'a> Fields<'a> {
-    pub fn get(&self, index: usize) -> Read<&'a Parameter<'a>> {
+    pub fn get(&self, index: usize) -> Read<Parameter<'a>> {
         self.record
-            .parameters
+            .parameters()
             .get(index)
             .ok_or_else(|| Problem::new(self.id, "has too few values"))
     }
@@ -133,10 +133,10 @@ impl<'a> Fields<'a> {
     }
 
     pub fn optional_reference(&self, index: usize) -> Option<u64> {
-        self.record.parameters.get(index)?.reference()
+        self.record.parameters().get(index)?.reference()
     }
 
-    pub fn list(&self, index: usize) -> Read<&'a [Parameter<'a>]> {
+    pub fn list(&self, index: usize) -> Read<List<'a>> {
         self.get(index)?
             .list()
             .ok_or_else(|| Problem::new(self.id, "has a value where a list belongs"))
@@ -149,7 +149,7 @@ impl<'a> Fields<'a> {
     }
 
     pub fn name(&self, index: usize) -> Option<String> {
-        let text = self.record.parameters.get(index)?.text()?;
+        let text = self.record.parameters().get(index)?.text()?;
         let trimmed = text.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_owned())
     }
@@ -171,7 +171,7 @@ impl<'a> Fields<'a> {
     }
 }
 
-pub(crate) fn references(items: &[Parameter<'_>], context: u64) -> Read<Vec<u64>> {
+pub(crate) fn references(items: List<'_>, context: u64) -> Read<Vec<u64>> {
     items
         .iter()
         .map(|item| {

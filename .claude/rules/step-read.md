@@ -9,8 +9,18 @@ paths:
 ## Part 21 parser (`part21.rs`)
 
 - Reads the header, data sections and edition 3 `ANCHOR`, `REFERENCE` and `SIGNATURE` sections
-  (skipped); nesting is limited by `MAX_NESTING`. The tree borrows from the text; instances are
-  found by binary search.
+  (skipped); nesting is limited by `MAX_NESTING`. A text past 4 GiB is `ReadError::TooLarge`, so
+  every offset fits a `u32`.
+- The tree is flat arenas in `Exchange`, never a box per record or list: every parameter value is a
+  one-byte kind plus a `u64` payload (number bits, a reference, or a packed offset and length into
+  the text, the values or the uppercased names), and a list or record names its run of values by
+  span. Items of a list land contiguously because a list's items wait on a pending stack until it
+  closes. Text and names stay offsets into the file, a name with lowercase letters is uppercased once
+  into a shared buffer, a simple instance holds its record inline and a complex one a span of the
+  record arena; an unreadable entry truncates every arena back to where it began. `Parameter`,
+  `List`, `Record` and `Instance` are copyable views decoding on access. An 89 MB file holds about
+  1.2 times its size while parsed (the boxed tree held 3.3 times); instances are found by binary
+  search.
 - Damage is survived and reported as notes, never refused: a damaged header is skipped (never
   used), a missing `END-ISO-10303-21;` is accepted, an unreadable entry is skipped and counted, a
   repeated entity id keeps its first definition. A file ending inside `DATA` (no `ENDSEC;`, or cut

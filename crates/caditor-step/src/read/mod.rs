@@ -113,10 +113,9 @@ impl std::fmt::Display for Held {
 
 fn file_schema(exchange: &Exchange<'_>) -> Option<String> {
     let record = exchange
-        .header
-        .iter()
-        .find(|record| record.name.as_str() == "FILE_SCHEMA")?;
-    let schemas = record.parameters.first()?.list()?;
+        .header()
+        .find(|record| record.name() == "FILE_SCHEMA")?;
+    let schemas = record.parameters().first()?.list()?;
     let first = schemas.first()?.text()?;
     let name = first.split_whitespace().next()?;
     Some(name.to_owned())
@@ -135,6 +134,8 @@ pub enum ReadError {
     NotStep,
     #[error("the file is damaged near line {0}")]
     Damaged(usize),
+    #[error("it is larger than the 4 GiB caditor reads")]
+    TooLarge,
     #[error("it holds no solid bodies{0}; caditor imports closed solids only")]
     NoSolids(Held),
     #[error("“{name}” could not be rebuilt, because its entity #{entity} {reason}")]
@@ -237,6 +238,7 @@ fn read_placed<T>(
     let exchange = parse(text).map_err(|error| match error {
         SyntaxError::NotStep => ReadError::NotStep,
         SyntaxError::Damaged { line } => ReadError::Damaged(line),
+        SyntaxError::TooLarge => ReadError::TooLarge,
     })?;
     let graph = Graph::new(&exchange);
     let mut structure = Structure::read(&graph);

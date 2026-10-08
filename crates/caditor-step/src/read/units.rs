@@ -96,8 +96,9 @@ fn length_uncertainty(graph: &Graph<'_>, uncertainty: Entity<'_>, length: f64) -
         .optional_reference(1)
         .and_then(|id| graph.entity(id).ok())
         .map(|unit| measure(graph, unit, 0));
-    let typed_length =
-        matches!(value, Parameter::Typed(typed) if typed.0.as_str() == "LENGTH_MEASURE");
+    let typed_length = value
+        .typed()
+        .is_some_and(|(name, _)| name == "LENGTH_MEASURE");
     match unit {
         Some(Measure::Length(scale)) => Some(amount * scale),
         Some(Measure::Angle(_)) => None,
@@ -114,7 +115,7 @@ fn measure(graph: &Graph<'_>, unit: Entity<'_>, depth: usize) -> Measure {
         let count = unit
             .instance
             .record("SI_UNIT")
-            .map_or(0, |record| record.parameters.len());
+            .map_or(0, |record| record.parameters().len());
         let prefix = count
             .checked_sub(2)
             .and_then(|index| si.get(index).ok())

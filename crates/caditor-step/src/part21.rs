@@ -1,140 +1,179 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::Range};
 
 const MAX_NESTING: usize = 64;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Name<'a> {
-    Borrowed(&'a str),
-    Owned(Box<Box<str>>),
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Span {
+    start: u32,
+    len: u32,
 }
 
-impl<'a> Name<'a> {
-    fn uppercase(word: &'a str) -> Self {
-        if word.bytes().any(|byte| byte.is_ascii_lowercase()) {
-            Self::Owned(Box::new(word.to_ascii_uppercase().into_boxed_str()))
-        } else {
-            Self::Borrowed(word)
-        }
+impl Span {
+    fn of(range: Range<usize>) -> Option<Self> {
+        Some(Self {
+            start: u32::try_from(range.start).ok()?,
+            len: u32::try_from(range.end.checked_sub(range.start)?).ok()?,
+        })
     }
 
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Borrowed(word) => word,
-            Self::Owned(word) => word,
+    fn range(self) -> Range<usize> {
+        let start = self.start as usize;
+        start..start + self.len as usize
+    }
+
+    fn packed(self) -> u64 {
+        (u64::from(self.start) << 32) | u64::from(self.len)
+    }
+
+    fn unpacked(packed: u64) -> Self {
+        Self {
+            start: (packed >> 32) as u32,
+            len: packed as u32,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Parameter<'a> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Name {
+    InText(Span),
+    Uppercased(Span),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Value {
     Integer(i64),
     Real(f64),
-    Text(&'a str),
-    Enumeration(Name<'a>),
+    Text(Span),
+    Enumeration(Name),
     Reference(u64),
-    List(Box<[Parameter<'a>]>),
-    Typed(Box<(Name<'a>, Parameter<'a>)>),
+    List(Span),
+    Typed(u32),
     Omitted,
     Derived,
     Binary,
 }
 
-impl<'a> Parameter<'a> {
-    pub fn real(&self) -> Option<f64> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Integer,
+    Real,
+    Text,
+    Enumeration,
+    UppercasedEnumeration,
+    Reference,
+    List,
+    Typed,
+    Omitted,
+    Derived,
+    Binary,
+}
+
+impl Value {
+    fn encoded(self) -> (Kind, u64) {
         match self {
-            Self::Real(value) => Some(*value),
-            Self::Integer(value) => Some(*value as f64),
-            Self::Typed(typed) => typed.1.real(),
-            _ => None,
+            Self::Integer(value) => (Kind::Integer, value.cast_unsigned()),
+            Self::Real(value) => (Kind::Real, value.to_bits()),
+            Self::Text(span) => (Kind::Text, span.packed()),
+            Self::Enumeration(Name::InText(span)) => (Kind::Enumeration, span.packed()),
+            Self::Enumeration(Name::Uppercased(span)) => {
+                (Kind::UppercasedEnumeration, span.packed())
+            }
+            Self::Reference(id) => (Kind::Reference, id),
+            Self::List(span) => (Kind::List, span.packed()),
+            Self::Typed(index) => (Kind::Typed, u64::from(index)),
+            Self::Omitted => (Kind::Omitted, 0),
+            Self::Derived => (Kind::Derived, 0),
+            Self::Binary => (Kind::Binary, 0),
         }
     }
 
-    pub fn integer(&self) -> Option<i64> {
-        match self {
-            Self::Integer(value) => Some(*value),
-            Self::Typed(typed) => typed.1.integer(),
-            _ => None,
-        }
-    }
-
-    pub fn reference(&self) -> Option<u64> {
-        match self {
-            Self::Reference(id) => Some(*id),
-            _ => None,
-        }
-    }
-
-    pub fn list(&self) -> Option<&[Parameter<'a>]> {
-        match self {
-            Self::List(items) => Some(items),
-            _ => None,
-        }
-    }
-
-    pub fn text(&self) -> Option<Cow<'a, str>> {
-        match self {
-            Self::Text(quoted) => Some(unquote(quoted)),
-            _ => None,
-        }
-    }
-
-    pub fn logical(&self) -> Option<bool> {
-        match self.enumeration()? {
-            "T" => Some(true),
-            "F" => Some(false),
-            _ => None,
-        }
-    }
-
-    pub fn enumeration(&self) -> Option<&str> {
-        match self {
-            Self::Enumeration(value) => Some(value.as_str()),
-            _ => None,
+    fn decoded(kind: Kind, payload: u64) -> Self {
+        match kind {
+            Kind::Integer => Self::Integer(payload.cast_signed()),
+            Kind::Real => Self::Real(f64::from_bits(payload)),
+            Kind::Text => Self::Text(Span::unpacked(payload)),
+            Kind::Enumeration => Self::Enumeration(Name::InText(Span::unpacked(payload))),
+            Kind::UppercasedEnumeration => {
+                Self::Enumeration(Name::Uppercased(Span::unpacked(payload)))
+            }
+            Kind::Reference => Self::Reference(payload),
+            Kind::List => Self::List(Span::unpacked(payload)),
+            Kind::Typed => Self::Typed(payload as u32),
+            Kind::Omitted => Self::Omitted,
+            Kind::Derived => Self::Derived,
+            Kind::Binary => Self::Binary,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Record<'a> {
-    pub name: Name<'a>,
-    pub parameters: Box<[Parameter<'a>]>,
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Values {
+    kinds: Vec<Kind>,
+    payloads: Vec<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Instance<'a> {
-    Simple(Record<'a>),
-    Complex(Box<[Record<'a>]>),
+impl Values {
+    fn len(&self) -> usize {
+        self.kinds.len()
+    }
+
+    fn get(&self, index: usize) -> Option<Value> {
+        Some(Value::decoded(
+            *self.kinds.get(index)?,
+            *self.payloads.get(index)?,
+        ))
+    }
+
+    fn push(&mut self, value: Value) {
+        let (kind, payload) = value.encoded();
+        self.kinds.push(kind);
+        self.payloads.push(payload);
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.kinds.truncate(len);
+        self.payloads.truncate(len);
+    }
+
+    fn shrink_to_fit(&mut self) {
+        self.kinds.shrink_to_fit();
+        self.payloads.shrink_to_fit();
+    }
 }
 
-impl<'a> Instance<'a> {
-    pub fn record(&self, name: &str) -> Option<&Record<'a>> {
-        match self {
-            Self::Simple(record) => (record.name.as_str() == name).then_some(record),
-            Self::Complex(records) => records.iter().find(|record| record.name.as_str() == name),
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Typed {
+    name: Name,
+    value: Value,
+}
 
-    #[cfg(test)]
-    pub fn simple(&self) -> Option<&Record<'a>> {
-        match self {
-            Self::Simple(record) => Some(record),
-            Self::Complex(_) => None,
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StoredRecord {
+    name: Name,
+    parameters: Span,
+}
 
-    #[cfg(test)]
-    pub fn names(&self) -> Vec<&str> {
-        match self {
-            Self::Simple(record) => vec![record.name.as_str()],
-            Self::Complex(records) => records.iter().map(|record| record.name.as_str()).collect(),
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Body {
+    Simple(StoredRecord),
+    Complex(Span),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Entry {
+    id: u64,
+    body: Body,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Exchange<'a> {
-    pub header: Vec<Record<'a>>,
-    data: Vec<(u64, Instance<'a>)>,
+    text: &'a str,
+    uppercased: String,
+    values: Values,
+    typed: Vec<Typed>,
+    records: Vec<StoredRecord>,
+    header: Span,
+    data: Vec<Entry>,
     pub unreadable: Vec<usize>,
     pub repeated: Vec<u64>,
     pub header_damaged: bool,
@@ -142,73 +181,319 @@ pub(crate) struct Exchange<'a> {
     pub cut_short: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Parameter<'a> {
+    exchange: &'a Exchange<'a>,
+    value: Value,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct List<'a> {
+    exchange: &'a Exchange<'a>,
+    span: Span,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Record<'a> {
+    exchange: &'a Exchange<'a>,
+    stored: &'a StoredRecord,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Instance<'a> {
+    exchange: &'a Exchange<'a>,
+    entry: &'a Entry,
+}
+
+impl<'a> Parameter<'a> {
+    pub fn real(self) -> Option<f64> {
+        match self.value {
+            Value::Real(value) => Some(value),
+            Value::Integer(value) => Some(value as f64),
+            Value::Typed(_) => self.typed()?.1.real(),
+            _ => None,
+        }
+    }
+
+    pub fn integer(self) -> Option<i64> {
+        match self.value {
+            Value::Integer(value) => Some(value),
+            Value::Typed(_) => self.typed()?.1.integer(),
+            _ => None,
+        }
+    }
+
+    pub fn reference(self) -> Option<u64> {
+        match self.value {
+            Value::Reference(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn list(self) -> Option<List<'a>> {
+        match self.value {
+            Value::List(span) => Some(self.exchange.list(span)),
+            _ => None,
+        }
+    }
+
+    pub fn text(self) -> Option<Cow<'a, str>> {
+        match self.value {
+            Value::Text(span) => Some(unquote(self.exchange.text.get(span.range())?)),
+            _ => None,
+        }
+    }
+
+    pub fn logical(self) -> Option<bool> {
+        match self.enumeration()? {
+            "T" => Some(true),
+            "F" => Some(false),
+            _ => None,
+        }
+    }
+
+    pub fn enumeration(self) -> Option<&'a str> {
+        match self.value {
+            Value::Enumeration(name) => Some(self.exchange.name(name)),
+            _ => None,
+        }
+    }
+
+    pub fn typed(self) -> Option<(&'a str, Parameter<'a>)> {
+        let Value::Typed(index) = self.value else {
+            return None;
+        };
+        let typed = self.exchange.typed.get(index as usize)?;
+        Some((
+            self.exchange.name(typed.name),
+            Parameter {
+                exchange: self.exchange,
+                value: typed.value,
+            },
+        ))
+    }
+
+    #[cfg(test)]
+    pub fn is_omitted(self) -> bool {
+        self.value == Value::Omitted
+    }
+
+    #[cfg(test)]
+    pub fn is_derived(self) -> bool {
+        self.value == Value::Derived
+    }
+}
+
+impl<'a> List<'a> {
+    pub fn len(self) -> usize {
+        self.span.len as usize
+    }
+
+    pub fn get(self, index: usize) -> Option<Parameter<'a>> {
+        let index = (index < self.len()).then(|| self.span.start as usize + index)?;
+        let value = self.exchange.values.get(index)?;
+        Some(Parameter {
+            exchange: self.exchange,
+            value,
+        })
+    }
+
+    pub fn first(self) -> Option<Parameter<'a>> {
+        self.get(0)
+    }
+
+    pub fn iter(self) -> impl DoubleEndedIterator<Item = Parameter<'a>> + ExactSizeIterator {
+        let exchange = self.exchange;
+        self.span.range().map(move |index| Parameter {
+            exchange,
+            value: exchange.values.get(index).unwrap_or(Value::Omitted),
+        })
+    }
+}
+
+impl<'a> Record<'a> {
+    pub fn name(self) -> &'a str {
+        self.exchange.name(self.stored.name)
+    }
+
+    pub fn parameters(self) -> List<'a> {
+        self.exchange.list(self.stored.parameters)
+    }
+}
+
+impl<'a> Instance<'a> {
+    pub fn records(self) -> impl Iterator<Item = Record<'a>> {
+        let exchange = self.exchange;
+        let (simple, complex) = match &self.entry.body {
+            Body::Simple(stored) => (Some(stored), &[][..]),
+            Body::Complex(span) => (None, exchange.records.get(span.range()).unwrap_or_default()),
+        };
+        simple
+            .into_iter()
+            .chain(complex)
+            .map(move |stored| Record { exchange, stored })
+    }
+
+    pub fn record(self, name: &str) -> Option<Record<'a>> {
+        self.records().find(|record| record.name() == name)
+    }
+
+    pub fn simple(self) -> Option<Record<'a>> {
+        match &self.entry.body {
+            Body::Simple(stored) => Some(Record {
+                exchange: self.exchange,
+                stored,
+            }),
+            Body::Complex(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn names(self) -> Vec<&'a str> {
+        self.records().map(Record::name).collect()
+    }
+}
+
+fn name_in<'s>(text: &'s str, uppercased: &'s str, name: Name) -> &'s str {
+    match name {
+        Name::InText(span) => text.get(span.range()),
+        Name::Uppercased(span) => uppercased.get(span.range()),
+    }
+    .unwrap_or_default()
+}
+
 impl<'a> Exchange<'a> {
-    fn cut_short(mut self, entries: Vec<(u64, Instance<'a>)>) -> Self {
-        self.cut_short = true;
-        self.trailer_missing = true;
-        self.index(entries);
-        self
+    fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            ..Self::default()
+        }
     }
 
-    pub fn instance(&self, id: u64) -> Option<&Instance<'a>> {
-        let index = self
+    fn name(&self, name: Name) -> &str {
+        name_in(self.text, &self.uppercased, name)
+    }
+
+    fn list<'e>(&'e self, span: Span) -> List<'e> {
+        List {
+            exchange: self,
+            span: if span.range().end <= self.values.len() {
+                span
+            } else {
+                Span::default()
+            },
+        }
+    }
+
+    pub fn header<'e>(&'e self) -> impl Iterator<Item = Record<'e>> {
+        let exchange: &'e Exchange<'e> = self;
+        exchange
+            .records
+            .get(exchange.header.range())
+            .unwrap_or_default()
+            .iter()
+            .map(move |stored| Record { exchange, stored })
+    }
+
+    pub fn instance<'e>(&'e self, id: u64) -> Option<Instance<'e>> {
+        let index = self.data.binary_search_by_key(&id, |entry| entry.id).ok()?;
+        self.data.get(index).map(|entry| Instance {
+            exchange: self,
+            entry,
+        })
+    }
+
+    pub fn instances<'e>(&'e self) -> impl Iterator<Item = (u64, Instance<'e>)> {
+        let exchange: &'e Exchange<'e> = self;
+        exchange
             .data
-            .binary_search_by_key(&id, |(known, _)| *known)
-            .ok()?;
-        self.data.get(index).map(|(_, instance)| instance)
-    }
-
-    pub fn instances(&self) -> impl Iterator<Item = (u64, &Instance<'a>)> {
-        self.data.iter().map(|(id, instance)| (*id, instance))
+            .iter()
+            .map(move |entry| (entry.id, Instance { exchange, entry }))
     }
 
     #[cfg(test)]
     pub fn ids(&self) -> Vec<u64> {
-        self.data.iter().map(|(id, _)| *id).collect()
+        self.data.iter().map(|entry| entry.id).collect()
     }
 
-    fn index(&mut self, entries: Vec<(u64, Instance<'a>)>) {
+    fn finish(mut self, entries: Vec<Entry>) -> Self {
+        self.index(entries);
+        self.uppercased.shrink_to_fit();
+        self.values.shrink_to_fit();
+        self.typed.shrink_to_fit();
+        self.records.shrink_to_fit();
+        self
+    }
+
+    fn cut_short(mut self, entries: Vec<Entry>) -> Self {
+        self.cut_short = true;
+        self.trailer_missing = true;
+        self.finish(entries)
+    }
+
+    fn index(&mut self, entries: Vec<Entry>) {
         if entries
             .windows(2)
-            .all(|pair| matches!(pair, [(first, _), (second, _)] if first < second))
+            .all(|pair| matches!(pair, [first, second] if first.id < second.id))
         {
             self.data = entries;
             return;
         }
-        let mut numbered: Vec<(u64, usize, Instance<'a>)> = entries
-            .into_iter()
-            .enumerate()
-            .map(|(position, (id, instance))| (id, position, instance))
-            .collect();
-        numbered.sort_unstable_by_key(|(id, position, _)| (*id, *position));
+        let mut numbered: Vec<(usize, Entry)> = entries.into_iter().enumerate().collect();
+        numbered.sort_unstable_by_key(|(position, entry)| (entry.id, *position));
         let mut repeats = Vec::new();
         self.data = Vec::with_capacity(numbered.len());
-        for (id, position, instance) in numbered {
-            if self.data.last().is_some_and(|(last, _)| *last == id) {
-                repeats.push((position, id));
+        for (position, entry) in numbered {
+            if self.data.last().is_some_and(|last| last.id == entry.id) {
+                repeats.push((position, entry.id));
             } else {
-                self.data.push((id, instance));
+                self.data.push(entry);
             }
         }
         repeats.sort_unstable();
         self.repeated = repeats.into_iter().map(|(_, id)| id).collect();
     }
+
+    fn mark(&self) -> Mark {
+        Mark {
+            uppercased: self.uppercased.len(),
+            values: self.values.len(),
+            typed: self.typed.len(),
+            records: self.records.len(),
+        }
+    }
+
+    fn restore(&mut self, mark: Mark) {
+        self.uppercased.truncate(mark.uppercased);
+        self.values.truncate(mark.values);
+        self.typed.truncate(mark.typed);
+        self.records.truncate(mark.records);
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Mark {
+    uppercased: usize,
+    values: usize,
+    typed: usize,
+    records: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SyntaxError {
     NotStep,
+    TooLarge,
     Damaged { line: usize },
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum Token<'a> {
-    Keyword(Name<'a>),
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Token {
+    Keyword(Span),
     Reference(u64),
     Integer(i64),
     Real(f64),
-    Text(&'a str),
-    Enumeration(Name<'a>),
+    Text(Span),
+    Enumeration(Span),
     Binary,
     Open,
     Close,
@@ -217,12 +502,6 @@ enum Token<'a> {
     Equals,
     Dollar,
     Star,
-}
-
-impl Token<'_> {
-    fn is_keyword(&self, word: &str) -> bool {
-        matches!(self, Self::Keyword(name) if name.as_str() == word)
-    }
 }
 
 struct Lexer<'a> {
@@ -242,6 +521,18 @@ impl<'a> Lexer<'a> {
             line: 1,
             after_semicolon: false,
         }
+    }
+
+    fn is_keyword(&self, token: Token, word: &str) -> bool {
+        matches!(token, Token::Keyword(span) if self.word(span).eq_ignore_ascii_case(word))
+    }
+
+    fn word(&self, span: Span) -> &'a str {
+        self.text.get(span.range()).unwrap_or_default()
+    }
+
+    fn span(&self, range: Range<usize>) -> Result<Span, SyntaxError> {
+        Span::of(range).ok_or(SyntaxError::TooLarge)
     }
 
     fn skip_statement(&mut self) -> Result<(), SyntaxError> {
@@ -365,13 +656,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn next(&mut self) -> Result<Option<Token<'a>>, SyntaxError> {
+    fn next(&mut self) -> Result<Option<Token>, SyntaxError> {
         let token = self.token();
         self.after_semicolon = matches!(token, Ok(Some(Token::Semicolon)));
         token
     }
 
-    fn token(&mut self) -> Result<Option<Token<'a>>, SyntaxError> {
+    fn token(&mut self) -> Result<Option<Token>, SyntaxError> {
         self.skip_space()?;
         let Some(byte) = self.peek_byte() else {
             return Ok(None);
@@ -387,7 +678,7 @@ impl<'a> Lexer<'a> {
             b'#' => {
                 self.bump();
                 let digits = self.take_while(|byte| byte.is_ascii_digit());
-                Token::Reference(digits.parse().map_err(|_| self.damaged())?)
+                Token::Reference(self.slice(digits).parse().map_err(|_| self.damaged())?)
             }
             b'\'' => Token::Text(self.text()?),
             b'"' => {
@@ -404,37 +695,42 @@ impl<'a> Lexer<'a> {
                 if self.bump() != Some(b'.') {
                     return Err(self.damaged());
                 }
-                Token::Enumeration(Name::uppercase(name))
+                Token::Enumeration(self.span(name)?)
             }
             b'+' | b'-' | b'0'..=b'9' => self.number()?,
             byte if byte.is_ascii_alphabetic() || byte == b'!' || byte == b'_' => {
                 let word = self.take_while(|byte| {
                     byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'!')
                 });
-                Token::Keyword(Name::uppercase(word))
+                Token::Keyword(self.span(word)?)
             }
             _ => return Err(self.damaged()),
         };
         Ok(Some(token))
     }
 
-    fn single(&mut self, token: Token<'a>) -> Token<'a> {
+    fn single(&mut self, token: Token) -> Token {
         self.bump();
         token
     }
 
-    fn take_while(&mut self, keep: impl Fn(u8) -> bool) -> &'a str {
+    fn slice(&self, range: Range<usize>) -> &'a str {
+        self.text.get(range).unwrap_or_default()
+    }
+
+    fn take_while(&mut self, keep: impl Fn(u8) -> bool) -> Range<usize> {
         let start = self.position;
         while self.peek_byte().is_some_and(&keep) {
             self.bump();
         }
-        self.text.get(start..self.position).unwrap_or_default()
+        start..self.position
     }
 
-    fn number(&mut self) -> Result<Token<'a>, SyntaxError> {
-        let text = self.take_while(|byte| {
+    fn number(&mut self) -> Result<Token, SyntaxError> {
+        let range = self.take_while(|byte| {
             byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.' | b'E' | b'e')
         });
+        let text = self.slice(range);
         if text.contains(['.', 'E', 'e']) {
             text.parse()
                 .or_else(|_| {
@@ -455,7 +751,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn text(&mut self) -> Result<&'a str, SyntaxError> {
+    fn text(&mut self) -> Result<Span, SyntaxError> {
         self.bump();
         let start = self.position;
         loop {
@@ -469,7 +765,7 @@ impl<'a> Lexer<'a> {
             }
         }
         let end = self.position.saturating_sub(1);
-        Ok(self.text.get(start..end).unwrap_or_default())
+        self.span(start..end)
     }
 }
 
@@ -541,121 +837,170 @@ pub(crate) fn decode_text(raw: &str) -> String {
     out
 }
 
-enum Statement<'a> {
-    Instance(u64, Instance<'a>),
+enum Statement {
+    Instance(Entry),
     End,
 }
 
 struct Parser<'a> {
     lexer: Lexer<'a>,
-    lookahead: Option<Token<'a>>,
+    lookahead: Option<Token>,
+    exchange: Exchange<'a>,
+    pending: Vec<Value>,
 }
 
 impl<'a> Parser<'a> {
-    fn peek(&mut self) -> Result<Option<&Token<'a>>, SyntaxError> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            lexer: Lexer::new(text),
+            lookahead: None,
+            exchange: Exchange::new(text),
+            pending: Vec::new(),
+        }
+    }
+
+    fn peek(&mut self) -> Result<Option<Token>, SyntaxError> {
         if self.lookahead.is_none() {
             self.lookahead = self.lexer.next()?;
         }
-        Ok(self.lookahead.as_ref())
+        Ok(self.lookahead)
     }
 
-    fn take(&mut self) -> Result<Token<'a>, SyntaxError> {
+    fn take(&mut self) -> Result<Token, SyntaxError> {
         match self.lookahead.take() {
             Some(token) => Ok(token),
             None => self.lexer.next()?.ok_or(self.lexer.damaged()),
         }
     }
 
-    fn expect(&mut self, expected: &Token<'_>) -> Result<(), SyntaxError> {
-        if self.take()? == *expected {
+    fn expect(&mut self, expected: Token) -> Result<(), SyntaxError> {
+        if self.take()? == expected {
             Ok(())
         } else {
             Err(self.lexer.damaged())
         }
     }
 
-    fn keyword(&mut self) -> Result<Name<'a>, SyntaxError> {
+    fn keyword(&mut self) -> Result<Span, SyntaxError> {
         match self.take()? {
             Token::Keyword(word) => Ok(word),
             _ => Err(self.lexer.damaged()),
         }
     }
 
-    fn record(&mut self, name: Name<'a>) -> Result<Record<'a>, SyntaxError> {
-        self.expect(&Token::Open)?;
-        let parameters = self.parameters(0)?.into_boxed_slice();
-        Ok(Record { name, parameters })
+    fn name(&mut self, span: Span) -> Result<Name, SyntaxError> {
+        let word = self.lexer.word(span);
+        if !word.bytes().any(|byte| byte.is_ascii_lowercase()) {
+            return Ok(Name::InText(span));
+        }
+        let uppercased = &mut self.exchange.uppercased;
+        let start = uppercased.len();
+        uppercased.extend(word.chars().map(|character| character.to_ascii_uppercase()));
+        let span = self.lexer.span(start..uppercased.len())?;
+        Ok(Name::Uppercased(span))
     }
 
-    fn parameters(&mut self, depth: usize) -> Result<Vec<Parameter<'a>>, SyntaxError> {
+    fn record(&mut self, name: Span) -> Result<StoredRecord, SyntaxError> {
+        self.expect(Token::Open)?;
+        let name = self.name(name)?;
+        let parameters = self.parameters(0)?;
+        Ok(StoredRecord { name, parameters })
+    }
+
+    fn parameters(&mut self, depth: usize) -> Result<Span, SyntaxError> {
         if depth > MAX_NESTING {
             return Err(self.lexer.damaged());
         }
-        let mut parameters = Vec::new();
-        if self.peek()? == Some(&Token::Close) {
+        let base = self.pending.len();
+        if self.peek()? == Some(Token::Close) {
             self.take()?;
-            return Ok(parameters);
+            return self.close_list(base);
         }
         loop {
-            parameters.push(self.parameter(depth)?);
+            let value = self.parameter(depth)?;
+            self.pending.push(value);
             match self.take()? {
                 Token::Comma => {}
-                Token::Close => return Ok(parameters),
+                Token::Close => return self.close_list(base),
                 _ => return Err(self.lexer.damaged()),
             }
         }
     }
 
-    fn parameter(&mut self, depth: usize) -> Result<Parameter<'a>, SyntaxError> {
+    fn close_list(&mut self, base: usize) -> Result<Span, SyntaxError> {
+        let values = &mut self.exchange.values;
+        let start = values.len();
+        for value in self.pending.drain(base..) {
+            values.push(value);
+        }
+        self.lexer.span(start..values.len())
+    }
+
+    fn parameter(&mut self, depth: usize) -> Result<Value, SyntaxError> {
         Ok(match self.take()? {
-            Token::Integer(value) => Parameter::Integer(value),
-            Token::Real(value) => Parameter::Real(value),
-            Token::Text(text) => Parameter::Text(text),
-            Token::Enumeration(value) => Parameter::Enumeration(value),
-            Token::Reference(id) => Parameter::Reference(id),
-            Token::Binary => Parameter::Binary,
-            Token::Dollar => Parameter::Omitted,
-            Token::Star => Parameter::Derived,
-            Token::Open => Parameter::List(self.parameters(depth + 1)?.into_boxed_slice()),
+            Token::Integer(value) => Value::Integer(value),
+            Token::Real(value) => Value::Real(value),
+            Token::Text(text) => Value::Text(text),
+            Token::Enumeration(value) => Value::Enumeration(self.name(value)?),
+            Token::Reference(id) => Value::Reference(id),
+            Token::Binary => Value::Binary,
+            Token::Dollar => Value::Omitted,
+            Token::Star => Value::Derived,
+            Token::Open => Value::List(self.parameters(depth + 1)?),
             Token::Keyword(name) => {
-                self.expect(&Token::Open)?;
-                let mut inner = self.parameters(depth + 1)?;
-                let value = if inner.len() == 1 {
-                    inner.pop().unwrap_or(Parameter::Omitted)
-                } else {
-                    Parameter::List(inner.into_boxed_slice())
+                self.expect(Token::Open)?;
+                let name = self.name(name)?;
+                let inner = self.parameters(depth + 1)?;
+                let only = (inner.len == 1)
+                    .then(|| self.exchange.values.get(inner.start as usize))
+                    .flatten();
+                let value = match only {
+                    Some(only) => {
+                        self.exchange.values.truncate(inner.start as usize);
+                        only
+                    }
+                    None => Value::List(inner),
                 };
-                Parameter::Typed(Box::new((name, value)))
+                let index =
+                    u32::try_from(self.exchange.typed.len()).map_err(|_| SyntaxError::TooLarge)?;
+                self.exchange.typed.push(Typed { name, value });
+                Value::Typed(index)
             }
             _ => return Err(self.lexer.damaged()),
         })
     }
 
-    fn statement(&mut self) -> Result<Statement<'a>, SyntaxError> {
+    fn records_since(&self, start: usize) -> Result<Span, SyntaxError> {
+        self.lexer.span(start..self.exchange.records.len())
+    }
+
+    fn statement(&mut self) -> Result<Statement, SyntaxError> {
         match self.take()? {
             Token::Reference(id) => {
-                self.expect(&Token::Equals)?;
-                let instance = self.instance()?;
-                self.expect(&Token::Semicolon)?;
-                Ok(Statement::Instance(id, instance))
+                self.expect(Token::Equals)?;
+                let body = self.instance()?;
+                self.expect(Token::Semicolon)?;
+                Ok(Statement::Instance(Entry { id, body }))
             }
-            token if token.is_keyword("ENDSEC") => {
-                self.expect(&Token::Semicolon)?;
+            token if self.lexer.is_keyword(token, "ENDSEC") => {
+                self.expect(Token::Semicolon)?;
                 Ok(Statement::End)
             }
             _ => Err(self.lexer.damaged()),
         }
     }
 
-    fn header(&mut self, exchange: &mut Exchange<'a>) -> Result<(), SyntaxError> {
+    fn header(&mut self) -> Result<(), SyntaxError> {
+        let start = self.exchange.records.len();
         loop {
             let name = self.keyword()?;
-            if name.as_str() == "ENDSEC" {
-                return self.expect(&Token::Semicolon);
+            if self.lexer.word(name).eq_ignore_ascii_case("ENDSEC") {
+                self.exchange.header = self.records_since(start)?;
+                return self.expect(Token::Semicolon);
             }
             let record = self.record(name)?;
-            self.expect(&Token::Semicolon)?;
-            exchange.header.push(record);
+            self.expect(Token::Semicolon)?;
+            self.exchange.records.push(record);
         }
     }
 
@@ -673,98 +1018,118 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn instance(&mut self) -> Result<Instance<'a>, SyntaxError> {
+    fn instance(&mut self) -> Result<Body, SyntaxError> {
+        let start = self.exchange.records.len();
         match self.take()? {
-            Token::Keyword(name) => Ok(Instance::Simple(self.record(name)?)),
+            Token::Keyword(name) => Ok(Body::Simple(self.record(name)?)),
             Token::Open => {
-                let mut records = Vec::new();
                 loop {
                     match self.take()? {
-                        Token::Keyword(name) => records.push(self.record(name)?),
+                        Token::Keyword(name) => {
+                            let record = self.record(name)?;
+                            self.exchange.records.push(record);
+                        }
                         Token::Close => break,
                         _ => return Err(self.lexer.damaged()),
                     }
                 }
-                records.sort_by(|a, b| a.name.as_str().cmp(b.name.as_str()));
-                Ok(Instance::Complex(records.into_boxed_slice()))
+                let Exchange {
+                    text,
+                    uppercased,
+                    records,
+                    ..
+                } = &mut self.exchange;
+                if let Some(parts) = records.get_mut(start..) {
+                    parts.sort_by(|a, b| {
+                        name_in(text, uppercased, a.name).cmp(name_in(text, uppercased, b.name))
+                    });
+                }
+                Ok(Body::Complex(self.records_since(start)?))
             }
             _ => Err(self.lexer.damaged()),
+        }
+    }
+
+    fn data(&mut self, entries: &mut Vec<Entry>) -> Result<bool, SyntaxError> {
+        if self.peek()? == Some(Token::Open) {
+            self.take()?;
+            let mark = self.exchange.mark();
+            self.parameters(0)?;
+            self.exchange.restore(mark);
+        }
+        self.expect(Token::Semicolon)?;
+        loop {
+            let line = self.next_line();
+            let ended = matches!(self.peek(), Ok(None));
+            if ended {
+                return Ok(false);
+            }
+            let mark = self.exchange.mark();
+            match self.statement() {
+                Ok(Statement::Instance(entry)) => entries.push(entry),
+                Ok(Statement::End) => return Ok(true),
+                Err(_) => {
+                    self.exchange.restore(mark);
+                    self.pending.clear();
+                    self.exchange.unreadable.push(line);
+                    if self.recover().is_err() {
+                        return Ok(false);
+                    }
+                }
+            }
         }
     }
 }
 
 pub(crate) fn parse(text: &str) -> Result<Exchange<'_>, SyntaxError> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    let mut parser = Parser {
-        lexer: Lexer::new(text),
-        lookahead: None,
-    };
+    if u32::try_from(text.len()).is_err() {
+        return Err(SyntaxError::TooLarge);
+    }
+    let mut parser = Parser::new(text);
     match parser.take() {
-        Ok(token) if token.is_keyword("ISO-10303-21") => {}
+        Ok(token) if parser.lexer.is_keyword(token, "ISO-10303-21") => {}
         _ => return Err(SyntaxError::NotStep),
     }
-    parser.expect(&Token::Semicolon)?;
-    let mut exchange = Exchange::default();
+    parser.expect(Token::Semicolon)?;
     let mut entries = Vec::new();
     loop {
         if parser.peek()?.is_none() {
-            exchange.trailer_missing = true;
-            exchange.index(entries);
-            return Ok(exchange);
+            parser.exchange.trailer_missing = true;
+            return Ok(parser.exchange.finish(entries));
         }
-        match parser.keyword()?.as_str() {
-            "HEADER" => {
-                parser.expect(&Token::Semicolon)?;
-                let section = parser.lexer.mark();
-                if parser.header(&mut exchange).is_err() {
-                    exchange.header_damaged = true;
-                    exchange.header.clear();
-                    parser.lookahead = None;
-                    parser.lexer.reset(section);
-                    parser.lexer.skip_section()?;
-                }
-            }
-            "DATA" => {
-                if parser.peek()? == Some(&Token::Open) {
-                    parser.take()?;
-                    parser.parameters(0)?;
-                }
-                parser.expect(&Token::Semicolon)?;
-                loop {
-                    let line = parser.next_line();
-                    let ended = matches!(parser.peek(), Ok(None));
-                    let statement = if ended {
-                        None
-                    } else {
-                        Some(parser.statement())
-                    };
-                    match statement {
-                        Some(Ok(Statement::Instance(id, instance))) => {
-                            entries.push((id, instance));
-                        }
-                        Some(Ok(Statement::End)) => break,
-                        Some(Err(_)) => {
-                            exchange.unreadable.push(line);
-                            if parser.recover().is_err() {
-                                return Ok(exchange.cut_short(entries));
-                            }
-                        }
-                        None => return Ok(exchange.cut_short(entries)),
-                    }
-                }
-            }
-            "ANCHOR" | "REFERENCE" | "SIGNATURE" => {
-                parser.expect(&Token::Semicolon)?;
-                if parser.lookahead.is_some() {
-                    return Err(parser.lexer.damaged());
-                }
+        let section = parser.keyword()?;
+        let word = parser.lexer.word(section);
+        if word.eq_ignore_ascii_case("HEADER") {
+            parser.expect(Token::Semicolon)?;
+            let section = parser.lexer.mark();
+            let mark = parser.exchange.mark();
+            if parser.header().is_err() {
+                parser.exchange.restore(mark);
+                parser.pending.clear();
+                parser.exchange.header = Span::default();
+                parser.exchange.header_damaged = true;
+                parser.lookahead = None;
+                parser.lexer.reset(section);
                 parser.lexer.skip_section()?;
             }
-            "END-ISO-10303-21" => {
-                exchange.index(entries);
-                return Ok(exchange);
+        } else if word.eq_ignore_ascii_case("DATA") {
+            if !parser.data(&mut entries)? {
+                return Ok(parser.exchange.cut_short(entries));
             }
-            _ => return Err(parser.lexer.damaged()),
+        } else if ["ANCHOR", "REFERENCE", "SIGNATURE"]
+            .iter()
+            .any(|known| word.eq_ignore_ascii_case(known))
+        {
+            parser.expect(Token::Semicolon)?;
+            if parser.lookahead.is_some() {
+                return Err(parser.lexer.damaged());
+            }
+            parser.lexer.skip_section()?;
+        } else if word.eq_ignore_ascii_case("END-ISO-10303-21") {
+            return Ok(parser.exchange.finish(entries));
+        } else {
+            return Err(parser.lexer.damaged());
         }
     }
 }
@@ -773,58 +1138,114 @@ pub(crate) fn parse(text: &str) -> Result<Exchange<'_>, SyntaxError> {
 mod tests {
     use super::*;
 
+    fn parameter<'a>(instance: Instance<'a>, index: usize) -> Parameter<'a> {
+        instance.simple().unwrap().parameters().get(index).unwrap()
+    }
+
+    #[test]
+    fn values_take_nine_bytes_and_a_simple_entity_thirty_two() {
+        assert_eq!(size_of::<Kind>() + size_of::<u64>(), 9);
+        assert_eq!(size_of::<Entry>(), 32);
+    }
+
     #[test]
     fn records_lists_and_typed_values_are_read() {
         let text = "ISO-10303-21;\nHEADER;\nFILE_NAME('a''b',/* note */'2026');\nENDSEC;\nDATA;\n\
                     #1=CARTESIAN_POINT('',(1.,-2.5E-1,3));\n\
                     #20 = ( LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.) );\n\
                     #3=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-07),#20,'d','c');\n\
-                    #4=ORIENTED_EDGE('',*,*,#5,.T.);\nENDSEC;\nEND-ISO-10303-21;\n";
+                    #4=ORIENTED_EDGE('',*,*,#5,.T.);\n\
+                    #5=A(B((1,2)),C(),D(E(F(7))));\nENDSEC;\nEND-ISO-10303-21;\n";
         let exchange = parse(text).unwrap();
-        assert_eq!(exchange.header[0].parameters[0].text().unwrap(), "a'b");
+        let header: Vec<Record<'_>> = exchange.header().collect();
         let point = exchange.instance(1).unwrap().simple().unwrap();
-        assert_eq!(point.name.as_str(), "CARTESIAN_POINT");
+        let coordinates = point.parameters().get(1).unwrap().list().unwrap();
+        let unit = exchange.instance(20).unwrap().record("SI_UNIT").unwrap();
+        let measure = parameter(exchange.instance(3).unwrap(), 0);
+        let edge = exchange.instance(4).unwrap();
+        let nested = exchange.instance(5).unwrap();
+        let (b, pair) = parameter(nested, 0).typed().unwrap();
+        let (c, empty) = parameter(nested, 1).typed().unwrap();
+        let (d, inner) = parameter(nested, 2).typed().unwrap();
+
+        assert_eq!(header.len(), 1);
+        assert_eq!(header[0].name(), "FILE_NAME");
         assert_eq!(
-            point.parameters[1],
-            Parameter::List(Box::new([
-                Parameter::Real(1.0),
-                Parameter::Real(-0.25),
-                Parameter::Integer(3)
-            ]))
+            header[0].parameters().first().unwrap().text().unwrap(),
+            "a'b"
         );
+        assert_eq!(point.name(), "CARTESIAN_POINT");
+        assert_eq!(
+            coordinates.iter().map(Parameter::real).collect::<Vec<_>>(),
+            [Some(1.0), Some(-0.25), Some(3.0)]
+        );
+        assert_eq!(coordinates.get(2).unwrap().integer(), Some(3));
         assert_eq!(
             exchange.instance(20).unwrap().names(),
             ["LENGTH_UNIT", "NAMED_UNIT", "SI_UNIT"]
         );
-        let unit = exchange.instance(20).unwrap().record("SI_UNIT").unwrap();
-        assert_eq!(unit.parameters[0].enumeration(), Some("MILLI"));
-        let measure = exchange.instance(3).unwrap().simple().unwrap();
-        assert_eq!(measure.parameters[0].real(), Some(1e-7));
-        let edge = exchange.instance(4).unwrap().simple().unwrap();
-        assert_eq!(edge.parameters[1], Parameter::Derived);
-        assert_eq!(edge.parameters[4].logical(), Some(true));
+        assert!(exchange.instance(20).unwrap().simple().is_none());
+        assert!(
+            exchange
+                .instance(20)
+                .unwrap()
+                .record("NAMED_UNIT")
+                .unwrap()
+                .parameters()
+                .first()
+                .unwrap()
+                .is_derived()
+        );
+        assert_eq!(
+            unit.parameters().first().unwrap().enumeration(),
+            Some("MILLI")
+        );
+        assert_eq!(measure.real(), Some(1e-7));
+        assert_eq!(measure.typed().unwrap().0, "LENGTH_MEASURE");
+        assert!(parameter(edge, 1).is_derived());
+        assert_eq!(parameter(edge, 4).logical(), Some(true));
+        assert_eq!(b, "B");
+        assert_eq!(
+            pair.list()
+                .unwrap()
+                .iter()
+                .map(Parameter::integer)
+                .collect::<Vec<_>>(),
+            [Some(1), Some(2)]
+        );
+        assert_eq!(c, "C");
+        assert_eq!(empty.list().unwrap().len(), 0);
+        assert_eq!(d, "D");
+        assert_eq!(inner.integer(), Some(7));
+        assert_eq!(inner.typed().unwrap().1.typed().unwrap().0, "F");
     }
 
     #[test]
     fn names_and_plain_text_borrow_from_the_file_and_the_rest_is_decoded() {
         let text = "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\n\
                     #1=cartesian_point('plain',(0.,0.,0.));\n\
-                    #2=PRODUCT('it''s','K\\X2\\00FC\\X0\\hler','two\nlines',(.t.,.F.));\n\
+                    #2=PRODUCT('it''s','K\\X2\\00FC\\X0\\hler','two\nlines',(.t.,.F.),$);\n\
                     ENDSEC;\nEND-ISO-10303-21;\n";
 
         let exchange = parse(text).unwrap();
         let point = exchange.instance(1).unwrap().simple().unwrap();
         let product = exchange.instance(2).unwrap().simple().unwrap();
-        let flags = product.parameters[3].list().unwrap();
+        let fields = product.parameters();
+        let flags = fields.get(3).unwrap().list().unwrap();
 
-        assert_eq!(point.name, Name::Owned(Box::new("CARTESIAN_POINT".into())));
-        assert_eq!(point.parameters[0].text(), Some(Cow::Borrowed("plain")));
-        assert_eq!(product.name, Name::Borrowed("PRODUCT"));
-        assert_eq!(product.parameters[0].text().unwrap(), "it's");
-        assert_eq!(product.parameters[1].text().unwrap(), "Kühler");
-        assert_eq!(product.parameters[2].text().unwrap(), "twolines");
-        assert_eq!(flags[0].logical(), Some(true));
-        assert_eq!(flags[1], Parameter::Enumeration(Name::Borrowed("F")));
+        assert_eq!(point.name(), "CARTESIAN_POINT");
+        assert_eq!(exchange.uppercased, "CARTESIAN_POINTT");
+        assert_eq!(
+            point.parameters().first().unwrap().text(),
+            Some(Cow::Borrowed("plain"))
+        );
+        assert_eq!(product.name(), "PRODUCT");
+        assert_eq!(fields.get(0).unwrap().text().unwrap(), "it's");
+        assert_eq!(fields.get(1).unwrap().text().unwrap(), "Kühler");
+        assert_eq!(fields.get(2).unwrap().text().unwrap(), "twolines");
+        assert!(fields.get(4).unwrap().is_omitted());
+        assert_eq!(flags.get(0).unwrap().logical(), Some(true));
+        assert_eq!(flags.get(1).unwrap().enumeration(), Some("F"));
     }
 
     #[test]
@@ -833,13 +1254,12 @@ mod tests {
                     ENDSEC;\nEND-ISO-10303-21;\n";
 
         let exchange = parse(text).unwrap();
-        let values: Vec<Option<f64>> = exchange.instance(1).unwrap().simple().unwrap().parameters
-            [0]
-        .list()
-        .unwrap()
-        .iter()
-        .map(Parameter::real)
-        .collect();
+        let values: Vec<Option<f64>> = parameter(exchange.instance(1).unwrap(), 0)
+            .list()
+            .unwrap()
+            .iter()
+            .map(Parameter::real)
+            .collect();
 
         assert_eq!(
             values,
@@ -879,18 +1299,21 @@ mod tests {
                     ENDSEC;\nEND-ISO-10303-21;\n";
 
         let exchange = parse(text).unwrap();
+        let x = |id: u64| {
+            parameter(exchange.instance(id).unwrap(), 1)
+                .list()
+                .unwrap()
+                .first()
+                .unwrap()
+                .real()
+        };
 
         assert_eq!(exchange.ids(), [2, 4]);
         assert_eq!(exchange.unreadable, [5, 7]);
         assert_eq!(exchange.repeated, [2]);
-        let x = |id: u64| {
-            exchange.instance(id).unwrap().simple().unwrap().parameters[1]
-                .list()
-                .unwrap()[0]
-                .real()
-        };
         assert_eq!(x(2), Some(0.0));
         assert_eq!(x(4), Some(99_999_999_999_999_999_999.0));
+        assert_eq!(exchange.values.len(), 3 * 5);
     }
 
     #[test]
@@ -899,13 +1322,12 @@ mod tests {
                     ENDSEC;\nEND-ISO-10303-21;\n";
 
         let exchange = parse(text).unwrap();
-        let first =
-            |id: u64| exchange.instance(id).unwrap().simple().unwrap().parameters[0].integer();
+        let first = |id: u64| parameter(exchange.instance(id).unwrap(), 0).integer();
 
         assert_eq!(exchange.ids(), [3, 5, 9]);
         assert_eq!(exchange.repeated, [9, 3, 9]);
         assert_eq!([first(3), first(5), first(9)], [Some(2), Some(4), Some(1)]);
-        assert_eq!(exchange.instance(4), None);
+        assert!(exchange.instance(4).is_none());
     }
 
     #[test]
@@ -936,6 +1358,7 @@ mod tests {
         let nested = parse(&deep).unwrap();
         assert!(nested.ids().is_empty());
         assert_eq!(nested.unreadable, [1]);
+        assert!(nested.values.len() == 0 && nested.records.is_empty());
     }
 
     #[test]
@@ -943,7 +1366,7 @@ mod tests {
         let broken = "ISO-10303-21;\nHEADER;\nFILE_NAME('a;b','2026'\nFILE_SCHEMA(('x'));\nENDSEC;\n\
                       DATA;\n#1=A(1);\nENDSEC;\nEND-ISO-10303-21;\n";
         let exchange = parse(broken).unwrap();
-        assert!(exchange.header_damaged && exchange.header.is_empty());
+        assert!(exchange.header_damaged && exchange.header().next().is_none());
         assert_eq!(exchange.ids(), [1]);
         assert!(!exchange.trailer_missing);
 
