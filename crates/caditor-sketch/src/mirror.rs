@@ -297,7 +297,7 @@ impl Sketch {
         Ok(copies)
     }
 
-    fn held_on(&self, point: EntityId, about: EntityId) -> bool {
+    pub(crate) fn held_on(&self, point: EntityId, about: EntityId) -> bool {
         let ends = self.entity(about).map(Entity::points).unwrap_or_default();
         if ends.contains(&point) {
             return true;

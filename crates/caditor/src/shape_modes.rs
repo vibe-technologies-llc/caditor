@@ -215,6 +215,8 @@ impl ShapeModes {
             | Tool::Extend
             | Tool::Offset
             | Tool::Mirror
+            | Tool::RectangularPattern
+            | Tool::CircularPattern
             | Tool::Fillet
             | Tool::Chamfer
             | Tool::Project

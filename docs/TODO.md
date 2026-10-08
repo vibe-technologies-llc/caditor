@@ -128,8 +128,8 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   faces it cuts and following the model through recompute like any projection.
 - [medium · hard] Tools missing: ellipse and elliptical arc (a new entity kind across the solver,
   the kernel's 2D profile curves, which have no ellipse although its 3D curves do, and the file
-  format), a conic curve (two ends and a point it passes, shaped by a rho value), rectangular and
-  circular patterns of sketch geometry and a pattern along a path, text (a font, a height, bold and
+  format), a conic curve (two ends and a point it passes, shaped by a rho value), a pattern of
+  sketch geometry along a path, text (a font, a height, bold and
   italic, set along a curve, its letters becoming closed regions that extrude), and fit-point,
   closed or periodic splines (`BSpline::through` serves only DXF import, `BSpline::interpolate`
   only its own tests, and the control polygon is not drawn).

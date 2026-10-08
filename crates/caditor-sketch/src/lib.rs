@@ -11,6 +11,7 @@ mod intersect;
 mod mirror;
 mod offset;
 mod open_ends;
+mod pattern;
 mod relation;
 mod sketch;
 mod solve;
@@ -28,6 +29,10 @@ pub use crate::{
     id::{ConstraintId, EntityId, Reference},
     mirror::{MirrorError, MirrorImage},
     offset::{Chain, OffsetError, Outline, Side},
+    pattern::{
+        CircularPattern, MAX_PATTERN_INSTANCES, PatternError, PatternImage, PatternRow,
+        PatternValue, RectangularPattern, Spread,
+    },
     relation::Relations,
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{Drag, EntityState, Redundancy, SketchSolution, SolveMemo, Solved},

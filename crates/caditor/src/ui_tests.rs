@@ -69,6 +69,7 @@ mod feature_panels;
 mod import_jobs;
 mod screenshots;
 mod selection_targets;
+mod sketch_patterns;
 mod sketch_regions;
 
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));

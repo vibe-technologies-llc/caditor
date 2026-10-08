@@ -31,13 +31,15 @@ pub enum Tool {
     Extend,
     Offset,
     Mirror,
+    RectangularPattern,
+    CircularPattern,
     Fillet,
     Chamfer,
     Project,
     Dimension,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, Fillet, Chamfer, Project, Dimension);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, Fillet, Chamfer, Project, Dimension);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -57,6 +59,8 @@ impl Tool {
             Self::Extend => "Extend",
             Self::Offset => "Offset",
             Self::Mirror => "Mirror",
+            Self::RectangularPattern => "Rectangular pattern",
+            Self::CircularPattern => "Circular pattern",
             Self::Fillet => "Sketch fillet",
             Self::Chamfer => "Sketch chamfer",
             Self::Project => "Project",
@@ -97,6 +101,14 @@ impl Tool {
                 "Copy the selected geometry mirrored about a line or axis, kept mirrored as the \
                  original changes"
             }
+            Self::RectangularPattern => {
+                "Repeat the selected geometry along one or two directions at a spacing, kept \
+                 repeated as the original changes"
+            }
+            Self::CircularPattern => {
+                "Repeat the selected geometry about a point, turned by equal steps, kept \
+                 repeated as the original changes"
+            }
             Self::Fillet => {
                 "Round the corner where two lines or arcs meet with an arc tangent to both"
             }
@@ -122,6 +134,8 @@ impl Tool {
             | Self::Extend
             | Self::Offset
             | Self::Mirror
+            | Self::RectangularPattern
+            | Self::CircularPattern
             | Self::Fillet
             | Self::Chamfer
             | Self::Project
@@ -150,7 +164,12 @@ impl Tool {
     pub fn reshapes(self) -> bool {
         matches!(
             self,
-            Self::Offset | Self::Mirror | Self::Fillet | Self::Chamfer
+            Self::Offset
+                | Self::Mirror
+                | Self::RectangularPattern
+                | Self::CircularPattern
+                | Self::Fillet
+                | Self::Chamfer
         )
     }
 

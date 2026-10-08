@@ -8,6 +8,7 @@ paths:
   - "crates/caditor/src/modifying.rs"
   - "crates/caditor/src/offsetting.rs"
   - "crates/caditor/src/mirroring.rs"
+  - "crates/caditor/src/patterning.rs"
   - "crates/caditor/src/filleting.rs"
   - "crates/caditor/src/shapes.rs"
   - "crates/caditor/src/shape_modes.rs"
@@ -201,9 +202,9 @@ paths:
   frame (`annotations::paint_frame`): solid for conflicting, dashed for redundant, in the mark's
   colour.
 
-## Trim, extend, offset, mirror and sketch fillet
+## Trim, extend, offset, mirror, patterns and sketch fillet
 
-- `trimming.rs` and `modifying.rs` (a facade over `offsetting.rs`, `mirroring.rs`, `filleting.rs`)
+- `trimming.rs` and `modifying.rs` (a facade over `offsetting.rs`, `mirroring.rs`, `patterning.rs`, `filleting.rs`)
   hold the tools' UI state; geometry and constraint rules are the sketch's (`sketch.md`). Each
   frame the tool aims through the displayed sketch, previews the result and puts its words, or
   why not, where hover descriptions go. Trim and Extend aim at splines too, so they can be refused
@@ -222,6 +223,20 @@ paths:
   pointer's side and distance choose side and distance, previewed live. Mirror copies the
   selection about the line or axis under the pointer (sketch lines win a tie with an axis) and
   asks for a selection first.
+- Rectangular pattern and Circular pattern (`Tool::RectangularPattern`, `Tool::CircularPattern`,
+  `patterning.rs`; Sketch menu and palette, no default key since every free one is taken, and
+  not on the sketch bar, `sketch_toolbar::OFF_RIBBON`) repeat the selection (`sketch.md`, Patterns)
+  and ask for it first. Both take their numbers in the typed-point field ("Repeat"), which opens
+  on a digit and previews the copies live while the text parses; Enter makes one undoable
+  "Pattern geometry" transaction and an error (a refusal or text it cannot read) keeps the field
+  open. Rectangular reads `count x spacing`, optionally `< angle` for a slanted direction, and a
+  second such term after a comma for rows, square to the first unless it has its own angle:
+  `4 x 10`, `4 x 10, 3 x 15`, `3 x 12 < 45`. Circular reads `count` to space the copies over a
+  full turn or `count over angle` to spread them across it. Counts are whole numbers; spacings
+  and angles are expressions with parameters, kept as typed. Circular first needs its centre: the
+  one selected point no selected curve uses, else a point clicked or highlighted (the origin
+  included, Highlight the next item steps through points and Space or Enter chooses), shown
+  highlighted until Escape lets it go; the preview and Enter use it.
 - Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes a corner (a
   selected one, else the curve end under the pointer, `Sketch::corner_at`, refused in words when
   it is no corner); then the pointer sets the radius (`radius_through`). The chosen corner is

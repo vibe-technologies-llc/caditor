@@ -30,7 +30,7 @@ use crate::{
     interference_panel::{Mark, MarkKind},
     measure::MeasuredLine,
     model::{Action, Model, Notice, RecomputeStatus},
-    modifying::{Hint, Modifying, Outcome, Value},
+    modifying::{Hint, Modifying, Outcome},
     move_manipulator::{Handle, Manipulating, Manipulator},
     pattern_tools,
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
@@ -1373,7 +1373,12 @@ impl ViewportState {
             Tool::Offset | Tool::Fillet | Tool::Chamfer => {
                 return Some(PrimaryDrag::Pull { feature });
             }
-            Tool::Extend | Tool::Mirror | Tool::Project | Tool::Dimension => return None,
+            Tool::Extend
+            | Tool::Mirror
+            | Tool::RectangularPattern
+            | Tool::CircularPattern
+            | Tool::Project
+            | Tool::Dimension => return None,
             _ => {}
         }
         let projected = |entity: EntityId| {
@@ -2416,12 +2421,7 @@ impl ViewportState {
         if keys_free {
             self.typed_point.open_from_typing(ui.ctx());
         }
-        let shown = self
-            .typed_point
-            .text()
-            .and_then(|text| Value::typed(model, text).ok())
-            .map(|value| value.millimetres);
-        self.modifying.show_typed(shown);
+        self.modifying.show_text(model, self.typed_point.text());
         let hint = format!(
             "Lengths in {}   Enter: {}   Esc: cancel",
             model.length_unit().symbol(),
@@ -2438,10 +2438,8 @@ impl ViewportState {
         ) else {
             return;
         };
-        self.modifying.show_typed(None);
-        let entered = Value::typed(model, &typed.text)
-            .and_then(|value| self.modifying.enter_value(model, value));
-        match entered {
+        self.modifying.show_text(model, None);
+        match self.modifying.enter_text(model, &typed.text) {
             Ok(outcome) => self.modify(editing, outcome, actions),
             Err(error) => self.typed_point.open_with(typed.text, error),
         }

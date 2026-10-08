@@ -80,6 +80,7 @@ mod panels;
 mod parameter_table;
 mod pattern_panel;
 mod pattern_tools;
+mod patterning;
 mod portal;
 mod preferences;
 mod principal_tree;
