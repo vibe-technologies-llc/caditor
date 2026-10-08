@@ -85,8 +85,9 @@ paths:
   placed first (`place_press_point`), so one press-drag-release draws a line, rectangle or circle.
 - What is being drawn shows its size so far below the snap label (`Drawing::readout`): a line, a
   rectangle, a circle, a polygon (radius, or side, and its sides), an arc (radius, and the sweep once
-  its end is chosen), a three-point arc or circle (radius), a three-point rectangle (both sides) and
-  a slot (length and end diameter). Splines show none.
+  its end is chosen), a tangent arc (radius and sweep), a three-point arc or circle (radius), a
+  three-point rectangle (both sides), a slot (length and end diameter), an arc slot (radius, sweep,
+  then width) and a spline (length and angle of the leg from its last control point).
 - Holding Ctrl places the point exactly under the pointer: no snapping and no alignment guides
   (`Drawing::place_freely`). It also stops a tangent arc from starting, which needs a snapped
   point. Snapping on or off for good (`Command::ToggleSnapping`, View menu and palette, kept for the

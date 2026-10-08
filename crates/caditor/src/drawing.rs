@@ -722,10 +722,32 @@ impl Drawing {
         let (_, shape) = self.context?;
         let hover = self.hover?.position;
         let length = |millimetres: f64| unit.readout_text(millimetres);
+        let leg = |from: Point2| {
+            let delta = hover - from;
+            format!(
+                "{}   {}",
+                length(delta.length()),
+                unit.angle.readout_text(delta.y.atan2(delta.x).to_degrees())
+            )
+        };
         let sides = self.sides.0;
+        if let (Shape::Spline, [.., last]) = (shape, self.placed.as_slice()) {
+            return Some(leg(last.position));
+        }
         let [first] = self.placed.as_slice() else {
             return match (shape, self.placed.as_slice()) {
-                (Shape::Arc, [center, start]) => {
+                (Shape::Slot(SlotMode::Arc), [center, start, end]) => {
+                    let (first, last) = arc_ends(self.counter_clockwise(), *start, *end);
+                    let arc =
+                        ArcGeometry::from_points(center.position, first.position, last.position);
+                    Some(format!(
+                        "R {}   {}   × {}",
+                        length(arc.radius),
+                        unit.angle.readout_text(arc.sweep.to_degrees()),
+                        length(2.0 * (center.position.distance(hover) - arc.radius).abs())
+                    ))
+                }
+                (Shape::Arc | Shape::Slot(SlotMode::Arc), [center, start]) => {
                     let sweep = self.sweep?;
                     Some(format!(
                         "R {}   {}",
@@ -767,7 +789,19 @@ impl Drawing {
         };
         let delta = hover - first.position;
         match shape {
-            Shape::Arc => Some(format!("R {}", length(delta.length()))),
+            Shape::Arc | Shape::Slot(SlotMode::Arc) => {
+                Some(format!("R {}", length(delta.length())))
+            }
+            Shape::TangentArc => {
+                let tangent = self.tangent?;
+                let circular = shapes::tangent_from(first.position, tangent.direction, hover)?;
+                let arc = circular.arc(first.position, hover);
+                Some(format!(
+                    "R {}   {}",
+                    length(arc.radius),
+                    unit.angle.readout_text(arc.sweep.to_degrees())
+                ))
+            }
             Shape::Circle(CircleMode::ThreePoints) | Shape::ThreePointArc => {
                 Some(length(delta.length()))
             }
@@ -783,11 +817,7 @@ impl Drawing {
                 Some(format!("{}   {sides} sides", length(delta.length())))
             }
             Shape::Rectangle(RectangleMode::ThreePoints) => Some(length(delta.length())),
-            Shape::Line => Some(format!(
-                "{}   {}",
-                length(delta.length()),
-                unit.angle.readout_text(delta.y.atan2(delta.x).to_degrees())
-            )),
+            Shape::Line => Some(leg(first.position)),
             Shape::Rectangle(RectangleMode::Corners) => Some(format!(
                 "{} × {}",
                 length(delta.x.abs()),
