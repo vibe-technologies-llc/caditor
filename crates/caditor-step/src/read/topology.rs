@@ -5,14 +5,15 @@ use std::{
 
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
-    BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, IntersectionCurve, Interval,
-    LINEAR_RESOLUTION, PlaneSurface, Sense, ShellId, Solid, SolidBuilder, Surface, ValidationError,
-    VertexId,
+    BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, FacetedError,
+    IntersectionCurve, Interval, LINEAR_RESOLUTION, MeshQuality, PlaneSurface, Sense, ShellId,
+    Solid, SolidBuilder, Surface, ValidationError, VertexId, faceted_solids,
 };
 
 use crate::read::{
     geometry::Geometry,
     graph::{Entity, Graph, Problem, Read, friendly},
+    loose::{exact_kind, farthest, met_at_ends},
 };
 
 const LOOP_SAMPLES: usize = 16;
@@ -21,9 +22,21 @@ const HEAL_SAMPLES: usize = 48;
 const CLEAN: f64 = 0.25 * LINEAR_RESOLUTION;
 const VERTEX_ITERATIONS: usize = 30;
 const VERTEX_DAMPING: f64 = 1e-12;
+const COARSER_STEPS: i32 = 2;
+const COARSER_FACTOR: f64 = 2.0;
+const MAX_VERTEX_DAMPING: f64 = 1e6;
+const DAMPING_GROWTH: f64 = 10.0;
+const DAMPING_RELIEF: f64 = 0.1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Healing {
+    Exact,
+    Faceted,
+}
 
 pub(crate) struct Topology<'g, 'a> {
     geometry: &'g Geometry<'a>,
+    healing: Healing,
     builder: SolidBuilder,
     faces: BTreeMap<u64, FacePlan>,
     edge_faces: BTreeMap<u64, BTreeSet<u64>>,
@@ -35,6 +48,7 @@ pub(crate) struct Topology<'g, 'a> {
     sides: BTreeMap<(VertexId, VertexId), EdgeId>,
     face_entities: Vec<u64>,
     healed: usize,
+    loosest: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -85,6 +99,7 @@ pub(crate) struct Built {
     pub solid: Solid,
     pub healed: usize,
     pub unchecked: Option<[u64; 2]>,
+    pub faceted: bool,
 }
 
 struct FacePlan {
@@ -104,9 +119,10 @@ struct ShellPlan {
 }
 
 impl<'g, 'a> Topology<'g, 'a> {
-    pub fn new(geometry: &'g Geometry<'a>) -> Self {
+    pub fn new(geometry: &'g Geometry<'a>, healing: Healing) -> Self {
         Self {
             geometry,
+            healing,
             builder: SolidBuilder::new(),
             faces: BTreeMap::new(),
             edge_faces: BTreeMap::new(),
@@ -118,6 +134,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             sides: BTreeMap::new(),
             face_entities: Vec::new(),
             healed: 0,
+            loosest: 0.0,
         }
     }
 
@@ -148,13 +165,32 @@ impl<'g, 'a> Topology<'g, 'a> {
         }
         let healed = self.healed;
         let precision = self.geometry.units.precision;
-        let solid = self
-            .builder
-            .build()
-            .map_err(|error| Problem::new(id, describe_build(&error, precision)))?;
-        let check = solid
-            .find_crossing()
-            .map_err(|_| Problem::new(id, "was not checked, because the import was cancelled"))?;
+        let faceted = self.healing == Healing::Faceted;
+        let solid = if faceted {
+            let allowance = precision.unwrap_or(LINEAR_RESOLUTION);
+            if self.loosest > allowance {
+                return Err(Problem::new(
+                    id,
+                    format!(
+                        "has faces {} mm apart, more than the file's precision of {} mm",
+                        short(self.loosest),
+                        short(allowance)
+                    ),
+                ));
+            }
+            facets(&self.builder).map_err(|reason| Problem::new(id, reason))?
+        } else {
+            self.builder
+                .build()
+                .map_err(|error| Problem::new(id, describe_build(&error, precision)))?
+        };
+        let check = if faceted {
+            CrossingCheck::Clear
+        } else {
+            solid.find_crossing().map_err(|_| {
+                Problem::new(id, "was not checked, because the import was cancelled")
+            })?
+        };
         let entities =
             |faces: [FaceId; 2]| faces.map(|face| self.face_entities.get(face.index()).copied());
         let unchecked = match check {
@@ -183,6 +219,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             solid,
             healed,
             unchecked,
+            faceted,
         })
     }
 
@@ -546,6 +583,13 @@ impl<'g, 'a> Topology<'g, 'a> {
         let surfaces = self.surfaces_of(self.vertex_faces.get(&id));
         let (point, gap) = settle_on(point, &surfaces);
         self.note_repair(gap);
+        if self.healing == Healing::Faceted {
+            let left = surfaces
+                .iter()
+                .map(|surface| surface.distance(point))
+                .fold(0.0, f64::max);
+            self.loosest = self.loosest.max(left);
+        }
         let vertex = self
             .builder
             .vertex(point)
@@ -570,13 +614,32 @@ impl<'g, 'a> Topology<'g, 'a> {
         };
         let interval = self.interval(id, &curve, start, end)?;
         let surfaces = self.surfaces_of(self.edge_faces.get(&id));
-        let (curve, interval) = match self.heal_edge(&curve, interval, start, end, &surfaces) {
+        let traceable = self.healing == Healing::Exact || surfaces.iter().all(exact_kind);
+        let healed = match traceable
+            .then(|| self.heal_edge(&curve, interval, start, end, &surfaces))
+            .flatten()
+        {
+            None if self.healing == Healing::Faceted => self.joined(&curve, interval, [start, end]),
+            healed => healed,
+        };
+        let (curve, interval) = match healed {
             Some((healed, gap)) => {
                 self.note_repair(Some(gap));
                 healed
             }
             None => (curve, interval),
         };
+        if self.healing == Healing::Faceted {
+            let samples: Vec<Point3> = interval
+                .split(CHECK_SAMPLES)
+                .map(|parameter| curve.point(parameter))
+                .collect();
+            let left = surfaces
+                .iter()
+                .map(|surface| farthest(surface, &samples))
+                .fold(0.0, f64::max);
+            self.loosest = self.loosest.max(left);
+        }
         let edge = self
             .builder
             .edge(curve.clone(), interval, start, end)
@@ -633,6 +696,20 @@ impl<'g, 'a> Topology<'g, 'a> {
         let fits = rebuilt.point(domain.start()).distance(from) <= LINEAR_RESOLUTION
             && rebuilt.point(domain.end()).distance(to) <= LINEAR_RESOLUTION;
         fits.then_some(((Curve::Intersection(rebuilt), domain), gap))
+    }
+
+    fn joined(
+        &self,
+        curve: &Curve,
+        interval: Interval,
+        [start, end]: [VertexId; 2],
+    ) -> Option<((Curve, Interval), f64)> {
+        let ends = [
+            self.builder.vertex_point(start)?,
+            self.builder.vertex_point(end)?,
+        ];
+        let allowance = self.geometry.units.precision?;
+        met_at_ends(curve, interval, ends, allowance)
     }
 
     fn interval(&self, id: u64, curve: &Curve, start: VertexId, end: VertexId) -> Read<Interval> {
@@ -733,22 +810,6 @@ impl<'g, 'a> Topology<'g, 'a> {
     }
 }
 
-fn farthest(surface: &Surface, samples: &[Point3]) -> f64 {
-    let mut hint = None;
-    samples
-        .iter()
-        .map(|point| {
-            let hinted = hint.map(|hint| surface.project(*point, Some(hint)));
-            let foot = match hinted {
-                Some(uv) if surface.point_at(uv).distance(*point) <= CLEAN => uv,
-                _ => surface.project(*point, None),
-            };
-            hint = Some(foot);
-            surface.point_at(foot).distance(*point)
-        })
-        .fold(0.0, f64::max)
-}
-
 fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, Option<f64>) {
     let worst = |at: Point3| {
         surfaces
@@ -763,40 +824,14 @@ fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, Option<f64>) {
     let mut current = point;
     let mut current_worst = start;
     let mut hints: Vec<Option<Point2>> = vec![None; surfaces.len()];
+    let mut damping = VERTEX_DAMPING;
     for _ in 0..VERTEX_ITERATIONS {
-        let mut normal_matrix = [[0.0f64; 3]; 3];
-        let mut right = [0.0f64; 3];
-        for (surface, hint) in surfaces.iter().zip(hints.iter_mut()) {
-            let uv = surface.project(current, *hint);
-            *hint = Some(uv);
-            let foot = surface.point_at(uv);
-            let Some(normal) = surface.normal(uv.x, uv.y) else {
-                continue;
-            };
-            let gap = normal.dot(foot - current);
-            let components = normal.to_array();
-            for (row, value) in normal_matrix.iter_mut().zip(components) {
-                for (entry, other) in row.iter_mut().zip(components) {
-                    *entry += value * other;
-                }
-            }
-            for (entry, value) in right.iter_mut().zip(components) {
-                *entry += value * gap;
-            }
-        }
-        for (index, row) in normal_matrix.iter_mut().enumerate() {
-            if let Some(entry) = row.get_mut(index) {
-                *entry += VERTEX_DAMPING;
-            }
-        }
-        let Some(step) = solve3(normal_matrix, right) else {
+        let system = linearised_gaps(surfaces, current, &mut hints);
+        let Some((next, next_worst)) =
+            damped_step(system, (current, current_worst), &mut damping, worst)
+        else {
             break;
         };
-        let next = current + step;
-        let next_worst = worst(next);
-        if next_worst.is_nan() || next_worst >= current_worst {
-            break;
-        }
         current = next;
         current_worst = next_worst;
         if current_worst <= 1e-3 * LINEAR_RESOLUTION {
@@ -804,6 +839,60 @@ fn settle_on(point: Point3, surfaces: &[Surface]) -> (Point3, Option<f64>) {
         }
     }
     (current, (current_worst < start).then_some(start))
+}
+
+fn linearised_gaps(
+    surfaces: &[Surface],
+    at: Point3,
+    hints: &mut [Option<Point2>],
+) -> ([[f64; 3]; 3], [f64; 3]) {
+    let mut normal_matrix = [[0.0f64; 3]; 3];
+    let mut right = [0.0f64; 3];
+    for (surface, hint) in surfaces.iter().zip(hints.iter_mut()) {
+        let uv = surface.project(at, *hint);
+        *hint = Some(uv);
+        let foot = surface.point_at(uv);
+        let Some(normal) = surface.normal(uv.x, uv.y) else {
+            continue;
+        };
+        let gap = normal.dot(foot - at);
+        let components = normal.to_array();
+        for (row, value) in normal_matrix.iter_mut().zip(components) {
+            for (entry, other) in row.iter_mut().zip(components) {
+                *entry += value * other;
+            }
+        }
+        for (entry, value) in right.iter_mut().zip(components) {
+            *entry += value * gap;
+        }
+    }
+    (normal_matrix, right)
+}
+
+fn damped_step(
+    (normal_matrix, right): ([[f64; 3]; 3], [f64; 3]),
+    (current, current_worst): (Point3, f64),
+    damping: &mut f64,
+    worst: impl Fn(Point3) -> f64,
+) -> Option<(Point3, f64)> {
+    while *damping <= MAX_VERTEX_DAMPING {
+        let mut damped = normal_matrix;
+        for (index, row) in damped.iter_mut().enumerate() {
+            if let Some(entry) = row.get_mut(index) {
+                *entry += *damping;
+            }
+        }
+        if let Some(step) = solve3(damped, right) {
+            let next = current + step;
+            let next_worst = worst(next);
+            if next_worst < current_worst {
+                *damping = (*damping * DAMPING_RELIEF).max(VERTEX_DAMPING);
+                return Some((next, next_worst));
+            }
+        }
+        *damping *= DAMPING_GROWTH;
+    }
+    None
 }
 
 fn solve3(matrix: [[f64; 3]; 3], right: [f64; 3]) -> Option<Vector3> {
@@ -819,6 +908,34 @@ fn solve3(matrix: [[f64; 3]; 3], right: [f64; 3]) -> Option<Vector3> {
         (a * (e * z - y * h) - b * (d * z - y * g) + x * (d * h - e * g)) / determinant,
     );
     solution.is_finite().then_some(solution)
+}
+
+fn facets(builder: &SolidBuilder) -> Result<Solid, String> {
+    let mut last = String::new();
+    let coarse = MeshQuality::COARSE;
+    let coarser = (1..=COARSER_STEPS).filter_map(|step| {
+        let scale = COARSER_FACTOR.powi(step);
+        MeshQuality::new(coarse.chord_fraction() * scale, coarse.angle() * scale)
+    });
+    for quality in [MeshQuality::SMOOTH, coarse].into_iter().chain(coarser) {
+        let mesh = builder
+            .unvalidated_mesh(&quality)
+            .map_err(|error| format!("could not be meshed ({error})"))?;
+        match faceted_solids(&mesh) {
+            Ok(mut built) if built.solids.len() == 1 => {
+                return built
+                    .solids
+                    .pop()
+                    .ok_or_else(|| "did not close into one solid".to_owned());
+            }
+            Ok(_) => return Err("did not close into one solid".to_owned()),
+            Err(FacetedError::TooDetailed { faces }) => {
+                last = format!("would need {faces} flat faces, too many to import");
+            }
+            Err(error) => return Err(format!("did not close into a solid ({error})")),
+        }
+    }
+    Err(last)
 }
 
 fn upright(surface: Surface) -> (Surface, bool) {

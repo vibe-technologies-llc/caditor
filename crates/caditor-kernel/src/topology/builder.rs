@@ -6,13 +6,14 @@ use thiserror::Error;
 use crate::{
     curve::{Curve, Line},
     error::GeometryError,
+    faceted::TriangleMesh,
     interrupt::Interrupted,
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin},
     sense::Sense,
     surface::Surface,
-    tessellation::TessellationError,
-    tolerance::LINEAR_RESOLUTION,
+    tessellation::{self, TessellationError},
+    tolerance::{LINEAR_RESOLUTION, MeshQuality},
     topology::{
         Coedge, CoedgeId, Edge, EdgeId, Face, FaceId, Loop, LoopId, Shell, ShellId, Solid, Vertex,
         VertexId,
@@ -298,6 +299,21 @@ impl SolidBuilder {
                 error: error.into(),
             }),
         }
+    }
+
+    pub fn unvalidated_mesh(
+        &self,
+        quality: &MeshQuality,
+    ) -> Result<TriangleMesh, TessellationError> {
+        let tolerance = quality.tolerance(self.solid.extent());
+        let mesh = tessellation::tessellate(&self.solid, &tolerance)?;
+        Ok(TriangleMesh {
+            positions: mesh.positions().to_vec(),
+            triangles: mesh
+                .position_triangles()
+                .map(|triangle| triangle.map(|corner| corner as usize))
+                .collect(),
+        })
     }
 
     #[cfg(test)]

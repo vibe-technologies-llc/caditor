@@ -255,6 +255,49 @@ impl<P: Coordinates> BSpline<P> {
         restricted.ok()
     }
 
+    pub fn interpolating(degree: usize, points: &[P]) -> Result<Self, GeometryError> {
+        let count = points.len();
+        if degree == 0 || degree > MAX_SPLINE_DEGREE {
+            return Err(GeometryError::SplineDegree(degree));
+        }
+        if count <= degree {
+            return Err(GeometryError::TooFewControlPoints {
+                degree,
+                points: count,
+            });
+        }
+        let mut parameters = Vec::with_capacity(count);
+        let mut travelled = 0.0;
+        for (index, point) in points.iter().enumerate() {
+            if let Some(previous) = index.checked_sub(1).and_then(|before| points.get(before)) {
+                let step = point.distance_to(*previous);
+                if step.is_nan() || step <= 0.0 {
+                    return Err(GeometryError::ZeroDirection);
+                }
+                travelled += step;
+            }
+            parameters.push(travelled);
+        }
+        let mut knots = vec![0.0; degree + 1];
+        for first in 1..count - degree {
+            let window = parameters.get(first..first + degree).unwrap_or_default();
+            knots.push(window.iter().sum::<f64>() / degree as f64);
+        }
+        knots.extend(std::iter::repeat_n(travelled, degree + 1));
+        let shape = Self::new(degree, knots.clone(), vec![P::ORIGIN; count])?;
+        let mut band: Vec<[f64; ROW_WIDTH]> = Vec::with_capacity(count);
+        let mut firsts = Vec::with_capacity(count);
+        for parameter in &parameters {
+            let span = shape.span(*parameter);
+            let table = shape.basis_table(span, *parameter);
+            band.push(table.get(degree).copied().unwrap_or(ZERO_ROW));
+            firsts.push(span - degree);
+        }
+        let solved =
+            solve_collocation(&band, &firsts, points, degree).ok_or(GeometryError::NonFinite)?;
+        Self::new(degree, knots, solved)
+    }
+
     fn weight(&self, index: usize) -> f64 {
         self.weights
             .as_ref()
@@ -494,6 +537,55 @@ fn insert_knot<P: Coordinates>(
     Some(())
 }
 
+fn solve_collocation<P: Coordinates>(
+    band: &[[f64; MAX_SPLINE_DEGREE + 1]],
+    firsts: &[usize],
+    points: &[P],
+    degree: usize,
+) -> Option<Vec<P>> {
+    let count = points.len();
+    let width = 2 * degree + 1;
+    let mut matrix = vec![0.0; count * width];
+    let at = |row: usize, column: usize| (row * width + column + degree).checked_sub(row);
+    for (row, (values, first)) in band.iter().zip(firsts).enumerate() {
+        for (offset, value) in values.iter().take(degree + 1).enumerate() {
+            let slot = at(row, first + offset)?;
+            *matrix.get_mut(slot)? = *value;
+        }
+    }
+    let mut right = points.to_vec();
+    for pivot in 0..count {
+        let diagonal = *matrix.get(at(pivot, pivot)?)?;
+        if diagonal.abs() <= f64::MIN_POSITIVE {
+            return None;
+        }
+        for row in pivot + 1..(pivot + degree + 1).min(count) {
+            let factor = *matrix.get(at(row, pivot)?)? / diagonal;
+            if factor == 0.0 {
+                continue;
+            }
+            for column in pivot..(pivot + degree + 1).min(count) {
+                let source = *matrix.get(at(pivot, column)?)?;
+                *matrix.get_mut(at(row, column)?)? -= factor * source;
+            }
+            let source = *right.get(pivot)?;
+            let target = right.get_mut(row)?;
+            *target = *target - source * factor;
+        }
+    }
+    for row in (0..count).rev() {
+        let mut sum = *right.get(row)?;
+        for column in row + 1..(row + degree + 1).min(count) {
+            sum = sum - *right.get(column)? * *matrix.get(at(row, column)?)?;
+        }
+        *right.get_mut(row)? = sum * (1.0 / *matrix.get(at(row, row)?)?);
+    }
+    right
+        .iter()
+        .all(|point| point.all_finite())
+        .then_some(right)
+}
+
 const ROW_WIDTH: usize = MAX_SPLINE_DEGREE + 1;
 type BasisRow = [f64; ROW_WIDTH];
 const ZERO_ROW: BasisRow = [0.0; ROW_WIDTH];
@@ -730,5 +822,35 @@ mod tests {
         assert_eq!(seeds.first(), Some(&0.0));
         assert_eq!(seeds.last(), Some(&1.0));
         assert!(seeds.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[test]
+    fn an_interpolating_spline_passes_through_its_points_and_follows_their_curve() {
+        let on_helix = |angle: f64| Point3::new(angle.cos(), angle.sin(), 0.2 * angle);
+        let points: Vec<Point3> = (0..=24)
+            .map(|index| on_helix(index as f64 * 0.25))
+            .collect();
+
+        let spline = BSpline::interpolating(3, &points).unwrap();
+        let domain = spline.domain();
+        let curve = crate::curve::Curve::BSpline(spline.clone());
+        let off = |point: Point3| {
+            curve
+                .point(curve.closest_parameter(point, domain))
+                .distance(point)
+        };
+
+        assert!(spline.point(domain.start()).distance(points[0]) < 1e-12);
+        assert!(spline.point(domain.end()).distance(points[24]) < 1e-12);
+        assert!(points.iter().all(|point| off(*point) < 1e-9));
+        assert!(off(on_helix(3.125)) < 1e-4, "{}", off(on_helix(3.125)));
+        assert!(matches!(
+            BSpline::interpolating(3, &points[..3]),
+            Err(GeometryError::TooFewControlPoints { .. })
+        ));
+        assert!(matches!(
+            BSpline::interpolating(3, &[Point3::ZERO; 5]),
+            Err(GeometryError::ZeroDirection)
+        ));
     }
 }

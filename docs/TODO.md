@@ -237,13 +237,14 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## STEP import and export
 
-- [high · hard] Healing moves vertices onto their faces and rebuilds an edge only between exactly
-  two distinct faces, so real Fusion 360 exports are still refused whole over a vertex a few
-  micrometres off an edge that has one face (a cylinder seam, used twice) or whose two faces meet
-  along a line `IntersectionCurve::through` cannot rebuild (two half-cylinders), though the file
-  declares 0.01 mm. Project the vertices onto lines, circles and ellipses within the declared
-  precision instead. Faces that meet only within a coarse declared precision are refused rather than
-  refitted to each other.
+- [high · hard] A body whose faces meet only within the file's declared precision (CATIA and
+  Autodesk exports whose tangent fillet splines sit micrometres apart) imports as flat facets, losing
+  its curved faces. Refit the spline faces to each other within that precision instead, so the body
+  stays exact: an experiment on the local `step-face-bending` branch bends each spline's control
+  net onto its rebuilt edges (side rows fitted in 1D, knots inserted where pins miss) but does not
+  yet converge on every face of such a file and takes minutes. Healing still traces an edge only
+  between exactly two distinct faces, so an edge used twice by one face (a cylinder seam) with a
+  vertex a few micrometres off is refused outright when the file declares no precision.
 - [medium · medium] Import canonicalises each placement by writing and re-reading it, and stores
   every placement of a product as its own STEP text. Build each representation once and store each
   product once with placements.

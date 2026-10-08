@@ -73,8 +73,23 @@ paths:
   vertex. The inside of a horn is refused (no volume).
 - `OFFSET_SURFACE` of a plane, cylinder, sphere, torus or cone is the exact surface of the same
   kind; one leaving no surface, or of a spline, extrusion or revolution, is refused in words.
-- Vertices off their faces move onto all of them by damped least squares; edges farther than a
-  quarter of the resolution from either face are rebuilt with `IntersectionCurve::through`.
+- Vertices off their faces move onto all of them by Levenberg–Marquardt least squares (the damping
+  grows until a step lowers the worst gap, so nearly tangent faces cannot make it overshoot); edges
+  farther than a quarter of the resolution from either face are rebuilt with
+  `IntersectionCurve::through`.
 - The outer loop is the `FACE_OUTER_BOUND`, else the one using a seam, else the largest by area;
   faces bounded only by `VERTEX_LOOP`s get a pole-to-pole seam. `POLY_LOOP` faces get line edges
   shared by corner position and a plane from the polygon when none is named.
+
+## Faceted fallback
+
+- A body the exact build refuses is built again in `Healing::Faceted` when the file declares a
+  precision: intersection edges are traced only between elementary faces, and an edge whose ends
+  miss its vertices keeps the file's curve with the miss blended in (`loose::met_at_ends`, a line
+  rebuilt through its vertices). If every vertex and edge then lies within the declared precision of
+  its faces, the unvalidated body is meshed (`SolidBuilder::unvalidated_mesh`, `SMOOTH`, then
+  coarser while `faceted_solids` finds too many faces) and imported as the one planar solid
+  `faceted_solids` makes, with a note per body; otherwise the exact refusal stands. Like a mesh
+  import it skips `find_crossing`, since `faceted_solids` already leaves out self-folding shells.
+- Faceted bodies lose their curved faces (no fillets on them, no exact measures). Refitting the
+  faces to each other instead is the roadmap item in `docs/TODO.md`.

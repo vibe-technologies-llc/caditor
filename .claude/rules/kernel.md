@@ -45,6 +45,8 @@ paths:
   a point no seed reaches within the resolution is sought from the nearest of a few samples in each
   span whose hull holds it (at most `MAX_SPAN_SEARCHES`), so a point on a dense, rough net always
   finds its foot.
+- `BSpline::interpolating` passes a clamped spline through points at chord-length parameters with
+  averaged knots (a banded solve, no pivoting, as the collocation matrix is totally positive).
 - `BSpline::restricted` is the exact piece of a spline over a range, by knot insertion in
   homogeneous coordinates; drawing export writes a trimmed spline edge with it.
 - Lengths are compared through `is_longer_than` (the chord, then a polyline through the seeds, and
@@ -73,7 +75,9 @@ paths:
 
 ## Topology
 
-- A `Solid` is an arena of typed ids built by `SolidBuilder::build`, which validates.
+- A `Solid` is an arena of typed ids built by `SolidBuilder::build`, which validates. An importer
+  whose geometry does not validate may still mesh what it built (`SolidBuilder::unvalidated_mesh`)
+  to pass to `faceted_solids`; the unvalidated arena itself never leaves the builder.
 - A coedge's pcurve is a uv polyline carrying each sample's edge parameter, exact ends, chords
   within its tolerance in space, continuous across seams. A fitted pcurve's tolerance is
   `PCURVE_TOLERANCE`, or half of how far the edge bows from the chord between its ends when that is

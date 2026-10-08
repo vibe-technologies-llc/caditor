@@ -878,21 +878,57 @@ fn only_repairs_beyond_the_precision_of_the_file_are_reported() {
 }
 
 #[test]
-fn faces_that_meet_only_as_closely_as_the_file_declares_are_refused_with_its_precision() {
+fn faces_that_meet_only_as_closely_as_the_file_declares_import_as_facets() {
     let bent = faceted_cube("FACETED_BREP('cube',#40)", false)
         .replace("(10.0,10.0,10.0)", "(10.0,10.0,10.0005)");
     let declared = with_precision(&bent, "FACETED_BREP_SHAPE_REPRESENTATION", 41, "1.E-3");
 
-    let refusal = |text: &str| read_step(text).unwrap_err().to_string();
-    let (plain, precise) = (refusal(&bent), refusal(&declared));
+    let plain = read_step(&bent).unwrap_err().to_string();
+    let model = read_step(&declared).unwrap();
+    let tolerance = caditor_kernel::SamplingTolerance::new(0.01, 0.3).unwrap();
+    let volume = fixtures::mesh_volume(&model.solids[0].solid.tessellate(&tolerance).unwrap());
 
     assert!(bent.contains("(10.0,10.0,10.0005)"));
     assert!(plain.contains("meet only within"), "{plain}");
     assert!(!plain.contains("precision"), "{plain}");
+    assert_eq!(model.solids.len(), 1);
     assert!(
-        precise.contains("which the file's precision of 0.001 mm allows"),
-        "{precise}"
+        model
+            .notes
+            .iter()
+            .any(|note| note.contains("“cube” was imported as flat facets")),
+        "{:?}",
+        model.notes
     );
+    assert!((volume - 1000.0).abs() < 0.01, "{volume}");
+}
+
+#[test]
+fn a_curved_face_off_its_neighbour_within_the_declared_precision_imports_as_facets() {
+    let original = include_str!("samples/loft.step");
+    let loose = original
+        .replace(
+            "#54 = CARTESIAN_POINT('',(10.,1.121997376282,0.));",
+            "#54 = CARTESIAN_POINT('',(10.,1.121997376282,3.E-03));",
+        )
+        .replace("LENGTH_MEASURE(1.E-07)", "LENGTH_MEASURE(1.E-02)");
+    let strict = loose.replace("LENGTH_MEASURE(1.E-02)", "LENGTH_MEASURE(1.E-07)");
+
+    let model = sample(&loose);
+    let refusal = read_step(&strict).unwrap_err().to_string();
+
+    assert_ne!(loose, original);
+    assert_eq!(model.solids.len(), 1);
+    assert!(
+        model
+            .notes
+            .iter()
+            .any(|note| note.contains("was imported as flat facets")),
+        "{:?}",
+        model.notes
+    );
+    assert_volume(&model.solids[0].solid, 4494.9012);
+    assert!(refusal.contains("could not be rebuilt"), "{refusal}");
 }
 
 fn bulged_vase() -> caditor_kernel::Solid {

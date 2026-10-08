@@ -1,5 +1,6 @@
 mod geometry;
 mod graph;
+mod loose;
 mod spline;
 mod structure;
 #[cfg(test)]
@@ -18,7 +19,7 @@ use crate::{
         geometry::{Geometry, MAX_WORK, Work},
         graph::{Entity, Graph, Problem},
         structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
-        topology::{Built, SolidShells, Topology},
+        topology::{Built, Healing, SolidShells, Topology},
         units::Units,
     },
 };
@@ -183,6 +184,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
     let mut unnamed_units = false;
     let mut converted: Vec<f64> = Vec::new();
     let mut repaired = 0;
+    let mut faceted_bodies = Vec::new();
     let mut unchecked_notes = Vec::new();
     let encloses = |entity: &Entity<'_>| {
         entity.fields().is_ok_and(|fields| {
@@ -270,8 +272,13 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                 solid,
                 healed,
                 unchecked,
+                faceted,
             }) => {
-                repaired += healed;
+                if faceted {
+                    faceted_bodies.push(name.clone());
+                } else {
+                    repaired += healed;
+                }
                 if let Some(faces) = unchecked {
                     unchecked_notes.push(unchecked_note(&name, faces));
                 }
@@ -318,6 +325,9 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
             .iter()
             .map(|(name, misplacement)| misplacement.note(name)),
     );
+    model
+        .notes
+        .extend(faceted_bodies.iter().map(|name| faceted_note(name)));
     model.notes.extend(unchecked_notes);
     model.notes.extend(damage_notes(&exchange));
     if structure.truncated {
@@ -455,6 +465,14 @@ fn unit_name(millimetres: f64) -> String {
         )
 }
 
+fn faceted_note(name: &str) -> String {
+    format!(
+        "“{name}” was imported as flat facets, because its faces meet only within the file's \
+         precision and not within the 0.000001 mm caditor needs; its curved faces are \
+         approximated by flat ones, so they cannot be filleted or measured as curves."
+    )
+}
+
 fn unchecked_note(name: &str, [first, second]: [u64; 2]) -> String {
     let what = if first == second {
         format!("the edges of its face #{first} cross each other")
@@ -523,7 +541,14 @@ impl<'a> Builder<'a> {
             .geometries
             .get(position)
             .ok_or_else(|| Problem::new(id, "could not be read"))?;
-        let built = Topology::new(geometry).solid(id, &key.0);
+        let built = Topology::new(geometry, Healing::Exact)
+            .solid(id, &key.0)
+            .or_else(|problem| match geometry.units.precision {
+                Some(_) => Topology::new(geometry, Healing::Faceted)
+                    .solid(id, &key.0)
+                    .map_err(|_| problem),
+                None => Err(problem),
+            });
         self.builds.insert(key, (id, built.clone()));
         built
     }
