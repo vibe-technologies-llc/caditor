@@ -639,6 +639,7 @@ impl Command {
                 Tool::Offset => "sketch.offset",
                 Tool::Mirror => "sketch.mirror",
                 Tool::Fillet => "sketch.fillet",
+                Tool::Chamfer => "sketch.chamfer",
                 Tool::Project => "sketch.project",
                 Tool::Dimension => "sketch.dimension",
             },
@@ -822,6 +823,7 @@ impl Command {
             Self::SketchTool(Tool::Offset) => "Offset sketch curves",
             Self::SketchTool(Tool::Mirror) => "Mirror sketch geometry",
             Self::SketchTool(Tool::Fillet) => "Fillet a sketch corner",
+            Self::SketchTool(Tool::Chamfer) => "Chamfer a sketch corner",
             Self::SketchTool(Tool::Project) => "Project model geometry into the sketch",
             Self::SketchTool(Tool::Dimension) => "Smart dimension",
             Self::SketchTool(tool) => return format!("Draw {}", tool.label().to_lowercase()),
@@ -1277,6 +1279,7 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::Offset => plain(Key::W),
         Tool::Mirror => plain(Key::Y),
         Tool::Fillet => plain(Key::B),
+        Tool::Chamfer => Some(KeyboardShortcut::new(Modifiers::SHIFT, Key::B)),
         Tool::Project => Some(KeyboardShortcut::new(Modifiers::ALT, Key::P)),
         Tool::Dimension => plain(Key::D),
     }

@@ -6,7 +6,7 @@ use crate::{
     drawing::Preview,
     editing::{ActiveSketch, Tool},
     field::{self, Expected},
-    filleting::{self, Filleting},
+    filleting::{CornerCut, Filleting},
     mirroring::Mirroring,
     model::Model,
     offsetting::{self, Offsetting},
@@ -141,10 +141,18 @@ impl Modifying {
             self.state = match (context, sketch) {
                 (Some((_, Tool::Offset)), _) => State::Offset(Offsetting::default()),
                 (Some((_, Tool::Mirror)), _) => State::Mirror(Mirroring::default()),
-                (Some((_, Tool::Fillet)), Some(sketch)) => {
-                    State::Fillet(Box::new(Filleting::starting(sketch, selected)))
+                (Some((_, Tool::Fillet)), Some(sketch)) => State::Fillet(Box::new(
+                    Filleting::starting(sketch, selected, CornerCut::Round),
+                )),
+                (Some((_, Tool::Chamfer)), Some(sketch)) => State::Fillet(Box::new(
+                    Filleting::starting(sketch, selected, CornerCut::Chamfer),
+                )),
+                (Some((_, Tool::Fillet)), None) => {
+                    State::Fillet(Box::new(Filleting::new(CornerCut::Round)))
                 }
-                (Some((_, Tool::Fillet)), None) => State::Fillet(Box::default()),
+                (Some((_, Tool::Chamfer)), None) => {
+                    State::Fillet(Box::new(Filleting::new(CornerCut::Chamfer)))
+                }
                 _ => State::Idle,
             };
         }
@@ -222,7 +230,7 @@ impl Modifying {
     pub fn value_field(&self) -> Option<ValueField> {
         match &self.state {
             State::Offset(_) => Some(offsetting::FIELD),
-            State::Fillet(_) => Some(filleting::FIELD),
+            State::Fillet(filleting) => Some(filleting.field()),
             State::Mirror(_) | State::Idle => None,
         }
     }

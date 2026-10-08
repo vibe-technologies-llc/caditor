@@ -207,9 +207,13 @@ paths:
 - Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes a corner (a
   selected one, else the curve end under the pointer, `Sketch::corner_at`, refused in words when
   it is no corner); then the pointer sets the radius (`radius_through`). The chosen corner is
-  cleared after each fillet.
-- Offset and Sketch fillet take a typed value in the typed-point field ("Offset by", "Fillet
-  radius"): the preview follows the text while it parses, Enter commits the expression as typed
+  cleared after each fillet. Sketch chamfer (`Tool::Chamfer`) is the same tool cutting the corner
+  instead (`filleting::CornerCut`): the pointer sets the distance (`distance_through`) and the
+  field is "Chamfer distance". It is not on the sketch bar, whose Modify group would widen past
+  one row (`sketch_toolbar::OFF_RIBBON`, its command still offered there); the Sketch menu, the
+  palette and its key reach it.
+- Offset, Sketch fillet and Sketch chamfer take a typed value in the typed-point field ("Offset
+  by", "Fillet radius", "Chamfer distance"): the preview follows the text while it parses, Enter commits the expression as typed
   (parameters included) and an error keeps the field open. A negative offset goes to the other
   side, so the keyboard alone does it: select, Offset, the distance, Enter.
 - With any of them active the highlight commands step through that tool's targets instead of the

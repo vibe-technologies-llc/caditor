@@ -22,7 +22,7 @@ pub use crate::{
     constraint::{Constraint, DimensionError, MAX_LENGTH},
     curve::{ArcGeometry, BSpline, Faceting},
     entity::Entity,
-    fillet::{Corner, FilletError, Rounding},
+    fillet::{Bevel, Corner, FilletError, Rounding},
     fit::FittedSpline,
     id::{ConstraintId, EntityId, Reference},
     mirror::{MirrorError, MirrorImage},

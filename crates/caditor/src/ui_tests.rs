@@ -6796,7 +6796,9 @@ fn the_arc_button_offers_each_way_to_draw_an_arc_and_keeps_the_last_chosen() {
 fn sketch_bar_buttons() -> Vec<String> {
     Tool::ALL
         .into_iter()
-        .filter(|tool| !sketch_toolbar::ARC_TOOLS.contains(tool))
+        .filter(|tool| {
+            !sketch_toolbar::ARC_TOOLS.contains(tool) && !sketch_toolbar::OFF_RIBBON.contains(tool)
+        })
         .map(Tool::label)
         .chain(ConstraintTool::ALL.map(ConstraintTool::label))
         .chain([
@@ -15201,6 +15203,53 @@ fn a_sketch_fillet_rounds_the_clicked_corner_with_a_typed_radius_in_one_undoable
     assert_eq!(constraints_of_kind(sketch, "Radius").len(), 1);
     assert_eq!(harness.model.undo_label(), Some(filleting::TRANSACTION));
     assert!(harness.shows(filleting::CORNER_PROMPT));
+
+    harness.key(Key::Z, Modifiers::COMMAND);
+    harness.frame();
+    assert!(harness.sketch(feature).same_content(&before));
+}
+
+#[test]
+fn a_sketch_chamfer_cuts_the_clicked_corner_with_a_typed_distance_kept_as_dimensions() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::ZERO, Point2::new(40.0, 20.0));
+    let lines = entities_of_kind(&sketch, "Line");
+    let [first, second] = [lines[0], lines[1]].map(|line| sketch.entity_label(line));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let before = harness.sketch(feature).clone();
+
+    harness.use_tool_with(Key::B, Modifiers::SHIFT);
+    assert_eq!(harness.tool(), Some(Tool::Chamfer));
+    assert!(harness.shows(filleting::CHAMFER_CORNER_PROMPT));
+    harness.point_at(Point2::new(40.0, 0.0));
+    assert!(harness.shows(&format!("Cut the corner of {first} and {second}")));
+    harness.click_at(Point2::new(40.0, 0.0));
+    assert!(harness.shows(filleting::DISTANCE_PROMPT));
+
+    type_point(&mut harness, "25");
+    assert!(harness.shows(&format!(
+        "Sketch chamfer: the chamfer distance is too large for {second}."
+    )));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    type_point(&mut harness, "5");
+    let sketch = harness.sketch(feature);
+    let lines = entities_of_kind(sketch, "Line");
+    assert_eq!(lines.len(), 5);
+    assert!(
+        lines
+            .iter()
+            .filter_map(|line| sketch.line_endpoints(*line))
+            .any(|(start, end)| near(start, Point2::new(35.0, 0.0))
+                && near(end, Point2::new(40.0, 5.0)))
+    );
+    assert_eq!(constraints_of_kind(sketch, "Distance").len(), 2);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(filleting::CHAMFER_TRANSACTION)
+    );
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();

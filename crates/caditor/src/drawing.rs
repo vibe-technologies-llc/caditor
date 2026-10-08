@@ -145,6 +145,7 @@ impl Shape {
             | Tool::Offset
             | Tool::Mirror
             | Tool::Fillet
+            | Tool::Chamfer
             | Tool::Project
             | Tool::Dimension => None,
         }

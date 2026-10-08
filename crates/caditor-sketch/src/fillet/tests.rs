@@ -313,7 +313,7 @@ fn only_a_corner_of_two_lines_or_arcs_can_be_filleted() {
     assert_eq!(
         sketch.corner_at(stem_end).unwrap_err().to_string(),
         format!(
-            "3 curves meet at {}; a fillet rounds the corner between two",
+            "3 curves meet at {}; only a corner between two can be rounded or cut",
             label(stem_end)
         )
     );
@@ -376,4 +376,78 @@ fn every_rectangle_corner_is_offered_once_and_the_drag_radius_passes_under_the_p
     let rounding = sketch.rounding(&found, radius).unwrap();
     let middle = rounding.center + (Point2::new(40.0, 0.0) - rounding.center).normalize() * radius;
     assert_near(middle, Point2::new(38.0, 2.0));
+}
+
+#[test]
+fn a_rectangle_corner_is_chamfered_and_keeps_its_distances_when_the_rectangle_widens() {
+    let Rectangle {
+        mut sketch,
+        sides,
+        width,
+        corner,
+    } = rectangle();
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+    let found = sketch.corner_at(corner).unwrap();
+    let bevel = sketch.bevel(&found, 5.0).unwrap();
+
+    assert_near(bevel.touches[0], Point2::new(35.0, 0.0));
+    assert_near(bevel.touches[1], Point2::new(40.0, 5.0));
+
+    let line = sketch.chamfer(&found, 5.0, mm(5.0)).unwrap();
+    let solved = solve(&sketch);
+    let (start, end) = ends(&sketch, line);
+
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+    assert_near(sketch.point(start).unwrap(), Point2::new(35.0, 0.0));
+    assert_near(sketch.point(end).unwrap(), Point2::new(40.0, 5.0));
+    assert!(has(&sketch, &Constraint::Coincident(corner, sides[0])));
+    assert!(has(&sketch, &Constraint::Coincident(corner, sides[1])));
+
+    sketch.set_dimension(width, mm(60.0)).unwrap();
+    let wider = solve(&sketch).geometry;
+
+    assert_near(wider.point(start).unwrap(), Point2::new(55.0, 0.0));
+    assert_near(wider.point(end).unwrap(), Point2::new(60.0, 5.0));
+}
+
+#[test]
+fn a_chamfer_longer_than_a_side_or_not_above_zero_is_refused() {
+    let Rectangle { sketch, corner, .. } = rectangle();
+    let found = sketch.corner_at(corner).unwrap();
+
+    assert!(matches!(
+        sketch.bevel(&found, 25.0),
+        Err(FilletError::TooFar { .. })
+    ));
+    assert_eq!(
+        sketch.bevel(&found, 0.0),
+        Err(FilletError::DistanceNotPositive)
+    );
+    assert!(
+        sketch
+            .distance_through(&found, Point2::new(37.5, 2.5))
+            .is_some_and(|distance| (distance - 5.0).abs() < EXACT)
+    );
+}
+
+#[test]
+fn a_corner_of_a_line_and_an_arc_is_chamfered_on_the_arc_by_its_chord() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 30.0), Point2::new(0.0, 10.0));
+    let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    let (_, line_end) = ends(&sketch, line);
+    let (_, arc_end) = ends(&sketch, arc);
+    sketch
+        .add_constraint(Constraint::Coincident(line_end, arc_end))
+        .unwrap();
+    let found = sketch.corner_between(line, arc).unwrap();
+
+    let bevel = sketch.bevel(&found, 4.0).unwrap();
+
+    assert_near(bevel.touches[0], Point2::new(0.0, 14.0));
+    assert!(bevel.touches[1].x > 0.0);
+    assert!((bevel.touches[1].length() - 10.0).abs() < EXACT);
+    assert!((bevel.touches[1].distance(Point2::new(0.0, 10.0)) - 4.0).abs() < EXACT);
+    assert!(sketch.chamfer(&found, 4.0, mm(4.0)).is_ok());
 }

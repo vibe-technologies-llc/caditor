@@ -82,7 +82,7 @@ paths:
 
 ## Editing operations
 
-Trim, extend, offset, mirror and fillet work on a copy and replace the sketch only if every step
+Trim, extend, offset, mirror, fillet and chamfer work on a copy and replace the sketch only if every step
 succeeded. A changed curve is removed and inserted again under the same ID (`restructure`), with
 every constraint still true of it. Joints are judged by a `TOLERANCE` relative to the extent.
 
@@ -118,6 +118,11 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   end (`TooLarge`). `fillet` adds the arc `Tangent` to both with a `Radius` dimension and keeps the
   corner point as a sharp held on both carriers by `Coincident`, so dimensions, fixes and symmetry
   on the corner still hold.
+- Chamfer (`fillet.rs`, same corners): `bevel` finds the points at the distance from the corner on
+  each curve (along a line, by the chord on an arc), refusing one past a curve's far end
+  (`TooFar`); `chamfer` shortens both to them (`shorten_to`, shared with the fillet), joins them
+  with a line and keeps the sharp the same way, with one `Distance` from the sharp to each new
+  end holding the typed expression, so either side can be changed alone afterwards.
 
 ## Faceting and splines (`curve.rs`, `fit.rs`)
 

@@ -26,7 +26,7 @@ pub enum FilletError {
         label: String,
         curve: String,
     },
-    #[error("{count} curves meet at {label}; a fillet rounds the corner between two")]
+    #[error("{count} curves meet at {label}; only a corner between two can be rounded or cut")]
     TooManyCurves {
         point: EntityId,
         label: String,
@@ -42,6 +42,10 @@ pub enum FilletError {
     NotPositive,
     #[error("the radius is too large for {label}")]
     TooLarge { entity: EntityId, label: String },
+    #[error("the chamfer distance must be greater than zero")]
+    DistanceNotPositive,
+    #[error("the chamfer distance is too large for {label}")]
+    TooFar { entity: EntityId, label: String },
     #[error("no arc of this radius touches both {first} and {second} near their corner")]
     NoFit { first: String, second: String },
     #[error("{label} follows the geometry it was projected from, so its corner cannot be rounded")]
@@ -71,6 +75,12 @@ impl Rounding {
     pub fn faceted(&self, faceting: Faceting) -> Vec<Point2> {
         self.arc.faceted(faceting)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bevel {
+    pub distance: f64,
+    pub touches: [Point2; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -119,6 +129,25 @@ impl Side {
             Leg::Arc { arc, .. } => {
                 arc.center
                     + (center - arc.center).try_normalize().unwrap_or(Vector2::X) * arc.radius
+            }
+        }
+    }
+
+    fn at_distance(&self, corner: Point2, distance: f64) -> Option<Point2> {
+        match self.leg {
+            Leg::Line { .. } => Some(corner + self.leaving * distance),
+            Leg::Arc {
+                arc,
+                corner_at_start,
+            } => {
+                let half_chord = distance / (2.0 * arc.radius);
+                if !(half_chord.is_finite() && half_chord < 1.0) {
+                    return None;
+                }
+                let turn = 2.0 * half_chord.asin();
+                let from = direction_angle(corner - arc.center);
+                let along = if corner_at_start { turn } else { -turn };
+                Some(arc.point_at(from + along))
             }
         }
     }
@@ -369,6 +398,59 @@ impl Sketch {
         })
     }
 
+    pub fn bevel(&self, corner: &Corner, distance: f64) -> Result<Bevel, FilletError> {
+        if !(distance.is_finite() && distance > 0.0) {
+            return Err(FilletError::DistanceNotPositive);
+        }
+        let sides = self.corner_sides(corner)?;
+        let at = corner.position;
+        let tolerance = TOLERANCE * at.abs().max_element().max(distance).max(1.0);
+        let mut touches = [at; 2];
+        for (touch, side) in touches.iter_mut().zip(&sides) {
+            let too_far = || FilletError::TooFar {
+                entity: side.curve,
+                label: self.entity_label(side.curve),
+            };
+            let reached = side.at_distance(at, distance).ok_or_else(too_far)?;
+            if !side.reaches(at, reached, tolerance) {
+                return Err(too_far());
+            }
+            *touch = reached;
+        }
+        Ok(Bevel { distance, touches })
+    }
+
+    pub fn distance_through(&self, corner: &Corner, point: Point2) -> Option<f64> {
+        let [first, second] = self.corner_sides(corner).ok()?;
+        let middle = (first.leaving + second.leaving) / 2.0;
+        let reach = middle.length();
+        let along = (point - corner.position).dot(middle.try_normalize()?);
+        let distance = along / reach;
+        (distance.is_finite() && distance > 0.0).then_some(distance)
+    }
+
+    pub fn chamfer(
+        &mut self,
+        corner: &Corner,
+        distance: f64,
+        value: Expression,
+    ) -> Result<EntityId, FilletError> {
+        let current = self.corner_at(corner.point)?;
+        if current.curves != corner.curves {
+            return Err(FilletError::NotJoined {
+                first: self.entity_label(corner.curves[0]),
+                second: self.entity_label(corner.curves[1]),
+            });
+        }
+        let bevel = self.bevel(&current, distance)?;
+        let mut working = self.clone();
+        let line = working
+            .cut_corner(&current, &bevel, value)
+            .map_err(FilletError::Edit)?;
+        *self = working;
+        Ok(line)
+    }
+
     pub fn radius_through(&self, corner: &Corner, point: Point2) -> Option<f64> {
         let [first, second] = self.corner_sides(corner).ok()?;
         let half = first.leaving.angle_to(second.leaving).abs() / 2.0;
@@ -478,10 +560,10 @@ impl Sketch {
         Ok([first, second])
     }
 
-    fn round_corner(
+    fn cut_corner(
         &mut self,
         corner: &Corner,
-        rounding: &Rounding,
+        bevel: &Bevel,
         value: Expression,
     ) -> Result<EntityId, SketchError> {
         let kept = corner.point;
@@ -489,8 +571,45 @@ impl Sketch {
             .curves
             .iter()
             .all(|curve| self.is_construction(*curve));
-        let mut shortened = Vec::with_capacity(2);
-        for ((curve, end), touch) in corner.curves.iter().zip(corner.ends).zip(rounding.touches) {
+        let [first_touch, second_touch] = self.shorten_to(corner, bevel.touches)?;
+        let line = EntityId::from_raw(self.next_id());
+        self.insert_entity(
+            line,
+            Entity::Line {
+                start: first_touch,
+                end: second_touch,
+            },
+        )?;
+        if construction {
+            self.set_construction(line, true)?;
+        }
+        for curve in corner.curves {
+            self.add_constraint(Constraint::Coincident(kept, curve))?;
+        }
+        for touch in [first_touch, second_touch] {
+            self.add_constraint(Constraint::Distance {
+                from: kept,
+                to: touch,
+                value: value.clone(),
+            })?;
+        }
+        Ok(line)
+    }
+
+    fn shorten_to(
+        &mut self,
+        corner: &Corner,
+        touches: [Point2; 2],
+    ) -> Result<[EntityId; 2], SketchError> {
+        let kept = corner.point;
+        let mut shortened = [kept; 2];
+        for (((curve, end), touch), slot) in corner
+            .curves
+            .iter()
+            .zip(corner.ends)
+            .zip(touches)
+            .zip(shortened.iter_mut())
+        {
             let moved = self.add_point(touch);
             let entity = self
                 .entity(*curve)
@@ -526,13 +645,28 @@ impl Sketch {
                     keeps_sweep(constraint)
                 }
             })?;
-            shortened.push(moved);
+            *slot = moved;
         }
         for end in corner.ends {
             if end != kept {
                 self.merge_point(end, kept)?;
             }
         }
+        Ok(shortened)
+    }
+
+    fn round_corner(
+        &mut self,
+        corner: &Corner,
+        rounding: &Rounding,
+        value: Expression,
+    ) -> Result<EntityId, SketchError> {
+        let kept = corner.point;
+        let construction = corner
+            .curves
+            .iter()
+            .all(|curve| self.is_construction(*curve));
+        let shortened = self.shorten_to(corner, rounding.touches)?;
         let center = self.add_point(rounding.center);
         let first_end = self.add_point(rounding.arc.point_at(rounding.arc.start_angle));
         let last_end = self.add_point(rounding.arc.point_at(rounding.arc.end_angle()));
@@ -553,10 +687,9 @@ impl Sketch {
         } else {
             (last_end, first_end)
         };
-        if let [first_touch, second_touch] = shortened.as_slice() {
-            self.add_constraint(Constraint::Coincident(*first_touch, on_first))?;
-            self.add_constraint(Constraint::Coincident(*second_touch, on_second))?;
-        }
+        let [first_touch, second_touch] = shortened;
+        self.add_constraint(Constraint::Coincident(first_touch, on_first))?;
+        self.add_constraint(Constraint::Coincident(second_touch, on_second))?;
         for curve in corner.curves {
             self.add_constraint(Constraint::Tangent(curve, arc))?;
         }

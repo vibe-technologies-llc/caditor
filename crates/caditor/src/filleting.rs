@@ -1,6 +1,6 @@
 use caditor_document::{FeatureId, Transaction};
 use caditor_geometry::Point2;
-use caditor_sketch::{Corner, Entity, EntityId, Faceting, FilletError, Rounding, Sketch};
+use caditor_sketch::{Bevel, Corner, Entity, EntityId, Faceting, FilletError, Rounding, Sketch};
 
 use crate::{
     drawing::Preview,
@@ -15,39 +15,115 @@ use crate::{
 pub const CORNER_PROMPT: &str =
     "Click the corner to round, where two lines or arcs meet, or drag from it";
 pub const RADIUS_PROMPT: &str = "Click where the fillet should pass, or type its radius";
+pub const CHAMFER_CORNER_PROMPT: &str =
+    "Click the corner to cut, where two lines or arcs meet, or drag from it";
+pub const DISTANCE_PROMPT: &str =
+    "Click where the chamfer should pass, or type how far from the corner it cuts";
 pub const TRANSACTION: &str = "Fillet corner";
+pub const CHAMFER_TRANSACTION: &str = "Chamfer corner";
 const RADIUS_KEYS: &str = "Type the radius   Enter: round it here   Esc: choose another corner";
+const DISTANCE_KEYS: &str = "Type the distance   Enter: cut it here   Esc: choose another corner";
 const NO_CORNER_HIGHLIGHTED: &str =
     "Highlight a corner first, with Highlight the next item in the view";
 const NOTHING_TO_ROUND: &str = "The sketch has no corner where two lines or arcs meet";
-const CHOOSE_FIRST: &str = "Choose the corner to round first";
+const CHOOSE_FIRST: &str = "Choose the corner first";
 pub const FIELD: ValueField = ValueField {
     label: "Fillet radius",
     placeholder: "radius",
     action: "round the corner",
 };
+pub const CHAMFER_FIELD: ValueField = ValueField {
+    label: "Chamfer distance",
+    placeholder: "distance",
+    action: "cut the corner",
+};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CornerCut {
+    #[default]
+    Round,
+    Chamfer,
+}
+
+impl CornerCut {
+    fn tool(self) -> Tool {
+        match self {
+            Self::Round => Tool::Fillet,
+            Self::Chamfer => Tool::Chamfer,
+        }
+    }
+
+    fn field(self) -> ValueField {
+        match self {
+            Self::Round => FIELD,
+            Self::Chamfer => CHAMFER_FIELD,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Cut {
+    Round(Rounding),
+    Bevel(Bevel),
+}
+
+impl Cut {
+    fn size(self) -> f64 {
+        match self {
+            Self::Round(rounding) => rounding.radius,
+            Self::Bevel(bevel) => bevel.distance,
+        }
+    }
+
+    fn touches(self) -> [Point2; 2] {
+        match self {
+            Self::Round(rounding) => rounding.touches,
+            Self::Bevel(bevel) => bevel.touches,
+        }
+    }
+
+    fn faceted(self, faceting: Faceting) -> Vec<Point2> {
+        match self {
+            Self::Round(rounding) => rounding.faceted(faceting),
+            Self::Bevel(bevel) => bevel.touches.to_vec(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Filleting {
+    cut: CornerCut,
     chosen: Option<Corner>,
     hover: Option<Result<Corner, FilletError>>,
     highlight: Option<Corner>,
     pointer: Option<Point2>,
     typed: Option<f64>,
-    rounding: Option<Result<Rounding, FilletError>>,
+    rounding: Option<Result<Cut, FilletError>>,
 }
 
 impl Filleting {
-    pub fn starting(sketch: &Sketch, selected: &[EntityId]) -> Self {
+    pub fn new(cut: CornerCut) -> Self {
+        Self {
+            cut,
+            ..Self::default()
+        }
+    }
+
+    pub fn starting(sketch: &Sketch, selected: &[EntityId], cut: CornerCut) -> Self {
         let chosen = match selected {
             [point] => sketch.corner_at(*point).ok(),
             [first, second] => sketch.corner_between(*first, *second).ok(),
             _ => None,
         };
         Self {
+            cut,
             chosen,
             ..Self::default()
         }
+    }
+
+    pub fn field(&self) -> ValueField {
+        self.cut.field()
     }
 
     pub fn sync(&mut self, sketch: &Sketch) {
@@ -68,12 +144,20 @@ impl Filleting {
                 .and_then(|pointer| end_under(sketch, screen, pointer))
                 .map(|point| sketch.corner_at(point)),
         };
+        let cut = self.cut;
         self.rounding = self.target().and_then(|corner| {
-            let radius = self.typed.or_else(|| {
-                self.chosen
-                    .and_then(|chosen| sketch.radius_through(&chosen, self.pointer?))
+            let size = self.typed.or_else(|| {
+                let chosen = self.chosen?;
+                let pointer = self.pointer?;
+                match cut {
+                    CornerCut::Round => sketch.radius_through(&chosen, pointer),
+                    CornerCut::Chamfer => sketch.distance_through(&chosen, pointer),
+                }
             })?;
-            Some(sketch.rounding(&corner, radius))
+            Some(match cut {
+                CornerCut::Round => sketch.rounding(&corner, size).map(Cut::Round),
+                CornerCut::Chamfer => sketch.bevel(&corner, size).map(Cut::Bevel),
+            })
         });
     }
 
@@ -100,9 +184,9 @@ impl Filleting {
         if let Some(corner) = self.target() {
             preview.snap = Some(corner.position);
         }
-        if let Some(Ok(rounding)) = &self.rounding {
-            preview.curves.push(rounding.faceted(faceting));
-            preview.points = rounding.touches.to_vec();
+        if let Some(Ok(cut)) = &self.rounding {
+            preview.curves.push(cut.faceted(faceting));
+            preview.points = cut.touches().to_vec();
         }
         preview
     }
@@ -120,11 +204,18 @@ impl Filleting {
             (None, _) => return None,
         };
         let [first, second] = corner.curves.map(|curve| sketch.entity_label(curve));
-        let subject = format!("Round the corner of {first} and {second}");
+        let subject = match self.cut {
+            CornerCut::Round => format!("Round the corner of {first} and {second}"),
+            CornerCut::Chamfer => format!("Cut the corner of {first} and {second}"),
+        };
         Some(match &self.rounding {
-            Some(Ok(rounding)) => format!(
+            Some(Ok(Cut::Round(rounding))) => format!(
                 "{subject} with a radius of {}",
                 length_text(unit, rounding.radius)
+            ),
+            Some(Ok(Cut::Bevel(bevel))) => format!(
+                "{subject} {} from it on each side",
+                length_text(unit, bevel.distance)
             ),
             Some(Err(error)) => capitalized(&error.to_string()),
             None => subject,
@@ -132,16 +223,23 @@ impl Filleting {
     }
 
     pub fn prompt(&self) -> Prompt {
-        if self.chosen.is_some() {
-            Prompt {
+        match (self.chosen.is_some(), self.cut) {
+            (true, CornerCut::Round) => Prompt {
                 text: RADIUS_PROMPT,
                 hint: Hint::Keys(RADIUS_KEYS),
-            }
-        } else {
-            Prompt {
+            },
+            (true, CornerCut::Chamfer) => Prompt {
+                text: DISTANCE_PROMPT,
+                hint: Hint::Keys(DISTANCE_KEYS),
+            },
+            (false, CornerCut::Round) => Prompt {
                 text: CORNER_PROMPT,
                 hint: Hint::Targets,
-            }
+            },
+            (false, CornerCut::Chamfer) => Prompt {
+                text: CHAMFER_CORNER_PROMPT,
+                hint: Hint::Targets,
+            },
         }
     }
 
@@ -156,7 +254,7 @@ impl Filleting {
                 Outcome::Nothing
             }
             Some(Err(error)) => {
-                Outcome::Refused(trimming::refusal(Tool::Fillet, &error.to_string()))
+                Outcome::Refused(trimming::refusal(self.cut.tool(), &error.to_string()))
             }
             None => Outcome::Nothing,
         }
@@ -183,15 +281,15 @@ impl Filleting {
     }
 
     fn round_at_pointer(&mut self, model: &Model, feature: FeatureId) -> Outcome {
-        let (Some(corner), Some(Ok(rounding))) = (self.chosen, &self.rounding) else {
+        let (Some(corner), Some(Ok(cut))) = (self.chosen, &self.rounding) else {
             return match &self.rounding {
                 Some(Err(error)) => {
-                    Outcome::Refused(trimming::refusal(Tool::Fillet, &error.to_string()))
+                    Outcome::Refused(trimming::refusal(self.cut.tool(), &error.to_string()))
                 }
                 _ => Outcome::Nothing,
             };
         };
-        let Some(value) = Value::pointed(model, rounding.radius) else {
+        let Some(value) = Value::pointed(model, cut.size()) else {
             return Outcome::Nothing;
         };
         self.round(model, feature, corner, value).into()
@@ -205,7 +303,7 @@ impl Filleting {
     ) -> Result<Outcome, String> {
         let corner = self
             .target()
-            .ok_or_else(|| trimming::refusal(Tool::Fillet, CHOOSE_FIRST))?;
+            .ok_or_else(|| trimming::refusal(self.cut.tool(), CHOOSE_FIRST))?;
         self.round(model, feature, corner, value)
             .map(Outcome::Apply)
     }
@@ -217,11 +315,18 @@ impl Filleting {
         corner: Corner,
         value: Value,
     ) -> Result<Transaction, String> {
-        let rounded = trimming::reshaped(model, feature, TRANSACTION.to_owned(), |sketch| {
-            sketch
-                .fillet(&corner, value.millimetres, value.expression)
-                .map(|_| ())
-                .map_err(|error| trimming::refusal(Tool::Fillet, &error.to_string()))
+        let cut = self.cut;
+        let label = match cut {
+            CornerCut::Round => TRANSACTION,
+            CornerCut::Chamfer => CHAMFER_TRANSACTION,
+        };
+        let rounded = trimming::reshaped(model, feature, label.to_owned(), |sketch| {
+            match cut {
+                CornerCut::Round => sketch.fillet(&corner, value.millimetres, value.expression),
+                CornerCut::Chamfer => sketch.chamfer(&corner, value.millimetres, value.expression),
+            }
+            .map(|_| ())
+            .map_err(|error| trimming::refusal(cut.tool(), &error.to_string()))
         })?;
         self.chosen = None;
         self.highlight = None;

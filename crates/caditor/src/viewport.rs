@@ -1340,7 +1340,9 @@ impl ViewportState {
                 let from = self.on_sketch(model, feature, press.cursor)?;
                 return Some(PrimaryDrag::Trim { feature, from });
             }
-            Tool::Offset | Tool::Fillet => return Some(PrimaryDrag::Pull { feature }),
+            Tool::Offset | Tool::Fillet | Tool::Chamfer => {
+                return Some(PrimaryDrag::Pull { feature });
+            }
             Tool::Extend | Tool::Mirror | Tool::Project | Tool::Dimension => return None,
             _ => {}
         }

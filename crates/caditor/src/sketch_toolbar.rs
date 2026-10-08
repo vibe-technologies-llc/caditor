@@ -29,6 +29,7 @@ pub const FINISH_LABEL: &str = "Finish sketch";
 pub const ARC_LABEL: &str = "Arc";
 pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
+pub const OFF_RIBBON: [Tool; 1] = [Tool::Chamfer];
 pub const DELETE_LABEL: &str = "Delete";
 pub const MOVE_LABEL: &str = "Move";
 pub const SELECT_ALL_LABEL: &str = "Select all";
@@ -612,6 +613,14 @@ impl Bar<'_, '_> {
     }
 
     fn edit_buttons(&mut self, ui: &mut Ui) -> f32 {
+        for tool in OFF_RIBBON {
+            if self
+                .commands
+                .invoke(Command::SketchTool(tool), &Ok::<(), String>(()))
+            {
+                self.request.tool = Some(tool);
+            }
+        }
         let first = ui.horizontal_top(|ui| {
             self.construction_button(ui);
             self.compact_tool_button(ui, Tool::Trim);

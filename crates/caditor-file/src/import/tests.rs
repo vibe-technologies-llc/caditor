@@ -9,7 +9,7 @@ use caditor_document::{
 };
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2};
-use caditor_kernel::SamplingTolerance;
+use caditor_kernel::{MAX_SPLINE_DEGREE, SamplingTolerance};
 use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch};
 
 use crate::import::{
@@ -1876,7 +1876,7 @@ fn a_spline_with_bad_control_data_uses_its_fit_points_or_is_left_out() {
 
 #[test]
 fn splines_of_a_degree_above_the_kernel_limit_are_left_out() {
-    let degree = 12;
+    let degree = MAX_SPLINE_DEGREE + 1;
     let count = degree + 1;
     let mut spline = vec![
         pair(0, "SPLINE"),

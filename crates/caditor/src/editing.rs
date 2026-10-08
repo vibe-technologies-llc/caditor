@@ -32,11 +32,12 @@ pub enum Tool {
     Offset,
     Mirror,
     Fillet,
+    Chamfer,
     Project,
     Dimension,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, Fillet, Project, Dimension);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, Fillet, Chamfer, Project, Dimension);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -57,6 +58,7 @@ impl Tool {
             Self::Offset => "Offset",
             Self::Mirror => "Mirror",
             Self::Fillet => "Sketch fillet",
+            Self::Chamfer => "Sketch chamfer",
             Self::Project => "Project",
             Self::Dimension => "Smart dimension",
         }
@@ -98,6 +100,10 @@ impl Tool {
             Self::Fillet => {
                 "Round the corner where two lines or arcs meet with an arc tangent to both"
             }
+            Self::Chamfer => {
+                "Cut the corner where two lines or arcs meet with a line the same distance from \
+                 it on both"
+            }
             Self::Project => {
                 "Click an edge, corner or face of a body, or a curve of another sketch, to bring \
                  it into this sketch; it follows the original as the model changes"
@@ -117,6 +123,7 @@ impl Tool {
             | Self::Offset
             | Self::Mirror
             | Self::Fillet
+            | Self::Chamfer
             | Self::Project
             | Self::Dimension => false,
             Self::Point
@@ -141,7 +148,10 @@ impl Tool {
     }
 
     pub fn reshapes(self) -> bool {
-        matches!(self, Self::Offset | Self::Mirror | Self::Fillet)
+        matches!(
+            self,
+            Self::Offset | Self::Mirror | Self::Fillet | Self::Chamfer
+        )
     }
 
     pub fn projects(self) -> bool {

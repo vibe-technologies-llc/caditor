@@ -259,6 +259,7 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::Offset => phosphor::WAVES,
         Tool::Mirror => phosphor::SQUARE_SPLIT_HORIZONTAL,
         Tool::Fillet => blend(BlendKind::Fillet),
+        Tool::Chamfer => blend(BlendKind::Chamfer),
         Tool::Project => phosphor::ARROW_FAT_LINES_DOWN,
         Tool::Dimension => phosphor::MAGIC_WAND,
     }
