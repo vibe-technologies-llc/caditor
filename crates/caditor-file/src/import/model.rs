@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, path::Path, sync::Arc, time::SystemTime};
 
 use caditor_document::{
     BodyAppearance, BodyPlacement, CancelToken, Document, Edit, FeatureKind, Import,
-    MAX_GROUP_NAME_CHARS, ParameterValues, Rgb, Transaction, group_name,
+    MAX_GROUP_NAME_CHARS, ParameterValues, Rgb, Transaction, group_name, nearest_opacity_step,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Similarity, Vector3};
@@ -42,6 +42,7 @@ pub struct ImportedBody {
     pub name: String,
     pub import: Import,
     pub colour: Option<Rgb>,
+    pub opacity: Option<u8>,
     pub group: Option<String>,
 }
 
@@ -168,6 +169,7 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
                     solid,
                     placement,
                     colour,
+                    opacity,
                     layer,
                 } = copy;
                 match solid.mapped(&placement) {
@@ -179,6 +181,7 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
                                     import: Import::new(source, stored, step),
                                     name: name.clone(),
                                     colour: colour.map(rgb),
+                                    opacity: opacity.and_then(nearest_opacity_step),
                                     group: layer.clone(),
                                 }))
                         }
@@ -233,6 +236,7 @@ fn placed_copies(
                     .placed(placement.clone()),
                 name: copy.name.clone(),
                 colour: copy.colour.map(rgb),
+                opacity: copy.opacity.and_then(nearest_opacity_step),
                 group: copy.layer.clone(),
             })
             .collect(),
@@ -296,6 +300,7 @@ fn written_and_read(name: &str, solid: &Solid) -> Option<(String, Vec<Solid>)> {
             name,
             solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         name,
@@ -323,11 +328,12 @@ pub fn bodies_transaction(
         let name = unique_name(&body.name, &taken);
         taken.push(name.clone());
         let id = builder.add_feature(name, FeatureKind::Import(body.import.clone()));
-        if let Some(colour) = body.colour {
+        if body.colour.is_some() || body.opacity.is_some() {
             builder.edit(Edit::SetBodyAppearance {
                 id,
                 appearance: BodyAppearance {
-                    colour: Some(colour),
+                    colour: body.colour,
+                    opacity: body.opacity,
                     ..BodyAppearance::default()
                 },
             });

@@ -73,8 +73,11 @@ paths:
   placed import. A copy scaled or mirrored, or one the turns cannot reproduce, is mapped and
   canonicalised on its own at the origin as before; one whose mapping fails is left out with
   `Misplacement::CopyUnplaceable`'s note.
-- Each `ImportedBody` carries the copy's STEP `colour` and its `layer` as `group`.
-  `bodies_transaction` sets a coloured body's appearance colour and puts a layered body in the
+- Each `ImportedBody` carries the copy's STEP `colour`, its `opacity` and its `layer` as `group`.
+  The STEP opacity (a percent) is snapped when the copy is read to the nearest of the body's
+  opacity steps, solid included (`nearest_opacity_step`, `document.md`), so a nearly solid body
+  imports solid. `bodies_transaction` sets a coloured or see-through body's appearance colour and
+  opacity (one `SetBodyAppearance`) and puts a layered body in the
   folder of its layer's name (one line, cut at `MAX_GROUP_NAME_CHARS`), moving the bodies of a
   layer together at its first body so each layer is one folder; mesh imports have neither.
 - `bodies_transaction` adds an `Import` feature per body under unique names; the model file stores
@@ -98,7 +101,9 @@ paths:
 
 ## Export (`export/`)
 
-- `export_bodies` writes STEP (a body with a look styled with its colour, a body in a folder
+- `export_bodies` writes STEP (a body with a look styled with its colour and, when see-through
+  (`Look::opacity`), its transparency, `step-write.md`; a body with an opacity but no colour or
+  material still has a look, in the app's default colour; a body in a folder
   (`ExportBody::group`, the making feature's group) on a layer of the folder's name), or tessellates at a `MeshResolution` (a chord fraction of the
   largest body's diagonal plus an angle between triangles) into STL (`MeshOptions::stl`, see
   below), 3MF (one named object per body, millimetres, a thumbnail when given; a body with a

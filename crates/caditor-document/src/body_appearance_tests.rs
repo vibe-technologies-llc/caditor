@@ -249,6 +249,30 @@ fn a_body_may_be_see_through_down_to_a_tenth_and_full_opacity_is_stored_as_none(
 }
 
 #[test]
+fn an_opacity_snaps_to_the_nearest_step_and_solid_is_the_step_above_the_first() {
+    let snapped: Vec<Option<u8>> = [100, 88, 87, 80, 62, 60, 40, 37, 12, 0]
+        .into_iter()
+        .map(nearest_opacity_step)
+        .collect();
+
+    assert_eq!(
+        snapped,
+        [
+            None,
+            None,
+            Some(75),
+            Some(75),
+            Some(50),
+            Some(50),
+            Some(50),
+            Some(25),
+            Some(25),
+            Some(25)
+        ]
+    );
+}
+
+#[test]
 fn a_face_colour_follows_the_face_into_every_fragment_a_later_cut_leaves() {
     use caditor_geometry::Vector3;
     use caditor_kernel::{FaceReference, Surface};

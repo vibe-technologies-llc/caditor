@@ -1139,6 +1139,7 @@ mod step {
                 name: "Block",
                 solid: &solid,
                 colour: None,
+                opacity: None,
                 layer: None,
             }],
             "block",
@@ -1156,12 +1157,14 @@ mod step {
                     name: "Red",
                     solid: &solid,
                     colour: Some([200, 30, 40]),
+                    opacity: None,
                     layer: None,
                 },
                 StepBody {
                     name: "Plain",
                     solid: &solid,
                     colour: None,
+                    opacity: None,
                     layer: None,
                 },
             ],
@@ -1189,12 +1192,56 @@ mod step {
     }
 
     #[test]
+    fn a_see_through_body_imports_at_the_nearest_opacity_step_and_a_nearly_solid_one_solid() {
+        let solid = block();
+        let body = |name, opacity| StepBody {
+            name,
+            solid: &solid,
+            colour: Some([200, 30, 40]),
+            opacity,
+            layer: None,
+        };
+        let text = write_step(
+            &[
+                body("Acrylic", Some(30)),
+                body("Smoked", Some(70)),
+                body("Almost", Some(92)),
+                body("Plain", None),
+            ],
+            "panels",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let import = parse_step(&text, "panels.step").unwrap();
+        let mut document = Document::default();
+
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+        let appearance = |name: &str| {
+            document
+                .features()
+                .find(|feature| feature.name == name)
+                .unwrap()
+                .appearance
+                .clone()
+        };
+
+        assert_eq!(appearance("Acrylic").opacity, Some(25));
+        assert_eq!(appearance("Smoked").opacity, Some(75));
+        assert_eq!(appearance("Almost").opacity, None);
+        assert_eq!(appearance("Almost").colour, Some(Rgb::new(200, 30, 40)));
+        assert_eq!(appearance("Plain").opacity, None);
+    }
+
+    #[test]
     fn bodies_on_one_layer_import_together_into_a_folder_named_after_it() {
         let solid = block();
         let body = |name, layer| StepBody {
             name,
             solid: &solid,
             colour: None,
+            opacity: None,
             layer,
         };
         let text = write_step(
@@ -1454,6 +1501,7 @@ mod step {
                 name: "Pair",
                 solid: &pair,
                 colour: None,
+                opacity: None,
                 layer: None,
             }],
             "pair",
@@ -1542,6 +1590,7 @@ mod step {
                 name: "Part",
                 solid: &solid,
                 colour: None,
+                opacity: None,
                 layer: None,
             }],
             "parts",
@@ -1581,6 +1630,7 @@ mod step {
                 name: "Part",
                 solid: &solid,
                 colour: None,
+                opacity: None,
                 layer: None,
             }],
             "Part",
@@ -1666,12 +1716,14 @@ mod step {
                     name: "Part",
                     solid: &solid,
                     colour: None,
+                    opacity: None,
                     layer: None,
                 },
                 StepBody {
                     name: "Part",
                     solid: &solid,
                     colour: None,
+                    opacity: None,
                     layer: None,
                 },
             ],

@@ -678,3 +678,20 @@ pub fn show(
 pub fn name_field_id(body: FeatureId) -> Id {
     Id::new(("body-name", body))
 }
+
+#[cfg(test)]
+mod tests {
+    use caditor_document::OPACITY_STEPS;
+
+    use super::OPACITIES;
+
+    #[test]
+    fn the_opacity_choices_are_solid_and_the_steps_an_import_snaps_to() {
+        let offered: Vec<Option<u8>> = OPACITIES.iter().map(|(opacity, _, _)| *opacity).collect();
+        let expected: Vec<Option<u8>> = std::iter::once(None)
+            .chain(OPACITY_STEPS.into_iter().map(Some))
+            .collect();
+
+        assert_eq!(offered, expected);
+    }
+}

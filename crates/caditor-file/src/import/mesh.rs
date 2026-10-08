@@ -115,6 +115,7 @@ pub fn parse_mesh(
             name: name.to_owned(),
             import: Import::new(source, stored, step),
             colour: None,
+            opacity: None,
             group: None,
         }));
     }

@@ -15,6 +15,7 @@ use crate::write::shape::Shapes;
 
 pub const SCHEMA: &str = "AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }";
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
+const OPAQUE_PERCENT: u8 = 100;
 const SECONDS_PER_DAY: u64 = 86_400;
 
 #[derive(Debug, Clone, Copy)]
@@ -22,7 +23,14 @@ pub struct StepBody<'a> {
     pub name: &'a str,
     pub solid: &'a Solid,
     pub colour: Option<[u8; 3]>,
+    pub opacity: Option<u8>,
     pub layer: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct Style {
+    colour: [u8; 3],
+    opacity: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -299,7 +307,11 @@ pub fn write_step_detailed(
         match outcome {
             Ok(solids) => {
                 if let Some(colour) = body.colour {
-                    coloured.extend(solids.iter().map(|solid| (*solid, colour)));
+                    let style = Style {
+                        colour,
+                        opacity: body.opacity.filter(|opacity| *opacity < OPAQUE_PERCENT),
+                    };
+                    coloured.extend(solids.iter().map(|solid| (*solid, style)));
                 }
                 if let Some(layer) = body.layer.filter(|layer| !layer.trim().is_empty()) {
                     layered
@@ -458,16 +470,16 @@ fn place_part(
     ));
 }
 
-fn styles(data: &mut Data, coloured: &[(Ref, [u8; 3])], context: Ref) {
+fn styles(data: &mut Data, coloured: &[(Ref, Style)], context: Ref) {
     if coloured.is_empty() {
         return;
     }
     let mut assignments = BTreeMap::new();
     let mut styled = Vec::new();
-    for (solid, colour) in coloured {
+    for (solid, style) in coloured {
         let assignment = *assignments
-            .entry(*colour)
-            .or_insert_with(|| style_assignment(data, *colour));
+            .entry(*style)
+            .or_insert_with(|| style_assignment(data, *style));
         styled.push(data.add(format!("STYLED_ITEM('color',({assignment}),{solid})")));
     }
     data.add(format!(
@@ -486,18 +498,32 @@ fn layers(data: &mut Data, layered: &BTreeMap<&str, Vec<Ref>>) {
     }
 }
 
-fn style_assignment(data: &mut Data, [red, green, blue]: [u8; 3]) -> Ref {
+fn style_assignment(data: &mut Data, Style { colour, opacity }: Style) -> Ref {
+    let [red, green, blue] = colour;
     let channel = |value: u8| real(f64::from(value) / 255.0);
-    let colour = data.add(format!(
+    let rgb = data.add(format!(
         "COLOUR_RGB('',{},{},{})",
         channel(red),
         channel(green),
         channel(blue)
     ));
-    let fill_colour = data.add(format!("FILL_AREA_STYLE_COLOUR('',{colour})"));
+    let fill_colour = data.add(format!("FILL_AREA_STYLE_COLOUR('',{rgb})"));
     let fill = data.add(format!("FILL_AREA_STYLE('',({fill_colour}))"));
     let area = data.add(format!("SURFACE_STYLE_FILL_AREA({fill})"));
-    let side = data.add(format!("SURFACE_SIDE_STYLE('',({area}))"));
+    let mut elements = vec![area];
+    if let Some(opacity) = opacity {
+        let transparency = data.add(format!(
+            "SURFACE_STYLE_TRANSPARENT({})",
+            real(f64::from(OPAQUE_PERCENT - opacity) / 100.0)
+        ));
+        elements.push(data.add(format!(
+            "SURFACE_STYLE_RENDERING_WITH_PROPERTIES(.NORMAL_SHADING.,{rgb},({transparency}))"
+        )));
+    }
+    let side = data.add(format!(
+        "SURFACE_SIDE_STYLE('',{})",
+        list(elements.iter().copied())
+    ));
     let usage = data.add(format!("SURFACE_STYLE_USAGE(.BOTH.,{side})"));
     data.add(format!("PRESENTATION_STYLE_ASSIGNMENT(({usage}))"))
 }

@@ -51,17 +51,22 @@ paths:
   `MAX_WORK` budget per file for everything built, `MAX_DEPTH` and `MAX_INSTANCES` for assemblies.
   Curves, surfaces, placements and solids are memoised per entity and units.
 
-## Colours and layers (`presentation.rs`)
+## Colours, opacity and layers (`presentation.rs`)
 
-- Each solid gets a `colour` and a `layer`, or none. A `STYLED_ITEM` (an `OVER_RIDING_STYLED_ITEM`
+- Each solid gets a `colour`, an `opacity` and a `layer`, or none. A `STYLED_ITEM` (an `OVER_RIDING_STYLED_ITEM`
   wins) gives its item the first surface colour found within `SEARCH_DEPTH` references of its
   styles: a `COLOUR_RGB` (channels clamped to 0–1, times 255) or a `DRAUGHTING_PRE_DEFINED_COLOUR`
-  of the eight named ones; curve, point and text styles are skipped. A
+  of the eight named ones; curve, point and text styles are skipped. The first
+  `SURFACE_STYLE_TRANSPARENT` found the same way (loose in a side style, or in the properties of a
+  `SURFACE_STYLE_RENDERING_WITH_PROPERTIES`) gives the opacity, a percent of one minus its
+  transparency clamped to 0–1, found and assigned apart from the colour so a style with one and
+  not the other gives only that one; an opacity of 100 is none. A
   `PRESENTATION_LAYER_ASSIGNMENT` puts its items on its layer, a styled item counting as the item
   it styles; the first layer naming an item keeps it.
 - A solid takes the value on itself, else on one of its shells, else the value every face shares;
-  a face without one, or faces differing, give none, so a part of mixed face colours keeps the
-  default look rather than one of them.
+  a face without one, or faces differing, give none, so a part of mixed face colours (or of some
+  see-through faces) keeps the default look rather than one of them. Colours and opacities are
+  per body until face colours are mapped.
 
 ## Units and precision
 

@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use crate::{
     fixtures,
-    read::{Held, ReadError, read_step},
+    read::{Held, ReadError, StepSolid, read_step},
     write::{StepBody, write_step},
 };
 
@@ -12,6 +12,7 @@ fn round_trip(name: &str, solid: &caditor_kernel::Solid) -> caditor_kernel::Soli
             name,
             solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         name,
@@ -98,6 +99,7 @@ fn a_file_cut_short_inside_its_data_reads_the_solids_before_the_cut() {
             name: "plate",
             solid: &solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "plate",
@@ -130,6 +132,7 @@ fn a_file_with_a_damaged_header_and_no_closing_line_still_reads_its_solids() {
             name: "plate",
             solid: &solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "plate",
@@ -274,6 +277,7 @@ fn lengths_follow_the_unit_of_the_file() {
             name: "Plate",
             solid: &solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "Plate",
@@ -293,6 +297,7 @@ fn lengths_follow_the_unit_of_the_file() {
             name: "Plate",
             solid: &solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "Plate",
@@ -325,6 +330,7 @@ fn lengths_follow_the_unit_of_the_file() {
             name: "Plate",
             solid: &solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "Plate",
@@ -422,6 +428,7 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
             name: "Body1",
             solid: &solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "Bracket",
@@ -443,12 +450,14 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
                 name: "Left",
                 solid: &solid,
                 colour: None,
+                opacity: None,
                 layer: None,
             },
             StepBody {
                 name: "Right",
                 solid: &solid,
                 colour: None,
+                opacity: None,
                 layer: None,
             },
         ],
@@ -473,12 +482,14 @@ fn coloured_bodies_read_back_as_the_same_solids() {
                 name: "Red",
                 solid: &solid,
                 colour: Some([200, 30, 30]),
+                opacity: None,
                 layer: None,
             },
             StepBody {
                 name: "Plain",
                 solid: &solid,
                 colour: None,
+                opacity: None,
                 layer: None,
             },
         ],
@@ -758,6 +769,7 @@ fn offset_of(
             name: "Offset",
             solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "Offset",
@@ -858,6 +870,7 @@ fn only_repairs_beyond_the_precision_of_the_file_are_reported() {
             name: "Plate",
             solid: &solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "Plate",
@@ -982,6 +995,7 @@ fn a_surface_of_revolution_whose_profile_is_not_in_a_meridian_plane_is_refused()
             name: "Vase",
             solid: &vase,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "Vase",
@@ -1109,12 +1123,14 @@ fn a_colour_written_on_a_body_reads_back_and_uncoloured_bodies_have_none() {
                 name: "Red",
                 solid: &plate,
                 colour: Some([255, 0, 51]),
+                opacity: None,
                 layer: None,
             },
             StepBody {
                 name: "Plain",
                 solid: &plate,
                 colour: None,
+                opacity: None,
                 layer: None,
             },
         ],
@@ -1145,6 +1161,7 @@ fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_give_none() 
             name: "Plate",
             solid: &plate,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         "Plate",
@@ -1192,12 +1209,125 @@ fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_give_none() 
 }
 
 #[test]
+fn an_opacity_written_on_a_body_reads_back_and_opaque_bodies_have_none() {
+    let plate = fixtures::plate_with_hole();
+    let body = |name, opacity| StepBody {
+        name,
+        solid: &plate,
+        colour: Some([20, 40, 60]),
+        opacity,
+        layer: None,
+    };
+    let text = write_step(
+        &[
+            body("Clear", Some(25)),
+            body("Smoked", Some(70)),
+            body("Solid", None),
+            body("Full", Some(100)),
+        ],
+        "model",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+
+    let model = read_step(&text).unwrap();
+
+    let look = |name: &str| {
+        let solid = model
+            .solids
+            .iter()
+            .find(|solid| solid.name == name)
+            .unwrap();
+        (solid.colour, solid.opacity)
+    };
+    assert_eq!(look("Clear"), (Some([20, 40, 60]), Some(25)));
+    assert_eq!(look("Smoked"), (Some([20, 40, 60]), Some(70)));
+    assert_eq!(look("Solid"), (Some([20, 40, 60]), None));
+    assert_eq!(look("Full"), (Some([20, 40, 60]), None));
+    assert_eq!(text.matches("SURFACE_STYLE_TRANSPARENT(0.75)").count(), 1);
+}
+
+fn plate_styled_by(side_style_elements: &str, entities: &str) -> StepSolid {
+    let plate = fixtures::plate_with_hole();
+    let text = write_step(
+        &[StepBody {
+            name: "Panel",
+            solid: &plate,
+            colour: None,
+            opacity: None,
+            layer: None,
+        }],
+        "Panel",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    let solid = text
+        .lines()
+        .find_map(|line| line.split_once("=MANIFOLD_SOLID_BREP("))
+        .map(|(id, _)| id.to_owned())
+        .unwrap();
+    let extra = format!(
+        "{entities}#900010=SURFACE_SIDE_STYLE('',({side_style_elements}));\n\
+         #900011=SURFACE_STYLE_USAGE(.BOTH.,#900010);\n\
+         #900012=PRESENTATION_STYLE_ASSIGNMENT((#900011));\n\
+         #900013=STYLED_ITEM('',(#900012),{solid});\n"
+    );
+    let mut styled = text.clone();
+    let end = styled.rfind("ENDSEC;").unwrap();
+    styled.insert_str(end, &extra);
+    read_step(&styled).unwrap().solids.remove(0)
+}
+
+const FILL: &str = "#900001=COLOUR_RGB('',1.,0.,0.);\n\
+    #900002=FILL_AREA_STYLE_COLOUR('',#900001);\n\
+    #900003=FILL_AREA_STYLE('',(#900002));\n\
+    #900004=SURFACE_STYLE_FILL_AREA(#900003);\n";
+
+#[test]
+fn a_transparent_surface_style_gives_the_body_its_opacity_beside_its_colour() {
+    let entities = format!("{FILL}#900005=SURFACE_STYLE_TRANSPARENT(0.6);\n");
+
+    let solid = plate_styled_by("#900004,#900005", &entities);
+
+    assert_eq!(solid.colour, Some([255, 0, 0]));
+    assert_eq!(solid.opacity, Some(40));
+}
+
+#[test]
+fn the_transparency_of_a_rendering_with_properties_gives_the_body_its_opacity() {
+    let entities = format!(
+        "{FILL}#900005=SURFACE_STYLE_TRANSPARENT(0.75);\n\
+         #900006=SURFACE_STYLE_RENDERING_WITH_PROPERTIES(.NORMAL_SHADING.,#900001,(#900005));\n"
+    );
+
+    let solid = plate_styled_by("#900006", &entities);
+
+    assert_eq!(solid.colour, Some([255, 0, 0]));
+    assert_eq!(solid.opacity, Some(25));
+}
+
+#[test]
+fn a_transparency_outside_zero_to_one_is_clamped_and_none_means_opaque() {
+    let transparent = |transparency: &str| {
+        let entities = format!("{FILL}#900005=SURFACE_STYLE_TRANSPARENT({transparency});\n");
+        plate_styled_by("#900004,#900005", &entities).opacity
+    };
+
+    assert_eq!(transparent("0."), None);
+    assert_eq!(transparent("-3."), None);
+    assert_eq!(transparent("1."), Some(0));
+    assert_eq!(transparent("7."), Some(0));
+    assert_eq!(plate_styled_by("#900004", FILL).opacity, None);
+}
+
+#[test]
 fn a_layer_written_on_bodies_reads_back_on_each_and_unlayered_bodies_have_none() {
     let plate = fixtures::plate_with_hole();
     let body = |name, layer| StepBody {
         name,
         solid: &plate,
         colour: Some([10, 20, 30]),
+        opacity: None,
         layer,
     };
     let text = write_step(
@@ -1236,6 +1366,7 @@ fn a_layer_holding_a_styled_item_puts_the_styled_body_on_it() {
             name: "Plate",
             solid: &plate,
             colour: Some([1, 2, 3]),
+            opacity: None,
             layer: None,
         }],
         "Plate",
@@ -1266,6 +1397,7 @@ fn written(name: &str, solid: &caditor_kernel::Solid) -> String {
             name,
             solid,
             colour: None,
+            opacity: None,
             layer: None,
         }],
         name,

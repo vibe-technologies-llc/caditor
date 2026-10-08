@@ -5,6 +5,8 @@ use crate::read::graph::{Entity, Graph};
 const STYLED_KINDS: [&str; 2] = ["STYLED_ITEM", "OVER_RIDING_STYLED_ITEM"];
 const LAYER_KIND: &str = "PRESENTATION_LAYER_ASSIGNMENT";
 const SEARCH_DEPTH: usize = 8;
+const TRANSPARENCY_KIND: &str = "SURFACE_STYLE_TRANSPARENT";
+const OPAQUE_PERCENT: u8 = 100;
 const NAMED_COLOURS: [(&str, [u8; 3]); 8] = [
     ("red", [255, 0, 0]),
     ("green", [0, 255, 0]),
@@ -19,17 +21,20 @@ const NAMED_COLOURS: [(&str, [u8; 3]); 8] = [
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Look {
     pub colour: Option<[u8; 3]>,
+    pub opacity: Option<u8>,
     pub layer: Option<String>,
 }
 
 pub(crate) struct Presentation {
     colours: BTreeMap<u64, [u8; 3]>,
+    opacities: BTreeMap<u64, u8>,
     layers: BTreeMap<u64, String>,
 }
 
 impl Presentation {
     pub fn of(graph: &Graph<'_>) -> Self {
         let mut colours = BTreeMap::new();
+        let mut opacities = BTreeMap::new();
         let mut styled_items = BTreeMap::new();
         for entity in graph.entities() {
             let Some(fields) = STYLED_KINDS.iter().find_map(|kind| entity.find(kind)) else {
@@ -42,12 +47,15 @@ impl Presentation {
             let found = styles
                 .iter()
                 .find_map(|style| surface_colour(graph, *style, SEARCH_DEPTH));
+            let overriding = entity.kind() == "OVER_RIDING_STYLED_ITEM";
             if let Some(colour) = found {
-                if entity.kind() == "OVER_RIDING_STYLED_ITEM" {
-                    colours.insert(item, colour);
-                } else {
-                    colours.entry(item).or_insert(colour);
-                }
+                assign(&mut colours, item, colour, overriding);
+            }
+            let see_through = styles
+                .iter()
+                .find_map(|style| surface_opacity(graph, *style, SEARCH_DEPTH));
+            if let Some(opacity) = see_through {
+                assign(&mut opacities, item, opacity, overriding);
             }
         }
         let mut layers = BTreeMap::new();
@@ -63,7 +71,11 @@ impl Presentation {
                 layers.entry(item).or_insert_with(|| name.clone());
             }
         }
-        Self { colours, layers }
+        Self {
+            colours,
+            opacities,
+            layers,
+        }
     }
 
     pub fn of_solid(&self, graph: &Graph<'_>, solid: &Entity<'_>) -> Look {
@@ -75,8 +87,18 @@ impl Presentation {
             .collect();
         Look {
             colour: shared(&self.colours, solid.id, &shells, &faces),
+            opacity: shared(&self.opacities, solid.id, &shells, &faces)
+                .filter(|opacity| *opacity < OPAQUE_PERCENT),
             layer: shared(&self.layers, solid.id, &shells, &faces),
         }
+    }
+}
+
+fn assign<T>(assigned: &mut BTreeMap<u64, T>, item: u64, value: T, overriding: bool) {
+    if overriding {
+        assigned.insert(item, value);
+    } else {
+        assigned.entry(item).or_insert(value);
     }
 }
 
@@ -141,6 +163,24 @@ fn surface_colour(graph: &Graph<'_>, id: u64, depth: usize) -> Option<[u8; 3]> {
             .all_references()
             .into_iter()
             .find_map(|next| surface_colour(graph, next, depth - 1)),
+        _ => None,
+    }
+}
+
+fn surface_opacity(graph: &Graph<'_>, id: u64, depth: usize) -> Option<u8> {
+    let entity = graph.entity(id).ok()?;
+    match entity.kind() {
+        TRANSPARENCY_KIND => {
+            let transparency = entity.fields().ok()?.real(0).ok()?;
+            Some(((1.0 - transparency.clamp(0.0, 1.0)) * 100.0).round() as u8)
+        }
+        "CURVE_STYLE" | "POINT_STYLE" | "TEXT_STYLE" => None,
+        _ if depth > 0 => entity
+            .fields()
+            .ok()?
+            .all_references()
+            .into_iter()
+            .find_map(|next| surface_opacity(graph, next, depth - 1)),
         _ => None,
     }
 }

@@ -532,11 +532,13 @@ fn a_3mf_gives_coloured_bodies_a_base_material_and_leaves_the_rest_plain() {
     ];
     meshes[0].look = Some(Look {
         colour: Rgb::new(200, 64, 52),
+        opacity: None,
         material: Some("Steel & co"),
     });
     meshes[2].name = "Tinted";
     meshes[2].look = Some(Look {
         colour: Rgb::new(76, 160, 90),
+        opacity: None,
         material: None,
     });
 
@@ -718,6 +720,7 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
             solid: &block,
             look: Some(Look {
                 colour: Rgb::new(255, 0, 51),
+                opacity: None,
                 material: None,
             }),
             group: None,
@@ -733,6 +736,7 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
             solid: &block,
             look: Some(Look {
                 colour: Rgb::new(0, 0, 255),
+                opacity: None,
                 material: Some("Cast iron"),
             }),
             group: None,
@@ -775,6 +779,7 @@ fn an_obj_never_replaces_a_material_library_it_did_not_write() {
         solid: &block,
         look: Some(Look {
             colour: Rgb::new(10, 20, 30),
+            opacity: None,
             material: None,
         }),
         group: None,
@@ -884,6 +889,7 @@ fn a_glb_gives_a_coloured_body_a_material_in_linear_colour() {
     ];
     meshes[1].look = Some(Look {
         colour: Rgb::new(255, 0, 128),
+        opacity: None,
         material: Some("Brass"),
     });
 
@@ -1057,6 +1063,7 @@ fn a_step_export_styles_a_coloured_body_with_its_colour() {
         solid: &block,
         look: Some(Look {
             colour: Rgb::new(255, 0, 0),
+            opacity: None,
             material: Some("Steel"),
         }),
         group: None,
@@ -1078,6 +1085,50 @@ fn a_step_export_styles_a_coloured_body_with_its_colour() {
 
     assert!(step.contains("=COLOUR_RGB('',1.0,0.0,0.0);"));
     assert_eq!(step.matches("=STYLED_ITEM('color',").count(), 1);
+}
+
+#[test]
+fn a_step_export_writes_the_transparency_of_a_see_through_body_and_reads_it_back() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("panel.step");
+    let body = |name, opacity| ExportBody {
+        name,
+        solid: &block,
+        look: Some(Look {
+            colour: Rgb::new(200, 220, 255),
+            opacity,
+            material: None,
+        }),
+        group: None,
+    };
+    let bodies = [body("Acrylic", Some(25)), body("Frame", None)];
+
+    export_bodies(
+        &path,
+        ExportFormat::Step,
+        &MeshOptions {
+            resolution: MeshResolution::Standard,
+            ..MeshOptions::default()
+        },
+        &bodies,
+        &ModelProperties::default(),
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let step = std::fs::read_to_string(&path).unwrap();
+    let read = caditor_step::read_step(&step).unwrap();
+    let opacity = |name: &str| {
+        read.solids
+            .iter()
+            .find(|solid| solid.name == name)
+            .unwrap()
+            .opacity
+    };
+
+    assert_eq!(step.matches("=SURFACE_STYLE_TRANSPARENT(0.75);").count(), 1);
+    assert_eq!(opacity("Acrylic"), Some(25));
+    assert_eq!(opacity("Frame"), None);
 }
 
 #[test]
