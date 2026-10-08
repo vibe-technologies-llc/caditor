@@ -32,6 +32,7 @@ use crate::{
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome, Value},
     move_manipulator::{Handle, Manipulating, Manipulator},
+    pattern_tools,
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
     projecting, reference_picking,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
@@ -2893,6 +2894,16 @@ impl ViewportState {
                     .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
             } else if let Some(feature) = self.dimensioning {
                 self.dimension_hover(model, feature, hovered)
+            } else if let Some((open, copy)) =
+                editing.solid().zip(hovered).and_then(|(open, hovered)| {
+                    pattern_tools::clicked_copy(model, open, hovered).map(|copy| (open, copy))
+                })
+            {
+                Some(pattern_tools::leave_out_words(
+                    model.document(),
+                    open,
+                    &copy,
+                ))
             } else {
                 hovered
                     .filter(|_| !self.drawing.is_active())
@@ -3096,6 +3107,15 @@ fn pick_action(
                 Err(reason) => vec![Action::Inform(Notice::info(format!("{reason}.")))],
             },
             None => Vec::new(),
+        });
+    }
+    let copy = editing.solid().zip(pickable).and_then(|(open, pickable)| {
+        pattern_tools::clicked_copy(model, open, pickable).map(|copy| (open, copy))
+    });
+    if let Some((open, copy)) = copy {
+        return Some(match pattern_tools::leave_out(model, open, copy) {
+            Ok(transaction) => vec![Action::Apply(transaction)],
+            Err(reason) => vec![Action::Inform(Notice::info(format!("{reason}.")))],
         });
     }
     let toggled = match pickable {

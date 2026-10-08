@@ -9304,6 +9304,59 @@ fn a_pattern_measures_first_to_last_and_leaves_out_the_copies_clicked_in_its_pan
     assert!(volume_about(&harness, plate, 3.0 * 16000.0));
 }
 
+#[test]
+fn a_copy_clicked_in_the_view_while_its_pattern_is_open_is_left_out() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.click("Linear pattern");
+    harness.settle();
+    let pattern = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the pattern is open");
+    let copy_face = {
+        let body = harness.model.evaluation().body(plate).unwrap();
+        let (_, face) = body
+            .faces()
+            .find(|(_, face)| {
+                face.origin()
+                    .and_then(|origin| origin.copy())
+                    .is_some_and(|copy| copy.index == [1, 0])
+            })
+            .expect("the first copy has faces");
+        Pickable::Face {
+            body: plate,
+            face: crate::bodies::FaceKey {
+                name: face.name(),
+                occurrence: 0,
+            },
+        }
+    };
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+
+    harness.key(Key::F, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.hover_pickable(top, Point2::new(68.0, 20.0), copy_face);
+    harness.frame();
+    let offered = harness.shows_containing("Click to leave copy 1 out of Linear pattern 1");
+    harness.click_pickable(top, Point2::new(68.0, 20.0), copy_face);
+    harness.settle();
+
+    assert!(offered);
+    assert!(pattern_of(&harness, pattern).is_skipped([1, 0]));
+    assert!(volume_about(&harness, plate, 2.0 * 16000.0));
+    assert_eq!(harness.workspace.editing.solid(), Some(pattern));
+}
+
 fn datum_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Datum {
     harness
         .document()
@@ -12443,7 +12496,16 @@ fn o_switches_the_view_to_orthographic_and_back_and_the_preference_remembers_it(
     assert!(!before.is_orthographic());
     assert!(switched.is_orthographic());
     assert_eq!(remembered, caditor_render::Projection::Orthographic);
-    assert!(offered);
+    assert!(
+        offered,
+        "{:?}",
+        harness
+            .texts
+            .iter()
+            .map(|(text, _)| text.clone())
+            .filter(|text| text.contains("lick") || text.contains("opy"))
+            .collect::<Vec<_>>()
+    );
     assert_eq!(switched.viewpoint(), before.viewpoint());
     assert!(
         (switched.units_per_pixel_at(1.0) - before.units_per_pixel_at(before.viewpoint().distance))

@@ -228,6 +228,10 @@ paths:
   direction (rows for the second), checked when made; clicking one leaves it out or brings it back
   as one undoable change, the original disabled. A muted line under it counts what is left out.
   Switching between linear and circular clears the instances left out.
+- While a pattern is open, a click on a face of one of its copies (`FaceOrigin::Copy` of this
+  pattern, found through the shown body's result, `pattern_tools::clicked_copy`) leaves that copy
+  out as the grid would, and hovering one says so; other clicks select as usual. A copy left out
+  is no longer drawn, so the grid or Undo brings it back.
 
 ## Visibility
 

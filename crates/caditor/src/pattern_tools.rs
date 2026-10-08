@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{
-    AxisReference, CircularPattern, Document, Edit, FeatureId, FeatureKind, LinearDirection,
-    LinearSpacing, Pattern, PatternKind, PrincipalAxis, Transaction, displayed_axis,
+    AxisReference, CircularPattern, Document, Edit, FeatureId, FeatureKind, Instance,
+    LinearDirection, LinearSpacing, Pattern, PatternKind, PrincipalAxis, Transaction,
+    displayed_axis, instance_name,
 };
 use caditor_expression::Expression;
 
@@ -31,6 +32,7 @@ const SEVERAL_BODIES: &str = "Select faces or edges of one body only";
 const NO_AXIS: &str = "Select an axis, straight edge or round face made before this pattern";
 const NOT_LINEAR: &str = "Only a linear pattern has a second direction";
 const GONE: &str = "The feature no longer exists";
+const ORIGINAL_STAYS: &str = "The original is never left out of its pattern";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shape {
@@ -200,6 +202,45 @@ pub fn edit(document: &Document, feature: FeatureId, pattern: Pattern) -> Option
             kind: FeatureKind::from(pattern),
         },
     ))
+}
+
+pub struct ClickedCopy {
+    pub instance: Instance,
+    pub pattern: Pattern,
+}
+
+pub fn clicked_copy(model: &Model, open: FeatureId, pickable: Pickable) -> Option<ClickedCopy> {
+    let Pickable::Face { body, face } = pickable else {
+        return None;
+    };
+    let FeatureKind::Pattern(pattern) = &model.document().feature(open)?.kind else {
+        return None;
+    };
+    if pattern.body != body {
+        return None;
+    }
+    let result = model.evaluation().body_result(body)?.solid()?;
+    let found = bodies::find_face(result, face)?;
+    let copy = result.solid.face(found)?.origin()?.copy()?;
+    (copy.pattern == open.raw()).then(|| ClickedCopy {
+        instance: copy.index,
+        pattern: pattern.as_ref().clone(),
+    })
+}
+
+pub fn leave_out_words(document: &Document, open: FeatureId, copy: &ClickedCopy) -> String {
+    let name = document
+        .feature(open)
+        .map_or("the pattern", |feature| feature.name.as_str());
+    format!(
+        "Click to leave {} out of {name}; the Instances grid brings it back",
+        instance_name(copy.instance)
+    )
+}
+
+pub fn leave_out(model: &Model, open: FeatureId, copy: ClickedCopy) -> Result<Transaction, String> {
+    let left_out = copy.pattern.toggled(copy.instance).ok_or(ORIGINAL_STAYS)?;
+    change(model, open, left_out)
 }
 
 pub fn change(model: &Model, feature: FeatureId, pattern: Pattern) -> Result<Transaction, String> {
