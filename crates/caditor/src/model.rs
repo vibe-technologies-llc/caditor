@@ -11,8 +11,8 @@ use caditor_document::{
     Recomputer, SketchResult, Stale, Transaction, TurnCentre, displayed_axis,
 };
 use caditor_file::{
-    Closing, FileDigest, Flusher, JournalEntry, JournalFailure, Recovered, Report, SaveRequest,
-    Start, Storage, StorageConfig,
+    Closing, FileDigest, Flusher, JournalEntry, JournalFailure, KeepRequest, Recovered, Report,
+    SaveRequest, Start, Storage, StorageConfig,
 };
 use caditor_geometry::{Point3, RigidTransform};
 use caditor_kernel::MeshQuality;
@@ -119,6 +119,8 @@ pub enum FileEvent {
     Saved(PathBuf),
     SaveFailed,
     ChangedOnDisk(PathBuf),
+    VersionKept(PathBuf),
+    KeepFailed,
 }
 
 pub struct Services {
@@ -1007,6 +1009,20 @@ impl Model {
         }
     }
 
+    pub fn keep_version(&mut self, path: PathBuf, index: usize, kept: bool) -> bool {
+        let sent = self.storage.as_ref().is_some_and(|storage| {
+            storage
+                .keep_version(KeepRequest { path, index, kept })
+                .is_ok()
+        });
+        if !sent {
+            self.set_notice(Notice::failure(
+                "Could not change the version, because the background writer stopped. Try again.",
+            ));
+        }
+        sent
+    }
+
     pub fn replace(
         &mut self,
         document: Document,
@@ -1223,6 +1239,16 @@ impl Model {
                 self.pending_save
                     .take_if(|pending| pending.ticket == ticket);
                 self.file_events.push(FileEvent::ChangedOnDisk(path));
+            }
+            Report::VersionKept { path, .. } => {
+                self.file_events.push(FileEvent::VersionKept(path));
+            }
+            Report::KeepFailed { path, error } => {
+                self.set_notice(Notice::failure(format!(
+                    "Could not change which versions of “{}” are kept: {error}.",
+                    display_name(Some(&path))
+                )));
+                self.file_events.push(FileEvent::KeepFailed);
             }
             Report::SaveFailed {
                 ticket,

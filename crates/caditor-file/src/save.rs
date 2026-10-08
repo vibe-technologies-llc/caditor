@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     ffi::{OsStr, OsString},
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -13,7 +14,7 @@ use std::{
 use caditor_document::Document;
 
 use crate::{
-    binary::{self, EncodeError, Encoded, FileDigest, Shared, value::ValueError},
+    binary::{self, EncodeError, Encoded, FileDigest, KeepError, Shared, value::ValueError},
     os::{self, ChangeStamp},
     paths::{MAX_NAME_BYTES, fitting},
     read::{ensure_regular, open_file, read_open},
@@ -79,6 +80,95 @@ impl SaveError {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum KeepVersionError {
+    #[error("{0}")]
+    Writing(WriteFailure),
+    #[error("“{name}” could not be read ({failure})")]
+    Unreadable { name: String, failure: ReadFailure },
+    #[error("that version is no longer in the file")]
+    NoSuchVersion,
+    #[error(
+        "the file has damaged parts, so its versions cannot be changed until it is saved again"
+    )]
+    FileDamaged,
+    #[error("the file was written by a newer version of caditor")]
+    FromNewerVersion,
+    #[error("the file was changed by another program since it was opened")]
+    ChangedOnDisk,
+    #[error("the file is not the model open in this window")]
+    NotTheOpenModel,
+    #[error("the file's versions could not be converted")]
+    Unconvertible,
+}
+
+impl KeepVersionError {
+    fn writing(error: &io::Error) -> Self {
+        Self::Writing(WriteFailure::of(error))
+    }
+
+    fn rewriting(error: KeepError) -> Self {
+        match error {
+            KeepError::NoSuchVersion { .. } => Self::NoSuchVersion,
+            KeepError::FileDamaged => Self::FileDamaged,
+            KeepError::FromNewerVersion => Self::FromNewerVersion,
+            KeepError::Value(_) | KeepError::Pack(_) => Self::Unconvertible,
+        }
+    }
+}
+
+pub fn set_version_kept(
+    path: &Path,
+    index: usize,
+    kept: bool,
+    unless_changed_from: Option<&FileDigest>,
+) -> Result<(), KeepVersionError> {
+    let target = resolve_links(path).map_err(|error| KeepVersionError::writing(&error))?;
+    ensure_replaceable(&target).map_err(|error| KeepVersionError::writing(&error))?;
+    let previous = Previous::open(&target).map_err(|error| {
+        log::warn!(
+            "could not read the versions in {}: {error}",
+            target.display()
+        );
+        KeepVersionError::Unreadable {
+            name: target
+                .file_name()
+                .unwrap_or(target.as_os_str())
+                .display()
+                .to_string(),
+            failure: ReadFailure::of(&error),
+        }
+    })?;
+    if let Some(expected) = unless_changed_from
+        && binary::head_digest(&previous.bytes).as_ref() != Some(expected)
+    {
+        return Err(KeepVersionError::ChangedOnDisk);
+    }
+    let rewritten = binary::with_version_kept(&previous.bytes, index, kept)
+        .map_err(KeepVersionError::rewriting)?;
+    let changed_meanwhile = Cell::new(false);
+    let written = replace_checked(
+        &target,
+        |file| file.write_all(&rewritten.bytes),
+        |file| {
+            if previous.changed_since_read() {
+                changed_meanwhile.set(true);
+                return Err(io::Error::other(ChangedWhileKeeping));
+            }
+            check_reads_back(file, &rewritten.digest)
+        },
+    );
+    match written {
+        Err(_) if changed_meanwhile.get() => Err(KeepVersionError::ChangedOnDisk),
+        Err(error) => Err(KeepVersionError::writing(&error)),
+        Ok(()) => Ok(()),
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("the file changed while its versions were being rewritten")]
+struct ChangedWhileKeeping;
 
 pub fn encode(document: &Document) -> Result<Vec<u8>, SaveError> {
     binary::encode(document).map_err(|error| SaveError::encoding(&error))

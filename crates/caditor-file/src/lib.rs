@@ -45,11 +45,14 @@ pub use crate::{
     recovery::{
         FileJournal, Inspection, Recovered, describe_set_aside, discard, inspect, journal_for, scan,
     },
-    save::{SaveError, SaveOptions, Saved, encode, save, save_with, write_atomically},
+    save::{
+        KeepVersionError, SaveError, SaveOptions, Saved, encode, save, save_with, set_version_kept,
+        write_atomically,
+    },
     settings::{Settings, SettingsError, config_dir},
     storage::{
-        Closing, Flusher, JournalFailure, Report, SaveRequest, Start, Storage, StorageConfig,
-        StorageStopped,
+        Closing, Flusher, JournalFailure, KeepRequest, Report, SaveRequest, Start, Storage,
+        StorageConfig, StorageStopped,
     },
 };
 

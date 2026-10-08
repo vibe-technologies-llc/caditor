@@ -104,8 +104,25 @@ paths:
   listing an undamaged file unpacks at most the head's records. A version that passes its checksum
   but does not rebuild to its digest is listed and refused on restore. When the head cannot be
   rebuilt, the next save drops the deltas that depended on it.
+- A version's info record carries `kept: true` only for a version the user keeps (absent means not
+  kept, so every older file reads with nothing kept). Losing it changes nothing computed, so it is
+  a field, not a record kind: an older caditor ignores it, lists the version normally and writes
+  the info chunk back as stored, so the flag survives its saves, but its own thinning knows no
+  `kept` and may drop the version; the flag then goes with it.
+- Marking is a file-level change, not a document one (`binary::with_version_kept`,
+  `set_version_kept`, `Storage::keep_version`): versions belong to the file and not to the model, so
+  it neither dirties the model nor enters the undo history, unlike restoring, which changes the
+  model. It rewrites only the one info chunk (as a JSON-like map, so fields this version does not
+  know survive) and copies every other chunk as stored, then goes through the same atomic
+  replace and read-back as a save. It runs on the storage worker, in order with saves, since two
+  writers each rewriting the file from what they read would lose one another's change; it is
+  refused with `KeepVersionError::ChangedOnDisk` when the head is no longer the one the session
+  loaded or saved, and for a damaged file, a file from a newer version or one holding a
+  must-understand chunk (a save keeps a `.damaged` copy for those, a metadata flip must not).
 - Retention (`binary/retention.rs`), on each save adding a version: the newest stay, older thin by
-  age tiers; unlisted always stay. A delta whose newer neighbour was dropped is recompressed
+  age tiers; unlisted and kept always stay, and a kept version holds its tier slot like any other
+  version that is kept, so older ones in it still thin. Only the size limit below can still drop a
+  kept version, the oldest first. A delta whose newer neighbour was dropped is recompressed
   against the newest kept version before it (stored whole when a dropped version was whole); one
   that cannot be decoded is copied as it was. When a delta could not be decoded for want of memory
   the versions dropped before it are kept, so thinning never leaves a delta whose newer neighbour

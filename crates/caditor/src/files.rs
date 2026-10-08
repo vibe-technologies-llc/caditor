@@ -886,6 +886,13 @@ impl Files {
                 )),
             },
             HistoryCommand::Hide => self.history.close(),
+            HistoryCommand::Keep { index, kept } => {
+                if let Some(path) = self.history.start_keeping(index)
+                    && !model.keep_version(path, index, kept)
+                {
+                    self.history.finish_keeping();
+                }
+            }
             HistoryCommand::Restore(index) => {
                 if let Some((path, state)) = self.history.start_restoring(index) {
                     let (failed_path, failed_state) = (path.clone(), state.clone());
@@ -1023,6 +1030,13 @@ impl Files {
                         self.request(intent, model);
                     }
                 }
+                FileEvent::VersionKept(path) => {
+                    self.history.finish_keeping();
+                    if self.history.path() == Some(&path) {
+                        self.list_versions();
+                    }
+                }
+                FileEvent::KeepFailed => self.history.finish_keeping(),
                 FileEvent::SaveFailed => self.after_save = None,
                 FileEvent::ChangedOnDisk(path) => self.changed_on_disk = Some(path),
             }

@@ -2849,6 +2849,66 @@ fn every_save_keeps_a_version_that_can_be_restored_and_undone() {
 }
 
 #[test]
+fn a_version_can_be_kept_from_the_history_and_stays_marked_in_the_file() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let path = dir.path().join("plate.caditor");
+    harness.answer_dialog(Some(path.clone()));
+    harness.command(FileCommand::SaveAs);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    for width in ["45 mm", "50 mm"] {
+        harness.edit_width(width);
+        harness.command(FileCommand::Save);
+        harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
+    }
+    let undo_label = harness.model.undo_label().map(str::to_owned);
+
+    harness.command(FileCommand::History(HistoryCommand::Show));
+    harness.wait_until("the versions are listed", |harness| {
+        harness.shows("Restore")
+    });
+    assert!(!harness.shows("Stop keeping"));
+    assert!(!harness.shows(icons::KEPT_VERSION));
+    assert_eq!(harness.count_shown("Keep"), 2);
+
+    harness.click("Keep");
+    harness.wait_until("the version is marked kept", |harness| {
+        harness.shows("Stop keeping")
+    });
+    assert!(harness.shows("Kept"));
+    assert!(harness.shows(icons::KEPT_VERSION));
+    assert_eq!(harness.count_shown("Keep"), 1);
+    assert!(harness.files.is_blocking());
+    let listed = caditor_file::history(&path).unwrap();
+    assert_eq!(
+        listed
+            .versions
+            .iter()
+            .map(|version| version.kept)
+            .collect::<Vec<_>>(),
+        [true, false]
+    );
+    assert!(!harness.model.is_dirty());
+    assert_eq!(harness.model.undo_label().map(str::to_owned), undo_label);
+
+    harness.click("Stop keeping");
+    harness.wait_until("the version is no longer kept", |harness| {
+        !harness.shows("Stop keeping")
+    });
+    assert!(!harness.shows("Kept"));
+    assert!(!harness.shows(icons::KEPT_VERSION));
+    assert!(
+        caditor_file::history(&path)
+            .unwrap()
+            .versions
+            .iter()
+            .all(|version| !version.kept)
+    );
+}
+
+#[test]
 fn opening_a_damaged_file_reports_what_was_lost_and_keeps_the_original_on_save() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("damaged.caditor");

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::{
     CHUNK_HEADER_LENGTH, Chunk, ChunkKind, Codec, MODEL_MAGIC, PackError, Piece, UnpackError,
     damaged, parse, push_packed, push_packed_after, push_padding,
-    retention::retained,
+    retention::{self, retained},
     salvage, start_file,
     value::{self, ValueError, push_varint, read_varint},
 };
@@ -131,6 +131,7 @@ pub struct Version {
     pub index: usize,
     pub state: SavedState,
     pub available: bool,
+    pub kept: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -145,6 +146,8 @@ struct StateRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     label: Option<String>,
     digest: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    kept: bool,
 }
 
 fn seconds_since_epoch(time: SystemTime) -> u64 {
@@ -159,6 +162,7 @@ impl StateRecord {
             saved_at: seconds_since_epoch(saved_at),
             label: label.map(str::to_owned),
             digest: digest(snapshot),
+            kept: false,
         }
     }
 
@@ -210,6 +214,7 @@ struct Parsed<'a> {
     version: Option<u32>,
     damaged: usize,
     head: Option<StateRecord>,
+    head_chunk: Option<Chunk<'a>>,
     records: Vec<Chunk<'a>>,
     versions: Vec<StoredVersion<'a>>,
     foreign: Vec<Chunk<'a>>,
@@ -225,6 +230,7 @@ impl<'a> Parsed<'a> {
             version,
             damaged: damaged(&pieces),
             head: None,
+            head_chunk: None,
             records: Vec::new(),
             versions: Vec::new(),
             foreign: Vec::new(),
@@ -241,6 +247,7 @@ impl<'a> Parsed<'a> {
             match chunk.kind {
                 Some(ChunkKind::Head) if parsed.head.is_none() => {
                     parsed.head = state_record(&chunk);
+                    parsed.head_chunk = parsed.head.is_some().then_some(chunk);
                 }
                 Some(ChunkKind::Record) => parsed.records.push(chunk),
                 Some(ChunkKind::VersionInfo) => {
@@ -835,6 +842,22 @@ impl Candidate<'_, '_> {
         }
     }
 
+    fn is_kept(&self) -> bool {
+        match self {
+            Self::Replaced { info, .. } => info.kept,
+            Self::Stored { version, .. } => {
+                version.info.as_ref().is_some_and(|info| info.record.kept)
+            }
+        }
+    }
+
+    fn for_retention(&self) -> retention::Candidate {
+        retention::Candidate {
+            saved_at: self.saved_at(),
+            kept: self.is_kept(),
+        }
+    }
+
     fn is_keyframe(&self) -> bool {
         match self {
             Self::Replaced { whole, .. } => *whole,
@@ -875,8 +898,9 @@ fn thinned<'p, 'a>(
         )
         .collect();
     let mut keep = if adds_version {
-        let saved_at: Vec<Option<u64>> = candidates.iter().map(Candidate::saved_at).collect();
-        retained(&saved_at, seconds_since_epoch(now))
+        let for_retention: Vec<retention::Candidate> =
+            candidates.iter().map(Candidate::for_retention).collect();
+        retained(&for_retention, seconds_since_epoch(now))
     } else {
         vec![true; candidates.len()]
     };
@@ -1217,14 +1241,107 @@ pub(crate) fn history(bytes: &[u8]) -> History {
             .zip(available)
             .enumerate()
             .filter_map(|(index, (version, available))| {
+                let info = &version.info.as_ref()?.record;
                 Some(Version {
                     index,
-                    state: version.info.as_ref()?.record.state(),
+                    state: info.state(),
                     available,
+                    kept: info.kept,
                 })
             })
             .collect(),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub(crate) enum KeepError {
+    #[error("the file holds no listed version numbered {index}")]
+    NoSuchVersion { index: usize },
+    #[error("the file has damaged parts")]
+    FileDamaged,
+    #[error("the file holds something from a newer version of caditor")]
+    FromNewerVersion,
+    #[error("{0}")]
+    Value(#[from] ValueError),
+    #[error("{0}")]
+    Pack(#[from] PackError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Rewritten {
+    pub bytes: Vec<u8>,
+    pub digest: FileDigest,
+}
+
+pub(crate) fn with_version_kept(
+    bytes: &[u8],
+    index: usize,
+    kept: bool,
+) -> Result<Rewritten, KeepError> {
+    let parsed = Parsed::of(bytes).ok_or(KeepError::FileDamaged)?;
+    match parsed.version {
+        Some(version) if version > FORMAT_VERSION => return Err(KeepError::FromNewerVersion),
+        Some(_) => {}
+        None => return Err(KeepError::FileDamaged),
+    }
+    if parsed.foreign.iter().any(Chunk::must_understand) {
+        return Err(KeepError::FromNewerVersion);
+    }
+    if parsed.is_damaged(&parsed.records_digest()) {
+        return Err(KeepError::FileDamaged);
+    }
+    let (Some(head), Some(head_chunk), Some(version)) =
+        (&parsed.head, parsed.head_chunk, parsed.version)
+    else {
+        return Err(KeepError::FileDamaged);
+    };
+    let target = parsed
+        .versions
+        .get(index)
+        .and_then(|stored| stored.info.as_ref())
+        .ok_or(KeepError::NoSuchVersion { index })?;
+    let changed_info = info_marked(target, kept)?;
+
+    let mut rewritten = start_file(&MODEL_MAGIC, version);
+    rewritten.extend_from_slice(head_chunk.whole);
+    for record in &parsed.records {
+        rewritten.extend_from_slice(record.whole);
+    }
+    for foreign in &parsed.foreign {
+        rewritten.extend_from_slice(foreign.whole);
+    }
+    for (position, stored) in parsed.versions.iter().enumerate() {
+        match &stored.info {
+            Some(_) if position == index => rewritten.extend_from_slice(&changed_info),
+            Some(info) => rewritten.extend_from_slice(info.chunk.whole),
+            None => {}
+        }
+        rewritten.extend_from_slice(stored.data.whole);
+    }
+    Ok(Rewritten {
+        bytes: rewritten,
+        digest: FileDigest(head.digest.clone()),
+    })
+}
+
+fn info_marked(info: &StoredInfo<'_>, kept: bool) -> Result<Vec<u8>, KeepError> {
+    let content = info
+        .chunk
+        .unpack(None)
+        .map_err(|_| KeepError::FileDamaged)?;
+    let mut fields: serde_json::Map<String, serde_json::Value> = value::from_bytes(&content)?;
+    if kept {
+        fields.insert("kept".to_owned(), serde_json::Value::Bool(true));
+    } else {
+        fields.remove("kept");
+    }
+    let mut chunk = Vec::new();
+    push_packed(
+        &mut chunk,
+        ChunkKind::VersionInfo,
+        &value::to_bytes(&fields)?,
+    )?;
+    Ok(chunk)
 }
 
 pub(crate) fn load_version(bytes: &[u8], index: usize) -> Result<Loaded, LoadError> {

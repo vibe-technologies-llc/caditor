@@ -169,8 +169,17 @@ paths:
 ## Version history
 
 - File › Version history lists the file's versions newest first, read on the files worker, each
-  with Restore; a damaged one shows a "Damaged" `status_pill` with the reason on hover. It has no
-  footer.
+  with Restore and Keep; a damaged one shows a "Damaged" `status_pill` with the reason on hover
+  and neither button. It has no footer.
+- Keep / Stop keeping marks a version so the age-based thinning never removes it
+  (`file-format.md`); a kept version shows the `icons::KEPT_VERSION` icon and the word "Kept", not
+  colour alone. The mark is stored in the file, so it is a file-level change applied at once on the
+  storage worker (`HistoryCommand::Keep`, `Model::keep_version`, `Report::VersionKept`), not a
+  document change: it does not dirty the model, is not undoable by Undo (Stop keeping is its
+  reverse) and works with unsaved changes, since the versions are the file's. While it runs the
+  row shows a spinner and the other buttons are disabled (`VersionHistory::start_keeping`); the
+  list is read again when it finishes, and a failure is a notice naming the reason. Like Restore,
+  Keep is a button in each row reached by Tab, with no palette command of its own.
 - Restore loads in the background and applies `Document::transaction_to` as one undoable change,
   so Undo brings back what was there; the next save keeps the replaced state as a version. A
   version that proves damaged when restored (`LoadError::VersionUnavailable`) is marked from then

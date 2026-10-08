@@ -23,6 +23,7 @@ pub enum HistoryCommand {
     Show,
     Hide,
     Restore(usize),
+    Keep { index: usize, kept: bool },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -36,6 +37,7 @@ enum Listing {
 pub struct VersionHistory {
     shown: Option<(PathBuf, Listing)>,
     restoring: Option<usize>,
+    keeping: Option<usize>,
 }
 
 impl VersionHistory {
@@ -50,6 +52,7 @@ impl VersionHistory {
     pub fn close(&mut self) {
         self.shown = None;
         self.restoring = None;
+        self.keeping = None;
     }
 
     pub fn path(&self) -> Option<&PathBuf> {
@@ -71,12 +74,34 @@ impl VersionHistory {
         let (path, Listing::Loaded(history)) = self.shown.as_ref()? else {
             return None;
         };
+        if self.keeping.is_some() {
+            return None;
+        }
         let version = history
             .versions
             .iter()
             .find(|version| version.index == index && version.available)?;
         self.restoring = Some(index);
         Some((path.clone(), version.state.clone()))
+    }
+
+    pub fn start_keeping(&mut self, index: usize) -> Option<PathBuf> {
+        let (path, Listing::Loaded(history)) = self.shown.as_ref()? else {
+            return None;
+        };
+        if self.keeping.is_some() || self.restoring.is_some() {
+            return None;
+        }
+        history
+            .versions
+            .iter()
+            .find(|version| version.index == index && version.available)?;
+        self.keeping = Some(index);
+        Some(path.clone())
+    }
+
+    pub fn finish_keeping(&mut self) {
+        self.keeping = None;
     }
 
     pub fn finish_restoring(&mut self, path: &Path, result: &Result<Loaded, LoadError>) {
@@ -128,7 +153,8 @@ pub fn dialog(
         ui.label(widgets::muted(
             format!(
                 "Every save keeps the state it replaces inside “{name}”, so you can go back to \
-                 it even after closing caditor. Restoring is one change that Undo reverses."
+                 it even after closing caditor. Restoring is one change that Undo reverses. Old \
+                 versions are thinned out as they age, except the ones you keep."
             ),
             ui,
         ));
@@ -191,27 +217,61 @@ fn versions(
                         ui,
                         |ui| {
                             let muted = appearance::tokens(ui).text_muted;
-                            widgets::icon_label(ui, icons::RECENT, muted);
+                            let glyph = if version.kept {
+                                icons::KEPT_VERSION
+                            } else {
+                                icons::RECENT
+                            };
+                            widgets::icon_label(ui, glyph, muted);
                             ui.label(describe(&version.state));
+                            if version.kept {
+                                ui.label(widgets::strong("Kept"));
+                            }
                         },
                         |ui| {
                             if !version.available {
                                 widgets::status_pill(ui, Tone::Error, "Damaged")
                                     .on_hover_text(DAMAGED);
-                            } else if history.restoring == Some(version.index) {
-                                ui.spinner();
-                            } else if ui
-                                .add_enabled(
-                                    history.restoring.is_none(),
-                                    widgets::button("Restore"),
-                                )
-                                .on_hover_text(
-                                    "Bring the model back to this version; Undo reverses it",
-                                )
-                                .on_disabled_hover_text("Another version is being restored")
-                                .clicked()
+                            } else if history.restoring == Some(version.index)
+                                || history.keeping == Some(version.index)
                             {
-                                command = Some(HistoryCommand::Restore(version.index));
+                                ui.spinner();
+                            } else {
+                                let idle = history.restoring.is_none() && history.keeping.is_none();
+                                if ui
+                                    .add_enabled(idle, widgets::button("Restore"))
+                                    .on_hover_text(
+                                        "Bring the model back to this version; Undo reverses it",
+                                    )
+                                    .on_disabled_hover_text("Another version is being changed")
+                                    .clicked()
+                                {
+                                    command = Some(HistoryCommand::Restore(version.index));
+                                }
+                                let (label, hover) = if version.kept {
+                                    (
+                                        "Stop keeping",
+                                        "Let this version be thinned out with the others as it \
+                                         ages",
+                                    )
+                                } else {
+                                    (
+                                        "Keep",
+                                        "Never remove this version when old versions are thinned \
+                                         out",
+                                    )
+                                };
+                                if ui
+                                    .add_enabled(idle, widgets::button(label))
+                                    .on_hover_text(hover)
+                                    .on_disabled_hover_text("Another version is being changed")
+                                    .clicked()
+                                {
+                                    command = Some(HistoryCommand::Keep {
+                                        index: version.index,
+                                        kept: !version.kept,
+                                    });
+                                }
                             }
                         },
                     );
@@ -258,6 +318,7 @@ mod tests {
                 index,
                 state: state.clone(),
                 available: true,
+                kept: false,
             })
             .collect();
         let mut history = VersionHistory::default();
@@ -277,6 +338,46 @@ mod tests {
         assert!(history.start_restoring(0).is_some());
         history.finish_restoring(&path, &Err(LoadError::Empty));
         assert!(history.start_restoring(0).is_some());
+    }
+
+    #[test]
+    fn keeping_waits_for_its_result_and_refuses_damaged_or_missing_versions() {
+        let path = PathBuf::from("/models/plate.caditor");
+        let state = SavedState {
+            saved_at: UNIX_EPOCH,
+            label: None,
+        };
+        let versions = [true, false]
+            .into_iter()
+            .enumerate()
+            .map(|(index, available)| Version {
+                index,
+                state: state.clone(),
+                available,
+                kept: false,
+            })
+            .collect();
+        let mut history = VersionHistory::default();
+        assert_eq!(history.start_keeping(0), None);
+        history.open(path.clone());
+        assert_eq!(history.start_keeping(0), None);
+        history.listed(
+            &path,
+            Ok(History {
+                current: None,
+                versions,
+            }),
+        );
+
+        assert_eq!(history.start_keeping(1), None);
+        assert_eq!(history.start_keeping(5), None);
+        assert_eq!(history.start_keeping(0), Some(path));
+        assert_eq!(history.start_keeping(0), None);
+        assert_eq!(history.start_restoring(0), None);
+        history.finish_keeping();
+        assert!(history.start_keeping(0).is_some());
+        history.close();
+        assert_eq!(history.start_keeping(0), None);
     }
 
     #[test]

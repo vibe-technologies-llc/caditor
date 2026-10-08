@@ -17,7 +17,8 @@ use crate::{
     reason::WriteFailure,
     recovery::{mark_journal, unmark_journal},
     save::{
-        self, SaveError, SaveOptions, remove_orphaned_temporaries, sync_parent, temporary_sibling,
+        self, KeepVersionError, SaveError, SaveOptions, remove_orphaned_temporaries, sync_parent,
+        temporary_sibling,
     },
 };
 
@@ -61,6 +62,13 @@ pub struct SaveRequest {
     pub replace_outside_changes: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeepRequest {
+    pub path: PathBuf,
+    pub index: usize,
+    pub kept: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum JournalFailure {
     #[error("{0}")]
@@ -90,6 +98,15 @@ pub enum Report {
         ticket: u64,
         path: PathBuf,
     },
+    VersionKept {
+        path: PathBuf,
+        index: usize,
+        kept: bool,
+    },
+    KeepFailed {
+        path: PathBuf,
+        error: KeepVersionError,
+    },
     SaveFailed {
         ticket: u64,
         path: PathBuf,
@@ -112,6 +129,7 @@ pub struct StorageStopped;
 enum Command {
     Record(JournalEntry),
     Save(SaveRequest),
+    Keep(KeepRequest),
     Flush(SyncSender<()>),
     Close { discard: bool, done: SyncSender<()> },
 }
@@ -183,6 +201,10 @@ impl Storage {
 
     pub fn save(&self, request: SaveRequest) -> Result<(), StorageStopped> {
         self.send(Command::Save(request))
+    }
+
+    pub fn keep_version(&self, request: KeepRequest) -> Result<(), StorageStopped> {
+        self.send(Command::Keep(request))
     }
 
     pub fn flusher(&self) -> Flusher {
@@ -315,6 +337,7 @@ impl Worker {
         match command {
             Command::Record(entry) => self.append(entry),
             Command::Save(request) => self.save(request),
+            Command::Keep(request) => self.keep_version(request),
             Command::Flush(done) => {
                 self.sync();
                 if !self.protected {
@@ -475,6 +498,20 @@ impl Worker {
             },
         };
         self.report(report);
+    }
+
+    fn keep_version(&mut self, request: KeepRequest) {
+        self.sync();
+        let KeepRequest { path, index, kept } = request;
+        let result = if self.file.as_deref() == Some(path.as_path()) {
+            save::set_version_kept(&path, index, kept, self.on_disk.as_ref())
+        } else {
+            Err(KeepVersionError::NotTheOpenModel)
+        };
+        self.report(match result {
+            Ok(()) => Report::VersionKept { path, index, kept },
+            Err(error) => Report::KeepFailed { path, error },
+        });
     }
 
     fn opened_elsewhere(&self, file: &Path) -> bool {

@@ -312,7 +312,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Wayland connection would need `unsafe` to reach (a third `unsafe` crate, as `windows.md` keeps
   for Win32). X11 names the window already.
 - [medium · hard] Version history shows when a version was saved and after which change, but no
-  preview of what it holds, and no way to keep a version from being thinned out.
+  preview of what it holds.
 - [medium · hard] No user guide: Help has only the welcome, the command search, the keyboard
   shortcuts, the notice log and About, besides the tips shown in the view. Nothing explains
   features, the parameter and expression syntax, or the file workflow, and no panel links to help on
