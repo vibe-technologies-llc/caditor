@@ -471,6 +471,7 @@ pub fn show(
         viewport.select_exactly(chosen);
     }
     viewport.hover_from_tree(panels.hovered_in_tree.take());
+    viewport.show_chosen_rows(panels.chosen());
     if let Some(place) = panels.shown_place.take() {
         viewport.show_place(place);
     }

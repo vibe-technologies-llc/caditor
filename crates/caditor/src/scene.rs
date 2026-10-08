@@ -148,11 +148,21 @@ impl PickTable {
 pub struct Highlight<'a> {
     pub selection: &'a Selection,
     pub hovered: &'a [Pickable],
+    pub chosen_rows: &'a [FeatureId],
 }
 
 impl Highlight<'_> {
     pub fn is_hovered(&self, pickable: Pickable) -> bool {
-        self.hovered.contains(&pickable)
+        self.hovered.contains(&pickable) || self.is_of_chosen_row(pickable)
+    }
+
+    fn is_of_chosen_row(&self, pickable: Pickable) -> bool {
+        let owner = match pickable {
+            Pickable::Face { body, .. } | Pickable::Edge { body, .. } => Some(body),
+            Pickable::SketchEntity { feature, .. } | Pickable::Datum(feature) => Some(feature),
+            _ => None,
+        };
+        owner.is_some_and(|owner| self.chosen_rows.contains(&owner))
     }
 
     fn color(&self, highlights: &Highlights, pickable: Pickable, base: Color) -> Color {
@@ -221,6 +231,40 @@ impl BuiltScene {
                 .into_iter()
                 .flat_map(|pickable| pickable_points(sources, pickable, self.reference_size)),
         )
+    }
+
+    pub fn bounds_of_features(
+        &self,
+        sources: &Sources<'_>,
+        features: &[FeatureId],
+    ) -> Option<Aabb> {
+        let Sources {
+            document,
+            evaluation,
+            bodies,
+            sketches,
+            ..
+        } = *sources;
+        features
+            .iter()
+            .filter_map(|feature| {
+                let owner = document.feature(*feature)?;
+                let drawn = bodies
+                    .get(*feature)
+                    .filter(|_| visibility::is_shown(document, *feature))
+                    .and_then(|mesh| mesh.bounds());
+                let sketched = sketches
+                    .bounds(evaluation, owner, sketch_points_bounds)
+                    .filter(|_| !owner.hidden);
+                let datum =
+                    Aabb::from_points(datum_points(evaluation, *feature, self.reference_size))
+                        .filter(|_| owner.kind.datum().is_some() && !owner.hidden);
+                [drawn, sketched, datum]
+                    .into_iter()
+                    .flatten()
+                    .reduce(Aabb::union)
+            })
+            .reduce(Aabb::union)
     }
 
     pub fn fit_all(&self) -> Aabb {
@@ -2034,6 +2078,7 @@ mod tests {
             &Highlight {
                 selection: &selection,
                 hovered: &[],
+                chosen_rows: &[],
             },
             None,
         );
@@ -2066,6 +2111,7 @@ mod tests {
             &Highlight {
                 selection: &selection,
                 hovered: &[],
+                chosen_rows: &[],
             },
             None,
         );
@@ -2123,6 +2169,7 @@ mod tests {
         let highlight = Highlight {
             selection: &selection,
             hovered: &[],
+            chosen_rows: &[],
         };
 
         let editing = build_for(&document, &evaluation, &highlight, Some(feature));
@@ -2163,6 +2210,7 @@ mod tests {
         let highlight = Highlight {
             selection: &selection,
             hovered: &[],
+            chosen_rows: &[],
         };
 
         let built = build_for(&document, &Evaluation::default(), &highlight, Some(side));
@@ -2232,6 +2280,7 @@ mod tests {
         let highlight = Highlight {
             selection: &selection,
             hovered: &hovered,
+            chosen_rows: &[],
         };
 
         let editing = build_for(&document, &Evaluation::default(), &highlight, Some(side));
@@ -2330,6 +2379,7 @@ mod tests {
         let highlight = Highlight {
             selection: &selection,
             hovered: &[],
+            chosen_rows: &[],
         };
         let entity = |entity| Pickable::SketchEntity { feature, entity };
 
@@ -2364,6 +2414,7 @@ mod tests {
         let hovered = Highlight {
             selection: &selection,
             hovered: &[entity(fixed)],
+            chosen_rows: &[],
         };
         let built = build_for(&document, &evaluate(&document), &hovered, Some(feature));
         assert_eq!(line_color(&built, entity(fixed)), STANDARD.lines.hovered);
@@ -2431,6 +2482,7 @@ mod tests {
         let highlight = Highlight {
             selection: &selection,
             hovered: &[],
+            chosen_rows: &[],
         };
         let entity = |entity| Pickable::SketchEntity { feature, entity };
 
@@ -2522,6 +2574,7 @@ mod tests {
         let highlight = Highlight {
             selection: &selection,
             hovered: &hovered,
+            chosen_rows: &[],
         };
 
         let high = build_in(
@@ -2551,6 +2604,7 @@ mod tests {
         let highlight = Highlight {
             selection: &selection,
             hovered: &[Pickable::Origin],
+            chosen_rows: &[],
         };
         assert_eq!(
             highlight.color(&STANDARD.lines, Pickable::Origin, STANDARD.origin),
@@ -2572,6 +2626,7 @@ mod tests {
             &Highlight {
                 selection: &selection,
                 hovered: &[],
+                chosen_rows: &[],
             },
             None,
         );
@@ -2607,6 +2662,7 @@ mod tests {
             &Highlight {
                 selection: &selection,
                 hovered: &[],
+                chosen_rows: &[],
             },
             None,
         );
@@ -2673,6 +2729,7 @@ mod tests {
         let highlight = Highlight {
             selection: &selection,
             hovered: &[],
+            chosen_rows: &[],
         };
         let sources = Sources {
             document: &document,
@@ -2735,6 +2792,7 @@ mod tests {
             &Highlight {
                 selection: &selection,
                 hovered: &[],
+                chosen_rows: &[],
             },
             Context::default(),
             &mut SketchShapes::new(crowded),

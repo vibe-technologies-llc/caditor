@@ -73,6 +73,7 @@ fn build(sources: &Sources<'_>, level: FacetLevel) -> scene::BuiltScene {
         &Highlight {
             selection: &unselected,
             hovered: &[],
+            chosen_rows: &[],
         },
         context,
         &mut SketchShapes::new(scene::drawn_faceting(sources, context, level.faceting())),

@@ -245,6 +245,7 @@ pub struct ViewportState {
     scrubbing: bool,
     primary: Option<PrimaryDrag>,
     hovered_in_tree: Option<Pickable>,
+    chosen_rows: Vec<FeatureId>,
     session: u64,
     fit_when_computed: bool,
     scene_bounds: Option<Aabb>,
@@ -364,6 +365,7 @@ impl ViewportState {
             scrubbing: false,
             primary: None,
             hovered_in_tree: None,
+            chosen_rows: Vec::new(),
             session: 0,
             fit_when_computed: false,
             scene_bounds: None,
@@ -478,8 +480,20 @@ impl ViewportState {
         self.hovered_in_tree = pickable;
     }
 
+    pub fn show_chosen_rows(&mut self, rows: Vec<FeatureId>) {
+        self.chosen_rows = rows;
+    }
+
+    fn rows_to_highlight(&self, context: editing::Context) -> Vec<FeatureId> {
+        match context.sketch.is_none() && context.solid.is_none() {
+            true => self.chosen_rows.clone(),
+            false => Vec::new(),
+        }
+    }
+
     pub fn forget_document(&mut self) {
         self.selection.clear();
+        self.chosen_rows.clear();
         self.hovered = None;
         self.hover_source = None;
         self.pending_click = None;
@@ -703,6 +717,7 @@ impl ViewportState {
         } else {
             highlighted.into_iter().collect()
         };
+        let chosen_rows = self.rows_to_highlight(context);
         let view = self.view();
         let sources = Sources {
             document,
@@ -726,6 +741,7 @@ impl ViewportState {
             highlight: Highlight {
                 selection: &self.selection,
                 hovered: &hovered,
+                chosen_rows: &chosen_rows,
             },
             view: view.as_ref(),
         });
@@ -779,11 +795,13 @@ impl ViewportState {
             self.camera.animate_to(view.fitted(around));
         } else if self.fit_requested {
             let everything = built.fit_all();
-            let bounds = if self.selection.is_empty() {
-                everything
-            } else {
+            let bounds = if !self.selection.is_empty() {
                 built
                     .bounds_of(&sources, self.selection.iter())
+                    .unwrap_or(everything)
+            } else {
+                built
+                    .bounds_of_features(&sources, &chosen_rows)
                     .unwrap_or(everything)
             };
             self.camera.animate_to(view.fitted(bounds));
@@ -870,6 +888,7 @@ impl ViewportState {
             &Highlight {
                 selection: &unselected,
                 hovered: &[],
+                chosen_rows: &[],
             },
             context,
             &mut SketchShapes::new(scene::drawn_faceting(&sources, context, level.faceting())),
@@ -2690,7 +2709,7 @@ impl ViewportState {
     ) {
         let document = model.document();
         let orientation = self.camera.viewpoint().orientation;
-        let fit_label = if self.selection.is_empty() {
+        let fit_label = if self.selection.is_empty() && self.chosen_rows.is_empty() {
             "Fit all"
         } else {
             "Fit selection"

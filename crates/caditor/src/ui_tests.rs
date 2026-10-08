@@ -8366,6 +8366,71 @@ fn a_face_clicked_in_the_view_marks_its_body_row_selected_in_the_tree() {
 }
 
 #[test]
+fn a_row_chosen_in_the_tree_highlights_its_body_in_the_view_without_selecting_it() {
+    let mut harness = Harness::new();
+    let (extrude, top) = extruded_plate(&mut harness);
+    harness.select([]);
+    harness.frame();
+    let face_colour = |harness: &mut Harness| {
+        let built = harness.built();
+        let pick = built.picks.id_of(top);
+        built
+            .scene
+            .meshes
+            .iter()
+            .flat_map(|instance| instance.faces.iter())
+            .find(|face| face.pick == pick)
+            .map(|face| face.color)
+            .expect("the top face is drawn")
+    };
+    let plain = face_colour(&mut harness);
+
+    harness.workspace.panels.choose_only(extrude);
+    harness.frame();
+    harness.frame();
+    let highlighted = face_colour(&mut harness);
+    let selected = harness.workspace.viewport.selection().is_empty();
+
+    harness.workspace.panels.selected = None;
+    harness.frame();
+    harness.frame();
+    let cleared = face_colour(&mut harness);
+
+    assert_ne!(highlighted, plain);
+    assert!(selected, "highlighting does not select");
+    assert_eq!(cleared, plain);
+}
+
+#[test]
+fn fitting_the_view_frames_the_rows_chosen_in_the_tree_when_nothing_is_selected() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    harness.add_sketch(sketch);
+    let mut far = Sketch::new(Plane::XY);
+    rectangle(
+        &mut far,
+        Point2::new(500.0, 500.0),
+        Point2::new(510.0, 510.0),
+    );
+    let near = harness.add_sketch(far);
+    harness.select([]);
+    harness.frame();
+
+    harness.workspace.panels.choose_only(near);
+    harness.key(Key::F, Modifiers::NONE);
+    harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let target = harness.workspace.viewport.viewpoint().target;
+
+    assert!(
+        target.x > 400.0,
+        "the view is framed on the chosen sketch: {target:?}"
+    );
+}
+
+#[test]
 fn a_selection_filter_makes_clicks_skip_everything_but_one_kind() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);

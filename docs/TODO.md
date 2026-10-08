@@ -438,12 +438,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
-- [medium · medium] Choosing a row in the tree (a feature that made a body, a row of the Bodies
-  group, a sketch or a datum) neither highlights nor selects what it made in the view, so the body
-  a row names has to be found by eye; the view's selection already marks its rows in the tree
-  (`app-look.md`), the other way is missing. Highlight the chosen rows' bodies, sketches and
-  datums in the view as hovered or chosen geometry is, without making the faces the selection
-  (so commands keep taking the tree's choice as they do), and frame them on request.
 - [low · medium] Cancelling Open only drops its result while the files worker reads on, so a save or
   another open queues behind a slow load; the loader would need a cancel token and its own thread
   as imports have.
