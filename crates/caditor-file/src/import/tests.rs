@@ -1212,6 +1212,134 @@ mod step {
         assert!(evaluation.feature(fillet).is_some());
     }
 
+    const ASSEMBLY: &str = include_str!("../../../caditor-step/src/read/samples/assembly.step");
+    const SECOND_PIN: &str = "#9001 = AXIS2_PLACEMENT_3D('',#9002,#21,#22);\n\
+         #9002 = CARTESIAN_POINT('',(30.,50.,0.));\n\
+         #9003 = CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#9004,#9006);\n\
+         #9004 = ( REPRESENTATION_RELATIONSHIP('','',#228,#10) \
+         REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#9005) \
+         SHAPE_REPRESENTATION_RELATIONSHIP() );\n\
+         #9005 = ITEM_DEFINED_TRANSFORMATION('','',#11,#9001);\n\
+         #9006 = PRODUCT_DEFINITION_SHAPE('Placement','Placement of an item',#9007);\n\
+         #9007 = NEXT_ASSEMBLY_USAGE_OCCURRENCE('4','Pin','',#5,#223,$);\n\
+         ENDSEC;\nEND-ISO-10303-21;";
+
+    fn evaluated(document: &Document) -> caditor_document::Evaluation {
+        Recompute::default().run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
+    }
+
+    fn spans(
+        evaluation: &caditor_document::Evaluation,
+        body: caditor_document::FeatureId,
+        low: [f64; 3],
+        high: [f64; 3],
+    ) -> bool {
+        let bounds = evaluation.body(body).unwrap().bounding_box().unwrap();
+        bounds.min().distance(Point3::from_array(low)) < 1e-6
+            && bounds.max().distance(Point3::from_array(high)) < 1e-6
+    }
+
+    #[test]
+    fn an_assembly_stores_each_part_once_and_places_its_copies() {
+        let text = ASSEMBLY.replace("ENDSEC;\nEND-ISO-10303-21;", SECOND_PIN);
+        let import = parse_step(&text, "assembly.step").unwrap();
+        let names: Vec<&str> = import
+            .bodies
+            .iter()
+            .map(|body| body.name.as_str())
+            .collect();
+        let [block, pin, second] = &import.bodies[..] else {
+            panic!("{names:?}");
+        };
+        let mut document = Document::default();
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+        let ids: Vec<_> = document.features().map(|feature| feature.id()).collect();
+        let evaluation = evaluated(&document);
+        let encoded = encode(&document).unwrap();
+        let loaded = decode(&encoded).unwrap();
+        let reloaded = evaluated(&loaded.document);
+
+        assert!(import.notes.is_empty(), "{:?}", import.notes);
+        assert_eq!(names, ["Block", "Pin", "Pin 2"]);
+        assert!(std::sync::Arc::ptr_eq(
+            &pin.import.step,
+            &second.import.step
+        ));
+        assert!(std::sync::Arc::ptr_eq(
+            &pin.import.solid,
+            &second.import.solid
+        ));
+        assert!(!block.import.placement.is_at_origin());
+        assert!(!second.import.placement.is_at_origin());
+        assert_eq!(evaluation.failed_count(), 0);
+        assert!(spans(
+            &evaluation,
+            ids[0],
+            [80.0, 0.0, 0.0],
+            [100.0, 10.0, 5.0]
+        ));
+        assert!(spans(
+            &evaluation,
+            ids[1],
+            [-2.0, 20.0, -2.0],
+            [2.0, 50.0, 2.0]
+        ));
+        assert!(spans(
+            &evaluation,
+            ids[2],
+            [28.0, 20.0, -2.0],
+            [32.0, 50.0, 2.0]
+        ));
+        assert!(loaded.issues.is_empty(), "{:?}", loaded.issues);
+        assert_eq!(loaded.document, document);
+        assert_eq!(reloaded.failed_count(), 0);
+        assert!(spans(
+            &reloaded,
+            ids[2],
+            [28.0, 20.0, -2.0],
+            [32.0, 50.0, 2.0]
+        ));
+        let held: Vec<_> = loaded
+            .document
+            .features()
+            .filter_map(|feature| feature.kind.import())
+            .collect();
+        assert!(std::sync::Arc::ptr_eq(&held[1].step, &held[2].step));
+        assert!(std::sync::Arc::ptr_eq(&held[1].solid, &held[2].solid));
+    }
+
+    #[test]
+    fn a_copy_mirrored_by_its_assembly_is_stored_as_placed() {
+        let text = ASSEMBLY
+            .replace(
+                "#48 = ITEM_DEFINED_TRANSFORMATION('','',#11,#15);",
+                "#48 = CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',#18,#9100,#16,1.,#17);",
+            )
+            .replace(
+                "ENDSEC;\nEND-ISO-10303-21;",
+                "#9100=DIRECTION('',(1.,0.,0.));\nENDSEC;\nEND-ISO-10303-21;",
+            );
+        let import = parse_step(&text, "assembly.step").unwrap();
+        let mut document = Document::default();
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+        let block = document.features().next().unwrap().id();
+        let evaluation = evaluated(&document);
+
+        assert!(import.notes.is_empty(), "{:?}", import.notes);
+        assert!(import.bodies[0].import.placement.is_at_origin());
+        assert_eq!(evaluation.failed_count(), 0);
+        assert!(spans(
+            &evaluation,
+            block,
+            [100.0, 0.0, 0.0],
+            [120.0, 10.0, 5.0]
+        ));
+    }
+
     #[test]
     fn a_surface_model_of_several_closed_shells_is_imported_as_a_body_per_shell() {
         let square = |first: u64, x: f64| -> Vec<ProfileCurve> {

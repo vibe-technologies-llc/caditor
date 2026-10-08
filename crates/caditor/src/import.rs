@@ -1,4 +1,8 @@
-use std::path::{self, Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{self, Path, PathBuf},
+    sync::Arc,
+};
 
 use caditor_document::{Document, Edit, EditError, FeatureId, FeatureKind, Prepared, Transaction};
 use caditor_file::{
@@ -350,19 +354,28 @@ fn replacement<'a>(bodies: &'a [ImportedBody], name: &str) -> Result<&'a Importe
 }
 
 fn outgrows(document: &Document, transaction: &Transaction, limit: usize) -> bool {
-    let held: usize = document
-        .features()
-        .map(|feature| feature.kind.stored_text_len())
-        .sum();
-    let added: usize = transaction
-        .edits()
-        .iter()
-        .map(|edit| match edit {
-            Edit::InsertFeature { feature, .. } => feature.kind.stored_text_len(),
-            _ => 0,
+    let added = transaction.edits().iter().filter_map(|edit| match edit {
+        Edit::InsertFeature { feature, .. } => Some(&feature.kind),
+        _ => None,
+    });
+    stored_len(
+        document
+            .features()
+            .map(|feature| &feature.kind)
+            .chain(added),
+    ) > limit
+}
+
+fn stored_len<'a>(kinds: impl Iterator<Item = &'a FeatureKind>) -> usize {
+    let mut texts = BTreeSet::new();
+    kinds
+        .map(|kind| match kind.import() {
+            Some(import) if !texts.insert(Arc::as_ptr(&import.step).cast::<u8>()) => {
+                import.source.len() + import.path_len()
+            }
+            _ => kind.stored_text_len(),
         })
-        .sum();
-    held.saturating_add(added) > limit
+        .fold(0, usize::saturating_add)
 }
 
 fn nothing_imported(
@@ -427,5 +440,23 @@ mod tests {
 
         assert!(!outgrows(&document, &fitting, 1000));
         assert!(outgrows(&document, &outgrowing, 1000));
+    }
+
+    #[test]
+    fn copies_of_one_part_count_its_text_once() {
+        let document = Document::default();
+        let part = Import::new("part.step", Solid::default(), "x".repeat(600));
+        let mut transaction = document.transaction("Import");
+        for name in ["Part", "Part 2", "Part 3"] {
+            transaction.add_feature(name, FeatureKind::Import(part.clone()));
+        }
+        let copies = transaction.finish();
+
+        assert!(!outgrows(&document, &copies, 1000));
+        assert!(outgrows(
+            &document,
+            &importing(&document, "Big", 1001),
+            1000
+        ));
     }
 }

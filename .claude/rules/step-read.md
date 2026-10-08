@@ -52,6 +52,9 @@ paths:
 - Followed from each solid's representation to the roots through transformation relationships and
   `MAPPED_ITEM`s: one solid per placement. A product's only body takes the product's name; copies
   take their occurrences' names when each has a distinct one, else a number.
+- Each solid is built once and every placement handed to a placer (`read_placed`): `read_step`
+  maps each copy into a solid of its own, `read_step_copies` returns them as `StepCopy`s sharing
+  the built solid (`Arc`) with their `Similarity`, which import uses to store a part once.
 - The child representation comes from `NEXT_ASSEMBLY_USAGE_OCCURRENCE` and
   `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION`, else is guessed from which side is some assembly's
   child; `rep_1` is carried into `rep_2`, so the transform is inverted when the parent is listed

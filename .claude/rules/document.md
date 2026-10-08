@@ -378,7 +378,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - Keeps the source file's name, the path it was read from (`Import::path`, set by
   `Import::from_file` only for a path that is valid UTF-8, so it can be stored), the solid and the
-  canonical single-solid STEP text it was read from (what the file stores); equality compares the
+  canonical single-solid STEP text it was read from (what the file stores), both `Arc`s that the
+  copies of one part share (`Import::shared`); equality compares the
   name, path, text and placement. The body is `Solid::imported`, so later
   features hold its faces and edges like any body's.
 - Its `placement` (`BodyPlacement`, `movement.rs`) turns the body about the X, Y then Z axes

@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     format::{
-        FORMAT_VERSION, Lenient, Record, Unreadable, feature_record, next_ids_record,
+        FORMAT_VERSION, Lenient, Record, Unreadable, feature_records, next_ids_record,
         parameter_record, principal_record, properties_record, rollback_record, suppressed_record,
     },
     load::{
@@ -471,9 +471,7 @@ fn document_records(document: &Document) -> impl Iterator<Item = Result<Vec<u8>,
         .parameters()
         .iter()
         .map(|parameter| Record::Parameter(parameter_record(parameter)));
-    let features = document
-        .features()
-        .map(|feature| Record::Feature(Box::new(feature_record(feature))));
+    let features = feature_records(document).map(|feature| Record::Feature(Box::new(feature)));
     parameters
         .chain(features)
         .chain(principal_record(document).map(Record::Principal))

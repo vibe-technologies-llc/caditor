@@ -9,7 +9,10 @@ mod tests;
 mod topology;
 mod units;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_geometry::Similarity;
 use caditor_kernel::Solid;
@@ -46,6 +49,24 @@ pub struct StepSolid {
 pub struct StepModel {
     pub solids: Vec<StepSolid>,
     pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepCopy {
+    pub name: String,
+    pub solid: Arc<Solid>,
+    pub placement: Similarity,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StepCopies {
+    pub copies: Vec<StepCopy>,
+    pub notes: Vec<String>,
+}
+
+struct Read<T> {
+    solids: Vec<(String, T)>,
+    notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -174,13 +195,55 @@ impl From<Unplaced> for Misplacement {
 }
 
 pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
+    let read = read_placed(text, |solid, placement| {
+        if placement == Similarity::IDENTITY {
+            Some(Solid::clone(solid))
+        } else {
+            solid.mapped(&placement).ok()
+        }
+    })?;
+    Ok(StepModel {
+        solids: read
+            .solids
+            .into_iter()
+            .map(|(name, solid)| StepSolid { name, solid })
+            .collect(),
+        notes: read.notes,
+    })
+}
+
+pub fn read_step_copies(text: &str) -> Result<StepCopies, ReadError> {
+    let read = read_placed(text, |solid, placement| {
+        Some((Arc::clone(solid), placement))
+    })?;
+    Ok(StepCopies {
+        copies: read
+            .solids
+            .into_iter()
+            .map(|(name, (solid, placement))| StepCopy {
+                name,
+                solid,
+                placement,
+            })
+            .collect(),
+        notes: read.notes,
+    })
+}
+
+fn read_placed<T>(
+    text: &str,
+    mut place: impl FnMut(&Arc<Solid>, Similarity) -> Option<T>,
+) -> Result<Read<T>, ReadError> {
     let exchange = parse(text).map_err(|error| match error {
         SyntaxError::NotStep => ReadError::NotStep,
         SyntaxError::Damaged { line } => ReadError::Damaged(line),
     })?;
     let graph = Graph::new(&exchange);
     let mut structure = Structure::read(&graph);
-    let mut model = StepModel::default();
+    let mut model = Read {
+        solids: Vec::new(),
+        notes: Vec::new(),
+    };
     let mut failures = Vec::new();
     let mut unnamed_units = false;
     let mut converted: Vec<f64> = Vec::new();
@@ -290,13 +353,9 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                 }
                 let count = transforms.len();
                 let mut misplaced = false;
+                let solid = Arc::new(solid);
                 for (instance, (placement, occurrence)) in transforms.into_iter().enumerate() {
-                    let placed = if placement == Similarity::IDENTITY {
-                        Ok(solid.clone())
-                    } else {
-                        solid.mapped(&placement)
-                    };
-                    let Ok(placed) = placed else {
+                    let Some(placed) = place(&solid, placement) else {
                         misplaced = true;
                         continue;
                     };
@@ -306,10 +365,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                         _ => name.clone(),
                     };
                     budget = budget.saturating_sub(1);
-                    model.solids.push(StepSolid {
-                        name,
-                        solid: placed,
-                    });
+                    model.solids.push((name, placed));
                 }
                 if misplaced {
                     unplaced.push((name.clone(), Misplacement::CopyUnplaceable));

@@ -1,8 +1,14 @@
-use std::{path::Path, time::SystemTime};
+use std::{collections::BTreeMap, path::Path, sync::Arc, time::SystemTime};
 
-use caditor_document::{Document, FeatureKind, Import, Transaction};
-use caditor_kernel::Solid;
-use caditor_step::{ReadError, StepBody, read_step, write_step};
+use caditor_document::{
+    BodyPlacement, Document, FeatureKind, Import, ParameterValues, Transaction,
+};
+use caditor_expression::{Expression, Unit};
+use caditor_geometry::{Point3, Similarity, Vector3};
+use caditor_kernel::{LINEAR_RESOLUTION, Solid};
+use caditor_step::{
+    Misplacement, ReadError, StepBody, StepCopy, read_step, read_step_copies, write_step,
+};
 
 use crate::{
     import::ImportError,
@@ -24,6 +30,11 @@ const GZIP_EXTRA: u8 = 4;
 const GZIP_NAME: u8 = 8;
 const GZIP_COMMENT: u8 = 16;
 const GZIP_RESERVED: u8 = 0xe0;
+const PLACEMENT_DIGITS: f64 = 1e9;
+const PLACEMENT_SLACK: f64 = LINEAR_RESOLUTION / 10.0;
+const GIMBAL_LOCK: f64 = 1e-9;
+
+type Stored = Option<Vec<(Arc<Solid>, Arc<str>)>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportedBody {
@@ -120,24 +131,50 @@ fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
 }
 
 pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> {
-    let model = read_step(text).map_err(|error| match error {
+    let model = read_step_copies(text).map_err(|error| match error {
         ReadError::NotStep => ImportError::NotStep,
         other => ImportError::Step(other),
     })?;
     let mut imported = ModelImport {
-        bodies: Vec::with_capacity(model.solids.len()),
+        bodies: Vec::with_capacity(model.copies.len()),
         notes: model.notes,
     };
     let mut lost = Vec::new();
-    for solid in model.solids {
-        match canonical(&solid.name, &solid.solid) {
-            Some(lumps) => imported
-                .bodies
-                .extend(lumps.into_iter().map(|(stored, step)| ImportedBody {
-                    import: Import::new(source, stored, step),
-                    name: solid.name.clone(),
-                })),
-            None => lost.push(solid.name),
+    let mut unplaceable: Vec<String> = Vec::new();
+    let mut stored: BTreeMap<*const Solid, Stored> = BTreeMap::new();
+    for copy in model.copies {
+        let lumps = stored
+            .entry(Arc::as_ptr(&copy.solid))
+            .or_insert_with(|| shared(canonical(&copy.name, &copy.solid)))
+            .clone();
+        let Some(lumps) = lumps else {
+            lost.push(copy.name);
+            continue;
+        };
+        match placed_copies(source, &copy, &lumps) {
+            Some(bodies) => imported.bodies.extend(bodies),
+            None => {
+                let StepCopy {
+                    name,
+                    solid,
+                    placement,
+                } = copy;
+                match solid.mapped(&placement) {
+                    Ok(mapped) => match canonical(&name, &mapped) {
+                        Some(lumps) => {
+                            imported
+                                .bodies
+                                .extend(lumps.into_iter().map(|(stored, step)| ImportedBody {
+                                    import: Import::new(source, stored, step),
+                                    name: name.clone(),
+                                }))
+                        }
+                        None => lost.push(name),
+                    },
+                    Err(_) if unplaceable.contains(&name) => {}
+                    Err(_) => unplaceable.push(name),
+                }
+            }
         }
     }
     for name in lost {
@@ -145,10 +182,77 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
             "“{name}” was read but could not be stored in the model, so it was left out."
         ));
     }
+    imported.notes.extend(
+        unplaceable
+            .iter()
+            .map(|name| Misplacement::CopyUnplaceable.note(name)),
+    );
     if imported.bodies.is_empty() {
         return Err(ImportError::NothingStorable);
     }
     Ok(imported)
+}
+
+fn shared(lumps: Option<Vec<(Solid, String)>>) -> Stored {
+    lumps.map(|lumps| {
+        lumps
+            .into_iter()
+            .map(|(solid, step)| (Arc::new(solid), Arc::from(step)))
+            .collect()
+    })
+}
+
+fn placed_copies(
+    source: &str,
+    copy: &StepCopy,
+    lumps: &[(Arc<Solid>, Arc<str>)],
+) -> Option<Vec<ImportedBody>> {
+    let placement = if copy.placement == Similarity::IDENTITY {
+        BodyPlacement::default()
+    } else {
+        body_placement(&copy.placement, &copy.solid)?
+    };
+    Some(
+        lumps
+            .iter()
+            .map(|(solid, step)| ImportedBody {
+                import: Import::shared(source, Arc::clone(solid), Arc::clone(step))
+                    .placed(placement.clone()),
+                name: copy.name.clone(),
+            })
+            .collect(),
+    )
+}
+
+fn body_placement(similarity: &Similarity, solid: &Solid) -> Option<BodyPlacement> {
+    if !similarity.is_rigid() {
+        return None;
+    }
+    let [x, y, z] = [Vector3::X, Vector3::Y, Vector3::Z].map(|axis| similarity.apply_vector(axis));
+    let tilt = (-x.z).clamp(-1.0, 1.0).asin();
+    let (about_x, about_z) = if tilt.cos() > GIMBAL_LOCK {
+        (y.z.atan2(z.z), x.y.atan2(x.x))
+    } else {
+        (0.0, (-y.x).atan2(y.y))
+    };
+    let shift = similarity.apply_point(Point3::ZERO);
+    let degrees = |radians: f64| Expression::measure(rounded(radians.to_degrees()), Unit::Degree);
+    let millimetres = |length: f64| Expression::measure(rounded(length), Unit::Millimetre);
+    let placement = BodyPlacement {
+        offset: [shift.x, shift.y, shift.z].map(millimetres),
+        turn: [about_x, tilt, about_z].map(degrees),
+    };
+    let transform = placement.transform(&ParameterValues::default())?;
+    let bounds = solid.bounding_box()?;
+    let matches = bounds.corners().iter().all(|corner| {
+        (transform.apply_point(*corner) - similarity.apply_point(*corner)).length()
+            <= PLACEMENT_SLACK
+    });
+    matches.then_some(placement)
+}
+
+fn rounded(value: f64) -> f64 {
+    (value * PLACEMENT_DIGITS).round() / PLACEMENT_DIGITS + 0.0
 }
 
 pub(crate) fn canonical(name: &str, solid: &Solid) -> Option<Vec<(Solid, String)>> {

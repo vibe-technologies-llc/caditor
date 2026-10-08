@@ -56,14 +56,24 @@ paths:
 - `read_step_file` unpacks gzip first (`.stpz`, or the gzip magic), within `MAX_FILE_SIZE` and with
   the trailer's CRC and size checked, else `DamagedArchive` or `UnpacksTooLarge`. Non-UTF-8 text
   is read as Latin-1 with a note.
-- Each solid is canonicalised: written by caditor's own writer and read back, so what is stored is
-  exactly what later loads. One `ImportedBody` per solid, or per lump (each canonicalised alone)
-  when a multi-lump solid reads back as several; a body that cannot be stored is left out with a
-  note.
+- `parse_step` reads the copies of each part (`read_step_copies`, `step-read.md`) and canonicalises
+  each part once, unplaced: written by caditor's own writer and read back, so what is stored is
+  exactly what later loads. One `ImportedBody` per copy, or per copy of each lump (each
+  canonicalised alone) when a multi-lump solid reads back as several; a part that cannot be stored
+  is left out with a note per copy.
+- A copy placed rigidly becomes an `Import` sharing the part's solid and STEP text (`Arc`s, through
+  `Import::shared`) with its placement as a `BodyPlacement` (`body_placement`: turns about X, Y
+  then Z taken from the rotation, rounded with the shift to a billionth of a degree or millimetre,
+  and kept only when it lands every corner of the part's box within a tenth of
+  `LINEAR_RESOLUTION` of where the file puts it), so the user can move it afterwards like any
+  placed import. A copy scaled or mirrored, or one the turns cannot reproduce, is mapped and
+  canonicalised on its own at the origin as before; one whose mapping fails is left out with
+  `Misplacement::CopyUnplaceable`'s note.
 - `bodies_transaction` adds an `Import` feature per body under unique names; the model file stores
-  it as an `import` record (`file-format.md`). The app refuses, before applying it, an import whose
-  STEP text with the model's existing imports (`FeatureKind::stored_text_len`) would exceed
-  `MAX_MODEL_RECORDS`, since that model could be neither saved nor journaled.
+  it as an `import` or `placed_import` record (`file-format.md`). The app refuses, before applying
+  it, an import whose STEP text with the model's existing imports (`FeatureKind::stored_text_len`,
+  a text shared by copies counted once) would exceed `MAX_MODEL_RECORDS`, since that model could
+  be neither saved nor journaled.
 
 ## Mesh import (`import/mesh.rs`)
 

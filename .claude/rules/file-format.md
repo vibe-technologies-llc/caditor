@@ -75,7 +75,12 @@ paths:
   Reload); one that cannot be read loads empty, reported. An import placed anywhere but the origin
   is a `placed_import` record (the same fields plus `offset` and `turn`, three stored texts each;
   unreadable ones load as 0 mm or 0 deg, reported), since an older reader would put it at the
-  origin; one at the origin is still written as `import`. Parsing goes through `step_cache.rs`, a process-wide LRU cache of solids by the blake3
+  origin; one at the origin is still written as `import`. A model or journal snapshot
+  (`feature_records`) keeps each STEP text once: a `placed_import` whose text an earlier import in
+  tree order already holds writes `shares`, that text's blake3 digest in hex, instead of `step`,
+  and loading (`ImportTexts`) hands every import of one text the same text and solid; a shared
+  text that cannot be found loads the import empty, reported. An `import` record always holds its
+  text, for older readers, and journaled edits hold theirs whole. Parsing goes through `step_cache.rs`, a process-wide LRU cache of solids by the blake3
   digest of the text, so a load, a journal replay and a recovery scan parse each import once.
 - `ValueError::Refused` is what serde's `custom` becomes and carries no message: no type of ours
   raises it, only serde's own derives.

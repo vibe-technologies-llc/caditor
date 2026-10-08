@@ -1458,6 +1458,54 @@ fn an_import_keeps_the_path_it_was_read_from_only_when_known() {
 }
 
 #[test]
+fn placed_copies_of_one_part_keep_its_step_text_once_and_share_it_when_loaded() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Import");
+    let text: std::sync::Arc<str> = std::sync::Arc::from("ISO-10303-21; part");
+    let copy = |x: f64| {
+        let mut placement = caditor_document::BodyPlacement::default();
+        placement.offset[0] = Expression::Measure(x, Unit::Millimetre);
+        caditor_document::Import::new("pin.step", caditor_kernel::Solid::default(), text.clone())
+            .placed(placement)
+    };
+    let at_origin =
+        caditor_document::Import::new("pin.step", caditor_kernel::Solid::default(), text.clone());
+    transaction.add_feature("Pin", FeatureKind::Import(copy(10.0)));
+    transaction.add_feature("Pin 2", FeatureKind::Import(copy(20.0)));
+    transaction.add_feature("Pin 3", FeatureKind::Import(at_origin));
+    transaction.add_feature("Pin 4", FeatureKind::Import(copy(30.0)));
+    document.apply(transaction.finish()).unwrap();
+
+    let encoded = encode(&document).unwrap();
+    let loaded = decode_text(&encoded);
+    let lost = decode_text(&encoded.replacen("\"step\":\"ISO-10303-21; part\",", "", 1));
+    let held: Vec<_> = loaded
+        .document
+        .features()
+        .filter_map(|feature| feature.kind.import())
+        .collect();
+
+    assert_eq!(
+        encoded.matches("ISO-10303-21; part").count(),
+        2,
+        "{encoded}"
+    );
+    assert_eq!(encoded.matches("\"shares\":").count(), 2, "{encoded}");
+    assert_eq!(loaded.document, document);
+    assert!(
+        held.windows(2)
+            .all(|pair| std::sync::Arc::ptr_eq(&pair[0].step, &pair[1].step))
+    );
+    assert!(
+        lost.issues
+            .iter()
+            .any(|issue| issue.contains("“Pin 2”, imported from “pin.step”, was kept with another")),
+        "{:?}",
+        lost.issues
+    );
+}
+
+#[test]
 fn a_placed_import_is_a_record_of_its_own_and_an_unplaced_one_stays_readable_by_older_versions() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Import");

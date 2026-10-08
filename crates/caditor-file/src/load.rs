@@ -16,9 +16,9 @@ use caditor_sketch::EntityId;
 use crate::{
     binary::{self, FileDigest, History, UnpackError},
     format::{
-        FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, NextIdsRecord, ParameterRecord,
+        FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, ImportTexts, NextIdsRecord, ParameterRecord,
         PrincipalGeometryRecord, PropertiesRecord, RECORD_KINDS, Record, Unreadable,
-        restore_feature, restore_principal, restore_properties,
+        restore_feature_sharing, restore_principal, restore_properties,
     },
     read::read_file,
     reason::ReadFailure,
@@ -316,10 +316,11 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
         }
     }
 
+    let mut texts = ImportTexts::default();
     let features: Vec<Feature> = parts
         .features
         .iter()
-        .map(|record| restore_feature(record, issues))
+        .map(|record| restore_feature_sharing(record, &mut texts, issues))
         .collect();
 
     let referenced: BTreeSet<ParameterId> = expressions

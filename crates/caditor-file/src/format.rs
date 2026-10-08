@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use caditor_document::{
     AxisReference, Blend, BlendKind, BodyAppearance, BodyOperation, BodyPlacement, CircularPattern,
@@ -207,10 +211,28 @@ pub(crate) struct ImportRecord {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct PlacedImportRecord {
-    #[serde(flatten)]
-    pub import: ImportRecord,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shares: Option<String>,
     pub offset: [String; 3],
     pub turn: [String; 3],
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ImportTexts {
+    texts: BTreeMap<String, Arc<str>>,
+    solids: BTreeMap<String, Arc<Solid>>,
+}
+
+struct StoredShape<'a> {
+    source: &'a str,
+    path: Option<&'a String>,
+    step: Option<&'a str>,
+    shares: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -1067,13 +1089,32 @@ pub(crate) fn parameter_record(parameter: &Parameter) -> ParameterRecord {
 }
 
 pub(crate) fn feature_record(feature: &Feature) -> FeatureRecord {
+    feature_record_sharing(feature, None)
+}
+
+pub(crate) fn feature_records(document: &Document) -> impl Iterator<Item = FeatureRecord> + '_ {
+    let mut written = BTreeSet::new();
+    document.features().map(move |feature| {
+        let shares = feature.kind.import().and_then(|import| {
+            let digest = blake3::hash(import.step.as_bytes());
+            let seen = !written.insert(*digest.as_bytes());
+            (seen && !import.placement.is_at_origin()).then(|| digest.to_hex().to_string())
+        });
+        feature_record_sharing(feature, shares)
+    })
+}
+
+fn feature_record_sharing(feature: &Feature, shares: Option<String>) -> FeatureRecord {
     FeatureRecord {
         id: feature.id().raw(),
         name: feature.name.clone(),
         hidden: feature.hidden,
         appearance: (!feature.appearance.is_default())
             .then(|| Lenient::Read(appearance_record(&feature.appearance))),
-        kind: feature_kind_record(&feature.kind),
+        kind: match &feature.kind {
+            FeatureKind::Import(import) => import_record(import, shares),
+            kind => feature_kind_record(kind),
+        },
     }
 }
 
@@ -1331,25 +1372,29 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }),
         FeatureKind::Hole(hole) => hole_record(hole),
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
-        FeatureKind::Import(import) => import_record(import),
+        FeatureKind::Import(import) => import_record(import, None),
     }
 }
 
-fn import_record(import: &Import) -> FeatureKindRecord {
-    let record = ImportRecord {
-        source: import.source.clone(),
-        path: import
-            .path
-            .as_ref()
-            .and_then(|path| path.to_str())
-            .map(str::to_owned),
-        step: import.step.to_string(),
-    };
+fn import_record(import: &Import, shares: Option<String>) -> FeatureKindRecord {
+    let source = import.source.clone();
+    let path = import
+        .path
+        .as_ref()
+        .and_then(|path| path.to_str())
+        .map(str::to_owned);
     if import.placement.is_at_origin() {
-        return FeatureKindRecord::Import(record);
+        return FeatureKindRecord::Import(ImportRecord {
+            source,
+            path,
+            step: import.step.to_string(),
+        });
     }
     FeatureKindRecord::PlacedImport(Box::new(PlacedImportRecord {
-        import: record,
+        source,
+        path,
+        step: shares.is_none().then(|| import.step.to_string()),
+        shares,
         offset: import
             .placement
             .offset
@@ -2456,7 +2501,7 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
         },
         EditRecord::SetFeatureKind { feature } => {
             let mut issues = Vec::new();
-            let kind = restore_kind(&feature.kind, "", &mut issues);
+            let kind = restore_kind(&feature.kind, "", &mut ImportTexts::default(), &mut issues);
             if !issues.is_empty() {
                 return None;
             }
@@ -2550,6 +2595,14 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
 }
 
 pub(crate) fn restore_feature(record: &FeatureRecord, issues: &mut Vec<String>) -> Feature {
+    restore_feature_sharing(record, &mut ImportTexts::default(), issues)
+}
+
+pub(crate) fn restore_feature_sharing(
+    record: &FeatureRecord,
+    texts: &mut ImportTexts,
+    issues: &mut Vec<String>,
+) -> Feature {
     let name = if record.name.trim().is_empty() {
         let fallback = format!("Feature {}", record.id);
         issues.push(format!(
@@ -2559,7 +2612,7 @@ pub(crate) fn restore_feature(record: &FeatureRecord, issues: &mut Vec<String>) 
     } else {
         record.name.clone()
     };
-    let kind = restore_kind(&record.kind, &name, issues);
+    let kind = restore_kind(&record.kind, &name, texts, issues);
     let mut feature = Feature::new(FeatureId::from_raw(record.id), name, kind);
     feature.hidden = record.hidden;
     if let Some(appearance) = &record.appearance {
@@ -2568,10 +2621,15 @@ pub(crate) fn restore_feature(record: &FeatureRecord, issues: &mut Vec<String>) 
     feature
 }
 
-fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>) -> FeatureKind {
+fn restore_kind(
+    record: &FeatureKindRecord,
+    name: &str,
+    texts: &mut ImportTexts,
+    issues: &mut Vec<String>,
+) -> FeatureKind {
     match record {
         FeatureKindRecord::CutSeveral(several) => {
-            let mut kind = restore_kind(&several.feature, name, issues);
+            let mut kind = restore_kind(&several.feature, name, texts, issues);
             match &mut kind {
                 FeatureKind::Solid(solid) => {
                     *solid.other_bodies_mut() = several
@@ -2870,11 +2928,19 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
         FeatureKindRecord::AxisThrough(record) => {
             FeatureKind::Datum(Datum::Axis(restore_axis_through(record, name, issues)))
         }
-        FeatureKindRecord::Import(record) => {
-            FeatureKind::Import(restore_import(record, name, issues))
-        }
+        FeatureKindRecord::Import(record) => FeatureKind::Import(restore_import(
+            &StoredShape {
+                source: &record.source,
+                path: record.path.as_ref(),
+                step: Some(&record.step),
+                shares: None,
+            },
+            name,
+            texts,
+            issues,
+        )),
         FeatureKindRecord::PlacedImport(record) => {
-            FeatureKind::Import(restore_placed_import(record, name, issues))
+            FeatureKind::Import(restore_placed_import(record, name, texts, issues))
         }
     }
 }
@@ -2961,21 +3027,56 @@ fn restore_end(
     }
 }
 
-fn restore_import(record: &ImportRecord, name: &str, issues: &mut Vec<String>) -> Import {
-    let solid = match crate::step_cache::first_solid(&record.step) {
-        Ok(Some(solid)) => solid,
-        Ok(None) => Solid::default(),
-        Err(error) => {
-            issues.push(format!(
-                "The shape of “{name}”, imported from “{}”, could not be read ({error}), so the \
-                 feature has no shape.",
-                record.source
-            ));
-            Solid::default()
+fn restore_import(
+    record: &StoredShape<'_>,
+    name: &str,
+    texts: &mut ImportTexts,
+    issues: &mut Vec<String>,
+) -> Import {
+    let source = record.source;
+    let (digest, text) = match (record.step, record.shares) {
+        (Some(step), _) => {
+            let digest = blake3::hash(step.as_bytes()).to_hex().to_string();
+            let text = texts
+                .texts
+                .entry(digest.clone())
+                .or_insert_with(|| Arc::from(step))
+                .clone();
+            (digest, text)
         }
+        (None, Some(shares)) => match texts.texts.get(shares) {
+            Some(text) => (shares.to_owned(), text.clone()),
+            None => {
+                issues.push(format!(
+                    "The shape of “{name}”, imported from “{source}”, was kept with another \
+                     import that could not be read, so the feature has no shape."
+                ));
+                (String::new(), Arc::from(""))
+            }
+        },
+        (None, None) => (String::new(), Arc::from("")),
     };
-    let import = Import::new(record.source.clone(), solid, record.step.as_str());
-    match &record.path {
+    let solid = match texts.solids.get(&digest) {
+        Some(solid) => solid.clone(),
+        None => match crate::step_cache::first_solid(&text) {
+            Ok(read) => {
+                let read = Arc::new(read.unwrap_or_default());
+                if !digest.is_empty() {
+                    texts.solids.insert(digest, read.clone());
+                }
+                read
+            }
+            Err(error) => {
+                issues.push(format!(
+                    "The shape of “{name}”, imported from “{source}”, could not be read \
+                     ({error}), so the feature has no shape."
+                ));
+                Arc::new(Solid::default())
+            }
+        },
+    };
+    let import = Import::shared(source, solid, text);
+    match record.path {
         Some(path) => import.from_file(PathBuf::from(path)),
         None => import,
     }
@@ -2984,9 +3085,16 @@ fn restore_import(record: &ImportRecord, name: &str, issues: &mut Vec<String>) -
 fn restore_placed_import(
     record: &PlacedImportRecord,
     name: &str,
+    texts: &mut ImportTexts,
     issues: &mut Vec<String>,
 ) -> Import {
-    let import = restore_import(&record.import, name, issues);
+    let shape = StoredShape {
+        source: &record.source,
+        path: record.path.as_ref(),
+        step: record.step.as_deref(),
+        shares: record.shares.as_deref(),
+    };
+    let import = restore_import(&shape, name, texts, issues);
     let mut read = |texts: &[String; 3], what: &str, fallback: &str| {
         texts
             .each_ref()

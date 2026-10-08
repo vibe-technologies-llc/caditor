@@ -10,7 +10,7 @@ use crate::{
     },
     format::{
         FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, PrincipalRecord, PropertiesRecord,
-        Record, RollbackRecord, SuppressedRecord, TransactionRecord, feature_record,
+        Record, RollbackRecord, SuppressedRecord, TransactionRecord, feature_records,
         next_ids_record, parameter_record, principal_record, properties_record,
         restore_transaction, rollback_record, suppressed_record, transaction_record,
     },
@@ -187,10 +187,7 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
             .iter()
             .map(|parameter| Lenient::Read(parameter_record(parameter)))
             .collect(),
-        features: document
-            .features()
-            .map(|feature| Lenient::Read(feature_record(feature)))
-            .collect(),
+        features: feature_records(document).map(Lenient::Read).collect(),
         next_ids: next_ids_record(document),
         principal: principal_record(document),
         suppressed: suppressed_record(document),
