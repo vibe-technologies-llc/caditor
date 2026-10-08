@@ -95,7 +95,7 @@ impl ConstraintTool {
             }
             Self::Tangent => "Make a line and a curve, or two curves, touch smoothly",
             Self::Equal => "Give lines the same length, or circles and arcs the same radius",
-            Self::Symmetric => "Mirror two points, or two lines, about a line or a point",
+            Self::Symmetric => "Mirror two points, lines, circles or arcs about a line or a point",
             Self::Distance => {
                 "Fix the distance between two points, lines or circles, any two of them, the ends \
                  of a line, or the length of an arc"
@@ -134,7 +134,8 @@ impl ConstraintTool {
             }
             Self::Equal => "Select two or more lines, or two or more circles or arcs",
             Self::Symmetric => {
-                "Select two points or two lines, and the line or point to mirror them about"
+                "Select two points, lines, circles or arcs, and the line or point to mirror them \
+                 about"
             }
             Self::Distance => "Select one line or arc, or two of points, lines and circles",
             Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
@@ -546,23 +547,97 @@ fn mirrored(
                 crossed
             }
         }
+        (Shape::Circular, Shape::Circular) => {
+            return mirrored_circular(definition, shown, a.0, b.0, about.0, &mirror);
+        }
         _ => return None,
     };
-    let constraints = pairs
+    Some((error(&pairs)?, symmetric_pairs(&pairs, about.0)))
+}
+
+fn symmetric_pairs(pairs: &[(EntityId, EntityId)], about: EntityId) -> Vec<Constraint> {
+    pairs
         .iter()
         .map(|(first, second)| {
             if first == second {
-                Constraint::Coincident(*first, about.0)
+                Constraint::Coincident(*first, about)
             } else {
                 Constraint::Symmetric {
                     first: *first,
                     second: *second,
-                    about: about.0,
+                    about,
                 }
             }
         })
-        .collect();
-    Some((error(&pairs)?, constraints))
+        .collect()
+}
+
+fn mirrored_circular(
+    definition: &Sketch,
+    shown: &Sketch,
+    a: EntityId,
+    b: EntityId,
+    about: EntityId,
+    mirror: &Mirror,
+) -> Option<(f64, Vec<Constraint>)> {
+    let off = |from: EntityId, to: EntityId| -> Option<f64> {
+        Some(
+            mirror
+                .reflect(shown.point(from)?)
+                .distance(shown.point(to)?),
+        )
+    };
+    match (definition.entity(a)?, definition.entity(b)?) {
+        (
+            &Entity::Circle {
+                center: a_center,
+                radius: a_radius,
+            },
+            &Entity::Circle {
+                center: b_center,
+                radius: b_radius,
+            },
+        ) if a_center != b_center => {
+            let error = off(a_center, b_center)? + (a_radius - b_radius).abs();
+            let mut constraints = symmetric_pairs(&[(a_center, b_center)], about);
+            constraints.push(Constraint::Equal(a, b));
+            Some((error, constraints))
+        }
+        (
+            &Entity::Arc {
+                start: a_start,
+                end: a_end,
+                ..
+            },
+            &Entity::Arc {
+                start: b_start,
+                end: b_end,
+                ..
+            },
+        ) if a != b => {
+            let crossed = [(a_start, b_end), (a_end, b_start)];
+            let straight = [(a_start, b_start), (a_end, b_end)];
+            let error = |pairs: &[(EntityId, EntityId)]| {
+                pairs
+                    .iter()
+                    .try_fold(0.0, |sum, (from, to)| Some(sum + off(*from, *to)?))
+            };
+            let (crossed_error, straight_error) = (error(&crossed)?, error(&straight)?);
+            let (pairs, paired_error) = if crossed_error <= straight_error {
+                (crossed, crossed_error)
+            } else {
+                (straight, straight_error)
+            };
+            let (a_arc, b_arc) = (shown.arc(a)?, shown.arc(b)?);
+            let error = paired_error
+                + mirror.reflect(a_arc.center).distance(b_arc.center)
+                + (a_arc.radius - b_arc.radius).abs();
+            let mut constraints = symmetric_pairs(&pairs, about);
+            constraints.push(Constraint::Equal(a, b));
+            Some((error, constraints))
+        }
+        _ => None,
+    }
 }
 
 fn distance(from: EntityId, to: EntityId, length: f64) -> Constraint {
@@ -943,6 +1018,7 @@ pub fn settled_transaction(
 
 #[cfg(test)]
 mod tests {
+    use caditor_expression::Quantity;
     use caditor_geometry::Plane;
 
     use super::*;
@@ -1300,10 +1376,62 @@ mod tests {
         assert_eq!(
             ConstraintTool::Symmetric.candidates(&sketch, &sketch, &[a, b]),
             Err(
-                "Select two points or two lines, and the line or point to mirror them about"
+                "Select two points, lines, circles or arcs, and the line or point to mirror them \
+                 about"
                     .to_owned()
             )
         );
+    }
+
+    #[test]
+    fn circles_and_arcs_mirror_with_their_sizes_equal_and_no_constraint_redundant() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let left = sketch.add_circle(Point2::new(-10.0, 3.0), 2.0);
+        let right = sketch.add_circle(Point2::new(11.0, 4.0), 3.0);
+        let left_arc = sketch.add_arc(
+            Point2::new(-20.0, 0.0),
+            Point2::new(-15.0, 0.0),
+            Point2::new(-20.0, 5.0),
+        );
+        let right_arc = sketch.add_arc(
+            Point2::new(21.0, 1.0),
+            Point2::new(21.0, 6.0),
+            Point2::new(15.5, 1.0),
+        );
+        let axis = EntityId::VERTICAL_AXIS;
+
+        let circles = ConstraintTool::Symmetric.candidates(&sketch, &sketch, &[left, right, axis]);
+        let arcs =
+            ConstraintTool::Symmetric.candidates(&sketch, &sketch, &[left_arc, right_arc, axis]);
+        for constraint in circles
+            .clone()
+            .unwrap()
+            .into_iter()
+            .chain(arcs.clone().unwrap())
+        {
+            sketch.add_constraint(constraint).unwrap();
+        }
+        let solved = sketch
+            .solve(&|_| Ok(Quantity::plain(0.0)), &|| false)
+            .unwrap();
+
+        assert_eq!(circles.unwrap().len(), 2);
+        assert_eq!(arcs.unwrap().len(), 3);
+        assert!(solved.solution.redundancies().is_empty());
+        let geometry = solved.geometry;
+        let (left_centre, left_radius) = geometry.circle(left).unwrap();
+        let (right_centre, right_radius) = geometry.circle(right).unwrap();
+        assert!((left_centre.x + right_centre.x).abs() < 1e-7);
+        assert!((left_centre.y - right_centre.y).abs() < 1e-7);
+        assert!((left_radius - right_radius).abs() < 1e-7);
+        let (left_arc, right_arc) = (
+            geometry.arc(left_arc).unwrap(),
+            geometry.arc(right_arc).unwrap(),
+        );
+        assert!((left_arc.center.x + right_arc.center.x).abs() < 1e-7);
+        assert!((left_arc.center.y - right_arc.center.y).abs() < 1e-7);
+        assert!((left_arc.radius - right_arc.radius).abs() < 1e-7);
+        assert!((left_arc.sweep - right_arc.sweep).abs() < 1e-7);
     }
 
     #[test]

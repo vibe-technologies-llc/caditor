@@ -320,7 +320,11 @@ paths:
   Coincident also puts every selected point on the one curve selected with them, and Tangent
   makes the one line selected (else the first item) touch each other curve; two items keep their
   order. Symmetric takes the one axis
-  selected, else whichever of the three items mirrors the other two best.
+  selected, else whichever of the three items mirrors the other two best. It mirrors two points,
+  two lines (each end with the other line's end it mirrors best), two circles (their centres and
+  `Equal`) or two arcs (each end with the other arc's end it mirrors best, and `Equal`: the
+  centres are left to those, since mirroring them as well would repeat the radius), so curves
+  are mirrored by point symmetries without any constraint repeating another.
 - A candidate the sketch already has (`Relations::restating`, from `Sketch::relations` built once
   per refresh of the offers) is left out of a batch and, when
   nothing is left, refused as already in the sketch; one that contradicts a constraint
