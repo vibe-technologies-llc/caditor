@@ -105,6 +105,7 @@ enum Subject {
         origin: Point3,
         normal: Vector3,
     },
+    CentreOfMass(Arc<FeatureResult>),
     Unmeasurable,
 }
 
@@ -135,6 +136,9 @@ impl Item {
                 origin: *origin,
                 normal: *normal,
             }),
+            Subject::CentreOfMass(result) => Some(Element::Point(
+                result.solid()?.mesh()?.mass_properties().centroid,
+            )),
             Subject::Unmeasurable => None,
         }
     }
@@ -203,6 +207,7 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
             }),
             DatumResult::Point(point) => Subject::Point(point),
         },
+        Pickable::CentreOfMass(body) => Subject::CentreOfMass(body_result(model, body)?),
         Pickable::SketchConstraint { .. }
         | Pickable::SketchRegion { .. }
         | Pickable::Region { .. }

@@ -16,6 +16,7 @@ use crate::{
     selection::SelectionFilter,
     shape_modes::ShapeMode,
     sketch_tools::ConstraintTool,
+    view_aids::ViewAids,
     widgets::{self, Tone},
     window_frame::{self, Chrome},
 };
@@ -97,6 +98,7 @@ pub struct MenuContext<'a> {
     pub lasso: bool,
     pub typed_dimensions: bool,
     pub glyphs: bool,
+    pub aids: ViewAids,
 }
 
 pub fn show(
@@ -136,6 +138,7 @@ pub fn show(
                     lasso: context.lasso,
                     typed_dimensions: context.typed_dimensions,
                     glyphs: context.glyphs,
+                    aids: context.aids,
                     commands,
                     chosen: Vec::new(),
                 };
@@ -357,6 +360,7 @@ struct Menus<'a, 'b> {
     lasso: bool,
     typed_dimensions: bool,
     glyphs: bool,
+    aids: ViewAids,
     commands: &'a CommandFrame<'b>,
     chosen: Vec<Command>,
 }
@@ -482,6 +486,7 @@ impl Menus<'_, '_> {
             self.choice(ui, Command::ToggleGridSnapping, self.grid_snapping);
             self.choice(ui, Command::ToggleLasso, self.lasso);
             self.choice(ui, Command::ToggleGlyphs, self.glyphs);
+            self.choice(ui, Command::ToggleCentresOfMass, self.aids.centres_of_mass);
             ui.separator();
             self.item(ui, Command::FullScreen);
             ui.separator();

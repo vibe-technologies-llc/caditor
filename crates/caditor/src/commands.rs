@@ -148,6 +148,7 @@ pub enum Command {
     ToggleLasso,
     ToggleTypedDimensions,
     ToggleGlyphs,
+    ToggleCentresOfMass,
     MinimizeWindow,
     MaximizeWindow,
     FullScreen,
@@ -476,6 +477,7 @@ plain_commands! {
     ToggleLasso,
     ToggleTypedDimensions,
     ToggleGlyphs,
+    ToggleCentresOfMass,
     Measure,
     Interference,
     LargerInterface,
@@ -743,6 +745,7 @@ impl Command {
             Self::ToggleLasso => "view.toggle_lasso",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
             Self::ToggleGlyphs => "view.toggle_glyphs",
+            Self::ToggleCentresOfMass => "view.toggle_centres_of_mass",
             Self::MinimizeWindow => "view.minimize_window",
             Self::MaximizeWindow => "view.maximize_window",
             Self::FullScreen => "view.full_screen",
@@ -909,6 +912,7 @@ impl Command {
             Self::ToggleLasso => "Select with a lasso",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
+            Self::ToggleCentresOfMass => "Show or hide centres of mass",
             Self::MinimizeWindow => "Minimize the window",
             Self::MaximizeWindow => "Maximize or restore the window",
             Self::FullScreen => "Enter or leave full screen",
@@ -1032,6 +1036,7 @@ impl Command {
             | Self::ToggleGridSnapping
             | Self::ToggleLasso
             | Self::ToggleGlyphs
+            | Self::ToggleCentresOfMass
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::FullScreen => Category::View,
@@ -1266,6 +1271,7 @@ impl Command {
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
             | Self::ToggleLasso
+            | Self::ToggleCentresOfMass
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::CloseFeature

@@ -316,8 +316,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · medium] No draft analysis: with a pull direction chosen from an axis, edge or face,
   faces coloured by their draft angle against it, banded by a limit the user sets, showing
   undercuts, parting lines and faces with too little draft before a part is moulded or cast.
-- [low · easy] No centre of mass in the view: Measure gives the centroid as numbers, but not as a
-  marker in the viewport that can be picked and measured from.
 - [low · medium] No minimum radius analysis: concave faces tighter than a radius the user types
   coloured, to show where a cutter or a nozzle cannot reach.
 - [low · medium] No surface quality analyses: zebra stripes, a curvature map (Gaussian and the

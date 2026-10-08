@@ -49,6 +49,7 @@ use crate::{
     snapshot, solid_tools,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
+    view_aids::ViewAids,
     view_cube::{self, CubeAction},
     visibility,
 };
@@ -264,6 +265,7 @@ pub struct ViewportState {
     lasso: bool,
     typed_dimensions: bool,
     glyphs_shown: bool,
+    aids: ViewAids,
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
     clipboard: Option<Copied>,
@@ -383,6 +385,7 @@ impl ViewportState {
             lasso: false,
             typed_dimensions: true,
             glyphs_shown: true,
+            aids: ViewAids::default(),
             manipulator: None,
             manipulator_hover: None,
             clipboard: None,
@@ -405,6 +408,10 @@ impl ViewportState {
 
     pub fn typed_dimensions(&self) -> bool {
         self.typed_dimensions
+    }
+
+    pub fn aids(&self) -> ViewAids {
+        self.aids
     }
 
     pub fn glyphs_shown(&self) -> bool {
@@ -710,6 +717,7 @@ impl ViewportState {
             bodies: &self.bodies,
             sketches: &display.sketches,
             style: self.style,
+            aids: self.aids,
             contrast: self.contrast,
         };
         self.scenes.update(&SceneInputs {
@@ -720,6 +728,7 @@ impl ViewportState {
                 sketches: display.sketches.generation(),
                 bodies: self.bodies.generation(),
                 style: self.style,
+                aids: self.aids,
                 contrast: self.contrast,
             },
             context,
@@ -857,6 +866,7 @@ impl ViewportState {
             bodies: &self.bodies,
             sketches: &model.display().sketches,
             style: self.style,
+            aids: ViewAids::default(),
             contrast: Contrast::Standard,
         };
         let context = editing.context();
@@ -1892,6 +1902,16 @@ impl ViewportState {
         }
         if commands.available(Command::ToggleGlyphs) {
             self.glyphs_shown = !self.glyphs_shown;
+        }
+        if commands.available(Command::ToggleCentresOfMass) {
+            self.aids.centres_of_mass = !self.aids.centres_of_mass;
+            if !self.aids.centres_of_mass {
+                self.selection
+                    .retain(|pickable| !matches!(pickable, Pickable::CentreOfMass(_)));
+                self.hovered = self
+                    .hovered
+                    .filter(|hovered| !matches!(hovered, Pickable::CentreOfMass(_)));
+            }
         }
         if commands.available(Command::ToggleSnapping) {
             self.snapping = !self.snapping;

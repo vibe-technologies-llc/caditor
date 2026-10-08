@@ -138,6 +138,7 @@ pub struct ScenePalette {
     pub closed_region: Color,
     pub revolve_axis: Color,
     pub followed_edge: Color,
+    pub centre_of_mass: Color,
     pub datum_edge: Color,
     pub datum_fill: Color,
     pub failed_datum_edge: Color,
@@ -257,6 +258,7 @@ pub const STANDARD: ScenePalette = ScenePalette {
     closed_region: Color::from_rgba8(120, 170, 255, 52),
     revolve_axis: Color::from_rgb8(255, 150, 60),
     followed_edge: Color::from_rgb8(150, 200, 250),
+    centre_of_mass: Color::from_rgb8(255, 196, 64),
     datum_edge: Color::from_rgba8(236, 178, 92, 220),
     datum_fill: Color::from_rgba8(236, 178, 92, 26),
     failed_datum_edge: Color::from_rgba8(214, 120, 110, 220),
@@ -340,6 +342,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     closed_region: Color::from_rgba8(120, 170, 255, 70),
     revolve_axis: Color::from_rgb8(255, 160, 70),
     followed_edge: Color::from_rgb8(150, 200, 250),
+    centre_of_mass: Color::from_rgb8(255, 208, 90),
     datum_edge: Color::from_rgb8(245, 190, 100),
     datum_fill: Color::from_rgba8(245, 190, 100, 34),
     failed_datum_edge: Color::from_rgb8(255, 150, 140),
@@ -467,6 +470,30 @@ mod tests {
             opaque32(palette.drawing_face),
         );
         assert!(palette.body_edge_width > STANDARD.body_edge_width);
+    }
+
+    #[test]
+    fn the_centre_of_mass_marker_stands_out_from_its_outline_and_the_outline_from_a_body() {
+        let body = Color32::from_rgb(
+            DEFAULT_COLOUR.red,
+            DEFAULT_COLOUR.green,
+            DEFAULT_COLOUR.blue,
+        );
+        for palette in [&STANDARD, &HIGH_CONTRAST] {
+            let outline = opaque32(palette.hole);
+            for (what, color) in [
+                ("centre of mass", palette.centre_of_mass),
+                ("hovered centre of mass", palette.lines.hovered),
+                ("selected centre of mass", palette.lines.selected),
+                (
+                    "hovered and selected centre of mass",
+                    palette.lines.hovered_selected,
+                ),
+            ] {
+                assert_visible(what, color, outline);
+            }
+            assert_visible("centre of mass outline", palette.hole, body);
+        }
     }
 
     #[test]

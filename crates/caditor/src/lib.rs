@@ -124,6 +124,7 @@ mod ui_tests;
 mod undo_history;
 mod units;
 mod variants;
+mod view_aids;
 mod view_cube;
 mod viewport;
 mod visibility;

@@ -14923,6 +14923,41 @@ fn two_picked_vertices_are_measured_in_the_panel_and_the_view() {
     assert!(!harness.shows(&expected));
 }
 
+#[test]
+fn centres_of_mass_are_markers_in_the_view_that_can_be_picked_and_measured() {
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let marker = Pickable::CentreOfMass(body);
+    let marked = |harness: &mut Harness| {
+        harness
+            .built()
+            .picks
+            .pickables()
+            .any(|pickable| pickable == marker)
+    };
+
+    assert!(!marked(&mut harness));
+
+    run_from_palette(&mut harness, "show or hide centres of mass");
+    harness.frame();
+    harness.frame();
+
+    assert!(marked(&mut harness));
+
+    harness.key(Key::I, Modifiers::NONE);
+    harness.select([marker]);
+    harness.wait_until("the centre of mass is measured", |harness| {
+        harness.shows("Centre of mass of Extrude 1") && harness.shows("Position")
+    });
+
+    run_from_palette(&mut harness, "show or hide centres of mass");
+    harness.frame();
+    harness.frame();
+
+    assert!(!marked(&mut harness));
+    assert!(harness.workspace.viewport.selection().is_empty());
+}
+
 fn painted_faces(harness: &mut Harness, colour: caditor_render::Color) -> usize {
     harness
         .built_with_meshes(1)

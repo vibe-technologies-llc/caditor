@@ -406,6 +406,7 @@ pub fn show(
         lasso: viewport.lasso(),
         typed_dimensions: viewport.typed_dimensions(),
         glyphs: viewport.glyphs_shown(),
+        aids: viewport.aids(),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {

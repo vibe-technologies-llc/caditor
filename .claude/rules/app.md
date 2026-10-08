@@ -188,6 +188,15 @@ paths:
   the total mass and inertia about that centroid only when every body has a density.
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
   label in `canvas::MEASURE`.
+- Show or hide centres of mass (`Command::ToggleCentresOfMass`, View menu, palette) is a view aid
+  (`ViewAids::centres_of_mass`, kept for the session in `ViewportState::aids`, not saved; it
+  reaches the scene through `Sources::aids` and `Revisions::aids`). Outside sketch editing it
+  marks each shown body's centroid (`BodyMass`, so approximate on curved faces) with a ring on the
+  front layer, a `Pickable::CentreOfMass(body)` on a dark outline (`ScenePalette::hole`) that keeps
+  the ring (`centre_of_mass`, and the hover and selection colours) at 3:1 on bodies and canvas.
+  Measure reads it as a point named "Centre of mass of <body>" (`Subject::CentreOfMass`), so the
+  distance and the offsets along each axis from any other item come from the ordinary two-item
+  readout. Switching the aid off drops it from the selection.
 
 ## Interference
 

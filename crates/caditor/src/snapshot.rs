@@ -17,6 +17,7 @@ use crate::{
     scene::{self, Highlight, SketchShapes, Sources},
     scene_palette::Contrast,
     selection::Selection,
+    view_aids::ViewAids,
     viewport::initial_viewpoint,
 };
 
@@ -48,6 +49,7 @@ pub fn of_bodies(
         bodies: meshes,
         sketches: &sketches,
         style: DisplayStyle::default(),
+        aids: ViewAids::default(),
         contrast: Contrast::default(),
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));

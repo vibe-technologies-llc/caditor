@@ -20,7 +20,7 @@ use caditor_sketch::{
 };
 
 use crate::{
-    bodies::{self, BodyBefore, BodyFace, BodyMesh, BodyMeshes, FaceKey, OpenChoice},
+    bodies::{self, BodyBefore, BodyFace, BodyMass, BodyMesh, BodyMeshes, FaceKey, OpenChoice},
     body_appearance, canvas, datum_tools,
     display::DisplayedSketches,
     display_style::DisplayStyle,
@@ -29,6 +29,7 @@ use crate::{
     interference_panel::{Mark, MarkKind},
     scene_palette::{Contrast, Highlights, PointFill, ScenePalette, SketchState},
     selection::{self, Axis, Pickable, PrincipalPlane, Selection, SelectionFilter},
+    view_aids::ViewAids,
     visibility,
 };
 
@@ -36,6 +37,10 @@ pub const fn opaque(color: egui::Color32) -> Color {
     Color::from_rgb8(color.r(), color.g(), color.b())
 }
 
+const CENTRE_OF_MASS_SCALE: f32 = 2.0;
+const CENTRE_OF_MASS_OUTLINE: f32 = 1.3;
+const CENTRE_OF_MASS_HOLE: f32 = 0.6;
+const CENTRE_OF_MASS_DOT: f32 = 0.3;
 const MIN_REFERENCE_SIZE: f64 = 20.0;
 const EMPTY_SKETCH_HALF_SIZE: f64 = 50.0;
 const BOUNDS_SEGMENT_ANGLE: f64 = std::f64::consts::PI / 60.0;
@@ -207,6 +212,7 @@ pub struct Sources<'a> {
     pub bodies: &'a BodyMeshes,
     pub sketches: &'a DisplayedSketches,
     pub style: DisplayStyle,
+    pub aids: ViewAids,
     pub contrast: Contrast,
 }
 
@@ -376,6 +382,7 @@ pub fn build(
         bodies,
         sketches,
         style,
+        aids,
         contrast,
     } = *sources;
     let palette = contrast.palette();
@@ -481,16 +488,20 @@ pub fn build(
         let dashed = palette.troubled_edges_dashed
             && editing.is_none()
             && body_health(document, evaluation, body) != Health::Sound;
+        let placement = moved
+            .filter(|(moved, _)| *moved == body)
+            .map(|(_, placement)| placement);
         builder.body(
             body,
             mesh,
             (color, &faces, dashed),
             opacity,
             editing.is_none() || context.projecting,
-            moved
-                .filter(|(moved, _)| *moved == body)
-                .map(|(_, placement)| placement),
+            placement,
         );
+        if aids.centres_of_mass && editing.is_none() {
+            builder.centre_of_mass(body, &mesh.mass, placement);
+        }
     }
     match open_view {
         Some((open, OpenView::Before)) => builder.open_before(document, evaluation, open, true),
@@ -1010,6 +1021,39 @@ impl Builder<'_> {
                 pick: self.picks.register(pickable, PickPriority::Point),
             });
         }
+    }
+
+    fn centre_of_mass(
+        &mut self,
+        body: FeatureId,
+        mass: &BodyMass,
+        placement: Option<RigidTransform>,
+    ) {
+        let centroid = mass.properties.centroid;
+        if !(mass.properties.volume > 0.0 && centroid.is_finite()) {
+            return;
+        }
+        let position = placement.map_or(centroid, |placement| placement.apply_point(centroid));
+        let pickable = Pickable::CentreOfMass(body);
+        let color =
+            self.highlight
+                .color(&self.palette.lines, pickable, self.palette.centre_of_mass);
+        let diameter = self.palette.point_diameter * CENTRE_OF_MASS_SCALE
+            + self.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER;
+        let marker = |color: Color, diameter: f32, pick| Marker {
+            position,
+            color,
+            diameter,
+            layer: Layer::Front,
+            pick,
+        };
+        let pick = self.picks.register(pickable, PickPriority::Point);
+        self.scene.markers.extend([
+            marker(self.palette.hole, diameter * CENTRE_OF_MASS_OUTLINE, pick),
+            marker(color, diameter, None),
+            marker(self.palette.hole, diameter * CENTRE_OF_MASS_HOLE, None),
+            marker(color, diameter * CENTRE_OF_MASS_DOT, None),
+        ]);
     }
 
     fn cut_preview(&mut self, cut: &BodyMesh) {
@@ -1821,6 +1865,11 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .into_iter()
             .collect(),
         Pickable::Datum(feature) => datum_points(evaluation, feature, reference_size),
+        Pickable::CentreOfMass(body) => bodies
+            .get(body)
+            .map(|mesh| mesh.mass.properties.centroid)
+            .into_iter()
+            .collect(),
         Pickable::ShellFace { feature, face } => bodies
             .body_before()
             .filter(|open| open.feature == feature)
@@ -1984,6 +2033,7 @@ mod tests {
                 bodies: &BodyMeshes::default(),
                 sketches: &DisplayedSketches::default(),
                 style: DisplayStyle::default(),
+                aids: ViewAids::default(),
                 contrast,
             },
             highlight,
@@ -2009,6 +2059,7 @@ mod tests {
                     bodies: &BodyMeshes::default(),
                     sketches: &DisplayedSketches::default(),
                     style: DisplayStyle::default(),
+                    aids: ViewAids::default(),
                     contrast: Contrast::default(),
                 },
                 pickables,
@@ -2680,6 +2731,7 @@ mod tests {
             bodies: &BodyMeshes::default(),
             sketches: &DisplayedSketches::default(),
             style: DisplayStyle::default(),
+            aids: ViewAids::default(),
             contrast: Contrast::default(),
         };
         let built_at = |chord: f64| {
@@ -2723,6 +2775,7 @@ mod tests {
             bodies: &bodies,
             sketches: &sketches,
             style: DisplayStyle::default(),
+            aids: ViewAids::default(),
             contrast: Contrast::default(),
         };
         let wanted = Faceting::within(1e-9);

@@ -154,6 +154,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleLasso => phosphor::LASSO,
         Command::ToggleTypedDimensions => phosphor::RULER,
         Command::ToggleGlyphs => phosphor::SHAPES,
+        Command::ToggleCentresOfMass => phosphor::TARGET,
         Command::MinimizeWindow => MINIMIZE,
         Command::MaximizeWindow => MAXIMIZE,
         Command::FullScreen => FULL_SCREEN,
