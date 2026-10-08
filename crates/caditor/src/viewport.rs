@@ -19,7 +19,7 @@ use crate::{
     box_selection::{self, Catch},
     canvas,
     commands::{CameraMove, Command, CommandFrame, StandardView},
-    datum_tools,
+    datum_tools, dimensioning,
     display::Displayed,
     display_style::DisplayStyle,
     drag_solver::DragCommand,
@@ -43,7 +43,7 @@ use crate::{
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenBox},
     sketch_placement::{self, FaceChoice},
-    sketch_tools,
+    sketch_toolbar, sketch_tools,
     snap::{Pointer, Screen},
     solid_tools,
     trimming::{self, Trimming},
@@ -253,6 +253,7 @@ pub struct ViewportState {
     manipulator_hover: Option<Handle>,
     clipboard: Option<Copied>,
     system_clipboard: Option<String>,
+    dimensioning: Option<FeatureId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -368,6 +369,7 @@ impl ViewportState {
             manipulator_hover: None,
             clipboard: None,
             system_clipboard: None,
+            dimensioning: None,
         }
     }
 
@@ -1312,7 +1314,7 @@ impl ViewportState {
                 return Some(PrimaryDrag::Trim { feature, from });
             }
             Tool::Offset | Tool::Fillet => return Some(PrimaryDrag::Pull { feature }),
-            Tool::Extend | Tool::Mirror | Tool::Project => return None,
+            Tool::Extend | Tool::Mirror | Tool::Project | Tool::Dimension => return None,
             _ => {}
         }
         let projected = |entity: EntityId| {
@@ -1442,6 +1444,16 @@ impl ViewportState {
             .map(|cursor| cursor.x / f64::from(self.pixels_per_point));
         self.drawing.scrub_sides(scrub_from);
         self.trimming.sync(editing.active(), displayed.as_deref());
+        let dimensioning = editing
+            .active()
+            .filter(|active| active.tool.dimensions())
+            .map(|active| active.feature);
+        if dimensioning != self.dimensioning {
+            if dimensioning.is_some() {
+                self.selection.clear();
+            }
+            self.dimensioning = dimensioning;
+        }
         let selected = editing
             .feature()
             .map(|feature| sketch_tools::selected_entities(&self.selection, feature))
@@ -1576,6 +1588,10 @@ impl ViewportState {
             actions.extend(action);
             return;
         }
+        if let Some(feature) = self.dimensioning {
+            self.dimension_click(model, feature, self.hovered, actions);
+            return;
+        }
         if self.trimming.is_active() {
             actions.extend(outcome_action(self.trimming.click(model)));
             return;
@@ -1605,6 +1621,96 @@ impl ViewportState {
             return;
         }
         self.select(click.toggle);
+    }
+
+    fn dimension_click(
+        &mut self,
+        model: &Model,
+        feature: FeatureId,
+        hovered: Option<Pickable>,
+        actions: &mut Vec<Action>,
+    ) {
+        let mut picks = sketch_tools::selected_entities(&self.selection, feature);
+        let picked = match hovered {
+            Some(Pickable::SketchEntity {
+                feature: owner,
+                entity,
+            }) if owner == feature => entity,
+            _ => {
+                if !picks.is_empty() {
+                    self.place_dimension(model, feature, &picks, actions);
+                }
+                return;
+            }
+        };
+        let pickable = Pickable::SketchEntity {
+            feature,
+            entity: picked,
+        };
+        if picks.contains(&picked) {
+            self.selection.toggle(pickable);
+            return;
+        }
+        let Some(shown) = model
+            .document()
+            .feature(feature)
+            .and_then(|owner| model.displayed_sketch(owner))
+        else {
+            return;
+        };
+        picks.push(picked);
+        match dimensioning::fitting(&shown, &picks) {
+            dimensioning::Fit::Refused(reason) => {
+                actions.push(Action::Inform(Notice::info(format!("{reason}."))));
+            }
+            dimensioning::Fit::Ready(_) if picks.len() > 1 => {
+                self.place_dimension(model, feature, &picks, actions);
+            }
+            dimensioning::Fit::Ready(_) | dimensioning::Fit::Waiting => {
+                self.selection.toggle(pickable);
+            }
+        }
+    }
+
+    fn place_dimension(
+        &mut self,
+        model: &Model,
+        feature: FeatureId,
+        picks: &[EntityId],
+        actions: &mut Vec<Action>,
+    ) {
+        match dimensioning::dimension(model, feature, picks) {
+            Ok(added) => {
+                let typed = added
+                    .constraints
+                    .first()
+                    .copied()
+                    .filter(|constraint| !added.references.contains(constraint));
+                actions.push(Action::Apply(added.transaction));
+                if !added.references.is_empty() {
+                    actions.push(Action::Inform(Notice::info(
+                        sketch_toolbar::REFERENCE_ADDED,
+                    )));
+                }
+                if let Some(constraint) = typed {
+                    self.edit_dimension(feature, constraint);
+                }
+                self.selection.clear();
+            }
+            Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+        }
+    }
+
+    fn picked_dimension(&self, model: &Model) -> Option<(FeatureId, Vec<EntityId>)> {
+        let feature = self.dimensioning?;
+        let picks = sketch_tools::selected_entities(&self.selection, feature);
+        let owner = model.document().feature(feature)?;
+        let shown = model.displayed_sketch(owner)?;
+        matches!(
+            dimensioning::fitting(&shown, &picks),
+            dimensioning::Fit::Ready(_)
+        )
+        .then_some((feature, picks))
     }
 
     fn select_chain(&mut self, model: &Model, editing: &SketchEditing) -> bool {
@@ -1777,6 +1883,10 @@ impl ViewportState {
         {
             if let Some(placed) = self.place_at_highlight(model, editing, highlight) {
                 actions.extend(placed);
+                return;
+            }
+            if let Some(feature) = self.dimensioning {
+                self.dimension_click(model, feature, Some(highlight), actions);
                 return;
             }
             match pick_action(Some(highlight), model, editing) {
@@ -2284,6 +2394,8 @@ impl ViewportState {
                 self.modify(editing, outcome, actions);
             } else if let Some(transaction) = self.drawing.finish(model) {
                 actions.push(Action::Apply(transaction));
+            } else if let Some((feature, picks)) = self.picked_dimension(model) {
+                self.place_dimension(model, feature, &picks, actions);
             } else if let Some(Pickable::SketchConstraint {
                 feature,
                 constraint,
@@ -2340,6 +2452,8 @@ impl ViewportState {
             self.trimming.clear_highlight();
         } else if self.modifying.can_back_out() {
             self.modifying.back_out();
+        } else if self.dimensioning.is_some() && !self.selection.is_empty() {
+            self.selection.clear();
         } else if let Some(active) = active
             && active.tool != Tool::Select
         {
@@ -2380,7 +2494,8 @@ impl ViewportState {
             feature,
             interactive: !self.drawing.is_active()
                 && !self.trimming.is_active()
-                && !self.modifying.is_active(),
+                && !self.modifying.is_active()
+                && self.dimensioning.is_none(),
             glyphs: self.glyphs_shown,
             highlight: self.keyboard_highlight,
         };
@@ -2646,6 +2761,12 @@ impl ViewportState {
             .is_some_and(|active| active.tool.projects())
         {
             Some((PROJECT_PROMPT.to_owned(), key_hints.targets.clone()))
+        } else if let Some(feature) = self.dimensioning {
+            let picks = sketch_tools::selected_entities(&self.selection, feature);
+            let owner = document.feature(feature)?;
+            let shown = model.displayed_sketch(owner)?;
+            let (text, keys) = dimensioning::prompt(&shown, &picks);
+            Some((text, keys.to_owned()))
         } else if let Some(prompt) = self.trimming.prompt() {
             Some((prompt.to_owned(), key_hints.targets.clone()))
         } else if let Some(prompt) = self.modifying.prompt() {
@@ -2696,6 +2817,27 @@ impl ViewportState {
         }
     }
 
+    fn dimension_hover(
+        &self,
+        model: &Model,
+        feature: FeatureId,
+        hovered: Option<Pickable>,
+    ) -> Option<String> {
+        let Some(Pickable::SketchEntity {
+            feature: owner,
+            entity,
+        }) = hovered
+        else {
+            return None;
+        };
+        if owner != feature {
+            return None;
+        }
+        let shown = model.displayed_sketch(model.document().feature(feature)?)?;
+        let picks = sketch_tools::selected_entities(&self.selection, feature);
+        Some(dimensioning::hover_words(&shown, &picks, entity))
+    }
+
     fn paint_description(
         &self,
         ui: &egui::Ui,
@@ -2719,6 +2861,8 @@ impl ViewportState {
             } else if self.modifying.is_active() {
                 edited_sketch(model, editing)
                     .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
+            } else if let Some(feature) = self.dimensioning {
+                self.dimension_hover(model, feature, hovered)
             } else {
                 hovered
                     .filter(|_| !self.drawing.is_active())

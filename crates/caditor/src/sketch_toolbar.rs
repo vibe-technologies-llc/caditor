@@ -40,7 +40,7 @@ const FINISH_KEYS: &str = "Esc with nothing selected";
 const NOTHING_TO_DISABLE: &str = "Select a constraint or a dimension to disable or enable it";
 const DISABLE_HELP: &str = "A disabled constraint stays in the sketch but no longer holds; a disabled dimension shows the measured value instead";
 const ENABLE_HELP: &str = "Make the selected constraints hold again";
-const REFERENCE_ADDED: &str = "That geometry is already fully determined, so the dimension shows the measured value as a reference; enable it to make it drive instead";
+pub const REFERENCE_ADDED: &str = "That geometry is already fully determined, so the dimension shows the measured value as a reference; enable it to make it drive instead";
 const NOTHING_TO_DELETE: &str = "Select sketch geometry or constraints to delete them";
 const DELETE_HELP: &str =
     "Delete the selected geometry and constraints, and the constraints on that geometry";
@@ -409,7 +409,7 @@ impl Bar<'_, '_> {
             Group::Draw => self.drawing_tools(ui),
             Group::Modify => self.edit_buttons(ui),
             Group::Constrain => self.constraint_buttons(ui, false, GEOMETRIC_COLUMNS),
-            Group::Dimension => self.constraint_buttons(ui, true, DIMENSION_COLUMNS),
+            Group::Dimension => self.dimension_buttons(ui),
         }
     }
 
@@ -614,13 +614,12 @@ impl Bar<'_, '_> {
     fn edit_buttons(&mut self, ui: &mut Ui) -> f32 {
         let first = ui.horizontal_top(|ui| {
             self.construction_button(ui);
-            self.activity_button(ui);
             self.compact_tool_button(ui, Tool::Trim);
             self.compact_tool_button(ui, Tool::Extend);
             self.compact_tool_button(ui, Tool::Fillet);
+            self.compact_tool_button(ui, Tool::Offset);
         });
         let second = ui.horizontal_top(|ui| {
-            self.compact_tool_button(ui, Tool::Offset);
             self.compact_tool_button(ui, Tool::Mirror);
             self.compact_tool_button(ui, Tool::Project);
             let moving = self.moving.clone();
@@ -753,6 +752,28 @@ impl Bar<'_, '_> {
                 .width()
             })
             .fold(0.0, f32::max)
+    }
+
+    fn dimension_buttons(&mut self, ui: &mut Ui) -> f32 {
+        let offers: Vec<&Offer> = self
+            .offers
+            .iter()
+            .filter(|(tool, _)| tool.is_dimension())
+            .collect();
+        let (first, second) = offers.split_at(DIMENSION_COLUMNS.min(offers.len()));
+        let top = ui.horizontal_top(|ui| {
+            self.compact_tool_button(ui, Tool::Dimension);
+            for (tool, offer) in first {
+                self.constraint_button(ui, *tool, offer);
+            }
+        });
+        let bottom = ui.horizontal_top(|ui| {
+            for (tool, offer) in second {
+                self.constraint_button(ui, *tool, offer);
+            }
+            self.activity_button(ui);
+        });
+        top.response.rect.width().max(bottom.response.rect.width())
     }
 
     fn constraint_button(

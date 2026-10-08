@@ -216,7 +216,8 @@ impl ShapeModes {
             | Tool::Offset
             | Tool::Mirror
             | Tool::Fillet
-            | Tool::Project => None,
+            | Tool::Project
+            | Tool::Dimension => None,
         }
     }
 

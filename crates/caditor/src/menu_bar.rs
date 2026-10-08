@@ -559,6 +559,7 @@ impl Menus<'_, '_> {
             ui.separator();
             let (drawing, modifying): (Vec<Tool>, Vec<Tool>) = Tool::ALL
                 .into_iter()
+                .filter(|tool| !tool.dimensions())
                 .partition(|tool| *tool == Tool::Select || tool.draws());
             self.items(ui, drawing.into_iter().map(Command::SketchTool));
             ui.separator();
@@ -602,7 +603,11 @@ impl Menus<'_, '_> {
                 ui,
                 icons::constraint(ConstraintTool::Distance),
                 "Dimensions",
-                |ui| self.items(ui, dimensions.into_iter().map(Command::Constraint)),
+                |ui| {
+                    self.item(ui, Command::SketchTool(Tool::Dimension));
+                    ui.separator();
+                    self.items(ui, dimensions.into_iter().map(Command::Constraint));
+                },
             );
         });
     }

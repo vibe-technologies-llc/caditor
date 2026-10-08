@@ -629,6 +629,7 @@ impl Command {
                 Tool::Mirror => "sketch.mirror",
                 Tool::Fillet => "sketch.fillet",
                 Tool::Project => "sketch.project",
+                Tool::Dimension => "sketch.dimension",
             },
             Self::ShapeMode(mode) => mode.id(),
             Self::Filter(filter) => filter.id(),
@@ -806,6 +807,7 @@ impl Command {
             Self::SketchTool(Tool::Mirror) => "Mirror sketch geometry",
             Self::SketchTool(Tool::Fillet) => "Fillet a sketch corner",
             Self::SketchTool(Tool::Project) => "Project model geometry into the sketch",
+            Self::SketchTool(Tool::Dimension) => "Smart dimension",
             Self::SketchTool(tool) => return format!("Draw {}", tool.label().to_lowercase()),
             Self::ShapeMode(mode) => return mode.title(),
             Self::Constraint(tool) => return tool.label().to_owned(),
@@ -1246,6 +1248,7 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::Mirror => plain(Key::Y),
         Tool::Fillet => plain(Key::B),
         Tool::Project => Some(KeyboardShortcut::new(Modifiers::ALT, Key::P)),
+        Tool::Dimension => plain(Key::D),
     }
 }
 

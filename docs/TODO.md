@@ -135,9 +135,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
   before committing.
 - [medium · medium] Constraint kinds missing: distance to a spline; angle to an arc; equal
   splines; spline–spline tangency; curvature continuity; symmetric curves.
-- [medium · medium] No smart-dimension tool that takes the entities after the command, and a
-  sketch of more than `MAX_UNSWEPT_REGION_ENTITIES` entities shows its closed regions only once a
-  feature sweeps it.
+- [medium · medium] A sketch of more than `MAX_UNSWEPT_REGION_ENTITIES` entities shows its closed
+  regions only once a feature sweeps it. Smart dimension gives two points only their aligned
+  distance, never a horizontal or vertical one chosen by where the pointer is, and never an arc's
+  length or sweep, which need the dimension buttons.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
   profile curves, which have no ellipse although its 3D curves do, and the file format), sketch
   chamfer, rectangular and circular patterns, rotate, scale and copy of a selection, split at a

@@ -108,7 +108,9 @@ paths:
   (`place_at_highlight` through `Drawing::type_point`), and on a highlighted curve at its middle
   (`Drawing::type_on_curve`: a line's or arc's with `Midpoint`, a circle's rightmost point or a
   spline's halfway point on it), so keyboard drawing starts from existing geometry; where the shape
-  takes only points, or on anything else, it says what to highlight.
+  takes only points, or on anything else, it says what to highlight. With Smart dimension active,
+  Activate picks the highlighted item as a click would and Enter adds the dimension of a single
+  pick (`app-sketching.md`).
 - The selection filter (`SelectionFilter`, commands `select.*`, View › Selection filter) makes
   `PickTable::best_hit` and the highlight keys skip every pickable but one kind (faces, edges,
   vertices or sketch geometry), reference geometry included. It applies only while no sketch or

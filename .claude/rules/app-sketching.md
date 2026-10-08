@@ -21,6 +21,7 @@ paths:
   - "crates/caditor/src/annotation_layout.rs"
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
+  - "crates/caditor/src/dimensioning.rs"
 ---
 
 # Sketch editing in the app
@@ -312,8 +313,8 @@ paths:
 - The candidates of every tool are kept in `PanelState::constraint_offers` and worked out again
   only when the selection, the revision, the evaluation, the displayed sketches or the units
   change (`sketch_toolbar::ConstraintOffers`).
-- Disable (`Command::ToggleConstraintActive`, `sketch_tools::ActivityChange`, the Edit group of the
-  sketch bar and the palette) switches the selected constraints off, or on again when none of them
+- Disable (`Command::ToggleConstraintActive`, `sketch_tools::ActivityChange`, the Dimension group of
+  the sketch bar and the palette) switches the selected constraints off, or on again when none of them
   is on. A disabled dimension is a reference: its label shows the measured value in parentheses in
   the muted `Standing::Inactive` colour, and a disabled constraint's description ends in
   "(disabled)".
@@ -324,6 +325,19 @@ paths:
   added inactive in the same transaction, labelled "Add reference ...", with a notice saying it
   shows the measured value and can be enabled to drive. It takes no focus for typing a value. The
   test is conservative: a circle counts only when its centre and radius are both determined.
+- Smart dimension (`Tool::Dimension`, `dimensioning.rs`, first in the sketch bar's Dimension group,
+  Sketch › Dimensions and the palette) takes the geometry clicked after it, not the selection: the
+  selection is cleared when it starts and then holds its picks. A click on a sketch item picks it (a
+  picked one again lets it go); `dimensioning::fitting` chooses the dimension: a line's length, a
+  circle's diameter and an arc's radius for one pick, the angle between two lines that are not
+  parallel, and otherwise the distance between the two picks (origin and axes included). A second
+  pick adds its dimension at once; a single pick waits for a second, and Enter or a click on empty
+  space adds the single one. A spline is refused in words and a lone point waits. The dimension goes
+  through the same candidates, checks, reference rule and inline field as the dimension buttons
+  (`ConstraintTool::candidates_among`, `add_constraints`), the field taking the typed value. The
+  prompt says what Enter would add and the hover what a click would; with the tool active labels
+  are not interactive, Activate picks the highlighted item as a click would, and Escape lets go of
+  the picks before leaving the tool.
 - Constraint states, degrees of freedom and redundancies come from the last evaluation
   (`sketch_status.rs`, `scene.rs`), never from solving on the UI thread (drags solve on their own
   worker).

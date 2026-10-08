@@ -32,6 +32,7 @@ use crate::{
     app::{self, Workspace},
     appearance, canvas,
     commands::{Command, Offer, RecentSlot},
+    dimensioning,
     display_style::DisplayStyle,
     drawing::Refusal,
     editing::{EditingCommand, Tool},
@@ -3575,6 +3576,216 @@ fn a_horizontal_distance_between_two_points_is_a_dimension_edited_on_the_canvas(
     assert!(((to.x - from.x) - 20.0).abs() < 1e-6, "{from} {to}");
     assert!(((to.y - from.y) - 12.0).abs() < 1e-6, "{from} {to}");
     assert!(harness.shows("Horizontal distance between Point 0 and Point 1"));
+}
+
+fn sketch_entity(feature: FeatureId, entity: EntityId) -> Pickable {
+    Pickable::SketchEntity { feature, entity }
+}
+
+#[test]
+fn the_smart_dimension_takes_a_line_clicked_after_it_and_enter_dimensions_its_length() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(30.0, 40.0));
+    let other = sketch.add_point(Point2::new(40.0, 0.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    let (start, end) = line_ends(harness.sketch(feature), line);
+    let label = harness.sketch(feature).entity_label(line);
+    harness.select([sketch_entity(feature, other)]);
+
+    harness.use_tool(Key::D);
+    assert_eq!(harness.tool(), Some(Tool::Dimension));
+    assert!(harness.workspace.viewport.selection().is_empty());
+    assert!(harness.shows(dimensioning::PICK_FIRST));
+
+    harness.hover_pickable(
+        Plane::XY,
+        Point2::new(15.0, 20.0),
+        sketch_entity(feature, line),
+    );
+    harness.frame();
+    assert!(harness.shows(&format!(
+        "Click to pick {label}, then press Enter for the length of {label} or click a second item"
+    )));
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(15.0, 20.0),
+        sketch_entity(feature, line),
+    );
+    harness.frame();
+    assert!(
+        harness
+            .workspace
+            .viewport
+            .selection()
+            .contains(sketch_entity(feature, line))
+    );
+    assert!(harness.shows(&format!(
+        "Click a second item to dimension against it, or press Enter for the length of {label}"
+    )));
+    assert_eq!(harness.sketch(feature).constraints().count(), 0);
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let (constraint, added) = only_constraint(harness.sketch(feature));
+    assert_eq!(
+        added,
+        Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(50.0, Unit::Millimetre),
+        }
+    );
+    assert_eq!(harness.model.undo_label(), Some("Add Distance"));
+    assert!(harness.workspace.viewport.selection().is_empty());
+    assert_eq!(harness.tool(), Some(Tool::Dimension));
+    harness.frame();
+    let field = annotations::field_id(feature, constraint);
+    assert_eq!(harness.focused(), Some(field));
+
+    harness.type_into_field(field, "25");
+    harness.settle();
+    let (from, to) = harness.shown(feature).line_endpoints(line).unwrap();
+    assert!((from.distance(to) - 25.0).abs() < 1e-6);
+}
+
+#[test]
+fn the_smart_dimension_dimensions_two_lines_by_their_angle_and_a_circle_by_a_click_on_nothing() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let level = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(40.0, 0.0));
+    let slanted = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(20.0, 25.0));
+    let circle = sketch.add_circle(Point2::new(50.0, 25.0), 6.0);
+    let spline = sketch.add_spline(&[Point2::new(0.0, 30.0), Point2::new(10.0, 35.0)]);
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.use_tool(Key::D);
+
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(20.0, 0.0),
+        sketch_entity(feature, level),
+    );
+    harness.frame();
+    let level_label = harness.sketch(feature).entity_label(level);
+    let slanted_label = harness.sketch(feature).entity_label(slanted);
+    harness.hover_pickable(
+        Plane::XY,
+        Point2::new(10.0, 15.0),
+        sketch_entity(feature, slanted),
+    );
+    harness.frame();
+    assert!(harness.shows(&format!(
+        "Click to dimension the angle between {level_label} and {slanted_label}"
+    )));
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(10.0, 15.0),
+        sketch_entity(feature, slanted),
+    );
+    harness.frame();
+    harness.frame();
+    let angles = constraints_of_kind(harness.sketch(feature), "Angle");
+    let [Constraint::Angle { value, .. }] = &angles[..] else {
+        panic!("one angle is added: {angles:?}");
+    };
+    assert_eq!(*value, Expression::Measure(45.0, Unit::Degree));
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    assert_eq!(harness.tool(), Some(Tool::Dimension));
+
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(10.0, 32.5),
+        sketch_entity(feature, spline),
+    );
+    harness.frame();
+    assert!(harness.shows_containing("A spline takes no dimension"));
+    assert!(harness.workspace.viewport.selection().is_empty());
+
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(56.0, 25.0),
+        sketch_entity(feature, circle),
+    );
+    harness.frame();
+    harness.click_at(Point2::new(30.0, 15.0));
+    harness.frame();
+    harness.frame();
+    let diameters = constraints_of_kind(harness.sketch(feature), "Diameter");
+    assert!(
+        matches!(
+            &diameters[..],
+            [Constraint::Diameter { entity, value }]
+                if *entity == circle && *value == Expression::Measure(12.0, Unit::Millimetre)
+        ),
+        "{diameters:?}"
+    );
+}
+
+#[test]
+fn the_smart_dimension_works_from_the_keyboard_and_escape_lets_go_before_leaving() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_point(Point2::new(0.0, 0.0));
+    let second = sketch.add_point(Point2::new(30.0, 40.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.use_tool(Key::D);
+    let highlight = |harness: &mut Harness, entity: EntityId| {
+        let wanted = sketch_entity(feature, entity);
+        for _ in 0..20 {
+            if harness.workspace.viewport.keyboard_highlight() == Some(wanted) {
+                break;
+            }
+            harness.key(Key::N, Modifiers::NONE);
+            harness.frame();
+        }
+        assert_eq!(
+            harness.workspace.viewport.keyboard_highlight(),
+            Some(wanted)
+        );
+        harness.key(Key::Space, Modifiers::NONE);
+        harness.frame();
+        harness.frame();
+    };
+
+    highlight(&mut harness, first);
+    let first_label = harness.sketch(feature).entity_label(first);
+    assert!(harness.shows(&format!(
+        "Click a second point, a line or a circle for its distance from {first_label}"
+    )));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    assert!(harness.workspace.viewport.selection().is_empty());
+    assert_eq!(harness.tool(), Some(Tool::Dimension));
+
+    highlight(&mut harness, first);
+    highlight(&mut harness, second);
+    let (_, added) = only_constraint(harness.sketch(feature));
+    assert_eq!(
+        added,
+        Constraint::Distance {
+            from: first,
+            to: second,
+            value: Expression::Measure(50.0, Unit::Millimetre),
+        }
+    );
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    run_from_palette(&mut harness, "smart dimension");
+    harness.frame();
+    assert_eq!(harness.tool(), Some(Tool::Dimension));
+    for _ in 0..2 {
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.frame();
+    }
+    harness.frame();
+    assert_eq!(harness.workspace.viewport.keyboard_highlight(), None);
+    assert_eq!(harness.tool(), Some(Tool::Select));
 }
 
 #[test]

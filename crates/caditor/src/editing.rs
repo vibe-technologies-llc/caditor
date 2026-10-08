@@ -33,9 +33,10 @@ pub enum Tool {
     Mirror,
     Fillet,
     Project,
+    Dimension,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, Fillet, Project);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, Fillet, Project, Dimension);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -57,6 +58,7 @@ impl Tool {
             Self::Mirror => "Mirror",
             Self::Fillet => "Sketch fillet",
             Self::Project => "Project",
+            Self::Dimension => "Smart dimension",
         }
     }
 
@@ -100,6 +102,10 @@ impl Tool {
                 "Click an edge, corner or face of a body, or a curve of another sketch, to bring \
                  it into this sketch; it follows the original as the model changes"
             }
+            Self::Dimension => {
+                "Click the geometry to dimension: a line for its length, a circle or arc for its \
+                 size, or two items for the distance or angle between them"
+            }
         }
     }
 
@@ -111,7 +117,8 @@ impl Tool {
             | Self::Offset
             | Self::Mirror
             | Self::Fillet
-            | Self::Project => false,
+            | Self::Project
+            | Self::Dimension => false,
             Self::Point
             | Self::Line
             | Self::Rectangle
@@ -139,6 +146,10 @@ impl Tool {
 
     pub fn projects(self) -> bool {
         self == Self::Project
+    }
+
+    pub fn dimensions(self) -> bool {
+        self == Self::Dimension
     }
 }
 

@@ -21,6 +21,7 @@ pub mod crash;
 mod datum_panel;
 mod datum_tools;
 mod dialog_parts;
+mod dimensioning;
 mod display;
 mod display_style;
 mod drag_solver;
