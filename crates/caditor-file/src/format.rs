@@ -5,17 +5,18 @@ use std::{
 };
 
 use caditor_document::{
-    AxisReference, AxisSide, Blend, BlendKind, BodyAppearance, BodyOperation, BodyPlacement,
-    CircularPattern, Combine, CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document,
-    Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour, Feature, FeatureId,
-    FeatureKind, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep,
-    HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
-    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT, MetricSize, Mirror,
-    ModelProperties, ModelProperty, Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Parameter, Pattern,
-    PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference, PrincipalAxis,
-    PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve,
-    RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, Transaction, TurnCentre, group_name, material_name,
+    AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
+    BodyPlacement, CircularPattern, Combine, CombineOperation, Datum, DatumAxis, DatumPlane,
+    DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour,
+    Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
+    HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
+    MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT,
+    MetricSize, Mirror, ModelProperties, ModelProperty, Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
+    Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove,
+    Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment,
+    SketchFeature, SolidFeature, SolidStart, Split, Transaction, TurnCentre, group_name,
+    material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -163,6 +164,14 @@ pub(crate) enum FeatureKindRecord {
     SteppedHole(Box<SteppedHoleRecord>),
     FeaturePattern(Box<FeaturePatternRecord>),
     MoveAboutCentre(Box<MoveAboutCentreRecord>),
+    MoveAboutAxis(Box<MoveAboutAxisRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MoveAboutAxisRecord {
+    pub feature: FeatureKindRecord,
+    pub axis: AxisReferenceRecord,
+    pub angle: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -209,7 +218,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 35] = [
+pub(crate) const FEATURE_KINDS: [&str; 36] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -245,6 +254,7 @@ pub(crate) const FEATURE_KINDS: [&str; 35] = [
     "stepped_hole",
     "feature_pattern",
     "move_about_centre",
+    "move_about_axis",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1421,10 +1431,17 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             } else {
                 FeatureKindRecord::Move(record)
             };
-            match movement.about {
+            match &movement.about {
                 TurnCentre::Origin => feature,
                 TurnCentre::Body => {
                     FeatureKindRecord::MoveAboutCentre(Box::new(MoveAboutCentreRecord { feature }))
+                }
+                TurnCentre::Axis(turn) => {
+                    FeatureKindRecord::MoveAboutAxis(Box::new(MoveAboutAxisRecord {
+                        feature,
+                        axis: axis_record(&turn.axis),
+                        angle: turn.angle.to_stored_text(),
+                    }))
                 }
             }
         }
@@ -2844,6 +2861,19 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::MoveAboutAxis(about) => {
+            let mut kind = restore_kind(&about.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Move(movement) => {
+                    movement.about = restore_axis_turn(about, name, issues);
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to turn about an axis, but it is not a move, so that was left \
+                     out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::RevolveOneSide(one_side) => {
             let mut kind = restore_kind(&one_side.feature, name, texts, issues);
             match &mut kind {
@@ -3673,6 +3703,24 @@ fn restore_hole(
         standard,
         sizing,
     }
+}
+
+fn restore_axis_turn(
+    record: &MoveAboutAxisRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> TurnCentre {
+    let Some(axis) = restore_axis(&record.axis) else {
+        issues.push(format!(
+            "The axis “{feature}” turns about could not be read, so it turns about its body's \
+             centre instead."
+        ));
+        return TurnCentre::Body;
+    };
+    TurnCentre::Axis(Box::new(AxisTurn {
+        axis,
+        angle: restore_value(&record.angle, "angle", "0 deg", feature, issues),
+    }))
 }
 
 fn restore_move(record: &MoveRecord, copy: bool, feature: &str, issues: &mut Vec<String>) -> Move {

@@ -220,3 +220,155 @@ fn a_copy_others_use_cannot_stop_being_a_copy() {
 
     assert!(refused.is_err());
 }
+
+fn upright_edge(evaluation: &Evaluation, body: FeatureId, x: f64, y: f64) -> AxisReference {
+    let solid = evaluation.body(body).unwrap();
+    let edge = solid
+        .edges()
+        .map(|(id, _)| id)
+        .find(|id| {
+            crate::datum::edge_ray(solid, *id).is_some_and(|ray| {
+                ray.direction().z.abs() > 0.99
+                    && (ray.origin().x - x).abs() < 1e-9
+                    && (ray.origin().y - y).abs() < 1e-9
+            })
+        })
+        .unwrap();
+    AxisReference::capture_edge(body, solid, edge).unwrap()
+}
+
+fn turned_about(pair: &mut Pair, axis: AxisReference, angle: &str) -> FeatureId {
+    let plate = pair.plate;
+    let mut transaction = pair.document.transaction("Turn");
+    let zero = |unit: &str| std::array::from_fn(|_| transaction.parse(unit).unwrap());
+    let movement = Move {
+        body: plate,
+        offset: zero("0 mm"),
+        turn: zero("0 deg"),
+        copy: false,
+        about: TurnCentre::Axis(Box::new(AxisTurn {
+            axis,
+            angle: transaction.parse(angle).unwrap(),
+        })),
+    };
+    let feature = transaction.add_feature("Move 1", FeatureKind::Move(movement));
+    pair.document.apply(transaction.finish()).unwrap();
+    feature
+}
+
+#[test]
+fn a_move_turns_its_body_about_an_edge_of_its_own() {
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+    let before = evaluate(&pair.document, &mut engine);
+    let names = face_names(&before, pair.plate);
+    let axis = upright_edge(&before, pair.plate, 20.0, 0.0);
+    let upward = crate::datum::displayed_axis(&before, pair.plate, &axis)
+        .unwrap()
+        .direction()
+        .z
+        > 0.0;
+
+    let movement = turned_about(&mut pair, axis, "90 deg");
+    let after = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(after.failed_count(), 0);
+    let (low, high) = bounds(&after, pair.plate);
+    let (expected_low, expected_high) = if upward {
+        ([10.0, -20.0, 0.0], [20.0, 0.0, 4.0])
+    } else {
+        ([20.0, 0.0, 0.0], [30.0, 20.0, 4.0])
+    };
+    assert!(near(low, expected_low), "{low:?}");
+    assert!(near(high, expected_high), "{high:?}");
+    assert_eq!(face_names(&after, pair.plate), names);
+    let feature = pair.document.feature(movement).unwrap();
+    assert_eq!(feature.kind.bodies_used(), BTreeSet::from([pair.plate]));
+}
+
+#[test]
+fn a_move_about_an_axis_follows_the_angle_and_shifts_after_turning() {
+    let mut pair = pair();
+    let mut engine = Recompute::default();
+
+    let movement = turned_about(
+        &mut pair,
+        AxisReference::Principal(PrincipalAxis::Z),
+        "180 deg",
+    );
+    let mut changed = pair.document.feature(movement).unwrap().kind.clone();
+    if let FeatureKind::Move(moved) = &mut changed {
+        moved.offset[2] = pair.document.parse("5 mm").unwrap();
+    }
+    pair.document
+        .apply(Transaction::single(
+            "Shift",
+            Edit::SetFeatureKind {
+                id: movement,
+                kind: changed,
+            },
+        ))
+        .unwrap();
+    let after = evaluate(&pair.document, &mut engine);
+
+    let (low, high) = bounds(&after, pair.plate);
+    assert!(near(low, [-20.0, -10.0, 5.0]), "{low:?}");
+    assert!(near(high, [0.0, 0.0, 9.0]), "{high:?}");
+}
+
+#[test]
+fn a_move_about_a_datum_axis_depends_on_it_and_fails_alone_without_it() {
+    let mut pair = pair();
+    let mut transaction = pair.document.transaction("Axis");
+    let datum = transaction.add_feature(
+        "Axis 1",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Principal(
+            PrincipalAxis::X,
+        )))),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+    let movement = turned_about(&mut pair, AxisReference::Datum(datum), "90 deg");
+    let mut engine = Recompute::default();
+
+    assert!(pair.document.dependents_of(&[datum]).contains(&movement));
+    pair.document
+        .apply(Transaction::single(
+            "Delete",
+            Edit::RemoveFeature { id: datum },
+        ))
+        .unwrap();
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert!(matches!(
+        evaluation.feature(movement).unwrap().state,
+        FeatureState::Failed(_)
+    ));
+    assert_eq!(evaluation.failed_count(), 1);
+}
+
+#[test]
+fn a_move_about_an_axis_inlines_its_angle() {
+    let mut pair = pair();
+    let mut transaction = pair.document.transaction("Angle");
+    let quarter = transaction.add_parameter("quarter", transaction.parse("90 deg").unwrap());
+    pair.document.apply(transaction.finish()).unwrap();
+    let movement = turned_about(
+        &mut pair,
+        AxisReference::Principal(PrincipalAxis::Y),
+        "quarter",
+    );
+
+    let kind = &pair.document.feature(movement).unwrap().kind;
+
+    assert!(kind.uses_parameter(quarter));
+    let inlined = pair.document.inline_parameter(quarter).unwrap();
+    pair.document.apply(inlined).unwrap();
+    assert!(
+        !pair
+            .document
+            .feature(movement)
+            .unwrap()
+            .kind
+            .uses_parameter(quarter)
+    );
+}

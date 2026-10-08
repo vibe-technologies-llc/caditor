@@ -68,7 +68,7 @@ pub use crate::{
     hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,
     mirror::{MIRROR_IMAGE, Mirror},
-    movement::{BodyPlacement, Move, MoveAxis, TurnCentre},
+    movement::{AxisTurn, BodyPlacement, Move, MoveAxis, Pivot, TurnCentre},
     origins::complete_origins,
     pattern::{
         CircularPattern, Instance, LinearDirection, LinearSpacing, MAX_PATTERN_INSTANCES,

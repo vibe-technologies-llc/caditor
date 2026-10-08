@@ -1,10 +1,11 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Unit};
-use caditor_geometry::{Point3, RigidTransform, Vector3};
+use caditor_geometry::{Point3, Ray, RigidTransform, Vector3};
 use caditor_kernel::Solid;
 
 use crate::{
+    datum::{AxisReference, Resolver},
     document::{Feature, FeatureId},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
@@ -64,11 +65,52 @@ impl MoveAxis {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum TurnCentre {
     #[default]
     Origin,
     Body,
+    Axis(Box<AxisTurn>),
+}
+
+impl TurnCentre {
+    pub fn axis_turn(&self) -> Option<&AxisTurn> {
+        match self {
+            Self::Axis(turn) => Some(turn),
+            Self::Origin | Self::Body => None,
+        }
+    }
+
+    pub fn axis(&self) -> Option<&AxisReference> {
+        self.axis_turn().map(|turn| &turn.axis)
+    }
+
+    pub fn heap_size(&self) -> usize {
+        self.axis_turn().map_or(0, |turn| {
+            size_of::<AxisTurn>() + turn.axis.heap_size() + turn.angle.heap_size()
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AxisTurn {
+    pub axis: AxisReference,
+    pub angle: Expression,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Pivot {
+    Point(Point3),
+    Axis(Ray),
+}
+
+impl Pivot {
+    pub fn point(self) -> Point3 {
+        match self {
+            Self::Point(point) => point,
+            Self::Axis(axis) => axis.origin(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -82,7 +124,21 @@ pub struct Move {
 
 impl Move {
     pub fn expressions(&self) -> impl Iterator<Item = &Expression> {
-        self.offset.iter().chain(self.turn.iter())
+        self.offset
+            .iter()
+            .chain(self.turn.iter())
+            .chain(self.about.axis_turn().map(|turn| &turn.angle))
+    }
+
+    pub fn expressions_mut(&mut self) -> impl Iterator<Item = &mut Expression> {
+        let angle = match &mut self.about {
+            TurnCentre::Axis(turn) => Some(&mut turn.angle),
+            TurnCentre::Origin | TurnCentre::Body => None,
+        };
+        self.offset
+            .iter_mut()
+            .chain(self.turn.iter_mut())
+            .chain(angle)
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
@@ -97,22 +153,65 @@ impl Move {
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
-        BTreeSet::from([self.body])
+        let mut used = BTreeSet::from([self.body]);
+        used.extend(self.axis_datum());
+        used.extend(self.axis_body());
+        used.extend(self.axis_sketch());
+        used
+    }
+
+    pub fn axis_datum(&self) -> Option<FeatureId> {
+        self.about.axis().and_then(AxisReference::datum)
+    }
+
+    pub fn axis_body(&self) -> Option<FeatureId> {
+        self.about.axis().and_then(AxisReference::body)
+    }
+
+    pub fn axis_sketch(&self) -> Option<FeatureId> {
+        self.about.axis().and_then(AxisReference::sketch)
+    }
+
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        self.about
+            .axis()
+            .map(AxisReference::origin_features)
+            .unwrap_or_default()
     }
 
     pub fn heap_size(&self) -> usize {
-        self.expressions().map(Expression::heap_size).sum()
+        self.offset
+            .iter()
+            .chain(self.turn.iter())
+            .map(Expression::heap_size)
+            .sum::<usize>()
+            + self.about.heap_size()
     }
 
-    pub fn pivot(&self, body: &Solid) -> Option<Point3> {
+    pub fn pivot(&self, body: &Solid, axis: Option<Ray>) -> Option<Pivot> {
         match self.about {
-            TurnCentre::Origin => Some(Point3::ZERO),
-            TurnCentre::Body => Some(body.bounding_box()?.center()),
+            TurnCentre::Origin => Some(Pivot::Point(Point3::ZERO)),
+            TurnCentre::Body => Some(Pivot::Point(body.bounding_box()?.center())),
+            TurnCentre::Axis(_) => axis.map(Pivot::Axis),
         }
     }
 
-    pub fn placement(&self, parameters: &ParameterValues, pivot: Point3) -> Option<RigidTransform> {
-        evaluated(&self.offset, &self.turn, parameters, pivot)
+    pub fn placement(&self, parameters: &ParameterValues, pivot: Pivot) -> Option<RigidTransform> {
+        placed(
+            Placing {
+                offset: &self.offset,
+                turn: &self.turn,
+                pivot,
+                angle: self.about.axis_turn().map(|turn| &turn.angle),
+            },
+            |expression, dimension, _| {
+                expression
+                    .evaluate_as(dimension, &|id| parameters.value(id))
+                    .map_err(|_| ())
+            },
+            || (),
+        )
+        .ok()
     }
 }
 
@@ -162,26 +261,35 @@ impl BodyPlacement {
     }
 
     pub fn transform(&self, parameters: &ParameterValues) -> Option<RigidTransform> {
-        evaluated(&self.offset, &self.turn, parameters, Point3::ZERO)
+        placed(
+            Placing::at_origin(&self.offset, &self.turn),
+            |expression, dimension, _| {
+                expression
+                    .evaluate_as(dimension, &|id| parameters.value(id))
+                    .map_err(|_| ())
+            },
+            || (),
+        )
+        .ok()
     }
 }
 
-fn evaluated(
-    offset: &[Expression; 3],
-    turn: &[Expression; 3],
-    parameters: &ParameterValues,
-    pivot: Point3,
-) -> Option<RigidTransform> {
-    placed(
-        (offset, turn, pivot),
-        |expression, dimension, _| {
-            expression
-                .evaluate_as(dimension, &|id| parameters.value(id))
-                .map_err(|_| ())
-        },
-        || (),
-    )
-    .ok()
+struct Placing<'a> {
+    offset: &'a [Expression; 3],
+    turn: &'a [Expression; 3],
+    pivot: Pivot,
+    angle: Option<&'a Expression>,
+}
+
+impl<'a> Placing<'a> {
+    fn at_origin(offset: &'a [Expression; 3], turn: &'a [Expression; 3]) -> Self {
+        Self {
+            offset,
+            turn,
+            pivot: Pivot::Point(Point3::ZERO),
+            angle: None,
+        }
+    }
 }
 
 struct Context<'a> {
@@ -241,10 +349,15 @@ impl Context<'_> {
 fn transform(
     context: &Context<'_>,
     definition: &Move,
-    pivot: Point3,
+    pivot: Pivot,
 ) -> Result<RigidTransform, Failure> {
     placed(
-        (&definition.offset, &definition.turn, pivot),
+        Placing {
+            offset: &definition.offset,
+            turn: &definition.turn,
+            pivot,
+            angle: definition.about.axis_turn().map(|turn| &turn.angle),
+        },
         |expression, dimension, what| context.value(expression, dimension, what),
         || unusable(context),
     )
@@ -257,7 +370,7 @@ pub(crate) fn placement_transform(
 ) -> Result<RigidTransform, Failure> {
     let context = Context { feature, inputs };
     placed(
-        (&placement.offset, &placement.turn, Point3::ZERO),
+        Placing::at_origin(&placement.offset, &placement.turn),
         |expression, dimension, what| context.value(expression, dimension, what),
         || {
             context.error(
@@ -269,16 +382,27 @@ pub(crate) fn placement_transform(
 }
 
 fn placed<E>(
-    (offset, turn, pivot): (&[Expression; 3], &[Expression; 3], Point3),
+    Placing {
+        offset,
+        turn,
+        pivot,
+        angle,
+    }: Placing<'_>,
     value: impl Fn(&Expression, Dimension, &str) -> Result<f64, E>,
     unusable: impl Fn() -> E,
 ) -> Result<RigidTransform, E> {
     let mut placed = RigidTransform::IDENTITY;
+    if let (Pivot::Axis(axis), Some(angle)) = (pivot, angle) {
+        let angle = value(angle, Dimension::ANGLE, "turn about its axis")?.to_radians();
+        placed = RigidTransform::rotation_about(axis.origin(), axis.direction(), angle)
+            .ok_or_else(&unusable)?;
+    }
+    let centre = pivot.point();
     for axis in MoveAxis::ALL {
         let what = format!("turn about {}", axis.name());
         let angle = value(axis.of(turn), Dimension::ANGLE, &what)?.to_radians();
-        let turned =
-            RigidTransform::rotation_about(pivot, axis.direction(), angle).ok_or_else(&unusable)?;
+        let turned = RigidTransform::rotation_about(centre, axis.direction(), angle)
+            .ok_or_else(&unusable)?;
         placed = placed.then(&turned);
     }
     let mut shift = Vector3::ZERO;
@@ -312,7 +436,11 @@ pub(crate) fn evaluate(
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
-    let pivot = definition.pivot(solid).ok_or_else(|| {
+    let axis = match definition.about.axis() {
+        Some(reference) => Some(Resolver { feature, inputs }.axis(reference)?),
+        None => None,
+    };
+    let pivot = definition.pivot(solid, axis).ok_or_else(|| {
         context.error(
             format!("The body of {body_name} has no size to find its centre from."),
             "Turn it about the origin instead.".to_owned(),

@@ -158,9 +158,8 @@ comes last.
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
 - [medium · medium] A body splits only along a plane (`Split`), not along a curved face or a sketch
-  curve swept through it; a body can be moved, turned about the origin or its own centre, and
-  dragged or turned in the view, but not turned about an axis of its own (an edge or a round face)
-  or placed by mating faces.
+  curve swept through it, and cannot be placed by mating faces (a face onto another, flush or at a
+  distance, an axis onto another).
 - [medium · hard] The whole model cannot be scaled: no command or feature resizes every body, sketch
   and datum by a factor (uniform, about the origin or a chosen point) as one undoable change.
   Scaling must keep references and names stable, and say what happens to dimensions and parameters

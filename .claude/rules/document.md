@@ -284,7 +284,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Move { body, offset, turn, copy, about }` places an existing body: turns about the X, Y then Z
   axes through the origin, or with `about: TurnCentre::Body` through the centre of the body's box
   as it stands before the move (`Move::pivot`), then shifts by the three distances, all
-  expressions (any sign). It modifies
+  expressions (any sign). With `TurnCentre::Axis` (an `AxisTurn`: an `AxisReference` resolved like
+  a pattern's at the move's place, and an angle expression) it first turns by that angle about
+  the axis, in the sense of the axis's direction, then by the three turns about the axis's point
+  (`Pivot::Axis`), then shifts; the axis's body, datum and sketch count as used and its edge or
+  face is healed like any reference. It modifies
   its body like a blend does, keeps every face and edge name (`Solid::transformed`) so references
   held through it survive, and fails alone when a value is not a length or angle or the result is
   not finite. With `copy` it leaves the body alone and makes a new body of its own (`makes_body`,

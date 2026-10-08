@@ -6,6 +6,7 @@ use crate::{
     editing::EditingCommand,
     mirror_tools,
     model::{Action, Model, Notice},
+    move_tools,
     pattern_tools::{self, Reference},
     selection::{Pickable, Selection},
     solid_panel, split_tools,
@@ -33,6 +34,7 @@ pub enum Slot {
     PatternSecond,
     DatumBase,
     DatumRotation,
+    MoveAxis,
 }
 
 pub const MAX_HELD: usize = 2;
@@ -113,7 +115,9 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Some(FeatureKind::Pattern(pattern)) if matches!(pattern.kind, PatternKind::Circular(_))
     );
     match picking.slot {
-        Slot::RevolveAxis | Slot::DatumRotation => format!("Click {AXIS} to turn about"),
+        Slot::RevolveAxis | Slot::DatumRotation | Slot::MoveAxis => {
+            format!("Click {AXIS} to turn about")
+        }
         Slot::ExtrudeTarget(_) => "Click a flat face or plane to extrude up to".to_owned(),
         Slot::StartPlane => {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()
@@ -196,6 +200,9 @@ pub fn change(
         }
         (Slot::DatumRotation, FeatureKind::Datum(datum)) => {
             datum_panel::rotation_change(model, selection, feature, datum)
+        }
+        (Slot::MoveAxis, FeatureKind::Move(movement)) => {
+            move_tools::axis_change(model, selection, feature, movement)
         }
         _ => Err(format!("{} no longer takes this reference", owner.name)),
     }

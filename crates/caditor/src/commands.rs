@@ -184,6 +184,7 @@ pub enum Command {
     DatumTurnAboutSelected,
     PatternUseSelected,
     PatternSecondUseSelected,
+    MoveTurnAboutSelected,
     FilterFeatures,
     AddParameter,
     DeleteParameter,
@@ -564,6 +565,7 @@ plain_commands! {
     DatumTurnAboutSelected,
     PatternUseSelected,
     PatternSecondUseSelected,
+    MoveTurnAboutSelected,
     FilterFeatures,
     AddParameter,
     DeleteParameter,
@@ -774,6 +776,7 @@ impl Command {
             Self::DatumTurnAboutSelected => "model.datum_turn_about_selected",
             Self::PatternUseSelected => "model.pattern_use_selected",
             Self::PatternSecondUseSelected => "model.pattern_second_direction",
+            Self::MoveTurnAboutSelected => "model.move_turn_about_selected",
             Self::FilterFeatures => "model.filter_features",
             Self::AddParameter => "model.add_parameter",
             Self::DeleteParameter => "model.delete_parameter",
@@ -931,6 +934,7 @@ impl Command {
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
             Self::PatternUseSelected => "Pattern along or about selected axis",
             Self::PatternSecondUseSelected => "Pattern also along selected direction",
+            Self::MoveTurnAboutSelected => "Turn moved body about selected axis",
             Self::FilterFeatures => "Filter the feature tree",
             Self::AddParameter => "Add parameter",
             Self::DeleteParameter => "Delete parameter",
@@ -1065,6 +1069,7 @@ impl Command {
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected
             | Self::PatternSecondUseSelected
+            | Self::MoveTurnAboutSelected
             | Self::FilterFeatures
             | Self::AddParameter
             | Self::DeleteParameter
@@ -1258,6 +1263,7 @@ impl Command {
             | Self::DatumTurnAboutSelected
             | Self::PatternUseSelected
             | Self::PatternSecondUseSelected
+            | Self::MoveTurnAboutSelected
             | Self::AddParameter
             | Self::DeleteParameter
             | Self::MoveParameterUp

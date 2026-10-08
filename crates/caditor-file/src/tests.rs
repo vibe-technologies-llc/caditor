@@ -3039,6 +3039,40 @@ fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads
 }
 
 #[test]
+fn a_move_turning_about_an_axis_is_a_kind_older_readers_report_and_reads_back() {
+    use caditor_document::{AxisReference, AxisTurn, Move, PrincipalAxis, TurnCentre};
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Move");
+    let movement = transaction.add_feature(
+        "Move body 1",
+        FeatureKind::Move(Move {
+            body: base,
+            offset: std::array::from_fn(|_| transaction.parse("0 mm").unwrap()),
+            turn: std::array::from_fn(|_| transaction.parse("0 deg").unwrap()),
+            copy: false,
+            about: TurnCentre::Axis(Box::new(AxisTurn {
+                axis: AxisReference::Principal(PrincipalAxis::Y),
+                angle: transaction.parse("45 deg").unwrap(),
+            })),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("move_about_axis", "move_about_line"));
+
+    assert!(
+        text.contains("\"move_about_axis\":{\"angle\":\"45 deg\""),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(movement).is_none());
+    assert!(!older.issues.is_empty());
+}
+
+#[test]
 fn instances_left_out_that_no_pattern_can_make_are_dropped_on_loading() {
     let (mut document, linear, circular) = patterned_model();
     spread_and_skipping(&mut document, linear, circular);

@@ -25,7 +25,7 @@ use crate::{
     files::FileCommand,
     fonts, hole_panel, icons, import_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
-    move_panel,
+    move_panel, move_tools,
     panels::{Focus, PanelState, Renaming},
     pattern_panel,
     pattern_tools::{self, Reference},
@@ -857,7 +857,7 @@ fn body(
             body_display(ui, model, feature);
         }
         FeatureKind::Move(movement) => {
-            move_panel::show(ui, model, actions, feature, movement);
+            move_panel::show(ui, model, row.selection, actions, feature, movement);
             body_display(ui, model, feature);
         }
         FeatureKind::Mirror(mirror) => {
@@ -1827,6 +1827,19 @@ fn split_change(
     }
 }
 
+fn move_change(
+    model: &Model,
+    selection: &Selection,
+    feature: &Feature,
+) -> Result<Transaction, String> {
+    match &feature.kind {
+        FeatureKind::Move(movement) => {
+            move_tools::axis_change(model, selection, feature.id(), movement)
+        }
+        _ => Err(format!("{} is not a move", feature.name)),
+    }
+}
+
 fn datum_change(
     feature: &Feature,
     change: impl FnOnce(&Datum) -> Result<Transaction, String>,
@@ -1923,7 +1936,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = open_feature.or(current);
-    let changes: [(Command, FeatureChange<'_>); 10] = [
+    let changes: [(Command, FeatureChange<'_>); 11] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -1957,6 +1970,9 @@ fn feature_commands(
         }),
         (Command::PatternSecondUseSelected, &|feature| {
             pattern_change(model, selection, feature, Reference::Second)
+        }),
+        (Command::MoveTurnAboutSelected, &|feature| {
+            move_change(model, selection, feature)
         }),
     ];
     for (command, change) in changes {

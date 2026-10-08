@@ -1,4 +1,4 @@
-use caditor_document::{FeatureId, FeatureKind, Move, MoveAxis, Transaction, TurnCentre};
+use caditor_document::{FeatureId, FeatureKind, Move, MoveAxis, Pivot, Transaction, TurnCentre};
 use caditor_expression::Dimension;
 use caditor_geometry::{
     Plane, Point3, Ray, Rotation3, Vector2, Vector3, rotation_from_turns, turns_about_axes,
@@ -32,6 +32,7 @@ pub enum Handle {
     Along(MoveAxis),
     Across(MoveAxis),
     Turn(MoveAxis),
+    TurnAbout,
 }
 
 impl Handle {
@@ -51,7 +52,7 @@ impl Handle {
                 .into_iter()
                 .filter(|axis| *axis != normal)
                 .collect(),
-            Self::Turn(_) => Vec::new(),
+            Self::Turn(_) | Self::TurnAbout => Vec::new(),
         }
     }
 
@@ -62,6 +63,7 @@ impl Handle {
                 "Drag to turn the body about {} through its centre",
                 axis.name()
             ),
+            Self::TurnAbout => "Drag to turn the body about its axis".to_owned(),
             Self::Across(_) => {
                 let names: Vec<&str> = self.moves().iter().map(|axis| axis.name()).collect();
                 format!("Drag to move the body in the {} plane", names.concat())
@@ -79,6 +81,31 @@ fn axis_colour(palette: &ScenePalette, axis: MoveAxis) -> Color {
 }
 
 const HIGHLIGHTED: Color = scene::opaque(canvas::HOVERED);
+const ABOUT_AXIS: Color = scene::opaque(canvas::SNAP);
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Turning {
+    Fixed,
+    Axes,
+    About(Vector3),
+}
+
+impl Turning {
+    fn handles(self) -> Vec<Handle> {
+        match self {
+            Self::Fixed => Vec::new(),
+            Self::Axes => MoveAxis::ALL.into_iter().map(Handle::Turn).collect(),
+            Self::About(_) => vec![Handle::TurnAbout],
+        }
+    }
+
+    fn about(self) -> Vector3 {
+        match self {
+            Self::About(direction) => direction,
+            Self::Fixed | Self::Axes => Vector3::Z,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Manipulator {
@@ -86,7 +113,7 @@ pub struct Manipulator {
     origin: Point3,
     reach: f64,
     forward: Vector3,
-    turns: bool,
+    turning: Turning,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -111,20 +138,34 @@ impl Manipulator {
         } else {
             movement.body
         };
-        let turns = movement.about == TurnCentre::Body;
-        let centre = if turns {
-            let parameters = model.parameters();
-            let mut shifted = model.move_pivot(feature, movement)?;
-            for axis in MoveAxis::ALL {
-                let along = axis
-                    .of(&movement.offset)
-                    .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
-                    .ok()?;
-                shifted += axis.direction() * along;
+        let parameters = model.parameters();
+        let shift = || {
+            MoveAxis::ALL
+                .into_iter()
+                .try_fold(Vector3::ZERO, |shift, axis| {
+                    let along = axis
+                        .of(&movement.offset)
+                        .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
+                        .ok()?;
+                    Some(shift + axis.direction() * along)
+                })
+        };
+        let (centre, turning) = match (&movement.about, model.move_pivot(feature, movement)) {
+            (TurnCentre::Body, Some(pivot)) => (pivot.point() + shift()?, Turning::Axes),
+            (TurnCentre::Axis(_), Some(Pivot::Axis(axis))) => {
+                let before = model
+                    .evaluation()
+                    .body_seen_by(feature, movement.body)?
+                    .bounding_box()?
+                    .center();
+                let along = (before - axis.origin()).dot(axis.direction());
+                let foot = axis.origin() + axis.direction() * along;
+                (foot + shift()?, Turning::About(axis.direction()))
             }
-            shifted
-        } else {
-            model.evaluation().body(body)?.bounding_box()?.center()
+            _ => (
+                model.evaluation().body(body)?.bounding_box()?.center(),
+                Turning::Fixed,
+            ),
         };
         let origin = match model.draft_placement() {
             Some((moved, placement)) if moved == body => placement.apply_point(centre),
@@ -140,7 +181,7 @@ impl Manipulator {
             origin,
             reach,
             forward: view.forward(),
-            turns,
+            turning,
         })
     }
 
@@ -178,15 +219,22 @@ impl Manipulator {
         ])
     }
 
-    fn ring(&self, axis: MoveAxis) -> Option<Vec<Point3>> {
-        if !self.turns || axis.direction().dot(self.forward).abs() < EDGE_ON {
+    fn ring(&self, handle: Handle) -> Option<Vec<Point3>> {
+        let (normal, first, second) = match (handle, self.turning) {
+            (Handle::Turn(axis), Turning::Axes) => match axis {
+                MoveAxis::X => (Vector3::X, Vector3::Y, Vector3::Z),
+                MoveAxis::Y => (Vector3::Y, Vector3::Z, Vector3::X),
+                MoveAxis::Z => (Vector3::Z, Vector3::X, Vector3::Y),
+            },
+            (Handle::TurnAbout, Turning::About(direction)) => {
+                let first = direction.any_orthonormal_vector();
+                (direction, first, direction.cross(first))
+            }
+            _ => return None,
+        };
+        if normal.dot(self.forward).abs() < EDGE_ON {
             return None;
         }
-        let (first, second) = match axis {
-            MoveAxis::X => (Vector3::Y, Vector3::Z),
-            MoveAxis::Y => (Vector3::Z, Vector3::X),
-            MoveAxis::Z => (Vector3::X, Vector3::Y),
-        };
         let radius = RING_REACH * self.reach;
         Some(
             (0..=RING_SEGMENTS)
@@ -205,7 +253,7 @@ impl Manipulator {
                     corners.iter().map(|corner| view.project(*corner)).collect();
                 projected.is_some_and(|projected| within(&projected, cursor))
             }),
-            Handle::Along(_) | Handle::Turn(_) => false,
+            Handle::Along(_) | Handle::Turn(_) | Handle::TurnAbout => false,
         });
         let reach = HIT_POINTS * pixels_per_point;
         let arrows = MoveAxis::ALL.into_iter().filter_map(|axis| {
@@ -213,9 +261,9 @@ impl Manipulator {
             let distance = segment_distance(view.project(from)?, view.project(to)?, cursor);
             Some((distance, Handle::Along(axis)))
         });
-        let rings = MoveAxis::ALL.into_iter().filter_map(|axis| {
+        let rings = self.turning.handles().into_iter().filter_map(|handle| {
             let points: Option<Vec<Vector2>> = self
-                .ring(axis)?
+                .ring(handle)?
                 .into_iter()
                 .map(|point| view.project(point))
                 .collect();
@@ -226,7 +274,7 @@ impl Manipulator {
                     _ => None,
                 })
                 .fold(f64::INFINITY, f64::min);
-            Some((distance, Handle::Turn(axis)))
+            Some((distance, handle))
         });
         let nearest = arrows
             .chain(rings)
@@ -247,8 +295,8 @@ impl Manipulator {
                 let corners = self.square(normal)?;
                 Some(corners[0].lerp(corners[2], 0.5))
             }
-            Handle::Turn(axis) => {
-                let ring = self.ring(axis)?;
+            Handle::Turn(_) | Handle::TurnAbout => {
+                let ring = self.ring(handle)?;
                 let index = (along.max(0.0) as usize).min(ring.len() - 1);
                 ring.get(index).copied()
             }
@@ -284,11 +332,15 @@ impl Drawn {
                 ));
             }
         }
-        for axis in MoveAxis::ALL {
-            let Some(ring) = manipulator.ring(axis) else {
+        for handle in manipulator.turning.handles() {
+            let Some(ring) = manipulator.ring(handle) else {
                 continue;
             };
-            let colour = colour(Handle::Turn(axis), axis);
+            let colour = match handle {
+                Handle::Turn(axis) => colour(handle, axis),
+                _ if self.highlighted == Some(handle) => HIGHLIGHTED,
+                _ => ABOUT_AXIS,
+            };
             for pair in ring.windows(2) {
                 if let [start, end] = pair {
                     batch.lines.push(Line {
@@ -378,6 +430,9 @@ pub struct Manipulating {
     offset: [f64; 3],
     from_turns: [f64; 3],
     turns: [f64; 3],
+    about: Vector3,
+    from_angle: f64,
+    angle: f64,
 }
 
 impl Manipulating {
@@ -409,7 +464,15 @@ impl Manipulating {
             })
             .collect();
         let from_turns = <[f64; 3]>::try_from(turns?).ok()?;
-        let grabbed = point_on(handle, manipulator.origin, ray)?;
+        let from_angle = match start.about.axis_turn() {
+            Some(turn) => turn
+                .angle
+                .evaluate_as(Dimension::ANGLE, &|id| parameters.value(id))
+                .ok()?,
+            None => 0.0,
+        };
+        let about = manipulator.turning.about();
+        let grabbed = point_on(handle, manipulator.origin, about, ray)?;
         Some(Self {
             feature: manipulator.feature,
             handle,
@@ -421,25 +484,38 @@ impl Manipulating {
             offset: from,
             from_turns,
             turns: from_turns,
+            about,
+            from_angle,
+            angle: from_angle,
         })
     }
 
+    fn swept(&self, direction: Vector3, at: Point3, free: bool) -> f64 {
+        let (grabbed, now) = (self.grabbed - self.origin, at - self.origin);
+        let angle = grabbed
+            .cross(now)
+            .dot(direction)
+            .atan2(grabbed.dot(now))
+            .to_degrees();
+        if free {
+            angle
+        } else {
+            (angle / TURN_STEP_DEGREES).round() * TURN_STEP_DEGREES
+        }
+    }
+
     pub fn follow(&mut self, ray: Ray, free: bool) -> bool {
-        let Some(at) = point_on(self.handle, self.origin, ray) else {
+        let Some(at) = point_on(self.handle, self.origin, self.about, ray) else {
             return false;
         };
+        if self.handle == Handle::TurnAbout {
+            let angle = self.from_angle + self.swept(self.about, at, free);
+            let changed = angle != self.angle;
+            self.angle = angle;
+            return changed;
+        }
         if let Handle::Turn(axis) = self.handle {
-            let (grabbed, now) = (self.grabbed - self.origin, at - self.origin);
-            let angle = grabbed
-                .cross(now)
-                .dot(axis.direction())
-                .atan2(grabbed.dot(now))
-                .to_degrees();
-            let angle = if free {
-                angle
-            } else {
-                (angle / TURN_STEP_DEGREES).round() * TURN_STEP_DEGREES
-            };
+            let angle = self.swept(axis.direction(), at, free);
             let turns = turned(self.from_turns, axis, angle);
             let changed = turns != self.turns;
             self.turns = turns;
@@ -464,7 +540,7 @@ impl Manipulating {
     }
 
     pub fn has_moved(&self) -> bool {
-        self.offset != self.from || self.turns != self.from_turns
+        self.offset != self.from || self.turns != self.from_turns || self.angle != self.from_angle
     }
 
     pub fn movement(&self, units: Units) -> Move {
@@ -480,6 +556,11 @@ impl Manipulating {
                 *axis.of_mut(&mut movement.turn) = units.angle.measured(now);
             }
         }
+        if let TurnCentre::Axis(turn) = &mut movement.about
+            && (self.angle - self.from_angle).abs() > UNCHANGED_DEGREES
+        {
+            turn.angle = units.angle.measured(self.angle);
+        }
         movement
     }
 
@@ -488,6 +569,14 @@ impl Manipulating {
     }
 
     pub fn readout(&self, units: Units) -> String {
+        if self.handle == Handle::TurnAbout {
+            let turned = self.angle - self.from_angle;
+            let shown = if turned >= 0.0 { "+" } else { "" };
+            return format!(
+                "Turn about its axis {shown}{}",
+                units.angle.readout_text(turned)
+            );
+        }
         if let Handle::Turn(axis) = self.handle {
             let start = rotation_from_turns(self.from_turns.map(f64::to_radians));
             let now = rotation_from_turns(self.turns.map(f64::to_radians));
@@ -539,8 +628,12 @@ fn turned(from: [f64; 3], axis: MoveAxis, degrees: f64) -> [f64; 3] {
     turns_about_axes(turn * start).map(f64::to_degrees)
 }
 
-fn point_on(handle: Handle, origin: Point3, ray: Ray) -> Option<Point3> {
+fn point_on(handle: Handle, origin: Point3, about: Vector3, ray: Ray) -> Option<Point3> {
     match handle {
+        Handle::TurnAbout => {
+            let plane = Plane::new(origin, about)?;
+            Some(ray.at(ray.intersect_plane(&plane)?))
+        }
         Handle::Along(axis) => {
             let along = ray.closest_along_line(origin, axis.direction())?;
             Some(origin + axis.direction() * along)
@@ -575,7 +668,7 @@ mod tests {
             origin: Point3::ZERO,
             reach: ARROW_POINTS * view.units_per_pixel_at(depth),
             forward: view.forward(),
-            turns: true,
+            turning: Turning::Axes,
         }
     }
 
@@ -627,9 +720,9 @@ mod tests {
     fn a_point_on_a_handle_follows_the_ray_along_its_axis_or_plane() {
         let ray = Ray::new(Point3::new(7.0, 3.0, 50.0), Vector3::NEG_Z).unwrap();
 
-        let along = point_on(Handle::Along(MoveAxis::X), Point3::ZERO, ray).unwrap();
+        let along = point_on(Handle::Along(MoveAxis::X), Point3::ZERO, Vector3::Z, ray).unwrap();
         assert!(along.distance(Point3::new(7.0, 0.0, 0.0)) < 1e-9);
-        let across = point_on(Handle::Across(MoveAxis::Z), Point3::ZERO, ray).unwrap();
+        let across = point_on(Handle::Across(MoveAxis::Z), Point3::ZERO, Vector3::Z, ray).unwrap();
         assert!(across.distance(Point3::new(7.0, 3.0, 0.0)) < 1e-9);
     }
 

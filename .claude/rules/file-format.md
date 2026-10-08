@@ -187,7 +187,10 @@ paths:
   `copy` record of the same fields, since an older reader taking it for a move would move the
   original. A move or copy turning about its body's centre is a `move_about_centre` record whose
   `feature` is that record, since an older reader would turn it about the origin; an inner
-  record that is no move loads without it, reported.
+  record that is no move loads without it, reported. One turning about an axis is a
+  `move_about_axis` record holding the same inner `feature`, its `axis` (an axis reference) and the
+  stored text of its `angle` (unreadable: 0 deg); an axis that cannot be read loads turning about
+  the body's centre, reported.
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as
   the YZ plane, reported) and `keep_original`. A `scale` record holds `body`, the stored text of
   `factor` (unreadable: 1) and of the three `center` lengths (unreadable: 0 mm).

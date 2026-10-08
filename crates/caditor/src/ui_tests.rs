@@ -8386,6 +8386,134 @@ fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the
     );
 }
 
+fn opened_move(harness: &mut Harness, top: Pickable) -> FeatureId {
+    harness.select([top]);
+    harness.click("Move body");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.workspace.editing.solid().expect("the move is open")
+}
+
+fn move_of(harness: &Harness, movement: FeatureId) -> caditor_document::Move {
+    match harness
+        .document()
+        .feature(movement)
+        .map(|feature| feature.kind.clone())
+    {
+        Some(FeatureKind::Move(moved)) => moved,
+        other => panic!("the move is still a move: {other:?}"),
+    }
+}
+
+#[test]
+fn a_move_switched_to_an_axis_turns_about_it_by_dragging_its_ring() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let movement = opened_move(&mut harness, top);
+
+    harness.click_beside(crate::move_panel::ABOUT_AXIS, crate::move_panel::TURN_ABOUT);
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let about = Handle::TurnAbout;
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(about, 3.0)
+        .expect("the ring about the axis is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(about, 12.0)
+        .unwrap();
+    let ring_about_x = harness
+        .workspace
+        .viewport
+        .handle_position(Handle::Turn(MoveAxis::X), 3.0);
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+    let described = harness.shows("Drag to turn the body about its axis");
+    let captioned = harness.shows(crate::move_panel::ANGLE);
+
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+
+    assert!(described);
+    assert!(captioned);
+    assert_eq!(ring_about_x, None);
+    assert_eq!(harness.model.undo_label(), Some("Edit Move body 1"));
+    let turned = move_of(&harness, movement);
+    let turn = turned.about.axis_turn().expect("it turns about an axis");
+    assert_eq!(
+        turn.axis,
+        caditor_document::AxisReference::Principal(caditor_document::PrincipalAxis::Z)
+    );
+    let parameters = harness.model.parameters();
+    let angle = turn
+        .angle
+        .evaluate_as(caditor_expression::Dimension::ANGLE, &|id| {
+            parameters.value(id)
+        })
+        .unwrap();
+    assert!((angle - 45.0).abs() < 1e-9, "{angle}");
+    let bounds = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .bounding_box()
+        .unwrap();
+    assert!(
+        bounds.center().distance(caditor_geometry::Point3::new(
+            0.0,
+            20.0 * 2.0_f64.sqrt(),
+            5.0
+        )) < 1e-6,
+        "{:?}",
+        bounds.center()
+    );
+}
+
+#[test]
+fn a_move_turns_about_a_selected_edge_from_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let movement = opened_move(&mut harness, top);
+    harness.click_beside(crate::move_panel::ABOUT_AXIS, crate::move_panel::TURN_ABOUT);
+    harness.settle();
+    let edge = harness
+        .model
+        .evaluation()
+        .body(plate)
+        .unwrap()
+        .edges()
+        .find(|(_, edge)| {
+            let middle = edge.curve().point(edge.interval().middle());
+            (middle - caditor_geometry::Point3::new(40.0, 0.0, 5.0)).length() < 1e-6
+        })
+        .map(|(_, edge)| edge.name())
+        .expect("the plate has that upright edge");
+
+    harness.select([Pickable::Edge { body: plate, edge }]);
+    harness.frame();
+    harness.click_button("Use selected");
+    harness.settle();
+
+    let turn = move_of(&harness, movement)
+        .about
+        .axis_turn()
+        .cloned()
+        .expect("it turns about an axis");
+    assert!(
+        matches!(turn.axis, caditor_document::AxisReference::Edge { body, .. } if body == plate),
+        "{:?}",
+        turn.axis
+    );
+    assert!(harness.shows("An edge of Extrude 1"));
+}
+
 #[test]
 fn an_open_fillet_listing_long_edge_names_keeps_the_side_panel_width() {
     let mut harness = Harness::new();

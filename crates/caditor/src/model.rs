@@ -7,8 +7,8 @@ use std::{
 
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult,
-    FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Prepared, Progress, Recomputer,
-    SketchResult, Stale, Transaction, TurnCentre,
+    FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Pivot, Prepared, Progress,
+    Recomputer, SketchResult, Stale, Transaction, TurnCentre, displayed_axis,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, JournalEntry, JournalFailure, Recovered, Report, SaveRequest,
@@ -374,12 +374,17 @@ impl Model {
         }
     }
 
-    pub fn move_pivot(&self, feature: FeatureId, movement: &Move) -> Option<Point3> {
-        match movement.about {
-            TurnCentre::Origin => Some(Point3::ZERO),
+    pub fn move_pivot(&self, feature: FeatureId, movement: &Move) -> Option<Pivot> {
+        match &movement.about {
+            TurnCentre::Origin => Some(Pivot::Point(Point3::ZERO)),
             TurnCentre::Body => {
-                movement.pivot(self.evaluation.body_seen_by(feature, movement.body)?)
+                movement.pivot(self.evaluation.body_seen_by(feature, movement.body)?, None)
             }
+            TurnCentre::Axis(turn) => Some(Pivot::Axis(displayed_axis(
+                &self.evaluation,
+                feature,
+                &turn.axis,
+            )?)),
         }
     }
 

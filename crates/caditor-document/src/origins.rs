@@ -90,10 +90,10 @@ fn may_hold_references(kind: &FeatureKind) -> bool {
         }
         FeatureKind::Mirror(mirror) => matches!(mirror.plane, PlaneReference::Face(_)),
         FeatureKind::Split(split) => matches!(split.plane, PlaneReference::Face(_)),
+        FeatureKind::Move(movement) => movement.about.axis().is_some(),
         FeatureKind::Import(_)
         | FeatureKind::Remove(_)
         | FeatureKind::Combine(_)
-        | FeatureKind::Move(_)
         | FeatureKind::Scale(_)
         | FeatureKind::Hole(_) => false,
         FeatureKind::Solid(_)

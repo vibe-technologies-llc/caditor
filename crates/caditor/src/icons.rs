@@ -208,7 +208,8 @@ pub fn command(command: Command) -> &'static str {
         | Command::DatumUseSelected
         | Command::DatumTurnAboutSelected
         | Command::PatternUseSelected
-        | Command::PatternSecondUseSelected => USE_SELECTED,
+        | Command::PatternSecondUseSelected
+        | Command::MoveTurnAboutSelected => USE_SELECTED,
         Command::FilterFeatures => SEARCH,
         Command::AddParameter => ADD,
         Command::DeleteParameter => DELETE,

@@ -1,7 +1,10 @@
-use caditor_document::{Document, Edit, FeatureId, FeatureKind, Move, Transaction, TurnCentre};
+use caditor_document::{
+    AxisReference, AxisTurn, Document, Edit, FeatureId, FeatureKind, Move, PrincipalAxis,
+    Transaction, TurnCentre,
+};
 
 use crate::{
-    bodies, body_selection,
+    bodies, body_selection, datum_tools,
     editing::{self, EditingCommand},
     model::{Action, Model},
     selection::{Pickable, Selection},
@@ -16,6 +19,10 @@ pub const DESCRIPTION: &str =
 const NO_BODY: &str = "Select a face or edge of the body to move";
 const SEVERAL_BODIES: &str = "Select faces or edges of one body only, or one body in the tree";
 const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
+const NO_AXIS: &str =
+    "Select an axis, straight edge, round face or sketch line made before this move";
+const ALREADY_ABOUT: &str = "The body already turns about the selected axis";
+const GONE: &str = "The feature no longer exists";
 
 pub fn selected_body(
     model: &Model,
@@ -104,4 +111,53 @@ pub fn edit(document: &Document, feature: FeatureId, movement: Move) -> Option<T
             kind: FeatureKind::Move(movement),
         },
     ))
+}
+
+pub fn checked_change(
+    model: &Model,
+    feature: FeatureId,
+    movement: Move,
+) -> Result<Transaction, String> {
+    let document = model.document();
+    let transaction = edit(document, feature, movement).ok_or_else(|| GONE.to_owned())?;
+    crate::field::checked(document, transaction)
+}
+
+pub fn about_axis(movement: &Move, axis: AxisReference) -> Move {
+    let angle = movement
+        .about
+        .axis_turn()
+        .map_or_else(|| solid_tools::degrees(0.0), |turn| turn.angle.clone());
+    Move {
+        about: TurnCentre::Axis(Box::new(AxisTurn { axis, angle })),
+        ..movement.clone()
+    }
+}
+
+pub fn first_axis(model: &Model, selection: &Selection, feature: FeatureId) -> AxisReference {
+    let index = model
+        .document()
+        .feature_index(feature)
+        .unwrap_or(usize::MAX);
+    datum_tools::only_axis(model, selection, index)
+        .ok()
+        .flatten()
+        .unwrap_or(AxisReference::Principal(PrincipalAxis::Z))
+}
+
+pub fn axis_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    movement: &Move,
+) -> Result<Transaction, String> {
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or_else(|| GONE.to_owned())?;
+    let axis = datum_tools::only_axis(model, selection, index)?.ok_or(NO_AXIS)?;
+    if movement.about.axis() == Some(&axis) {
+        return Err(ALREADY_ABOUT.to_owned());
+    }
+    checked_change(model, feature, about_axis(movement, axis))
 }

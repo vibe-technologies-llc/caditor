@@ -220,10 +220,15 @@ paths:
   of zero turns and distances, then opens it. Copy body (Alt+Shift+C, Model menu, palette, a body's
   right-click menu; not on the ribbon, which it would widen past one row) does the same with
   `copy` set, named Copy N, so the copy is placed from its panel; Make a copy in the panel switches
-  between the two. New moves turn about the body's centre; the panel's Turn about switch (Body
-  centre, Origin) changes it, its description saying which. The panel has a field for the turn
+  between the two. New moves turn about the body's centre; the panel's Turn about switch (Centre,
+  Origin, Axis) changes it, its description saying which. The panel has a field for the turn
   about each axis and the distance along each, all expressions (key `move-field`, `offset` or
-  `turn`, axis index). Nothing is chosen in the view while it is open.
+  `turn`, axis index). Switching to Axis (`move_tools::about_axis`) takes the one axis the
+  selection names, else the Z axis, and keeps any angle already set; its Axis row is a combo of
+  the principal and earlier datum axes with Use selected and Choose in the view (slot `MoveAxis`,
+  the palette's Turn moved body about selected axis, `move_tools::axis_change`) for an edge, round
+  face or sketch line, followed by its Angle field (key `angle`); the turns about X, Y and Z are
+  then shown only while not zero. Nothing else is chosen in the view while it is open.
 - While a move is open (and nothing is being chosen in the view) a manipulator stands at the centre
   of the moved body's box, following its preview (`move_manipulator.rs`): an arrow along each
   world axis in the axis colours (`selection::Axis::rgb`) and a square for each plane, drawn on the
@@ -245,7 +250,10 @@ paths:
   turn about an axis applied after the others (Z, or Y with no Z turn, or X alone) adds to its own
   field, any other is composed with the turns there and written back as three turns
   (`turns_about_axes`), changing only the fields whose value changed. A move turning about the
-  origin has no rings, since a ring at the body would mislead.
+  origin has no rings, since a ring at the body would mislead. A move turning about an axis stands
+  its manipulator on that axis, at the foot of the body's centre shifted by the distances, with
+  one ring about it (`Handle::TurnAbout`, `canvas::SNAP`) whose drag adds the swept angle to the
+  Angle field the same way.
 
 ## Mirror and scale
 

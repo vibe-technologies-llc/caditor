@@ -7,6 +7,7 @@ use crate::{
     datum::{AxisReference, Datum, DatumAxis, PlaneReference, PlaneThrough, PointReference},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     edit::{Edit, Transaction},
+    movement::TurnCentre,
     pattern::PatternKind,
     recompute::Inputs,
     solid::{ExtrudeEnd, ExtrudeExtent, RegionChoice, RevolveAxis, SolidFeature, SolidStart},
@@ -126,8 +127,12 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 }
             });
         }
+        FeatureKind::Move(movement) => {
+            if let TurnCentre::Axis(turn) = &mut movement.about {
+                visit_axis(&mut turn.axis, "axis to turn about", visitor);
+            }
+        }
         FeatureKind::Combine(_)
-        | FeatureKind::Move(_)
         | FeatureKind::Scale(_)
         | FeatureKind::Hole(_)
         | FeatureKind::Remove(_) => {}

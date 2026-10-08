@@ -97,11 +97,7 @@ fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         }
         FeatureKind::Blend(blend) => vec![&mut blend.size],
         FeatureKind::Shell(shell) => vec![&mut shell.thickness],
-        FeatureKind::Move(movement) => movement
-            .offset
-            .iter_mut()
-            .chain(movement.turn.iter_mut())
-            .collect(),
+        FeatureKind::Move(movement) => movement.expressions_mut().collect(),
         FeatureKind::Scale(scale) => std::iter::once(&mut scale.factor)
             .chain(scale.center.iter_mut())
             .collect(),
