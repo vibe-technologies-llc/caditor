@@ -17,7 +17,9 @@ use crate::{
 };
 
 pub const MAX_HOLES: usize = 100;
+pub const MAX_HOLE_STEPS: usize = 8;
 const PARTS: u64 = 16;
+const STEP_SHIFT: u32 = 56;
 const MARGIN: f64 = 1.0;
 const THROUGH_ALL_REACH: f64 = 0.05;
 pub const MAX_COUNTERSINK_ANGLE: f64 = 179.0;
@@ -39,11 +41,49 @@ pub enum HoleStyle {
         diameter: Expression,
         angle: Expression,
     },
+    Stepped(Vec<HoleStep>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HoleStep {
+    pub diameter: Expression,
+    pub depth: Expression,
 }
 
 impl HoleStyle {
     pub fn same_kind(&self, other: &Self) -> bool {
         std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+
+    fn expressions(&self) -> Vec<&Expression> {
+        match self {
+            Self::Plain => Vec::new(),
+            Self::Counterbore { diameter, depth } => vec![diameter, depth],
+            Self::Countersink { diameter, angle } => vec![diameter, angle],
+            Self::Stepped(steps) => steps
+                .iter()
+                .flat_map(|step| [&step.diameter, &step.depth])
+                .collect(),
+        }
+    }
+
+    fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        match self {
+            Self::Plain => Vec::new(),
+            Self::Counterbore { diameter, depth } => vec![diameter, depth],
+            Self::Countersink { diameter, angle } => vec![diameter, angle],
+            Self::Stepped(steps) => steps
+                .iter_mut()
+                .flat_map(|step| [&mut step.diameter, &mut step.depth])
+                .collect(),
+        }
+    }
+
+    fn heap_size(&self) -> usize {
+        match self {
+            Self::Stepped(steps) => size_of_val(steps.as_slice()),
+            Self::Plain | Self::Counterbore { .. } | Self::Countersink { .. } => 0,
+        }
     }
 }
 
@@ -89,11 +129,7 @@ impl Hole {
         if let HoleDepth::Blind(depth) = &self.depth {
             expressions.push(depth);
         }
-        match &self.style {
-            HoleStyle::Plain => {}
-            HoleStyle::Counterbore { diameter, depth } => expressions.extend([diameter, depth]),
-            HoleStyle::Countersink { diameter, angle } => expressions.extend([diameter, angle]),
-        }
+        expressions.extend(self.style.expressions());
         if let HoleShape::Slot { length, angle } = &self.shape {
             expressions.extend([length, angle]);
         }
@@ -105,11 +141,7 @@ impl Hole {
         if let HoleDepth::Blind(depth) = &mut self.depth {
             expressions.push(depth);
         }
-        match &mut self.style {
-            HoleStyle::Plain => {}
-            HoleStyle::Counterbore { diameter, depth } => expressions.extend([diameter, depth]),
-            HoleStyle::Countersink { diameter, angle } => expressions.extend([diameter, angle]),
-        }
+        expressions.extend(self.style.expressions_mut());
         if let HoleShape::Slot { length, angle } = &mut self.shape {
             expressions.extend([length, angle]);
         }
@@ -134,17 +166,24 @@ impl Hole {
     }
 
     pub fn heap_size(&self) -> usize {
-        self.expressions()
-            .into_iter()
-            .map(Expression::heap_size)
-            .sum()
+        self.style.heap_size()
+            + self
+                .expressions()
+                .into_iter()
+                .map(Expression::heap_size)
+                .sum::<usize>()
     }
 
-    pub fn part_name(part: u64) -> &'static str {
-        HolePart::ALL
+    pub fn part_name(entity: u64) -> String {
+        let step = entity >> STEP_SHIFT;
+        let part = HolePart::ALL
             .into_iter()
-            .find(|candidate| *candidate as u64 == part % PARTS)
-            .map_or("face", HolePart::name)
+            .find(|candidate| *candidate as u64 == entity % PARTS);
+        match part {
+            Some(part) if step > 0 => part.step_name(step + 1),
+            Some(part) => part.name().to_owned(),
+            None => "face".to_owned(),
+        }
     }
 }
 
@@ -201,6 +240,23 @@ impl HolePart {
             Self::Top | Self::Axis => "face",
         }
     }
+
+    fn step_name(self, step: u64) -> String {
+        match self {
+            Self::CounterboreWall
+            | Self::CounterboreSide
+            | Self::CounterboreOtherSide
+            | Self::CounterboreEnd
+            | Self::CounterboreOtherEnd => format!("step {step} wall"),
+            Self::CounterboreFloor => format!("step {step} floor"),
+            other => other.name().to_owned(),
+        }
+    }
+}
+
+fn step_entity(base: u64, step: usize, part: HolePart) -> u64 {
+    let offset = (step as u64).wrapping_shl(STEP_SHIFT);
+    base.wrapping_add(offset).wrapping_add(part as u64)
 }
 
 pub fn centres(sketch: &Sketch) -> Vec<(EntityId, Point2)> {
@@ -265,9 +321,15 @@ struct SlotValues {
     angle: f64,
 }
 
+#[derive(Clone, Copy)]
+struct StepValues {
+    diameter: f64,
+    floor: f64,
+}
+
 enum StyleValues {
     Plain,
-    Counterbore { diameter: f64, depth: f64 },
+    Stepped(Vec<StepValues>),
     Countersink { diameter: f64, half_angle: f64 },
 }
 
@@ -359,6 +421,59 @@ impl Context<'_> {
         Ok(value)
     }
 
+    fn steps(
+        &self,
+        steps: &[HoleStep],
+        diameter: f64,
+        depth: Option<f64>,
+        head_scale: f64,
+        hole: &str,
+    ) -> Result<StyleValues, Failure> {
+        if steps.is_empty() || steps.len() > MAX_HOLE_STEPS {
+            return Err(self.error(
+                format!(
+                    "A stepped hole has {} steps, but it needs from 1 to {MAX_HOLE_STEPS}.",
+                    steps.len()
+                ),
+                "Add or remove steps.".to_owned(),
+            ));
+        }
+        let mut values: Vec<StepValues> = Vec::with_capacity(steps.len());
+        for (index, step) in steps.iter().enumerate() {
+            let number = index + 1;
+            let wide =
+                self.length(&step.diameter, &format!("step {number} diameter"))? * head_scale;
+            let deep = self.length(&step.depth, &format!("step {number} depth"))? * head_scale;
+            if let Some(above) = values.last()
+                && wide >= above.diameter
+            {
+                return Err(self.error(
+                    format!("Step {number} is not narrower than step {index} above it.",),
+                    "Enter step diameters that get smaller going into the hole.".to_owned(),
+                ));
+            }
+            if wide <= diameter {
+                return Err(self.error(
+                    format!("Step {number} is not wider than {hole}."),
+                    format!("Enter a step {number} diameter above the hole diameter."),
+                ));
+            }
+            let floor = values.last().map_or(0.0, |above| above.floor) + deep;
+            values.push(StepValues {
+                diameter: wide,
+                floor,
+            });
+        }
+        let reach = values.last().map_or(0.0, |deepest| deepest.floor);
+        if depth.is_some_and(|depth| reach >= depth) {
+            return Err(self.error(
+                "The steps together are as deep as the whole hole.".to_owned(),
+                "Make the hole deeper or the steps shallower.".to_owned(),
+            ));
+        }
+        Ok(StyleValues::Stepped(values))
+    }
+
     fn values(&self, definition: &Hole, sized: Option<&Sized>) -> Result<Values, Failure> {
         let typed = self.length(&definition.diameter, "diameter")?;
         let diameter = sized.map_or(typed, |sized| sized.diameter);
@@ -390,11 +505,12 @@ impl Context<'_> {
                         "Enter a counterbore depth below the hole depth.".to_owned(),
                     ));
                 }
-                StyleValues::Counterbore {
+                StyleValues::Stepped(vec![StepValues {
                     diameter: wide,
-                    depth: shallow,
-                }
+                    floor: shallow,
+                }])
             }
+            HoleStyle::Stepped(steps) => self.steps(steps, diameter, depth, head_scale, &hole)?,
             HoleStyle::Countersink {
                 diameter: wide,
                 angle,
@@ -433,8 +549,9 @@ impl Context<'_> {
             HoleShape::Slot { length, angle } => {
                 if matches!(style, StyleValues::Countersink { .. }) {
                     return Err(self.error(
-                        "A slot can be plain or counterbored, but not countersunk.".to_owned(),
-                        "Choose a plain or counterbored slot, or a round hole.".to_owned(),
+                        "A slot can be plain, counterbored or stepped, but not countersunk."
+                            .to_owned(),
+                        "Choose a plain, counterbored or stepped slot, or a round hole.".to_owned(),
                     ));
                 }
                 Some(SlotValues {
@@ -454,50 +571,54 @@ impl Context<'_> {
     }
 }
 
-fn outline(values: &Values, depth: f64) -> Vec<(Point2, HolePart)> {
+fn outline(values: &Values, depth: f64, base: u64) -> Vec<(Point2, u64)> {
     let radius = values.diameter / 2.0;
     let top = MARGIN;
-    match values.style {
-        StyleValues::Plain => vec![
-            (Point2::new(0.0, top), HolePart::Top),
-            (Point2::new(radius, top), HolePart::Wall),
-            (Point2::new(radius, -depth), HolePart::Bottom),
-            (Point2::new(0.0, -depth), HolePart::Axis),
-        ],
-        StyleValues::Counterbore {
-            diameter: wide,
-            depth: shallow,
-        } => vec![
-            (Point2::new(0.0, top), HolePart::Top),
-            (Point2::new(wide / 2.0, top), HolePart::CounterboreWall),
-            (
-                Point2::new(wide / 2.0, -shallow),
-                HolePart::CounterboreFloor,
-            ),
-            (Point2::new(radius, -shallow), HolePart::Wall),
-            (Point2::new(radius, -depth), HolePart::Bottom),
-            (Point2::new(0.0, -depth), HolePart::Axis),
-        ],
+    let own = |part: HolePart| base.wrapping_add(part as u64);
+    let bore = [
+        (Point2::new(radius, -depth), own(HolePart::Bottom)),
+        (Point2::new(0.0, -depth), own(HolePart::Axis)),
+    ];
+    let mut outline = vec![(Point2::new(0.0, top), own(HolePart::Top))];
+    match &values.style {
+        StyleValues::Plain => outline.push((Point2::new(radius, top), own(HolePart::Wall))),
+        StyleValues::Stepped(steps) => {
+            let mut above = top;
+            for (index, step) in steps.iter().enumerate() {
+                let wide = step.diameter / 2.0;
+                outline.extend([
+                    (
+                        Point2::new(wide, above),
+                        step_entity(base, index, HolePart::CounterboreWall),
+                    ),
+                    (
+                        Point2::new(wide, -step.floor),
+                        step_entity(base, index, HolePart::CounterboreFloor),
+                    ),
+                ]);
+                above = -step.floor;
+            }
+            outline.push((Point2::new(radius, above), own(HolePart::Wall)));
+        }
         StyleValues::Countersink {
             diameter: wide,
             half_angle,
         } => {
             let slope = half_angle.tan();
-            vec![
-                (Point2::new(0.0, top), HolePart::Top),
+            outline.extend([
                 (
                     Point2::new(wide / 2.0 + top * slope, top),
-                    HolePart::Countersink,
+                    own(HolePart::Countersink),
                 ),
                 (
                     Point2::new(radius, -(wide / 2.0 - radius) / slope),
-                    HolePart::Wall,
+                    own(HolePart::Wall),
                 ),
-                (Point2::new(radius, -depth), HolePart::Bottom),
-                (Point2::new(0.0, -depth), HolePart::Axis),
-            ]
+            ]);
         }
     }
+    outline.extend(bore);
+    outline
 }
 
 fn tool(
@@ -505,8 +626,7 @@ fn tool(
     frame: &Plane,
     centre: Point3,
     up: Vector3,
-    outline: &[(Point2, HolePart)],
-    base: u64,
+    outline: &[(Point2, u64)],
     feature: u64,
 ) -> Result<Solid, Failure> {
     let unusable = || {
@@ -520,7 +640,7 @@ fn tool(
     let curves: Vec<ProfileCurve> = outline
         .iter()
         .zip(outline.iter().cycle().skip(1))
-        .map(|((start, part), (end, _))| ProfileCurve::line(base + *part as u64, *start, *end))
+        .map(|((start, entity), (end, _))| ProfileCurve::line(*entity, *start, *end))
         .collect();
     let profile = Profile::new(&curves).map_err(|_| unusable())?;
     let axis = Axis2::new(Point2::ZERO, Vector2::Y).map_err(|_| unusable())?;
@@ -538,6 +658,7 @@ struct SlotCut {
     radius: f64,
     depth: f64,
     parts: [HolePart; 4],
+    step: usize,
 }
 
 fn slot_tool(
@@ -562,9 +683,10 @@ fn slot_tool(
         radius,
         depth,
         parts,
+        step,
     } = cut;
     let half = slot.length / 2.0;
-    let [side, end, other_side, other_end] = parts.map(|part| base + part as u64);
+    let [side, end, other_side, other_end] = parts.map(|part| step_entity(base, step, part));
     let first = Point2::new(-half, -radius);
     let second = Point2::new(half, -radius);
     let third = Point2::new(half, radius);
@@ -596,11 +718,9 @@ fn drills(
     base: u64,
 ) -> Result<Vec<Solid>, Failure> {
     let Some(slot) = values.slot else {
-        let outline = outline(values, depth);
+        let outline = outline(values, depth, base);
         let feature = context.feature.id().raw();
-        return Ok(vec![tool(
-            context, frame, centre, up, &outline, base, feature,
-        )?]);
+        return Ok(vec![tool(context, frame, centre, up, &outline, feature)?]);
     };
     let narrow = slot_tool(
         context,
@@ -617,33 +737,33 @@ fn drills(
                 HolePart::SlotOtherSide,
                 HolePart::SlotOtherEnd,
             ],
+            step: 0,
         },
         base,
     )?;
     let mut tools = vec![narrow];
-    if let StyleValues::Counterbore {
-        diameter: wide,
-        depth: shallow,
-    } = values.style
-    {
-        tools.push(slot_tool(
-            context,
-            frame,
-            centre,
-            up,
-            slot,
-            SlotCut {
-                radius: wide / 2.0,
-                depth: shallow,
-                parts: [
-                    HolePart::CounterboreSide,
-                    HolePart::CounterboreEnd,
-                    HolePart::CounterboreOtherSide,
-                    HolePart::CounterboreOtherEnd,
-                ],
-            },
-            base,
-        )?);
+    if let StyleValues::Stepped(steps) = &values.style {
+        for (index, step) in steps.iter().enumerate() {
+            tools.push(slot_tool(
+                context,
+                frame,
+                centre,
+                up,
+                slot,
+                SlotCut {
+                    radius: step.diameter / 2.0,
+                    depth: step.floor,
+                    parts: [
+                        HolePart::CounterboreSide,
+                        HolePart::CounterboreEnd,
+                        HolePart::CounterboreOtherSide,
+                        HolePart::CounterboreOtherEnd,
+                    ],
+                    step: index,
+                },
+                base,
+            )?);
+        }
     }
     Ok(tools)
 }

@@ -1,6 +1,6 @@
 use caditor_document::{
     Document, Edit, FeatureId, FeatureKind, Hole, HoleDepth, HoleShape, HoleSizing, HoleStandard,
-    HoleStyle, SketchFeature, Transaction, hole_centres,
+    HoleStep, HoleStyle, SketchFeature, Transaction, hole_centres,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2};
@@ -20,7 +20,7 @@ use crate::{
 
 pub const TITLE: &str = "Hole";
 pub const DESCRIPTION: &str =
-    "Drill a hole at every point of the sketch: plain, counterbored or countersunk";
+    "Drill a hole at every point of the sketch: plain, counterbored, countersunk or stepped";
 pub const DEFAULT_DIAMETER: f64 = 6.0;
 pub const DEFAULT_DEPTH: f64 = 10.0;
 pub const DEFAULT_COUNTERBORE_DIAMETER: f64 = 10.0;
@@ -28,6 +28,8 @@ pub const DEFAULT_COUNTERBORE_DEPTH: f64 = 3.0;
 pub const DEFAULT_COUNTERSINK_DIAMETER: f64 = 10.0;
 pub const DEFAULT_COUNTERSINK_ANGLE: f64 = 90.0;
 pub const DEFAULT_SLOT_LENGTH: f64 = 10.0;
+pub const DEFAULT_STEP_DIAMETER: f64 = 8.0;
+pub const DEFAULT_STEP_DEPTH: f64 = 2.0;
 const NO_SKETCH: &str =
     "Select a flat face of a body, or draw a sketch on one and place points where the holes go";
 const FACE_SAMPLES: u32 = 16;
@@ -54,16 +56,23 @@ pub enum Kind {
     Plain,
     Counterbore,
     Countersink,
+    Stepped,
 }
 
 impl Kind {
-    pub const ALL: [Self; 3] = [Self::Plain, Self::Counterbore, Self::Countersink];
+    pub const ALL: [Self; 4] = [
+        Self::Plain,
+        Self::Counterbore,
+        Self::Countersink,
+        Self::Stepped,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Plain => "Plain",
             Self::Counterbore => "Counterbore",
             Self::Countersink => "Countersink",
+            Self::Stepped => "Stepped",
         }
     }
 
@@ -72,6 +81,9 @@ impl Kind {
             Self::Plain => "A straight hole",
             Self::Counterbore => "A wider flat-bottomed step at the mouth, for a bolt head",
             Self::Countersink => "A cone at the mouth, for a flat-head screw",
+            Self::Stepped => {
+                "Flat-bottomed steps narrowing into the hole, each with its own diameter and depth"
+            }
         }
     }
 
@@ -80,6 +92,7 @@ impl Kind {
             HoleStyle::Plain => Self::Plain,
             HoleStyle::Counterbore { .. } => Self::Counterbore,
             HoleStyle::Countersink { .. } => Self::Countersink,
+            HoleStyle::Stepped(_) => Self::Stepped,
         }
     }
 
@@ -100,6 +113,20 @@ impl Kind {
                 diameter: millimetres(standard.countersink()),
                 angle: solid_tools::degrees(DEFAULT_COUNTERSINK_ANGLE),
             },
+            Self::Stepped => {
+                let (diameter, depth) = standard.counterbore();
+                let tenths = |value: f64| millimetres((value * 10.0).round() / 10.0);
+                HoleStyle::Stepped(vec![
+                    HoleStep {
+                        diameter: millimetres(diameter),
+                        depth: millimetres(depth),
+                    },
+                    HoleStep {
+                        diameter: tenths((diameter + standard.diameter()) / 2.0),
+                        depth: tenths(depth / 2.0),
+                    },
+                ])
+            }
         }
     }
 
@@ -114,6 +141,16 @@ impl Kind {
                 diameter: unit.default_length(DEFAULT_COUNTERSINK_DIAMETER),
                 angle: solid_tools::degrees(DEFAULT_COUNTERSINK_ANGLE),
             },
+            Self::Stepped => HoleStyle::Stepped(vec![
+                HoleStep {
+                    diameter: unit.default_length(DEFAULT_COUNTERBORE_DIAMETER),
+                    depth: unit.default_length(DEFAULT_COUNTERBORE_DEPTH),
+                },
+                HoleStep {
+                    diameter: unit.default_length(DEFAULT_STEP_DIAMETER),
+                    depth: unit.default_length(DEFAULT_STEP_DEPTH),
+                },
+            ]),
         }
     }
 }

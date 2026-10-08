@@ -8,14 +8,14 @@ use caditor_document::{
     AxisReference, AxisSide, Blend, BlendKind, BodyAppearance, BodyOperation, BodyPlacement,
     CircularPattern, Combine, CombineOperation, Datum, DatumAxis, DatumPlane, DatumPoint, Document,
     Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour, Feature, FeatureId,
-    FeatureKind, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle, Import,
-    LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
-    MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty,
-    Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Parameter, Pattern, PatternKind, PlaneReference,
-    PlaneRotation, PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
-    Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, Transaction,
-    material_name,
+    FeatureKind, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep,
+    HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
+    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT, MetricSize, Mirror,
+    ModelProperties, ModelProperty, Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Parameter, Pattern,
+    PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference, PrincipalAxis,
+    PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve,
+    RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment, SketchFeature,
+    SolidFeature, SolidStart, Split, Transaction, material_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -158,6 +158,19 @@ pub(crate) enum FeatureKindRecord {
     CutSeveral(Box<CutSeveralRecord>),
     PlacedImport(Box<PlacedImportRecord>),
     RevolveOneSide(Box<RevolveOneSideRecord>),
+    SteppedHole(Box<SteppedHoleRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SteppedHoleRecord {
+    pub feature: FeatureKindRecord,
+    pub steps: Vec<HoleStepRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HoleStepRecord {
+    pub diameter: String,
+    pub depth: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -181,7 +194,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
-pub(crate) const FEATURE_KINDS: [&str; 32] = [
+pub(crate) const FEATURE_KINDS: [&str; 33] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -214,6 +227,7 @@ pub(crate) const FEATURE_KINDS: [&str; 32] = [
     "placed_import",
     "hole_scaled_by_circles",
     "revolve_one_side",
+    "stepped_hole",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1630,6 +1644,13 @@ fn hole_record(hole: &Hole) -> FeatureKindRecord {
                 diameter: diameter.to_stored_text(),
                 angle: angle.to_stored_text(),
             },
+            HoleStyle::Stepped(steps) => match steps.first() {
+                Some(top) => HoleStyleRecord::Counterbore {
+                    diameter: top.diameter.to_stored_text(),
+                    depth: top.depth.to_stored_text(),
+                },
+                None => HoleStyleRecord::Plain,
+            },
         },
         reversed: hole.reversed,
         slot: match &hole.shape {
@@ -1644,10 +1665,23 @@ fn hole_record(hole: &Hole) -> FeatureKindRecord {
             fit: standard.fit.id().to_owned(),
         }),
     };
-    match hole.sizing {
+    let feature = match hole.sizing {
         HoleSizing::Typed => FeatureKindRecord::Hole(record),
         HoleSizing::Circles => FeatureKindRecord::HoleByCircles(record),
         HoleSizing::CirclesAndHeads => FeatureKindRecord::HoleScaledByCircles(record),
+    };
+    match &hole.style {
+        HoleStyle::Stepped(steps) => FeatureKindRecord::SteppedHole(Box::new(SteppedHoleRecord {
+            feature,
+            steps: steps
+                .iter()
+                .map(|step| HoleStepRecord {
+                    diameter: step.diameter.to_stored_text(),
+                    depth: step.depth.to_stored_text(),
+                })
+                .collect(),
+        })),
+        HoleStyle::Plain | HoleStyle::Counterbore { .. } | HoleStyle::Countersink { .. } => feature,
     }
 }
 
@@ -2672,6 +2706,44 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” listed other bodies to cut, but it is not an extrusion or a \
                      revolution, so they were left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::SteppedHole(stepped) => {
+            let mut kind = restore_kind(&stepped.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Hole(hole) => {
+                    hole.style = HoleStyle::Stepped(
+                        stepped
+                            .steps
+                            .iter()
+                            .enumerate()
+                            .map(|(index, step)| {
+                                let number = index + 1;
+                                HoleStep {
+                                    diameter: restore_value(
+                                        &step.diameter,
+                                        &format!("step {number} diameter"),
+                                        "10 mm",
+                                        name,
+                                        issues,
+                                    ),
+                                    depth: restore_value(
+                                        &step.depth,
+                                        &format!("step {number} depth"),
+                                        "3 mm",
+                                        name,
+                                        issues,
+                                    ),
+                                }
+                            })
+                            .collect(),
+                    );
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed the steps of a stepped hole, but it is not a hole, so they \
+                     were left out."
                 )),
             }
             kind

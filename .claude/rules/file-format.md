@@ -166,7 +166,11 @@ paths:
   later (`tapped_fine_2`, `tapped_fine_3`, `heat_set_insert`) in older readers, and a fit its size
   does not offer. A hole sized by its circles is a `hole_by_circles` record of the same fields,
   since an older reader would drill the typed diameter at every circle, and one also scaling its
-  counterbore or countersink by them a `hole_scaled_by_circles` record.
+  counterbore or countersink by them a `hole_scaled_by_circles` record. A stepped hole is a
+  `stepped_hole` record: `feature`, the hole record of its sizing whose style is a counterbore of
+  the first step, and `steps` (each `diameter` and `depth` text; unreadable ones load as 10 mm and
+  3 mm, reported), since an older reader would drill a single counterbore; an inner record that is
+  no hole loads without the steps, reported.
 - A datum point is a `point` record (`base`, a point reference: `origin`, `datum`, `vertex` with
   `body` and the vertex name's digest, `centre` with `body` and an edge record, or `sketch` with
   `sketch` and `entity`; `offset`, three stored texts). Planes through references are

@@ -4974,6 +4974,61 @@ fn holes_of_every_style_are_saved_and_loaded() {
 }
 
 #[test]
+fn a_stepped_hole_is_a_kind_older_readers_report_and_reads_its_steps_back() {
+    use caditor_document::{HoleSizing, HoleStep, HoleStyle};
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let style = HoleStyle::Stepped(vec![
+        HoleStep {
+            diameter: parse("10 mm"),
+            depth: parse("1 mm"),
+        },
+        HoleStep {
+            diameter: parse("7 mm"),
+            depth: parse("$0 / 2"),
+        },
+    ]);
+    let (mut document, hole) = holed_model(style, false);
+    let mut sized = document.feature(hole).unwrap().kind.clone();
+    if let FeatureKind::Hole(definition) = &mut sized {
+        definition.sizing = HoleSizing::Circles;
+    }
+    let transaction = Transaction::single(
+        "Size by circles",
+        Edit::SetFeatureKind {
+            id: hole,
+            kind: sized,
+        },
+    );
+    document.apply(transaction.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("stepped_hole", "stepped_bore"));
+    let damaged = decode_text(&text.replacen("\"depth\":\"$0 / 2\"", "\"depth\":\"((\"", 1));
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
+    assert!(text.contains("\"stepped_hole\":{\"feature\":{\"hole_by_circles\":"));
+    assert!(
+        text.contains("\"style\":{\"counterbore\":{\"depth\":\"1 mm\",\"diameter\":\"10 mm\"}}")
+    );
+    assert!(text.contains("\"steps\":[{\"depth\":\"1 mm\",\"diameter\":\"10 mm\"},"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(hole).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    assert!(
+        damaged.issues[0].contains("step 2 depth"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
 fn a_hole_sized_by_its_circles_is_a_record_kind_of_its_own() {
     let (mut document, hole) = holed_model(caditor_document::HoleStyle::Plain, false);
     let mut sized = document.feature(hole).unwrap().kind.clone();

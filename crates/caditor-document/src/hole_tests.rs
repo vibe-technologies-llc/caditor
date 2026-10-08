@@ -636,7 +636,7 @@ fn a_countersunk_slot_is_refused_in_words() {
 
     assert_eq!(
         error.reason,
-        "A slot can be plain or counterbored, but not countersunk."
+        "A slot can be plain, counterbored or stepped, but not countersunk."
     );
 }
 
@@ -922,4 +922,187 @@ fn holes_scaled_by_circles_grow_their_counterbore_with_each_circle() {
     );
     assert!(HoleSizing::CirclesAndHeads.by_circles());
     assert!(!HoleSizing::Typed.by_circles());
+}
+
+fn steps(document: &Document, sizes: &[(&str, &str)]) -> HoleStyle {
+    HoleStyle::Stepped(
+        sizes
+            .iter()
+            .map(|(diameter, depth)| HoleStep {
+                diameter: expression(document, diameter),
+                depth: expression(document, depth),
+            })
+            .collect(),
+    )
+}
+
+fn stepped(pair: &mut Pair, sizes: &[(&str, &str)], depth: &str) -> FeatureId {
+    drilled(
+        pair,
+        &[(5.0, 5.0)],
+        |document| steps(document, sizes),
+        |document| HoleDepth::Blind(expression(document, depth)),
+        false,
+    )
+}
+
+fn hole_parts(evaluation: &Evaluation, pair: &Pair) -> BTreeSet<String> {
+    evaluation
+        .body(pair.plate)
+        .unwrap()
+        .faces()
+        .map(|(_, face)| describe_origin(&pair.document, face.origin()))
+        .filter(|name| name.starts_with("Hole 1"))
+        .collect()
+}
+
+#[test]
+fn a_stepped_hole_narrows_step_by_step_and_names_each_step() {
+    let mut pair = pair();
+    stepped(&mut pair, &[("8 mm", "0.5 mm"), ("6 mm", "1 mm")], "3 mm");
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let removed = PI * (16.0 * 0.5 + 9.0 * 1.0 + 4.0 * 1.5);
+    let found = volume(&evaluation, pair.plate);
+    assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
+    assert_eq!(
+        hole_parts(&evaluation, &pair),
+        [
+            "Hole 1 bottom",
+            "Hole 1 counterbore floor",
+            "Hole 1 counterbore wall",
+            "Hole 1 step 2 floor",
+            "Hole 1 step 2 wall",
+            "Hole 1 wall",
+        ]
+        .map(str::to_owned)
+        .into()
+    );
+}
+
+#[test]
+fn a_counterbore_turned_into_steps_keeps_its_top_step_and_wall() {
+    let mut pair = pair();
+    let hole = drilled(
+        &mut pair,
+        &[(5.0, 5.0)],
+        |document| HoleStyle::Counterbore {
+            diameter: expression(document, "8 mm"),
+            depth: expression(document, "0.5 mm"),
+        },
+        |document| HoleDepth::Blind(expression(document, "3 mm")),
+        false,
+    );
+    let mut engine = Recompute::default();
+    let bored = evaluate(&pair.document, &mut engine)
+        .body(pair.plate)
+        .unwrap()
+        .clone();
+    let named = |name: &str| {
+        let face = bored
+            .faces()
+            .find(|(_, face)| describe_origin(&pair.document, face.origin()) == name)
+            .map(|(id, _)| id)
+            .unwrap();
+        caditor_kernel::FaceReference::capture(&bored, face).unwrap()
+    };
+    let references = [
+        named("Hole 1 counterbore wall"),
+        named("Hole 1 counterbore floor"),
+        named("Hole 1 wall"),
+    ];
+    let FeatureKind::Hole(definition) = pair.document.feature(hole).unwrap().kind.clone() else {
+        panic!("a hole");
+    };
+    let style = steps(&pair.document, &[("8 mm", "0.5 mm"), ("6 mm", "1 mm")]);
+    pair.document
+        .apply(Transaction::single(
+            "Steps",
+            Edit::SetFeatureKind {
+                id: hole,
+                kind: FeatureKind::Hole(Hole {
+                    style,
+                    ..definition
+                }),
+            },
+        ))
+        .unwrap();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    let stepped = evaluation.body(pair.plate).unwrap();
+    let found: Vec<String> = references
+        .iter()
+        .map(|reference| {
+            let face = stepped.face(reference.resolve(stepped).unwrap()).unwrap();
+            describe_origin(&pair.document, face.origin())
+        })
+        .collect();
+    assert_eq!(
+        found,
+        [
+            "Hole 1 counterbore wall",
+            "Hole 1 counterbore floor",
+            "Hole 1 wall"
+        ]
+    );
+}
+
+#[test]
+fn steps_that_widen_reach_the_bottom_or_no_wider_than_the_hole_are_refused() {
+    let cases = [
+        (
+            vec![("6 mm", "0.5 mm"), ("7 mm", "1 mm")],
+            "3 mm",
+            "Step 2 is not narrower than step 1 above it.",
+        ),
+        (
+            vec![("8 mm", "1 mm"), ("6 mm", "2 mm")],
+            "3 mm",
+            "The steps together are as deep as the whole hole.",
+        ),
+        (
+            vec![("8 mm", "0.5 mm"), ("4 mm", "1 mm")],
+            "3 mm",
+            "Step 2 is not wider than the hole.",
+        ),
+        (
+            vec![("8 mm", "0 mm")],
+            "3 mm",
+            "The step 1 depth must be more than zero.",
+        ),
+        (
+            Vec::new(),
+            "3 mm",
+            "A stepped hole has 0 steps, but it needs from 1 to 8.",
+        ),
+    ];
+    for (sizes, depth, reason) in cases {
+        let mut pair = pair();
+        let hole = stepped(&mut pair, &sizes, depth);
+        let mut engine = Recompute::default();
+
+        let error = failure(&evaluate(&pair.document, &mut engine), hole);
+
+        assert_eq!(error.reason, reason);
+    }
+}
+
+#[test]
+fn a_stepped_slot_steps_out_at_each_step() {
+    let mut pair = pair();
+    let style = steps(&pair.document, &[("8 mm", "0.5 mm"), ("6 mm", "0.5 mm")]);
+    slotted(&mut pair, (10.0, 5.0), style, "6 mm", "0 deg");
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let removed =
+        stadium(6.0, 8.0) * 0.5 + stadium(6.0, 6.0) * 0.5 + stadium(6.0, 4.0) * (2.0 - 1.0);
+    let found = volume(&evaluation, pair.plate);
+    assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
 }

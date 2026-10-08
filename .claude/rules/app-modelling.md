@@ -151,8 +151,10 @@ paths:
   screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, and Insert from M2 to M8, the size's
   `fits`; with the thread named for the tapped ones, a Pitch row of the size's fine pitches when it
   has several, and for an insert a note giving the insert's length and least wall), Style
-  (Plain, Counterbore, Countersink; switching takes the size's head dimensions, else the
-  defaults), Sized by (Diameter, Circles, which sets `CirclesAndHeads`; shown while the sketch has
+  (Plain, Counterbore, Countersink, Stepped; switching takes the size's head dimensions, else the
+  defaults; Stepped starts from the counterbore and a step midway to the hole, and lists Step n
+  diameter and depth with Add a step, a step midway between the last and the hole as deep as the
+  last, and Remove the last step), Sized by (Diameter, Circles, which sets `CirclesAndHeads`; shown while the sketch has
   circles or the hole is sized by them, with Scale the counterbore or countersink with each circle
   for a counterbored or countersunk one), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
   (Blind with its field, or Through all), Reverse direction, and the Sketch and Body rows (the body

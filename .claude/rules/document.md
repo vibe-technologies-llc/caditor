@@ -217,15 +217,21 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   counts) and at the centre of every circle that is not construction (`hole::centres`), down into
   the sketch plane's normal, or up when reversed. `HoleDepth` is blind or
   through all (the farthest corner of the body past the point plus a margin, as the extrusion's
-  through all); `HoleStyle` is plain, counterbore (diameter, depth) or countersink (diameter,
-  angle).
+  through all); `HoleStyle` is plain, counterbore (diameter, depth), countersink (diameter,
+  angle) or stepped (`HoleStep`s from the mouth down, 1 to `MAX_HOLE_STEPS`, each a diameter and
+  its own depth, so a step's floor lies at the sum of the depths down to it). Each step must be
+  narrower than the one above it and wider than the hole, and the steps together shallower than a
+  blind hole; a refusal names the step. A counterbore is drilled as one step.
 - Each hole is a half-section polygon revolved a full turn about the hole axis (kernel `revolve`),
   starting `MARGIN` above the plane so the cut is clean, then subtracted from the body. Curve
   entities are `point id * 16 + part`, so every hole's faces are named by their sketch point and
   survive adding, moving or removing the other points. The part is the segment's role (`HolePart`:
   wall 1 and bottom 2 as a plain hole always had, counterbore wall 4 and floor 5, countersink 6),
   never its place in the outline, so a style change keeps the wall and bottom and references to
-  them; `describe_origin` words them through `Hole::part_name`.
+  them; `describe_origin` words them through `Hole::part_name`. A stepped hole's first step uses
+  the counterbore's wall and floor parts, so turning a counterbore into steps keeps them; step n
+  below it adds `(n - 1) << STEP_SHIFT` (56) to its entities, worded "step n wall" and "step n
+  floor" (wrapping like the point id's multiple, so only point ids past 2^52 could collide).
 - `shape` is `Round` or `Slot { length, angle }`: each point gets a slot of that centre-to-centre
   length, turned from the sketch's X axis by the angle in its plane, cut as an extruded stadium
   (and a wider, shallower one for a counterbore) rather than a revolve. Its walls are parts 7 to 10

@@ -151,8 +151,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Modelling features
 
-- [medium · medium] Holes have one diameter: no stepped hole of several diameters and depths one
-  after another (a counterbore is the only step).
 - [high · hard] Bodies cannot be edited directly: no moving, offsetting, deleting or replacing a
   face (push and pull) and no deleting a fillet or chamfer by its faces. An imported STEP body has
   no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a

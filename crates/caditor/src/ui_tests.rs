@@ -8613,6 +8613,56 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
     ));
 }
 
+#[test]
+fn a_stepped_hole_takes_steps_added_sized_and_removed_in_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut sketch = Sketch::new(top);
+    sketch.add_point(Point2::new(20.0, 20.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let steps = |harness: &Harness| match &harness.document().feature(hole).unwrap().kind {
+        FeatureKind::Hole(definition) => match &definition.style {
+            caditor_document::HoleStyle::Stepped(steps) => steps.len(),
+            _ => 0,
+        },
+        other => panic!("{other:?}"),
+    };
+
+    choose(&mut harness, "Plain", "Stepped");
+    let two = steps(&harness);
+    let shown = harness.shows("Step 2 diameter") && harness.shows("Step 2 depth");
+    let removed = std::f64::consts::PI * (25.0 * 3.0 + 16.0 * 2.0 + 9.0 * 5.0);
+    let stepped = removed_about(&harness, plate, removed);
+    harness.click(crate::hole_panel::ADD_STEP);
+    harness.settle();
+    let three = steps(&harness);
+    let failed_deeper = harness.model.evaluation().failed_count();
+    harness.type_into_field(Id::new(("hole-step", 2usize, false, hole)), "1 mm");
+    harness.settle();
+    let after_sizing = harness.model.evaluation().failed_count();
+    harness.click(crate::hole_panel::REMOVE_STEP);
+    harness.settle();
+
+    assert_eq!(two, 2);
+    assert!(shown);
+    assert!(stepped);
+    assert_eq!(three, 3);
+    assert_eq!(failed_deeper, 0);
+    assert_eq!(after_sizing, 0);
+    assert_eq!(steps(&harness), 2);
+    assert!(removed_about(&harness, plate, removed));
+}
+
 fn plate_bounds(
     harness: &Harness,
     plate: FeatureId,

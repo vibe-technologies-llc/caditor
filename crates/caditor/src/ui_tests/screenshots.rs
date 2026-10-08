@@ -26,6 +26,7 @@ use crate::{
     export::ExportCommand,
     files::FileCommand,
     history::HistoryCommand,
+    hole_tools,
     image_export::ImageCommand,
     mirror_tools,
     model::Action,
@@ -749,6 +750,37 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         matches!(kind.solid(), Some(SolidFeature::Revolve(_)))
     });
     shoot_open(&mut spool, gpu, out, "panel-revolve", look);
+
+    let hole_dir = TempDir::new().expect("a temporary directory");
+    let mut drilled = Harness::styled(look, hole_dir.path(), false);
+    extruded_plate(&mut drilled);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .expect("a plane on the plate");
+    let mut points = Sketch::new(top);
+    points.add_point(Point2::new(20.0, 20.0));
+    drilled.add_sketch(points);
+    drilled.select([]);
+    drilled.click("Hole");
+    drilled.settle();
+    let hole = drilled.workspace.editing.solid().and_then(|feature| {
+        Some((
+            feature,
+            drilled.document().feature(feature)?.kind.hole()?.clone(),
+        ))
+    });
+    if let Some((feature, hole)) = hole {
+        let style = hole_tools::Kind::Stepped.default_style(drilled.model.length_unit());
+        let stepped = caditor_document::Hole { style, ..hole };
+        if let Some(transaction) = hole_tools::edit(drilled.document(), feature, stepped) {
+            drilled.perform(Action::Apply(transaction));
+            drilled.settle();
+            shoot(&mut drilled, gpu, out, "panel-hole-stepped", look);
+        }
+    }
 }
 
 fn close_dialog(harness: &mut Harness) {

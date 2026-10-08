@@ -1,6 +1,6 @@
 use caditor_document::{
-    Feature, FeatureId, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle,
-    MetricSize, Transaction, circle_sizes, pitch_text,
+    Feature, FeatureId, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep,
+    HoleStyle, MAX_HOLE_STEPS, MetricSize, Transaction, circle_sizes, pitch_text,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -8,7 +8,8 @@ use egui::{Id, Ui};
 use crate::{
     feature_fields::{self, Choice, Quantity, REVERSE_DIRECTION, Rule, Segment},
     field,
-    hole_tools::{self, Kind},
+    hole_tools::{self, DEFAULT_STEP_DIAMETER, Kind},
+    icons,
     model::{Action, Model},
     widgets,
 };
@@ -24,6 +25,8 @@ const SCALED_BY_CIRCLES_NOTE: &str = "Holes at circles take each circle's diamet
                                       below; holes at points take the sizes below";
 pub const SCALE_HEADS: &str = "Scale the counterbore or countersink with each circle";
 pub const PITCH: &str = "Pitch";
+pub const ADD_STEP: &str = "Add a step";
+pub const REMOVE_STEP: &str = "Remove the last step";
 
 fn sizing_label(sizing: HoleSizing) -> &'static str {
     match sizing {
@@ -421,9 +424,106 @@ impl Panel<'_> {
         ui.end_row();
     }
 
+    fn millimetres_of(&self, length: &Expression) -> Option<f64> {
+        self.model
+            .parameters()
+            .evaluate_expression(length)
+            .ok()
+            .map(|value| value.value)
+    }
+
+    fn with_steps(&self, steps: Vec<HoleStep>) -> Result<Transaction, String> {
+        self.change(Hole {
+            style: HoleStyle::Stepped(steps),
+            standard: None,
+            ..self.hole.clone()
+        })
+    }
+
+    fn next_step(&self, steps: &[HoleStep]) -> HoleStep {
+        let unit = self.model.length_unit();
+        let last = steps.last();
+        let diameter = last
+            .and_then(|last| self.millimetres_of(&last.diameter))
+            .zip(self.millimetres_of(&self.hole.diameter))
+            .map_or_else(
+                || unit.default_length(DEFAULT_STEP_DIAMETER),
+                |(wide, narrow)| hole_tools::millimetres(((wide + narrow) * 5.0).round() / 10.0),
+            );
+        let depth = last.map_or_else(
+            || unit.default_length(hole_tools::DEFAULT_STEP_DEPTH),
+            |last| last.depth.clone(),
+        );
+        HoleStep { diameter, depth }
+    }
+
+    fn step_rows(&mut self, ui: &mut Ui, steps: &[HoleStep]) {
+        for (index, step) in steps.iter().enumerate() {
+            let number = index + 1;
+            let rows = [
+                (true, format!("Step {number} diameter"), &step.diameter),
+                (false, format!("Step {number} depth"), &step.depth),
+            ];
+            for (diameter, caption, shown) in rows {
+                let quantity = Quantity {
+                    id: Id::new(("hole-step", index, diameter, self.id())),
+                    expression: shown,
+                    dimension: Dimension::LENGTH,
+                    rule: Rule::AboveZero,
+                };
+                let committed =
+                    feature_fields::expression_row(ui, self.model, &caption, quantity, |value| {
+                        let mut changed = steps.to_vec();
+                        if let Some(step) = changed.get_mut(index) {
+                            if diameter {
+                                step.diameter = value;
+                            } else {
+                                step.depth = value;
+                            }
+                        }
+                        self.with_steps(changed)
+                    });
+                self.actions.extend(committed.map(Action::Apply));
+            }
+        }
+        ui.label("");
+        let mut change = None;
+        ui.horizontal_wrapped(|ui| {
+            let add = widgets::small_button(ui, icons::ADD, ADD_STEP);
+            if ui
+                .add_enabled(steps.len() < MAX_HOLE_STEPS, add)
+                .on_disabled_hover_text(format!("A hole has at most {MAX_HOLE_STEPS} steps"))
+                .clicked()
+            {
+                let mut more = steps.to_vec();
+                more.push(self.next_step(steps));
+                change = Some(self.with_steps(more));
+            }
+            let remove = widgets::small_button(ui, icons::SUBTRACT, REMOVE_STEP);
+            let fewer = steps
+                .split_last()
+                .map(|(_, above)| above.to_vec())
+                .filter(|above| !above.is_empty());
+            if ui
+                .add_enabled(fewer.is_some(), remove)
+                .on_disabled_hover_text("A stepped hole keeps at least one step")
+                .clicked()
+                && let Some(fewer) = fewer
+            {
+                change = Some(self.with_steps(fewer));
+            }
+        });
+        ui.end_row();
+        if let Some(change) = change {
+            self.actions
+                .push(feature_fields::applied(&self.feature.name, change));
+        }
+    }
+
     fn style_rows(&mut self, ui: &mut Ui) {
         match self.hole.style.clone() {
             HoleStyle::Plain => {}
+            HoleStyle::Stepped(steps) => self.step_rows(ui, &steps),
             HoleStyle::Counterbore { diameter, depth } => {
                 self.length_row(
                     ui,
