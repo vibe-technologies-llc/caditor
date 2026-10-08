@@ -13,6 +13,7 @@ mod zip_read;
 
 use std::{collections::BTreeSet, path::Path};
 
+use caditor_document::CancelToken;
 use caditor_geometry::Point2;
 use caditor_step::ReadError;
 
@@ -137,6 +138,8 @@ pub enum ImportError {
     Reading(ReadFailure),
     #[error("caditor ran into an internal error while reading it")]
     Crashed,
+    #[error("the import was stopped")]
+    Cancelled,
     #[error("it is not a DXF drawing")]
     NotDxf,
     #[error("it is not a STEP file")]
@@ -194,7 +197,18 @@ pub enum ImportError {
     TooManyValues,
 }
 
-pub fn read_dxf(path: &Path) -> Result<Drawing, ImportError> {
+pub fn read_dxf(path: &Path, cancel: &CancelToken) -> Result<Drawing, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
-    parse_dxf(&bytes)
+    ensure_going(cancel)?;
+    let drawing = parse_dxf(&bytes)?;
+    ensure_going(cancel)?;
+    Ok(drawing)
+}
+
+pub(crate) fn ensure_going(cancel: &CancelToken) -> Result<(), ImportError> {
+    if cancel.is_cancelled() {
+        Err(ImportError::Cancelled)
+    } else {
+        Ok(())
+    }
 }

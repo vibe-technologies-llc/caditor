@@ -66,6 +66,7 @@ use crate::{
 };
 
 mod feature_panels;
+mod import_jobs;
 mod screenshots;
 mod selection_targets;
 mod sketch_regions;
@@ -1746,7 +1747,8 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
         harness.shows(&format!("Exported 4 objects of “{name}” to “outline.dxf”."))
     });
 
-    let drawing = caditor_file::read_dxf(&written).unwrap();
+    let drawing =
+        caditor_file::read_dxf(&written, &caditor_document::CancelToken::never()).unwrap();
     assert_eq!(drawing.curve_count(), 4);
     assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
 
@@ -1794,7 +1796,8 @@ fn construction_geometry_is_exported_on_its_own_layer_once_kept_from_the_palette
     harness.wait_until("the export is announced", |harness| {
         harness.shows_containing("1 construction curve is on the Construction layer.")
     });
-    let drawing = caditor_file::read_dxf(&written).unwrap();
+    let drawing =
+        caditor_file::read_dxf(&written, &caditor_document::CancelToken::never()).unwrap();
 
     assert!(kept);
     assert_eq!(drawing.curve_count(), 5);
@@ -1838,7 +1841,8 @@ fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
         harness.shows("Exported 4 curves of “Extrude 1 end face” to “plate.dxf”, in 1 loop.")
     });
 
-    let drawing = caditor_file::read_dxf(&written).unwrap();
+    let drawing =
+        caditor_file::read_dxf(&written, &caditor_document::CancelToken::never()).unwrap();
 
     assert_eq!(drawing.curve_count(), 4);
     assert_eq!(drawing.layers, vec!["Outline".to_owned()]);
@@ -1861,7 +1865,12 @@ fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
     harness.wait_until("the export of both is announced", |harness| {
         harness.shows("Exported 8 curves of 2 faces to “both.dxf”, in 2 loops, side by side.")
     });
-    assert_eq!(caditor_file::read_dxf(&both).unwrap().curve_count(), 8);
+    assert_eq!(
+        caditor_file::read_dxf(&both, &caditor_document::CancelToken::never())
+            .unwrap()
+            .curve_count(),
+        8
+    );
 }
 
 fn png_size(path: &Path) -> (u32, u32, u8) {
@@ -2268,7 +2277,7 @@ fn a_drawing_read_while_the_model_changes_is_placed_on_the_changed_model() {
     );
     let features = harness.document().features().len();
     let width = harness.parameter("width");
-    let drawing = caditor_file::read_dxf(&square).unwrap();
+    let drawing = caditor_file::read_dxf(&square, &caditor_document::CancelToken::never()).unwrap();
     let plan = import::plan_drawing(
         harness.model.base(),
         &square,

@@ -182,9 +182,10 @@ pub fn command(command: Command) -> &'static str {
         Command::OpenRecent(_) => RECENT,
         Command::ClearRecent => DELETE,
         Command::RecoverUnsaved => RECOVER,
-        Command::CancelExport | Command::CancelImageExport | Command::CancelRecompute => {
-            phosphor::STOP_CIRCLE
-        }
+        Command::CancelExport
+        | Command::CancelImageExport
+        | Command::CancelImport
+        | Command::CancelRecompute => phosphor::STOP_CIRCLE,
         Command::Recompute => phosphor::ARROW_CLOCKWISE,
         Command::RenameFeature | Command::RenameGroup => RENAME,
         Command::GroupFeatures => FEATURE_GROUP,

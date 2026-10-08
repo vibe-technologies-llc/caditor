@@ -44,6 +44,9 @@ paths:
   `every_file_of_a_corpus_is_read_and_reported` read every file there and print its solids,
   volumes, notes or refusal and time; run it in release against files whose volumes another
   reader gives.
+- Cancellation: `read_step` and `read_step_copies` poll the kernel interrupt (`kernel.md`) before
+  parsing and before each solid, answering `ReadError::Cancelled`; nothing installs an interrupt
+  by default, so an uncancelled read never sees it.
 - Hostile-input bounds: `MAX_SPLINE_DEGREE`, checked knot arithmetic before expansion, one
   `MAX_WORK` budget per file for everything built, `MAX_DEPTH` and `MAX_INSTANCES` for assemblies.
   Curves, surfaces, placements and solids are memoised per entity and units.

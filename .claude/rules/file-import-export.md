@@ -56,6 +56,10 @@ paths:
 - `read_step_file` unpacks gzip first (`.stpz`, or the gzip magic), within `MAX_FILE_SIZE` and with
   the trailer's CRC and size checked, else `DamagedArchive` or `UnpacksTooLarge`. Non-UTF-8 text
   is read as Latin-1 with a note.
+- `read_step_file`, `read_mesh_file` and `read_dxf` take a `CancelToken`: it is checked between
+  the file's stages and installed as the kernel interrupt around parsing and building, so the STEP
+  reader stops between solids (`ReadError::Cancelled`) and meshing stops inside a shell. A
+  cancelled read is `ImportError::Cancelled`, never a partial import.
 - `parse_step` reads the copies of each part (`read_step_copies`, `step-read.md`) and canonicalises
   each part once, unplaced: written by caditor's own writer and read back, so what is stored is
   exactly what later loads. One `ImportedBody` per copy, or per copy of each lump (each

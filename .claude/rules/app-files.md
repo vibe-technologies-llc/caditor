@@ -21,7 +21,8 @@ paths:
 
 - `files.rs` owns the File menu and shortcuts, the recovery offer and the load report. Native
   dialogs run on their own thread; loading and recovery scans run on the files worker, each job
-  under `catch_unwind` so a panic becomes its failure.
+  under `catch_unwind` so a panic becomes its failure. Imports never use the files worker: each
+  runs on a thread of its own (see Import), so Open and Save are not queued behind a slow one.
 - `portal.rs` holds the request and error types; `portal/xdg.rs` shows file dialogs on Unix
   through the XDG desktop portal over `zbus` (pure Rust, no `libdbus`) and falls back to `zenity`,
   `portal/windows.rs` through rfd, owned by the main window. On X11 the portal request names the
@@ -41,7 +42,10 @@ paths:
   (`widgets::footer_split`). Quit waits for the storage worker in a "Closing…" modal without
   blocking the UI and without a close button, since quitting cannot be taken back.
 - Opening shows a cancellable dialog. Each open counts an attempt (`Files::open_attempt`) and the
-  result of an abandoned one is ignored.
+  result of an abandoned one is ignored. Closing the window while a file is opening abandons the
+  open the same way (with a notice saying so) before the unsaved-changes prompt is raised, so the
+  prompt is never hidden behind the opening dialog and a load finishing later cannot replace the
+  model the prompt is about.
 - Save As appends `.caditor`, checks the target on the worker (refused while open in another
   window or holding unrecovered changes) and asks before replacing a file the dialog did not name.
 - A save over a file another program changed (`Report::ChangedOnDisk`) asks: Save a copy primary,
@@ -125,8 +129,8 @@ paths:
 
 ## Import
 
-- Import picks a DXF or STEP file (by extension, else by content) and reads it on the files
-  worker. A drawing becomes one change to the edited sketch if the command was given there, else
+- Import picks a DXF or STEP file (by extension, else by content) and reads it on its own thread.
+  A drawing becomes one change to the edited sketch if the command was given there, else
   to a new sketch named after the file, which is entered. A STEP model becomes one change adding
   an import feature per body.
 - A drawing that was read opens the import options dialog (`import_options.rs`, `Files::arranging`)
@@ -142,7 +146,7 @@ paths:
   along X, Y and Z, all expressions (key `import-field`, `turn` or `offset`, axis index), each
   entered value one undoable `SetFeatureKind` named "Place <name>".
 - Replace from file (`Command::ReplaceImport`, an import's details, its right-click menu, the
-  palette on the tree's current import) picks a STEP or mesh file, reads it on the files worker and
+  palette on the tree's current import) picks a STEP or mesh file, reads it on an import thread and
   applies one `SetFeatureKind` putting its body in place of the import, keeping its placement, so
   features using the body keep it and find its faces again by name. A file of several bodies gives the one named like the
   feature (or like it before a " 2" suffix), else nothing with the reason; a drawing is refused.
@@ -150,6 +154,18 @@ paths:
   the palette) does the same with the path the import kept (`import::kept_source`, made absolute
   by `import::read_model`) without a dialog; a body imported before paths were kept, or whose file
   has gone, says so and points to Replace from file.
+- Every import step (reading a drawing, a model, replanning after `Placement::Stale`, Replace and
+  Reload) is one job on a thread of its own (`Files::start_import`, named `import`), spawned
+  through `run_where_possible`: when the thread cannot be started the job runs on the UI thread,
+  logged. Each job counts an attempt (`Files::import_attempt`) and carries it in its event; the
+  result of a cancelled job is ignored, so a late result never clears or fills a newer one.
+- Importing shows in the status bar with a Cancel button and the palette command Cancel the import
+  (`Command::CancelImport`, offered only while a file is being read). Cancelling raises the job's
+  `CancelToken` (the readers poll it, `file-import-export.md`), forgets the job at once, drops
+  its result even if the reader ignores the token, clears dropped files still queued and says so
+  in a notice. A pick still waiting on the file dialog is stopped with Stop waiting instead.
+  Opening another model meanwhile is allowed: the import's result is dropped as from another
+  session.
 - The worker plans the change on the model as it was at the start (`import::plan_drawing` with
   the `Arrangement`, `Model::base`); the UI thread only commits it (`Model::commit`) and replans
   on `Placement::Stale`. Results arriving after another document opened are dropped.

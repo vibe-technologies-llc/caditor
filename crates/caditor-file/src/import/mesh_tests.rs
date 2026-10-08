@@ -1,10 +1,11 @@
 use std::fmt::Write;
 
+use caditor_document::CancelToken;
 use caditor_kernel::{SamplingTolerance, Solid};
 
 use crate::{
     export::zip::{ZipEntry, archive},
-    import::{ImportError, MeshFormat, ModelImport, parse_mesh},
+    import::{ImportError, MeshFormat, ModelImport, parse_mesh, read_mesh_file},
 };
 
 const CORNERS: [[f64; 3]; 8] = [
@@ -62,6 +63,25 @@ fn binary_stl() -> Vec<u8> {
         bytes.extend([0u8; 2]);
     }
     bytes
+}
+
+#[test]
+fn a_cancelled_mesh_read_stops_with_the_import_stopped() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("cube.stl");
+    std::fs::write(&path, binary_stl()).unwrap();
+
+    assert_eq!(
+        read_mesh_file(&path, &CancelToken::new(|| true)).map(|_| ()),
+        Err(ImportError::Cancelled)
+    );
+    assert_eq!(
+        read_mesh_file(&path, &CancelToken::never())
+            .unwrap()
+            .bodies
+            .len(),
+        1
+    );
 }
 
 #[test]
