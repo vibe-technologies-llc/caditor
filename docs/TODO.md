@@ -21,7 +21,9 @@ Categories run from the most to the least important. Each entry is tagged
 `[importance · ease]`, and within a category the entries that can start now come first, from the
 most to the least important and from the easiest to the hardest. An entry that cannot start yet is
 tagged `blocked by: <blocker>` with the specific item, decision or external fact, and follows
-the unblocked ones; the entry that does the unblocking comes before it.
+the unblocked ones; the entry that does the unblocking comes before it. An entry tagged `later` instead of
+an importance is deliberately not a priority: it waits until the rest is done, and its category
+comes last.
 
 ## Kernel correctness
 
@@ -247,11 +249,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   - Units: STL has none, so the import guesses from the size (a part 0.05 mm across is likely in
     metres) and offers a scale before committing, rather than leaving it to the scale item.
 
-## Accessibility
-
-- [low · medium] In the 3D view's description, single bodies, faces or sketch curves have no nodes
-  of their own to step through, and datums are named without where they lie.
-
 ## Viewer
 
 - [medium · hard] Section planes.
@@ -400,3 +397,8 @@ Linux is the primary platform and Windows the only other one; macOS is not a goa
   URL] No Flatpak or AUR package: both need a maintainer identity and repository URL in their
   metadata, which the project does not publish (`docs/RELEASING.md`); `packaging/arch/PKGBUILD` only
   builds locally.
+
+## Accessibility
+
+- [later · medium] In the 3D view's description, single bodies, faces or sketch curves have no
+  nodes of their own to step through, and datums are named without where they lie.
