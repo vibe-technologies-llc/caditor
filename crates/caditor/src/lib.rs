@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod about;
 mod annotation_layout;
 mod annotations;

@@ -125,7 +125,7 @@ pub fn constraint(input: &mut Unstructured, sketch: &Sketch) -> Result<Constrain
         8 => Constraint::Equal(entity(input)?, entity(input)?),
         9 => Constraint::Midpoint {
             point: entity(input)?,
-            line: entity(input)?,
+            curve: entity(input)?,
         },
         10 => Constraint::Concentric(entity(input)?, entity(input)?),
         11 => Constraint::Collinear(entity(input)?, entity(input)?),

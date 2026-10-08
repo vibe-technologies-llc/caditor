@@ -173,6 +173,7 @@ fn solid_feature(input: &mut Unstructured, document: &Document) -> Result<Option
             extent,
             operation,
             start: None,
+            other_bodies: Vec::new(),
         })
     } else {
         let lines = sketch_lines(document, sketch);
@@ -204,6 +205,7 @@ fn solid_feature(input: &mut Unstructured, document: &Document) -> Result<Option
             extent,
             operation,
             start: None,
+            other_bodies: Vec::new(),
         })
     };
     Ok(Some(FeatureKind::Solid(solid)))
