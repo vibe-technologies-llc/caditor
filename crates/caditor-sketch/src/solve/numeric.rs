@@ -43,7 +43,7 @@ pub(crate) struct Component {
 }
 
 pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> Vec<Component> {
-    let mut parents: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut joints = Joints::default();
     let mut constant = Vec::new();
     let mut linked = Vec::new();
     for &index in active {
@@ -56,42 +56,66 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
             continue;
         };
         for variable in &variables {
-            union(&mut parents, first, *variable);
+            joints.union(first, *variable);
         }
         linked.push((index, first));
     }
-    let mut groups: BTreeMap<usize, Component> = BTreeMap::new();
+    let mut group_of_root = vec![None; joints.len()];
+    let mut groups: Vec<(usize, Component)> = Vec::new();
     for (index, first) in linked {
-        let root = find(&mut parents, first);
-        groups
-            .entry(root)
-            .or_insert_with(|| Component {
-                variables: Vec::new(),
-                equations: Vec::new(),
-                spans: Vec::new(),
-            })
-            .equations
-            .push(index);
-    }
-    let variables: Vec<usize> = parents.keys().copied().collect();
-    for variable in variables {
-        let root = find(&mut parents, variable);
-        if let Some(group) = groups.get_mut(&root) {
-            group.variables.push(variable);
+        let root = joints.find(first);
+        let group = match group_of_root.get(root).copied().flatten() {
+            Some(group) => group,
+            None => {
+                groups.push((
+                    root,
+                    Component {
+                        variables: Vec::new(),
+                        equations: Vec::new(),
+                        spans: Vec::new(),
+                    },
+                ));
+                let group = groups.len() - 1;
+                if let Some(slot) = group_of_root.get_mut(root) {
+                    *slot = Some(group);
+                }
+                group
+            }
+        };
+        if let Some((_, component)) = groups.get_mut(group) {
+            component.equations.push(index);
         }
     }
-    for group in groups.values_mut() {
-        let spans: BTreeSet<usize> = group
+    for variable in 0..joints.len() {
+        if !joints.contains(variable) {
+            continue;
+        }
+        let root = joints.find(variable);
+        if let Some((_, component)) = group_of_root
+            .get(root)
+            .copied()
+            .flatten()
+            .and_then(|group| groups.get_mut(group))
+        {
+            component.variables.push(variable);
+        }
+    }
+    for (_, group) in &mut groups {
+        let mut spans: Vec<usize> = group
             .variables
             .iter()
             .filter_map(|variable| system.spans_at_variable.get(variable))
             .flatten()
             .copied()
             .collect();
-        group.spans = spans.into_iter().collect();
+        spans.sort_unstable();
+        spans.dedup();
+        group.spans = spans;
     }
+    groups.sort_by_key(|(root, _)| *root);
     groups
-        .into_values()
+        .into_iter()
+        .map(|(_, component)| component)
         .chain(constant.into_iter().map(|index| Component {
             variables: Vec::new(),
             equations: vec![index],
@@ -100,28 +124,61 @@ pub(crate) fn components(system: &System, active: &[usize], values: &[f64]) -> V
         .collect()
 }
 
-fn find(parents: &mut BTreeMap<usize, usize>, variable: usize) -> usize {
-    let mut root = variable;
-    while let Some(&parent) = parents.get(&root) {
-        if parent == root {
-            break;
-        }
-        root = parent;
-    }
-    let mut current = variable;
-    while current != root {
-        let next = parents.get(&current).copied().unwrap_or(root);
-        parents.insert(current, root);
-        current = next;
-    }
-    parents.entry(root).or_insert(root);
-    root
+#[derive(Default)]
+struct Joints {
+    parents: Vec<Option<usize>>,
 }
 
-fn union(parents: &mut BTreeMap<usize, usize>, a: usize, b: usize) {
-    let (a, b) = (find(parents, a), find(parents, b));
-    if a != b {
-        parents.insert(a.max(b), a.min(b));
+impl Joints {
+    fn len(&self) -> usize {
+        self.parents.len()
+    }
+
+    fn contains(&self, variable: usize) -> bool {
+        self.parents.get(variable).copied().flatten().is_some()
+    }
+
+    fn parent(&mut self, variable: usize) -> usize {
+        if variable >= self.parents.len() {
+            self.parents.resize(variable + 1, None);
+        }
+        match self.parents.get_mut(variable) {
+            Some(Some(parent)) => *parent,
+            Some(slot) => {
+                *slot = Some(variable);
+                variable
+            }
+            None => variable,
+        }
+    }
+
+    fn find(&mut self, variable: usize) -> usize {
+        let mut root = variable;
+        loop {
+            let parent = self.parent(root);
+            if parent == root {
+                break;
+            }
+            root = parent;
+        }
+        let mut current = variable;
+        while current != root {
+            let next = self.parent(current);
+            if let Some(slot) = self.parents.get_mut(current) {
+                *slot = Some(root);
+            }
+            current = next;
+        }
+        root
+    }
+
+    fn union(&mut self, a: usize, b: usize) {
+        let (a, b) = (self.find(a), self.find(b));
+        if a != b
+            && let Some(slot) = self.parents.get_mut(a.max(b))
+        {
+            *slot = Some(a.min(b));
+        }
     }
 }
 
