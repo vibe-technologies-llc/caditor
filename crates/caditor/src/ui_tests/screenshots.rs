@@ -375,6 +375,22 @@ fn screenshots() {
         model.key(Key::I, Modifiers::NONE);
         model.frame();
 
+        model.workspace.analysis.toggle();
+        model
+            .workspace
+            .viewport
+            .toggle_centres_of_mass_for_screenshots();
+        model.frame();
+        model.frame();
+        model.frame();
+        shoot(&mut model, &gpu, &out, "analysis", look);
+        model.workspace.analysis.toggle();
+        model
+            .workspace
+            .viewport
+            .toggle_centres_of_mass_for_screenshots();
+        model.frame();
+
         let sketch = model
             .document()
             .features()

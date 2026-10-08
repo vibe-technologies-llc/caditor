@@ -25,6 +25,7 @@ pub struct Revisions {
     pub bodies: u64,
     pub style: DisplayStyle,
     pub aids: ViewAids,
+    pub analysed: u64,
     pub contrast: Contrast,
 }
 

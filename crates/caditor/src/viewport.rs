@@ -12,6 +12,7 @@ use egui::{
 };
 
 use crate::{
+    analysis::{Analyses, FaceAnalysis},
     annotations::{Annotations, Surface},
     blend_tools,
     bodies::{self, BodyMeshes, OpenDraft},
@@ -266,6 +267,7 @@ pub struct ViewportState {
     typed_dimensions: bool,
     glyphs_shown: bool,
     aids: ViewAids,
+    analyses: Analyses,
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
     clipboard: Option<Copied>,
@@ -386,6 +388,7 @@ impl ViewportState {
             typed_dimensions: true,
             glyphs_shown: true,
             aids: ViewAids::default(),
+            analyses: Analyses::default(),
             manipulator: None,
             manipulator_hover: None,
             clipboard: None,
@@ -412,6 +415,19 @@ impl ViewportState {
 
     pub fn aids(&self) -> ViewAids {
         self.aids
+    }
+
+    #[cfg(test)]
+    pub fn toggle_centres_of_mass_for_screenshots(&mut self) {
+        self.aids.centres_of_mass = !self.aids.centres_of_mass;
+    }
+
+    pub fn set_analysis(&mut self, analysis: Option<FaceAnalysis>) {
+        self.aids.analysis = analysis;
+    }
+
+    pub fn analyses(&self) -> &Analyses {
+        &self.analyses
     }
 
     pub fn glyphs_shown(&self) -> bool {
@@ -718,6 +734,7 @@ impl ViewportState {
             sketches: &display.sketches,
             style: self.style,
             aids: self.aids,
+            analyses: &self.analyses,
             contrast: self.contrast,
         };
         self.scenes.update(&SceneInputs {
@@ -729,6 +746,7 @@ impl ViewportState {
                 bodies: self.bodies.generation(),
                 style: self.style,
                 aids: self.aids,
+                analysed: self.analyses.finished(),
                 contrast: self.contrast,
             },
             context,
@@ -867,6 +885,7 @@ impl ViewportState {
             sketches: &model.display().sketches,
             style: self.style,
             aids: ViewAids::default(),
+            analyses: &Analyses::default(),
             contrast: Contrast::Standard,
         };
         let context = editing.context();

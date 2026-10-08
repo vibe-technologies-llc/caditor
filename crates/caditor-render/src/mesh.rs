@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use caditor_geometry::{Aabb, Point3, RigidTransform, Vector3};
 use glam::Vec3;
@@ -99,6 +99,102 @@ impl ShadedMesh {
     pub fn is_empty(&self) -> bool {
         self.indices.is_empty()
     }
+
+    pub fn triangle_count(&self) -> usize {
+        self.indices.len() / 3
+    }
+
+    pub fn divide(&self, classify: impl Fn([Corner; 3]) -> u8) -> Division {
+        let mut pieces: Vec<Piece> = Vec::new();
+        let mut piece_of: BTreeMap<(u32, u8), u32> = BTreeMap::new();
+        let mut vertices: Vec<GpuVertex> = Vec::new();
+        let mut vertex_of: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+        let mut indices: Vec<u32> = Vec::new();
+        for triangle in self.indices.as_chunks::<3>().0 {
+            let [Some(a), Some(b), Some(c)] =
+                triangle.map(|index| self.vertices.get(index as usize))
+            else {
+                continue;
+            };
+            let class = classify([a, b, c].map(|vertex| Corner {
+                position: vertex.position,
+                normal: vertex.normal,
+            }));
+            let source = a.face;
+            let piece = match piece_of.get(&(source, class)) {
+                Some(piece) => *piece,
+                None => {
+                    let Ok(next) = u32::try_from(pieces.len()) else {
+                        break;
+                    };
+                    pieces.push(Piece {
+                        source: source as usize,
+                        class,
+                        area: 0.0,
+                    });
+                    piece_of.insert((source, class), next);
+                    next
+                }
+            };
+            if let Some(entry) = pieces.get_mut(piece as usize) {
+                entry.area += triangle_area(a.position, b.position, c.position);
+            }
+            for index in triangle {
+                let Some(original) = self.vertices.get(*index as usize) else {
+                    continue;
+                };
+                let placed = match vertex_of.get(&(*index, piece)) {
+                    Some(placed) => *placed,
+                    None => {
+                        let Ok(next) = u32::try_from(vertices.len()) else {
+                            break;
+                        };
+                        vertices.push(GpuVertex {
+                            face: piece,
+                            ..*original
+                        });
+                        vertex_of.insert((*index, piece), next);
+                        next
+                    }
+                };
+                indices.push(placed);
+            }
+        }
+        Division {
+            mesh: Self {
+                origin: self.origin,
+                bounds: self.bounds,
+                vertices,
+                indices,
+                face_count: pieces.len(),
+            },
+            pieces,
+        }
+    }
+}
+
+fn triangle_area(a: Vec3, b: Vec3, c: Vec3) -> f64 {
+    let (ab, ac) = (b.as_dvec3() - a.as_dvec3(), c.as_dvec3() - a.as_dvec3());
+    ab.cross(ac).length() * 0.5
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Corner {
+    pub position: Vec3,
+    pub normal: Vec3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Piece {
+    pub source: usize,
+    pub class: u8,
+    pub area: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Division {
+    pub mesh: ShadedMesh,
+    pub pieces: Vec<Piece>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -623,6 +719,40 @@ mod tests {
         assert_eq!(mesh.vertices[4].normal, Vec3::Z);
         assert!(!mesh.is_empty());
         assert!(ShadedMesh::new([]).is_empty());
+    }
+
+    #[test]
+    fn dividing_a_mesh_by_class_splits_each_face_into_a_piece_per_class_with_its_area() {
+        let at = |x: f64, y: f64, lean: f64| MeshPoint {
+            position: Point3::new(x, y, 0.0),
+            normal: Vector3::new(lean, 0.0, 1.0),
+        };
+        let mesh = ShadedMesh::new([MeshFace {
+            points: vec![
+                at(0.0, 0.0, -1.0),
+                at(2.0, 0.0, -1.0),
+                at(0.0, 2.0, -1.0),
+                at(2.0, 0.0, 1.0),
+                at(2.0, 2.0, 1.0),
+                at(0.0, 2.0, 1.0),
+            ],
+            triangles: vec![[0, 1, 2], [3, 4, 5]],
+        }]);
+
+        let division = mesh.divide(|corners| u8::from(corners[0].normal.x > 0.0));
+
+        assert_eq!(mesh.triangle_count(), 2);
+        assert_eq!(division.mesh.face_count(), 2);
+        assert_eq!(division.mesh.triangle_count(), 2);
+        assert_eq!(
+            division
+                .pieces
+                .iter()
+                .map(|piece| (piece.source, piece.class))
+                .collect::<Vec<_>>(),
+            vec![(0, 0), (0, 1)]
+        );
+        assert!(division.pieces.iter().all(|piece| piece.area == 2.0));
     }
 
     #[test]

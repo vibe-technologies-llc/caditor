@@ -221,6 +221,37 @@ paths:
   finding with a place gets a marker and a label in the view (error for overlaps, the measure
   colour for touches, warning for unchecked pairs) and a Show where button on its card.
 
+## Face analysis
+
+- Analyse draft (`AnalysisCommand::Draft`, View menu, palette) toggles `AnalysisTool` in the
+  `Workspace`; while open, `analysis_panel.rs` draws a right-hand panel beside any other. Like
+  centres of mass it is a view aid: `ViewAids::analysis` (a `FaceAnalysis`, worked out each frame
+  from the tool by `AnalysisTool::analysis` and handed over with `ViewportState::set_analysis`)
+  reaches the scene through `Sources::aids` and `Revisions::aids`. It never changes the document and
+  is kept for the session. A limit that cannot be read or a pull that is gone shows a warning
+  callout (`Problem`) and nothing is coloured.
+- Draft colours each face by the angle between the display mesh's normal and the pull direction,
+  per triangle (the mean of its corners' normals), so a curved face is banded across its extent.
+  A triangle at or above the limit is `Band::Drafted`, below minus the limit `Band::Undercut`, in
+  between `Band::TooLittleDraft`, which holds the parting line. The pull is an axis or a direction
+  given by an axis, straight edge, sketch line, flat face (its outward normal) or round face
+  (its axis) chosen with Use selected (`AnalysisCommand::UseSelected`, `Pull::Picked` is resolved
+  again each frame through `measure::direction_of`, so it follows edits) or the X, Y and Z buttons;
+  `AnalysisCommand::Reverse` flips it. The limit is an angle expression of named parameters
+  (3° at first, 0° to 90°).
+- `Analyses` (`analysis.rs`, owned by `ViewportState`, handed to the scene as `Sources::analyses`)
+  caches one `Analysed` per body mesh and analysis: `ShadedMesh::divide` splits each face into a
+  piece per band (`render.md`), the pieces carrying their source face and area, and the scene draws
+  that mesh with a `FaceStyle` per piece (`Builder::analysed_faces`): a band's colour from
+  `ScenePalette::bands`, or the face's own colour for no band, and the source face's pick id
+  registered once, so hover, selection and picking read as before. Up to `INLINE_TRIANGLES` the
+  work is done in the frame; a larger mesh is worked out on a thread that wakes the app and bumps
+  `Analyses::finished`, which `Revisions::analysed` watches, the body drawn plain meanwhile. Entries
+  of meshes that are gone are dropped. Moved or see-through bodies, X-ray and wireframe are drawn
+  as before (the panel says so for a style that does not colour faces).
+- The panel's legend names each band with its area from the same cache (`Tally`, approximate
+  since it is the mesh's), so no band is told by colour alone; a band's hover says what it means.
+
 ## Samples
 
 - `samples.rs` builds parametric models through the document API (so always the current format),

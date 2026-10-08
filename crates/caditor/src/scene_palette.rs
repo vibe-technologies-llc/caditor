@@ -103,6 +103,13 @@ pub struct Highlights {
     pub hovered_selected: Color,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bands {
+    pub drafted: Color,
+    pub too_little_draft: Color,
+    pub undercut: Color,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScenePalette {
     pub grid: Color,
@@ -139,6 +146,7 @@ pub struct ScenePalette {
     pub revolve_axis: Color,
     pub followed_edge: Color,
     pub centre_of_mass: Color,
+    pub bands: Bands,
     pub datum_edge: Color,
     pub datum_fill: Color,
     pub failed_datum_edge: Color,
@@ -259,6 +267,11 @@ pub const STANDARD: ScenePalette = ScenePalette {
     revolve_axis: Color::from_rgb8(255, 150, 60),
     followed_edge: Color::from_rgb8(150, 200, 250),
     centre_of_mass: Color::from_rgb8(255, 196, 64),
+    bands: Bands {
+        drafted: Color::from_rgb8(72, 168, 96),
+        too_little_draft: Color::from_rgb8(236, 190, 52),
+        undercut: Color::from_rgb8(214, 68, 62),
+    },
     datum_edge: Color::from_rgba8(236, 178, 92, 220),
     datum_fill: Color::from_rgba8(236, 178, 92, 26),
     failed_datum_edge: Color::from_rgba8(214, 120, 110, 220),
@@ -343,6 +356,11 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     revolve_axis: Color::from_rgb8(255, 160, 70),
     followed_edge: Color::from_rgb8(150, 200, 250),
     centre_of_mass: Color::from_rgb8(255, 208, 90),
+    bands: Bands {
+        drafted: Color::from_rgb8(96, 214, 128),
+        too_little_draft: Color::from_rgb8(255, 224, 70),
+        undercut: Color::from_rgb8(255, 96, 88),
+    },
     datum_edge: Color::from_rgb8(245, 190, 100),
     datum_fill: Color::from_rgba8(245, 190, 100, 34),
     failed_datum_edge: Color::from_rgb8(255, 150, 140),
@@ -493,6 +511,26 @@ mod tests {
                 assert_visible(what, color, outline);
             }
             assert_visible("centre of mass outline", palette.hole, body);
+        }
+    }
+
+    #[test]
+    fn the_analysis_bands_stand_out_from_the_canvas_and_from_each_other() {
+        for palette in [&STANDARD, &HIGH_CONTRAST] {
+            let bands = palette.bands;
+            let all = [
+                ("drafted", bands.drafted),
+                ("too little draft", bands.too_little_draft),
+                ("undercut", bands.undercut),
+            ];
+            for (what, color) in all {
+                assert_visible(what, color, canvas());
+            }
+            for (index, (what, color)) in all.iter().enumerate() {
+                for (other, against) in all.iter().skip(index + 1) {
+                    assert_ne!(color, against, "{what} and {other}");
+                }
+            }
         }
     }
 

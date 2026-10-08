@@ -20,6 +20,7 @@ use caditor_sketch::{
 };
 
 use crate::{
+    analysis::{Analysed, Analyses, Band, FaceAnalysis, Outcome},
     bodies::{self, BodyBefore, BodyFace, BodyMass, BodyMesh, BodyMeshes, FaceKey, OpenChoice},
     body_appearance, canvas, datum_tools,
     display::DisplayedSketches,
@@ -213,6 +214,7 @@ pub struct Sources<'a> {
     pub sketches: &'a DisplayedSketches,
     pub style: DisplayStyle,
     pub aids: ViewAids,
+    pub analyses: &'a Analyses,
     pub contrast: Contrast,
 }
 
@@ -383,6 +385,7 @@ pub fn build(
         sketches,
         style,
         aids,
+        analyses,
         contrast,
     } = *sources;
     let palette = contrast.palette();
@@ -405,6 +408,7 @@ pub fn build(
         highlight,
         style,
         palette,
+        analysis: aids.analysis.map(|analysis| (analyses, analysis)),
     };
 
     match &edited {
@@ -726,6 +730,7 @@ struct Builder<'a> {
     highlight: &'a Highlight<'a>,
     style: DisplayStyle,
     palette: &'static ScenePalette,
+    analysis: Option<(&'a Analyses, FaceAnalysis)>,
 }
 
 impl Builder<'_> {
@@ -894,50 +899,62 @@ impl Builder<'_> {
                 placement,
             });
         } else if style.shows_faces() {
+            let palette = self.palette;
             let face_base = |base: Color| {
                 if style.is_drawing() {
-                    self.palette.drawing_face
+                    palette.drawing_face
                 } else {
                     base
                 }
             };
-            let faces = mesh
-                .faces
-                .iter()
-                .map(|face| match color {
-                    Some(base) => {
-                        let base = face_base(own(face, base));
-                        let pickable = Pickable::Face {
-                            body,
-                            face: face.key,
-                        };
-                        FaceStyle {
-                            color: self.highlight.color(&self.palette.faces, pickable, base),
-                            pick: self.picks.register(pickable, PickPriority::Surface),
+            let analysed = self
+                .analysed(mesh)
+                .filter(|_| color.is_some() && placement.is_none());
+            let faces = match (&analysed, color) {
+                (Some(analysed), Some(base)) => {
+                    self.analysed_faces(body, mesh, analysed, |face| face_base(own(face, base)))
+                }
+                _ => mesh
+                    .faces
+                    .iter()
+                    .map(|face| match color {
+                        Some(base) => {
+                            let base = face_base(own(face, base));
+                            let pickable = Pickable::Face {
+                                body,
+                                face: face.key,
+                            };
+                            FaceStyle {
+                                color: self.highlight.color(&self.palette.faces, pickable, base),
+                                pick: self.picks.register(pickable, PickPriority::Surface),
+                            }
                         }
-                    }
-                    None if pickable => {
-                        let pickable = Pickable::Face {
-                            body,
-                            face: face.key,
-                        };
-                        FaceStyle {
-                            color: self.highlight.color(
-                                &self.palette.faces,
-                                pickable,
-                                self.palette.background_body,
-                            ),
-                            pick: self.picks.register(pickable, PickPriority::Surface),
+                        None if pickable => {
+                            let pickable = Pickable::Face {
+                                body,
+                                face: face.key,
+                            };
+                            FaceStyle {
+                                color: self.highlight.color(
+                                    &self.palette.faces,
+                                    pickable,
+                                    self.palette.background_body,
+                                ),
+                                pick: self.picks.register(pickable, PickPriority::Surface),
+                            }
                         }
-                    }
-                    None => FaceStyle {
-                        color: self.palette.background_body,
-                        pick: None,
-                    },
-                })
-                .collect();
+                        None => FaceStyle {
+                            color: self.palette.background_body,
+                            pick: None,
+                        },
+                    })
+                    .collect(),
+            };
             let instance = MeshInstance {
-                mesh: Arc::clone(&mesh.mesh),
+                mesh: analysed.as_ref().map_or_else(
+                    || Arc::clone(&mesh.mesh),
+                    |analysed| Arc::clone(&analysed.mesh),
+                ),
                 faces,
                 placement,
             };
@@ -1021,6 +1038,53 @@ impl Builder<'_> {
                 pick: self.picks.register(pickable, PickPriority::Point),
             });
         }
+    }
+
+    fn analysed(&self, mesh: &BodyMesh) -> Option<Arc<Analysed>> {
+        let (analyses, analysis) = self.analysis?;
+        match analyses.of(&mesh.mesh, analysis) {
+            Outcome::Ready(analysed) => Some(analysed),
+            Outcome::Working | Outcome::Failed => None,
+        }
+    }
+
+    fn analysed_faces(
+        &mut self,
+        body: FeatureId,
+        mesh: &BodyMesh,
+        analysed: &Analysed,
+        unbanded: impl Fn(&BodyFace) -> Color,
+    ) -> Vec<FaceStyle> {
+        let mut registered: BTreeMap<usize, Option<PickId>> = BTreeMap::new();
+        analysed
+            .pieces
+            .iter()
+            .map(|piece| {
+                let face = mesh.faces.get(piece.source);
+                let base = match (Band::of_class(piece.class), face) {
+                    (Some(band), _) => band.colour(self.palette),
+                    (None, Some(face)) => unbanded(face),
+                    (None, None) => self.palette.background_body,
+                };
+                let Some(face) = face else {
+                    return FaceStyle {
+                        color: base,
+                        pick: None,
+                    };
+                };
+                let pickable = Pickable::Face {
+                    body,
+                    face: face.key,
+                };
+                let pick = *registered
+                    .entry(piece.source)
+                    .or_insert_with(|| self.picks.register(pickable, PickPriority::Surface));
+                FaceStyle {
+                    color: self.highlight.color(&self.palette.faces, pickable, base),
+                    pick,
+                }
+            })
+            .collect()
     }
 
     fn centre_of_mass(
@@ -2034,6 +2098,7 @@ mod tests {
                 sketches: &DisplayedSketches::default(),
                 style: DisplayStyle::default(),
                 aids: ViewAids::default(),
+                analyses: &Analyses::default(),
                 contrast,
             },
             highlight,
@@ -2060,6 +2125,7 @@ mod tests {
                     sketches: &DisplayedSketches::default(),
                     style: DisplayStyle::default(),
                     aids: ViewAids::default(),
+                    analyses: &Analyses::default(),
                     contrast: Contrast::default(),
                 },
                 pickables,
@@ -2732,6 +2798,7 @@ mod tests {
             sketches: &DisplayedSketches::default(),
             style: DisplayStyle::default(),
             aids: ViewAids::default(),
+            analyses: &Analyses::default(),
             contrast: Contrast::default(),
         };
         let built_at = |chord: f64| {
@@ -2769,6 +2836,7 @@ mod tests {
         let evaluation = Evaluation::default();
         let bodies = BodyMeshes::default();
         let sketches = DisplayedSketches::default();
+        let analyses = Analyses::default();
         let sources = |document| Sources {
             document,
             evaluation: &evaluation,
@@ -2776,6 +2844,7 @@ mod tests {
             sketches: &sketches,
             style: DisplayStyle::default(),
             aids: ViewAids::default(),
+            analyses: &analyses,
             contrast: Contrast::default(),
         };
         let wanted = Faceting::within(1e-9);

@@ -216,6 +216,30 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
     })
 }
 
+pub fn direction_of(model: &Model, pickable: Pickable) -> Option<Vector3> {
+    let item = Item {
+        name: String::new(),
+        subject: subject_of(model, pickable)?,
+    };
+    let element = item.element()?;
+    let measured = match element {
+        Element::Edge { solid, edge } => edge_measure(solid, edge).ok(),
+        Element::Curve { curve, interval } => Some(curve_measure(curve, interval)),
+        Element::Point(_) | Element::Face { .. } | Element::Axis(_) | Element::Plane { .. } => None,
+    };
+    if let Some(EdgeMeasure {
+        form: EdgeForm::Line { start, end },
+        ..
+    }) = measured
+    {
+        return Some((end - start).normalize_or_zero());
+    }
+    if let Some(axis) = axis_of(element).ok().flatten() {
+        return Some(axis.direction);
+    }
+    plane_of(element).ok().flatten().map(|(_, normal)| normal)
+}
+
 fn items_of(model: &Model, selection: &Selection) -> Vec<Item> {
     selection
         .iter()

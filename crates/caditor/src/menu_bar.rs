@@ -4,6 +4,7 @@ use egui::{
 };
 
 use crate::{
+    analysis::AnalysisCommand,
     appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{CameraMove, Command, CommandFrame, Offer, Scope, StandardView},
     display_style::DisplayStyle,
@@ -492,6 +493,7 @@ impl Menus<'_, '_> {
             ui.separator();
             self.item(ui, Command::Measure);
             self.item(ui, Command::Interference);
+            self.item(ui, Command::Analysis(AnalysisCommand::Draft));
             ui.separator();
             self.items(
                 ui,

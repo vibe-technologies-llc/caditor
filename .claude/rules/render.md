@@ -76,6 +76,9 @@ paths:
 - A mesh whose placed bounds lie wholly beyond one side of the clip volume is not drawn
   (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), tested against
   the window in the main pass, the pick window in the pick pass and each tile in image export.
+- `ShadedMesh::divide` makes another mesh in which every face is split into one face per class a
+  caller's classifier gives each triangle (from its corners' positions and normals), with the
+  source face and the area of every piece; analysis colouring uses it, since styles are per face.
 - Per-face styles live in an `Rg32Uint` texture (`StyleLayout`) read by face index in the vertex
   shader, rewritten only when they differ, so hover and selection cost nothing in geometry.
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and

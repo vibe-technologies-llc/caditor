@@ -25,7 +25,7 @@ pub use crate::{
     camera::{Camera, Projection, View, Viewpoint},
     gpu::Wake,
     image::{Background, ImageBands, ImageError, ImageRequest, MAX_IMAGE_SIDE},
-    mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
+    mesh::{Corner, Division, FaceStyle, MeshFace, MeshInstance, MeshPoint, Piece, ShadedMesh},
     offscreen::OffscreenRenderer,
     picking::PickPoll,
     scene::{

@@ -1,6 +1,8 @@
 #![recursion_limit = "256"]
 
 mod about;
+mod analysis;
+mod analysis_panel;
 mod annotation_layout;
 mod annotations;
 mod app;
