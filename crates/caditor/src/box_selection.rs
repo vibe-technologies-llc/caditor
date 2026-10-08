@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Point3, Vector2};
+use caditor_kernel::Mesh;
 
 use crate::{
     bodies::{BodyMesh, face_keys},
@@ -10,6 +11,112 @@ use crate::{
 };
 
 const SMALLEST_BOX: f64 = 3.0;
+const MAX_CELLS: f64 = 512.0;
+const SLACK_CELLS: f64 = 4.0;
+const SAMPLE_POINTS: f64 = 4.0;
+const MAX_SEGMENT_SAMPLES: f64 = 64.0;
+
+pub struct Seen {
+    pub at: Vector2,
+    pub depth: f64,
+    pub units_per_point: f64,
+}
+
+pub struct Occlusion {
+    origin: Vector2,
+    cell: f64,
+    columns: usize,
+    rows: usize,
+    depths: Vec<f64>,
+}
+
+impl Occlusion {
+    pub fn of<'a>(
+        meshes: impl IntoIterator<Item = &'a Mesh>,
+        seen: &impl Fn(Point3) -> Option<Seen>,
+        area: ScreenBox,
+    ) -> Self {
+        let low = area.from.min(area.to);
+        let high = area.from.max(area.to);
+        let longest = (high - low).max_element().max(1.0);
+        let cell = (longest / MAX_CELLS).max(1.0);
+        let origin = low - Vector2::splat(cell);
+        let columns = ((high.x - origin.x) / cell).ceil() as usize + 2;
+        let rows = ((high.y - origin.y) / cell).ceil() as usize + 2;
+        let mut occlusion = Self {
+            origin,
+            cell,
+            columns,
+            rows,
+            depths: vec![f64::INFINITY; columns * rows],
+        };
+        for mesh in meshes {
+            let projected: Vec<Option<(Vector2, f64)>> = mesh
+                .positions()
+                .iter()
+                .map(|position| seen(*position).map(|seen| (seen.at, seen.depth)))
+                .collect();
+            let corner = |vertex: u32| {
+                let position = mesh.vertices().get(vertex as usize)?.position;
+                projected.get(position as usize).copied().flatten()
+            };
+            for triangle in mesh.triangles() {
+                if let [Some(a), Some(b), Some(c)] = triangle.map(corner) {
+                    occlusion.fill([a, b, c]);
+                }
+            }
+        }
+        occlusion
+    }
+
+    fn fill(&mut self, corners: [(Vector2, f64); 3]) {
+        let [(a, depth_a), (b, depth_b), (c, depth_c)] = corners;
+        let area = (b - a).perp_dot(c - a);
+        if area.abs() <= f64::EPSILON {
+            return;
+        }
+        let low = a.min(b).min(c);
+        let high = a.max(b).max(c);
+        let first_column = ((low.x - self.origin.x) / self.cell).floor().max(0.0) as usize;
+        let first_row = ((low.y - self.origin.y) / self.cell).floor().max(0.0) as usize;
+        let last_column = ((high.x - self.origin.x) / self.cell).ceil().max(0.0) as usize;
+        let last_row = ((high.y - self.origin.y) / self.cell).ceil().max(0.0) as usize;
+        for row in first_row..last_row.min(self.rows) {
+            for column in first_column..last_column.min(self.columns) {
+                let centre =
+                    self.origin + Vector2::new(column as f64 + 0.5, row as f64 + 0.5) * self.cell;
+                let weight_a = (b - centre).perp_dot(c - centre) / area;
+                let weight_b = (c - centre).perp_dot(a - centre) / area;
+                let weight_c = 1.0 - weight_a - weight_b;
+                if weight_a < 0.0 || weight_b < 0.0 || weight_c < 0.0 {
+                    continue;
+                }
+                let depth = weight_a * depth_a + weight_b * depth_b + weight_c * depth_c;
+                if let Some(nearest) = self.depths.get_mut(row * self.columns + column) {
+                    *nearest = nearest.min(depth);
+                }
+            }
+        }
+    }
+
+    pub fn shows(&self, seen: &Seen) -> bool {
+        let local = (seen.at - self.origin) / self.cell;
+        if local.x < 0.0 || local.y < 0.0 {
+            return true;
+        }
+        let (column, row) = (local.x as usize, local.y as usize);
+        if column >= self.columns || row >= self.rows {
+            return true;
+        }
+        let nearest = self
+            .depths
+            .get(row * self.columns + column)
+            .copied()
+            .unwrap_or(f64::INFINITY);
+        let slack = SLACK_CELLS * self.cell * seen.units_per_point;
+        seen.depth <= nearest + slack
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Catch {
@@ -35,19 +142,32 @@ pub fn is_a_box(area: ScreenBox) -> bool {
     size.x >= SMALLEST_BOX || size.y >= SMALLEST_BOX
 }
 
-pub fn within_body(
+pub struct Looking<'a, S> {
+    pub seen: &'a S,
+    pub occlusion: &'a Occlusion,
+}
+
+impl<S: Fn(Point3) -> Option<Seen>> Looking<'_, S> {
+    fn visible(&self, point: Point3) -> Option<Vector2> {
+        let seen = (self.seen)(point)?;
+        self.occlusion.shows(&seen).then_some(seen.at)
+    }
+}
+
+pub fn within_body<S: Fn(Point3) -> Option<Seen>>(
     body: FeatureId,
     mesh: &BodyMesh,
-    screen: &impl Fn(Point3) -> Option<Vector2>,
+    looking: &Looking<'_, S>,
     area: ScreenBox,
     catch: Catch,
 ) -> Vec<Pickable> {
+    let screen = |point: Point3| (looking.seen)(point).map(|seen| seen.at);
     match catch {
-        Catch::Faces => faces_within(body, mesh, screen, area),
+        Catch::Faces => faces_within(body, mesh, &screen, area),
         Catch::Edges => mesh
             .edges
             .iter()
-            .filter(|edge| polyline_caught(&edge.points, screen, area))
+            .filter(|edge| polyline_caught(&edge.points, looking, area))
             .map(|edge| Pickable::Edge {
                 body,
                 edge: edge.name,
@@ -56,7 +176,11 @@ pub fn within_body(
         Catch::Vertices => mesh
             .vertices
             .iter()
-            .filter(|vertex| screen(vertex.position).is_some_and(|point| area.contains(point)))
+            .filter(|vertex| {
+                looking
+                    .visible(vertex.position)
+                    .is_some_and(|point| area.contains(point))
+            })
             .map(|vertex| Pickable::Vertex {
                 body,
                 vertex: vertex.key,
@@ -66,24 +190,58 @@ pub fn within_body(
     }
 }
 
-fn polyline_caught(
+fn samples<S: Fn(Point3) -> Option<Seen>>(
     points: &[Point3],
-    screen: &impl Fn(Point3) -> Option<Vector2>,
+    looking: &Looking<'_, S>,
+) -> Vec<Point3> {
+    let screen = |point: Point3| (looking.seen)(point).map(|seen| seen.at);
+    let mut sampled = Vec::with_capacity(points.len());
+    for pair in points.windows(2) {
+        let [from, to] = [pair.first(), pair.get(1)].map(|point| point.copied());
+        let (Some(from), Some(to)) = (from, to) else {
+            continue;
+        };
+        let span = screen(from)
+            .zip(screen(to))
+            .map_or(1.0, |(start, end)| start.distance(end));
+        let steps = (span / SAMPLE_POINTS)
+            .ceil()
+            .clamp(1.0, MAX_SEGMENT_SAMPLES) as usize;
+        sampled.extend((0..steps).map(|step| from.lerp(to, step as f64 / steps as f64)));
+    }
+    sampled.extend(points.last().copied());
+    sampled
+}
+
+fn polyline_caught<S: Fn(Point3) -> Option<Seen>>(
+    points: &[Point3],
+    looking: &Looking<'_, S>,
     area: ScreenBox,
 ) -> bool {
-    let projected: Vec<Option<Vector2>> = points.iter().map(|point| screen(*point)).collect();
+    let projected: Vec<Option<Vector2>> = samples(points, looking)
+        .into_iter()
+        .map(|point| looking.visible(point))
+        .collect();
+    let visible = projected.iter().flatten().count();
+    if visible * 2 < projected.len() {
+        return false;
+    }
     match area.mode() {
         BoxMode::Window => {
-            !projected.is_empty()
+            projected.iter().any(Option::is_some)
                 && projected
                     .iter()
-                    .all(|point| point.is_some_and(|point| area.contains(point)))
+                    .flatten()
+                    .all(|point| area.contains(*point))
         }
         BoxMode::Crossing => {
             projected.windows(2).any(|pair| match pair {
                 [Some(from), Some(to)] => area.crosses(*from, *to),
                 _ => false,
-            }) || matches!(projected.as_slice(), [Some(only)] if area.contains(*only))
+            }) || projected
+                .iter()
+                .flatten()
+                .any(|point| area.contains(*point))
         }
     }
 }
@@ -153,4 +311,36 @@ fn inside_triangle(point: Vector2, [a, b, c]: [Vector2; 3]) -> bool {
     let (first, second, third) = (side(a, b), side(b, c), side(c, a));
     (first >= 0.0 && second >= 0.0 && third >= 0.0)
         || (first <= 0.0 && second <= 0.0 && third <= 0.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seen(x: f64, y: f64, depth: f64) -> Seen {
+        Seen {
+            at: Vector2::new(x, y),
+            depth,
+            units_per_point: 0.01,
+        }
+    }
+
+    #[test]
+    fn a_triangle_in_front_hides_what_lies_behind_it_but_not_what_lies_on_it() {
+        let area = ScreenBox {
+            from: Vector2::ZERO,
+            to: Vector2::new(100.0, 100.0),
+        };
+        let mut occlusion = Occlusion::of(std::iter::empty(), &|_| None, area);
+        occlusion.fill([
+            (Vector2::new(10.0, 10.0), 5.0),
+            (Vector2::new(90.0, 10.0), 5.0),
+            (Vector2::new(10.0, 90.0), 5.0),
+        ]);
+
+        assert!(!occlusion.shows(&seen(20.0, 20.0, 50.0)));
+        assert!(occlusion.shows(&seen(20.0, 20.0, 5.0)));
+        assert!(occlusion.shows(&seen(80.0, 80.0, 50.0)));
+        assert!(occlusion.shows(&seen(150.0, 20.0, 50.0)));
+    }
 }

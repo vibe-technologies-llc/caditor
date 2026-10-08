@@ -1382,7 +1382,6 @@ impl ViewportState {
         let document = model.document();
         let evaluation = model.evaluation();
         let scale = f64::from(self.pixels_per_point);
-        let screen = |point: Point3| view.project(point).map(|pixel| pixel / scale);
         let mut caught: Vec<Pickable> = match Catch::of(self.active_filter()) {
             Catch::SketchGeometry => document
                 .active_features()
@@ -1399,14 +1398,39 @@ impl ViewportState {
                         .map(move |entity| Pickable::SketchEntity { feature, entity })
                 })
                 .collect(),
-            catch => self
-                .bodies
-                .iter()
-                .filter(|(body, _)| visibility::is_shown(document, *body))
-                .flat_map(|(body, mesh)| {
-                    box_selection::within_body(body, mesh, &screen, area, catch)
-                })
-                .collect(),
+            catch => {
+                let seen = |point: Point3| {
+                    let at = view.project(point)? / scale;
+                    let depth = view.view_depth(point);
+                    Some(box_selection::Seen {
+                        at,
+                        depth,
+                        units_per_point: view.units_per_pixel_at(depth) * scale,
+                    })
+                };
+                let shown: Vec<_> = self
+                    .bodies
+                    .iter()
+                    .filter(|(body, _)| visibility::is_shown(document, *body))
+                    .collect();
+                let occlusion = box_selection::Occlusion::of(
+                    shown
+                        .iter()
+                        .filter_map(|(_, mesh)| mesh.source().solid()?.mesh()),
+                    &seen,
+                    area,
+                );
+                let looking = box_selection::Looking {
+                    seen: &seen,
+                    occlusion: &occlusion,
+                };
+                shown
+                    .iter()
+                    .flat_map(|(body, mesh)| {
+                        box_selection::within_body(*body, mesh, &looking, area, catch)
+                    })
+                    .collect()
+            }
         };
         let context = editing.context();
         caught.retain(|pickable| pickable.is_available(document, evaluation, context));

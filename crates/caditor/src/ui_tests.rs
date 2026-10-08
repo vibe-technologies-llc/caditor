@@ -7558,14 +7558,14 @@ fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter()
         .viewport
         .set_filter(SelectionFilter::Edges);
     drag_screen(&mut harness, low - margin, high + margin);
-    assert_eq!(selected_kinds(&harness), (0, 12, 0));
+    assert_eq!(selected_kinds(&harness), (0, 9, 0));
 
     harness
         .workspace
         .viewport
         .set_filter(SelectionFilter::Vertices);
     drag_screen(&mut harness, low - margin, high + margin);
-    assert_eq!(selected_kinds(&harness), (0, 0, 8));
+    assert_eq!(selected_kinds(&harness), (0, 0, 7));
 
     harness
         .workspace

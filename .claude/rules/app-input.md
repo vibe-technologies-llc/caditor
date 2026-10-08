@@ -123,8 +123,12 @@ paths:
   right a window taking what lies wholly inside, right to left a crossing box taking what it
   touches, replacing the selection (Shift or Ctrl adds). It takes faces (Everything or Faces),
   edges, vertices or the curves of shown sketches by the selection filter, of shown bodies only.
-  Faces count by their triangles facing the camera, so faces turned away are left out; edges and
-  vertices are taken through the body. A box under `SMALLEST_BOX` points takes nothing.
+  Faces count by their triangles facing the camera, so faces turned away are left out. Edges and
+  vertices hidden behind a shown body are left out: `box_selection::Occlusion` rasterises the
+  shown bodies' triangles into a depth map over the box (at most `MAX_CELLS` a side), a point
+  counting as seen when it lies within `SLACK_CELLS` cells' worth of depth of the nearest surface
+  there; an edge is sampled every `SAMPLE_POINTS` on screen and counts only when at least half of
+  it is seen, judged by its seen samples alone. A box under `SMALLEST_BOX` points takes nothing.
 - Select all (`select.all`), Select tangent edges and Select edges around faces
   (`body_selection.rs`) work on the shown bodies outside sketch editing and refuse inside one.
   Select all takes every face, edge or vertex by the selection filter, or by the kind already
