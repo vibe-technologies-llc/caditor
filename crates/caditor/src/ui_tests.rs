@@ -15182,13 +15182,25 @@ fn a_hole_at_a_circle_can_take_the_circle_s_diameter_from_its_panel() {
 
     assert_eq!(
         open_hole(&harness, hole).sizing,
-        caditor_document::HoleSizing::Circles
+        caditor_document::HoleSizing::CirclesAndHeads
     );
     assert!(removed_about(
         &harness,
         plate,
         std::f64::consts::PI * 4.0 * 4.0 * 10.0
     ));
+    assert!(!harness.shows(crate::hole_panel::SCALE_HEADS));
+
+    harness.click("Plain");
+    harness.click("Counterbore");
+    harness.settle();
+    harness.click(crate::hole_panel::SCALE_HEADS);
+    harness.settle();
+
+    assert_eq!(
+        open_hole(&harness, hole).sizing,
+        caditor_document::HoleSizing::Circles
+    );
 }
 
 fn open_hole(harness: &Harness, hole: FeatureId) -> caditor_document::Hole {
@@ -15272,6 +15284,39 @@ fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_fro
         open_hole(&harness, hole).style,
         caditor_document::HoleStyle::Counterbore { ref diameter, .. } if diameter.to_stored_text() == "6.5 mm"
     ));
+
+    assert!(!harness.shows(crate::hole_panel::PITCH));
+
+    harness.click("Fine");
+    harness.click("Insert");
+    harness.settle();
+
+    assert_eq!(open_hole(&harness, hole).diameter.to_stored_text(), "4 mm");
+    assert!(harness.shows_containing("standard M3 heat-set insert 5.7 mm long"));
+
+    let m8_fine = crate::hole_tools::with_standard(
+        &open_hole(&harness, hole),
+        caditor_document::HoleStandard {
+            size: caditor_document::MetricSize::M8,
+            fit: caditor_document::HoleFit::TappedFine(caditor_document::FinePitch::First),
+        },
+        crate::units::LengthUnit::Millimetre,
+    );
+    let resized = crate::hole_tools::edit(harness.document(), hole, m8_fine).unwrap();
+    harness.perform(Action::Apply(resized));
+    harness.settle();
+
+    assert_eq!(open_hole(&harness, hole).diameter.to_stored_text(), "7 mm");
+    assert!(harness.shows(crate::hole_panel::PITCH));
+
+    harness.click("0.75");
+    harness.settle();
+
+    assert_eq!(
+        open_hole(&harness, hole).diameter.to_stored_text(),
+        "7.25 mm"
+    );
+    assert!(harness.shows_containing("Thread M8 × 0.75"));
 
     harness.type_into_field(Id::new(("hole-field", "diameter", hole)), "2.6 mm");
     harness.settle();

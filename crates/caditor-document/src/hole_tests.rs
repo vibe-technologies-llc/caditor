@@ -669,25 +669,40 @@ fn metric_sizes_give_clearance_and_tap_drill_diameters_and_name_the_thread() {
     );
     let fine = HoleStandard {
         size: MetricSize::M10,
-        fit: HoleFit::TappedFine,
+        fit: HoleFit::TappedFine(FinePitch::First),
     };
     assert_eq!(fine.diameter(), 8.75);
     assert_eq!(fine.label(), "M10 × 1.25 tapped");
     assert_eq!(
         HoleStandard {
             size: MetricSize::M2_5,
-            fit: HoleFit::TappedFine
+            fit: HoleFit::TappedFine(FinePitch::First)
         }
         .diameter(),
         2.15
     );
-    assert_eq!(HoleFit::from_id("tapped_fine"), Some(HoleFit::TappedFine));
+    assert_eq!(
+        HoleFit::from_id("tapped_fine"),
+        Some(HoleFit::TappedFine(FinePitch::First))
+    );
     assert!(MetricSize::ALL.iter().all(|size| {
-        let fits = HoleFit::ALL.map(|fit| HoleStandard { size: *size, fit }.diameter());
-        let [close, normal, loose, tap, fine] = fits;
-        tap < fine
-            && fine < size.major_diameter()
-            && size.fine_pitch() < size.pitch()
+        let diameter = |fit| HoleStandard { size: *size, fit }.diameter();
+        let [close, normal, loose, tap] = [
+            HoleFit::Close,
+            HoleFit::Normal,
+            HoleFit::Loose,
+            HoleFit::Tapped,
+        ]
+        .map(diameter);
+        size.fine_fits().into_iter().all(|fine| {
+            let pitch = HoleStandard {
+                size: *size,
+                fit: fine,
+            }
+            .thread_pitch()
+            .unwrap();
+            tap < diameter(fine) && diameter(fine) < size.major_diameter() && pitch < size.pitch()
+        }) && size.fine_pitch() < size.pitch()
             && size.major_diameter() < close
             && close < normal
             && normal < loose
@@ -787,4 +802,124 @@ fn a_counterbore_narrower_than_a_circle_names_the_circle() {
         failure(&evaluation, hole).reason,
         "The counterbore is not wider than Circle 3."
     );
+}
+
+#[test]
+fn sizes_offer_every_iso_fine_pitch_and_the_first_one_reads_as_before() {
+    let pitches = |size: MetricSize| {
+        size.fine_fits()
+            .into_iter()
+            .map(|fit| HoleStandard { size, fit }.thread().unwrap())
+            .collect::<Vec<_>>()
+    };
+    let second = HoleStandard {
+        size: MetricSize::M10,
+        fit: HoleFit::TappedFine(FinePitch::Second),
+    };
+
+    assert_eq!(pitches(MetricSize::M3), ["M3 × 0.35"]);
+    assert_eq!(pitches(MetricSize::M8), ["M8 × 1", "M8 × 0.75"]);
+    assert_eq!(
+        pitches(MetricSize::M10),
+        ["M10 × 1.25", "M10 × 1", "M10 × 0.75"]
+    );
+    assert_eq!(
+        pitches(MetricSize::M12),
+        ["M12 × 1.25", "M12 × 1.5", "M12 × 1"]
+    );
+    assert_eq!(
+        pitches(MetricSize::M20),
+        ["M20 × 1.5", "M20 × 2", "M20 × 1"]
+    );
+    assert_eq!(second.diameter(), 9.0);
+    assert_eq!(second.fit.id(), "tapped_fine_2");
+    assert_eq!(
+        HoleFit::from_id("tapped_fine_3"),
+        Some(HoleFit::TappedFine(FinePitch::Third))
+    );
+    assert!(!MetricSize::M3.offers(HoleFit::TappedFine(FinePitch::Second)));
+    assert_eq!(
+        HoleStandard::offered(MetricSize::M3, second.fit),
+        HoleStandard {
+            size: MetricSize::M3,
+            fit: HoleFit::TappedFine(FinePitch::First)
+        }
+    );
+}
+
+#[test]
+fn heat_set_insert_holes_take_the_common_insert_bores_from_m2_to_m8() {
+    let bore = |size| {
+        HoleStandard {
+            size,
+            fit: HoleFit::HeatSetInsert,
+        }
+        .diameter()
+    };
+    let m3 = HoleStandard {
+        size: MetricSize::M3,
+        fit: HoleFit::HeatSetInsert,
+    };
+
+    assert_eq!(
+        [
+            MetricSize::M2,
+            MetricSize::M2_5,
+            MetricSize::M3,
+            MetricSize::M4,
+            MetricSize::M5,
+            MetricSize::M6,
+            MetricSize::M8
+        ]
+        .map(bore),
+        [3.2, 4.0, 4.0, 5.6, 6.4, 8.0, 9.7]
+    );
+    assert_eq!(m3.insert().map(|insert| insert.length), Some(5.7));
+    assert_eq!(m3.thread(), None);
+    assert_eq!(m3.label(), "M3 heat-set insert");
+    assert_eq!(
+        HoleFit::from_id("heat_set_insert"),
+        Some(HoleFit::HeatSetInsert)
+    );
+    assert!(!MetricSize::M1_6.offers(HoleFit::HeatSetInsert));
+    assert!(!MetricSize::M10.fits().contains(&HoleFit::HeatSetInsert));
+    assert_eq!(
+        HoleStandard::offered(MetricSize::M10, HoleFit::HeatSetInsert).fit,
+        HoleFit::Normal
+    );
+    assert!(MetricSize::ALL.iter().all(|size| {
+        size.heat_set_insert()
+            .is_none_or(|insert| insert.hole > size.major_diameter())
+    }));
+}
+
+#[test]
+fn holes_scaled_by_circles_grow_their_counterbore_with_each_circle() {
+    let counterbore = |document: &Document| HoleStyle::Counterbore {
+        diameter: expression(document, "3 mm"),
+        depth: expression(document, "1 mm"),
+    };
+    let mut kept = pair();
+    let kept_hole = circled(&mut kept, HoleSizing::Circles, counterbore);
+    let mut scaled = pair();
+    circled(&mut scaled, HoleSizing::CirclesAndHeads, counterbore);
+
+    let kept_evaluation = evaluate(&kept.document, &mut Recompute::default());
+    let scaled_evaluation = evaluate(&scaled.document, &mut Recompute::default());
+
+    let typed = PI * (1.0 * 3.0 + 1.5 * 1.5 * 1.0);
+    let wide = PI * (2.5 * 2.5 * 1.5 + 3.75 * 3.75 * 2.5);
+    let expected = 2.0 * typed + wide;
+    let found = PLATE - volume(&scaled_evaluation, scaled.plate);
+    assert_eq!(
+        failure(&kept_evaluation, kept_hole).reason,
+        "The counterbore is not wider than Circle 3."
+    );
+    assert_eq!(scaled_evaluation.failed_count(), 0);
+    assert!(
+        (found - expected).abs() < 0.01 * expected,
+        "{found} {expected}"
+    );
+    assert!(HoleSizing::CirclesAndHeads.by_circles());
+    assert!(!HoleSizing::Typed.by_circles());
 }

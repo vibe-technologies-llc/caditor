@@ -61,6 +61,13 @@ pub enum HoleSizing {
     #[default]
     Typed,
     Circles,
+    CirclesAndHeads,
+}
+
+impl HoleSizing {
+    pub fn by_circles(self) -> bool {
+        matches!(self, Self::Circles | Self::CirclesAndHeads)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -242,6 +249,7 @@ pub fn circle_sizes(sketch: &Sketch) -> BTreeMap<EntityId, CircleSize> {
 struct Sized {
     diameter: f64,
     circle: String,
+    heads: bool,
 }
 
 struct Values {
@@ -352,10 +360,11 @@ impl Context<'_> {
     }
 
     fn values(&self, definition: &Hole, sized: Option<&Sized>) -> Result<Values, Failure> {
-        let diameter = match sized {
-            Some(sized) => sized.diameter,
-            None => self.length(&definition.diameter, "diameter")?,
-        };
+        let typed = self.length(&definition.diameter, "diameter")?;
+        let diameter = sized.map_or(typed, |sized| sized.diameter);
+        let head_scale = sized
+            .filter(|sized| sized.heads)
+            .map_or(1.0, |sized| sized.diameter / typed);
         let hole = sized.map_or_else(|| "the hole".to_owned(), |sized| sized.circle.clone());
         let depth = match &definition.depth {
             HoleDepth::Blind(depth) => Some(self.length(depth, "depth")?),
@@ -367,8 +376,8 @@ impl Context<'_> {
                 diameter: wide,
                 depth: shallow,
             } => {
-                let wide = self.length(wide, "counterbore diameter")?;
-                let shallow = self.length(shallow, "counterbore depth")?;
+                let wide = self.length(wide, "counterbore diameter")? * head_scale;
+                let shallow = self.length(shallow, "counterbore depth")? * head_scale;
                 if wide <= diameter {
                     return Err(self.error(
                         format!("The counterbore is not wider than {hole}."),
@@ -390,7 +399,7 @@ impl Context<'_> {
                 diameter: wide,
                 angle,
             } => {
-                let wide = self.length(wide, "countersink diameter")?;
+                let wide = self.length(wide, "countersink diameter")? * head_scale;
                 let angle = self.value(angle, Dimension::ANGLE, "countersink angle")?;
                 if wide <= diameter {
                     return Err(self.error(
@@ -698,7 +707,7 @@ pub(crate) fn evaluate(
     let frame = sketch.geometry.plane();
     let up = frame.normal() * if definition.reversed { -1.0 } else { 1.0 };
     let circles = match definition.sizing {
-        HoleSizing::Circles => circle_sizes(&sketch.geometry),
+        HoleSizing::Circles | HoleSizing::CirclesAndHeads => circle_sizes(&sketch.geometry),
         HoleSizing::Typed => BTreeMap::new(),
     };
     for (point, position) in centres {
@@ -708,6 +717,7 @@ pub(crate) fn evaluate(
                 Some(&Sized {
                     diameter: size.diameter,
                     circle: sketch.geometry.entity_label(size.circle),
+                    heads: definition.sizing == HoleSizing::CirclesAndHeads,
                 }),
             )?),
             None => None,

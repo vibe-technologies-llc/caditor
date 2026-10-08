@@ -4888,6 +4888,66 @@ fn a_hole_sized_by_its_circles_is_a_record_kind_of_its_own() {
 }
 
 #[test]
+fn a_hole_scaling_its_head_by_circles_and_new_standard_fits_round_trip() {
+    use caditor_document::{FinePitch, HoleFit, HoleSizing, HoleStandard, MetricSize};
+    let (mut document, hole) = holed_model(caditor_document::HoleStyle::Plain, false);
+    let mut sized = document.feature(hole).unwrap().kind.clone();
+    if let FeatureKind::Hole(definition) = &mut sized {
+        definition.sizing = HoleSizing::CirclesAndHeads;
+        definition.standard = Some(HoleStandard {
+            size: MetricSize::M10,
+            fit: HoleFit::TappedFine(FinePitch::Third),
+        });
+    }
+    document
+        .apply(Transaction::single(
+            "Size by circles",
+            Edit::SetFeatureKind {
+                id: hole,
+                kind: sized,
+            },
+        ))
+        .unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let insert = decode_text(
+        &text
+            .replace("tapped_fine_3", "heat_set_insert")
+            .replace("\"M10\"", "\"M8\""),
+    );
+    let mismatched = decode_text(&text.replace("\"M10\"", "\"M3\""));
+    let standard_of = |loaded: &Loaded| {
+        loaded
+            .document
+            .feature(hole)
+            .and_then(|feature| feature.kind.hole())
+            .and_then(|hole| hole.standard)
+    };
+
+    assert!(
+        text.contains("\"hole_scaled_by_circles\":{\"body\":"),
+        "{text}"
+    );
+    assert!(text.contains("\"fit\":\"tapped_fine_3\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(insert.issues, Vec::<String>::new());
+    assert_eq!(
+        standard_of(&insert).map(|standard| standard.fit),
+        Some(HoleFit::HeatSetInsert)
+    );
+    assert_eq!(standard_of(&mismatched), None);
+    assert_eq!(
+        mismatched.issues,
+        [
+            "The standard size of “Hole 1” (M3 tapped_fine_3) is not one this version of caditor \
+          knows, so its sizes are kept as typed values."
+        ]
+    );
+}
+
+#[test]
 fn a_hole_with_a_damaged_depth_loads_with_a_default_and_says_so() {
     let (document, _) = holed_model(caditor_document::HoleStyle::Plain, false);
     let text = encode(&document).unwrap();

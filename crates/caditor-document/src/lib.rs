@@ -62,7 +62,7 @@ pub use crate::{
         CircleSize, Hole, HoleDepth, HoleShape, HoleSizing, HoleStyle, MAX_COUNTERSINK_ANGLE,
         MAX_HOLES, centres as hole_centres, circle_sizes,
     },
-    hole_standard::{HoleFit, HoleStandard, MetricSize},
+    hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,
     mirror::{MIRROR_IMAGE, Mirror},
     movement::{BodyPlacement, Move, MoveAxis},

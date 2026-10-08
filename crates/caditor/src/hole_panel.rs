@@ -1,6 +1,6 @@
 use caditor_document::{
     Feature, FeatureId, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStyle,
-    MetricSize, Transaction, circle_sizes,
+    MetricSize, Transaction, circle_sizes, pitch_text,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -19,19 +19,37 @@ pub const CUSTOM_SIZE: &str = "Custom";
 pub const SIZED_BY_CIRCLES: &str = "Circles";
 const SIZED_BY_CIRCLES_NOTE: &str = "Holes at circles take each circle's diameter; holes at \
                                      points take the diameter below";
+const SCALED_BY_CIRCLES_NOTE: &str = "Holes at circles take each circle's diameter, and their \
+                                      counterbore or countersink grows with it from the sizes \
+                                      below; holes at points take the sizes below";
+pub const SCALE_HEADS: &str = "Scale the counterbore or countersink with each circle";
+pub const PITCH: &str = "Pitch";
 
 fn sizing_label(sizing: HoleSizing) -> &'static str {
     match sizing {
         HoleSizing::Typed => "Diameter",
-        HoleSizing::Circles => SIZED_BY_CIRCLES,
+        HoleSizing::Circles | HoleSizing::CirclesAndHeads => SIZED_BY_CIRCLES,
     }
 }
 
 fn sizing_hover(sizing: HoleSizing) -> &'static str {
     match sizing {
         HoleSizing::Typed => "Every hole takes the typed diameter, whatever the circle drawn",
-        HoleSizing::Circles => "Each hole at a circle takes that circle's diameter",
+        HoleSizing::Circles | HoleSizing::CirclesAndHeads => {
+            "Each hole at a circle takes that circle's diameter"
+        }
     }
+}
+
+fn insert_note(standard: HoleStandard) -> Option<String> {
+    let insert = standard.insert()?;
+    Some(format!(
+        "For a standard {} heat-set insert {} mm long: make the hole at least that deep and \
+         leave at least {} mm of material around it",
+        standard.size.name(),
+        pitch_text(insert.length),
+        pitch_text(insert.wall)
+    ))
 }
 
 #[derive(Clone, Copy)]
@@ -80,7 +98,7 @@ impl Panel<'_> {
             };
             let sizes = MetricSize::ALL.into_iter().map(|size| {
                 let fit = current.map_or(HoleFit::Normal, |standard| standard.fit);
-                let standard = HoleStandard { size, fit };
+                let standard = HoleStandard::offered(size, fit);
                 Choice {
                     label: size.name().to_owned(),
                     selected: current.is_some_and(|current| current.size == size),
@@ -97,12 +115,14 @@ impl Panel<'_> {
 
     fn fit_row(&mut self, ui: &mut Ui, standard: HoleStandard) {
         let unit = self.model.length_unit();
-        let segments = HoleFit::ALL
+        let segments = standard
+            .size
+            .fits()
             .into_iter()
             .map(|fit| Segment {
                 label: fit.label(),
                 hover: fit.description(),
-                change: (fit != standard.fit).then(|| {
+                change: (!fit.same_kind(standard.fit)).then(|| {
                     self.change(hole_tools::with_standard(
                         self.hole,
                         HoleStandard { fit, ..standard },
@@ -113,6 +133,10 @@ impl Panel<'_> {
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Fit", &self.feature.name, segments);
         self.actions.extend(chosen);
+        self.pitch_row(ui, standard);
+        if let Some(note) = insert_note(standard) {
+            feature_fields::description_row(ui, &note);
+        }
         if let Some(thread) = standard.thread() {
             feature_fields::description_row(
                 ui,
@@ -122,6 +146,45 @@ impl Panel<'_> {
                 ),
             );
         }
+    }
+
+    fn pitch_row(&mut self, ui: &mut Ui, standard: HoleStandard) {
+        let fine = standard.size.fine_fits();
+        if !standard.fit.is_fine() || fine.len() < 2 {
+            return;
+        }
+        let unit = self.model.length_unit();
+        let labels: Vec<String> = fine
+            .iter()
+            .map(|fit| {
+                HoleStandard {
+                    fit: *fit,
+                    ..standard
+                }
+                .thread_pitch()
+                .map_or_else(String::new, pitch_text)
+            })
+            .collect();
+        let segments = fine
+            .iter()
+            .zip(&labels)
+            .map(|(fit, label)| Segment {
+                label,
+                hover: "A fine pitch of ISO 261 for this size, in millimetres",
+                change: (*fit != standard.fit).then(|| {
+                    self.change(hole_tools::with_standard(
+                        self.hole,
+                        HoleStandard {
+                            fit: *fit,
+                            ..standard
+                        },
+                        unit,
+                    ))
+                }),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, PITCH, &self.feature.name, segments);
+        self.actions.extend(chosen);
     }
 
     fn shape_row(&mut self, ui: &mut Ui) {
@@ -207,12 +270,12 @@ impl Panel<'_> {
         if self.hole.sizing == HoleSizing::Typed && !self.has_circles() {
             return;
         }
-        let segments = [HoleSizing::Typed, HoleSizing::Circles]
+        let segments = [HoleSizing::Typed, HoleSizing::CirclesAndHeads]
             .into_iter()
             .map(|sizing| Segment {
                 label: sizing_label(sizing),
                 hover: sizing_hover(sizing),
-                change: (sizing != self.hole.sizing).then(|| {
+                change: (sizing.by_circles() != self.hole.sizing.by_circles()).then(|| {
                     self.change(Hole {
                         sizing,
                         ..self.hole.clone()
@@ -222,8 +285,29 @@ impl Panel<'_> {
             .collect();
         let chosen = feature_fields::segmented_row(ui, "Sized by", &self.feature.name, segments);
         self.actions.extend(chosen);
-        if self.hole.sizing == HoleSizing::Circles {
-            feature_fields::description_row(ui, SIZED_BY_CIRCLES_NOTE);
+        match self.hole.sizing {
+            HoleSizing::Typed => return,
+            HoleSizing::Circles => feature_fields::description_row(ui, SIZED_BY_CIRCLES_NOTE),
+            HoleSizing::CirclesAndHeads => {
+                feature_fields::description_row(ui, SCALED_BY_CIRCLES_NOTE);
+            }
+        }
+        if self.hole.style == HoleStyle::Plain {
+            return;
+        }
+        let scaled = self.hole.sizing == HoleSizing::CirclesAndHeads;
+        if let Some(scale) = feature_fields::reverse_row(ui, SCALE_HEADS, scaled) {
+            let sizing = if scale {
+                HoleSizing::CirclesAndHeads
+            } else {
+                HoleSizing::Circles
+            };
+            let change = self.change(Hole {
+                sizing,
+                ..self.hole.clone()
+            });
+            self.actions
+                .push(feature_fields::applied(&self.feature.name, change));
         }
     }
 

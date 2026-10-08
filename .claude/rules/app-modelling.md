@@ -145,11 +145,13 @@ paths:
   selected, opened or last) and needs at least one free point or circle in it (`hole_centres`);
   its body is the one the sketch is attached to, else the last body standing. It creates a plain
   blind hole of 6 mm by 10 mm, hides the sketch and opens the panel: Size (Custom or a metric
-  screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, with the thread named for the
-  tapped ones), Style
+  screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, and Insert from M2 to M8, the size's
+  `fits`; with the thread named for the tapped ones, a Pitch row of the size's fine pitches when it
+  has several, and for an insert a note giving the insert's length and least wall), Style
   (Plain, Counterbore, Countersink; switching takes the size's head dimensions, else the
-  defaults), Sized by (Diameter, Circles; shown while the sketch has circles or the hole is sized
-  by them), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
+  defaults), Sized by (Diameter, Circles, which sets `CirclesAndHeads`; shown while the sketch has
+  circles or the hole is sized by them, with Scale the counterbore or countersink with each circle
+  for a counterbored or countersunk one), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
   (Blind with its field, or Through all), Reverse direction, and the Sketch and Body rows (the body
   a list of `bodies_before`). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.

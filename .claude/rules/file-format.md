@@ -155,10 +155,13 @@ paths:
   `blind` with its text), `style` (`plain`, or `counterbore` or `countersink` with their texts) and
   `reversed` when set; an unreadable size loads as a default (5 mm, 10 mm, 3 mm, 90 deg), reported.
   A slot adds `slot` (`length`, `angle` texts; 10 mm and 0 deg when unreadable) and a standard
-  size `standard` (`size` as `M3`, `fit` as `close`, `normal`, `loose`, `tapped` or `tapped_fine`); a standard
-  this version does not know loads as none, keeping the typed sizes, reported. A hole sized by its
-  circles is a `hole_by_circles` record of the same fields, since an older reader would drill the
-  typed diameter at every circle.
+  size `standard` (`size` as `M3`, `fit` as `close`, `normal`, `loose`, `tapped`, `tapped_fine`,
+  `tapped_fine_2`, `tapped_fine_3` or `heat_set_insert`); a standard
+  this version does not know loads as none, keeping the typed sizes, reported; so do the fits added
+  later (`tapped_fine_2`, `tapped_fine_3`, `heat_set_insert`) in older readers, and a fit its size
+  does not offer. A hole sized by its circles is a `hole_by_circles` record of the same fields,
+  since an older reader would drill the typed diameter at every circle, and one also scaling its
+  counterbore or countersink by them a `hole_scaled_by_circles` record.
 - A datum point is a `point` record (`base`, a point reference: `origin`, `datum`, `vertex` with
   `body` and the vertex name's digest, `centre` with `body` and an edge record, or `sketch` with
   `sketch` and `entity`; `offset`, three stored texts). Planes through references are

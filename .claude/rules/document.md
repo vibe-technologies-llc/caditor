@@ -227,14 +227,26 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   round hole's. A countersunk slot fails alone, saying so.
 - `standard` (`hole_standard.rs`) is the ISO metric size and fit the sizes were taken from
   (`HoleStandard`: `MetricSize` M1.6 to M20; `HoleFit` close, normal, loose clearance per ISO 273,
-  tapped at the coarse-thread tap drill, or tapped fine at the first-choice ISO 261 fine pitch,
-  drilled at the major diameter less the pitch), with counterbore and countersink sizes for socket and
-  countersunk heads. It names the thread of a tapped hole for the user and changes nothing
-  computed: the expressions alone drive the hole.
-- `sizing` is `Typed` (every hole the typed diameter) or `Circles`: a hole at a circle's centre
-  takes that circle's diameter (`circle_sizes`, the smallest of several on one centre point,
-  construction circles left out) and its style is checked against it, a refusal naming the
-  circle; holes at points keep the typed diameter.
+  tapped at the coarse-thread tap drill, tapped fine at one of the size's ISO 261 fine pitches
+  (`FinePitch` by its place in `fine_pitches`: the first is the pitch older versions offered, so
+  M12 and M20 list 1.25 and 1.5 before the others; drilled at the major diameter less the pitch),
+  or a heat-set insert), with counterbore and countersink sizes for socket and countersunk heads.
+  It names the thread of a tapped hole for the user and changes nothing computed: the expressions
+  alone drive the hole. `MetricSize::offers` says which fits a size has (`fits` for the Fit row,
+  `fine_fits` for its pitches); `HoleStandard::offered` falls back to the first fine pitch, or to
+  normal clearance, when a size lacks the fit asked for.
+- Heat-set insert bores (`HeatSetInsert`: hole, insert length, least wall) are those published for
+  the common standard brass inserts for prints (CNC Kitchen's standard series, which most others
+  match): M2 3.2 mm for a 3 mm insert, M2.5 4.0 for 4, M3 4.0 for 5.7, M4 5.6 for 8.1, M5 6.4 for
+  9.5, M6 8.0 for 12.7 and M8 9.7 for 12.7, with walls of 1.3, 1.6, 1.6, 2.1, 2.6, 3.3 and 3.3 mm.
+  M1.6 and M10 up offer no insert.
+- `sizing` is `Typed` (every hole the typed diameter), `Circles` or `CirclesAndHeads`: a hole at a
+  circle's centre takes that circle's diameter (`circle_sizes`, the smallest of several on one
+  centre point, construction circles left out) and its style is checked against it, a refusal
+  naming the circle; holes at points keep the typed sizes. `CirclesAndHeads`, what the app sets,
+  also scales the counterbore's diameter and depth, or the countersink's diameter, by the circle's
+  diameter over the typed one, so one counterbore setting suits circles of several sizes;
+  `Circles` keeps the typed counterbore or countersink, as holes sized by circles always did.
 - It fails alone, naming the point, when a size is not positive, the counterbore or countersink is
   not wider than the hole or as deep as it, the angle is outside 0° to `MAX_COUNTERSINK_ANGLE`
   (179°, also the Hole panel's field rule), the sketch has no

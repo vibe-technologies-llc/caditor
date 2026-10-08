@@ -140,6 +140,7 @@ pub(crate) enum FeatureKindRecord {
     Scale(ScaleRecord),
     Hole(HoleRecord),
     HoleByCircles(HoleRecord),
+    HoleScaledByCircles(HoleRecord),
     LinearPattern(Box<LinearPatternRecord>),
     CircularPattern(Box<CircularPatternRecord>),
     Pattern(Box<PatternRecord>),
@@ -162,7 +163,7 @@ pub(crate) struct CutSeveralRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 2] = ["hidden", "appearance"];
 
-pub(crate) const FEATURE_KINDS: [&str; 30] = [
+pub(crate) const FEATURE_KINDS: [&str; 31] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -193,6 +194,7 @@ pub(crate) const FEATURE_KINDS: [&str; 30] = [
     "import",
     "cut_several",
     "placed_import",
+    "hole_scaled_by_circles",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1570,6 +1572,7 @@ fn hole_record(hole: &Hole) -> FeatureKindRecord {
     match hole.sizing {
         HoleSizing::Typed => FeatureKindRecord::Hole(record),
         HoleSizing::Circles => FeatureKindRecord::HoleByCircles(record),
+        HoleSizing::CirclesAndHeads => FeatureKindRecord::HoleScaledByCircles(record),
     }
 }
 
@@ -2837,6 +2840,12 @@ fn restore_kind(record: &FeatureKindRecord, name: &str, issues: &mut Vec<String>
         FeatureKindRecord::HoleByCircles(record) => {
             FeatureKind::Hole(restore_hole(record, HoleSizing::Circles, name, issues))
         }
+        FeatureKindRecord::HoleScaledByCircles(record) => FeatureKind::Hole(restore_hole(
+            record,
+            HoleSizing::CirclesAndHeads,
+            name,
+            issues,
+        )),
         FeatureKindRecord::LinearPattern(record) => {
             FeatureKind::from(restore_linear_pattern(record, name, issues))
         }
@@ -3317,6 +3326,7 @@ fn restore_hole(
     let standard = record.standard.as_ref().and_then(|standard| {
         let read = MetricSize::from_name(&standard.size)
             .zip(HoleFit::from_id(&standard.fit))
+            .filter(|(size, fit)| size.offers(*fit))
             .map(|(size, fit)| HoleStandard { size, fit });
         if read.is_none() {
             issues.push(format!(
