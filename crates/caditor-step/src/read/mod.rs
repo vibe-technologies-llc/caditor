@@ -46,6 +46,7 @@ pub struct StepSolid {
     pub name: String,
     pub solid: Solid,
     pub colour: Option<[u8; 3]>,
+    pub opacity: Option<u8>,
     pub layer: Option<String>,
 }
 
@@ -61,6 +62,7 @@ pub struct StepCopy {
     pub solid: Arc<Solid>,
     pub placement: Similarity,
     pub colour: Option<[u8; 3]>,
+    pub opacity: Option<u8>,
     pub layer: Option<String>,
 }
 
@@ -219,6 +221,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                 name,
                 solid,
                 colour: look.colour,
+                opacity: look.opacity,
                 layer: look.layer,
             })
             .collect(),
@@ -239,6 +242,7 @@ pub fn read_step_copies(text: &str) -> Result<StepCopies, ReadError> {
                 solid,
                 placement,
                 colour: look.colour,
+                opacity: look.opacity,
                 layer: look.layer,
             })
             .collect(),

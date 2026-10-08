@@ -24,9 +24,13 @@ paths:
   otherwise empty.
 - A `StepBody` with a `colour` gets one `STYLED_ITEM` per solid, each pointing at a
   `PRESENTATION_STYLE_ASSIGNMENT` (surface fill of `COLOUR_RGB`, the 0–255 channels over 255,
-  `.BOTH.` sides) written once per distinct colour, all gathered in one
+  `.BOTH.` sides) written once per distinct colour and opacity, all gathered in one
   `MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION` on the shape's context; uncoloured
   bodies write no presentation at all. The reader ignores it, since its items are styled items.
+- A `StepBody` with an `opacity` below 100 (a percent, only written beside a colour) adds to its
+  side style a `SURFACE_STYLE_RENDERING_WITH_PROPERTIES` (`.NORMAL_SHADING.`, the same colour)
+  holding a `SURFACE_STYLE_TRANSPARENT` of one minus the opacity, the form AP214 and AP242
+  readers take for a see-through body; the reader reads it back.
 - A `StepBody` with a `layer` (the body's folder) is listed in one `PRESENTATION_LAYER_ASSIGNMENT`
   per distinct layer name, holding its solids; a blank name writes none.
 - `write_step_keeping_what_can_be` writes every body it can, rolls a failed one back out and lists

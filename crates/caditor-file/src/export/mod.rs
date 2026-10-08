@@ -320,6 +320,7 @@ pub struct ExportBody<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Look<'a> {
     pub colour: Rgb,
+    pub opacity: Option<u8>,
     pub material: Option<&'a str>,
 }
 
@@ -521,6 +522,7 @@ fn export_step(
             colour: body
                 .look
                 .map(|look| [look.colour.red, look.colour.green, look.colour.blue]),
+            opacity: body.look.and_then(|look| look.opacity),
             layer: body.group,
         })
         .collect();

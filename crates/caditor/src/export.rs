@@ -112,15 +112,20 @@ struct Body {
 #[derive(Debug, Clone, PartialEq)]
 pub struct OwnedLook {
     pub colour: Rgb,
+    pub opacity: Option<u8>,
     pub material: Option<String>,
 }
 
 impl OwnedLook {
     pub fn of(appearance: &BodyAppearance) -> Option<Self> {
-        (appearance.colour.is_some() || appearance.material.is_some()).then(|| Self {
+        (appearance.colour.is_some()
+            || appearance.material.is_some()
+            || appearance.opacity.is_some())
+        .then(|| Self {
             colour: appearance
                 .colour
                 .unwrap_or(crate::body_appearance::DEFAULT_COLOUR),
+            opacity: appearance.opacity,
             material: appearance.material.clone(),
         })
     }
@@ -128,6 +133,7 @@ impl OwnedLook {
     pub fn borrowed(&self) -> Look<'_> {
         Look {
             colour: self.colour,
+            opacity: self.opacity,
             material: self.material.as_deref(),
         }
     }
@@ -686,7 +692,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_body_exports_a_look_only_when_it_has_a_colour_or_material() {
+    fn a_body_exports_a_look_only_when_it_has_a_colour_a_material_or_an_opacity() {
         let plain = BodyAppearance::default();
         let steel = BodyAppearance {
             material: Some("Steel".to_owned()),
@@ -697,11 +703,21 @@ mod tests {
             ..BodyAppearance::default()
         };
 
+        let faded = BodyAppearance {
+            opacity: Some(50),
+            ..BodyAppearance::default()
+        };
+
         assert_eq!(OwnedLook::of(&plain), None);
+        assert_eq!(
+            OwnedLook::of(&faded).map(|look| (look.colour, look.opacity)),
+            Some((crate::body_appearance::DEFAULT_COLOUR, Some(50)))
+        );
         assert_eq!(
             OwnedLook::of(&steel),
             Some(OwnedLook {
                 colour: crate::body_appearance::DEFAULT_COLOUR,
+                opacity: None,
                 material: Some("Steel".to_owned()),
             })
         );

@@ -112,6 +112,7 @@ mod tests {
                 name: "Block",
                 solid: &solid,
                 colour: None,
+                opacity: None,
                 layer: None,
             }],
             "Block",

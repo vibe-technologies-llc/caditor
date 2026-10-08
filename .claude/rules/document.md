@@ -94,7 +94,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   Its `name` is the body's own name, kept on one line the same way (`MAX_BODY_NAME_CHARS`,
   `BodyNameTooLong`); `Document::body_name` gives it, else the making feature's name, and the app
   lists and exports bodies by it. Its `opacity` is a percent from `MIN_OPACITY_PERCENT` (lower is
-  `OpacityTooLow`); 100 or more is stored as none, solid.
+  `OpacityTooLow`); 100 or more is stored as none, solid. `OPACITY_STEPS` (75, 50, 25) are the
+  opacities the app offers, and `nearest_opacity_step` snaps a percent to the nearest of them
+  or solid (none), which STEP import uses.
   A feature that later stops making a body keeps it, unused.
 - The density is a plain number in g/cm³ that may use parameters, so `Feature::parameters` and
   `Feature::uses_parameter` (which parameter deletion, `parameter_users` and loading's stand-ins

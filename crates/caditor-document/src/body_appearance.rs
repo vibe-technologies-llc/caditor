@@ -9,6 +9,7 @@ pub const MAX_MATERIAL_NAME_CHARS: usize = 80;
 pub const MAX_BODY_NAME_CHARS: usize = 120;
 pub const MIN_OPACITY_PERCENT: u8 = 10;
 pub const OPAQUE_PERCENT: u8 = 100;
+pub const OPACITY_STEPS: [u8; 3] = [75, 50, 25];
 pub const MAX_DENSITY: f64 = 100.0;
 const GRAMS_PER_CUBIC_MILLIMETRE_AT_UNIT_DENSITY: f64 = 1e-3;
 
@@ -143,6 +144,14 @@ impl BodyAppearance {
             density.map(|density| volume * density * GRAMS_PER_CUBIC_MILLIMETRE_AT_UNIT_DENSITY)
         })
     }
+}
+
+pub fn nearest_opacity_step(percent: u8) -> Option<u8> {
+    let distance = |step: u8| step.abs_diff(percent);
+    OPACITY_STEPS
+        .into_iter()
+        .min_by_key(|step| distance(*step))
+        .filter(|step| distance(*step) < distance(OPAQUE_PERCENT))
 }
 
 pub fn density_of(density: &Expression, values: &ParameterValues) -> Result<f64, DensityError> {

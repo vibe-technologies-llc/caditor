@@ -347,17 +347,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
   edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
   outright when the file declares no precision.
-- [medium · medium] Transparency in a STEP file is lost: a body or face styled see-through
-  (`SURFACE_STYLE_TRANSPARENT`, or the transparency of `SURFACE_STYLE_RENDERING_WITH_PROPERTIES`
-  in AP214 and AP242 presentation) imports opaque, so the clear acrylic panels of a printer frame
-  (a VzBot's enclosure, say) hide everything behind them. Read the transparency with the colour,
-  set the imported body's opacity from it (to the nearest of the body's opacity steps, or an
-  exact value if opacity becomes free), and keep it per face once face colours are mapped.
 - [medium · hard] One unsupported surface or curve loses the whole body: an `OFFSET_SURFACE` of a
   spline, extrusion or revolution (it would need a surface fitted within tolerance) and the
   `*_REPLICA` forms. Fit a spline within the declared precision, or keep the
   other faces and say which were lost. A body of faces in mixed colours imports in the default
-  look, since face colours are not mapped onto the imported faces.
+  look, since face colours are not mapped onto the imported faces, and a body with only some
+  faces see-through imports opaque for the same reason.
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
 
