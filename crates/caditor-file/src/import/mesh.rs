@@ -109,6 +109,8 @@ pub fn parse_mesh(
         bodies.extend(lumps.into_iter().map(|(stored, step)| ImportedBody {
             name: name.to_owned(),
             import: Import::new(source, stored, step),
+            colour: None,
+            group: None,
         }));
     }
     if bodies.is_empty() {

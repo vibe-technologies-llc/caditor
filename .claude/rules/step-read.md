@@ -44,6 +44,18 @@ paths:
   `MAX_WORK` budget per file for everything built, `MAX_DEPTH` and `MAX_INSTANCES` for assemblies.
   Curves, surfaces, placements and solids are memoised per entity and units.
 
+## Colours and layers (`presentation.rs`)
+
+- Each solid gets a `colour` and a `layer`, or none. A `STYLED_ITEM` (an `OVER_RIDING_STYLED_ITEM`
+  wins) gives its item the first surface colour found within `SEARCH_DEPTH` references of its
+  styles: a `COLOUR_RGB` (channels clamped to 0–1, times 255) or a `DRAUGHTING_PRE_DEFINED_COLOUR`
+  of the eight named ones; curve, point and text styles are skipped. A
+  `PRESENTATION_LAYER_ASSIGNMENT` puts its items on its layer, a styled item counting as the item
+  it styles; the first layer naming an item keeps it.
+- A solid takes the value on itself, else on one of its shells, else the value every face shares;
+  a face without one, or faces differing, give none, so a part of mixed face colours keeps the
+  default look rather than one of them.
+
 ## Units and precision
 
 - Units come from each representation's context (SI prefixes, conversion-based units); a note

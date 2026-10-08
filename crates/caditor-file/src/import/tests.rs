@@ -1084,7 +1084,7 @@ mod step {
     use std::time::SystemTime;
 
     use caditor_document::{
-        Blend, BlendKind, CancelToken, Document, FeatureKind, ModelEvaluator, Recompute,
+        Blend, BlendKind, CancelToken, Document, FeatureKind, ModelEvaluator, Recompute, Rgb,
     };
     use caditor_expression::Expression;
     use caditor_geometry::{Plane, Point2, Point3};
@@ -1139,11 +1139,93 @@ mod step {
                 name: "Block",
                 solid: &solid,
                 colour: None,
+                layer: None,
             }],
             "block",
             SystemTime::UNIX_EPOCH,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn a_coloured_body_imports_with_its_colour_and_a_plain_one_without() {
+        let solid = block();
+        let text = write_step(
+            &[
+                StepBody {
+                    name: "Red",
+                    solid: &solid,
+                    colour: Some([200, 30, 40]),
+                    layer: None,
+                },
+                StepBody {
+                    name: "Plain",
+                    solid: &solid,
+                    colour: None,
+                    layer: None,
+                },
+            ],
+            "pair",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let import = parse_step(&text, "pair.step").unwrap();
+        let mut document = Document::default();
+
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+        let colour = |name: &str| {
+            document
+                .features()
+                .find(|feature| feature.name == name)
+                .unwrap()
+                .appearance
+                .colour
+        };
+
+        assert_eq!(colour("Red"), Some(Rgb::new(200, 30, 40)));
+        assert_eq!(colour("Plain"), None);
+    }
+
+    #[test]
+    fn bodies_on_one_layer_import_together_into_a_folder_named_after_it() {
+        let solid = block();
+        let body = |name, layer| StepBody {
+            name,
+            solid: &solid,
+            colour: None,
+            layer,
+        };
+        let text = write_step(
+            &[
+                body("Bolt", Some("Hardware")),
+                body("Plate", None),
+                body("Nut", Some("Hardware")),
+            ],
+            "parts",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let import = parse_step(&text, "parts.step").unwrap();
+        let mut document = Document::default();
+
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+        let tree: Vec<(&str, Option<&str>)> = document
+            .features()
+            .map(|feature| (feature.name.as_str(), feature.group.as_deref()))
+            .collect();
+
+        assert_eq!(
+            tree,
+            [
+                ("Bolt", Some("Hardware")),
+                ("Nut", Some("Hardware")),
+                ("Plate", None)
+            ]
+        );
     }
 
     #[test]
@@ -1372,6 +1454,7 @@ mod step {
                 name: "Pair",
                 solid: &pair,
                 colour: None,
+                layer: None,
             }],
             "pair",
             SystemTime::UNIX_EPOCH,
@@ -1417,6 +1500,7 @@ mod step {
                 name: "Part",
                 solid: &solid,
                 colour: None,
+                layer: None,
             }],
             "parts",
             SystemTime::UNIX_EPOCH,
@@ -1455,6 +1539,7 @@ mod step {
                 name: "Part",
                 solid: &solid,
                 colour: None,
+                layer: None,
             }],
             "Part",
             SystemTime::UNIX_EPOCH,
@@ -1539,11 +1624,13 @@ mod step {
                     name: "Part",
                     solid: &solid,
                     colour: None,
+                    layer: None,
                 },
                 StepBody {
                     name: "Part",
                     solid: &solid,
                     colour: None,
+                    layer: None,
                 },
             ],
             "parts",

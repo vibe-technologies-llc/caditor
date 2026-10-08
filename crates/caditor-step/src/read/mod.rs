@@ -2,6 +2,7 @@ mod conform;
 mod geometry;
 mod graph;
 mod loose;
+mod presentation;
 mod spline;
 mod structure;
 #[cfg(test)]
@@ -22,6 +23,7 @@ use crate::{
     read::{
         geometry::{Geometry, MAX_WORK, Work},
         graph::{Entity, Graph, Problem},
+        presentation::{Look, Presentation},
         structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
         topology::{Bending, Built, Healing, SolidShells, Topology, short},
         units::Units,
@@ -43,6 +45,8 @@ const WIREFRAME_KINDS: [&str; 2] = ["GEOMETRIC_CURVE_SET", "GEOMETRIC_SET"];
 pub struct StepSolid {
     pub name: String,
     pub solid: Solid,
+    pub colour: Option<[u8; 3]>,
+    pub layer: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -56,6 +60,8 @@ pub struct StepCopy {
     pub name: String,
     pub solid: Arc<Solid>,
     pub placement: Similarity,
+    pub colour: Option<[u8; 3]>,
+    pub layer: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -65,7 +71,7 @@ pub struct StepCopies {
 }
 
 struct Read<T> {
-    solids: Vec<(String, T)>,
+    solids: Vec<(String, Look, T)>,
     notes: Vec<String>,
 }
 
@@ -207,7 +213,12 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
         solids: read
             .solids
             .into_iter()
-            .map(|(name, solid)| StepSolid { name, solid })
+            .map(|(name, look, solid)| StepSolid {
+                name,
+                solid,
+                colour: look.colour,
+                layer: look.layer,
+            })
             .collect(),
         notes: read.notes,
     })
@@ -221,10 +232,12 @@ pub fn read_step_copies(text: &str) -> Result<StepCopies, ReadError> {
         copies: read
             .solids
             .into_iter()
-            .map(|(name, (solid, placement))| StepCopy {
+            .map(|(name, look, (solid, placement))| StepCopy {
                 name,
                 solid,
                 placement,
+                colour: look.colour,
+                layer: look.layer,
             })
             .collect(),
         notes: read.notes,
@@ -241,6 +254,7 @@ fn read_placed<T>(
         SyntaxError::TooLarge => ReadError::TooLarge,
     })?;
     let graph = Graph::new(&exchange);
+    let presentation = Presentation::of(&graph);
     let mut structure = Structure::read(&graph);
     let mut model = Read {
         solids: Vec::new(),
@@ -354,6 +368,7 @@ fn read_placed<T>(
                     unchecked_notes.push(unchecked_note(&name, faces));
                 }
                 let count = transforms.len();
+                let look = presentation.of_solid(&graph, entity);
                 let mut misplaced = false;
                 let solid = Arc::new(solid);
                 for (instance, (placement, occurrence)) in transforms.into_iter().enumerate() {
@@ -367,7 +382,7 @@ fn read_placed<T>(
                         _ => name.clone(),
                     };
                     budget = budget.saturating_sub(1);
-                    model.solids.push((name, placed));
+                    model.solids.push((name, look.clone(), placed));
                 }
                 if misplaced {
                     unplaced.push((name.clone(), Misplacement::CopyUnplaceable));

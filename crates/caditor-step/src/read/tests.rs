@@ -12,6 +12,7 @@ fn round_trip(name: &str, solid: &caditor_kernel::Solid) -> caditor_kernel::Soli
             name,
             solid,
             colour: None,
+            layer: None,
         }],
         name,
         SystemTime::UNIX_EPOCH,
@@ -97,6 +98,7 @@ fn a_file_cut_short_inside_its_data_reads_the_solids_before_the_cut() {
             name: "plate",
             solid: &solid,
             colour: None,
+            layer: None,
         }],
         "plate",
         SystemTime::UNIX_EPOCH,
@@ -128,6 +130,7 @@ fn a_file_with_a_damaged_header_and_no_closing_line_still_reads_its_solids() {
             name: "plate",
             solid: &solid,
             colour: None,
+            layer: None,
         }],
         "plate",
         SystemTime::UNIX_EPOCH,
@@ -271,6 +274,7 @@ fn lengths_follow_the_unit_of_the_file() {
             name: "Plate",
             solid: &solid,
             colour: None,
+            layer: None,
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -289,6 +293,7 @@ fn lengths_follow_the_unit_of_the_file() {
             name: "Plate",
             solid: &solid,
             colour: None,
+            layer: None,
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -320,6 +325,7 @@ fn lengths_follow_the_unit_of_the_file() {
             name: "Plate",
             solid: &solid,
             colour: None,
+            layer: None,
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -416,6 +422,7 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
             name: "Body1",
             solid: &solid,
             colour: None,
+            layer: None,
         }],
         "Bracket",
         SystemTime::UNIX_EPOCH,
@@ -436,11 +443,13 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
                 name: "Left",
                 solid: &solid,
                 colour: None,
+                layer: None,
             },
             StepBody {
                 name: "Right",
                 solid: &solid,
                 colour: None,
+                layer: None,
             },
         ],
         "Bracket",
@@ -464,11 +473,13 @@ fn coloured_bodies_read_back_as_the_same_solids() {
                 name: "Red",
                 solid: &solid,
                 colour: Some([200, 30, 30]),
+                layer: None,
             },
             StepBody {
                 name: "Plain",
                 solid: &solid,
                 colour: None,
+                layer: None,
             },
         ],
         "Bracket",
@@ -747,6 +758,7 @@ fn offset_of(
             name: "Offset",
             solid,
             colour: None,
+            layer: None,
         }],
         "Offset",
         SystemTime::UNIX_EPOCH,
@@ -846,6 +858,7 @@ fn only_repairs_beyond_the_precision_of_the_file_are_reported() {
             name: "Plate",
             solid: &solid,
             colour: None,
+            layer: None,
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -967,6 +980,7 @@ fn a_surface_of_revolution_whose_profile_is_not_in_a_meridian_plane_is_refused()
             name: "Vase",
             solid: &vase,
             colour: None,
+            layer: None,
         }],
         "Vase",
         SystemTime::UNIX_EPOCH,
@@ -1082,4 +1096,164 @@ fn every_misplacement_says_what_was_left_out() {
         error.to_string(),
         "“Arm” was left out, because the assembly places it inside itself"
     );
+}
+
+#[test]
+fn a_colour_written_on_a_body_reads_back_and_uncoloured_bodies_have_none() {
+    let plate = fixtures::plate_with_hole();
+    let text = write_step(
+        &[
+            StepBody {
+                name: "Red",
+                solid: &plate,
+                colour: Some([255, 0, 51]),
+                layer: None,
+            },
+            StepBody {
+                name: "Plain",
+                solid: &plate,
+                colour: None,
+                layer: None,
+            },
+        ],
+        "model",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+
+    let model = read_step(&text).unwrap();
+
+    let colour = |name: &str| {
+        model
+            .solids
+            .iter()
+            .find(|solid| solid.name == name)
+            .unwrap()
+            .colour
+    };
+    assert_eq!(colour("Red"), Some([255, 0, 51]));
+    assert_eq!(colour("Plain"), None);
+}
+
+#[test]
+fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_give_none() {
+    let plate = fixtures::plate_with_hole();
+    let text = write_step(
+        &[StepBody {
+            name: "Plate",
+            solid: &plate,
+            colour: None,
+            layer: None,
+        }],
+        "Plate",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    let faces: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.split_once("=ADVANCED_FACE("))
+        .map(|(id, _)| id)
+        .collect();
+    let styled = |colours: &[&str]| {
+        let mut extra = String::from("#900001=DRAUGHTING_PRE_DEFINED_COLOUR('blue');\n");
+        extra.push_str("#900002=FILL_AREA_STYLE_COLOUR('',#900001);\n");
+        extra.push_str("#900003=FILL_AREA_STYLE('',(#900002));\n");
+        extra.push_str("#900004=SURFACE_STYLE_FILL_AREA(#900003);\n");
+        extra.push_str("#900005=SURFACE_SIDE_STYLE('',(#900004));\n");
+        extra.push_str("#900006=SURFACE_STYLE_USAGE(.BOTH.,#900005);\n");
+        extra.push_str("#900007=PRESENTATION_STYLE_ASSIGNMENT((#900006));\n");
+        extra.push_str("#900011=COLOUR_RGB('',0.,1.,0.);\n");
+        extra.push_str("#900012=FILL_AREA_STYLE_COLOUR('',#900011);\n");
+        extra.push_str("#900013=FILL_AREA_STYLE('',(#900012));\n");
+        extra.push_str("#900014=SURFACE_STYLE_FILL_AREA(#900013);\n");
+        extra.push_str("#900015=SURFACE_SIDE_STYLE('',(#900014));\n");
+        extra.push_str("#900016=SURFACE_STYLE_USAGE(.BOTH.,#900015);\n");
+        extra.push_str("#900017=PRESENTATION_STYLE_ASSIGNMENT((#900016));\n");
+        for (index, face) in faces.iter().enumerate() {
+            let assignment = colours
+                .get(index % colours.len())
+                .copied()
+                .unwrap_or("#900007");
+            extra.push_str(&format!(
+                "#{}=STYLED_ITEM('',({assignment}),{face});\n",
+                910_000 + index
+            ));
+        }
+        let mut styled = text.clone();
+        let end = styled.rfind("ENDSEC;").unwrap();
+        styled.insert_str(end, &extra);
+        read_step(&styled).unwrap().solids.remove(0).colour
+    };
+
+    assert_eq!(styled(&["#900007"]), Some([0, 0, 255]));
+    assert_eq!(styled(&["#900007", "#900017"]), None);
+}
+
+#[test]
+fn a_layer_written_on_bodies_reads_back_on_each_and_unlayered_bodies_have_none() {
+    let plate = fixtures::plate_with_hole();
+    let body = |name, layer| StepBody {
+        name,
+        solid: &plate,
+        colour: Some([10, 20, 30]),
+        layer,
+    };
+    let text = write_step(
+        &[
+            body("Left", Some("Brackets")),
+            body("Right", Some("Brackets")),
+            body("Loose", None),
+        ],
+        "model",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+
+    let model = read_step(&text).unwrap();
+
+    let layer = |name: &str| {
+        model
+            .solids
+            .iter()
+            .find(|solid| solid.name == name)
+            .unwrap()
+            .layer
+            .clone()
+    };
+    assert_eq!(text.matches("PRESENTATION_LAYER_ASSIGNMENT").count(), 1);
+    assert_eq!(layer("Left").as_deref(), Some("Brackets"));
+    assert_eq!(layer("Right").as_deref(), Some("Brackets"));
+    assert_eq!(layer("Loose"), None);
+}
+
+#[test]
+fn a_layer_holding_a_styled_item_puts_the_styled_body_on_it() {
+    let plate = fixtures::plate_with_hole();
+    let text = write_step(
+        &[StepBody {
+            name: "Plate",
+            solid: &plate,
+            colour: Some([1, 2, 3]),
+            layer: None,
+        }],
+        "Plate",
+        SystemTime::UNIX_EPOCH,
+    )
+    .unwrap();
+    let styled = text
+        .lines()
+        .find_map(|line| line.split_once("=STYLED_ITEM("))
+        .map(|(id, _)| id.to_owned())
+        .unwrap();
+    let mut layered = text.clone();
+    let end = layered.rfind("ENDSEC;").unwrap();
+    layered.insert_str(
+        end,
+        &format!("#900001=PRESENTATION_LAYER_ASSIGNMENT('Parts','',({styled}));\n"),
+    );
+
+    let solid = read_step(&layered).unwrap().solids.remove(0);
+
+    assert_eq!(solid.layer.as_deref(), Some("Parts"));
+    assert_eq!(solid.colour, Some([1, 2, 3]));
 }

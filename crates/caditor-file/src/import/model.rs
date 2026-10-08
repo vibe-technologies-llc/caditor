@@ -1,7 +1,8 @@
 use std::{collections::BTreeMap, path::Path, sync::Arc, time::SystemTime};
 
 use caditor_document::{
-    BodyPlacement, Document, FeatureKind, Import, ParameterValues, Transaction,
+    BodyAppearance, BodyPlacement, Document, Edit, FeatureKind, Import, MAX_GROUP_NAME_CHARS,
+    ParameterValues, Rgb, Transaction, group_name,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Similarity, Vector3};
@@ -40,6 +41,8 @@ type Stored = Option<Vec<(Arc<Solid>, Arc<str>)>>;
 pub struct ImportedBody {
     pub name: String,
     pub import: Import,
+    pub colour: Option<Rgb>,
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -158,6 +161,8 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
                     name,
                     solid,
                     placement,
+                    colour,
+                    layer,
                 } = copy;
                 match solid.mapped(&placement) {
                     Ok(mapped) => match canonical(&name, &mapped) {
@@ -167,6 +172,8 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
                                 .extend(lumps.into_iter().map(|(stored, step)| ImportedBody {
                                     import: Import::new(source, stored, step),
                                     name: name.clone(),
+                                    colour: colour.map(rgb),
+                                    group: layer.clone(),
                                 }))
                         }
                         None => lost.push(name),
@@ -219,9 +226,15 @@ fn placed_copies(
                 import: Import::shared(source, Arc::clone(solid), Arc::clone(step))
                     .placed(placement.clone()),
                 name: copy.name.clone(),
+                colour: copy.colour.map(rgb),
+                group: copy.layer.clone(),
             })
             .collect(),
     )
+}
+
+fn rgb([red, green, blue]: [u8; 3]) -> Rgb {
+    Rgb::new(red, green, blue)
 }
 
 fn body_placement(similarity: &Similarity, solid: &Solid) -> Option<BodyPlacement> {
@@ -277,6 +290,7 @@ fn written_and_read(name: &str, solid: &Solid) -> Option<(String, Vec<Solid>)> {
             name,
             solid,
             colour: None,
+            layer: None,
         }],
         name,
         SystemTime::UNIX_EPOCH,
@@ -299,12 +313,49 @@ pub fn bodies_transaction(
         .features()
         .map(|feature| feature.name.clone())
         .collect();
-    for body in bodies {
+    for body in by_layer(bodies) {
         let name = unique_name(&body.name, &taken);
         taken.push(name.clone());
-        builder.add_feature(name, FeatureKind::Import(body.import.clone()));
+        let id = builder.add_feature(name, FeatureKind::Import(body.import.clone()));
+        if let Some(colour) = body.colour {
+            builder.edit(Edit::SetBodyAppearance {
+                id,
+                appearance: BodyAppearance {
+                    colour: Some(colour),
+                    ..BodyAppearance::default()
+                },
+            });
+        }
+        if let Some(group) = body.group.as_deref().and_then(imported_group) {
+            builder.edit(Edit::SetFeatureGroup {
+                id,
+                group: Some(group),
+            });
+        }
     }
     builder.finish()
+}
+
+fn by_layer(bodies: &[ImportedBody]) -> Vec<&ImportedBody> {
+    let mut first_of_layer: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut ordered: Vec<(usize, &ImportedBody)> = bodies
+        .iter()
+        .enumerate()
+        .map(|(index, body)| {
+            let place = body
+                .group
+                .as_deref()
+                .map_or(index, |group| *first_of_layer.entry(group).or_insert(index));
+            (place, body)
+        })
+        .collect();
+    ordered.sort_by_key(|(place, _)| *place);
+    ordered.into_iter().map(|(_, body)| body).collect()
+}
+
+fn imported_group(layer: &str) -> Option<String> {
+    let whole = group_name(layer)?;
+    Some(whole.chars().take(MAX_GROUP_NAME_CHARS).collect())
 }
 
 fn unique_name(wanted: &str, taken: &[String]) -> String {

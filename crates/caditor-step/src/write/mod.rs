@@ -22,6 +22,7 @@ pub struct StepBody<'a> {
     pub name: &'a str,
     pub solid: &'a Solid,
     pub colour: Option<[u8; 3]>,
+    pub layer: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -285,6 +286,7 @@ pub fn write_step_detailed(
     let mut shapes = Shapes::new(&mut data);
     let mut left_out = Vec::new();
     let mut coloured = Vec::new();
+    let mut layered: BTreeMap<&str, Vec<Ref>> = BTreeMap::new();
     for (index, body) in bodies.iter().enumerate() {
         let checkpoint = shapes.data().checkpoint();
         let solids = shapes.body(body.solid, body.name);
@@ -298,6 +300,9 @@ pub fn write_step_detailed(
             Ok(solids) => {
                 if let Some(colour) = body.colour {
                     coloured.extend(solids.iter().map(|solid| (*solid, colour)));
+                }
+                if let Some(layer) = body.layer.filter(|layer| !layer.trim().is_empty()) {
+                    layered.entry(layer).or_default().extend(solids.iter().copied());
                 }
                 if assembly {
                     parts.push(part(shapes.data(), &contexts, body.name, origin, &solids));
@@ -338,6 +343,7 @@ pub fn write_step_detailed(
         ));
     }
     styles(&mut data, &coloured, context);
+    layers(&mut data, &layered);
     Ok(StepWritten {
         text: data.finish(),
         left_out,
@@ -465,6 +471,16 @@ fn styles(data: &mut Data, coloured: &[(Ref, [u8; 3])], context: Ref) {
         "MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION('',{},{context})",
         list(styled)
     ));
+}
+
+fn layers(data: &mut Data, layered: &BTreeMap<&str, Vec<Ref>>) {
+    for (layer, solids) in layered {
+        data.add(format!(
+            "PRESENTATION_LAYER_ASSIGNMENT({},'',{})",
+            text(layer),
+            list(solids.iter().copied())
+        ));
+    }
 }
 
 fn style_assignment(data: &mut Data, [red, green, blue]: [u8; 3]) -> Ref {

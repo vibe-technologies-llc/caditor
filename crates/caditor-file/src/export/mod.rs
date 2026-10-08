@@ -314,6 +314,7 @@ pub struct ExportBody<'a> {
     pub name: &'a str,
     pub solid: &'a Solid,
     pub look: Option<Look<'a>>,
+    pub group: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -520,6 +521,7 @@ fn export_step(
             colour: body
                 .look
                 .map(|look| [look.colour.red, look.colour.green, look.colour.blue]),
+            layer: body.group,
         })
         .collect();
     let model_name = path

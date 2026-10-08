@@ -217,7 +217,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · hard] One unsupported surface or curve loses the whole body: an `OFFSET_SURFACE` of a
   spline, extrusion or revolution (it would need a surface fitted within tolerance), `PARABOLA`,
   `HYPERBOLA` and the `*_REPLICA` forms. Fit a spline within the declared precision, or keep the
-  other faces and say which were lost. Colours and layers are not read.
+  other faces and say which were lost. A body of faces in mixed colours imports in the default
+  look, since face colours are not mapped onto the imported faces.
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
 

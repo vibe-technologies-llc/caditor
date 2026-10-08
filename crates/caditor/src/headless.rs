@@ -1,7 +1,6 @@
 use std::{
     path::{Path, PathBuf},
     process::ExitCode,
-    sync::Arc,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -15,7 +14,7 @@ use caditor_file::{
 use caditor_render::{Background, GraphicsSettings, ImageRequest, OffscreenRenderer, SurfaceSize};
 
 use crate::{
-    export::{self, ExportSource, OwnedLook, THUMBNAIL_SIZE},
+    export::{self, ExportSource, THUMBNAIL_SIZE},
     image_export::RenderedRows,
     import,
     model::display_name,
@@ -116,16 +115,8 @@ pub fn convert(conversion: &Conversion) -> Result<Converted> {
     }
     let exported = match target {
         Target::Mesh(format) => {
-            let export_bodies: Vec<ExportBody<'_>> = bodies
-                .iter()
-                .filter_map(|(name, result, look)| {
-                    Some(ExportBody {
-                        name,
-                        solid: &result.solid()?.solid,
-                        look: look.as_ref().map(OwnedLook::borrowed),
-                    })
-                })
-                .collect();
+            let export_bodies: Vec<ExportBody<'_>> =
+                bodies.iter().filter_map(ExportSource::exported).collect();
             let thumbnail = match format {
                 ExportFormat::ThreeMf => draw_thumbnail(&document, &evaluation),
                 _ => None,
@@ -260,16 +251,7 @@ fn count(bodies: usize) -> String {
 fn bodies(document: &Document, evaluation: &Evaluation) -> Vec<ExportSource> {
     evaluation
         .bodies()
-        .filter_map(|(body, _)| {
-            let result = evaluation.body_result(body)?;
-            result.solid()?;
-            let feature = document.feature(body);
-            let name = document
-                .body_name(body)
-                .map_or_else(|| "a body".to_owned(), str::to_owned);
-            let look = feature.and_then(|feature| OwnedLook::of(&feature.appearance));
-            Some((name, Arc::clone(result), look))
-        })
+        .filter_map(|(body, _)| ExportSource::of(document, evaluation, body))
         .collect()
 }
 

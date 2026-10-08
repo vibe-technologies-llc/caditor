@@ -69,6 +69,10 @@ paths:
   placed import. A copy scaled or mirrored, or one the turns cannot reproduce, is mapped and
   canonicalised on its own at the origin as before; one whose mapping fails is left out with
   `Misplacement::CopyUnplaceable`'s note.
+- Each `ImportedBody` carries the copy's STEP `colour` and its `layer` as `group`.
+  `bodies_transaction` sets a coloured body's appearance colour and puts a layered body in the
+  folder of its layer's name (one line, cut at `MAX_GROUP_NAME_CHARS`), moving the bodies of a
+  layer together at its first body so each layer is one folder; mesh imports have neither.
 - `bodies_transaction` adds an `Import` feature per body under unique names; the model file stores
   it as an `import` or `placed_import` record (`file-format.md`). The app refuses, before applying
   it, an import whose STEP text with the model's existing imports (`FeatureKind::stored_text_len`,
@@ -90,7 +94,8 @@ paths:
 
 ## Export (`export/`)
 
-- `export_bodies` writes STEP (a body with a look styled with its colour), or tessellates at a `MeshResolution` (a chord fraction of the
+- `export_bodies` writes STEP (a body with a look styled with its colour, a body in a folder
+  (`ExportBody::group`, the making feature's group) on a layer of the folder's name), or tessellates at a `MeshResolution` (a chord fraction of the
   largest body's diagonal plus an angle between triangles) into STL (`MeshOptions::stl`, see
   below), 3MF (one named object per body, millimetres, a thumbnail when given; a body with a
   colour or material points

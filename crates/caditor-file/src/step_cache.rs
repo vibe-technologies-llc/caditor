@@ -112,6 +112,7 @@ mod tests {
                 name: "Block",
                 solid: &solid,
                 colour: None,
+                layer: None,
             }],
             "Block",
             SystemTime::UNIX_EPOCH,

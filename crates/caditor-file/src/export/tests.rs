@@ -71,6 +71,7 @@ fn mesh_of(solid: &Solid, resolution: MeshResolution) -> MeshBody<'_> {
             name: "body",
             solid,
             look: None,
+            group: None,
         },
         &resolution.tolerance([solid]),
         &CancelToken::never(),
@@ -324,11 +325,13 @@ fn a_text_stl_keeps_each_body_as_a_named_solid_with_exact_coordinates() {
             name: "Far block",
             solid: &far,
             look: None,
+            group: None,
         },
         ExportBody {
             name: "Kühler\tpin",
             solid: &pin,
             look: None,
+            group: None,
         },
     ];
     let options = MeshOptions {
@@ -387,6 +390,7 @@ fn a_binary_stl_far_from_the_origin_is_moved_near_it_and_says_by_how_much() {
             name: "Block",
             solid,
             look: None,
+            group: None,
         }]
     };
     let export = |path: &Path, solid| {
@@ -437,6 +441,7 @@ fn a_3mf_thumbnail_is_a_png_the_package_relationships_point_to() {
         name: "Block",
         solid: &block,
         look: None,
+        group: None,
     }];
     let pixels: Vec<u8> = (0..4 * 3)
         .flat_map(|index| [index * 20, 40, 200, 255])
@@ -715,11 +720,13 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
                 colour: Rgb::new(255, 0, 51),
                 material: None,
             }),
+            group: None,
         },
         ExportBody {
             name: "Pin",
             solid: &pin,
             look: None,
+            group: None,
         },
         ExportBody {
             name: "Cap",
@@ -728,6 +735,7 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
                 colour: Rgb::new(0, 0, 255),
                 material: Some("Cast iron"),
             }),
+            group: None,
         },
     ];
 
@@ -769,6 +777,7 @@ fn an_obj_never_replaces_a_material_library_it_did_not_write() {
             colour: Rgb::new(10, 20, 30),
             material: None,
         }),
+        group: None,
     }];
 
     export_obj(&path, &coloured);
@@ -803,6 +812,7 @@ fn an_obj_of_plain_bodies_writes_no_material_library() {
             name: "Block",
             solid: &block,
             look: None,
+            group: None,
         }],
     );
 
@@ -1001,6 +1011,7 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
         name: "Extrude 1",
         solid: &block,
         look: None,
+        group: None,
     }];
     for format in ExportFormat::ALL {
         let path = dir.path().join(format!("part.{}", format.extension()));
@@ -1048,6 +1059,7 @@ fn a_step_export_styles_a_coloured_body_with_its_colour() {
             colour: Rgb::new(255, 0, 0),
             material: Some("Steel"),
         }),
+        group: None,
     }];
 
     export_bodies(
@@ -1069,6 +1081,38 @@ fn a_step_export_styles_a_coloured_body_with_its_colour() {
 }
 
 #[test]
+fn a_step_export_puts_bodies_in_a_folder_on_a_layer_named_after_it() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("parts.step");
+    let body = |name, group| ExportBody {
+        name,
+        solid: &block,
+        look: None,
+        group,
+    };
+    let bodies = [
+        body("Bolt", Some("Hardware")),
+        body("Plate", None),
+        body("Nut", Some("Hardware")),
+    ];
+
+    export_bodies(
+        &path,
+        ExportFormat::Step,
+        &MeshOptions::default(),
+        &bodies,
+        &ModelProperties::default(),
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let step = std::fs::read_to_string(&path).unwrap();
+
+    assert_eq!(step.matches("=PRESENTATION_LAYER_ASSIGNMENT(").count(), 1);
+    assert!(step.contains("=PRESENTATION_LAYER_ASSIGNMENT('Hardware','',(#"));
+}
+
+#[test]
 fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept() {
     let block = block();
     let bodies = [
@@ -1076,11 +1120,13 @@ fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept(
             name: "Good",
             solid: &block,
             look: None,
+            group: None,
         },
         ExportBody {
             name: "Bad",
             solid: &block,
             look: None,
+            group: None,
         },
     ];
     let mesher = |body: &ExportBody<'_>| match body.name {
@@ -1115,6 +1161,7 @@ fn a_cancelled_or_empty_export_writes_nothing() {
         name: "Extrude 1",
         solid: &block,
         look: None,
+        group: None,
     }];
     let cancelled = Arc::new(AtomicBool::new(true));
     let flag = Arc::clone(&cancelled);
@@ -1173,6 +1220,7 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
         name: "Extrude 1",
         solid: &block,
         look: None,
+        group: None,
     }];
     for (format, name, allowed) in [
         (ExportFormat::Stl, "part.stl", 2),
@@ -1852,6 +1900,7 @@ fn a_step_export_names_its_product_and_header_from_the_model_properties() {
         name: "Extrude 1",
         solid: &block,
         look: None,
+        group: None,
     }];
 
     export_bodies(

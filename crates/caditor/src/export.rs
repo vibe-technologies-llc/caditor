@@ -11,7 +11,8 @@ use std::{
 };
 
 use caditor_document::{
-    BodyAppearance, CancelToken, FeatureId, FeatureResult, ModelProperties, Rgb,
+    BodyAppearance, CancelToken, Document, Evaluation, FeatureId, FeatureResult, ModelProperties,
+    Rgb,
 };
 use caditor_file::{
     ExportBody, ExportError, ExportFormat, Exported, Look, MeshOptions, MeshResolution, RgbaImage,
@@ -105,9 +106,7 @@ pub struct Exporter {
 
 struct Body {
     id: FeatureId,
-    name: String,
-    result: Arc<FeatureResult>,
-    look: Option<OwnedLook>,
+    source: ExportSource,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -134,7 +133,38 @@ impl OwnedLook {
     }
 }
 
-pub type ExportSource = (String, Arc<FeatureResult>, Option<OwnedLook>);
+#[derive(Debug, Clone)]
+pub struct ExportSource {
+    pub name: String,
+    pub result: Arc<FeatureResult>,
+    pub look: Option<OwnedLook>,
+    pub group: Option<String>,
+}
+
+impl ExportSource {
+    pub fn of(document: &Document, evaluation: &Evaluation, body: FeatureId) -> Option<Self> {
+        let result = evaluation.body_result(body)?;
+        result.solid()?;
+        let feature = document.feature(body);
+        Some(Self {
+            name: document
+                .body_name(body)
+                .map_or_else(|| "a body".to_owned(), str::to_owned),
+            result: Arc::clone(result),
+            look: feature.and_then(|feature| OwnedLook::of(&feature.appearance)),
+            group: feature.and_then(|feature| feature.group.clone()),
+        })
+    }
+
+    pub fn exported(&self) -> Option<ExportBody<'_>> {
+        Some(ExportBody {
+            name: &self.name,
+            solid: &self.result.solid()?.solid,
+            look: self.look.as_ref().map(OwnedLook::borrowed),
+            group: self.group.as_deref(),
+        })
+    }
+}
 
 impl Exporter {
     pub fn is_open(&self) -> bool {
@@ -205,7 +235,7 @@ impl Exporter {
     ) {
         let (chosen, bodies): (Vec<FeatureId>, Vec<ExportSource>) = self
             .chosen(model)
-            .map(|body| (body.id, (body.name, body.result, body.look)))
+            .map(|body| (body.id, body.source))
             .unzip();
         let cancelled = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&cancelled);
@@ -334,17 +364,9 @@ impl Exporter {
     fn bodies(model: &Model) -> impl Iterator<Item = Body> + '_ {
         let evaluation = model.evaluation();
         evaluation.bodies().filter_map(move |(id, _)| {
-            let result = evaluation.body_result(id)?;
-            result.solid()?;
-            let feature = model.document().feature(id);
             Some(Body {
                 id,
-                name: model
-                    .document()
-                    .body_name(id)
-                    .map_or_else(|| "a body".to_owned(), str::to_owned),
-                result: Arc::clone(result),
-                look: feature.and_then(|feature| OwnedLook::of(&feature.appearance)),
+                source: ExportSource::of(model.document(), evaluation, id)?,
             })
         })
     }
@@ -396,16 +418,7 @@ fn export_results(
     properties: &ModelProperties,
     cancel: &CancelToken,
 ) -> Result<Exported, ExportError> {
-    let bodies: Vec<ExportBody<'_>> = bodies
-        .iter()
-        .filter_map(|(name, result, look)| {
-            Some(ExportBody {
-                name,
-                solid: &result.solid()?.solid,
-                look: look.as_ref().map(OwnedLook::borrowed),
-            })
-        })
-        .collect();
+    let bodies: Vec<ExportBody<'_>> = bodies.iter().filter_map(ExportSource::exported).collect();
     caditor_file::export_bodies(path, format, options, &bodies, properties, cancel)
 }
 
@@ -595,7 +608,7 @@ fn resolution_choice(
     let bounds: Vec<_> = bodies
         .iter()
         .filter(|body| !exporter.left_out.contains(&body.id))
-        .filter_map(|body| body.result.solid()?.bounding_box())
+        .filter_map(|body| body.source.result.solid()?.bounding_box())
         .collect();
     let describe = |resolution: MeshResolution| {
         let tolerance = resolution.tolerance_within(bounds.iter().copied());
@@ -657,7 +670,7 @@ fn body_choice(
             .show(ui, |ui| {
                 for body in bodies {
                     let mut included = !exporter.left_out.contains(&body.id);
-                    if ui.checkbox(&mut included, &body.name).changed() {
+                    if ui.checkbox(&mut included, &body.source.name).changed() {
                         *command = Some(ExportCommand::Include {
                             body: body.id,
                             included,
