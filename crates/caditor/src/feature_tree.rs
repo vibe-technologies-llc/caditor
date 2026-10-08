@@ -33,7 +33,7 @@ use crate::{
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel, split_panel, split_tools,
-    tree_row::{self, Look},
+    tree_row::{self, Look, ROW_GAP},
     visibility,
     widgets::{self, DialogWidth, Tone},
 };
@@ -151,7 +151,14 @@ fn rows(
         };
         let rect = ui
             .push_id(("feature", id), |ui| {
-                feature_row(ui, model, state, actions, &row)
+                if let Some(rect) = off_screen_row(ui, model, state, &row) {
+                    return rect;
+                }
+                let rect = feature_row(ui, model, state, actions, &row);
+                if is_plain(ui, model, state, &row) {
+                    state.plain_row_height = Some(rect.height());
+                }
+                rect
             })
             .inner;
         placed.push((TreeRow::Feature(id), rect));
@@ -485,6 +492,41 @@ fn feature_name(document: &Document, id: FeatureId) -> String {
 enum Name {
     Shown(Response),
     Renaming(field::FieldResponse<Transaction>),
+}
+
+fn off_screen_row(ui: &mut Ui, model: &Model, state: &PanelState, row: &Row<'_>) -> Option<Rect> {
+    let height = state.plain_row_height?;
+    let width = ui.available_width();
+    let estimate = Rect::from_min_size(ui.cursor().min, vec2(width, height));
+    let near_view = ui.clip_rect().intersects(estimate.expand(height + ROW_GAP));
+    if near_view || !is_plain(ui, model, state, row) {
+        return None;
+    }
+    Some(ui.allocate_space(vec2(width, height)).1)
+}
+
+fn is_plain(ui: &Ui, model: &Model, state: &PanelState, row: &Row<'_>) -> bool {
+    let id = row.feature.id();
+    let status = model.evaluation().feature(id);
+    let has_callout = status.is_some_and(|status| {
+        matches!(
+            status.state,
+            FeatureState::Failed(_) | FeatureState::Outdated
+        ) || (status.state == FeatureState::UpToDate && status.healing.is_some())
+    });
+    let collapsed = CollapsingState::load(ui.ctx(), ui.make_persistent_id(("feature-header", id)))
+        .is_none_or(|collapsing| collapsing.openness(ui.ctx()) == 0.0);
+    let row_focused = ui.memory(|memory| memory.has_focus(Id::new(("feature-row", id))));
+    !row.edited
+        && !has_callout
+        && collapsed
+        && !row_focused
+        && state.opened_for_editing != Some(id)
+        && state.finished_editing != Some(id)
+        && state.renaming.is_none_or(|renaming| renaming.feature != id)
+        && !state.revealing(id)
+        && !state.focus_inside(id)
+        && !state.wants_focus(Focus::Feature(id))
 }
 
 fn feature_row(

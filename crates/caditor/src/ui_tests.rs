@@ -14713,3 +14713,47 @@ fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_fro
     assert!(harness.shows("Slot angle"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
+
+#[test]
+fn feature_rows_far_out_of_view_are_not_laid_out_until_reached() {
+    let mut harness = Harness::new();
+    let mut transaction = harness.document().transaction("Add sketches");
+    for index in 0..150 {
+        transaction.add_feature(
+            format!("Far sketch {index}"),
+            FeatureKind::from(Sketch::new(Plane::XY)),
+        );
+    }
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    harness.context.enable_accesskit();
+    harness.frame();
+    harness.frame();
+    let laid_out = |harness: &Harness, name: &str| {
+        harness.accessible_named(Role::Button, &format!("More actions for {name}"))
+    };
+    let near_laid_out = laid_out(&harness, "Far sketch 0");
+    let far_laid_out = laid_out(&harness, "Far sketch 149");
+
+    run_from_palette(&mut harness, "Far sketch 149");
+    for _ in 0..REVEAL_FRAMES {
+        harness.frame();
+    }
+
+    assert!(near_laid_out);
+    assert!(!far_laid_out);
+    assert!(laid_out(&harness, "Far sketch 149"));
+    assert!(harness.shows("Far sketch 149"));
+    assert!(!laid_out(&harness, "Far sketch 0"));
+    assert_eq!(
+        harness.workspace.panels.chosen(),
+        vec![
+            harness
+                .document()
+                .features()
+                .find(|feature| feature.name == "Far sketch 149")
+                .unwrap()
+                .id()
+        ]
+    );
+}

@@ -323,8 +323,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   until the image is assembled beside them, about twice the image's size (some 540 MB at the 8192²
   limit), so memory is not yet bounded as `render.md` intends; reuse a few buffers and stream bands
   to the encoder.
-- [medium · medium] The feature tree lays out every row each frame, which a STEP import of hundreds
-  of bodies makes long.
 - [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of

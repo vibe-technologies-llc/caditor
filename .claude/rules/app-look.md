@@ -194,6 +194,11 @@ paths:
 - Tree rows (`tree_row.rs`, shared with `principal_tree.rs`) have fixed trailing slots that stay
   empty when a row has nothing for them, so icons line up in columns; callouts and cards under a
   row (`tree_row::indented`) keep the normal spacing.
+- A plain feature row (collapsed, no callout, not edited, renamed, revealed, focused or wanted for
+  focus; `feature_tree::is_plain`) more than a row beyond the visible part of the panel only
+  reserves the height last measured for one (`PanelState::plain_row_height`), so a tree of
+  hundreds of features lays out only what is near view. The row next to each edge is laid out, so
+  Tab and the keyboard still reach the next one.
 - Kind icons are tinted by category (sketches accent, bodies and modifiers text, datums muted;
   inactive or hidden rows muted). A failure shows once, as the status icon and its callout, never
   by recolouring the icon or name; an outdated row the same with a Recompute button. A row a

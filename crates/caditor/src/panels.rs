@@ -116,6 +116,7 @@ pub struct PanelState {
     pub constraint_offers: ConstraintOffers,
     pub parameter_uses: ParameterUses,
     pub tree_filter: String,
+    pub plain_row_height: Option<f32>,
     revealing: Option<PendingReveal>,
     layout: PanelLayout,
     layout_restored: bool,
