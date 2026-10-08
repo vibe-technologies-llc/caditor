@@ -15794,6 +15794,87 @@ fn extrude_with_a_face_selected_extrudes_that_face_out_of_its_body_not_the_last_
 }
 
 #[test]
+fn a_face_selected_while_another_feature_is_open_is_still_the_one_extruded_or_drilled() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(plate)));
+    harness.settle();
+
+    let extrusion = extrude_selected_face(&mut harness, top);
+    let extruded_sketch = open_extrude(&harness, extrusion).sketch;
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(plate)));
+    harness.settle();
+    let side = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            matches!(pickable, Pickable::Face { .. })
+                && pickable.describe(harness.document(), harness.model.evaluation())
+                    == "Extrude 1 › Extrude 2 end face"
+        })
+        .expect("the extruded face is pickable");
+    harness.select([side]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+
+    assert_eq!(attached_body(&harness, extruded_sketch), Some(plate));
+    assert_eq!(
+        open_extrude(&harness, extrusion).operation,
+        caditor_document::BodyOperation::Add(plate)
+    );
+    assert_eq!(
+        attached_body(&harness, open_hole(&harness, hole).sketch),
+        Some(plate)
+    );
+    assert_ne!(open_hole(&harness, hole).sketch, extruded_sketch);
+}
+
+#[test]
+fn extrude_and_revolve_refuse_a_selection_holding_no_sketch_instead_of_taking_the_last_one() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let edge = top_edge_along_x(&harness, plate, 0.0);
+    let features = harness.document().features().count();
+
+    harness.select([Pickable::Edge { body: plate, edge }]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.select([top]);
+    harness.click("Revolve");
+    harness.settle();
+
+    assert_eq!(harness.document().features().count(), features);
+    assert_eq!(harness.workspace.editing.solid(), None);
+}
+
+#[test]
+fn a_hole_takes_the_selected_sketch_point_over_a_selected_face() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let mut points = Sketch::new(Plane::XY);
+    let point = points.add_point(Point2::new(5.0, 5.0));
+    let sketch = harness.add_sketch(points);
+
+    harness.select([
+        top,
+        Pickable::SketchEntity {
+            feature: sketch,
+            entity: point,
+        },
+    ]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+
+    assert_eq!(open_hole(&harness, hole).sketch, sketch);
+    assert_eq!(open_hole(&harness, hole).body, plate);
+}
+
+#[test]
 fn a_chamfer_face_selected_for_extrude_grows_out_along_its_slant() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);

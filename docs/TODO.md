@@ -25,6 +25,44 @@ the unblocked ones; the entry that does the unblocking comes before it. An entry
 an importance is deliberately not a priority: it waits until the rest is done, and its category
 comes last.
 
+## Commands and selection
+
+A command that acts on something the selection does not point at changes the model behind the
+user's back, as Extrude did when it extruded the last sketch instead of a selected face. Each entry
+below should take the selection's target or refuse in words.
+
+- [high · medium] Commands fall back to a body or plane the selection does not name: Linear and
+  Circular pattern pattern the last body standing when the selection holds only a vertex, a sketch
+  line, a datum or a principal axis, or a body chosen in the tree or Bodies group
+  (`pattern_tools::source`); Mirror body and Split body use the YZ plane when the selected plane
+  is a flat face, a datum axis or point, or a datum after the rollback bar, and the Bodies group's
+  Split body ignores a plane selected in the view; a Hole into a sketch on a principal or datum
+  plane drills the last body standing though faces of another body are selected; a new Extrude or
+  Revolve adds to the last body standing though faces of another body are selected with its sketch.
+- [high · medium] The view's selection and the tree's disagree: Remove body, Rename body and Body
+  colour take the view's body over a body row chosen later in the tree (faces of A selected, B's
+  row clicked, Remove body removes A), and Move, Mirror, Scale, Pattern and Combine read only the
+  view. Extrude up to selected, Revolve about selected axis, Mirror across selected, Split along
+  selected, the Use selected rows of datums and patterns, and Place sketch apply to the tree's row
+  before the open feature (`feature_tree::current_feature`), so they change a feature that is only
+  being looked at.
+- [high · medium] "First" means the order of `Pickable`, not the order of clicks: the pattern
+  direction and the revolve axis take the first axis found (principal axis, sketch line, round
+  face, straight edge, datum axis), so an edge picked to name the body becomes the direction;
+  Revolve and Hole with entities of two sketches take the oldest sketch; any selected line of the
+  revolved sketch becomes its axis, the lowest id among several; New sketch and Place on selection
+  prefer a principal plane to a datum plane to a face; the Use selected rows of the solid, pattern,
+  mirror, split and datum panels take the first of several candidates. The selection needs the
+  order things were picked in, and several candidates should be refused or offered as a choice.
+- [medium · easy] Parts of a mixed selection are dropped without a word: Fillet and Chamfer drop
+  selected faces, Shell drops selected edges, colouring the selected faces skips faces of other
+  bodies, and Interference and Measure use only the primary tree row (a row that is not a body
+  makes Measure fall back to every shown body). Say what was left out.
+- [medium · easy] With nothing selected, Extrude, Revolve and Hole still guess the last sketch in
+  the tree, hidden and already swept ones included, so pressing Extrude again sweeps the profile
+  the previous extrusion used. Offer a sketch only while it has regions no feature sweeps, else
+  ask for one.
+
 ## Kernel correctness
 
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the

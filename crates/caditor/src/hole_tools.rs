@@ -11,7 +11,7 @@ use crate::{
     body_selection::face_boundary,
     editing::{self, EditingCommand, SketchEditing},
     model::{Action, Model, Notice},
-    selection::Selection,
+    selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
     solid_tools,
     units::LengthUnit,
@@ -38,6 +38,8 @@ const REFINEMENTS: usize = 4;
 const TIE: f64 = 1e-3;
 const NO_POINTS: &str = "Place points or circles in the sketch where the holes go";
 const NO_BODY: &str = "Make a body to drill into first";
+const NOTHING_TO_DRILL: &str =
+    "Select one flat face of a body to drill it, or the points of a sketch";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HoleSource {
@@ -184,8 +186,11 @@ pub fn start(
     selection: &Selection,
     editing: &SketchEditing,
 ) -> Result<HoleStart, &'static str> {
+    let sketch_chosen = selection
+        .iter()
+        .any(|pickable| matches!(pickable, Pickable::SketchEntity { .. }));
     let face = sketch_placement::selected_face(selection)
-        .filter(|_| editing.feature().is_none() && editing.solid().is_none());
+        .filter(|_| editing.feature().is_none() && !sketch_chosen);
     match face {
         Some(face) if sketch_placement::is_flat(model, face) => Ok(HoleStart::Face(face)),
         Some(_) => Err(sketch_placement::NOT_FLAT),
@@ -199,8 +204,13 @@ pub fn source(
     editing: &SketchEditing,
 ) -> Result<HoleSource, &'static str> {
     let document = model.document();
-    let sketch = solid_tools::sweep_source(document, selection, editing)
-        .ok_or(NO_SKETCH)?
+    let may_guess = selection.is_empty();
+    let sketch = solid_tools::sweep_source(document, selection, editing, may_guess)
+        .ok_or(if may_guess {
+            NO_SKETCH
+        } else {
+            NOTHING_TO_DRILL
+        })?
         .sketch;
     let definition = editing::edited_sketch(document, sketch).ok_or(NO_SKETCH)?;
     if hole_centres(definition).is_empty() {

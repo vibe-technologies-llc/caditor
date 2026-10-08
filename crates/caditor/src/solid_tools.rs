@@ -23,6 +23,10 @@ pub const DEFAULT_PARTIAL_ANGLE: f64 = 180.0;
 pub const DEFAULT_BACKWARD_ANGLE: f64 = 30.0;
 pub const NOT_FLAT_TO_EXTRUDE: &str =
     "The selected face is curved; only a flat face can be extruded";
+pub const NOTHING_TO_EXTRUDE: &str =
+    "Select one flat face of a body to extrude it, or the curves of a sketch";
+pub const NOTHING_TO_REVOLVE: &str =
+    "Select the curves of a sketch to revolve, with the axis to turn them about";
 const NO_OUTLINE: &str = "The selected face has no edges to extrude it by";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,6 +56,7 @@ pub fn sweep_source(
     document: &Document,
     selection: &Selection,
     editing: &SketchEditing,
+    may_guess: bool,
 ) -> Option<SweepSource> {
     let selected_sketch = selection.iter().find_map(|pickable| match pickable {
         Pickable::SketchEntity { feature, .. } => Some(feature),
@@ -72,16 +77,17 @@ pub fn sweep_source(
         .and_then(|solid| document.feature(solid))
         .and_then(|feature| feature.kind.solid())
         .map(SolidFeature::sketch);
-    let last_sketch = document
-        .active_features()
-        .rev()
-        .find(|feature| feature.kind.sketch().is_some())
-        .map(|feature| feature.id());
-    let sketch = editing
-        .feature()
-        .or(selected_sketch)
-        .or(opened_sketch)
-        .or(last_sketch)?;
+    let last_sketch = || {
+        document
+            .active_features()
+            .rev()
+            .find(|feature| feature.kind.sketch().is_some())
+            .map(|feature| feature.id())
+    };
+    let guessed = may_guess
+        .then(|| opened_sketch.or_else(last_sketch))
+        .flatten();
+    let sketch = editing.feature().or(selected_sketch).or(guessed)?;
     let definition = editing::edited_sketch(document, sketch)?;
     let axis = selection.iter().find_map(|pickable| match pickable {
         Pickable::SketchEntity { feature, entity } if feature == sketch => {
@@ -108,6 +114,10 @@ pub fn sweep_source(
     Some(SweepSource { sketch, axis })
 }
 
+pub fn may_guess_sketch(sweep: Sweep, selection: &Selection, lone_axis: bool) -> bool {
+    selection.is_empty() || (sweep == Sweep::Revolve && lone_axis && selection.len() == 1)
+}
+
 pub fn face_to_extrude(
     model: &Model,
     selection: &Selection,
@@ -116,7 +126,7 @@ pub fn face_to_extrude(
     let sketch_chosen = selection
         .iter()
         .any(|pickable| matches!(pickable, Pickable::SketchEntity { .. }));
-    if editing.feature().is_some() || editing.solid().is_some() || sketch_chosen {
+    if editing.feature().is_some() || sketch_chosen {
         return None;
     }
     let face = sketch_placement::selected_face(selection)?;
@@ -393,14 +403,15 @@ mod tests {
         let idle = SketchEditing::default();
 
         assert_eq!(
-            sweep_source(&document, &selection, &idle),
+            sweep_source(&document, &selection, &idle, true),
             Some(SweepSource {
                 sketch: side,
                 axis: None
             })
         );
         assert_eq!(
-            sweep_source(&document, &selection, &SketchEditing::editing(base)).map(|s| s.sketch),
+            sweep_source(&document, &selection, &SketchEditing::editing(base), false)
+                .map(|s| s.sketch),
             Some(base)
         );
         selection.replace_with(Pickable::SketchEntity {
@@ -408,15 +419,29 @@ mod tests {
             entity: line,
         });
         assert_eq!(
-            sweep_source(&document, &selection, &SketchEditing::editing(side)),
+            sweep_source(&document, &selection, &SketchEditing::editing(side), false),
             Some(SweepSource {
                 sketch: side,
                 axis: Some(RevolveAxis::Sketch(line))
             })
         );
         assert_eq!(
-            sweep_source(&Document::default(), &Selection::default(), &idle),
+            sweep_source(&Document::default(), &Selection::default(), &idle, true),
             None
+        );
+    }
+
+    #[test]
+    fn no_sketch_is_guessed_for_a_selection_that_holds_none() {
+        let (document, _, side, _) = document_with_sketches();
+        let idle = SketchEditing::default();
+        let mut selection = Selection::default();
+        selection.replace_with(Pickable::Axis(crate::selection::Axis::X));
+
+        assert_eq!(sweep_source(&document, &selection, &idle, false), None);
+        assert_eq!(
+            sweep_source(&document, &selection, &idle, true).map(|source| source.sketch),
+            Some(side)
         );
     }
 

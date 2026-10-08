@@ -96,13 +96,17 @@ paths:
 
 ## Extrude and Revolve
 
-- Extrude with one flat face of a body selected (no sketch edited, no sketch geometry selected,
-  no feature open) extrudes that face: one transaction creates a hidden sketch on the face holding
+- Extrude with one flat face of a body selected (no sketch edited, no sketch geometry selected;
+  an open feature does not matter) extrudes that face: one transaction creates a hidden sketch on the face holding
   its boundary edges projected (`projecting::face_projections`, so the outline follows the face),
   and an extrusion of it added to that body outward, with a notice naming the sketch
   (`solid_tools::create_on_face`); a curved face is refused in words. A selected face never falls
   through to the last sketch.
-- Otherwise they take the edited sketch, else the selection's, else the last. The revolve axis (also the
+- Otherwise they take the edited sketch, else the selection's sketch; only with nothing selected
+  (for Revolve, nothing but the axis it offers) do they guess the open extrusion's sketch, else the
+  last sketch (`solid_tools::may_guess_sketch`). A selection holding no sketch is refused in words
+  (`NOTHING_TO_EXTRUDE`, `NOTHING_TO_REVOLVE`), never swapped for a sketch it does not name. The
+  revolve axis (also the
   panel's axis picker) is a selected line or sketch axis, else a principal axis, datum axis,
   straight edge or round face.
 - A new feature adds to the last body standing (`Document::bodies_standing`, so never one a Combine
@@ -145,13 +149,13 @@ paths:
 
 ## Hole
 
-- Hole (Alt+O, in the Solid group) with one flat face selected (and no sketch edited or feature
-  open) creates in one transaction a hidden sketch on that face holding one point and the hole: the
+- Hole (Alt+O, in the Solid group) with one flat face selected (and no sketch edited and no sketch
+  geometry selected, which wins over the face) creates in one transaction a hidden sketch on that face holding one point and the hole: the
   point inside the face farthest from its edges and holes (`deepest_point`, a refined grid search
   over the sampled loops, ties going to the middle of its bounds), so an L- or U-shaped or holed face
   is drilled on material, with a notice saying how to move the point
   (`hole_tools::create_on_face`). Otherwise it takes the sketch the way Extrude does (edited,
-  selected, opened or last) and needs at least one free point or circle in it (`hole_centres`);
+  selected, or with nothing selected the opened or last one; else `NOTHING_TO_DRILL`) and needs at least one free point or circle in it (`hole_centres`);
   its body is the one the sketch is attached to, else the last body standing. It creates a plain
   blind hole of 6 mm by 10 mm, hides the sketch and opens the panel: Size (Custom or a metric
   screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, and Insert from M2 to M8, the size's

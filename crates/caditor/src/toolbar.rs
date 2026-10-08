@@ -243,20 +243,29 @@ fn solid_buttons(
     actions: &mut Vec<Action>,
 ) {
     let document = model.document();
-    let source = solid_tools::sweep_source(document, context.selection, context.editing)
-        .map(|source| solid_tools::with_model_axis(source, context.offers.model_axis.as_ref()));
     let face = solid_tools::face_to_extrude(model, context.selection, context.editing);
+    let lone_axis = context.offers.model_axis.is_some();
     for sweep in Sweep::ALL {
         let command = match sweep {
             Sweep::Extrude => Command::Extrude,
             Sweep::Revolve => Command::Revolve,
         };
+        let may_guess = solid_tools::may_guess_sketch(sweep, context.selection, lone_axis);
+        let source =
+            solid_tools::sweep_source(document, context.selection, context.editing, may_guess).map(
+                |source| solid_tools::with_model_axis(source, context.offers.model_axis.as_ref()),
+            );
         let face = face.filter(|_| sweep == Sweep::Extrude);
+        let missing = match sweep {
+            _ if may_guess => NO_SKETCH_TO_SWEEP,
+            Sweep::Extrude => solid_tools::NOTHING_TO_EXTRUDE,
+            Sweep::Revolve => solid_tools::NOTHING_TO_REVOLVE,
+        };
         let available = match (face, &source) {
             (Some(Ok(_)), _) => Ok(()),
             (Some(Err(reason)), _) => Err(reason),
             (None, Some(_)) => Ok(()),
-            (None, None) => Err(NO_SKETCH_TO_SWEEP),
+            (None, None) => Err(missing),
         };
         let invoked = commands.invoke(command, &available);
         let help = match (face, &source) {
@@ -279,7 +288,7 @@ fn solid_buttons(
                 };
                 Ok(commands.with_keys(command, &hover))
             }
-            (None, None) => Err(NO_SKETCH_TO_SWEEP.to_owned()),
+            (None, None) => Err(missing.to_owned()),
         };
         let response = tool(ui, command, sweep.label(), &help);
         if !(response.clicked() || invoked) {
