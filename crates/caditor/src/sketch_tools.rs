@@ -88,7 +88,10 @@ impl ConstraintTool {
             Self::Horizontal => "Make lines horizontal, or line points up horizontally",
             Self::Vertical => "Make lines vertical, or line points up vertically",
             Self::Parallel => "Make lines parallel",
-            Self::Perpendicular => "Make two lines meet at a right angle",
+            Self::Perpendicular => {
+                "Make two lines meet at a right angle, or a line cross a circle or arc square, \
+                 through its centre"
+            }
             Self::Tangent => "Make a line and a curve, or two curves, touch smoothly",
             Self::Equal => "Give lines the same length, or circles and arcs the same radius",
             Self::Symmetric => "Mirror two points, or two lines, about a line or a point",
@@ -120,7 +123,10 @@ impl ConstraintTool {
             Self::Collinear | Self::Parallel => "Select two or more lines",
             Self::Fix => "Select the points or curves to lock",
             Self::Horizontal | Self::Vertical => "Select one or more lines, or two or more points",
-            Self::Perpendicular => "Select two or more lines; the others turn square to the first",
+            Self::Perpendicular => {
+                "Select two or more lines, the others turning square to the first, or a line and \
+                 a circle or arc"
+            }
             Self::Angle => "Select two lines or one arc",
             Self::Tangent => {
                 "Select a line, circle or arc, and one or more circles, arcs or splines to touch it"
@@ -199,6 +205,10 @@ impl ConstraintTool {
             (Self::Horizontal, _) => each(items, Line, Constraint::Horizontal),
             (Self::Vertical, _) => each(items, Line, Constraint::Vertical),
             (Self::Parallel, _) => chained(items, Line, Constraint::Parallel),
+            (
+                Self::Perpendicular,
+                &[(line, Line), (curve, Circular)] | &[(curve, Circular), (line, Line)],
+            ) => Some(vec![Constraint::Perpendicular(line, curve)]),
             (Self::Perpendicular, _) => chained(items, Line, Constraint::Perpendicular),
             (Self::Tangent, _) => touching(items),
             (Self::Equal, _) => chained(items, Line, Constraint::Equal)
@@ -1139,6 +1149,10 @@ mod tests {
                 Constraint::Perpendicular(f.horizontal, f.slanted),
                 Constraint::Perpendicular(f.horizontal, EntityId::HORIZONTAL_AXIS),
             ])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Perpendicular, &[f.arc, f.slanted]),
+            Ok(vec![Constraint::Perpendicular(f.slanted, f.arc)])
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Tangent, &[f.circle, f.slanted, f.arc]),

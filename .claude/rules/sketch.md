@@ -45,6 +45,8 @@ paths:
   a gap of crossing curves is zero. An angle measures from its first line's direction (or its
   reverse when `reversed`, which the UI sets so a chain's corner is measured inside it) to its
   second's.
+- `Perpendicular` between a line and a circle or arc puts the centre on the line
+  (`Form::OnLine`), so the line crosses the curve square; between lines it is the right angle.
 - `ArcLength` and `Sweep` take an arc, never a circle: the sweep is the angle from the radius to
   its start to the radius to its end (`Form::Angle`, so any sweep below a full turn holds without
   flipping), the length the start radius times that counter-clockwise sweep (`Form::ArcLength`).

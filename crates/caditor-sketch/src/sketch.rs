@@ -640,6 +640,15 @@ impl Sketch {
                 self.expect(b, &[Role::Point], "a point")?;
                 self.check_not_only_reference(&entities)
             }
+            Constraint::Perpendicular(a, b)
+                if matches!(
+                    (self.role(a), self.role(b)),
+                    (Some(Role::Line), Some(Role::Circular))
+                        | (Some(Role::Circular), Some(Role::Line))
+                ) =>
+            {
+                self.check_not_only_reference(&entities)
+            }
             Constraint::Parallel(a, b)
             | Constraint::Perpendicular(a, b)
             | Constraint::Collinear(a, b)

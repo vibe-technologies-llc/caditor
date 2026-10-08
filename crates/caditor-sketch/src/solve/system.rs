@@ -407,10 +407,20 @@ impl System {
             Constraint::Parallel(a, b) => {
                 vec![Form::Parallel(self.line(sketch, a)?, self.line(sketch, b)?)]
             }
-            Constraint::Perpendicular(a, b) => vec![Form::Perpendicular(
-                self.line(sketch, a)?,
-                self.line(sketch, b)?,
-            )],
+            Constraint::Perpendicular(a, b) => match (role(a)?, role(b)?) {
+                (Role::Line, Role::Circular) => vec![Form::OnLine {
+                    point: self.circle(sketch, b)?.center,
+                    line: self.line(sketch, a)?,
+                }],
+                (Role::Circular, Role::Line) => vec![Form::OnLine {
+                    point: self.circle(sketch, a)?.center,
+                    line: self.line(sketch, b)?,
+                }],
+                _ => vec![Form::Perpendicular(
+                    self.line(sketch, a)?,
+                    self.line(sketch, b)?,
+                )],
+            },
             Constraint::Tangent(a, b) => match (role(a)?, role(b)?) {
                 (Role::Line, Role::Circular) => {
                     let joints = joints.get_or_init(|| Joints::of(sketch));

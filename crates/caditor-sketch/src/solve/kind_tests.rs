@@ -765,6 +765,33 @@ fn a_sweep_outside_one_turn_or_on_a_circle_is_refused() {
 }
 
 #[test]
+fn a_line_square_to_a_circle_or_arc_runs_through_its_centre() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::new(10.0, 4.0), 3.0);
+    let arc = sketch.add_arc(
+        Point2::new(-6.0, 2.0),
+        Point2::new(-3.0, 2.0),
+        Point2::new(-6.0, 5.0),
+    );
+    let centres = [center(&sketch, circle), center(&sketch, arc)];
+    for centre in centres {
+        fix(&mut sketch, centre);
+    }
+    let line = sketch.add_line(Point2::new(0.0, 1.0), Point2::new(5.0, 2.0));
+    add(&mut sketch, Constraint::Perpendicular(line, circle));
+    add(&mut sketch, Constraint::Perpendicular(arc, line));
+
+    let solved = solve(&sketch).unwrap();
+
+    let (start, end) = ends(&sketch, line);
+    let (start, end) = (at(&solved, start), at(&solved, end));
+    for centre in [Point2::new(10.0, 4.0), Point2::new(-6.0, 2.0)] {
+        let across = (end - start).normalize().perp_dot(centre - start);
+        assert!(across.abs() < EXACT, "{centre} is {across} off the line");
+    }
+}
+
+#[test]
 fn new_kinds_survive_degenerate_starts_without_nan() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::new(3.0, 3.0), Point2::new(3.0, 3.0 + 1e-13));
