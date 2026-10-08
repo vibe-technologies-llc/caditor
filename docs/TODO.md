@@ -233,6 +233,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   narrow face between two others, a fillet sized by chord length, a fillet that runs by a rule
   over every edge of a kind, setback corners where three fillets meet, a tangency weight, and a
   curvature-continuous (G2) fillet.
+- [medium · hard] Investigate why a chamfer sometimes fails on a corner where one is possible: find
+  the corners that refuse (the edges, the faces they meet and the `BlendError` each gives), tell
+  whether each is a missing corner case or a tolerance problem, and reproduce each as a test before
+  changing the kernel.
 - [medium · hard] Shell: no spline, extrusion or revolution faces, only flat faces open, one
   thickness for the whole body and always inward: no thickness per face, and no wall growing
   outward or to both sides of the faces.
