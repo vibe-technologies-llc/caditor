@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
+
 use caditor_document::{
     BlendKind, CombineOperation, Datum, Document, Edit, Feature, FeatureError, FeatureId,
     FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, PatternKind, RollbackBar,
     SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
 };
 use caditor_expression::Expression;
-use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch};
+use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
 use egui::{
     Align, Align2, Area, Color32, CursorIcon, FontId, Frame, Id, Key, Label, Modifiers, Order,
     Popup, Pos2, Rect, Response, RichText, Sense, Sides, Stroke, TextEdit, TextStyle, Ui,
@@ -33,7 +35,7 @@ use crate::{
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel, split_panel, split_tools,
-    tree_row::{self, Look, ROW_GAP},
+    tree_row::{self, Look},
     visibility,
     widgets::{self, DialogWidth, Tone},
 };
@@ -496,13 +498,16 @@ enum Name {
 
 fn off_screen_row(ui: &mut Ui, model: &Model, state: &PanelState, row: &Row<'_>) -> Option<Rect> {
     let height = state.plain_row_height?;
-    let width = ui.available_width();
-    let estimate = Rect::from_min_size(ui.cursor().min, vec2(width, height));
-    let near_view = ui.clip_rect().intersects(estimate.expand(height + ROW_GAP));
-    if near_view || !is_plain(ui, model, state, row) {
+    if near_view(ui, height) || !is_plain(ui, model, state, row) {
         return None;
     }
-    Some(ui.allocate_space(vec2(width, height)).1)
+    Some(ui.allocate_space(vec2(ui.available_width(), height)).1)
+}
+
+fn near_view(ui: &Ui, height: f32) -> bool {
+    let estimate = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), height));
+    ui.clip_rect()
+        .intersects(estimate.expand(height + ui.spacing().item_spacing.y))
 }
 
 fn is_plain(ui: &Ui, model: &Model, state: &PanelState, row: &Row<'_>) -> bool {
@@ -2118,7 +2123,8 @@ struct SketchCard<'a> {
     model: &'a Model,
     feature: &'a Feature,
     sketch: &'a Sketch,
-    involved: Vec<ConstraintId>,
+    involved: BTreeSet<ConstraintId>,
+    solution: Option<&'a SketchSolution>,
 }
 
 fn sketch_body(
@@ -2144,6 +2150,7 @@ fn sketch_body(
         feature,
         sketch,
         involved: involved_constraints(model, feature),
+        solution: sketch_status::up_to_date_solution(model.evaluation(), feature.id()),
     };
     let (dimensions, constraints): (Vec<_>, Vec<_>) = sketch
         .constraints()
@@ -2166,10 +2173,38 @@ fn sketch_body(
         }
         widgets::section(ui, &id, title, Some(listed.len()), None, |ui| {
             for (constraint, definition) in listed {
-                constraint_row(ui, &card, state, actions, constraint, definition);
+                let plain = is_plain_constraint(&card, state, constraint, definition);
+                if plain
+                    && let Some(height) = state.plain_constraint_height
+                    && !near_view(ui, height)
+                {
+                    ui.allocate_space(vec2(ui.available_width(), height));
+                    continue;
+                }
+                let row = constraint_row(ui, &card, state, actions, constraint, definition);
+                if plain {
+                    state.plain_constraint_height = Some(row.height());
+                }
             }
         });
     }
+}
+
+fn is_plain_constraint(
+    card: &SketchCard<'_>,
+    state: &PanelState,
+    constraint: ConstraintId,
+    definition: &Constraint,
+) -> bool {
+    definition.dimension().is_none()
+        && card
+            .solution
+            .and_then(|solution| solution.redundancy(constraint))
+            .is_none()
+        && !state.wants_focus(Focus::Constraint {
+            feature: card.feature.id(),
+            constraint,
+        })
 }
 
 fn constraint_row(
@@ -2179,7 +2214,7 @@ fn constraint_row(
     actions: &mut Vec<Action>,
     constraint: ConstraintId,
     definition: &Constraint,
-) {
+) -> Rect {
     let SketchCard {
         model,
         feature,
@@ -2187,8 +2222,9 @@ fn constraint_row(
         ..
     } = *card;
     let description = sketch.describe_constraint(constraint);
-    let solution = sketch_status::up_to_date_solution(model.evaluation(), feature.id());
-    let redundancy = solution.and_then(|solution| solution.redundancy(constraint));
+    let redundancy = card
+        .solution
+        .and_then(|solution| solution.redundancy(constraint));
     let text = if card.involved.contains(&constraint) {
         RichText::new(&description).color(ui.visuals().error_fg_color)
     } else if redundancy.is_some() {
@@ -2234,6 +2270,7 @@ fn constraint_row(
         });
     }
     let label = row.id;
+    let rect = row.rect;
     reveal_if_focused(
         state,
         row,
@@ -2245,6 +2282,7 @@ fn constraint_row(
     if let Some(expression) = definition.dimension() {
         dimension_field(ui, card, state, actions, constraint, expression, label);
     }
+    rect
 }
 
 fn dimension_field(
@@ -2322,20 +2360,20 @@ fn redundancy_text(sketch: &Sketch, redundancy: &Redundancy) -> String {
     }
 }
 
-fn involved_constraints(model: &Model, feature: &Feature) -> Vec<ConstraintId> {
+fn involved_constraints(model: &Model, feature: &Feature) -> BTreeSet<ConstraintId> {
     match model
         .evaluation()
         .feature(feature.id())
         .map(|status| &status.state)
     {
-        Some(FeatureState::Failed(error)) => error.constraints.clone(),
+        Some(FeatureState::Failed(error)) => error.constraints.iter().copied().collect(),
         Some(
             FeatureState::UpToDate
             | FeatureState::Outdated
             | FeatureState::Suppressed
             | FeatureState::RolledBack,
         )
-        | None => Vec::new(),
+        | None => BTreeSet::new(),
     }
 }
 

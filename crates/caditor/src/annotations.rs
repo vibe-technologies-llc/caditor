@@ -18,6 +18,7 @@ use crate::{
     selection::{Pickable, Selection},
     sketch_status,
     snap::Screen,
+    units::Units,
 };
 
 const LABEL_GAP: f32 = 3.0;
@@ -72,7 +73,6 @@ struct DimensionMark {
     layout: DimensionLayout,
     text: String,
     standing: Standing,
-    description: String,
 }
 
 struct GlyphMark {
@@ -81,15 +81,81 @@ struct GlyphMark {
     kind: GlyphKind,
     center: Vector2,
     standing: Standing,
-    description: String,
-    beyond: Option<usize>,
+    hover: Hover,
 }
 
 struct GlyphItem {
     constraint: ConstraintId,
     kind: GlyphKind,
     standing: Standing,
-    description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Hover {
+    Dimension(ConstraintId),
+    Glyph(ConstraintId),
+    Beyond(Vec<ConstraintId>),
+}
+
+impl Hover {
+    fn describe(&self, sketch: &Sketch) -> String {
+        match self {
+            Self::Dimension(constraint) => {
+                let described = sketch
+                    .constraint(*constraint)
+                    .map(|constraint| sketch.describe(constraint))
+                    .unwrap_or_default();
+                format!("{described}. {EDIT_HINT}")
+            }
+            Self::Glyph(constraint) => sketch.describe_constraint(*constraint),
+            Self::Beyond(hidden) => beyond_description(sketch, hidden),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TextsKey {
+    feature: FeatureId,
+    revision: u64,
+    evaluation: u64,
+    sketches: u64,
+    units: Units,
+}
+
+#[derive(Debug, Clone, Default)]
+struct LabelTexts {
+    key: Option<TextsKey>,
+    texts: BTreeMap<ConstraintId, String>,
+}
+
+impl LabelTexts {
+    fn refresh(&mut self, model: &Model, feature: FeatureId) {
+        let key = TextsKey {
+            feature,
+            revision: model.revision(),
+            evaluation: model.evaluation_generation(),
+            sketches: model.display().sketches.generation(),
+            units: model.units(),
+        };
+        if self.key != Some(key) {
+            self.key = Some(key);
+            self.texts.clear();
+        }
+    }
+
+    fn text(
+        &mut self,
+        model: &Model,
+        shown: &Sketch,
+        id: ConstraintId,
+        constraint: &Constraint,
+        expression: &Expression,
+    ) -> String {
+        self.texts
+            .entry(id)
+            .or_insert_with(|| label_text(model, shown, id, constraint, expression))
+            .clone()
+    }
 }
 
 struct GlyphGroup {
@@ -111,7 +177,9 @@ impl Marks {
         feature: FeatureId,
         screen: &impl Screen,
         view: Vector2,
+        texts: &mut LabelTexts,
     ) -> Option<Self> {
+        texts.refresh(model, feature);
         let owner = model.document().feature(feature)?;
         let definition = owner.kind.sketch()?;
         let shown = model.displayed_sketch(owner)?;
@@ -149,9 +217,8 @@ impl Marks {
                 dimensions.push(DimensionMark {
                     constraint: id,
                     layout,
-                    text: label_text(model, &shown, id, constraint, expression),
+                    text: texts.text(model, &shown, id, constraint, expression),
                     standing: standings.of(id),
-                    description: definition.describe(constraint),
                 });
             }
         }
@@ -170,7 +237,6 @@ impl Marks {
                             constraint,
                             kind,
                             standing: standings.of(constraint),
-                            description: definition.describe_constraint(constraint),
                         })
                         .collect(),
                 })
@@ -220,8 +286,7 @@ impl Marks {
                 kind: item.kind,
                 center,
                 standing: item.standing,
-                description: item.description.clone(),
-                beyond: None,
+                hover: Hover::Glyph(item.constraint),
             }));
             if let (Some(center), Some(first)) = (beyond_at, hidden.first()) {
                 glyphs.push(GlyphMark {
@@ -230,8 +295,7 @@ impl Marks {
                     kind: first.kind,
                     center,
                     standing: first.standing,
-                    description: beyond_description(hidden),
-                    beyond: Some(hidden.len()),
+                    hover: Hover::Beyond(hidden.iter().map(|item| item.constraint).collect()),
                 });
             }
         }
@@ -385,14 +449,14 @@ pub struct Annotations {
     hovered: Option<Pickable>,
     field: Option<OpenField>,
     request: Option<FieldRequest>,
+    texts: LabelTexts,
 }
 
 struct Placed {
     pickable: Pickable,
     hit: Rect,
     key: (ConstraintId, Option<EntityId>),
-    description: String,
-    editable: bool,
+    hover: Hover,
 }
 
 impl Annotations {
@@ -429,7 +493,13 @@ impl Annotations {
             f64::from(surface.rect.width()),
             f64::from(surface.rect.height()),
         );
-        let Some(marks) = Marks::collect(model, surface.feature, surface.screen, view) else {
+        let Some(marks) = Marks::collect(
+            model,
+            surface.feature,
+            surface.screen,
+            view,
+            &mut self.texts,
+        ) else {
             self.field = None;
             return;
         };
@@ -474,8 +544,7 @@ impl Annotations {
                     pickable: pickable(mark.constraint),
                     hit: *rect,
                     key: (mark.constraint, None),
-                    description: format!("{}. {EDIT_HINT}", mark.description),
-                    editable: true,
+                    hover: Hover::Dimension(mark.constraint),
                 })
             })
             .chain(glyphs.iter().map(|mark| Placed {
@@ -485,12 +554,16 @@ impl Annotations {
                     egui::Vec2::splat(GLYPH_HIT_SIZE),
                 ),
                 key: (mark.constraint, Some(mark.anchor)),
-                description: mark.description.clone(),
-                editable: false,
+                hover: mark.hover.clone(),
             }));
-        if surface.interactive {
+        if surface.interactive
+            && let Some(definition) = model
+                .document()
+                .feature(surface.feature)
+                .and_then(|owner| owner.kind.sketch())
+        {
             for target in placed {
-                self.interact(ui, surface, target, selection);
+                self.interact(ui, surface, target, selection, definition);
             }
         }
 
@@ -521,9 +594,11 @@ impl Annotations {
         for mark in &glyphs {
             let center = to_pos(surface.rect, mark.center);
             let tint = color(mark.constraint, mark.standing);
-            match mark.beyond {
-                Some(count) => paint_beyond(&painter, center, count, tint),
-                None => paint_glyph(&painter, center, mark.kind, tint),
+            match &mark.hover {
+                Hover::Beyond(hidden) => paint_beyond(&painter, center, hidden.len(), tint),
+                Hover::Dimension(_) | Hover::Glyph(_) => {
+                    paint_glyph(&painter, center, mark.kind, tint);
+                }
             }
         }
         for end in &marks.open_ends {
@@ -578,6 +653,7 @@ impl Annotations {
         surface: &Surface<'_, impl Screen>,
         target: Placed,
         selection: &mut Selection,
+        definition: &Sketch,
     ) {
         let hit = target.hit.intersect(surface.rect);
         if !hit.is_positive() {
@@ -599,7 +675,7 @@ impl Annotations {
                 selection.replace_with(target.pickable);
             }
         }
-        if target.editable
+        if matches!(target.hover, Hover::Dimension(_))
             && response.double_clicked()
             && let Pickable::SketchConstraint {
                 feature,
@@ -608,7 +684,9 @@ impl Annotations {
         {
             self.open(feature, constraint);
         }
-        response.on_hover_text(target.description);
+        response.on_hover_ui(|ui| {
+            ui.label(target.hover.describe(definition));
+        });
     }
 
     fn show_field(
@@ -775,11 +853,11 @@ pub fn glyph_letter(kind: GlyphKind) -> Option<&'static str> {
     }
 }
 
-fn beyond_description(hidden: &[GlyphItem]) -> String {
-    let listed: Vec<&str> = hidden
+fn beyond_description(sketch: &Sketch, hidden: &[ConstraintId]) -> String {
+    let listed: Vec<String> = hidden
         .iter()
         .take(LISTED_BEYOND)
-        .map(|item| item.description.as_str())
+        .map(|constraint| sketch.describe_constraint(*constraint))
         .collect();
     let unlisted = hidden.len().saturating_sub(LISTED_BEYOND);
     let more = if unlisted > 0 {

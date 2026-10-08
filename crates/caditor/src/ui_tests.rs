@@ -14757,3 +14757,30 @@ fn feature_rows_far_out_of_view_are_not_laid_out_until_reached() {
         ]
     );
 }
+
+#[test]
+fn constraint_rows_far_out_of_view_are_not_laid_out() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    for index in 0..200 {
+        let y = f64::from(index);
+        let line = sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y + 0.5));
+        sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+    }
+    let feature = harness.add_sketch(sketch);
+    harness.context.enable_accesskit();
+    harness.edit(feature);
+    harness.frame();
+    harness.frame();
+    let delete_buttons = harness
+        .accessible
+        .iter()
+        .filter(|(_, node)| {
+            node.role() == Role::Button && node.label() == Some("Delete this constraint")
+        })
+        .count();
+
+    assert!(harness.shows(crate::feature_tree::CONSTRAINTS_TITLE));
+    assert!(delete_buttons > 0);
+    assert!(delete_buttons < 100, "{delete_buttons}");
+}

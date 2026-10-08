@@ -311,11 +311,10 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Interface performance
 
-- [medium · medium] Every frame `Marks::collect` formats every constraint's description, evaluates
-  every dimension and registers an `interact` per glyph, and an expanded sketch in the tree does the
-  same per constraint row, searching the list of involved constraints linearly for each; the
-  `large_sketch` benchmark has no constraints. Cache per generation, cull off-screen marks and
-  virtualise the tree.
+- [low · medium] Every frame `Marks::collect` still measures and lays out every dimension and
+  groups every glyph of the edited sketch, on screen or not, and an expanded sketch card formats
+  the description of each constraint row near view; the `large_sketch` benchmark has no
+  constraints.
 - [medium · medium] Meshes are uploaded whole on the UI thread in the frame that first shows them;
   the render crate's `frame_costs_of_drawing_a_large_scene` benchmark has no meshes, picking or
   hover.

@@ -339,7 +339,10 @@ paths:
   Labels use `canvas::body` on
   the canvas backdrop, glyph letters `canvas::emphasis`.
 - Labels show the expression in the document's naming, followed by its value when not a literal;
-  conflicting and redundant constraints take the error and warning colours.
+  conflicting and redundant constraints take the error and warning colours. Label texts are kept
+  per sketch until the revision, evaluation, displayed sketches or units change
+  (`annotations::LabelTexts`), and a mark's description is formatted only for its hover
+  (`annotations::Hover`), so a still frame formats and evaluates nothing.
 - Labels and glyphs are `Pickable::SketchConstraint`: hover highlights the entities, click selects
   (Shift or Ctrl toggles), Delete removes selected constraints and entities in one transaction.
   They are painted but not interactive while a drawing tool is active.
