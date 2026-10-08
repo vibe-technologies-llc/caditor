@@ -72,7 +72,8 @@ paths:
   with the conflict named (`Model::sketch_conflict`, the first two constraints and how many
   more), and the notice when the drag ends names them too.
 - A primary drag elsewhere draws a box: left to right a window taking what lies inside (curves
-  faceted as drawn, `app.md`), right to left a crossing box taking what it touches. It replaces
+  faceted as drawn, `app.md`), right to left a crossing box taking what it touches; with Select
+  with a lasso on, a freehand outline taking what lies inside it (`app-input.md`). It replaces
   the selection (Shift or Ctrl adds); a point is left out when a curve it belongs to was taken.
 - Move selected geometry opens the typed-point field (`app-input.md`) as "Move to", committed and
   solved like a drag; button and command share availability (`Moving::offered`).

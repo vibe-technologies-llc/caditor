@@ -347,6 +347,104 @@ impl ScreenBox {
     }
 }
 
+const LASSO_STEP: f64 = 2.0;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScreenArea {
+    Box(ScreenBox),
+    Lasso(Vec<Vector2>),
+}
+
+impl ScreenArea {
+    pub fn starting_at(point: Vector2, lasso: bool) -> Self {
+        if lasso {
+            Self::Lasso(vec![point])
+        } else {
+            Self::Box(ScreenBox {
+                from: point,
+                to: point,
+            })
+        }
+    }
+
+    pub fn reach(&mut self, point: Vector2) {
+        match self {
+            Self::Box(area) => area.to = point,
+            Self::Lasso(points) => {
+                if points
+                    .last()
+                    .is_none_or(|last| last.distance(point) >= LASSO_STEP)
+                {
+                    points.push(point);
+                }
+            }
+        }
+    }
+
+    pub fn mode(&self) -> BoxMode {
+        match self {
+            Self::Box(area) => area.mode(),
+            Self::Lasso(_) => BoxMode::Window,
+        }
+    }
+
+    pub fn bounds(&self) -> (Vector2, Vector2) {
+        match self {
+            Self::Box(area) => (area.min(), area.max()),
+            Self::Lasso(points) => points.iter().fold(
+                (
+                    Vector2::splat(f64::INFINITY),
+                    Vector2::splat(f64::NEG_INFINITY),
+                ),
+                |(low, high), point| (low.min(*point), high.max(*point)),
+            ),
+        }
+    }
+
+    pub fn centre(&self) -> Vector2 {
+        let (low, high) = self.bounds();
+        (low + high) * 0.5
+    }
+
+    pub fn contains(&self, point: Vector2) -> bool {
+        match self {
+            Self::Box(area) => area.contains(point),
+            Self::Lasso(points) => {
+                let mut inside = false;
+                for (index, current) in points.iter().enumerate() {
+                    let previous = points
+                        .get(index.checked_sub(1).unwrap_or(points.len() - 1))
+                        .copied()
+                        .unwrap_or(*current);
+                    if (current.y > point.y) != (previous.y > point.y) {
+                        let across = previous.x
+                            + (point.y - previous.y) / (current.y - previous.y)
+                                * (current.x - previous.x);
+                        if point.x < across {
+                            inside = !inside;
+                        }
+                    }
+                }
+                inside
+            }
+        }
+    }
+
+    pub fn crosses(&self, from: Vector2, to: Vector2) -> bool {
+        match self {
+            Self::Box(area) => area.crosses(from, to),
+            Self::Lasso(points) => {
+                self.contains(from)
+                    || self.contains(to)
+                    || points
+                        .iter()
+                        .zip(points.iter().cycle().skip(1))
+                        .any(|(start, end)| segments_cross(from, to, *start, *end))
+            }
+        }
+    }
+}
+
 fn segments_cross(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
     let side = |p: Vector2, q: Vector2, r: Vector2| (q - p).perp_dot(r - p);
     let (first, second) = (side(a, b, c), side(a, b, d));
@@ -357,7 +455,7 @@ fn segments_cross(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
 pub fn within(
     sketch: &Sketch,
     screen: &impl Screen,
-    area: ScreenBox,
+    area: &ScreenArea,
     faceting: Faceting,
 ) -> Vec<EntityId> {
     let mode = area.mode();
@@ -533,6 +631,27 @@ mod tests {
     }
 
     #[test]
+    fn a_lasso_takes_what_lies_inside_its_outline_even_where_it_bends_in() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let inside = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(2.0, 1.0));
+        let in_the_notch = sketch.add_line(Point2::new(5.0, 6.0), Point2::new(6.0, 6.0));
+        let mut lasso = ScreenArea::starting_at(Vector2::new(0.0, 0.0), true);
+        for (x, y) in [(10.0, 0.0), (10.0, -10.0), (5.0, -3.0), (0.0, -10.0)] {
+            lasso.reach(Vector2::new(x, y));
+        }
+
+        let caught = within(&sketch, &Flat, &lasso, Faceting::within(0.01));
+
+        assert_eq!(lasso.mode(), BoxMode::Window);
+        assert!(lasso.contains(Vector2::new(1.5, -1.0)));
+        assert!(!lasso.contains(Vector2::new(5.0, -6.0)));
+        assert!(lasso.crosses(Vector2::new(5.0, -6.0), Vector2::new(1.5, -1.0)));
+        assert!(!lasso.crosses(Vector2::new(20.0, 0.0), Vector2::new(20.0, -5.0)));
+        assert!(caught.contains(&inside));
+        assert!(!caught.contains(&in_the_notch));
+    }
+
+    #[test]
     fn a_window_takes_what_lies_inside_and_a_crossing_box_what_it_touches() {
         let mut sketch = Sketch::new(Plane::XY);
         let inside = sketch.add_line(Point2::new(1.0, 1.0), Point2::new(4.0, 1.0));
@@ -551,11 +670,21 @@ mod tests {
 
         assert_eq!(window.mode(), BoxMode::Window);
         assert_eq!(
-            within(&sketch, &Flat, window, Faceting::within(0.01)),
+            within(
+                &sketch,
+                &Flat,
+                &ScreenArea::Box(window),
+                Faceting::within(0.01)
+            ),
             vec![inside, across_start, lone]
         );
         assert_eq!(
-            within(&sketch, &Flat, crossing, Faceting::within(0.01)),
+            within(
+                &sketch,
+                &Flat,
+                &ScreenArea::Box(crossing),
+                Faceting::within(0.01)
+            ),
             vec![inside, across, lone]
         );
         let all = everything(&sketch);

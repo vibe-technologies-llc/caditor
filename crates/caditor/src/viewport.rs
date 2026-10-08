@@ -42,7 +42,7 @@ use crate::{
     selection::{Pickable, Selection, SelectionFilter},
     shape_modes::ShapeMode,
     shell_tools,
-    sketch_drag::{self, BoxMode, Grab, Moving, ScreenBox},
+    sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea},
     sketch_placement::{self, FaceChoice},
     sketch_toolbar, sketch_tools,
     snap::{Pointer, Screen},
@@ -170,10 +170,20 @@ struct Press {
 #[derive(Debug, Clone, PartialEq)]
 enum PrimaryDrag {
     Grab(Grab),
-    Box { feature: FeatureId, area: ScreenBox },
-    ModelBox { area: ScreenBox },
-    Trim { feature: FeatureId, from: Point2 },
-    Pull { feature: FeatureId },
+    Box {
+        feature: FeatureId,
+        area: ScreenArea,
+    },
+    ModelBox {
+        area: ScreenArea,
+    },
+    Trim {
+        feature: FeatureId,
+        from: Point2,
+    },
+    Pull {
+        feature: FeatureId,
+    },
     Manipulate(Manipulating),
 }
 
@@ -248,6 +258,7 @@ pub struct ViewportState {
     contrast: Contrast,
     snapping: bool,
     grid_snapping: bool,
+    lasso: bool,
     typed_dimensions: bool,
     glyphs_shown: bool,
     manipulator: Option<Manipulator>,
@@ -364,6 +375,7 @@ impl ViewportState {
             contrast: Contrast::default(),
             snapping: true,
             grid_snapping: false,
+            lasso: false,
             typed_dimensions: true,
             glyphs_shown: true,
             manipulator: None,
@@ -380,6 +392,10 @@ impl ViewportState {
 
     pub fn grid_snapping(&self) -> bool {
         self.grid_snapping
+    }
+
+    pub fn lasso(&self) -> bool {
+        self.lasso
     }
 
     pub fn typed_dimensions(&self) -> bool {
@@ -1204,7 +1220,7 @@ impl ViewportState {
             }
             Some(PrimaryDrag::Box { area, .. } | PrimaryDrag::ModelBox { area }) => {
                 if let Some(cursor) = cursor {
-                    area.to = cursor / f64::from(self.pixels_per_point);
+                    area.reach(cursor / f64::from(self.pixels_per_point));
                 }
             }
             Some(PrimaryDrag::Trim { .. } | PrimaryDrag::Pull { .. }) | None => {}
@@ -1216,10 +1232,10 @@ impl ViewportState {
                     actions.push(Action::Drag(grab.finish()));
                 }
                 Some(PrimaryDrag::Box { feature, area }) => {
-                    self.select_within(model, feature, area, toggle);
+                    self.select_within(model, feature, &area, toggle);
                 }
                 Some(PrimaryDrag::ModelBox { area }) => {
-                    self.select_in_model(model, editing, area, toggle);
+                    self.select_in_model(model, editing, &area, toggle);
                 }
                 Some(PrimaryDrag::Trim { .. }) => {
                     actions.extend(outcome_action(self.trimming.finish_path(model)));
@@ -1311,7 +1327,7 @@ impl ViewportState {
         {
             let at = press.cursor / f64::from(self.pixels_per_point);
             return Some(PrimaryDrag::ModelBox {
-                area: ScreenBox { from: at, to: at },
+                area: ScreenArea::starting_at(at, self.lasso),
             });
         }
         if let Some(manipulating) = self.manipulate_from(press, model) {
@@ -1342,7 +1358,7 @@ impl ViewportState {
             let at = press.cursor / f64::from(self.pixels_per_point);
             return Some(PrimaryDrag::Box {
                 feature,
-                area: ScreenBox { from: at, to: at },
+                area: ScreenArea::starting_at(at, self.lasso),
             });
         };
         let owner = model.document().feature(feature)?;
@@ -1352,7 +1368,13 @@ impl ViewportState {
         Grab::of(&sketch, feature, grabbed, &selected, from).map(PrimaryDrag::Grab)
     }
 
-    fn select_within(&mut self, model: &Model, feature: FeatureId, area: ScreenBox, toggle: bool) {
+    fn select_within(
+        &mut self,
+        model: &Model,
+        feature: FeatureId,
+        area: &ScreenArea,
+        toggle: bool,
+    ) {
         let Some(owner) = model.document().feature(feature) else {
             return;
         };
@@ -1370,7 +1392,7 @@ impl ViewportState {
         &mut self,
         model: &Model,
         editing: &SketchEditing,
-        area: ScreenBox,
+        area: &ScreenArea,
         keep: bool,
     ) {
         if !box_selection::is_a_box(area) {
@@ -1844,6 +1866,9 @@ impl ViewportState {
         }
         if commands.available(Command::ToggleGridSnapping) {
             self.grid_snapping = !self.grid_snapping;
+        }
+        if commands.available(Command::ToggleLasso) {
+            self.lasso = !self.lasso;
         }
         if commands.available(Command::ToggleTypedDimensions) {
             self.typed_dimensions = !self.typed_dimensions;
@@ -2590,7 +2615,7 @@ impl ViewportState {
         let painter = ui.painter();
         if let Some(PrimaryDrag::Box { area, .. } | PrimaryDrag::ModelBox { area }) = &self.primary
         {
-            paint_box(painter, rect, *area);
+            paint_area(painter, rect, area);
         }
         if let Some((line, label)) = &self.measured
             && let Some(view) = self.view()
@@ -2994,8 +3019,19 @@ fn paint_prompt(painter: &egui::Painter, rect: Rect, band: Rect, text: &str, key
     shown.union(hinted)
 }
 
-fn paint_box(painter: &egui::Painter, rect: Rect, area: ScreenBox) {
+fn paint_area(painter: &egui::Painter, rect: Rect, area: &ScreenArea) {
     let corner = |at: Vector2| rect.min + egui::Vec2::new(at.x as f32, at.y as f32);
+    let area = match area {
+        ScreenArea::Box(area) => *area,
+        ScreenArea::Lasso(points) => {
+            let outline: Vec<egui::Pos2> = points.iter().map(|point| corner(*point)).collect();
+            painter.add(Shape::closed_line(
+                outline,
+                Stroke::new(BOX_STROKE_WIDTH, canvas::SELECTED),
+            ));
+            return;
+        }
+    };
     let drawn = Rect::from_two_pos(corner(area.from), corner(area.to));
     match area.mode() {
         BoxMode::Window => {

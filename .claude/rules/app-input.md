@@ -129,6 +129,11 @@ paths:
   counting as seen when it lies within `SLACK_CELLS` cells' worth of depth of the nearest surface
   there; an edge is sampled every `SAMPLE_POINTS` on screen and counts only when at least half of
   it is seen, judged by its seen samples alone. A box under `SMALLEST_BOX` points takes nothing.
+- Select with a lasso (`Command::ToggleLasso`, View menu, palette; kept for the session in
+  `ViewportState::lasso`, not saved, since Alt-drag already navigates in the Laptop input mode)
+  makes those drags, and the edited sketch's, draw a freehand outline instead
+  (`sketch_drag::ScreenArea::Lasso`, a point every `LASSO_STEP` points, closed back to its start)
+  that takes what lies wholly inside it, like a window; everything else about box selection holds.
 - Select all (`select.all`), Select tangent edges and Select edges around faces
   (`body_selection.rs`) work on the shown bodies outside sketch editing and refuse inside one.
   Select all takes every face, edge or vertex by the selection filter, or by the kind already

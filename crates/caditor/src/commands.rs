@@ -142,6 +142,7 @@ pub enum Command {
     ToggleProjection,
     ToggleSnapping,
     ToggleGridSnapping,
+    ToggleLasso,
     ToggleTypedDimensions,
     ToggleGlyphs,
     MinimizeWindow,
@@ -466,6 +467,7 @@ plain_commands! {
     ToggleProjection,
     ToggleSnapping,
     ToggleGridSnapping,
+    ToggleLasso,
     ToggleTypedDimensions,
     ToggleGlyphs,
     Measure,
@@ -719,6 +721,7 @@ impl Command {
             Self::ToggleProjection => "view.toggle_projection",
             Self::ToggleSnapping => "view.toggle_snapping",
             Self::ToggleGridSnapping => "view.toggle_grid_snapping",
+            Self::ToggleLasso => "view.toggle_lasso",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
             Self::ToggleGlyphs => "view.toggle_glyphs",
             Self::MinimizeWindow => "view.minimize_window",
@@ -875,6 +878,7 @@ impl Command {
             Self::ToggleProjection => "Switch between perspective and orthographic",
             Self::ToggleSnapping => "Turn snapping on or off",
             Self::ToggleGridSnapping => "Snap to the grid",
+            Self::ToggleLasso => "Select with a lasso",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
             Self::MinimizeWindow => "Minimize the window",
@@ -994,6 +998,7 @@ impl Command {
             | Self::ToggleProjection
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
+            | Self::ToggleLasso
             | Self::ToggleGlyphs
             | Self::MinimizeWindow
             | Self::MaximizeWindow
@@ -1215,6 +1220,7 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
+            | Self::ToggleLasso
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::CloseFeature

@@ -7538,6 +7538,74 @@ fn selected_kinds(harness: &Harness) -> (usize, usize, usize) {
     )
 }
 
+fn drag_path(harness: &mut Harness, path: &[Pos2]) {
+    let (Some(first), Some(last)) = (path.first().copied(), path.last().copied()) else {
+        return;
+    };
+    harness.events.push(Event::PointerMoved(first));
+    harness.frame();
+    harness.events.push(Event::PointerButton {
+        pos: first,
+        button: PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    for position in path.iter().skip(1) {
+        harness.events.push(Event::PointerMoved(*position));
+        harness.frame();
+    }
+    harness.events.push(Event::PointerButton {
+        pos: last,
+        button: PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.frame();
+    harness.frame();
+}
+
+#[test]
+fn a_lasso_drawn_around_the_model_takes_what_lies_inside_it() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    harness.select([]);
+    run_from_palette(&mut harness, "fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    let margin = 12.0;
+    let middle = low.lerp(high, 0.5);
+    let ring: Vec<Pos2> = (0..=24)
+        .map(|step| {
+            let angle = std::f32::consts::TAU * step as f32 / 24.0;
+            let reach = (high - low) * 0.75 + egui::vec2(margin, margin);
+            middle + egui::vec2(angle.cos() * reach.x, angle.sin() * reach.y)
+        })
+        .collect();
+    let small: Vec<Pos2> = ring
+        .iter()
+        .map(|point| middle + (*point - middle) * 0.05)
+        .collect();
+
+    run_from_palette(&mut harness, "select with a lasso");
+    harness.frame();
+    let lasso = harness.workspace.viewport.lasso();
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::Vertices);
+    drag_path(&mut harness, &ring);
+    let around = selected_kinds(&harness);
+    drag_path(&mut harness, &small);
+    let inside = selected_kinds(&harness);
+
+    assert!(lasso);
+    assert_eq!(around, (0, 0, 7));
+    assert_eq!(inside, (0, 0, 0));
+}
+
 #[test]
 fn a_box_dragged_over_the_model_selects_what_it_holds_or_touches_by_the_filter() {
     let mut harness = Harness::new();

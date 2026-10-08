@@ -397,6 +397,7 @@ pub fn show(
         style: viewport.style(),
         snapping: viewport.snapping(),
         grid_snapping: viewport.grid_snapping(),
+        lasso: viewport.lasso(),
         typed_dimensions: viewport.typed_dimensions(),
         glyphs: viewport.glyphs_shown(),
     };

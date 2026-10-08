@@ -7,7 +7,7 @@ use caditor_kernel::Mesh;
 use crate::{
     bodies::{BodyMesh, face_keys},
     selection::{Pickable, SelectionFilter},
-    sketch_drag::{BoxMode, ScreenBox},
+    sketch_drag::{BoxMode, ScreenArea},
 };
 
 const SMALLEST_BOX: f64 = 3.0;
@@ -34,10 +34,9 @@ impl Occlusion {
     pub fn of<'a>(
         meshes: impl IntoIterator<Item = &'a Mesh>,
         seen: &impl Fn(Point3) -> Option<Seen>,
-        area: ScreenBox,
+        area: &ScreenArea,
     ) -> Self {
-        let low = area.from.min(area.to);
-        let high = area.from.max(area.to);
+        let (low, high) = area.bounds();
         let longest = (high - low).max_element().max(1.0);
         let cell = (longest / MAX_CELLS).max(1.0);
         let origin = low - Vector2::splat(cell);
@@ -137,8 +136,9 @@ impl Catch {
     }
 }
 
-pub fn is_a_box(area: ScreenBox) -> bool {
-    let size = (area.to - area.from).abs();
+pub fn is_a_box(area: &ScreenArea) -> bool {
+    let (low, high) = area.bounds();
+    let size = high - low;
     size.x >= SMALLEST_BOX || size.y >= SMALLEST_BOX
 }
 
@@ -158,7 +158,7 @@ pub fn within_body<S: Fn(Point3) -> Option<Seen>>(
     body: FeatureId,
     mesh: &BodyMesh,
     looking: &Looking<'_, S>,
-    area: ScreenBox,
+    area: &ScreenArea,
     catch: Catch,
 ) -> Vec<Pickable> {
     let screen = |point: Point3| (looking.seen)(point).map(|seen| seen.at);
@@ -216,7 +216,7 @@ fn samples<S: Fn(Point3) -> Option<Seen>>(
 fn polyline_caught<S: Fn(Point3) -> Option<Seen>>(
     points: &[Point3],
     looking: &Looking<'_, S>,
-    area: ScreenBox,
+    area: &ScreenArea,
 ) -> bool {
     let projected: Vec<Option<Vector2>> = samples(points, looking)
         .into_iter()
@@ -250,7 +250,7 @@ fn faces_within(
     body: FeatureId,
     mesh: &BodyMesh,
     screen: &impl Fn(Point3) -> Option<Vector2>,
-    area: ScreenBox,
+    area: &ScreenArea,
 ) -> Vec<Pickable> {
     let Some(solid) = mesh.source().solid() else {
         return Vec::new();
@@ -268,7 +268,7 @@ fn faces_within(
         let position = triangulated.vertices().get(vertex as usize)?.position;
         projected.get(position as usize).copied().flatten()
     };
-    let centre = (area.from + area.to) * 0.5;
+    let centre = area.centre();
     let mode = area.mode();
     triangulated
         .faces()
@@ -327,11 +327,11 @@ mod tests {
 
     #[test]
     fn a_triangle_in_front_hides_what_lies_behind_it_but_not_what_lies_on_it() {
-        let area = ScreenBox {
+        let area = ScreenArea::Box(crate::sketch_drag::ScreenBox {
             from: Vector2::ZERO,
             to: Vector2::new(100.0, 100.0),
-        };
-        let mut occlusion = Occlusion::of(std::iter::empty(), &|_| None, area);
+        });
+        let mut occlusion = Occlusion::of(std::iter::empty(), &|_| None, &area);
         occlusion.fill([
             (Vector2::new(10.0, 10.0), 5.0),
             (Vector2::new(90.0, 10.0), 5.0),
