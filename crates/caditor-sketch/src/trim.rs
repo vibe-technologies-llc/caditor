@@ -23,6 +23,8 @@ pub enum TrimError {
     Spline { entity: EntityId, label: String },
     #[error("{label} has no length to trim")]
     NoLength { entity: EntityId, label: String },
+    #[error("{label} is built into the sketch, so it cannot be trimmed")]
+    Reference { entity: EntityId, label: String },
     #[error("{label} follows the geometry it was projected from, so it cannot be trimmed")]
     Projected { entity: EntityId, label: String },
     #[error(transparent)]
@@ -41,6 +43,8 @@ pub enum ExtendError {
     Spline { entity: EntityId, label: String },
     #[error("{label} has no length to extend")]
     NoLength { entity: EntityId, label: String },
+    #[error("{label} is built into the sketch, so it cannot be extended")]
+    Reference { entity: EntityId, label: String },
     #[error("nothing lies beyond this end of {label} to extend it to")]
     NothingToReach { entity: EntityId, label: String },
     #[error("this end of {label} is joined to {other}, so it cannot move")]
@@ -254,6 +258,53 @@ enum Joint {
     Curve(EntityId),
 }
 
+enum Cutter {
+    Shape(Shape),
+    Axis(Vector2),
+}
+
+impl Cutter {
+    fn extent(&self) -> f64 {
+        match self {
+            Self::Shape(shape) => shape.extent(),
+            Self::Axis(_) => 0.0,
+        }
+    }
+
+    fn crossings(&self, carrier: Carrier, tolerance: f64) -> Vec<Point2> {
+        match self {
+            Self::Shape(shape) => intersect::crossings(carrier, shape, tolerance),
+            Self::Axis(direction) => {
+                intersect::line_crossings(carrier, Point2::ZERO, *direction, tolerance)
+            }
+        }
+    }
+
+    fn cut_positions(&self, course: &Course, tolerance: f64) -> Vec<Point2> {
+        let Some(carrier) = course.carrier() else {
+            return Vec::new();
+        };
+        match self {
+            Self::Shape(shape) => overlap_ends(course, shape, tolerance)
+                .unwrap_or_else(|| intersect::crossings(carrier, shape, tolerance)),
+            Self::Axis(_) => self.crossings(carrier, tolerance),
+        }
+    }
+
+    fn end_point_near(
+        &self,
+        sketch: &Sketch,
+        cutter: EntityId,
+        position: Point2,
+        tolerance: f64,
+    ) -> Option<EntityId> {
+        match self {
+            Self::Shape(shape) => end_point_near(sketch, cutter, shape, position, tolerance),
+            Self::Axis(_) => None,
+        }
+    }
+}
+
 impl Sketch {
     pub fn closest_on_curve(&self, curve: EntityId, to: Point2) -> Option<Point2> {
         Some(self.shape_of(curve)?.closest(to))
@@ -405,6 +456,12 @@ impl Sketch {
 
     pub fn extension(&self, curve: EntityId, near: Point2) -> Result<Extension, ExtendError> {
         let label = || self.entity_label(curve);
+        if curve.is_reference() {
+            return Err(ExtendError::Reference {
+                entity: curve,
+                label: label(),
+            });
+        }
         let entity = self.entity(curve).ok_or(ExtendError::NoSuchCurve(curve))?;
         let no_length = || ExtendError::NoLength {
             entity: curve,
@@ -511,8 +568,26 @@ impl Sketch {
         }
     }
 
+    fn cutters(&self, excluding: EntityId) -> impl Iterator<Item = (EntityId, Cutter)> + '_ {
+        let shapes = self
+            .entities()
+            .filter(move |(id, _)| *id != excluding)
+            .filter_map(|(id, _)| Some((id, Cutter::Shape(self.shape_of(id)?))));
+        let axes = [
+            (EntityId::HORIZONTAL_AXIS, Cutter::Axis(Vector2::X)),
+            (EntityId::VERTICAL_AXIS, Cutter::Axis(Vector2::Y)),
+        ];
+        shapes.chain(axes)
+    }
+
     fn trim_course(&self, curve: EntityId) -> Result<Course, TrimError> {
         let label = || self.entity_label(curve);
+        if curve.is_reference() {
+            return Err(TrimError::Reference {
+                entity: curve,
+                label: label(),
+            });
+        }
         let no_length = || TrimError::NoLength {
             entity: curve,
             label: label(),
@@ -554,18 +629,12 @@ impl Sketch {
     }
 
     fn cuts(&self, curve: EntityId, course: &Course) -> Vec<Cut> {
-        let Some(carrier) = course.carrier() else {
-            return Vec::new();
-        };
         let span = course.span();
         let mut cuts: Vec<Cut> = Vec::new();
-        for (cutter, _) in self.entities().filter(|(id, _)| *id != curve) {
-            let Some(shape) = self.shape_of(cutter) else {
-                continue;
-            };
+        for (cutter, shape) in self.cutters(curve) {
             let tolerance = TOLERANCE * course.extent().max(shape.extent());
             let slack = course.slack(tolerance);
-            for position in intersect::crossings(carrier, &shape, tolerance) {
+            for position in shape.cut_positions(course, tolerance) {
                 let parameter = course.parameter(position);
                 let interior =
                     course.is_closed() || (parameter > slack && parameter < span - slack);
@@ -573,7 +642,7 @@ impl Sketch {
                     cuts.push(Cut {
                         position: course.at(parameter),
                         cutter,
-                        point: end_point_near(self, cutter, &shape, position, tolerance),
+                        point: shape.end_point_near(self, cutter, position, tolerance),
                         parameter,
                     });
                 }
@@ -1003,12 +1072,11 @@ impl Sketch {
             direction,
         };
         let reach = from.x.abs().max(from.y.abs()).max(1.0);
-        self.entities()
-            .filter(|(id, _)| *id != curve)
-            .filter_map(|(target, _)| Some((target, self.shape_of(target)?)))
+        self.cutters(curve)
             .flat_map(|(target, shape)| {
                 let tolerance = TOLERANCE * reach.max(shape.extent());
-                intersect::crossings(carrier, &shape, tolerance)
+                shape
+                    .crossings(carrier, tolerance)
                     .into_iter()
                     .map(move |point| (point, target, tolerance))
             })
@@ -1030,12 +1098,11 @@ impl Sketch {
         };
         let course = Course::Arc(arc);
         let room = TAU - arc.sweep;
-        self.entities()
-            .filter(|(id, _)| *id != curve)
-            .filter_map(|(target, _)| Some((target, self.shape_of(target)?)))
+        self.cutters(curve)
             .flat_map(|(target, shape)| {
                 let tolerance = TOLERANCE * course.extent().max(shape.extent());
-                intersect::crossings(carrier, &shape, tolerance)
+                shape
+                    .crossings(carrier, tolerance)
                     .into_iter()
                     .map(move |point| (point, target, course.slack(tolerance)))
             })
@@ -1111,6 +1178,48 @@ pub(crate) fn keeps_sweep(constraint: &Constraint) -> bool {
             | Constraint::Sweep { .. }
             | Constraint::Angle { .. }
     )
+}
+
+fn overlap_ends(course: &Course, cutter: &Shape, tolerance: f64) -> Option<Vec<Point2>> {
+    match (course, cutter) {
+        (
+            Course::Line { start, end },
+            Shape::Segment {
+                start: from,
+                end: to,
+            },
+        ) => {
+            let direction = (*end - *start).try_normalize()?;
+            let on_line = |point: &Point2| direction.perp_dot(*point - *start).abs() <= tolerance;
+            (on_line(from) && on_line(to)).then(|| vec![*from, *to])
+        }
+        (
+            Course::Circle { center, radius },
+            Shape::Circle {
+                center: other,
+                radius: size,
+            },
+        ) => same_circle(*center, *radius, *other, *size, tolerance).then(Vec::new),
+        (Course::Arc(arc), Shape::Circle { center, radius }) => {
+            same_circle(arc.center, arc.radius, *center, *radius, tolerance).then(Vec::new)
+        }
+        (Course::Circle { center, radius }, Shape::Arc(arc)) => {
+            same_circle(*center, *radius, arc.center, arc.radius, tolerance).then(|| arc_ends(arc))
+        }
+        (Course::Arc(own), Shape::Arc(arc)) => {
+            same_circle(own.center, own.radius, arc.center, arc.radius, tolerance)
+                .then(|| arc_ends(arc))
+        }
+        _ => None,
+    }
+}
+
+fn arc_ends(arc: &ArcGeometry) -> Vec<Point2> {
+    vec![arc.point_at(arc.start_angle), arc.point_at(arc.end_angle())]
+}
+
+fn same_circle(center: Point2, radius: f64, other: Point2, size: f64, tolerance: f64) -> bool {
+    center.distance(other) <= tolerance && (radius - size).abs() <= tolerance
 }
 
 fn end_point_near(

@@ -126,6 +126,30 @@ pub(crate) fn crossings(carrier: Carrier, other: &Shape, tolerance: f64) -> Vec<
     }
 }
 
+pub(crate) fn line_crossings(
+    carrier: Carrier,
+    through: Point2,
+    direction: Vector2,
+    tolerance: f64,
+) -> Vec<Point2> {
+    match carrier {
+        Carrier::Line {
+            through: own,
+            direction: own_direction,
+        } => {
+            let denominator = own_direction.perp_dot(direction);
+            if denominator.abs() <= PARALLEL_TOLERANCE {
+                return Vec::new();
+            }
+            let along = (through - own).perp_dot(direction) / denominator;
+            vec![own + own_direction * along]
+        }
+        Carrier::Circle { center, radius } => {
+            line_circle(through, direction, center, radius, tolerance)
+        }
+    }
+}
+
 pub(crate) fn on_arc(arc: &ArcGeometry, point: Point2, tolerance: f64) -> bool {
     let offset = (direction_angle(point - arc.center) - arc.start_angle).rem_euclid(TAU);
     let slack = if arc.radius > 0.0 {

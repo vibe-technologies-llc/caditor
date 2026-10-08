@@ -279,7 +279,7 @@ fn a_cut_at_the_end_of_a_joined_line_takes_over_its_joint() {
 #[test]
 fn trimming_a_circle_leaves_an_arc_with_its_radius_and_centre() {
     let mut sketch = Sketch::new(Plane::XY);
-    let circle = sketch.add_circle(Point2::ZERO, 10.0);
+    let circle = sketch.add_circle(Point2::new(30.0, 30.0), 10.0);
     let centre = center(&sketch, circle);
     let radius = sketch
         .add_constraint(Constraint::Radius {
@@ -287,10 +287,10 @@ fn trimming_a_circle_leaves_an_arc_with_its_radius_and_centre() {
             value: mm(10.0),
         })
         .unwrap();
-    let chord = sketch.add_line(Point2::new(-20.0, 5.0), Point2::new(20.0, 5.0));
+    let chord = sketch.add_line(Point2::new(10.0, 35.0), Point2::new(50.0, 35.0));
 
     assert_eq!(
-        sketch.trim(circle, Point2::new(0.0, 10.0)),
+        sketch.trim(circle, Point2::new(30.0, 40.0)),
         Ok(Trimmed::Opened)
     );
 
@@ -304,8 +304,8 @@ fn trimming_a_circle_leaves_an_arc_with_its_radius_and_centre() {
     };
     let half_chord = 75.0_f64.sqrt();
     assert_eq!(kept_centre, centre);
-    assert_near(at(&sketch, start), Point2::new(-half_chord, 5.0));
-    assert_near(at(&sketch, end), Point2::new(half_chord, 5.0));
+    assert_near(at(&sketch, start), Point2::new(30.0 - half_chord, 35.0));
+    assert_near(at(&sketch, end), Point2::new(30.0 + half_chord, 35.0));
     assert!(sketch.arc(circle).unwrap().sweep > std::f64::consts::PI);
     assert!(matches!(
         sketch.constraint(radius),
@@ -320,9 +320,9 @@ fn trimming_a_circle_leaves_an_arc_with_its_radius_and_centre() {
 fn trimming_the_middle_of_an_arc_splits_it_and_the_far_piece_keeps_its_tangent() {
     let mut sketch = Sketch::new(Plane::XY);
     let arc = sketch.add_arc(
-        Point2::ZERO,
-        Point2::new(10.0, 0.0),
-        Point2::new(-10.0, 0.0),
+        Point2::new(30.0, 30.0),
+        Point2::new(40.0, 30.0),
+        Point2::new(20.0, 30.0),
     );
     let (arc_start, arc_end) = ends(&sketch, arc);
     sketch
@@ -331,7 +331,7 @@ fn trimming_the_middle_of_an_arc_splits_it_and_the_far_piece_keeps_its_tangent()
             value: mm(10.0),
         })
         .unwrap();
-    let leg = sketch.add_line(Point2::new(-10.0, 0.0), Point2::new(-10.0, -10.0));
+    let leg = sketch.add_line(Point2::new(20.0, 30.0), Point2::new(20.0, 20.0));
     let (leg_top, _) = ends(&sketch, leg);
     sketch
         .add_constraint(Constraint::Coincident(leg_top, arc_end))
@@ -339,11 +339,11 @@ fn trimming_the_middle_of_an_arc_splits_it_and_the_far_piece_keeps_its_tangent()
     let tangent = sketch
         .add_constraint(Constraint::Tangent(leg, arc))
         .unwrap();
-    vertical(&mut sketch, -5.0);
-    vertical(&mut sketch, 5.0);
+    sketch.add_line(Point2::new(25.0, 20.0), Point2::new(25.0, 50.0));
+    sketch.add_line(Point2::new(35.0, 20.0), Point2::new(35.0, 50.0));
     let freedom = solve(&sketch).solution.degrees_of_freedom();
 
-    let Trimmed::Split { piece } = sketch.trim(arc, Point2::new(0.0, 10.0)).unwrap() else {
+    let Trimmed::Split { piece } = sketch.trim(arc, Point2::new(30.0, 40.0)).unwrap() else {
         panic!("the arc splits");
     };
 
@@ -351,9 +351,9 @@ fn trimming_the_middle_of_an_arc_splits_it_and_the_far_piece_keeps_its_tangent()
     let (far_start, far_end) = ends(&sketch, piece);
     let side = 75.0_f64.sqrt();
     assert_eq!((kept_start, far_end), (arc_start, arc_end));
-    assert_near(at(&sketch, near_end), Point2::new(5.0, side));
-    assert_near(at(&sketch, far_start), Point2::new(-5.0, side));
-    assert_near(at(&sketch, center(&sketch, piece)), Point2::ZERO);
+    assert_near(at(&sketch, near_end), Point2::new(35.0, 30.0 + side));
+    assert_near(at(&sketch, far_start), Point2::new(25.0, 30.0 + side));
+    assert_near(at(&sketch, center(&sketch, piece)), Point2::new(30.0, 30.0));
     assert!(sketch.constraint(tangent).is_none());
     assert!(has(&sketch, &Constraint::Tangent(leg, piece)));
     assert!(has(&sketch, &Constraint::Concentric(arc, piece)));
@@ -368,7 +368,7 @@ fn a_piece_nothing_crosses_is_deleted_with_its_points() {
     let line = sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
     let (start, end) = ends(&sketch, line);
     sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
-    let circle = sketch.add_circle(Point2::new(0.0, 50.0), 5.0);
+    let circle = sketch.add_circle(Point2::new(20.0, 50.0), 5.0);
 
     assert_eq!(
         sketch.trim(line, Point2::new(3.0, 0.0)),
@@ -380,7 +380,7 @@ fn a_piece_nothing_crosses_is_deleted_with_its_points() {
     assert_eq!(sketch.constraints().len(), 0);
 
     assert_eq!(
-        sketch.trim(circle, Point2::new(5.0, 50.0)),
+        sketch.trim(circle, Point2::new(25.0, 50.0)),
         Ok(Trimmed::Deleted)
     );
     assert_eq!(sketch.entities().len(), 0);
@@ -591,4 +591,326 @@ fn trimming_never_reuses_an_identifier() {
         .collect();
     assert!(!introduced.is_empty());
     assert!(introduced.iter().all(|id| *id >= used.len() as u64));
+}
+
+#[test]
+fn a_line_is_trimmed_back_to_the_vertical_axis_and_joined_to_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(-20.0, 5.0), Point2::new(30.0, 5.0));
+    let (_, end) = ends(&sketch, line);
+
+    let pieces = sketch.trim_pieces(line).unwrap();
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(pieces[0].cutters(), vec![EntityId::VERTICAL_AXIS]);
+
+    assert_eq!(
+        sketch.trim(line, Point2::new(-10.0, 5.0)),
+        Ok(Trimmed::Shortened)
+    );
+
+    let (start, kept_end) = ends(&sketch, line);
+    assert_eq!(kept_end, end);
+    assert_near(at(&sketch, start), Point2::new(0.0, 5.0));
+    assert!(has(
+        &sketch,
+        &Constraint::Coincident(start, EntityId::VERTICAL_AXIS)
+    ));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_line_crossing_both_axes_splits_into_pieces_joined_to_each() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(-20.0, -10.0), Point2::new(20.0, 30.0));
+
+    let Trimmed::Split { piece } = sketch.trim(line, Point2::new(-5.0, 5.0)).unwrap() else {
+        panic!("the line splits");
+    };
+
+    let (_, near_end) = ends(&sketch, line);
+    let (far_start, _) = ends(&sketch, piece);
+    assert_near(at(&sketch, near_end), Point2::new(-10.0, 0.0));
+    assert_near(at(&sketch, far_start), Point2::new(0.0, 10.0));
+    assert!(has(
+        &sketch,
+        &Constraint::Coincident(near_end, EntityId::HORIZONTAL_AXIS)
+    ));
+    assert!(has(
+        &sketch,
+        &Constraint::Coincident(far_start, EntityId::VERTICAL_AXIS)
+    ));
+    assert!(has(&sketch, &Constraint::Collinear(line, piece)));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn both_axes_meeting_at_the_origin_cut_a_line_through_it_once() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(-10.0, -10.0), Point2::new(10.0, 10.0));
+
+    let pieces = sketch.trim_pieces(line).unwrap();
+
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(pieces[0].cutters().len(), 1);
+    assert_near(pieces[0].middle(), Point2::new(-5.0, -5.0));
+}
+
+#[test]
+fn a_circle_about_the_origin_is_cut_by_the_axes_into_quarters() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::ZERO, 10.0);
+    let centre = center(&sketch, circle);
+
+    let pieces = sketch.trim_pieces(circle).unwrap();
+    assert_eq!(pieces.len(), 4);
+
+    assert_eq!(
+        sketch.trim(circle, Point2::new(7.0, 7.0)),
+        Ok(Trimmed::Opened)
+    );
+
+    let Some(Entity::Arc {
+        center: kept_centre,
+        start,
+        end,
+    }) = sketch.entity(circle).cloned()
+    else {
+        panic!("the circle becomes an arc");
+    };
+    assert_eq!(kept_centre, centre);
+    assert_near(at(&sketch, start), Point2::new(0.0, 10.0));
+    assert_near(at(&sketch, end), Point2::new(10.0, 0.0));
+    assert!(has(
+        &sketch,
+        &Constraint::Coincident(start, EntityId::VERTICAL_AXIS)
+    ));
+    assert!(has(
+        &sketch,
+        &Constraint::Coincident(end, EntityId::HORIZONTAL_AXIS)
+    ));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_line_ending_on_an_axis_is_not_cut_there() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(30.0, 5.0));
+    let (start, _) = ends(&sketch, line);
+    sketch
+        .add_constraint(Constraint::Coincident(start, EntityId::VERTICAL_AXIS))
+        .unwrap();
+
+    let pieces = sketch.trim_pieces(line).unwrap();
+
+    assert_eq!(pieces.len(), 1);
+    assert!(pieces[0].is_whole());
+}
+
+#[test]
+fn extending_a_line_reaches_the_axis_and_joins_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(10.0, 5.0), Point2::new(20.0, 5.0));
+
+    let extension = sketch.extend(line, Point2::new(11.0, 5.0)).unwrap();
+
+    assert_eq!(extension.target, EntityId::VERTICAL_AXIS);
+    let (start, _) = ends(&sketch, line);
+    assert_near(at(&sketch, start), Point2::new(0.0, 5.0));
+    assert!(has(
+        &sketch,
+        &Constraint::Coincident(start, EntityId::VERTICAL_AXIS)
+    ));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn an_arc_extends_round_to_an_axis_it_meets_and_is_joined_to_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 10.0),
+        Point2::new(10.0, 20.0),
+    );
+
+    let extension = sketch.extend(arc, Point2::new(10.0, 20.0)).unwrap();
+
+    assert_eq!(extension.target, EntityId::VERTICAL_AXIS);
+    let (_, end) = ends(&sketch, arc);
+    assert_near(at(&sketch, end), Point2::new(0.0, 10.0));
+    assert!(has(
+        &sketch,
+        &Constraint::Coincident(end, EntityId::VERTICAL_AXIS)
+    ));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn the_axes_and_the_origin_are_never_trimmed_or_extended() {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(-20.0, 5.0), Point2::new(30.0, 5.0));
+    let before = sketch.clone();
+
+    for reference in EntityId::REFERENCES {
+        assert!(matches!(
+            sketch.trim(reference, Point2::new(3.0, 0.0)),
+            Err(TrimError::Reference { .. })
+        ));
+        assert!(matches!(
+            sketch.extend(reference, Point2::new(3.0, 0.0)),
+            Err(ExtendError::Reference { .. })
+        ));
+        assert!(matches!(
+            sketch.trim_pieces(reference),
+            Err(TrimError::Reference { .. })
+        ));
+    }
+
+    assert_eq!(sketch, before);
+}
+
+#[test]
+fn a_collinear_line_cuts_at_both_ends_of_its_overlap() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(30.0, 5.0));
+    let other = sketch.add_line(Point2::new(10.0, 5.0), Point2::new(20.0, 5.0));
+    let (other_start, other_end) = ends(&sketch, other);
+
+    let pieces = sketch.trim_pieces(line).unwrap();
+    assert_eq!(pieces.len(), 3);
+    assert_eq!(pieces[1].cutters(), vec![other]);
+
+    let Trimmed::Split { piece } = sketch.trim(line, Point2::new(15.0, 5.0)).unwrap() else {
+        panic!("the line splits");
+    };
+
+    let (_, near_end) = ends(&sketch, line);
+    let (far_start, _) = ends(&sketch, piece);
+    assert_near(at(&sketch, near_end), Point2::new(10.0, 5.0));
+    assert_near(at(&sketch, far_start), Point2::new(20.0, 5.0));
+    assert!(has(&sketch, &Constraint::Coincident(near_end, other_start)));
+    assert!(has(&sketch, &Constraint::Coincident(far_start, other_end)));
+    assert!(has(&sketch, &Constraint::Collinear(line, piece)));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_collinear_line_overlapping_one_end_cuts_both_lines_where_the_other_ends() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(30.0, 5.0));
+    let other = sketch.add_line(Point2::new(20.0, 5.0), Point2::new(50.0, 5.0));
+    let (other_start, _) = ends(&sketch, other);
+    let (_, line_end) = ends(&sketch, line);
+
+    assert_eq!(sketch.trim_pieces(line).unwrap().len(), 2);
+    assert_eq!(sketch.trim_pieces(other).unwrap().len(), 2);
+
+    assert_eq!(
+        sketch.trim(line, Point2::new(25.0, 5.0)),
+        Ok(Trimmed::Shortened)
+    );
+
+    let (_, kept_end) = ends(&sketch, line);
+    assert_near(at(&sketch, kept_end), Point2::new(20.0, 5.0));
+    assert!(has(&sketch, &Constraint::Coincident(kept_end, other_start)));
+    assert!(sketch.entity(line_end).is_none());
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn collinear_lines_that_only_touch_or_miss_each_other_cut_nothing() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(10.0, 5.0));
+    let touching = sketch.add_line(Point2::new(10.0, 5.0), Point2::new(20.0, 5.0));
+    sketch.add_line(Point2::new(30.0, 5.0), Point2::new(40.0, 5.0));
+    sketch.add_line(Point2::new(0.0, 6.0), Point2::new(10.0, 6.0));
+
+    assert!(sketch.trim_pieces(line).unwrap()[0].is_whole());
+    assert!(sketch.trim_pieces(touching).unwrap()[0].is_whole());
+}
+
+#[test]
+fn a_line_inside_another_collinear_line_is_not_cut_by_the_longer_one() {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::new(0.0, 5.0), Point2::new(30.0, 5.0));
+    let inner = sketch.add_line(Point2::new(10.0, 5.0), Point2::new(20.0, 5.0));
+
+    assert!(sketch.trim_pieces(inner).unwrap()[0].is_whole());
+}
+
+#[test]
+fn an_arc_on_the_same_circle_cuts_the_circle_at_its_ends() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::new(30.0, 30.0), 10.0);
+    let arc = sketch.add_arc(
+        Point2::new(30.0, 30.0),
+        Point2::new(40.0, 30.0),
+        Point2::new(30.0, 40.0),
+    );
+    let (arc_start, arc_end) = ends(&sketch, arc);
+
+    let pieces = sketch.trim_pieces(circle).unwrap();
+    assert_eq!(pieces.len(), 2);
+
+    assert_eq!(
+        sketch.trim(circle, Point2::new(37.0, 37.0)),
+        Ok(Trimmed::Opened)
+    );
+
+    let (start, end) = ends(&sketch, circle);
+    assert_near(at(&sketch, start), Point2::new(30.0, 40.0));
+    assert_near(at(&sketch, end), Point2::new(40.0, 30.0));
+    assert!(has(&sketch, &Constraint::Coincident(start, arc_end)));
+    assert!(has(&sketch, &Constraint::Coincident(end, arc_start)));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn an_overlapping_arc_on_one_circle_shortens_the_other_where_it_begins() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let centre = Point2::new(30.0, 30.0);
+    let arc = sketch.add_arc(centre, Point2::new(40.0, 30.0), Point2::new(20.0, 30.0));
+    let other = sketch.add_arc(centre, Point2::new(30.0, 40.0), Point2::new(30.0, 20.0));
+    let (other_start, _) = ends(&sketch, other);
+
+    assert_eq!(sketch.trim_pieces(arc).unwrap().len(), 2);
+
+    assert_eq!(
+        sketch.trim(arc, Point2::new(23.0, 37.0)),
+        Ok(Trimmed::Shortened)
+    );
+
+    let (_, end) = ends(&sketch, arc);
+    assert_near(at(&sketch, end), Point2::new(30.0, 40.0));
+    assert!(has(&sketch, &Constraint::Coincident(end, other_start)));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn a_whole_circle_or_a_concentric_circle_of_another_size_does_not_cut_an_arc() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let centre = Point2::new(30.0, 30.0);
+    let arc = sketch.add_arc(centre, Point2::new(40.0, 30.0), Point2::new(20.0, 30.0));
+    sketch.add_circle(centre, 10.0);
+    sketch.add_circle(centre, 12.0);
+
+    let pieces = sketch.trim_pieces(arc).unwrap();
+
+    assert_eq!(pieces.len(), 1);
+    assert!(pieces[0].is_whole());
+}
+
+#[test]
+fn a_trim_at_an_overlap_that_is_refused_leaves_the_sketch_as_it_was() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 5.0), Point2::new(30.0, 5.0));
+    sketch.add_line(Point2::new(10.0, 5.0), Point2::new(20.0, 5.0));
+    sketch.set_projected(line, true).unwrap();
+    let before = sketch.clone();
+
+    assert!(matches!(
+        sketch.trim(line, Point2::new(15.0, 5.0)),
+        Err(TrimError::Projected { .. })
+    ));
+
+    assert_eq!(sketch, before);
 }
