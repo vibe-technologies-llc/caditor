@@ -1,4 +1,4 @@
-use caditor_document::{Evaluation, FeatureId, FeatureState};
+use caditor_document::{Evaluation, FeatureId, FeatureState, SketchResult};
 use caditor_sketch::SketchSolution;
 use egui::{CursorIcon, Sense, Ui};
 
@@ -7,6 +7,9 @@ use crate::{
     panels::Focus,
     widgets::{self, Tone},
 };
+
+pub const OPEN_ENDS_HELP: &str = "Curve ends joined to nothing, marked in the view. Join them to \
+                                  close the outline before extruding or revolving it.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SketchStatus {
@@ -23,6 +26,7 @@ pub enum SketchStatus {
 pub struct SketchSummary {
     pub status: SketchStatus,
     pub redundant: usize,
+    pub open_ends: usize,
     pub problem: Option<Focus>,
 }
 
@@ -37,6 +41,7 @@ impl SketchSummary {
                     SketchStatus::Conflicting
                 },
                 redundant: 0,
+                open_ends: 0,
                 problem: Some(error.fix.map_or(Focus::Feature(feature), Focus::from)),
             },
             Some(FeatureState::UpToDate) => {
@@ -49,22 +54,27 @@ impl SketchSummary {
                         }
                     }),
                     redundant: solution.map_or(0, |solution| solution.redundancies().len()),
+                    open_ends: up_to_date_result(evaluation, feature)
+                        .map_or(0, |result| result.open_ends.len()),
                     problem: None,
                 }
             }
             Some(FeatureState::Outdated) | None => Self {
                 status: SketchStatus::NotSolved,
                 redundant: 0,
+                open_ends: 0,
                 problem: None,
             },
             Some(FeatureState::Suppressed) => Self {
                 status: SketchStatus::Suppressed,
                 redundant: 0,
+                open_ends: 0,
                 problem: None,
             },
             Some(FeatureState::RolledBack) => Self {
                 status: SketchStatus::RolledBack,
                 redundant: 0,
+                open_ends: 0,
                 problem: None,
             },
         }
@@ -85,6 +95,10 @@ impl SketchSummary {
         }
     }
 
+    pub fn open_ends_text(&self) -> Option<String> {
+        (self.open_ends > 0).then(|| count(self.open_ends, "open end", "open ends"))
+    }
+
     pub fn redundant_text(&self) -> Option<String> {
         (self.redundant > 0).then(|| {
             count(
@@ -97,15 +111,15 @@ impl SketchSummary {
 }
 
 pub fn up_to_date_solution(evaluation: &Evaluation, feature: FeatureId) -> Option<&SketchSolution> {
+    up_to_date_result(evaluation, feature).map(|result| &result.solution)
+}
+
+pub fn up_to_date_result(evaluation: &Evaluation, feature: FeatureId) -> Option<&SketchResult> {
     let status = evaluation.feature(feature)?;
     if status.state != FeatureState::UpToDate {
         return None;
     }
-    status
-        .result
-        .as_deref()?
-        .sketch()
-        .map(|result| &result.solution)
+    status.result.as_deref()?.sketch()
 }
 
 pub fn show(ui: &mut Ui, summary: &SketchSummary) -> Option<Focus> {
@@ -130,6 +144,9 @@ pub fn show(ui: &mut Ui, summary: &SketchSummary) -> Option<Focus> {
     }
     if let Some(redundant) = summary.redundant_text() {
         widgets::status_pill(ui, Tone::Warning, redundant);
+    }
+    if let Some(open) = summary.open_ends_text() {
+        widgets::status_pill(ui, Tone::Warning, open).on_hover_text(OPEN_ENDS_HELP);
     }
     focus
 }

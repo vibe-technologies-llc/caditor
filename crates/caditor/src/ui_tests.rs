@@ -4088,6 +4088,39 @@ fn copied_sketch_geometry_pastes_under_the_pointer_and_cut_takes_it_away() {
 }
 
 #[test]
+fn the_sketch_bar_counts_curve_ends_joined_to_nothing() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(20.0, 0.0));
+    let second = sketch.add_line(Point2::new(20.0, 0.0), Point2::new(20.0, 10.0));
+    let Some(&Entity::Line { end, .. }) = sketch.entity(first) else {
+        panic!("a line");
+    };
+    let Some(&Entity::Line { start, end: loose }) = sketch.entity(second) else {
+        panic!("a line");
+    };
+    sketch
+        .add_constraint(Constraint::Coincident(end, start))
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.context.enable_accesskit();
+    harness.settle();
+
+    assert!(harness.shows("2 open ends"));
+    let description = harness.view_description();
+    assert!(
+        description
+            .as_deref()
+            .is_some_and(|description| description.contains("; 2 open ends.")),
+        "{description:?}"
+    );
+
+    harness.add_stored_constraint(feature, Constraint::Coincident(loose, first));
+    harness.settle();
+    assert!(harness.shows("1 open end"));
+}
+
+#[test]
 fn holding_ctrl_places_a_point_where_the_pointer_is_instead_of_snapping_to_a_point() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

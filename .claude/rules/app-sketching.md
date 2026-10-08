@@ -295,6 +295,14 @@ paths:
   (`sketch_status.rs`, `scene.rs`), never from solving on the UI thread (drags solve on their own
   worker).
 
+## Open ends
+
+- The edited sketch's open ends (`SketchResult::open_ends` of its up-to-date result) are ringed in
+  `canvas::WARNING` over the view (`annotations.rs`, only those in view), counted in a warning
+  pill beside the sketch's status in the sketch bar ("2 open ends", its hover saying to join them)
+  and in the 3D view's description, so an outline that will not close is seen while drawing
+  rather than when the extrusion fails.
+
 ## Displayed sketches
 
 - `Model::displayed_sketch` (`display.rs`) is the definition with solved positions wherever the

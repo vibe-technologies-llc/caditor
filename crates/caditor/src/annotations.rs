@@ -29,6 +29,7 @@ const GLYPH_SIZE: f32 = 15.0;
 const GLYPH_HIT_SIZE: f32 = 16.0;
 const DOT_RADIUS: f32 = 3.5;
 const RING_WIDTH: f32 = 1.5;
+const OPEN_END_RADIUS: f32 = 6.0;
 const SYMBOL_HALF: f32 = 4.0;
 const SYMBOL_WIDTH: f32 = 1.4;
 const PARALLEL_GAP: f32 = 1.8;
@@ -101,6 +102,7 @@ struct Marks {
     dimensions: Vec<DimensionMark>,
     groups: Vec<GlyphGroup>,
     screen_centre: Option<Vector2>,
+    open_ends: Vec<Vector2>,
 }
 
 impl Marks {
@@ -158,10 +160,17 @@ impl Marks {
                 })
             })
             .collect();
+        let open_ends = sketch_status::up_to_date_result(model.evaluation(), feature)
+            .into_iter()
+            .flat_map(|result| &result.open_ends)
+            .filter_map(|end| screen.to_screen(shown.point(*end)?))
+            .filter(|at| at.x >= 0.0 && at.y >= 0.0 && at.x <= view.x && at.y <= view.y)
+            .collect();
         Some(Self {
             dimensions,
             groups,
             screen_centre,
+            open_ends,
         })
     }
 
@@ -486,6 +495,13 @@ impl Annotations {
                 Some(count) => paint_beyond(&painter, center, count, tint),
                 None => paint_glyph(&painter, center, mark.kind, tint),
             }
+        }
+        for end in &marks.open_ends {
+            painter.circle_stroke(
+                to_pos(surface.rect, *end),
+                OPEN_END_RADIUS,
+                Stroke::new(RING_WIDTH, canvas::WARNING),
+            );
         }
         self.show_field(ui, model, surface, &marks, actions);
     }

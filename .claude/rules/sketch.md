@@ -28,6 +28,10 @@ paths:
   reference geometry alone is `OnlyReference`. Trim, extend and the sketch fillet refuse a
   projected curve (`Projected`); it still cuts, offsets, mirrors and takes constraints. It is
   ordinary profile geometry unless made construction.
+- `Sketch::open_ends` lists the end points of profile curves (not construction) joined to nothing:
+  an end whose class of points (shared or joined by `Coincident`) holds no other curve end and
+  lies on no other profile curve (`Coincident` or `Midpoint` with it). Recompute keeps them in
+  `SketchResult::open_ends`, worked out on the worker with each solve.
 - `Sketch::free_points` lists the points no curve uses (a constraint using one does not count), in one
   pass; the hole feature drills at them.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.

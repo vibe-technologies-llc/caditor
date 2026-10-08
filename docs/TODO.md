@@ -148,9 +148,9 @@ the unblocked ones; the entry that does the unblocking comes before it.
   before committing.
 - [medium · medium] Constraint kinds missing: distance to a spline; angle to an arc; equal
   splines; spline–spline tangency; curvature continuity; symmetric curves.
-- [medium · medium] No closed-region or open-end feedback while sketching (only a failed extrusion
-  names a sketch's open ends), and no smart-dimension tool that takes the entities after the
-  command.
+- [medium · medium] No closed-region feedback while sketching (open ends are marked, but the
+  regions a profile would make show only once a feature sweeps the sketch), and no smart-dimension
+  tool that takes the entities after the command.
 - [medium · medium] Snapping has no crossings of two splines, no spline end landing on a circle
   being drawn, no centre of an outline with odd sides (a triangle, a pentagon) and no grid. Only a
   lone dragged point snaps (not a dragged curve or selection), without tracks or extensions. Tracks

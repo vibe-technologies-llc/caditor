@@ -95,6 +95,7 @@ impl From<FeatureError> for Failure {
 pub struct SketchResult {
     pub geometry: Sketch,
     pub solution: SketchSolution,
+    pub open_ends: Vec<EntityId>,
     memo: SolveMemo,
     profile: Arc<OnceLock<Box<Result<Profile, ProfileError>>>>,
     regions: Arc<OnceLock<Result<Vec<SketchRegion>, ProfileError>>>,
@@ -115,6 +116,7 @@ impl SketchResult {
 
     fn remembering(geometry: Sketch, solution: SketchSolution, memo: SolveMemo) -> Self {
         Self {
+            open_ends: geometry.open_ends(),
             geometry,
             solution,
             memo,

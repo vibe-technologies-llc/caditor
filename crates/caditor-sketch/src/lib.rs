@@ -9,6 +9,7 @@ mod id;
 mod intersect;
 mod mirror;
 mod offset;
+mod open_ends;
 mod relation;
 mod sketch;
 mod solve;
