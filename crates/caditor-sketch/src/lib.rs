@@ -25,6 +25,7 @@ pub use crate::{
     id::{ConstraintId, EntityId, Reference},
     mirror::{MirrorError, MirrorImage},
     offset::{Chain, OffsetError, Outline, Side},
+    relation::Relations,
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{Drag, EntityState, Redundancy, SketchSolution, SolveMemo, Solved},
     trim::{Cut, ExtendError, Extension, Piece, TrimError, Trimmed},

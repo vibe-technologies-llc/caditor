@@ -60,7 +60,9 @@ paths:
   offering one. `restating` and `contradicting` (`relation.rs`) find the constraint already in the
   sketch that a new one repeats (same kind on the same items; a level line is the same as
   `HorizontalPoints` on its ends; a radius and a diameter of one circle) or cannot hold with. The
-  sketch itself still accepts both, since stored files may hold them.
+  sketch itself still accepts both, since stored files may hold them. `Sketch::relations` indexes
+  the active constraints by subject (and the level/upright, parallel/perpendicular pairs) in
+  ordered maps, so checking many candidates costs a lookup each rather than a scan.
 - A dimension is a magnitude: distances are never negative, the side coming from the drawn
   geometry. `add_constraint` refuses a literal value that could never hold
   (`SketchError::DimensionValue`, so it fails when typed, not at solve); loading and undo go through

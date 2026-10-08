@@ -275,7 +275,8 @@ paths:
   makes the one line selected (else the first item) touch each other curve; two items keep their
   order. Symmetric takes the one axis
   selected, else whichever of the three items mirrors the other two best.
-- A candidate the sketch already has (`Sketch::restating`) is left out of a batch and, when
+- A candidate the sketch already has (`Relations::restating`, from `Sketch::relations` built once
+  per refresh of the offers) is left out of a batch and, when
   nothing is left, refused as already in the sketch; one that contradicts a constraint
   (`Sketch::contradicting`) is refused naming it. These checks are structural: the UI thread never
   solves, so a constraint that only fails once solved is reported afterwards as a conflict naming

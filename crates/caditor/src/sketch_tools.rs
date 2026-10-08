@@ -4,7 +4,8 @@ use caditor_document::{Edit, FeatureId, Transaction, TransactionBuilder};
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Sketch, SketchSolution,
+    Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Relations, Sketch,
+    SketchSolution,
 };
 
 use crate::{
@@ -153,11 +154,22 @@ impl ConstraintTool {
         )
     }
 
+    #[cfg(test)]
     pub fn candidates(
         self,
         definition: &Sketch,
         shown: &Sketch,
         selected: &[EntityId],
+    ) -> Result<Vec<Constraint>, String> {
+        self.candidates_among(definition, shown, selected, &definition.relations())
+    }
+
+    pub fn candidates_among(
+        self,
+        definition: &Sketch,
+        shown: &Sketch,
+        selected: &[EntityId],
+        relations: &Relations,
     ) -> Result<Vec<Constraint>, String> {
         let items: Option<Vec<Item>> = selected
             .iter()
@@ -171,7 +183,7 @@ impl ConstraintTool {
                 .check_constraint(constraint)
                 .map_err(|error| format!("{}.", sentence(&error.to_string())))?;
         }
-        new_relations(definition, constraints)
+        new_relations(definition, relations, constraints)
     }
 
     fn propose(
@@ -291,10 +303,11 @@ fn is_arc(sketch: &Sketch, entity: EntityId) -> bool {
 
 fn new_relations(
     definition: &Sketch,
+    relations: &Relations,
     constraints: Vec<Constraint>,
 ) -> Result<Vec<Constraint>, String> {
     for constraint in &constraints {
-        if let Some(existing) = definition.contradicting(constraint) {
+        if let Some(existing) = relations.contradicting(constraint) {
             return Err(format!(
                 "{} would contradict {}, which is already in the sketch. Delete that first.",
                 definition.describe(constraint),
@@ -304,7 +317,7 @@ fn new_relations(
     }
     let (restated, fresh): (Vec<Constraint>, Vec<Constraint>) = constraints
         .into_iter()
-        .partition(|constraint| definition.restating(constraint).is_some());
+        .partition(|constraint| relations.restating(definition, constraint).is_some());
     match (fresh.is_empty(), restated.first()) {
         (true, Some(first)) if restated.len() == 1 => Err(format!(
             "{} is already in the sketch.",

@@ -1,4 +1,4 @@
-use std::mem;
+use std::collections::BTreeMap;
 
 use crate::{
     constraint::Constraint,
@@ -7,22 +7,82 @@ use crate::{
     sketch::Sketch,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Direction {
     Level,
     Plumb,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Subject {
     Direction(Direction, [EntityId; 2]),
     Size(EntityId),
-    Pair(mem::Discriminant<Constraint>, [EntityId; 2]),
-    Single(mem::Discriminant<Constraint>, EntityId),
-    Triple(mem::Discriminant<Constraint>, EntityId, [EntityId; 2]),
+    Pair(&'static str, [EntityId; 2]),
+    Single(&'static str, EntityId),
+    Triple(&'static str, EntityId, [EntityId; 2]),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Opposed {
+    LineLevel(EntityId),
+    LinePlumb(EntityId),
+    Parallel([EntityId; 2]),
+    Perpendicular([EntityId; 2]),
+}
+
+impl Opposed {
+    fn of(constraint: &Constraint) -> Option<Self> {
+        Some(match *constraint {
+            Constraint::Horizontal(line) => Self::LineLevel(line),
+            Constraint::Vertical(line) => Self::LinePlumb(line),
+            Constraint::Parallel(a, b) => Self::Parallel(ordered(a, b)),
+            Constraint::Perpendicular(a, b) => Self::Perpendicular(ordered(a, b)),
+            _ => return None,
+        })
+    }
+
+    fn opposite(self) -> Self {
+        match self {
+            Self::LineLevel(line) => Self::LinePlumb(line),
+            Self::LinePlumb(line) => Self::LineLevel(line),
+            Self::Parallel(pair) => Self::Perpendicular(pair),
+            Self::Perpendicular(pair) => Self::Parallel(pair),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Relations {
+    subjects: BTreeMap<Subject, ConstraintId>,
+    opposed: BTreeMap<Opposed, ConstraintId>,
+}
+
+impl Relations {
+    pub fn restating(&self, sketch: &Sketch, constraint: &Constraint) -> Option<ConstraintId> {
+        self.subjects.get(&sketch.subject(constraint)).copied()
+    }
+
+    pub fn contradicting(&self, constraint: &Constraint) -> Option<ConstraintId> {
+        let opposed = Opposed::of(constraint)?.opposite();
+        self.opposed.get(&opposed).copied()
+    }
 }
 
 impl Sketch {
+    pub fn relations(&self) -> Relations {
+        let mut relations = Relations::default();
+        for (id, constraint) in self.active_constraints() {
+            relations
+                .subjects
+                .entry(self.subject(constraint))
+                .or_insert(id);
+            if let Some(opposed) = Opposed::of(constraint) {
+                relations.opposed.entry(opposed).or_insert(id);
+            }
+        }
+        relations
+    }
+
     pub fn restating(&self, constraint: &Constraint) -> Option<ConstraintId> {
         let subject = self.subject(constraint);
         self.active_constraints()
@@ -31,13 +91,14 @@ impl Sketch {
     }
 
     pub fn contradicting(&self, constraint: &Constraint) -> Option<ConstraintId> {
+        let opposed = Opposed::of(constraint)?.opposite();
         self.active_constraints()
-            .find(|(_, existing)| contradict(constraint, existing))
+            .find(|(_, existing)| Opposed::of(existing) == Some(opposed))
             .map(|(id, _)| id)
     }
 
     fn subject(&self, constraint: &Constraint) -> Subject {
-        let kind = mem::discriminant(constraint);
+        let kind = constraint.kind_name();
         match *constraint {
             Constraint::Horizontal(line) => Subject::Direction(Direction::Level, self.ends(line)),
             Constraint::Vertical(line) => Subject::Direction(Direction::Plumb, self.ends(line)),
@@ -81,18 +142,6 @@ impl Sketch {
 
 fn ordered(a: EntityId, b: EntityId) -> [EntityId; 2] {
     if a <= b { [a, b] } else { [b, a] }
-}
-
-fn contradict(first: &Constraint, second: &Constraint) -> bool {
-    match (first, second) {
-        (Constraint::Horizontal(a), Constraint::Vertical(b))
-        | (Constraint::Vertical(a), Constraint::Horizontal(b)) => a == b,
-        (Constraint::Parallel(a, b), Constraint::Perpendicular(c, d))
-        | (Constraint::Perpendicular(a, b), Constraint::Parallel(c, d)) => {
-            ordered(*a, *b) == ordered(*c, *d)
-        }
-        _ => false,
-    }
 }
 
 #[cfg(test)]
@@ -210,5 +259,23 @@ mod tests {
         );
         assert_eq!(sketch.contradicting(&Constraint::Vertical(other)), None);
         assert_eq!(sketch.contradicting(&Constraint::Horizontal(line)), None);
+        let relations = sketch.relations();
+        assert_eq!(
+            relations.contradicting(&Constraint::Vertical(line)),
+            Some(level)
+        );
+        assert_eq!(
+            relations.contradicting(&Constraint::Perpendicular(other, line)),
+            Some(parallel)
+        );
+        assert_eq!(relations.contradicting(&Constraint::Vertical(other)), None);
+        assert_eq!(
+            relations.restating(&sketch, &Constraint::Parallel(other, line)),
+            Some(parallel)
+        );
+        assert_eq!(
+            relations.restating(&sketch, &Constraint::Horizontal(other)),
+            None
+        );
     }
 }

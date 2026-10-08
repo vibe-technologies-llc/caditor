@@ -327,12 +327,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   to the encoder.
 - [medium · medium] The feature tree lays out every row each frame, which a STEP import of hundreds
   of bodies makes long.
-- [medium · medium] The constraint buttons' offers (`ConstraintOffers::refresh`) check every tool's
-  candidates against every constraint of the sketch (`new_relations`, through `contradicting` and
-  `restating`, which rebuilds each constraint's `Subject`), so a selection of a few hundred
-  constrained lines costs hundreds of milliseconds, and since the offers key on the displayed
-  sketch's generation, dragging that selection pays it every frame. Index the constraints by
-  subject once per revision and build a tool's candidates only when its selection shape can match.
 - [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of

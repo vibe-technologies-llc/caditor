@@ -111,11 +111,12 @@ impl ConstraintOffers {
                 {
                     self.computations += 1;
                 }
+                let relations = definition.relations();
                 let offers = ConstraintTool::ALL
                     .into_iter()
                     .map(|tool| {
                         let candidates = tool
-                            .candidates(definition, shown, selected)
+                            .candidates_among(definition, shown, selected, &relations)
                             .map(|constraints| sketch_tools::in_unit(constraints, basis.units));
                         (tool, candidates)
                     })
