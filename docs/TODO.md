@@ -120,6 +120,14 @@ comes last.
 
 ## Sketching
 
+- [medium · medium] No snap mode held with a modifier while drawing: Ctrl places the point freely and
+  the grid snap is a toggle off by default (`Command::ToggleGridSnapping`), so snapping to the grid
+  means a trip to the View menu and back. Holding a modifier (Alt is free in the drawing tools;
+  Ctrl and Shift are taken by free placement and the polygon's side scrub, so the key is still to
+  choose) should snap the point to the grid's minor crossings, or to the nearest snappable entity
+  (point, curve, intersection, midpoint) when one lies nearer, with a wider pull than the hover
+  snap, a marker and label naming what it took, and the same behaviour in grabs and drags of
+  existing geometry. Typed coordinates and the toggles stay as they are.
 - [medium · medium] Constraint kinds missing: angle to an arc; equal splines; tangency between two
   splines touching away from their ends (only end-to-end joints take `Tangent` and `Curvature`);
   distance between a spline and a line or circle.
@@ -128,6 +136,14 @@ comes last.
   rectangular and circular patterns, text, and fit-point,
   closed or periodic splines (`BSpline::through` serves only DXF import, `BSpline::interpolate`
   only its own tests, and the control polygon is not drawn).
+- [medium · hard] No spur gears: a gear tool in the sketch should draw the outline of an involute
+  spur gear from its module (or diametral pitch), tooth count, pressure angle, and optionally
+  profile shift, root fillet and bore, as one closed profile ready to extrude. Teeth are involute
+  flanks, so it needs either a spline fitted within tolerance per flank or an involute curve in the
+  sketch and the kernel's 2D profile curves, and the profile must stay parametric: module, teeth
+  and pressure angle are named parameters taking expressions, the pitch, base, root and tip
+  circles are shown as construction geometry, and a pair of gears at a centre distance follows from
+  the same parameters. Refuse in words a tooth count that undercuts at the chosen shift.
 - [medium · hard] The centre of an outline of odd sides and a slanted track place a point without
   a constraint keeping it there, as the sketch has no centroid or point-on-a-direction constraint;
   an odd outline with arcs has no centre at all. A drag snaps only its handle (the moving point
@@ -161,6 +177,13 @@ comes last.
 - [medium · medium] A body splits only along a plane (`Split`), not along a curved face or a sketch
   curve swept through it, and cannot be placed by mating faces (a face onto another, flush or at a
   distance, an axis onto another).
+- [medium · medium] No thread feature: a tapped hole names its ISO thread only in its panel, and a
+  shaft or boss takes none. A cosmetic thread on a cylindrical face (a bore, a shaft, a boss),
+  chosen by designation (ISO metric coarse and fine, M3 to M64, internal or external, with the
+  tolerance class and a length that may run to the end or a depth), is a feature of its own named
+  from the face it threads and referring to it by name. It draws as the minor or major circle and a
+  dashed thread line in the view, carries its designation into the exports that can hold it, and the hole feature creates one for a tapped hole. Modelled threads are the item
+  below.
 - [medium · hard] The whole model cannot be scaled: no command or feature resizes every body, sketch
   and datum by a factor (uniform, about the origin or a chosen point) as one undoable change.
   Scaling must keep references and names stable, and say what happens to dimensions and parameters
@@ -193,10 +216,10 @@ comes last.
   or two axes (sketch lines included) or about one, never along a spline or arc, nor at the points
   of a sketch.
 - [low · medium] Expressions cannot refer to measured values or sketch dimensions.
-- [medium · hard · blocked by: the sweep feature] No helix or spiral curve and no threads: springs, coils and threaded holes and shafts
-  cannot be modelled, and a tapped hole names its ISO thread only in its panel, with no cosmetic
-  thread drawn in the view or carried into exports. The sweep feature (same list) needs the helix
-  for modelled threads.
+- [medium · hard · blocked by: the sweep feature] No helix or spiral curve and no modelled threads:
+  springs, coils and threaded holes and shafts cannot be modelled with real thread geometry (the
+  cosmetic thread feature above covers drawing and exchange). The sweep feature (same list) needs
+  the helix, and the thread feature then offers a modelled form beside the cosmetic one.
 - [medium · hard · blocked by: direct face edits ("Bodies cannot be edited directly")] Draft angle
   on existing faces.
 - [medium · hard · blocked by: thin-wall extrusion ("Extrusions and revolves have no taper angle or thin wall")]
