@@ -25,7 +25,7 @@ pub use crate::{
     export::{
         ExportBody, ExportError, ExportFormat, Exported, FaceExported, ImageExportError, Look,
         MeshResolution, PNG_EXTENSION, RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, SketchExported,
-        SketchFormat, export_bodies, export_face, export_png, export_sketch,
+        SketchFormat, export_bodies, export_face, export_faces, export_png, export_sketch,
     },
     format::FORMAT_VERSION,
     import::{

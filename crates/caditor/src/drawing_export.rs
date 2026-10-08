@@ -19,15 +19,15 @@ use crate::{
 pub const SKETCH_HINT: &str = "Save the curves of a sketch as a DXF or SVG drawing in millimetres";
 pub const NOT_A_SKETCH: &str = "Choose a sketch in the feature tree, or edit one, to export it";
 pub const NOT_SOLVED: &str = "The sketch has not been solved, so there is nothing to export yet";
-pub const FACE_HINT: &str = "Save the outline and holes of the selected flat face as a DXF or SVG \
-                             drawing in millimetres, for laser or CNC cutting";
-pub const NOT_A_FACE: &str = "Select one flat face of a body to export its outline";
-const CURVED: &str = "The selected face is curved; only flat faces export as drawings";
+pub const FACE_HINT: &str = "Save the outlines and holes of the selected flat faces as a DXF or SVG \
+                             drawing in millimetres, side by side, for laser or CNC cutting";
+pub const NOT_A_FACE: &str = "Select one or more flat faces of bodies to export their outlines";
+const CURVED: &str = "A selected face is curved; only flat faces export as drawings";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DrawingSource {
     Sketch(FeatureId),
-    Face(FaceChoice),
+    Faces(Vec<FaceChoice>),
 }
 
 pub fn face_name(model: &Model, choice: FaceChoice) -> Option<String> {
@@ -43,12 +43,28 @@ pub fn body_name(model: &Model, choice: FaceChoice) -> String {
         .map_or_else(|| model.display_name(), |feature| feature.name.clone())
 }
 
-pub fn exportable_face(model: &Model, selection: &Selection) -> Result<FaceChoice, &'static str> {
-    let choice = sketch_placement::selected_face(selection).ok_or(NOT_A_FACE)?;
-    if sketch_placement::is_flat(model, choice) {
-        Ok(choice)
+pub fn exportable_faces(
+    model: &Model,
+    selection: &Selection,
+) -> Result<Vec<FaceChoice>, &'static str> {
+    let choices: Vec<FaceChoice> = selection.iter().filter_map(FaceChoice::of).collect();
+    if choices.is_empty() {
+        return Err(NOT_A_FACE);
+    }
+    if choices
+        .iter()
+        .all(|choice| sketch_placement::is_flat(model, *choice))
+    {
+        Ok(choices)
     } else {
         Err(CURVED)
+    }
+}
+
+pub fn faces_name(model: &Model, choices: &[FaceChoice]) -> Option<String> {
+    match choices {
+        [only] => face_name(model, *only),
+        several => Some(count(several.len(), "face", "faces")),
     }
 }
 
@@ -58,13 +74,17 @@ pub fn face_commands(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let exportable = exportable_face(model, selection);
-    let detail = exportable.ok().and_then(|choice| face_name(model, choice));
-    if commands.invoke_detailed(Command::ExportFace, detail, &exportable)
-        && let Ok(choice) = exportable
+    let exportable = exportable_faces(model, selection);
+    let detail = exportable
+        .as_ref()
+        .ok()
+        .and_then(|choices| faces_name(model, choices));
+    let available = exportable.as_ref().map(|_| ()).map_err(|reason| *reason);
+    if commands.invoke_detailed(Command::ExportFace, detail, &available)
+        && let Ok(choices) = exportable
     {
         actions.push(Action::File(FileCommand::ExportDrawing(
-            DrawingSource::Face(choice),
+            DrawingSource::Faces(choices),
         )));
     }
 }
@@ -120,16 +140,22 @@ pub fn face_finished(path: &Path, face: &str, result: Result<FaceExported, Expor
     let name = display_name(Some(path));
     match result {
         Ok(exported) => {
+            let side_by_side = if exported.faces > 1 {
+                ", side by side"
+            } else {
+                ""
+            };
             let summary = format!(
-                "Exported {} of “{face}” to “{name}”, in {}.",
+                "Exported {} of {face} to “{name}”, in {}{side_by_side}.",
                 count(exported.curves, "curve", "curves"),
                 count(exported.loops, "loop", "loops")
             );
             match exported.approximated {
                 0 => Notice::info(summary),
                 approximated => Notice::info(format!(
-                    "{summary} Polylines stand in for {} with no exact form in a drawing.",
-                    count(approximated, "curve", "curves")
+                    "{summary} {} with no exact form in a drawing {} fitted within a micrometre.",
+                    count(approximated, "curve", "curves"),
+                    if approximated == 1 { "was" } else { "were" }
                 )),
             }
         }
@@ -191,27 +217,29 @@ mod tests {
     fn the_face_notice_counts_curves_and_loops_and_says_what_was_approximated() {
         let path = Path::new("/tmp/plate.dxf");
         let exact = FaceExported {
+            faces: 1,
             loops: 2,
             curves: 5,
             approximated: 0,
         };
         let approximated = FaceExported {
+            faces: 2,
             loops: 1,
             curves: 3,
             approximated: 1,
         };
 
         assert_eq!(
-            face_finished(path, "Top", Ok(exact)).text,
+            face_finished(path, "“Top”", Ok(exact)).text,
             "Exported 5 curves of “Top” to “plate.dxf”, in 2 loops."
         );
         assert_eq!(
-            face_finished(path, "Top", Ok(approximated)).text,
-            "Exported 3 curves of “Top” to “plate.dxf”, in 1 loop. Polylines stand in for 1 \
-             curve with no exact form in a drawing."
+            face_finished(path, "2 faces", Ok(approximated)).text,
+            "Exported 3 curves of 2 faces to “plate.dxf”, in 1 loop, side by side. 1 curve with \
+             no exact form in a drawing was fitted within a micrometre."
         );
         assert_eq!(
-            face_finished(path, "Top", Err(ExportError::FaceNotFlat)).text,
+            face_finished(path, "“Top”", Err(ExportError::FaceNotFlat)).text,
             "Could not export “plate.dxf”: the face is curved; only flat faces export as drawings."
         );
     }

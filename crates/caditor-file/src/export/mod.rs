@@ -18,7 +18,7 @@ use std::{
 };
 
 use caditor_document::{CancelToken, ModelProperties, ModelProperty, Rgb};
-use caditor_geometry::{Aabb, Point3};
+use caditor_geometry::{Aabb, Point3, Vector2};
 use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
 use caditor_step::{StepBody, StepDetails, StepWritten, WriteError, write_step_detailed};
@@ -29,6 +29,8 @@ use crate::{reason::WriteFailure, save::write_atomically};
 
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
 const SMALLEST_EXTENT: f64 = 1.0;
+const MIN_FACE_GAP: f64 = 10.0;
+const FACE_GAP_FRACTION: f64 = 0.1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ExportFormat {
@@ -138,6 +140,7 @@ pub fn export_sketch(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FaceExported {
+    pub faces: usize,
     pub loops: usize,
     pub curves: usize,
     pub approximated: usize,
@@ -150,13 +153,58 @@ pub fn export_face(
     format: SketchFormat,
     cancel: &CancelToken,
 ) -> Result<FaceExported, ExportError> {
-    let outlined = panic::catch_unwind(AssertUnwindSafe(|| outline::face_figure(solid, face)));
-    let (figure, exported) = outlined.unwrap_or_else(|_| {
-        log::error!("outlining a face for export panicked");
-        Err(ExportError::Encoding)
-    })?;
+    export_faces(path, &[(solid, face)], format, cancel)
+}
+
+pub fn export_faces(
+    path: &Path,
+    faces: &[(&Solid, FaceId)],
+    format: SketchFormat,
+    cancel: &CancelToken,
+) -> Result<FaceExported, ExportError> {
+    let mut figures = Vec::with_capacity(faces.len());
+    for (solid, face) in faces {
+        if cancel.is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+        let outlined = panic::catch_unwind(AssertUnwindSafe(|| outline::face_figure(solid, *face)));
+        figures.push(outlined.unwrap_or_else(|_| {
+            log::error!("outlining a face for export panicked");
+            Err(ExportError::Encoding)
+        })?);
+    }
+    let (figure, exported) = laid_out(figures).ok_or(ExportError::NoCurves)?;
     write_figure(path, &figure, format, cancel)?;
     Ok(exported)
+}
+
+fn laid_out(figures: Vec<(Figure, FaceExported)>) -> Option<(Figure, FaceExported)> {
+    let largest = figures
+        .iter()
+        .filter_map(|(figure, _)| figure.bounds())
+        .map(|bounds| {
+            let size = bounds.max() - bounds.min();
+            size.x.max(size.y)
+        })
+        .fold(0.0, f64::max);
+    let gap = (largest * FACE_GAP_FRACTION).max(MIN_FACE_GAP);
+    let mut figures = figures.into_iter();
+    let (mut sheet, mut exported) = figures.next()?;
+    for (figure, counted) in figures {
+        let (Some(placed), Some(bounds)) = (sheet.bounds(), figure.bounds()) else {
+            continue;
+        };
+        let offset = Vector2::new(
+            placed.max().x + gap - bounds.min().x,
+            placed.min().y - bounds.min().y,
+        );
+        sheet.append_shifted(figure, offset);
+        exported.faces += counted.faces;
+        exported.loops += counted.loops;
+        exported.curves += counted.curves;
+        exported.approximated += counted.approximated;
+    }
+    Some((sheet, exported))
 }
 
 fn write_figure(

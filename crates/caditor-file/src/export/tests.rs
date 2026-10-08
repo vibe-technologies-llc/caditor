@@ -9,7 +9,7 @@ use std::{
 };
 
 use caditor_document::{CancelToken, ModelProperties};
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{FaceId, LinearExtent, Profile, ProfileCurve, Selection, Solid, extrude};
 use caditor_sketch::Sketch;
 use tempfile::TempDir;
@@ -1168,6 +1168,7 @@ fn a_flat_face_exports_its_outline_and_holes_exactly_on_layers_of_their_own() {
     assert_eq!(
         exported,
         FaceExported {
+            faces: 1,
             loops: 2,
             curves: 5,
             approximated: 0,
@@ -1271,6 +1272,60 @@ fn a_flat_face_cut_through_a_torus_writes_each_traced_edge_as_one_spline() {
     );
     let drawing = crate::parse_dxf(dxf::encode(&figure).as_bytes()).unwrap();
     assert_eq!(drawing.curves.len(), exported.curves);
+}
+
+#[test]
+fn several_faces_go_into_one_drawing_side_by_side() {
+    let plate = rounded_plate();
+    let other = block();
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("nest.dxf");
+    let faces = [
+        (&plate, face_facing(&plate, Vector3::Z)),
+        (&other, face_facing(&other, Vector3::Z)),
+    ];
+
+    let exported = export_faces(&path, &faces, SketchFormat::Dxf, &CancelToken::never()).unwrap();
+
+    let single = outline::face_figure(&plate, faces[0].1).unwrap().1;
+    let second = outline::face_figure(&other, faces[1].1).unwrap().1;
+    assert_eq!(exported.faces, 2);
+    assert_eq!(exported.curves, single.curves + second.curves);
+    assert_eq!(exported.loops, single.loops + second.loops);
+    let drawing = crate::parse_dxf(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(drawing.curves.len(), exported.curves);
+    let (first_part, second_part) = drawing.curves.split_at(single.curves);
+    let reach = |curves: &[crate::DrawingCurve]| {
+        curves
+            .iter()
+            .flat_map(|curve| match curve {
+                crate::DrawingCurve::Point(point) => vec![*point],
+                crate::DrawingCurve::Line { start, end } => vec![*start, *end],
+                crate::DrawingCurve::Circle { center, radius } => {
+                    vec![
+                        *center - Vector2::splat(*radius),
+                        *center + Vector2::splat(*radius),
+                    ]
+                }
+                crate::DrawingCurve::Arc { center, start, .. } => {
+                    let radius = center.distance(*start);
+                    vec![
+                        *center - Vector2::splat(radius),
+                        *center + Vector2::splat(radius),
+                    ]
+                }
+                crate::DrawingCurve::Spline { control_points } => control_points.clone(),
+            })
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), point| {
+                (low.min(point.x), high.max(point.x))
+            })
+    };
+    let (_, first_right) = reach(first_part);
+    let (second_left, _) = reach(second_part);
+    assert!(
+        second_left >= first_right + 10.0 - 1e-6,
+        "{first_right} {second_left}"
+    );
 }
 
 #[test]

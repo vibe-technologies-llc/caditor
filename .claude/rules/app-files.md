@@ -84,10 +84,11 @@ paths:
 - Export sketch (File menu, palette; `Command::ExportSketch`) is offered by
   `feature_tree::commands` for the sketch the tree has current or that is edited, and only once it
   has solved geometry. Export face (`Command::ExportFace`, `drawing_export::face_commands`) is
-  offered while exactly one flat face is selected, curved faces refused in words.
+  offered while one or more faces are selected, all flat (a curved one refuses in words); several
+  go into one drawing side by side (`caditor_file::export_faces`).
 - Both send `FileCommand::ExportDrawing` with a `DrawingSource`, pick a `.dxf` or `.svg` path
   (`Purpose::Drawing`, titled for the source, `.dxf` appended to any other and replacing asked as
-  for the other outputs) and write on the files worker: a clone of the displayed sketch, or the face
+  for the other outputs) and write on the files worker: a clone of the displayed sketch, or each face
   found again by its key in the shown body's result (an `Arc`, not a copy). The sketch notice counts
   what was written and the construction curves left out; the face notice counts curves and loops
   and says how many became polylines (`drawing_export.rs`).

@@ -1704,7 +1704,7 @@ fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
     assert_eq!(
         availability(&harness),
         Some(Err(
-            "Select one flat face of a body to export its outline".to_owned()
+            "Select one or more flat faces of bodies to export their outlines".to_owned()
         ))
     );
 
@@ -1725,6 +1725,26 @@ fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
 
     assert_eq!(drawing.curve_count(), 4);
     assert_eq!(drawing.layers, vec!["Outline".to_owned()]);
+
+    let bottom = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            pickable.describe(harness.document(), harness.model.evaluation())
+                == "Extrude 1 › Extrude 1 start face"
+        })
+        .expect("the bottom face is pickable");
+    harness.select([top, bottom]);
+    harness.frame();
+    harness.answer_dialog(Some(dir.path().join("both")));
+    run_from_palette(&mut harness, "export face");
+    let both = dir.path().join("both.dxf");
+    harness.wait_until("the drawing of both faces is written", |_| both.exists());
+    harness.wait_until("the export of both is announced", |harness| {
+        harness.shows("Exported 8 curves of 2 faces to “both.dxf”, in 2 loops, side by side.")
+    });
+    assert_eq!(caditor_file::read_dxf(&both).unwrap().curve_count(), 8);
 }
 
 fn png_size(path: &Path) -> (u32, u32, u8) {

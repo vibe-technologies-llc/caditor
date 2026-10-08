@@ -30,6 +30,7 @@ pub(super) fn face_figure(
     let tolerance = polyline_tolerance(solid);
     let mut figure = Figure::default();
     let mut exported = FaceExported {
+        faces: 1,
         loops: 0,
         curves: 0,
         approximated: 0,

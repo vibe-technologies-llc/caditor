@@ -120,8 +120,11 @@ paths:
   rational weights kept), and anything else (intersection curves) is sampled within 1 µm or a
   millionth of the body's diagonal and written as one cubic `SPLINE` interpolating the samples
   (`outline::fitted`, kept only when its middle between every two samples lies within that chord of
-  the curve's), else as a polyline of them; either is counted in `FaceExported::approximated`. A curved face is
-  `ExportError::FaceNotFlat`; outlining runs under `catch_unwind`.
+  the curve's), else as a polyline of them; either is counted in `FaceExported::approximated`. A
+  curved face is `ExportError::FaceNotFlat`; outlining runs under `catch_unwind`.
+- `export_faces` writes several faces into one drawing: the first in its own frame as
+  `export_face` does, each next one shifted to the right of what is placed by a gap of a tenth of
+  the largest face (at least 10 mm), bottoms level, the counts summed (`FaceExported::faces`).
 - DXF is ASCII, version AC1015, millimetres (`$INSUNITS` 4), header and entities only (layers are
   named by the entities, without a table): `LINE`, `CIRCLE`, `ARC` (a full sweep is a circle),
   `ELLIPSE` (a full one from 0 to 2π), clamped planar `SPLINE` with knots, weights when rational

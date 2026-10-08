@@ -3,7 +3,7 @@ use std::{
     f64::consts::{PI, TAU},
 };
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Aabb2, Point2, Vector2};
 use caditor_sketch::{Entity, Sketch};
 
 use super::SketchExported;
@@ -86,6 +86,48 @@ impl Shape {
         center + Vector2::new(cos, sin) * radius
     }
 
+    fn shifted(self, offset: Vector2) -> Self {
+        match self {
+            Self::Point(point) => Self::Point(point + offset),
+            Self::Line(start, end) => Self::Line(start + offset, end + offset),
+            Self::Circle { center, radius } => Self::Circle {
+                center: center + offset,
+                radius,
+            },
+            Self::Arc {
+                center,
+                radius,
+                start,
+                end,
+            } => Self::Arc {
+                center: center + offset,
+                radius,
+                start,
+                end,
+            },
+            Self::Ellipse(ellipse) => Self::Ellipse(Ellipse {
+                center: ellipse.center + offset,
+                ..ellipse
+            }),
+            Self::Spline(spline) => Self::Spline(Spline {
+                control_points: spline
+                    .control_points
+                    .iter()
+                    .map(|point| *point + offset)
+                    .collect(),
+                polyline: spline
+                    .polyline
+                    .iter()
+                    .map(|point| *point + offset)
+                    .collect(),
+                ..spline
+            }),
+            Self::Polyline(points) => {
+                Self::Polyline(points.iter().map(|point| *point + offset).collect())
+            }
+        }
+    }
+
     pub(super) fn outline_points(&self) -> Vec<Point2> {
         match self {
             Self::Point(point) => vec![*point],
@@ -124,6 +166,23 @@ pub(super) struct Figure {
 impl Figure {
     pub(super) fn push(&mut self, layer: Layer, shape: Shape) {
         self.shapes.push((layer, shape));
+    }
+
+    pub(super) fn bounds(&self) -> Option<Aabb2> {
+        Aabb2::from_points(
+            self.shapes
+                .iter()
+                .flat_map(|(_, shape)| shape.outline_points()),
+        )
+    }
+
+    pub(super) fn append_shifted(&mut self, other: Self, offset: Vector2) {
+        self.shapes.extend(
+            other
+                .shapes
+                .into_iter()
+                .map(|(layer, shape)| (layer, shape.shifted(offset))),
+        );
     }
 
     pub(super) fn layers(&self) -> BTreeSet<Layer> {

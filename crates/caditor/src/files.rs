@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use caditor_document::{CancelToken, Document, FeatureId};
+use caditor_document::{CancelToken, Document, FeatureId, FeatureResult};
 use caditor_file::{
     Closing, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported, FILE_EXTENSION,
     FaceExported, FileJournal, History, ImportError, LoadError, Loaded, MESH_IMPORT_EXTENSIONS,
@@ -20,6 +20,7 @@ use caditor_file::{
     STEP_IMPORT_EXTENSIONS, SavedState, Settings, SketchExported, SketchFormat, describe_set_aside,
     journal_for, load, load_version, read_dxf, scan,
 };
+use caditor_kernel::{FaceId, Solid};
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
 use egui::{Sides, Ui};
@@ -27,7 +28,7 @@ use parking_lot::Mutex;
 
 use crate::{
     appearance::{self, SPACE_S},
-    bodies,
+    bodies::{self, FaceKey},
     commands::{Command, CommandFrame, Offer, RecentSlot},
     dialog_parts,
     drawing_export::{self, DrawingSource, FACE_HINT, NOT_A_FACE, NOT_A_SKETCH, SKETCH_HINT},
@@ -1309,35 +1310,46 @@ impl Files {
     fn export_drawing(&mut self, path: PathBuf, model: &mut Model) {
         match self.drawing_export.take() {
             Some(DrawingSource::Sketch(feature)) => self.export_sketch(path, feature, model),
-            Some(DrawingSource::Face(choice)) => self.export_face(path, choice, model),
+            Some(DrawingSource::Faces(choices)) => self.export_faces(path, &choices, model),
             None => {}
         }
     }
 
-    fn export_face(&mut self, path: PathBuf, choice: FaceChoice, model: &mut Model) {
+    fn export_faces(&mut self, path: PathBuf, choices: &[FaceChoice], model: &mut Model) {
         let evaluation = model.evaluation();
-        let shown = evaluation.body_result(choice.body).map(Arc::clone);
-        let (Some(result), Some(face)) = (shown, drawing_export::face_name(model, choice)) else {
+        let found: Option<Vec<(Arc<FeatureResult>, FaceKey)>> = choices
+            .iter()
+            .map(|choice| {
+                drawing_export::face_name(model, *choice)?;
+                let result = evaluation.body_result(choice.body).map(Arc::clone)?;
+                Some((result, choice.face))
+            })
+            .collect();
+        let (Some(found), Some(face)) = (found, drawing_export::faces_name(model, choices)) else {
             model.set_notice(Notice::failure(
-                "The face is no longer part of the model, so it was not exported.",
+                "A face is no longer part of the model, so nothing was exported.",
             ));
             return;
+        };
+        let face = match choices {
+            [_] => format!("“{face}”"),
+            _ => face,
         };
         let failed = (path.clone(), face.clone());
         self.spawn(
             move || {
                 let format = SketchFormat::of(&path).unwrap_or_default();
-                let result = match result.solid() {
-                    Some(body) => match bodies::find_face(body, choice.face) {
-                        Some(id) => caditor_file::export_face(
-                            &path,
-                            &body.solid,
-                            id,
-                            format,
-                            &CancelToken::never(),
-                        ),
-                        None => Err(ExportError::FaceMissing),
-                    },
+                let faces: Option<Vec<(&Solid, FaceId)>> = found
+                    .iter()
+                    .map(|(result, key)| {
+                        let body = result.solid()?;
+                        Some((&body.solid, bodies::find_face(body, *key)?))
+                    })
+                    .collect();
+                let result = match faces {
+                    Some(faces) => {
+                        caditor_file::export_faces(&path, &faces, format, &CancelToken::never())
+                    }
                     None => Err(ExportError::FaceMissing),
                 };
                 Event::FaceExported { path, face, result }
@@ -1601,15 +1613,26 @@ impl Files {
                     .pick_image_path(directory, ImageExporter::file_name(model), respond);
             }
             Purpose::Drawing => {
-                let (title, file_name) = match self.drawing_export {
-                    Some(DrawingSource::Face(choice)) => (
-                        "Export face",
-                        drawing_export::face_file_name(&drawing_export::body_name(model, choice)),
+                let (title, file_name) = match &self.drawing_export {
+                    Some(DrawingSource::Faces(choices)) => (
+                        if choices.len() == 1 {
+                            "Export face"
+                        } else {
+                            "Export faces"
+                        },
+                        choices.first().map_or_else(
+                            || drawing_export::file_name(&model.display_name()),
+                            |choice| {
+                                drawing_export::face_file_name(&drawing_export::body_name(
+                                    model, *choice,
+                                ))
+                            },
+                        ),
                     ),
                     Some(DrawingSource::Sketch(feature)) => (
                         "Export sketch",
                         drawing_export::file_name(
-                            &model.document().feature(feature).map_or_else(
+                            &model.document().feature(*feature).map_or_else(
                                 || model.display_name(),
                                 |feature| feature.name.clone(),
                             ),
