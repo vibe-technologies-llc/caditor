@@ -98,7 +98,10 @@ pub(crate) fn crossings(carrier: Carrier, other: &Shape, tolerance: f64) -> Vec<
                 .collect()
         }
         (Carrier::Line { through, direction }, Shape::Spline(spline)) => {
-            spline_roots(spline, |point| direction.perp_dot(point - through))
+            let Some(across) = direction.try_normalize() else {
+                return Vec::new();
+            };
+            spline_roots(spline, |point| across.perp_dot(point - through), tolerance)
         }
         (Carrier::Circle { center, radius }, Shape::Segment { start, end }) => {
             let edge = *end - *start;
@@ -128,7 +131,7 @@ pub(crate) fn crossings(carrier: Carrier, other: &Shape, tolerance: f64) -> Vec<
                 .collect()
         }
         (Carrier::Circle { center, radius }, Shape::Spline(spline)) => {
-            spline_roots(spline, |point| point.distance(center) - radius)
+            spline_roots(spline, |point| point.distance(center) - radius, tolerance)
         }
     }
 }
@@ -211,28 +214,98 @@ fn spline_samples(spline: &BSpline) -> usize {
     (spline.control_points().len() * SPLINE_SAMPLES_PER_POINT).max(MIN_SPLINE_SAMPLES)
 }
 
-fn spline_roots(spline: &BSpline, signed: impl Fn(Point2) -> f64) -> Vec<Point2> {
+fn spline_roots(spline: &BSpline, signed: impl Fn(Point2) -> f64, tolerance: f64) -> Vec<Point2> {
     let samples = spline_samples(spline);
     let value = |parameter: f64| signed(spline.point_at(parameter));
-    let parameters: Vec<f64> = (0..=samples)
-        .map(|index| index as f64 / samples as f64)
+    let sampled: Vec<(f64, f64)> = (0..=samples)
+        .map(|index| {
+            let parameter = index as f64 / samples as f64;
+            (parameter, value(parameter))
+        })
         .collect();
     let mut roots = Vec::new();
-    for pair in parameters.windows(2) {
-        let &[low, high] = pair else {
+    for pair in sampled.windows(2) {
+        let &[(low, at_low), (high, at_high)] = pair else {
             continue;
         };
-        let (at_low, at_high) = (value(low), value(high));
         if at_low == 0.0 {
-            roots.push(spline.point_at(low));
+            roots.push(low);
         } else if at_low.signum() != at_high.signum() && at_high != 0.0 {
-            roots.push(spline.point_at(bisect(&value, low, high, at_low)));
+            roots.push(bisect(&value, low, high, at_low));
         }
     }
-    if parameters.last().is_some_and(|last| value(*last) == 0.0) {
-        roots.push(spline.point_at(1.0));
+    if sampled.last().is_some_and(|(_, at_last)| *at_last == 0.0) {
+        roots.push(1.0);
     }
+    for triple in sampled.windows(3) {
+        let &[(before, at_before), (_, at_middle), (after, at_after)] = triple else {
+            continue;
+        };
+        let sense = at_middle.signum();
+        let dips = at_middle != 0.0
+            && at_before.signum() == sense
+            && at_after.signum() == sense
+            && at_middle.abs() <= at_before.abs()
+            && at_middle.abs() < at_after.abs();
+        if dips {
+            roots.extend(roots_in_dip(&value, (before, after), sense, tolerance));
+        }
+    }
+    roots.sort_by(f64::total_cmp);
     roots
+        .into_iter()
+        .map(|parameter| spline.point_at(parameter))
+        .collect()
+}
+
+fn roots_in_dip(
+    value: &impl Fn(f64) -> f64,
+    (before, after): (f64, f64),
+    sense: f64,
+    tolerance: f64,
+) -> Vec<f64> {
+    let deepest = deepest_in(&|parameter| sense * value(parameter), before, after);
+    let at_deepest = sense * value(deepest);
+    if at_deepest < 0.0 {
+        vec![
+            bisect(value, before, deepest, sense),
+            bisect(value, deepest, after, -sense),
+        ]
+    } else if at_deepest <= tolerance {
+        vec![deepest]
+    } else {
+        Vec::new()
+    }
+}
+
+fn deepest_in(value: &impl Fn(f64) -> f64, low: f64, high: f64) -> f64 {
+    let ratio = (5f64.sqrt() - 1.0) / 2.0;
+    let (mut low, mut high) = (low, high);
+    let mut inner = high - ratio * (high - low);
+    let mut outer = low + ratio * (high - low);
+    let (mut at_inner, mut at_outer) = (value(inner), value(outer));
+    for _ in 0..BISECTION_STEPS {
+        if at_inner <= 0.0 {
+            return inner;
+        }
+        if at_outer <= 0.0 {
+            return outer;
+        }
+        if at_inner < at_outer {
+            high = outer;
+            outer = inner;
+            at_outer = at_inner;
+            inner = high - ratio * (high - low);
+            at_inner = value(inner);
+        } else {
+            low = inner;
+            inner = outer;
+            at_inner = at_outer;
+            outer = low + ratio * (high - low);
+            at_outer = value(outer);
+        }
+    }
+    if at_inner < at_outer { inner } else { outer }
 }
 
 fn bisect(value: &impl Fn(f64) -> f64, low: f64, high: f64, at_low: f64) -> f64 {
@@ -354,6 +427,41 @@ mod tests {
                 .iter()
                 .any(|point| point.distance(Point2::new(4.0, -3.0)) < 1e-12)
         );
+    }
+
+    fn lopsided_bump() -> (Shape, Point2) {
+        let Some(spline) = BSpline::clamped(vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(3.0, 6.0),
+            Point2::new(17.0, 2.0),
+            Point2::new(20.0, 0.0),
+        ]) else {
+            panic!("a spline");
+        };
+        let peak = (0..=1_000_000)
+            .map(|index| spline.point_at(f64::from(index) / 1e6))
+            .max_by(|a, b| a.y.total_cmp(&b.y))
+            .unwrap();
+        (Shape::Spline(spline), peak)
+    }
+
+    #[test]
+    fn a_spline_grazing_a_line_between_samples_is_crossed_twice_or_touched() {
+        let (bump, peak) = lopsided_bump();
+        let below = peak.y - 1e-7;
+
+        let crossed = crossings(horizontal_through(below), &bump, TOLERANCE);
+        assert_eq!(crossed.len(), 2, "{crossed:?}");
+        assert!(crossed[0].x < peak.x && crossed[1].x > peak.x);
+        for point in &crossed {
+            assert!((point.y - below).abs() < 1e-12);
+        }
+
+        let touched = crossings(horizontal_through(peak.y + 1e-10), &bump, 1e-9);
+        assert_eq!(touched.len(), 1, "{touched:?}");
+        assert!(touched[0].distance(peak) < 1e-3);
+
+        assert!(crossings(horizontal_through(peak.y + 1e-3), &bump, TOLERANCE).is_empty());
     }
 
     #[test]

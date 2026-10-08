@@ -117,3 +117,7 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   derivatives, banded elimination (`banded.rs`). `BSpline::fit` approximates a dense polyline
   within a tolerance, `interpolate` passes through points at evenly spaced parameters, `through`
   follows unevenly spaced points without loops.
+- A spline meets a line or circle where its signed distance changes sign between samples
+  (`intersect::spline_roots`, bisected); where the distance dips toward zero between samples
+  without changing sign, the deepest point is found by golden-section search, giving two crossings
+  when it passes zero and one touching point when it comes within the tolerance.

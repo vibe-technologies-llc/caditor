@@ -165,8 +165,6 @@ the unblocked ones; the entry that does the unblocking comes before it.
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
-- [low · medium] Spline intersections sample sign changes, so a near-tangent crossing between
-  samples is missed.
 - [low · medium] Dimensions all sit at one fixed offset, so collinear chains overlap, and labels
   cannot be dragged.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
