@@ -8,18 +8,19 @@ use caditor_document::{
     AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, CircularPattern, Combine, CombineOperation, Datum, DatumAxis, DatumPlane,
     DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour,
-    Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
-    HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
-    MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT,
-    MetricSize, Mirror, ModelProperties, ModelProperty, Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
-    Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove,
-    Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, Scale, Shell, SketchAttachment,
-    SketchFeature, SolidFeature, SolidStart, Split, Transaction, TurnCentre, group_name,
-    material_name,
+    Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole, HoleDepth, HoleFit, HoleShape,
+    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing,
+    MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
+    MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties,
+    ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Parameter, Pattern,
+    PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference, PrincipalAxis,
+    PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve,
+    RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, Transaction, TurnCentre,
+    group_name, material_name, view_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector3};
 use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
     RegionKey, RegionReference, Side, Solid, VertexName,
@@ -40,9 +41,10 @@ pub(crate) enum Record {
     Suppressed(SuppressedRecord),
     Rollback(RollbackRecord),
     Properties(PropertiesRecord),
+    Views(ViewsRecord),
 }
 
-pub(crate) const RECORD_KINDS: [&str; 7] = [
+pub(crate) const RECORD_KINDS: [&str; 8] = [
     "parameter",
     "feature",
     "next_ids",
@@ -50,6 +52,7 @@ pub(crate) const RECORD_KINDS: [&str; 7] = [
     "suppressed",
     "rollback",
     "properties",
+    "views",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -68,6 +71,27 @@ pub(crate) struct PropertiesRecord {
     pub description: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub notes: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ViewsRecord {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub named: Vec<Lenient<NamedViewRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<Lenient<ViewRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct NamedViewRecord {
+    pub name: String,
+    pub view: ViewRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ViewRecord {
+    pub target: [f64; 3],
+    pub orientation: [f64; 4],
+    pub distance: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1021,6 +1045,9 @@ pub(crate) enum EditRecord {
     SetModelProperties {
         properties: PropertiesRecord,
     },
+    SetSavedViews {
+        views: ViewsRecord,
+    },
     SetFeatureKind {
         feature: FeatureRecord,
     },
@@ -1962,6 +1989,131 @@ pub(crate) fn restore_properties(
     properties
 }
 
+fn view_record_of(view: &SavedView) -> ViewRecord {
+    ViewRecord {
+        target: view.target.to_array(),
+        orientation: view.orientation.to_array(),
+        distance: view.distance,
+    }
+}
+
+fn saved_view_of(record: ViewRecord) -> SavedView {
+    SavedView {
+        target: Point3::from_array(record.target),
+        orientation: Rotation3::from_array(record.orientation),
+        distance: record.distance,
+    }
+}
+
+fn views_record_of(views: &SavedViews) -> ViewsRecord {
+    ViewsRecord {
+        named: views
+            .named
+            .iter()
+            .map(|named| {
+                Lenient::Read(NamedViewRecord {
+                    name: named.name.clone(),
+                    view: view_record_of(&named.view),
+                })
+            })
+            .collect(),
+        home: views
+            .home
+            .as_ref()
+            .map(|home| Lenient::Read(view_record_of(home))),
+    }
+}
+
+pub(crate) fn views_record(document: &Document) -> Option<ViewsRecord> {
+    let views = document.saved_views();
+    (!views.is_empty()).then(|| views_record_of(views))
+}
+
+fn fitting_view_name(name: &str, taken: &SavedViews, issues: &mut Vec<String>) -> String {
+    let mut name = view_name(name);
+    if name.is_empty() {
+        let numbered = taken.unused_name();
+        issues.push(format!(
+            "A saved view had no name, so it is called “{numbered}”."
+        ));
+        return numbered;
+    }
+    if name.chars().count() > MAX_VIEW_NAME_CHARS {
+        name = name
+            .chars()
+            .take(MAX_VIEW_NAME_CHARS)
+            .collect::<String>()
+            .trim_end()
+            .to_owned();
+        issues.push(format!(
+            "The name of the saved view “{name}” was longer than {MAX_VIEW_NAME_CHARS} characters, \
+             so its end was cut off."
+        ));
+    }
+    if !taken.is_taken(&name) {
+        return name;
+    }
+    let room = MAX_VIEW_NAME_CHARS - 6;
+    let base: String = name.chars().take(room).collect();
+    let numbered = (2..)
+        .map(|number| format!("{base} {number}"))
+        .find(|candidate| !taken.is_taken(candidate))
+        .unwrap_or_else(|| name.clone());
+    issues.push(format!(
+        "Two saved views were called “{name}”, so one is called “{numbered}”."
+    ));
+    numbered
+}
+
+pub(crate) fn restore_views(record: ViewsRecord, issues: &mut Vec<String>) -> SavedViews {
+    let mut views = SavedViews::default();
+    for named in record.named {
+        let Lenient::Read(named) = named else {
+            issues.push("A saved view could not be read, so it was left out.".to_owned());
+            continue;
+        };
+        if views.named.len() >= MAX_SAVED_VIEWS {
+            issues.push(format!(
+                "A model keeps at most {MAX_SAVED_VIEWS} saved views, so the rest were left out."
+            ));
+            break;
+        }
+        let view = saved_view_of(named.view);
+        if !view.is_usable() {
+            issues.push(format!(
+                "The saved view “{}” is not a view the camera can show, so it was left out.",
+                named.name
+            ));
+            continue;
+        }
+        let name = fitting_view_name(&named.name, &views, issues);
+        views.named.push(NamedView {
+            name,
+            view: view.normalized(),
+        });
+    }
+    views.home = match record.home {
+        None => None,
+        Some(Lenient::Read(home)) => {
+            let home = saved_view_of(home);
+            if !home.is_usable() {
+                issues.push(format!(
+                    "The {HOME_VIEW_NAME} view is not a view the camera can show, so the default \
+                     one is used."
+                ));
+            }
+            home.is_usable().then(|| home.normalized())
+        }
+        Some(Lenient::Unreadable(_)) => {
+            issues.push(format!(
+                "The {HOME_VIEW_NAME} view could not be read, so the default one is used."
+            ));
+            None
+        }
+    };
+    views
+}
+
 pub(crate) fn suppressed_record(document: &Document) -> Option<SuppressedRecord> {
     let features: Vec<u64> = document
         .features()
@@ -2433,6 +2585,9 @@ fn edit_record(edit: &Edit) -> EditRecord {
         Edit::SetModelProperties { properties } => EditRecord::SetModelProperties {
             properties: properties_record_of(properties),
         },
+        Edit::SetSavedViews { views } => EditRecord::SetSavedViews {
+            views: views_record_of(views),
+        },
         Edit::SetFeatureKind { id, kind } => EditRecord::SetFeatureKind {
             feature: FeatureRecord {
                 id: id.raw(),
@@ -2631,6 +2786,9 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
         },
         EditRecord::SetModelProperties { properties } => Edit::SetModelProperties {
             properties: Box::new(restore_properties(properties, &mut Vec::new())),
+        },
+        EditRecord::SetSavedViews { views } => Edit::SetSavedViews {
+            views: Box::new(restore_views(views, &mut Vec::new())),
         },
         EditRecord::SetFeatureKind { feature } => {
             let mut issues = Vec::new();

@@ -142,6 +142,10 @@ pub enum Command {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    SaveView,
+    SavedViews,
+    SetHomeView,
+    ResetHomeView,
     ToggleProjection,
     ToggleSnapping,
     ToggleGridSnapping,
@@ -497,6 +501,10 @@ plain_commands! {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    SaveView,
+    SavedViews,
+    SetHomeView,
+    ResetHomeView,
     MinimizeWindow,
     MaximizeWindow,
     FullScreen,
@@ -737,6 +745,10 @@ impl Command {
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
+            Self::SaveView => "view.save",
+            Self::SavedViews => "view.saved_views",
+            Self::SetHomeView => "view.set_home",
+            Self::ResetHomeView => "view.reset_home",
             Self::ToggleProjection => "view.toggle_projection",
             Self::ToggleSnapping => "view.toggle_snapping",
             Self::ToggleGridSnapping => "view.toggle_grid_snapping",
@@ -903,6 +915,10 @@ impl Command {
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
+            Self::SaveView => "Save the current view",
+            Self::SavedViews => "Saved views…",
+            Self::SetHomeView => "Make the current view the Isometric view",
+            Self::ResetHomeView => "Reset the Isometric view",
             Self::ToggleProjection => "Switch between perspective and orthographic",
             Self::ToggleSnapping => "Turn snapping on or off",
             Self::ToggleGridSnapping => "Snap to the grid",
@@ -1027,6 +1043,10 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
+            | Self::SaveView
+            | Self::SavedViews
+            | Self::SetHomeView
+            | Self::ResetHomeView
             | Self::ToggleProjection
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
@@ -1268,6 +1288,10 @@ impl Command {
             | Self::ToggleLasso
             | Self::MinimizeWindow
             | Self::MaximizeWindow
+            | Self::SaveView
+            | Self::SavedViews
+            | Self::SetHomeView
+            | Self::ResetHomeView
             | Self::CloseFeature
             | Self::DetachSketch
             | Self::PlaceSketch

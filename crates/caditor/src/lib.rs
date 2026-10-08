@@ -90,6 +90,7 @@ mod reference_rows;
 mod removal;
 mod ribbon;
 mod samples;
+mod saved_views;
 mod scale_panel;
 mod scale_tools;
 mod scene;

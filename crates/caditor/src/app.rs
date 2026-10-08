@@ -56,6 +56,7 @@ use crate::{
         PreferencesView, Restored, TitleBar,
     },
     reference_picking,
+    saved_views::{self, ViewsDraft},
     scene_palette::Contrast,
     selection::SelectionFilter,
     shortcut_editor::{self, ShortcutEditor},
@@ -127,6 +128,7 @@ pub struct Workspace {
     pub messages_open: bool,
     pub undo_history_open: bool,
     pub model_properties: Option<PropertiesDraft>,
+    pub saved_views: Option<ViewsDraft>,
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
@@ -167,6 +169,7 @@ impl Workspace {
             messages_open: false,
             undo_history_open: false,
             model_properties: None,
+            saved_views: None,
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
@@ -193,6 +196,7 @@ impl Workspace {
         self.messages_open = false;
         self.undo_history_open = false;
         self.model_properties = None;
+        self.saved_views = None;
         self.last_offers.clear();
         self.selection_offers = SelectionOffers::default();
         self.measure = MeasureTool::default();
@@ -209,6 +213,7 @@ impl Workspace {
             self.viewport.forget_document();
             self.panels.forget_document();
             self.model_properties = None;
+            self.saved_views = None;
             self.interference.interference.forget();
         }
     }
@@ -257,6 +262,19 @@ impl Workspace {
                 self.model_properties = Some(PropertiesDraft::of(model.document()));
             }
             PreferencesCommand::CloseModelProperties => self.model_properties = None,
+            PreferencesCommand::ShowSavedViews => {
+                let current = saved_views::saved_view(self.viewport.destination());
+                self.saved_views = Some(ViewsDraft::of(model.document(), current));
+            }
+            PreferencesCommand::CloseSavedViews => self.saved_views = None,
+            PreferencesCommand::GoToView(index) => {
+                if let Some(named) = model.document().saved_views().named.get(index) {
+                    self.viewport.show_saved_view(named.view);
+                    if let Some(draft) = &mut self.saved_views {
+                        draft.current = named.view;
+                    }
+                }
+            }
             PreferencesCommand::Tab(tab) => {
                 self.preferences_tab = tab;
                 self.restored = None;
@@ -337,6 +355,7 @@ pub fn show(
         || workspace.messages_open
         || workspace.undo_history_open
         || workspace.model_properties.is_some()
+        || workspace.saved_views.is_some()
         || workspace.panels.deleting.is_some()
         || workspace.panels.noting.is_some();
     let dialog_open = modal_open || palette_open;
@@ -358,6 +377,7 @@ pub fn show(
         messages_open,
         undo_history_open,
         model_properties,
+        saved_views,
         last_offers,
         selection_offers,
         measure,
@@ -393,8 +413,12 @@ pub fn show(
     if let Some(focus) = palette.take_focus() {
         panels.request_focus(focus);
     }
+    if let Some(index) = palette.take_view() {
+        actions.push(Action::Preferences(PreferencesCommand::GoToView(index)));
+    }
     let mut commands = CommandFrame::new(&preferences.keymap, triggered);
     let menu = MenuContext {
+        views: model.document().saved_views(),
         files,
         editing,
         offers: last_offers,
@@ -622,6 +646,21 @@ pub fn show(
             actions.push(Action::Preferences(
                 PreferencesCommand::CloseModelProperties,
             ));
+        }
+        if let Some(draft) = saved_views
+            && let Some(outcome) = saved_views::dialog(ui.ctx(), model.document(), draft)
+        {
+            match outcome {
+                saved_views::Outcome::Close => {
+                    actions.push(Action::Preferences(PreferencesCommand::CloseSavedViews));
+                }
+                saved_views::Outcome::Apply(transaction) => {
+                    actions.push(Action::Apply(transaction))
+                }
+                saved_views::Outcome::Show(index) => {
+                    actions.push(Action::Preferences(PreferencesCommand::GoToView(index)));
+                }
+            }
         }
         if *messages_open && messages::dialog(ui.ctx(), model) {
             actions.push(Action::Preferences(PreferencesCommand::CloseMessages));

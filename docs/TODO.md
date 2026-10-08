@@ -388,10 +388,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
-- [medium · medium] No named views: the model keeps no saved view, so an angle and zoom worth
-  coming back to (a view of a hidden bore, the way a drawing was taken) is lost. Named views
-  stored in the model, restored from a list or the palette, with the Isometric home view
-  redefinable.
 - [medium · medium] A face, edge or body hidden behind another can be reached only by hiding the
   one in front or by stepping the keyboard highlight: a click held on a spot, or a key, should list
   everything under the pointer to choose from.

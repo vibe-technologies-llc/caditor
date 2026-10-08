@@ -17,8 +17,8 @@ use crate::{
     binary::{self, FileDigest, History, UnpackError},
     format::{
         FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, ImportTexts, NextIdsRecord, ParameterRecord,
-        PrincipalGeometryRecord, PropertiesRecord, RECORD_KINDS, Record, Unreadable,
-        restore_feature_sharing, restore_principal, restore_properties,
+        PrincipalGeometryRecord, PropertiesRecord, RECORD_KINDS, Record, Unreadable, ViewsRecord,
+        restore_feature_sharing, restore_principal, restore_properties, restore_views,
     },
     read::read_file,
     reason::ReadFailure,
@@ -144,6 +144,7 @@ pub(crate) struct Parts {
     pub suppressed: Vec<u64>,
     pub rollback: Option<u64>,
     pub properties: Option<PropertiesRecord>,
+    pub views: Option<ViewsRecord>,
     pub lost_parameter_names: BTreeMap<u64, String>,
     pub beyond_limit: usize,
 }
@@ -169,6 +170,7 @@ impl Parts {
             Record::Suppressed(suppressed) => self.suppressed = suppressed.features,
             Record::Rollback(rollback) => self.rollback = Some(rollback.before),
             Record::Properties(properties) => self.properties = Some(properties),
+            Record::Views(views) => self.views = Some(views),
         }
     }
 }
@@ -400,6 +402,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     }
 
     restore_model_properties(&mut document, parts.properties, issues);
+    restore_saved_views(&mut document, parts.views, issues);
     restore_suppressed(&mut document, &parts.suppressed, issues);
     restore_rollback_bar(&mut document, parts.rollback, issues);
 
@@ -426,6 +429,26 @@ fn restore_model_properties(
         .is_err()
     {
         issues.push("The model's properties could not be restored, so they are empty.".to_owned());
+    }
+}
+
+fn restore_saved_views(
+    document: &mut Document,
+    record: Option<ViewsRecord>,
+    issues: &mut Vec<String>,
+) {
+    let Some(record) = record else {
+        return;
+    };
+    let views = restore_views(record, issues);
+    let edit = Edit::SetSavedViews {
+        views: Box::new(views),
+    };
+    if document
+        .apply(Transaction::single("Saved views", edit))
+        .is_err()
+    {
+        issues.push("The model's saved views could not be restored, so there are none.".to_owned());
     }
 }
 

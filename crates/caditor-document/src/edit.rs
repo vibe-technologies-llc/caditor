@@ -25,6 +25,7 @@ use crate::{
     projection::ProjectionSource,
     properties::{ModelProperties, ModelProperty},
     solid::BodyOperation,
+    views::{MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, SavedViews},
 };
 
 pub const MAX_PARAMETER_NOTE_CHARS: usize = 2000;
@@ -94,6 +95,9 @@ pub enum Edit {
     },
     SetModelProperties {
         properties: Box<ModelProperties>,
+    },
+    SetSavedViews {
+        views: Box<SavedViews>,
     },
     SetFeatureKind {
         id: FeatureId,
@@ -239,6 +243,7 @@ impl Transaction {
                 Edit::SetRollbackBar { .. } => touched.rollback = true,
                 Edit::SetPrincipalHidden { .. } => touched.principal = true,
                 Edit::SetModelProperties { .. } => touched.properties = true,
+                Edit::SetSavedViews { .. } => touched.views = true,
             }
         }
         touched
@@ -261,6 +266,7 @@ impl Transaction {
                 Edit::SetModelProperties { properties } => {
                     size_of::<ModelProperties>() + properties.heap_size()
                 }
+                Edit::SetSavedViews { views } => size_of::<SavedViews>() + views.heap_size(),
                 Edit::SetParameterExpression { expression, .. }
                 | Edit::SetDimension {
                     value: expression, ..
@@ -330,6 +336,18 @@ pub enum EditError {
         property: ModelProperty,
         length: usize,
     },
+    #[error("A view needs a name")]
+    ViewNameEmpty,
+    #[error(
+        "A view's name may be at most {MAX_VIEW_NAME_CHARS} characters long, and this one has {length}"
+    )]
+    ViewNameTooLong { length: usize },
+    #[error("There is already a view named '{0}'. Choose another name.")]
+    ViewNameTaken(String),
+    #[error("A model keeps at most {MAX_SAVED_VIEWS} saved views. Delete one first.")]
+    TooManyViews,
+    #[error("The view '{0}' is not a view the camera can show, so it was not saved")]
+    ViewNotUsable(String),
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
     #[error("The rollback bar sits right above {0}; move the bar before deleting it")]
@@ -462,6 +480,7 @@ pub struct Touched {
     pub rollback: bool,
     pub principal: bool,
     pub properties: bool,
+    pub views: bool,
 }
 
 pub struct TransactionBuilder<'a> {
@@ -588,6 +607,7 @@ impl Document {
                 Ok(self.set_principal_hidden(geometry, hidden))
             }
             Edit::SetModelProperties { properties } => self.set_model_properties(*properties),
+            Edit::SetSavedViews { views } => self.set_saved_views(*views),
             Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
             Edit::SetSketchPlacement {
                 feature,
@@ -1111,6 +1131,37 @@ impl Document {
         let previous = std::mem::replace(&mut self.properties, Arc::new(properties));
         Ok(Edit::SetModelProperties {
             properties: Box::new(Arc::unwrap_or_clone(previous)),
+        })
+    }
+
+    fn set_saved_views(&mut self, views: SavedViews) -> Result<Edit, EditError> {
+        let views = views.normalized();
+        if views.named.len() > MAX_SAVED_VIEWS {
+            return Err(EditError::TooManyViews);
+        }
+        for (index, named) in views.named.iter().enumerate() {
+            let length = named.name.chars().count();
+            if length == 0 {
+                return Err(EditError::ViewNameEmpty);
+            }
+            if length > MAX_VIEW_NAME_CHARS {
+                return Err(EditError::ViewNameTooLong { length });
+            }
+            let repeated = views
+                .named
+                .iter()
+                .take(index)
+                .any(|other| other.name.to_lowercase() == named.name.to_lowercase());
+            if repeated {
+                return Err(EditError::ViewNameTaken(named.name.clone()));
+            }
+        }
+        if let Some(name) = views.unusable() {
+            return Err(EditError::ViewNotUsable(name.to_owned()));
+        }
+        let previous = std::mem::replace(&mut self.views, Arc::new(views));
+        Ok(Edit::SetSavedViews {
+            views: Box::new(Arc::unwrap_or_clone(previous)),
         })
     }
 

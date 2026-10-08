@@ -64,6 +64,14 @@ paths:
   record and keeps the `.damaged` copy rather than dropping them silently. Loading normalises them
   as the edit does and cuts a field past its limit, reported. The journal snapshot carries the same
   record as `properties`, and `set_model_properties` holds it.
+- The saved views are a `views` record, written only when a view is saved or the Isometric view is
+  redefined: `named` (each `name` and a `view` of `target`, `orientation` as x, y, z, w and
+  `distance`) and `home`, a view, each only when present. Losing them changes nothing computed, so
+  like the properties an older reader reports the unknown record and keeps the `.damaged` copy
+  rather than dropping them silently. Loading reads each view on its own: an unreadable or
+  unusable one is left out, a blank name becomes "View N", a long one is cut, a repeated one is
+  numbered and views past `MAX_SAVED_VIEWS` are left out, each reported (`restore_views`). The
+  journal snapshot carries the same record as `views`, and `set_saved_views` holds it.
 - A feature record carries `group`, its folder's name, only when it has one; losing it changes
   nothing computed, so it is a field, and an older reader drops it. A name too long for this
   version is cut at `MAX_GROUP_NAME_CHARS`, reported. The journal's `set_feature_group` holds the
