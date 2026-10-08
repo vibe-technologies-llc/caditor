@@ -151,7 +151,7 @@ impl FeatureKind {
                         .sum::<usize>()
                     + shell.thickness.heap_size()
             }
-            Self::Combine(_) => 0,
+            Self::Combine(combine) => size_of_val(combine.more_tools.as_slice()),
             Self::Move(movement) => movement.heap_size(),
             Self::Mirror(mirror) => mirror.heap_size(),
             Self::Split(split) => split.heap_size(),
@@ -257,9 +257,7 @@ impl FeatureKind {
             Self::Datum(datum) => used.extend(datum.bodies()),
             Self::Pattern(pattern) => used.extend(pattern.axis_bodies()),
             Self::Move(movement) => used.extend(movement.axis_body()),
-            Self::Combine(combine) => {
-                used.insert(combine.tool);
-            }
+            Self::Combine(combine) => used.extend(combine.tools()),
             Self::Mirror(mirror) => used.extend(mirror.plane.body()),
             Self::Split(split) => used.extend(split.plane.body()),
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
@@ -360,7 +358,7 @@ impl FeatureKind {
 
     pub fn consumed_bodies(&self) -> Vec<FeatureId> {
         match self {
-            Self::Combine(combine) => vec![combine.tool],
+            Self::Combine(combine) => combine.consumed(),
             Self::Remove(remove) => vec![remove.body],
             Self::Sketch(_)
             | Self::Solid(_)

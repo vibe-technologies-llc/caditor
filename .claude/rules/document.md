@@ -333,17 +333,21 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Combine (`combine.rs`)
 
-- `Combine { body, tool, operation }` joins, cuts or intersects two existing bodies (kernel `boolean`)
-  and keeps the target's body ID; the tool's body is consumed. `consumed_bodies` tells recompute to
-  drop it from the bodies standing after the combine (and not to show it as a stale last-good body),
-  so features below cannot use it and suppressing or rolling back the combine brings it back.
-  Both bodies count as used (`bodies_used`), so deleting either asks first and neither moves below
-  the combine. `bodies_before` lists the bodies standing before a feature, for the panel.
+- `Combine { body, tool, more_tools, keep_tool, operation }` joins, cuts or intersects existing bodies
+  (kernel `boolean`) and keeps the target's body ID. `Combine::tools` is `tool` then `more_tools`;
+  the target meets them one after another, so one cutter cuts several bodies' worth of tools at
+  once and several bodies join in one feature, and a failure names the tool it stopped at. Unless
+  `keep_tool` is set the tools' bodies are consumed: `consumed_bodies` tells recompute to drop them
+  from the bodies standing after the combine (and not to show them as stale last-good bodies), so
+  features below cannot use them and suppressing or rolling back the combine brings them back. A
+  kept tool stays a standing body, so a later Combine can use it again on another target. Every
+  body counts as used (`bodies_used`), so deleting any asks first and none moves below the combine.
+  `bodies_before` lists the bodies standing before a feature, for the panel.
 - Every evaluator reports an absent input body through `Inputs::missing_body`: when a Combine already
   evaluated consumed it, the error names that Combine and the body it kept, with the fix target on
   the Combine, never blaming the healthy body.
-- A body combined with itself, a missing shape and kernel failures fail the combine alone with the
-  bodies named; both inputs keep their results.
+- A body combined with itself, a tool chosen twice, a missing shape and kernel failures fail the
+  combine alone with the bodies named; every input keeps its result.
 
 ### Pattern (`pattern.rs`)
 

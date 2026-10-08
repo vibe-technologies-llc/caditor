@@ -239,7 +239,11 @@ paths:
 - A `split` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as the
   YZ plane, reported) and `flipped` only when set.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
-  A `remove` record holds `body`.
+  One with more tool bodies or keeping its tool is a `combine_tools` record: `feature`, the
+  `combine` record it would be with the first tool alone, `more_tools` (ids, only when there are
+  any) and `keep_tool` (only when set), since an older reader would consume one tool and miss the
+  rest; an inner record that is no combine loads without them, reported, and a repeated tool is
+  kept once. A `remove` record holds `body`.
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
   means active, so older files read unchanged); the journal's `add_sketch_constraint` carries the
   same flag and `set_sketch_constraint_active` is its own record.

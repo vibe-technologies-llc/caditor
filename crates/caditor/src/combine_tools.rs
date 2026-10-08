@@ -69,11 +69,7 @@ pub fn create(document: &Document, pair: BodyPair) -> (Transaction, FeatureId) {
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
         name,
-        FeatureKind::Combine(Combine {
-            body: pair.target,
-            tool: pair.tool,
-            operation: CombineOperation::Join,
-        }),
+        FeatureKind::Combine(Combine::new(pair.target, pair.tool, CombineOperation::Join)),
     );
     (transaction.finish(), feature)
 }

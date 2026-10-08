@@ -219,8 +219,10 @@ paths:
 - Combine (Alt+J) is offered when the selection touches faces, edges or vertices of exactly two
   bodies shown now, or two bodies are chosen in the tree; the earlier body in the tree is the target and the later the tool. It creates a
   Join and opens the panel, whose Operation switch (Join, Cut, Intersect) and Target and Tool
-  lists (`Document::bodies_before`, each leaving out the other) change it. Nothing is chosen in the
-  view while it is open.
+  lists (`Document::bodies_before`, each leaving out the bodies the other rows hold) change it.
+  Under the Tool list, Also with lists the further tool bodies, each with a button to drop it, and
+  an Add another tool body list offers the standing bodies not yet used; Keep tool leaves the tool
+  bodies standing instead of using them up. Nothing is chosen in the view while it is open.
 
 ## Move
 

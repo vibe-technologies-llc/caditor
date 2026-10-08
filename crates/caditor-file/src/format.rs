@@ -165,6 +165,16 @@ pub(crate) enum FeatureKindRecord {
     FeaturePattern(Box<FeaturePatternRecord>),
     MoveAboutCentre(Box<MoveAboutCentreRecord>),
     MoveAboutAxis(Box<MoveAboutAxisRecord>),
+    CombineTools(Box<CombineToolsRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CombineToolsRecord {
+    pub feature: FeatureKindRecord,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub more_tools: Vec<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_tool: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -218,7 +228,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 36] = [
+pub(crate) const FEATURE_KINDS: [&str; 37] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -255,6 +265,7 @@ pub(crate) const FEATURE_KINDS: [&str; 36] = [
     "feature_pattern",
     "move_about_centre",
     "move_about_axis",
+    "combine_tools",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1299,6 +1310,16 @@ fn restore_appearance(
 }
 
 fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
+    if let FeatureKind::Combine(combine) = kind
+        && (!combine.more_tools.is_empty() || combine.keep_tool)
+    {
+        let alone = Combine::new(combine.body, combine.tool, combine.operation);
+        return FeatureKindRecord::CombineTools(Box::new(CombineToolsRecord {
+            feature: feature_kind_record(&FeatureKind::Combine(alone)),
+            more_tools: combine.more_tools.iter().map(|tool| tool.raw()).collect(),
+            keep_tool: combine.keep_tool,
+        }));
+    }
     if let FeatureKind::Solid(solid) = kind
         && !solid.other_bodies().is_empty()
     {
@@ -3122,15 +3143,36 @@ fn restore_kind(
         FeatureKindRecord::Remove(record) => FeatureKind::Remove(Remove {
             body: FeatureId::from_raw(record.body),
         }),
-        FeatureKindRecord::Combine(record) => FeatureKind::Combine(Combine {
-            body: FeatureId::from_raw(record.body),
-            tool: FeatureId::from_raw(record.tool),
-            operation: match record.operation {
+        FeatureKindRecord::Combine(record) => FeatureKind::Combine(Combine::new(
+            FeatureId::from_raw(record.body),
+            FeatureId::from_raw(record.tool),
+            match record.operation {
                 CombineOperationRecord::Join => CombineOperation::Join,
                 CombineOperationRecord::Cut => CombineOperation::Cut,
                 CombineOperationRecord::Intersect => CombineOperation::Intersect,
             },
-        }),
+        )),
+        FeatureKindRecord::CombineTools(tools) => {
+            let mut kind = restore_kind(&tools.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Combine(combine) => {
+                    let mut more_tools = Vec::new();
+                    for raw in &tools.more_tools {
+                        let tool = FeatureId::from_raw(*raw);
+                        if tool != combine.tool && !more_tools.contains(&tool) {
+                            more_tools.push(tool);
+                        }
+                    }
+                    combine.more_tools = more_tools;
+                    combine.keep_tool = tools.keep_tool;
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed tool bodies to combine, but it is not a combine, so they \
+                     were left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::Move(record) => {
             FeatureKind::Move(restore_move(record, false, name, issues))
         }
