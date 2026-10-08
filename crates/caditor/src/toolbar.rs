@@ -28,6 +28,7 @@ pub const POINT_LABEL: &str = "Point";
 pub const MEASURE_LABEL: &str = "Measure";
 pub const INTERFERENCE_LABEL: &str = "Interference";
 const NO_SKETCH_TO_SWEEP: &str = "Draw a sketch with a closed outline first";
+const EXTRUDE_FACE_HELP: &str = "Extrude the selected face out of its body";
 const MEASURE_HOVER: &str =
     "Measure the selection: distances, angles, lengths, areas and the mass properties of bodies";
 const INTERFERENCE_HOVER: &str = "Find where bodies overlap or touch, with the volume they share";
@@ -244,14 +245,24 @@ fn solid_buttons(
     let document = model.document();
     let source = solid_tools::sweep_source(document, context.selection, context.editing)
         .map(|source| solid_tools::with_model_axis(source, context.offers.model_axis.as_ref()));
+    let face = solid_tools::face_to_extrude(model, context.selection, context.editing);
     for sweep in Sweep::ALL {
         let command = match sweep {
             Sweep::Extrude => Command::Extrude,
             Sweep::Revolve => Command::Revolve,
         };
-        let invoked = commands.invoke(command, &source.as_ref().ok_or(NO_SKETCH_TO_SWEEP));
-        let help = match &source {
-            Some(source) => {
+        let face = face.filter(|_| sweep == Sweep::Extrude);
+        let available = match (face, &source) {
+            (Some(Ok(_)), _) => Ok(()),
+            (Some(Err(reason)), _) => Err(reason),
+            (None, Some(_)) => Ok(()),
+            (None, None) => Err(NO_SKETCH_TO_SWEEP),
+        };
+        let invoked = commands.invoke(command, &available);
+        let help = match (face, &source) {
+            (Some(Ok(_)), _) => Ok(commands.with_keys(command, EXTRUDE_FACE_HELP)),
+            (Some(Err(reason)), _) => Err(reason.to_owned()),
+            (None, Some(source)) => {
                 let sketch = document
                     .feature(source.sketch)
                     .map_or("the sketch", |feature| feature.name.as_str());
@@ -268,18 +279,23 @@ fn solid_buttons(
                 };
                 Ok(commands.with_keys(command, &hover))
             }
-            None => Err(NO_SKETCH_TO_SWEEP.to_owned()),
+            (None, None) => Err(NO_SKETCH_TO_SWEEP.to_owned()),
         };
         let response = tool(ui, command, sweep.label(), &help);
-        if (response.clicked() || invoked)
-            && let Some(source) = &source
-        {
-            actions.extend(solid_tools::create_actions(
+        if !(response.clicked() || invoked) {
+            continue;
+        }
+        match (face, &source) {
+            (Some(Ok(face)), _) => {
+                actions.extend(solid_tools::create_on_face_actions(model, face));
+            }
+            (None, Some(source)) => actions.extend(solid_tools::create_actions(
                 document,
                 sweep,
                 source.clone(),
                 model.length_unit(),
-            ));
+            )),
+            (Some(Err(_)), _) | (None, None) => {}
         }
     }
 }

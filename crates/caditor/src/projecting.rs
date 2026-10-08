@@ -5,7 +5,7 @@ use caditor_document::{
     Transaction, edge_outline, sketch_outline, vertex_outline,
 };
 use caditor_geometry::Plane;
-use caditor_kernel::{EdgeId, EdgeReference};
+use caditor_kernel::{EdgeId, EdgeReference, FaceId};
 
 use crate::{bodies, body_selection::face_boundary, model::Model, selection::Pickable};
 
@@ -99,15 +99,7 @@ pub fn project(
             let result = seen_or_refuse(model, sketch, body)?;
             let id =
                 bodies::find_face(result, face).ok_or_else(|| later_geometry(document, sketch))?;
-            let mut edges: Vec<EdgeId> = face_boundary(&result.solid, id);
-            let mut seen_edges = BTreeSet::new();
-            edges.retain(|edge| seen_edges.insert(*edge));
-            edges
-                .into_iter()
-                .filter(|edge| !bodies::is_seam(&result.solid, *edge))
-                .filter_map(|edge| edge_projection(result, body, edge, &plane))
-                .filter(|(_, outline)| !matches!(outline, Outline::Point(_)))
-                .collect()
+            face_projections(result, body, id, &plane)
         }
         Pickable::SketchEntity { feature, entity } => {
             let position = |id: FeatureId| document.features().position(|other| other.id() == id);
@@ -155,6 +147,23 @@ pub fn project(
         transaction.add_projection(sketch, source.clone(), outline);
     }
     Ok(transaction.finish())
+}
+
+pub fn face_projections(
+    result: &SolidResult,
+    body: FeatureId,
+    face: FaceId,
+    plane: &Plane,
+) -> Vec<(ProjectionSource, Outline)> {
+    let mut edges: Vec<EdgeId> = face_boundary(&result.solid, face);
+    let mut seen_edges = BTreeSet::new();
+    edges.retain(|edge| seen_edges.insert(*edge));
+    edges
+        .into_iter()
+        .filter(|edge| !bodies::is_seam(&result.solid, *edge))
+        .filter_map(|edge| edge_projection(result, body, edge, plane))
+        .filter(|(_, outline)| !matches!(outline, Outline::Point(_)))
+        .collect()
 }
 
 fn edge_projection(

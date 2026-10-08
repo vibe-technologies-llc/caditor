@@ -96,7 +96,13 @@ paths:
 
 ## Extrude and Revolve
 
-- They take the edited sketch, else the selection's, else the last. The revolve axis (also the
+- Extrude with one flat face of a body selected (no sketch edited, no sketch geometry selected,
+  no feature open) extrudes that face: one transaction creates a hidden sketch on the face holding
+  its boundary edges projected (`projecting::face_projections`, so the outline follows the face),
+  and an extrusion of it added to that body outward, with a notice naming the sketch
+  (`solid_tools::create_on_face`); a curved face is refused in words. A selected face never falls
+  through to the last sketch.
+- Otherwise they take the edited sketch, else the selection's, else the last. The revolve axis (also the
   panel's axis picker) is a selected line or sketch axis, else a principal axis, datum axis,
   straight edge or round face.
 - A new feature adds to the last body standing (`Document::bodies_standing`, so never one a Combine

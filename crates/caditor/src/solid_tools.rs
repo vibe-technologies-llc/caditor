@@ -1,17 +1,19 @@
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FeatureId, FeatureKind,
-    RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchAttachment, SolidFeature, SolidStart,
-    Transaction, describe_axis,
+    RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchAttachment, SketchFeature,
+    SolidFeature, SolidStart, Transaction, describe_axis,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_kernel::RegionKey;
-use caditor_sketch::{Entity, EntityId, Reference};
+use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
+    bodies,
     editing::{self, EditingCommand, SketchEditing},
-    model::{Action, Model},
-    scene,
+    model::{Action, Model, Notice},
+    projecting, scene,
     selection::{self, Pickable, Selection},
+    sketch_placement::{self, FaceChoice},
     units::LengthUnit,
     visibility,
 };
@@ -19,6 +21,9 @@ use crate::{
 pub const DEFAULT_DISTANCE: f64 = 10.0;
 pub const DEFAULT_PARTIAL_ANGLE: f64 = 180.0;
 pub const DEFAULT_BACKWARD_ANGLE: f64 = 30.0;
+pub const NOT_FLAT_TO_EXTRUDE: &str =
+    "The selected face is curved; only a flat face can be extruded";
+const NO_OUTLINE: &str = "The selected face has no edges to extrude it by";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Sweep {
@@ -101,6 +106,86 @@ pub fn sweep_source(
         | Pickable::Datum(_) => None,
     });
     Some(SweepSource { sketch, axis })
+}
+
+pub fn face_to_extrude(
+    model: &Model,
+    selection: &Selection,
+    editing: &SketchEditing,
+) -> Option<Result<FaceChoice, &'static str>> {
+    let sketch_chosen = selection
+        .iter()
+        .any(|pickable| matches!(pickable, Pickable::SketchEntity { .. }));
+    if editing.feature().is_some() || editing.solid().is_some() || sketch_chosen {
+        return None;
+    }
+    let face = sketch_placement::selected_face(selection)?;
+    Some(if sketch_placement::is_flat(model, face) {
+        Ok(face)
+    } else {
+        Err(NOT_FLAT_TO_EXTRUDE)
+    })
+}
+
+pub fn create_on_face(
+    model: &Model,
+    face: FaceChoice,
+) -> Result<(Transaction, FeatureId, String), &'static str> {
+    let document = model.document();
+    let (attachment, plane) = sketch_placement::attachment_at(model, face, document.bar_index())?;
+    let shown = bodies::shown(model.evaluation(), face.body).ok_or(NO_OUTLINE)?;
+    let id = bodies::find_face(shown, face.face).ok_or(NO_OUTLINE)?;
+    let outline = projecting::face_projections(shown, face.body, id, &plane);
+    if outline.is_empty() {
+        return Err(NO_OUTLINE);
+    }
+    let sketch_name = editing::next_sketch_name(document);
+    let name = editing::next_feature_name(document, Sweep::Extrude.label());
+    let mut transaction = document.transaction(format!("Create {name}"));
+    let sketch = transaction.add_feature(
+        sketch_name.clone(),
+        FeatureKind::Sketch(SketchFeature::on_face(Sketch::new(plane), attachment)),
+    );
+    transaction.edit(Edit::SetFeatureHidden {
+        id: sketch,
+        hidden: true,
+    });
+    for (source, edges) in &outline {
+        transaction.add_projection(sketch, source.clone(), edges);
+    }
+    let feature = transaction.add_feature(
+        name.clone(),
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(
+                model.length_unit().default_length(DEFAULT_DISTANCE),
+                false,
+            ),
+            operation: BodyOperation::Add(face.body),
+            start: None,
+            other_bodies: Vec::new(),
+        })),
+    );
+    let told = format!(
+        "{name} extrudes the selected face out of its body, following its edges through \
+         {sketch_name}. Edit {sketch_name} to change the outline."
+    );
+    Ok((transaction.finish(), feature, told))
+}
+
+pub fn create_on_face_actions(model: &Model, face: FaceChoice) -> Vec<Action> {
+    match create_on_face(model, face) {
+        Ok((transaction, feature, told)) => vec![
+            Action::Apply(transaction),
+            Action::Editing(EditingCommand::OpenSolid(feature)),
+            Action::Inform(Notice::info(told)),
+        ],
+        Err(reason) => vec![Action::Inform(Notice::info(format!(
+            "{}: {reason}.",
+            Sweep::Extrude.label()
+        )))],
+    }
 }
 
 pub fn with_model_axis(source: SweepSource, axis: Option<&AxisReference>) -> SweepSource {
