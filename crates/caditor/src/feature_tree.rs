@@ -1861,6 +1861,7 @@ fn invoke_on<T>(
 fn feature_commands(
     context: &CommandContext<'_>,
     current: Option<&Feature>,
+    open_feature: Option<&Feature>,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
@@ -1908,10 +1909,13 @@ fn feature_commands(
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
         actions.push(Action::Apply(visibility::toggle_principal_group(document)));
     }
-    let changes: [(Command, FeatureChange<'_>); 11] = [
-        (Command::DetachSketch, &|feature| {
-            detach_change(model, feature)
-        }),
+    if let Some(transaction) = invoke_on(commands, Command::DetachSketch, current, |feature| {
+        detach_change(model, feature)
+    }) {
+        actions.push(Action::Apply(transaction));
+    }
+    let target = open_feature.or(current);
+    let changes: [(Command, FeatureChange<'_>); 10] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -1948,7 +1952,7 @@ fn feature_commands(
         }),
     ];
     for (command, change) in changes {
-        if let Some(transaction) = invoke_on(commands, command, current, change) {
+        if let Some(transaction) = invoke_on(commands, command, target, change) {
             actions.push(Action::Apply(transaction));
         }
     }
@@ -1963,7 +1967,11 @@ pub fn commands(
     let CommandContext { model, editing, .. } = *context;
     let document = model.document();
     let current = current_feature(document, editing, state);
-    feature_commands(context, current, commands, actions);
+    let open = editing
+        .solid()
+        .or(editing.feature())
+        .and_then(|id| document.feature(id));
+    feature_commands(context, current, open, commands, actions);
     let filterable = document
         .features()
         .next()
@@ -2204,15 +2212,16 @@ fn placement(
         });
     }
     let (label, hover) = match sketch_placement::placement_target(model.document(), selection) {
-        Some(PlacementTarget::Plane(_)) => (
+        Ok(Some(PlacementTarget::Plane(_))) => (
             PLACE_ON_PLANE_LABEL,
             "Move this sketch onto the selected plane; it follows the plane when the model changes",
         ),
-        Some(PlacementTarget::Face(_)) => (
+        Ok(Some(PlacementTarget::Face(_))) => (
             PLACE_ON_FACE_LABEL,
             "Move this sketch onto the selected face; it follows the face when the model changes",
         ),
-        None => return,
+        Err(_) => (PLACE_ON_FACE_LABEL, ""),
+        Ok(None) => return,
     };
     let button = widgets::small_button(ui, icons::USE_SELECTED, label);
     match sketch_placement::place_on_selection(model, selection, feature.id()) {

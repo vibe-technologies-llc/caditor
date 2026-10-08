@@ -16,6 +16,110 @@ use crate::{
 
 pub const DEFAULT_OFFSET: f64 = 10.0;
 pub const DEFAULT_ANGLE: f64 = 45.0;
+pub const SEVERAL_PLANES: &str =
+    "Several planes or flat faces are selected; select only the one to use";
+pub const DATUM_NOT_A_PLANE: &str =
+    "The selected datum is an axis or a point; select a plane or flat face";
+pub const DATUM_MADE_LATER: &str =
+    "The selected datum plane comes later in the tree; select one made before this feature";
+
+pub const SEVERAL_AXES: &str =
+    "Several axes, straight edges or round faces are selected; select only the one to use";
+
+fn only<T: PartialEq>(
+    candidates: impl Iterator<Item = T>,
+    several: &'static str,
+) -> Result<Option<T>, &'static str> {
+    let mut found: Vec<T> = Vec::new();
+    for candidate in candidates {
+        if !found.contains(&candidate) {
+            found.push(candidate);
+        }
+    }
+    match found.len() {
+        0 | 1 => Ok(found.pop()),
+        _ => Err(several),
+    }
+}
+
+pub fn only_plane(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<Option<PlaneReference>, &'static str> {
+    only(
+        selection
+            .iter()
+            .filter_map(|pickable| plane_reference(model, pickable, index)),
+        SEVERAL_PLANES,
+    )
+}
+
+pub fn only_axis(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<Option<AxisReference>, &'static str> {
+    only(
+        selection
+            .iter()
+            .filter_map(|pickable| axis_reference(model, pickable, index)),
+        SEVERAL_AXES,
+    )
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChosenPlane {
+    pub plane: PlaneReference,
+    pub face: Option<Pickable>,
+}
+
+pub fn chosen_plane(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<Option<ChosenPlane>, &'static str> {
+    let document = model.document();
+    let mut planes = Vec::new();
+    for pickable in selection.iter() {
+        match pickable {
+            Pickable::Plane(plane) => planes.push(PlaneReference::Principal(plane)),
+            Pickable::Datum(feature) if !is_datum(document, feature, DatumKind::Plane) => {
+                return Err(DATUM_NOT_A_PLANE);
+            }
+            Pickable::Datum(feature) if !comes_before(document, feature, index) => {
+                return Err(DATUM_MADE_LATER);
+            }
+            Pickable::Datum(feature) => planes.push(PlaneReference::Datum(feature)),
+            _ => {}
+        }
+    }
+    match planes.as_slice() {
+        [plane] => {
+            return Ok(Some(ChosenPlane {
+                plane: plane.clone(),
+                face: None,
+            }));
+        }
+        [_, _, ..] => return Err(SEVERAL_PLANES),
+        [] => {}
+    }
+    let faces: Vec<ChosenPlane> = selection
+        .iter()
+        .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
+        .filter_map(|face| {
+            Some(ChosenPlane {
+                plane: plane_reference(model, face, index)?,
+                face: Some(face),
+            })
+        })
+        .collect();
+    match faces.as_slice() {
+        [] => Ok(None),
+        [face] => Ok(Some(face.clone())),
+        [_, _, ..] => Err(SEVERAL_PLANES),
+    }
+}
 
 pub fn result(evaluation: &Evaluation, feature: FeatureId) -> Option<DatumResult> {
     evaluation
@@ -343,13 +447,4 @@ pub fn edit(document: &Document, feature: FeatureId, datum: Datum) -> Option<Tra
             kind: FeatureKind::Datum(datum),
         },
     ))
-}
-
-pub fn selected_datum_plane(document: &Document, selection: &Selection) -> Option<FeatureId> {
-    let mut planes = selection.iter().filter_map(|pickable| match pickable {
-        Pickable::Datum(feature) if is_plane(document, feature) => Some(feature),
-        _ => None,
-    });
-    let plane = planes.next()?;
-    planes.next().is_none().then_some(plane)
 }

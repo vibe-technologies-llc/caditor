@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_document::{FeatureId, SolidResult};
+use caditor_document::{Document, Feature, FeatureId, SolidResult};
 use caditor_kernel::{EdgeId, FaceId, Solid, hole_faces, tangent_chain, tangent_faces};
 
 use crate::{
@@ -24,6 +24,41 @@ pub const NO_HOLE_FACE_SELECTED: &str =
 pub const NO_HOLE: &str = "The selected faces are not the round wall of a hole";
 pub const NO_FACE_SELECTED: &str = "Select a face first to select the edges around it";
 pub const NO_FACE_EDGES: &str = "The selected faces have no edge to select";
+
+fn counted(count: usize, one: &str, several: &str) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some(format!("1 {one}")),
+        count => Some(format!("{count} {several}")),
+    }
+}
+
+pub fn left_out_words(left_out: &[Pickable]) -> Option<String> {
+    let count = |kind: Option<Kind>| {
+        left_out
+            .iter()
+            .filter(|pickable| Kind::of(**pickable) == kind)
+            .count()
+    };
+    let parts: Vec<String> = [
+        counted(count(Some(Kind::Faces)), "face", "faces"),
+        counted(count(Some(Kind::Edges)), "edge", "edges"),
+        counted(count(Some(Kind::Vertices)), "vertex", "vertices"),
+        counted(count(None), "other item", "other items"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let verb = if left_out.len() == 1 { "was" } else { "were" };
+    match parts.as_slice() {
+        [] => None,
+        [only] => Some(format!("{only} selected {verb} left out")),
+        [rest @ .., last] => Some(format!(
+            "{} and {last} selected {verb} left out",
+            rest.join(", ")
+        )),
+    }
+}
 
 pub fn outside_sketch<T>(
     in_sketch: bool,
@@ -110,17 +145,43 @@ pub fn select_all(model: &Model, kind: Kind) -> Vec<Pickable> {
 
 pub const NO_BODY_SELECTED: &str = "Select a face, edge or vertex of each body to select whole";
 
-pub fn offer_whole_bodies(selection: &Selection) -> Result<Vec<FeatureId>, &'static str> {
-    let mut bodies: Vec<FeatureId> = Vec::new();
-    for pickable in selection.iter() {
-        if let Pickable::Face { body, .. }
-        | Pickable::Edge { body, .. }
-        | Pickable::Vertex { body, .. } = pickable
-            && !bodies.contains(&body)
-        {
-            bodies.push(body);
+fn unique(bodies: impl IntoIterator<Item = FeatureId>) -> Vec<FeatureId> {
+    let mut unique: Vec<FeatureId> = Vec::new();
+    for body in bodies {
+        if !unique.contains(&body) {
+            unique.push(body);
         }
     }
+    unique
+}
+
+pub fn bodies_in(selection: &Selection) -> Vec<FeatureId> {
+    unique(
+        selection
+            .in_pick_order()
+            .into_iter()
+            .filter_map(Pickable::body),
+    )
+}
+
+pub fn tree_bodies(document: &Document, chosen: &[FeatureId]) -> Vec<FeatureId> {
+    unique(
+        chosen
+            .iter()
+            .filter_map(|id| document.feature(*id))
+            .filter_map(|feature| {
+                if feature.makes_body() {
+                    Some(feature.id())
+                } else {
+                    feature.body()
+                }
+            })
+            .filter(|body| document.feature(*body).is_some_and(Feature::makes_body)),
+    )
+}
+
+pub fn offer_whole_bodies(selection: &Selection) -> Result<Vec<FeatureId>, &'static str> {
+    let bodies = bodies_in(selection);
     if bodies.is_empty() {
         return Err(NO_BODY_SELECTED);
     }

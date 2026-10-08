@@ -30,8 +30,8 @@ pub const DEFAULT_COUNTERSINK_ANGLE: f64 = 90.0;
 pub const DEFAULT_SLOT_LENGTH: f64 = 10.0;
 pub const DEFAULT_STEP_DIAMETER: f64 = 8.0;
 pub const DEFAULT_STEP_DEPTH: f64 = 2.0;
-const NO_SKETCH: &str =
-    "Select a flat face of a body, or draw a sketch on one and place points where the holes go";
+const NO_SKETCH: &str = "Select a flat face of a body, or draw a sketch on one and place points \
+                         where the holes go; a sketch already drilled or swept is not guessed";
 const FACE_SAMPLES: u32 = 16;
 const SEARCH_STEPS: u32 = 16;
 const REFINEMENTS: usize = 4;
@@ -205,13 +205,23 @@ pub fn source(
 ) -> Result<HoleSource, &'static str> {
     let document = model.document();
     let may_guess = selection.is_empty();
-    let sketch = solid_tools::sweep_source(document, selection, editing, may_guess)
-        .ok_or(if may_guess {
-            NO_SKETCH
+    let swept = solid_tools::sweep_source(
+        document,
+        model.evaluation(),
+        selection,
+        editing,
+        if may_guess {
+            solid_tools::Guess::Drill
         } else {
-            NOTHING_TO_DRILL
-        })?
-        .sketch;
+            solid_tools::Guess::Never
+        },
+    )?
+    .ok_or(if may_guess {
+        NO_SKETCH
+    } else {
+        NOTHING_TO_DRILL
+    })?;
+    let sketch = swept.sketch;
     let definition = editing::edited_sketch(document, sketch).ok_or(NO_SKETCH)?;
     if hole_centres(definition).is_empty() {
         return Err(NO_POINTS);
@@ -221,6 +231,7 @@ pub fn source(
         .and_then(|feature| feature.kind.attachment())
         .and_then(|attachment| attachment.body());
     let body = attached
+        .or(swept.body)
         .or_else(|| document.bodies_standing().last().copied())
         .ok_or(NO_BODY)?;
     Ok(HoleSource { sketch, body })

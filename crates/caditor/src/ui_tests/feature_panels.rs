@@ -307,7 +307,7 @@ fn a_plane_through_points_takes_three_clicks_in_the_view() {
 #[test]
 fn a_pattern_and_a_datum_axis_run_along_a_selected_sketch_line() {
     let mut harness = Harness::new();
-    let (plate, _) = extruded_plate(&mut harness);
+    let (plate, top) = extruded_plate(&mut harness);
     let mut guide = caditor_sketch::Sketch::new(Plane::XY);
     let line = guide.add_line(Point2::new(0.0, 60.0), Point2::new(30.0, 90.0));
     let guide = harness.add_sketch(guide);
@@ -337,7 +337,7 @@ fn a_pattern_and_a_datum_axis_run_along_a_selected_sketch_line() {
     let named = harness.shows(&label);
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
-    harness.select([along]);
+    harness.select([along, top]);
     harness.click("Linear pattern");
     harness.settle();
     let pattern = harness

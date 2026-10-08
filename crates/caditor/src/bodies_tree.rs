@@ -5,13 +5,14 @@ use crate::{
     appearance::{self, SPACE_S},
     body_appearance, body_selection,
     commands::{Command, CommandFrame},
-    feature_tree::{self, CommandContext},
+    datum_tools,
+    feature_tree::CommandContext,
     icons,
-    model::{Action, Model},
+    model::{Action, Model, Notice},
     move_tools,
     panels::{Painting, PanelState},
     removal,
-    selection::{Pickable, Selection},
+    selection::Selection,
     split_tools,
     tree_row::{self, CHILD_INDENT, Look},
     visibility, widgets,
@@ -19,7 +20,8 @@ use crate::{
 
 pub const GROUP_TITLE: &str = "Bodies";
 const NO_BODY_CHOSEN: &str = "Select a face, edge or vertex of a body, or a body in the tree";
-const SEVERAL_BODIES: &str = "Select faces, edges or vertices of one body only";
+const SEVERAL_BODIES: &str =
+    "Select faces, edges or vertices of one body only, or one body in the tree";
 
 fn group_title(count: usize) -> String {
     format!("{GROUP_TITLE} ({count})")
@@ -159,7 +161,9 @@ fn item(
         state.choose_only(body);
     }
     row_name.context_menu(|ui| {
-        widgets::fitted_menu(ui, |ui| row_menu(ui, model, state, actions, body));
+        widgets::fitted_menu(ui, |ui| {
+            row_menu(ui, model, selection, state, actions, body)
+        });
     });
     if eye && let Ok(transaction) = toggle {
         actions.push(Action::Apply(transaction));
@@ -202,6 +206,7 @@ fn item(
 fn row_menu(
     ui: &mut Ui,
     model: &Model,
+    selection: &Selection,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     body: FeatureId,
@@ -241,8 +246,19 @@ fn row_menu(
         ui.close();
     }
     if widgets::menu_item(ui, icons::command(Command::Split), "Split body", None).clicked() {
-        let source = split_tools::SplitSource { body, plane: None };
-        actions.extend(split_tools::create_actions(model, &source));
+        match datum_tools::chosen_plane(model, selection, model.document().bar_index()) {
+            Ok(chosen) => {
+                let source = split_tools::SplitSource {
+                    body,
+                    plane: chosen.map(|chosen| chosen.plane),
+                };
+                actions.extend(split_tools::create_actions(model, &source));
+            }
+            Err(reason) => actions.push(Action::Inform(Notice::info(format!(
+                "{}: {reason}.",
+                split_tools::TITLE
+            )))),
+        }
         ui.close();
     }
     ui.separator();
@@ -266,24 +282,23 @@ fn chosen_body(
     state: &PanelState,
 ) -> Result<FeatureId, &'static str> {
     let document = context.model.document();
-    let mut selected: Vec<FeatureId> = context
-        .selection
-        .iter()
-        .filter_map(|pickable| match pickable {
-            Pickable::Face { body, .. }
-            | Pickable::Edge { body, .. }
-            | Pickable::Vertex { body, .. } => Some(body),
-            _ => None,
-        })
-        .collect();
-    selected.dedup();
-    match selected.as_slice() {
+    let tree = body_selection::tree_bodies(document, &state.chosen());
+    let chosen = if tree.is_empty() {
+        body_selection::bodies_in(context.selection)
+    } else {
+        tree
+    };
+    match chosen.as_slice() {
         [body] => return Ok(*body),
         [_, _, ..] => return Err(SEVERAL_BODIES),
         [] => {}
     }
-    feature_tree::current_feature(document, context.editing, state)
-        .and_then(|feature| feature.body())
+    context
+        .editing
+        .feature()
+        .or(context.editing.solid())
+        .and_then(|id| document.feature(id))
+        .and_then(Feature::body)
         .filter(|body| document.feature(*body).is_some_and(Feature::makes_body))
         .ok_or(NO_BODY_CHOSEN)
 }

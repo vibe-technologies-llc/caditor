@@ -59,21 +59,17 @@ impl Chooser<'_> {
         field::checked(document, transaction)
     }
 
-    fn first_plane(&self) -> Option<PlaneReference> {
-        self.selection
-            .iter()
-            .find_map(|pickable| datum_tools::plane_reference(self.model, pickable, self.index))
+    fn only_plane(&self) -> Result<Option<PlaneReference>, &'static str> {
+        datum_tools::only_plane(self.model, self.selection, self.index)
     }
 
-    fn first_axis(&self) -> Option<AxisReference> {
-        self.selection
-            .iter()
-            .find_map(|pickable| datum_tools::axis_reference(self.model, pickable, self.index))
+    fn only_axis(&self) -> Result<Option<AxisReference>, &'static str> {
+        datum_tools::only_axis(self.model, self.selection, self.index)
     }
 
     fn base(&self, datum: &Datum) -> Result<Datum, &'static str> {
         match datum {
-            Datum::Plane(plane) => match self.first_plane() {
+            Datum::Plane(plane) => match self.only_plane()? {
                 Some(base) if base == plane.base => Err("It already starts from the selection"),
                 Some(base) => Ok(Datum::Plane(DatumPlane {
                     base,
@@ -120,7 +116,7 @@ impl Chooser<'_> {
         let Datum::Plane(plane) = datum else {
             return Err("Only a datum plane turns about an axis");
         };
-        match self.first_axis() {
+        match self.only_axis()? {
             Some(axis) if plane.rotation.as_ref().map(|rotation| &rotation.axis) == Some(&axis) => {
                 Err("It already turns about the selection")
             }

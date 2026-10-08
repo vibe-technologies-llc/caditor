@@ -249,10 +249,10 @@ paths:
   a row offers Rename body… (the card below with its Body name field focused), Select the whole
   body (its faces in the view, through `PanelState::selected_in_tree`) and Remove body, which adds
   a `Remove` feature at the bar with a notice saying how to bring the body back; the same act from
-  the palette and the Model menu on the selection's body or the tree's (`RenameBody`,
-  `RemoveBody`).
-- A body row's paint bucket (or the Body colour and material command, for the body of the
-  selection or of the tree's current feature) opens its colour and material card under the row
+  the palette and the Model menu on the tree's body, else the selection's (`RenameBody`,
+  `RemoveBody`; `app-modelling.md`, "What a command acts on").
+- A body row's paint bucket (or the Body colour and material command, for the body chosen in the
+  tree, else of the selection, else of the open feature) opens its colour and material card under the row
   (`PanelState::painting`, one at a time, focus on the first swatch until it lands):
   `widgets::swatch`es (default and `body_appearance::SWATCHES`) above a property grid of Colour
   (a hex field), Material (`MATERIALS` presets, which set the density and, for a body without a

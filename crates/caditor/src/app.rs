@@ -23,7 +23,7 @@ use winit::{
 use crate::{
     about,
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
-    canvas,
+    body_selection, canvas,
     commands::{self, Command, CommandFrame, Offer, Situation},
     drawing_export, drop_target,
     editing::SketchEditing,
@@ -363,7 +363,8 @@ pub fn show(
         deferred_commands,
         ..
     } = workspace;
-    let offers = selection_offers.refresh(model, viewport.selection());
+    let tree_bodies = body_selection::tree_bodies(model.document(), &panels.chosen());
+    let offers = selection_offers.refresh(model, viewport.selection(), &tree_bodies);
     let situation = Situation {
         editing_sketch: editing.active().is_some(),
         drawing: viewport.is_drawing(),
@@ -473,7 +474,7 @@ pub fn show(
             model,
             selection: viewport.selection(),
             bodies: viewport.bodies(),
-            tree_selected: panels.selected,
+            tree_bodies: &tree_bodies,
         };
         measure_panel::show(ui, &context, measure, room);
     }
@@ -491,7 +492,7 @@ pub fn show(
         let context = InterferenceContext {
             model,
             selection: viewport.selection(),
-            tree_selected: panels.selected,
+            tree_bodies: &tree_bodies,
         };
         interference_panel::refresh(&context, interference);
         if let Some(place) = interference_panel::show(ui, model, interference, room) {

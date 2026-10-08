@@ -8,9 +8,9 @@ use crate::{
     move_tools,
     pattern_tools::{self, PatternSource},
     scale_tools,
-    selection::Selection,
+    selection::{Pickable, Selection},
     shell_tools::{self, FaceSource},
-    sketch_placement::{self, FaceChoice},
+    sketch_placement::{self, SketchTarget},
     split_tools::{self, SplitSource},
     units::LengthUnit,
 };
@@ -20,6 +20,7 @@ pub const MAX_DESCRIBED: usize = 12;
 #[derive(Debug, Clone, PartialEq)]
 struct Basis {
     selection: u64,
+    tree: Vec<FeatureId>,
     revision: u64,
     evaluation: u64,
     unit: LengthUnit,
@@ -27,8 +28,8 @@ struct Basis {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Offers {
-    pub sketch_face: Option<FaceChoice>,
-    pub model_axis: Option<AxisReference>,
+    pub sketch_target: Result<SketchTarget, &'static str>,
+    pub model_axes: Vec<(Pickable, AxisReference)>,
     pub datum_plane: Result<Datum, &'static str>,
     pub datum_axis: Result<DatumAxis, &'static str>,
     pub datum_point: Result<DatumPoint, &'static str>,
@@ -44,27 +45,30 @@ pub struct Offers {
 }
 
 impl Offers {
-    fn of(model: &Model, selection: &Selection) -> Self {
+    fn of(model: &Model, selection: &Selection, tree: &[FeatureId]) -> Self {
         let document = model.document();
         let evaluation = model.evaluation();
         let end = document.bar_index();
-        let model_axis = selection
-            .iter()
-            .find_map(|pickable| datum_tools::axis_reference(model, pickable, end));
+        let model_axes = selection
+            .in_pick_order()
+            .into_iter()
+            .filter_map(|pickable| {
+                Some((pickable, datum_tools::axis_reference(model, pickable, end)?))
+            })
+            .collect();
         Self {
-            sketch_face: sketch_placement::selected_face(selection)
-                .filter(|face| sketch_placement::is_flat(model, *face)),
-            pattern: pattern_tools::source(model, selection, model_axis.as_ref()),
-            model_axis,
+            sketch_target: sketch_placement::sketch_target(model, selection),
+            pattern: pattern_tools::source(model, selection, tree),
+            model_axes,
             datum_plane: datum_tools::plane_from_selection(model, selection, end),
             datum_axis: datum_tools::axis_from_selection(model, selection, end),
             datum_point: datum_tools::point_from_selection(model, selection, end),
             shell: shell_tools::selected_faces(model, selection),
-            combine: combine_tools::selected_bodies(model, selection),
-            movement: move_tools::selected_body(model, selection),
-            mirror: mirror_tools::source(model, selection),
-            split: split_tools::source(model, selection),
-            scale: scale_tools::selected_body(model, selection),
+            combine: combine_tools::selected_bodies(model, selection, tree),
+            movement: move_tools::selected_body(model, selection, tree),
+            mirror: mirror_tools::source(model, selection, tree),
+            split: split_tools::source(model, selection, tree),
+            scale: scale_tools::selected_body(model, selection, tree),
             described: selection
                 .iter()
                 .take(MAX_DESCRIBED)
@@ -83,9 +87,10 @@ pub struct SelectionOffers {
 }
 
 impl SelectionOffers {
-    pub fn refresh(&mut self, model: &Model, selection: &Selection) -> &Offers {
+    pub fn refresh(&mut self, model: &Model, selection: &Selection, tree: &[FeatureId]) -> &Offers {
         let basis = Basis {
             selection: selection.generation(),
+            tree: tree.to_vec(),
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
             unit: model.length_unit(),
@@ -97,7 +102,8 @@ impl SelectionOffers {
                 {
                     self.computations += 1;
                 }
-                self.current.insert((basis, Offers::of(model, selection)))
+                self.current
+                    .insert((basis, Offers::of(model, selection, tree)))
             }
         };
         offers

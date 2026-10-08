@@ -15,8 +15,12 @@ pub const DESCRIPTION: &str =
 const NO_BODY: &str = "Select a face or edge of the body to scale";
 const DEFAULT_FACTOR: f64 = 2.0;
 
-pub fn selected_body(model: &Model, selection: &Selection) -> Result<FeatureId, &'static str> {
-    move_tools::chosen_body(model, selection, NO_BODY)
+pub fn selected_body(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<FeatureId, &'static str> {
+    move_tools::chosen_body(model, selection, tree, NO_BODY)
 }
 
 pub fn create(document: &Document, body: FeatureId, unit: LengthUnit) -> (Transaction, FeatureId) {

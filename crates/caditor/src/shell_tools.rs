@@ -7,6 +7,7 @@ use caditor_kernel::{FaceId, FaceReference, Solid};
 
 use crate::{
     bodies::{self, FaceKey},
+    body_selection,
     editing::{self, EditingCommand},
     model::{Action, Model, Notice},
     selection::{Pickable, Selection},
@@ -21,11 +22,13 @@ pub const DESCRIPTION: &str = "Hollow the body out, leaving the selected faces o
 pub struct FaceSource {
     pub body: FeatureId,
     pub faces: Vec<FaceKey>,
+    pub left_out: Vec<Pickable>,
 }
 
 pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource, &'static str> {
     let mut body = None;
     let mut faces = Vec::new();
+    let mut left_out = Vec::new();
     for pickable in selection.iter() {
         if let Pickable::Face { body: owner, face } = pickable {
             match body {
@@ -33,6 +36,8 @@ pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource
                 _ => body = Some(owner),
             }
             faces.push(face);
+        } else {
+            left_out.push(pickable);
         }
     }
     let body = body.ok_or("Select the faces of a body to leave open")?;
@@ -44,7 +49,11 @@ pub fn selected_faces(model: &Model, selection: &Selection) -> Result<FaceSource
     if !flat {
         return Err("Only flat faces can be left open, so select flat faces only");
     }
-    Ok(FaceSource { body, faces })
+    Ok(FaceSource {
+        body,
+        faces,
+        left_out,
+    })
 }
 
 pub fn create(
@@ -83,10 +92,20 @@ pub fn create_actions(
     unit: LengthUnit,
 ) -> Vec<Action> {
     match create(document, evaluation, source, unit) {
-        Ok((transaction, feature)) => vec![
-            Action::Apply(transaction),
-            Action::Editing(EditingCommand::OpenSolid(feature)),
-        ],
+        Ok((transaction, feature)) => {
+            let told = body_selection::left_out_words(&source.left_out).map(|words| {
+                Action::Inform(Notice::info(format!(
+                    "{TITLE} takes faces to leave open only, so {words}."
+                )))
+            });
+            [
+                Action::Apply(transaction),
+                Action::Editing(EditingCommand::OpenSolid(feature)),
+            ]
+            .into_iter()
+            .chain(told)
+            .collect()
+        }
         Err(reason) => vec![Action::Inform(Notice::info(format!("{TITLE}: {reason}.")))],
     }
 }

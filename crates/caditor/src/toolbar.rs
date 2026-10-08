@@ -13,8 +13,9 @@ use crate::{
     offers::Offers,
     pattern_tools::{self, Shape},
     ribbon, scale_tools,
-    selection::{Pickable, Selection},
+    selection::Selection,
     shell_tools,
+    sketch_placement::SketchTarget,
     solid_tools::{self, Sweep},
     split_tools,
     viewport::CHOOSE_PLANE_PROMPT,
@@ -27,7 +28,8 @@ pub const AXIS_LABEL: &str = "Axis";
 pub const POINT_LABEL: &str = "Point";
 pub const MEASURE_LABEL: &str = "Measure";
 pub const INTERFERENCE_LABEL: &str = "Interference";
-const NO_SKETCH_TO_SWEEP: &str = "Draw a sketch with a closed outline first";
+const NO_SKETCH_TO_SWEEP: &str =
+    "Draw a sketch with a closed outline first, or select the curves of one already swept";
 const EXTRUDE_FACE_HELP: &str = "Extrude the selected face out of its body";
 const MEASURE_HOVER: &str =
     "Measure the selection: distances, angles, lengths, areas and the mass properties of bodies";
@@ -174,7 +176,7 @@ fn sketch_buttons(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let (selection, editing) = (context.selection, context.editing);
+    let editing = context.editing;
     if editing.is_choosing_plane() {
         let button =
             ToolButton::new(icons::command(Command::NewSketch), NEW_SKETCH_LABEL).selected(true);
@@ -186,28 +188,13 @@ fn sketch_buttons(
         }
         return;
     }
-    let plane = selection.iter().find_map(|pickable| match pickable {
-        Pickable::Plane(plane) => Some(plane),
-        Pickable::Origin
-        | Pickable::Axis(_)
-        | Pickable::SketchEntity { .. }
-        | Pickable::SketchConstraint { .. }
-        | Pickable::Face { .. }
-        | Pickable::Edge { .. }
-        | Pickable::Vertex { .. }
-        | Pickable::Region { .. }
-        | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. }
-        | Pickable::Datum(_) => None,
-    });
-    let datum = datum_tools::selected_datum_plane(model.document(), selection);
-    let face = context.offers.sketch_face;
-    let (hover, command) = match (plane, datum, face) {
-        (Some(plane), _, _) => (
+    let target = context.offers.sketch_target;
+    let (hover, command) = match target {
+        Ok(SketchTarget::Principal(plane)) => (
             format!("Start a sketch on the selected {}", plane.name()),
             EditingCommand::NewSketch(Some(plane)),
         ),
-        (None, Some(datum), _) => (
+        Ok(SketchTarget::Datum(datum)) => (
             format!(
                 "Start a sketch on {}; it follows the plane when the model changes",
                 model
@@ -217,20 +204,23 @@ fn sketch_buttons(
             ),
             EditingCommand::NewSketchOnDatum(datum),
         ),
-        (None, None, Some(face)) => (
+        Ok(SketchTarget::Face(face)) => (
             "Start a sketch on the selected face; it follows the face when the model changes"
                 .to_owned(),
             EditingCommand::NewSketchOnFace(face),
         ),
-        (None, None, None) => (
+        Ok(SketchTarget::Choose) | Err(_) => (
             "Start a sketch on the plane or flat face you click next".to_owned(),
             EditingCommand::NewSketch(None),
         ),
     };
-    let help = Ok(commands.with_keys(Command::NewSketch, &hover));
-    let invoked = commands.available(Command::NewSketch);
+    let help = match target {
+        Ok(_) => Ok(commands.with_keys(Command::NewSketch, &hover)),
+        Err(reason) => Err(reason.to_owned()),
+    };
+    let invoked = commands.invoke(Command::NewSketch, &target);
     let response = tool(ui, Command::NewSketch, NEW_SKETCH_LABEL, &help);
-    if response.clicked() || invoked {
+    if (response.clicked() || invoked) && target.is_ok() {
         actions.push(Action::Editing(command));
     }
 }
@@ -244,34 +234,42 @@ fn solid_buttons(
 ) {
     let document = model.document();
     let face = solid_tools::face_to_extrude(model, context.selection, context.editing);
-    let lone_axis = context.offers.model_axis.is_some();
+    let lone_axis = context.selection.len() == 1 && !context.offers.model_axes.is_empty();
     for sweep in Sweep::ALL {
         let command = match sweep {
             Sweep::Extrude => Command::Extrude,
             Sweep::Revolve => Command::Revolve,
         };
         let may_guess = solid_tools::may_guess_sketch(sweep, context.selection, lone_axis);
-        let source =
-            solid_tools::sweep_source(document, context.selection, context.editing, may_guess).map(
-                |source| solid_tools::with_model_axis(source, context.offers.model_axis.as_ref()),
-            );
+        let source = solid_tools::sweep_source(
+            document,
+            model.evaluation(),
+            context.selection,
+            context.editing,
+            solid_tools::Guess::sweep_when(may_guess),
+        )
+        .map(|source| {
+            source.map(|source| {
+                solid_tools::with_model_axis(source, context.selection, &context.offers.model_axes)
+            })
+        });
         let face = face.filter(|_| sweep == Sweep::Extrude);
         let missing = match sweep {
             _ if may_guess => NO_SKETCH_TO_SWEEP,
             Sweep::Extrude => solid_tools::NOTHING_TO_EXTRUDE,
             Sweep::Revolve => solid_tools::NOTHING_TO_REVOLVE,
         };
-        let available = match (face, &source) {
+        let available = match (face, source.as_ref()) {
             (Some(Ok(_)), _) => Ok(()),
-            (Some(Err(reason)), _) => Err(reason),
-            (None, Some(_)) => Ok(()),
-            (None, None) => Err(missing),
+            (Some(Err(reason)), _) | (None, Err(&reason)) => Err(reason),
+            (None, Ok(Some(_))) => Ok(()),
+            (None, Ok(None)) => Err(missing),
         };
         let invoked = commands.invoke(command, &available);
-        let help = match (face, &source) {
+        let help = match (face, source.as_ref()) {
             (Some(Ok(_)), _) => Ok(commands.with_keys(command, EXTRUDE_FACE_HELP)),
-            (Some(Err(reason)), _) => Err(reason.to_owned()),
-            (None, Some(source)) => {
+            (Some(Err(reason)), _) | (None, Err(&reason)) => Err(reason.to_owned()),
+            (None, Ok(Some(source))) => {
                 let sketch = document
                     .feature(source.sketch)
                     .map_or("the sketch", |feature| feature.name.as_str());
@@ -288,7 +286,7 @@ fn solid_buttons(
                 };
                 Ok(commands.with_keys(command, &hover))
             }
-            (None, None) => Err(missing.to_owned()),
+            (None, Ok(None)) => Err(missing.to_owned()),
         };
         let response = tool(ui, command, sweep.label(), &help);
         if !(response.clicked() || invoked) {
@@ -298,13 +296,13 @@ fn solid_buttons(
             (Some(Ok(face)), _) => {
                 actions.extend(solid_tools::create_on_face_actions(model, face));
             }
-            (None, Some(source)) => actions.extend(solid_tools::create_actions(
+            (None, Ok(Some(source))) => actions.extend(solid_tools::create_actions(
                 document,
                 sweep,
                 solid_tools::with_selected_outline(model, sweep, source.clone(), context.selection),
                 model.length_unit(),
             )),
-            (Some(Err(_)), _) | (None, None) => {}
+            (Some(Err(_)), _) | (None, Err(_) | Ok(None)) => {}
         }
     }
 }

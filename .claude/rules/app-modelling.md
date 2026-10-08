@@ -63,6 +63,31 @@ paths:
   drill) in `CUT_PREVIEW` over everything (`Scene::overlay_meshes`, edges on the front layer),
   never picked, so the cut reads through the material around it.
 
+## What a command acts on
+
+- A command takes the selection's target or refuses in words; it never swaps in a body, plane,
+  sketch or axis the selection does not name. `Selection` keeps the order things were picked in
+  beside its sorted set (`Selection::in_pick_order`; a bulk pick such as a box enters in sorted
+  order).
+- A body is named by selected faces, edges or vertices (`body_selection::bodies_in`) or by rows
+  chosen in the tree (`body_selection::tree_bodies`: a body row, or a feature row's body). The
+  tree's choice wins, since choosing in the view clears it, so it is always the later of the two
+  (`move_tools::chosen_body`). Move, Copy, Mirror, Split, Scale, Pattern and Combine (two tree
+  bodies), Remove body, Rename body and Body colour all take it this way, and Measure and
+  Interference take every chosen row's body. Offers carry the tree's bodies in their basis.
+- Several candidates for one slot (two planes, two axes, curves of two sketches, faces of two
+  bodies) are refused naming the conflict (`datum_tools::only_plane`, `only_axis`,
+  `chosen_plane`, `SEVERAL_*`), except where the pick order decides: a revolve turns about the
+  line or axis picked last (`solid_tools::with_model_axis`), and a pattern's direction ignores
+  edges and faces of the patterned body when an axis outside it is selected.
+- What a command drops from a mixed selection is said in a notice: a fillet or chamfer keeps
+  edges, a shell faces (`body_selection::left_out_words`), and the body card says when selected
+  faces of other bodies are not coloured (`body_appearance::other_faces_note`).
+- The tree's commands that take the selection (Place sketch, Use selected axis, Up to selected,
+  Start at selected, Mirror across selected, Split along selected, the datum and pattern Use
+  selected) act on the open feature, else the tree's row (`feature_tree::feature_commands`);
+  the rest act on `feature_tree::current_feature`.
+
 ## Where new features go
 
 - Every tool creates its feature through `TransactionBuilder::add_feature`, so with the rollback
@@ -102,16 +127,20 @@ paths:
   and an extrusion of it added to that body outward, with a notice naming the sketch
   (`solid_tools::create_on_face`); a curved face is refused in words. A selected face never falls
   through to the last sketch.
-- Otherwise they take the edited sketch, else the selection's sketch; only with nothing selected
-  (for Revolve, nothing but the axis it offers) do they guess the open extrusion's sketch, else the
-  last sketch (`solid_tools::may_guess_sketch`). A selection holding no sketch is refused in words
-  (`NOTHING_TO_EXTRUDE`, `NOTHING_TO_REVOLVE`), never swapped for a sketch it does not name. The
-  revolve axis (also the
-  panel's axis picker) is a selected line or sketch axis, else a principal axis, datum axis,
-  straight edge or round face.
-- A new feature adds to the last body standing (`Document::bodies_standing`, so never one a Combine
-  consumed; a new one if none) and opens; an extrusion of a sketch lying on a face of a body still
-  standing (`solid_tools::face_body`) instead cuts that body, reversed so it runs into it; the panel's Body list is `Document::bodies_before`. `SketchEditing` holds at most
+- Otherwise they take the edited sketch, else the selection's sketch (curves of two sketches are
+  refused, `SEVERAL_SKETCHES`); only with nothing selected (for Revolve, nothing but the axis it
+  offers) do they guess the open extrusion's sketch, else the last shown sketch, and only while it
+  has an even-depth region no feature sweeps (`solid_tools::has_unswept_regions`; a Hole guesses
+  a sketch no hole drills, `Guess::Drill`), so pressing Extrude again never sweeps the same
+  profile twice. A selection holding no sketch is refused in words (`NOTHING_TO_EXTRUDE`,
+  `NOTHING_TO_REVOLVE`), never swapped for a sketch it does not name. The revolve axis is the
+  line of the sketch, sketch axis, principal axis, datum axis, straight edge or round face picked
+  last; the panel's axis picker refuses several.
+- A new feature adds to the body whose faces are selected with its sketch (`SweepSource::body`),
+  else the last body standing (`Document::bodies_standing`, so never one a Combine consumed; a new
+  one if none) and opens; an extrusion of a sketch lying on a face of a body still standing
+  (`solid_tools::face_body`) instead cuts that body, reversed so it runs into it, unless faces of
+  another body are selected; the panel's Body list is `Document::bodies_before`. `SketchEditing` holds at most
   one open solid feature, never together with an edited sketch; `editing::Context` carries both to
   the scene and to availability checks.
 - With curves of the sketch selected that close up (every open end meets another), a new
@@ -161,7 +190,8 @@ paths:
   is drilled on material, with a notice saying how to move the point
   (`hole_tools::create_on_face`). Otherwise it takes the sketch the way Extrude does (edited,
   selected, or with nothing selected the opened or last one; else `NOTHING_TO_DRILL`) and needs at least one free point or circle in it (`hole_centres`);
-  its body is the one the sketch is attached to, else the last body standing. It creates a plain
+  its body is the one the sketch is attached to, else the one whose faces are selected, else the
+  last body standing. It creates a plain
   blind hole of 6 mm by 10 mm, hides the sketch and opens the panel: Size (Custom or a metric
   screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, and Insert from M2 to M8, the size's
   `fits`; with the thread named for the tapped ones, a Pitch row of the size's fine pitches when it
@@ -179,7 +209,7 @@ paths:
 ## Combine
 
 - Combine (Alt+J) is offered when the selection touches faces, edges or vertices of exactly two
-  bodies shown now; the earlier body in the tree is the target and the later the tool. It creates a
+  bodies shown now, or two bodies are chosen in the tree; the earlier body in the tree is the target and the later the tool. It creates a
   Join and opens the panel, whose Operation switch (Join, Cut, Intersect) and Target and Tool
   lists (`Document::bodies_before`, each leaving out the other) change it. Nothing is chosen in the
   view while it is open.
@@ -212,13 +242,15 @@ paths:
 ## Mirror and scale
 
 - Mirror body (Alt+Shift+M) takes the body of the selection like Move and creates a `Mirror` that
-  keeps the original, across a principal or datum plane selected with it, else the YZ plane. The
+  keeps the original, across the one principal or datum plane selected with it, else the one
+  selected flat face (of that body or another), else the YZ plane (`datum_tools::chosen_plane`); a
+  selected datum axis or point, a datum after the bar or several planes are refused. The
   panel chooses a principal plane from a combo, or any plane or flat face made before it with Use
   selected, Choose in the view (slot `MirrorPlane`) or the palette's Mirror across selected, and
   has a Keep the original checkbox.
 - Split body (Alt+K, Model menu, palette, a body's right-click menu; not on the ribbon, which it
-  would widen past one row) takes the body the same way and creates a `Split` along a principal or datum
-  plane selected with it, else the YZ plane, and opens it; its panel mirrors Mirror's (combo, Use
+  would widen past one row) takes the body the same way and creates a `Split` along the plane
+  chosen as Mirror's is (the Bodies group's Split body too), and opens it; its panel mirrors Mirror's (combo, Use
   selected, Choose in the view with slot `SplitPlane`, the palette's Split along selected), with
   Keep the other side and rows naming the body and the split-off body. While open both bodies show
   as previews.
@@ -228,9 +260,11 @@ paths:
 
 ## Patterns
 
-- Linear and Circular pattern take the body of the selected faces or edges (all of one body),
-  else the last body standing, and the first selected axis, straight edge or round face as direction or
-  axis, else a principal axis. While open the patterned body is shown with its directions or axis
+- Linear and Circular pattern take the body of the selected faces, edges or vertices or of the
+  tree (`move_tools::chosen_body`), the last body standing only with nothing selected, and the one
+  selected axis, straight edge, round face or sketch line as direction or axis (edges and faces of
+  the body itself count only when nothing else is selected), else a principal axis
+  (`pattern_tools::source`). While open the patterned body is shown with its directions or axis
   drawn like a revolve's axis.
 - Direction, Second direction and Axis are lists of the principal axes and the datum axes made
   before the pattern (`pattern_tools::listed_axes`, set through `with_axis`; Second direction
@@ -284,8 +318,9 @@ paths:
 
 ## Sketches on faces and planes
 
-- New sketch starts on a selected principal plane, datum plane or flat face; while choosing a plane
-  a click on any of them does the same.
+- New sketch starts on the one selected principal plane, datum plane or flat face
+  (`sketch_placement::sketch_target`, several refused with `SEVERAL_TO_SKETCH_ON`, as Place on the
+  selection does); while choosing a plane a click on any of them does the same.
 - The attachment is captured from the body's state where the sketch sits in the tree: a face made
   further down is refused with the reason, and one whose body is not recomputed that far says so
   (`body_state_before` tells the two apart). A sketch's row says what it lies on and offers Detach

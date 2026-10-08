@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{
-    AxisReference, BodyOperation, Document, Edit, Extrude, ExtrudeExtent, FeatureId, FeatureKind,
-    FeatureResult, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SketchAttachment,
-    SketchFeature, SolidFeature, SolidStart, Transaction, describe_axis,
+    AxisReference, BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeExtent, Feature,
+    FeatureId, FeatureKind, FeatureResult, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Transaction, describe_axis,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::Point2;
@@ -11,7 +11,7 @@ use caditor_kernel::RegionKey;
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
-    bodies,
+    bodies, body_selection,
     editing::{self, EditingCommand, SketchEditing},
     model::{Action, Model, Notice},
     projecting, scene,
@@ -30,6 +30,10 @@ pub const NOT_FLAT_TO_EXTRUDE: &str =
     "The selected face is curved; only a flat face can be extruded";
 pub const NOTHING_TO_EXTRUDE: &str =
     "Select one flat face of a body to extrude it, or the curves of a sketch";
+pub const SEVERAL_SKETCHES: &str =
+    "Curves of several sketches are selected; select the curves of one sketch only";
+pub const SEVERAL_BODIES: &str =
+    "Faces of several bodies are selected; select faces of the one body to add to";
 pub const NOTHING_TO_REVOLVE: &str =
     "Select the curves of a sketch to revolve, with the axis to turn them about";
 const NO_OUTLINE: &str = "The selected face has no edges to extrude it by";
@@ -56,46 +60,51 @@ pub struct SweepSource {
     pub sketch: FeatureId,
     pub axis: Option<RevolveAxis>,
     pub regions: RegionChoice,
+    pub body: Option<FeatureId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Guess {
+    Never,
+    Sweep,
+    Drill,
+}
+
+impl Guess {
+    pub fn sweep_when(may_guess: bool) -> Self {
+        if may_guess { Self::Sweep } else { Self::Never }
+    }
 }
 
 pub fn sweep_source(
     document: &Document,
+    evaluation: &Evaluation,
     selection: &Selection,
     editing: &SketchEditing,
-    may_guess: bool,
-) -> Option<SweepSource> {
-    let selected_sketch = selection.iter().find_map(|pickable| match pickable {
-        Pickable::SketchEntity { feature, .. } => Some(feature),
-        Pickable::Origin
-        | Pickable::Axis(_)
-        | Pickable::Plane(_)
-        | Pickable::SketchConstraint { .. }
-        | Pickable::Face { .. }
-        | Pickable::Edge { .. }
-        | Pickable::Vertex { .. }
-        | Pickable::Region { .. }
-        | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. }
-        | Pickable::Datum(_) => None,
-    });
-    let opened_sketch = editing
-        .solid()
-        .and_then(|solid| document.feature(solid))
-        .and_then(|feature| feature.kind.solid())
-        .map(SolidFeature::sketch);
-    let last_sketch = || {
-        document
-            .active_features()
-            .rev()
-            .find(|feature| feature.kind.sketch().is_some())
-            .map(|feature| feature.id())
+    guess: Guess,
+) -> Result<Option<SweepSource>, &'static str> {
+    let picked = selection.in_pick_order();
+    let mut selected: Vec<FeatureId> = Vec::new();
+    for pickable in &picked {
+        if let Pickable::SketchEntity { feature, .. } = *pickable
+            && !selected.contains(&feature)
+        {
+            selected.push(feature);
+        }
+    }
+    let sketch = match (editing.feature(), selected.as_slice()) {
+        (Some(edited), _) => edited,
+        (None, [sketch]) => *sketch,
+        (None, [_, _, ..]) => return Err(SEVERAL_SKETCHES),
+        (None, []) => match guessed_sketch(document, evaluation, editing, guess) {
+            Some(guessed) => guessed,
+            None => return Ok(None),
+        },
     };
-    let guessed = may_guess
-        .then(|| opened_sketch.or_else(last_sketch))
-        .flatten();
-    let sketch = editing.feature().or(selected_sketch).or(guessed)?;
-    let definition = editing::edited_sketch(document, sketch)?;
-    let axis = selection.iter().find_map(|pickable| match pickable {
+    let Some(definition) = editing::edited_sketch(document, sketch) else {
+        return Ok(None);
+    };
+    let axis = picked.iter().rev().find_map(|pickable| match *pickable {
         Pickable::SketchEntity { feature, entity } if feature == sketch => {
             let is_axis = match entity.reference() {
                 Some(Reference::HorizontalAxis | Reference::VerticalAxis) => true,
@@ -104,24 +113,90 @@ pub fn sweep_source(
             };
             is_axis.then_some(RevolveAxis::Sketch(entity))
         }
-        Pickable::Origin
-        | Pickable::Axis(_)
-        | Pickable::Plane(_)
-        | Pickable::SketchEntity { .. }
-        | Pickable::SketchConstraint { .. }
-        | Pickable::Face { .. }
-        | Pickable::Edge { .. }
-        | Pickable::Vertex { .. }
-        | Pickable::Region { .. }
-        | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. }
-        | Pickable::Datum(_) => None,
+        _ => None,
     });
-    Some(SweepSource {
+    let body = match body_selection::bodies_in(selection).as_slice() {
+        [] => None,
+        [body] => Some(*body),
+        [_, _, ..] => return Err(SEVERAL_BODIES),
+    };
+    Ok(Some(SweepSource {
         sketch,
         axis,
         regions: RegionChoice::All,
-    })
+        body,
+    }))
+}
+
+fn guessed_sketch(
+    document: &Document,
+    evaluation: &Evaluation,
+    editing: &SketchEditing,
+    guess: Guess,
+) -> Option<FeatureId> {
+    let opened = editing
+        .solid()
+        .and_then(|solid| document.feature(solid))
+        .and_then(|feature| feature.kind.solid())
+        .map(SolidFeature::sketch);
+    let last = || {
+        document
+            .active_features()
+            .rev()
+            .filter(|feature| feature.kind.sketch().is_some())
+            .map(|feature| feature.id())
+            .find(|sketch| visibility::is_shown(document, *sketch))
+    };
+    let unused = |sketch: &FeatureId| match guess {
+        Guess::Never => false,
+        Guess::Sweep => has_unswept_regions(document, evaluation, *sketch),
+        Guess::Drill => !is_drilled(document, *sketch),
+    };
+    opened.or_else(last).filter(unused)
+}
+
+fn is_drilled(document: &Document, sketch: FeatureId) -> bool {
+    document
+        .active_features()
+        .any(|feature| matches!(&feature.kind, FeatureKind::Hole(hole) if hole.sketch == sketch))
+}
+
+pub fn has_unswept_regions(
+    document: &Document,
+    evaluation: &Evaluation,
+    sketch: FeatureId,
+) -> bool {
+    let users: Vec<&Feature> = document
+        .active_features()
+        .filter(|feature| match &feature.kind {
+            FeatureKind::Solid(solid) => solid.sketch() == sketch,
+            FeatureKind::Hole(hole) => hole.sketch == sketch,
+            _ => false,
+        })
+        .collect();
+    let regions = evaluation
+        .feature(sketch)
+        .and_then(|evaluated| evaluated.result.as_deref())
+        .and_then(FeatureResult::sketch)
+        .and_then(|result| result.regions());
+    let regions = match regions {
+        None => return users.is_empty(),
+        Some(Err(_)) => return false,
+        Some(Ok(regions)) => regions,
+    };
+    let mut swept: BTreeSet<RegionKey> = BTreeSet::new();
+    for user in &users {
+        match &user.kind {
+            FeatureKind::Solid(solid) => {
+                swept.extend(scene::chosen_regions(solid.regions(), regions));
+            }
+            _ => return false,
+        }
+    }
+    regions
+        .iter()
+        .filter(|region| region.even_depth)
+        .any(|region| !swept.contains(&region.region.key()))
 }
 
 pub fn may_guess_sketch(sweep: Sweep, selection: &Selection, lone_axis: bool) -> bool {
@@ -208,12 +283,35 @@ pub fn create_on_face_actions(model: &Model, face: FaceChoice) -> Vec<Action> {
     }
 }
 
-pub fn with_model_axis(source: SweepSource, axis: Option<&AxisReference>) -> SweepSource {
-    if source.axis.is_some() {
-        return source;
-    }
+pub fn with_model_axis(
+    source: SweepSource,
+    selection: &Selection,
+    axes: &[(Pickable, AxisReference)],
+) -> SweepSource {
+    let sketch_line = |pickable: Pickable| match (pickable, &source.axis) {
+        (Pickable::SketchEntity { feature, entity }, Some(RevolveAxis::Sketch(line))) => {
+            feature == source.sketch && entity == *line
+        }
+        _ => false,
+    };
+    let latest = selection
+        .in_pick_order()
+        .into_iter()
+        .rev()
+        .find_map(|pickable| {
+            if sketch_line(pickable) {
+                return source.axis.clone();
+            }
+            let in_sketch = matches!(
+                pickable,
+                Pickable::SketchEntity { feature, .. } if feature == source.sketch
+            );
+            axes.iter()
+                .find(|(candidate, _)| *candidate == pickable && !in_sketch)
+                .map(|(_, axis)| RevolveAxis::Model(axis.clone()))
+        });
     SweepSource {
-        axis: axis.cloned().map(RevolveAxis::Model),
+        axis: latest.or(source.axis),
         ..source
     }
 }
@@ -350,12 +448,16 @@ pub fn create(
     unit: LengthUnit,
 ) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, sweep.label());
-    let operation = default_operation(document, None);
+    let operation = source
+        .body
+        .map_or_else(|| default_operation(document, None), BodyOperation::Add);
     let solid = match sweep {
         Sweep::Extrude => {
             let (operation, into_the_body) = match face_body(document, source.sketch) {
-                Some(body) => (BodyOperation::Remove(body), true),
-                None => (operation, false),
+                Some(body) if source.body.is_none_or(|selected| selected == body) => {
+                    (BodyOperation::Remove(body), true)
+                }
+                Some(_) | None => (operation, false),
             };
             SolidFeature::Extrude(Extrude {
                 sketch: source.sketch,
@@ -497,6 +599,22 @@ mod tests {
         (document, base, side, line)
     }
 
+    fn source(
+        document: &Document,
+        selection: &Selection,
+        editing: &SketchEditing,
+        may_guess: bool,
+    ) -> Option<SweepSource> {
+        sweep_source(
+            document,
+            &Evaluation::default(),
+            selection,
+            editing,
+            Guess::sweep_when(may_guess),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn the_source_prefers_the_edited_sketch_then_the_selection_then_the_last_sketch() {
         let (document, base, side, line) = document_with_sketches();
@@ -504,16 +622,16 @@ mod tests {
         let idle = SketchEditing::default();
 
         assert_eq!(
-            sweep_source(&document, &selection, &idle, true),
+            source(&document, &selection, &idle, true),
             Some(SweepSource {
                 sketch: side,
                 axis: None,
                 regions: RegionChoice::All,
+                body: None,
             })
         );
         assert_eq!(
-            sweep_source(&document, &selection, &SketchEditing::editing(base), false)
-                .map(|s| s.sketch),
+            source(&document, &selection, &SketchEditing::editing(base), false).map(|s| s.sketch),
             Some(base)
         );
         selection.replace_with(Pickable::SketchEntity {
@@ -521,15 +639,16 @@ mod tests {
             entity: line,
         });
         assert_eq!(
-            sweep_source(&document, &selection, &SketchEditing::editing(side), false),
+            source(&document, &selection, &SketchEditing::editing(side), false),
             Some(SweepSource {
                 sketch: side,
                 axis: Some(RevolveAxis::Sketch(line)),
                 regions: RegionChoice::All,
+                body: None,
             })
         );
         assert_eq!(
-            sweep_source(&Document::default(), &Selection::default(), &idle, true),
+            source(&Document::default(), &Selection::default(), &idle, true),
             None
         );
     }
@@ -541,10 +660,52 @@ mod tests {
         let mut selection = Selection::default();
         selection.replace_with(Pickable::Axis(crate::selection::Axis::X));
 
-        assert_eq!(sweep_source(&document, &selection, &idle, false), None);
+        assert_eq!(source(&document, &selection, &idle, false), None);
         assert_eq!(
-            sweep_source(&document, &selection, &idle, true).map(|source| source.sketch),
+            source(&document, &selection, &idle, true).map(|source| source.sketch),
             Some(side)
+        );
+    }
+
+    #[test]
+    fn curves_of_two_sketches_are_refused_and_the_last_picked_line_is_the_axis() {
+        let (mut document, base, side, line) = document_with_sketches();
+        let mut lines = Sketch::new(Plane::XZ);
+        let first = lines.add_line(Point2::ZERO, Point2::new(0.0, 10.0));
+        let second = lines.add_line(Point2::new(5.0, 0.0), Point2::new(5.0, 10.0));
+        let mut transaction = document.transaction("Lines");
+        let both = transaction.add_feature("Lines", FeatureKind::from(lines));
+        document.apply(transaction.finish()).unwrap();
+        let idle = SketchEditing::default();
+        let evaluation = Evaluation::default();
+        let mut selection = Selection::default();
+        selection.toggle(Pickable::SketchEntity {
+            feature: side,
+            entity: line,
+        });
+        selection.toggle(Pickable::SketchEntity {
+            feature: base,
+            entity: EntityId::HORIZONTAL_AXIS,
+        });
+
+        assert_eq!(
+            sweep_source(&document, &evaluation, &selection, &idle, Guess::Never),
+            Err(SEVERAL_SKETCHES)
+        );
+
+        selection.clear();
+        selection.toggle(Pickable::SketchEntity {
+            feature: both,
+            entity: second,
+        });
+        selection.toggle(Pickable::SketchEntity {
+            feature: both,
+            entity: first,
+        });
+
+        assert_eq!(
+            source(&document, &selection, &idle, false).and_then(|source| source.axis),
+            Some(RevolveAxis::Sketch(first))
         );
     }
 
@@ -558,6 +719,7 @@ mod tests {
                 sketch: base,
                 axis: None,
                 regions: RegionChoice::All,
+                body: None,
             },
             LengthUnit::Millimetre,
         );
@@ -569,6 +731,7 @@ mod tests {
                 sketch: side,
                 axis: Some(RevolveAxis::Sketch(line)),
                 regions: RegionChoice::All,
+                body: None,
             },
             LengthUnit::Millimetre,
         );

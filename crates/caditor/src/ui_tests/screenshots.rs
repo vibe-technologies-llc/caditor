@@ -693,7 +693,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
 
     let mirrored = pickables
         .iter()
-        .find_map(|pickable| mirror_tools::source(&model.model, &only(*pickable)).ok());
+        .find_map(|pickable| mirror_tools::source(&model.model, &only(*pickable), &[]).ok());
     if let Some(source) = mirrored {
         let actions = mirror_tools::create_actions(&model.model, &source);
         perform_all(model, actions);
@@ -717,7 +717,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
         (Shape::Linear, "panel-linear-pattern"),
         (Shape::Circular, "panel-circular-pattern"),
     ] {
-        if let Ok(source) = pattern_tools::source(&model.model, &Selection::default(), None) {
+        if let Ok(source) = pattern_tools::source(&model.model, &Selection::default(), &[]) {
             let actions = pattern_tools::create_actions(&model.model, shape, &source);
             perform_all(model, actions);
             shoot_open(model, gpu, out, scene, look);

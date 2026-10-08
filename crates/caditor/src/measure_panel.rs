@@ -70,7 +70,7 @@ pub struct MeasureContext<'a> {
     pub model: &'a Model,
     pub selection: &'a Selection,
     pub bodies: &'a BodyMeshes,
-    pub tree_selected: Option<FeatureId>,
+    pub tree_bodies: &'a [FeatureId],
 }
 
 fn value_text(value: Value, accuracy: Accuracy, unit: Units) -> String {
@@ -432,7 +432,9 @@ fn measured_bodies(context: &MeasureContext<'_>) -> (Vec<FeatureId>, bool) {
         })
         .chain(
             context
-                .tree_selected
+                .tree_bodies
+                .iter()
+                .copied()
                 .filter(|feature| evaluation.body_result(*feature).is_some()),
         )
         .collect();

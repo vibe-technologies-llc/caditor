@@ -6,7 +6,7 @@ use caditor_document::{
 use caditor_kernel::{EdgeId, EdgeName, EdgeNaming, EdgeReference, Solid, blend_chain};
 
 use crate::{
-    bodies,
+    bodies, body_selection,
     editing::{self, EditingCommand},
     model::{Action, Model, Notice},
     selection::{Pickable, Selection},
@@ -22,11 +22,13 @@ pub const KINDS: [BlendKind; 2] = [BlendKind::Fillet, BlendKind::Chamfer];
 pub struct EdgeSource {
     pub body: FeatureId,
     pub edges: Vec<EdgeName>,
+    pub left_out: Vec<Pickable>,
 }
 
 pub fn selected_edges(selection: &Selection) -> Result<EdgeSource, &'static str> {
     let mut body = None;
     let mut edges = Vec::new();
+    let mut left_out = Vec::new();
     for pickable in selection.iter() {
         if let Pickable::Edge { body: owner, edge } = pickable {
             match body {
@@ -34,10 +36,16 @@ pub fn selected_edges(selection: &Selection) -> Result<EdgeSource, &'static str>
                 _ => body = Some(owner),
             }
             edges.push(edge);
+        } else {
+            left_out.push(pickable);
         }
     }
     match body {
-        Some(body) => Ok(EdgeSource { body, edges }),
+        Some(body) => Ok(EdgeSource {
+            body,
+            edges,
+            left_out,
+        }),
         None => Err("Select the edges of a body first"),
     }
 }
@@ -87,10 +95,21 @@ pub fn create_actions(
     unit: LengthUnit,
 ) -> Vec<Action> {
     match create(document, evaluation, kind, source, unit) {
-        Ok((transaction, feature)) => vec![
-            Action::Apply(transaction),
-            Action::Editing(EditingCommand::OpenSolid(feature)),
-        ],
+        Ok((transaction, feature)) => {
+            let told = body_selection::left_out_words(&source.left_out).map(|words| {
+                Action::Inform(Notice::info(format!(
+                    "{} takes edges only, so {words}.",
+                    kind.title()
+                )))
+            });
+            [
+                Action::Apply(transaction),
+                Action::Editing(EditingCommand::OpenSolid(feature)),
+            ]
+            .into_iter()
+            .chain(told)
+            .collect()
+        }
         Err(reason) => vec![Action::Inform(Notice::info(format!(
             "{}: {reason}.",
             kind.title()
@@ -233,7 +252,11 @@ mod tests {
                 &document,
                 &evaluation,
                 BlendKind::Fillet,
-                &EdgeSource { body, edges },
+                &EdgeSource {
+                    body,
+                    edges,
+                    left_out: Vec::new(),
+                },
                 LengthUnit::Millimetre,
             )
             .map(|_| ())

@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -197,6 +197,15 @@ fn body_name(document: &Document, body: FeatureId) -> &str {
 }
 
 impl Pickable {
+    pub fn body(self) -> Option<FeatureId> {
+        match self {
+            Self::Face { body, .. } | Self::Edge { body, .. } | Self::Vertex { body, .. } => {
+                Some(body)
+            }
+            _ => None,
+        }
+    }
+
     pub fn describe(self, document: &Document, evaluation: &Evaluation) -> String {
         match self {
             Self::Origin => "Origin".to_owned(),
@@ -413,13 +422,14 @@ static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Default)]
 pub struct Selection {
-    items: BTreeSet<Pickable>,
+    items: BTreeMap<Pickable, u64>,
+    next_pick: u64,
     generation: u64,
 }
 
 impl PartialEq for Selection {
     fn eq(&self, other: &Self) -> bool {
-        self.items == other.items
+        self.items.keys().eq(other.items.keys())
     }
 }
 
@@ -438,8 +448,14 @@ impl Selection {
         self.generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
     }
 
+    fn insert(&mut self, pickable: Pickable) {
+        let pick = self.next_pick;
+        self.next_pick += 1;
+        self.items.entry(pickable).or_insert(pick);
+    }
+
     pub fn contains(&self, pickable: Pickable) -> bool {
-        self.items.contains(&pickable)
+        self.items.contains_key(&pickable)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -447,7 +463,17 @@ impl Selection {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = Pickable> + '_ {
-        self.items.iter().copied()
+        self.items.keys().copied()
+    }
+
+    pub fn in_pick_order(&self) -> Vec<Pickable> {
+        let mut picked: Vec<(u64, Pickable)> = self
+            .items
+            .iter()
+            .map(|(pickable, pick)| (*pick, *pickable))
+            .collect();
+        picked.sort_unstable();
+        picked.into_iter().map(|(_, pickable)| pickable).collect()
     }
 
     pub fn clear(&mut self) {
@@ -457,24 +483,28 @@ impl Selection {
 
     pub fn replace_with(&mut self, pickable: Pickable) {
         self.items.clear();
-        self.items.insert(pickable);
+        self.insert(pickable);
         self.changed();
     }
 
     pub fn replace_with_all(&mut self, pickables: impl IntoIterator<Item = Pickable>) {
         self.items.clear();
-        self.items.extend(pickables);
+        for pickable in pickables {
+            self.insert(pickable);
+        }
         self.changed();
     }
 
     pub fn extend(&mut self, pickables: impl IntoIterator<Item = Pickable>) {
-        self.items.extend(pickables);
+        for pickable in pickables {
+            self.insert(pickable);
+        }
         self.changed();
     }
 
     pub fn toggle(&mut self, pickable: Pickable) {
-        if !self.items.remove(&pickable) {
-            self.items.insert(pickable);
+        if self.items.remove(&pickable).is_none() {
+            self.insert(pickable);
         }
         self.changed();
     }
@@ -487,7 +517,7 @@ impl Selection {
     ) {
         let before = self.items.len();
         self.items
-            .retain(|pickable| pickable.is_available(document, evaluation, context));
+            .retain(|pickable, _| pickable.is_available(document, evaluation, context));
         if self.items.len() != before {
             self.changed();
         }
@@ -512,6 +542,32 @@ mod tests {
         assert_eq!(
             selection.iter().collect::<Vec<_>>(),
             vec![Pickable::Plane(PrincipalPlane::Xy)]
+        );
+    }
+
+    #[test]
+    fn the_pick_order_is_kept_beside_the_sorted_items() {
+        let mut selection = Selection::default();
+        selection.toggle(Pickable::Plane(PrincipalPlane::Yz));
+        selection.toggle(Pickable::Origin);
+        selection.extend([Pickable::Axis(Axis::Z), Pickable::Plane(PrincipalPlane::Yz)]);
+
+        assert_eq!(
+            selection.in_pick_order(),
+            vec![
+                Pickable::Plane(PrincipalPlane::Yz),
+                Pickable::Origin,
+                Pickable::Axis(Axis::Z)
+            ]
+        );
+        assert_eq!(selection.iter().next(), Some(Pickable::Origin));
+
+        selection.toggle(Pickable::Plane(PrincipalPlane::Yz));
+        selection.toggle(Pickable::Plane(PrincipalPlane::Yz));
+
+        assert_eq!(
+            selection.in_pick_order().last(),
+            Some(&Pickable::Plane(PrincipalPlane::Yz))
         );
     }
 }

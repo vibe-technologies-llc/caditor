@@ -78,7 +78,7 @@ pub struct Bodies {
 }
 
 impl Bodies {
-    pub fn of(model: &Model, selection: &Selection, tree_selected: Option<FeatureId>) -> Self {
+    pub fn of(model: &Model, selection: &Selection, tree: &[FeatureId]) -> Self {
         let evaluation = model.evaluation();
         let document = model.document();
         let shown: Vec<FeatureId> = evaluation
@@ -95,7 +95,7 @@ impl Bodies {
                 | Pickable::Vertex { body, .. } => Some(body),
                 _ => None,
             })
-            .chain(tree_selected)
+            .chain(tree.iter().copied())
             .filter(|body| shown.contains(body))
             .collect();
         Self::among(&shown, &chosen)
@@ -341,10 +341,10 @@ impl Report {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Inputs {
     selection: u64,
-    tree_selected: Option<FeatureId>,
+    tree: Vec<FeatureId>,
     revision: u64,
     evaluation: u64,
 }
@@ -366,11 +366,11 @@ impl Interference {
         &mut self,
         model: &Model,
         selection: &Selection,
-        tree_selected: Option<FeatureId>,
+        tree: &[FeatureId],
     ) -> Option<Report> {
         let inputs = Inputs {
             selection: selection.generation(),
-            tree_selected,
+            tree: tree.to_vec(),
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
         };
@@ -379,14 +379,14 @@ impl Interference {
             .basis
             .as_ref()
             .is_some_and(|basis| basis.quality == quality);
-        if self.inputs != Some(inputs) || !same_quality {
-            self.inputs = Some(inputs);
+        if self.inputs.as_ref() != Some(&inputs) || !same_quality {
             let basis = Basis {
-                bodies: Bodies::of(model, selection, tree_selected),
+                bodies: Bodies::of(model, selection, tree),
                 revision: inputs.revision,
                 evaluation: inputs.evaluation,
                 quality,
             };
+            self.inputs = Some(inputs);
             if self.basis.as_ref() != Some(&basis) {
                 if !same_quality {
                     self.checked.clear();

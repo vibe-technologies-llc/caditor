@@ -8,9 +8,10 @@ use crate::{
     field,
     model::{Action, Model},
     move_tools,
-    selection::{Pickable, Selection},
+    selection::Selection,
 };
 
+pub const TITLE: &str = "Split body";
 const NO_BODY: &str = "Select a face or edge of the body to split";
 const NO_PLANE: &str = "Select a plane or flat face made before this feature";
 const ALREADY: &str = "The body is already split along the selected plane or face";
@@ -23,16 +24,18 @@ pub struct SplitSource {
     pub plane: Option<PlaneReference>,
 }
 
-pub fn source(model: &Model, selection: &Selection) -> Result<SplitSource, &'static str> {
-    let body = move_tools::chosen_body(model, selection, NO_BODY)?;
-    let end = model.document().bar_index();
-    let plane = selection.iter().find_map(|pickable| match pickable {
-        Pickable::Plane(_) | Pickable::Datum(_) => {
-            datum_tools::plane_reference(model, pickable, end)
-        }
-        _ => None,
-    });
-    Ok(SplitSource { body, plane })
+pub fn source(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<SplitSource, &'static str> {
+    let chosen = datum_tools::chosen_plane(model, selection, model.document().bar_index())?;
+    let face = chosen.as_ref().and_then(|chosen| chosen.face);
+    let body = move_tools::chosen_body_beside(model, selection, tree, face, NO_BODY)?;
+    Ok(SplitSource {
+        body,
+        plane: chosen.map(|chosen| chosen.plane),
+    })
 }
 
 pub fn create(document: &Document, source: &SplitSource) -> (Transaction, FeatureId) {
@@ -84,10 +87,9 @@ pub fn plane_change(
         .document()
         .feature_index(feature)
         .ok_or_else(|| GONE.to_owned())?;
-    let plane = selection
-        .iter()
-        .find_map(|pickable| datum_tools::plane_reference(model, pickable, index))
-        .ok_or_else(|| NO_PLANE.to_owned())?;
+    let plane = datum_tools::chosen_plane(model, selection, index)?
+        .ok_or(NO_PLANE)?
+        .plane;
     if plane == split.plane {
         return Err(ALREADY.to_owned());
     }

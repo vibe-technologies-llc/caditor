@@ -228,6 +228,26 @@ pub fn with_face_colours(
     }
 }
 
+pub fn faces_of_other_bodies(selection: &Selection, body: FeatureId) -> usize {
+    selection
+        .iter()
+        .filter(|pickable| matches!(pickable, Pickable::Face { body: owner, .. } if *owner != body))
+        .count()
+}
+
+pub fn other_faces_note(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some(
+            "The selected face of another body is left out; colour it from its own body".to_owned(),
+        ),
+        count => Some(format!(
+            "The {count} selected faces of other bodies are left out; colour them from their own \
+             bodies"
+        )),
+    }
+}
+
 pub fn face_swatch_name(colour: &str) -> String {
     format!("{colour} for the selected faces")
 }
@@ -638,6 +658,10 @@ pub fn show(
     let faces = selected_faces(model, selection, feature.id());
     if !faces.is_empty() || !feature.appearance.faces.is_empty() {
         panel.face_swatches(ui, &faces);
+        ui.add_space(SPACE_S);
+    }
+    if let Some(note) = other_faces_note(faces_of_other_bodies(selection, feature.id())) {
+        ui.label(widgets::muted(note, ui));
         ui.add_space(SPACE_S);
     }
     let name_focused = widgets::properties(ui, ("body-appearance", feature.id()), |ui| {

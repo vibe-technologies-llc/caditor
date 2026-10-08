@@ -67,6 +67,7 @@ use crate::{
 
 mod feature_panels;
 mod screenshots;
+mod selection_targets;
 
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -7354,7 +7355,7 @@ fn a_large_selection_is_counted_whole_but_described_and_measured_only_in_part() 
     let offers = harness
         .workspace
         .selection_offers
-        .refresh(&harness.model, harness.workspace.viewport.selection())
+        .refresh(&harness.model, harness.workspace.viewport.selection(), &[])
         .clone();
 
     assert_eq!(offers.selected, 20);
@@ -7398,13 +7399,13 @@ fn the_interference_report_is_rebuilt_only_when_its_inputs_or_findings_change() 
     let mut interference = crate::interference::Interference::default();
 
     let mut report = interference
-        .refresh(&harness.model, &selection, None)
+        .refresh(&harness.model, &selection, &[])
         .expect("the first refresh reports");
     let deadline = Instant::now() + FILE_TIMEOUT;
     while report.is_checking() {
         assert!(Instant::now() < deadline, "the check never finished");
         std::thread::sleep(Duration::from_millis(2));
-        if let Some(newer) = interference.refresh(&harness.model, &selection, None) {
+        if let Some(newer) = interference.refresh(&harness.model, &selection, &[]) {
             report = newer;
         }
     }
@@ -7412,12 +7413,12 @@ fn the_interference_report_is_rebuilt_only_when_its_inputs_or_findings_change() 
     assert_eq!(report.checked(), 1);
     assert!(
         interference
-            .refresh(&harness.model, &selection, None)
+            .refresh(&harness.model, &selection, &[])
             .is_none()
     );
     assert!(
         interference
-            .refresh(&harness.model, &selection, None)
+            .refresh(&harness.model, &selection, &[])
             .is_none()
     );
 }
@@ -8906,7 +8907,10 @@ fn a_body_is_mirrored_across_a_plane_and_keeps_or_leaves_out_its_original_from_t
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);
 
-    harness.select([top]);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: top_edge_along_x(&harness, plate, 0.0),
+    }]);
     harness.click("Mirror body");
     harness.settle();
     let mirror = harness
@@ -8976,8 +8980,8 @@ fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
         .built()
         .picks
         .pickables()
-        .find(|pickable| matches!(pickable, Pickable::Face { body, .. } if *body == plate))
-        .expect("a face of the plate is pickable");
+        .find(|pickable| matches!(pickable, Pickable::Edge { body, .. } if *body == plate))
+        .expect("an edge of the plate is pickable");
 
     harness.select([top]);
     harness.use_tool_with(Key::K, Modifiers::ALT);
@@ -11781,6 +11785,9 @@ fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
+    let mut post = Sketch::new(Plane::XY);
+    rectangle(&mut post, Point2::new(25.0, 25.0), Point2::new(30.0, 30.0));
+    harness.add_sketch(post);
     harness.select([]);
     harness.click("Extrude");
     harness.settle();

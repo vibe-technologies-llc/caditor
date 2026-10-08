@@ -1,7 +1,7 @@
 use caditor_document::{Document, Edit, FeatureId, FeatureKind, Move, Transaction};
 
 use crate::{
-    bodies,
+    bodies, body_selection,
     editing::{self, EditingCommand},
     model::{Action, Model},
     selection::{Pickable, Selection},
@@ -14,28 +14,48 @@ pub const COPY_NAME: &str = "Copy";
 pub const DESCRIPTION: &str =
     "Shift and turn a body, by distances and angles that can be parameters";
 const NO_BODY: &str = "Select a face or edge of the body to move";
-const SEVERAL_BODIES: &str = "Select faces or edges of one body only";
+const SEVERAL_BODIES: &str = "Select faces or edges of one body only, or one body in the tree";
 const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
 
-pub fn selected_body(model: &Model, selection: &Selection) -> Result<FeatureId, &'static str> {
-    chosen_body(model, selection, NO_BODY)
+pub fn selected_body(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<FeatureId, &'static str> {
+    chosen_body(model, selection, tree, NO_BODY)
 }
 
 pub fn chosen_body(
     model: &Model,
     selection: &Selection,
+    tree: &[FeatureId],
     none: &'static str,
 ) -> Result<FeatureId, &'static str> {
-    let mut chosen: Vec<FeatureId> = selection
-        .iter()
-        .filter_map(|pickable| match pickable {
-            Pickable::Face { body, .. }
-            | Pickable::Edge { body, .. }
-            | Pickable::Vertex { body, .. } => Some(body),
-            _ => None,
+    chosen_body_beside(model, selection, tree, None, none)
+}
+
+pub fn chosen_body_beside(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+    reference: Option<Pickable>,
+    none: &'static str,
+) -> Result<FeatureId, &'static str> {
+    let rest: Vec<FeatureId> = body_selection::bodies_in(selection)
+        .into_iter()
+        .filter(|body| {
+            selection
+                .iter()
+                .any(|pickable| pickable.body() == Some(*body) && Some(pickable) != reference)
         })
         .collect();
-    chosen.dedup();
+    let chosen = if !tree.is_empty() {
+        tree.to_vec()
+    } else if rest.is_empty() {
+        reference.and_then(Pickable::body).into_iter().collect()
+    } else {
+        rest
+    };
     match chosen.as_slice() {
         [] => Err(none),
         [body] => bodies::shown(model.evaluation(), *body)

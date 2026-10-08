@@ -178,7 +178,8 @@ paths:
   nothing jumps; the measured line in the view comes only from the current readout.
 - A `Readout` is a card per item and, for two items, a "Between them" card; more than two asks for
   fewer, without describing or measuring any. Approximate values are marked with a note, a callout under its card. Mass properties are
-  read each frame from `BodyMass` for the selected items' bodies, else every shown body, with the
+  read each frame from `BodyMass` for the selected items' bodies and those of the rows chosen in
+  the tree, else every shown body, with the
   body's material and its mass from the density (No density set without one, a warning note when
   the density cannot be evaluated) and, with a density, the moments of inertia about the centroid
   along the model axes and the principal moments (`MassProperties::second_moment`, integrated
@@ -193,8 +194,8 @@ paths:
 - Check interference (Inspect group, View menu, palette) toggles `InterferenceTool`; while open,
   `interference_panel.rs` draws a right-hand panel beside any other. It never changes the document.
 - `Bodies::of` picks the pairs: every pair of shown bodies with nothing chosen, one chosen body
-  (from selected faces, edges or vertices, or the tree) against every other shown body, or every
-  pair among several chosen.
+  (from selected faces, edges or vertices, or the bodies of every row chosen in the tree) against
+  every other shown body, or every pair among several chosen.
 - `Interference` checks pairs on its own worker with `caditor_kernel::interference`, one message
   per pair so findings appear as they come. A new basis (pairs, revision, evaluation, mesh quality)
   bumps a shared ticket that interrupts the pair in flight. Findings are cached per pair with both
@@ -202,7 +203,7 @@ paths:
   pairs; entries for results that are gone are dropped. Closing the panel or a new session forgets
   everything. A panic becomes an unchecked finding.
 - `Interference::refresh` works out the pairs only when the selection's generation, the tree's
-  chosen body, the revision or the evaluation changes, and returns a new `Report` only when the
+  chosen bodies, the revision or the evaluation changes, and returns a new `Report` only when the
   basis changed or a finding arrived, so an open panel over a thousand bodies does nothing per
   frame. The panel lists and marks at most `MAX_LISTED` contacts, Measure at most
   `MAX_MASS_CARDS` bodies' masses, each saying how many more were left out.

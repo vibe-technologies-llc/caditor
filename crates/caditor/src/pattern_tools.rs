@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use caditor_document::{
     AxisReference, CircularPattern, Document, Edit, FeatureId, FeatureKind, Instance,
     LinearDirection, LinearSpacing, Pattern, PatternKind, PrincipalAxis, Transaction,
@@ -12,6 +10,7 @@ use crate::{
     editing::{self, EditingCommand},
     field,
     model::{Action, Model, Notice},
+    move_tools,
     selection::{Pickable, Selection},
     solid_tools,
     units::LengthUnit,
@@ -28,7 +27,10 @@ pub const FULL_TURN: f64 = 360.0;
 const FALLBACK_SPACING: f64 = 10.0;
 const SPACING_ROOM: f64 = 1.2;
 const NO_BODY: &str = "Make a body first, then pattern it";
-const SEVERAL_BODIES: &str = "Select faces or edges of one body only";
+const NO_BODY_SELECTED: &str =
+    "Select a face, edge or vertex of the body to pattern, or the body in the tree";
+const SEVERAL_AXES: &str =
+    "Several axes, straight edges or round faces are selected; select only the one to follow";
 const NO_AXIS: &str = "Select an axis, straight edge or round face made before this pattern";
 const NOT_LINEAR: &str = "Only a linear pattern has a second direction";
 const GONE: &str = "The feature no longer exists";
@@ -91,27 +93,43 @@ fn last_body(document: &Document) -> Option<FeatureId> {
 pub fn source(
     model: &Model,
     selection: &Selection,
-    axis: Option<&AxisReference>,
+    tree: &[FeatureId],
 ) -> Result<PatternSource, &'static str> {
     let document = model.document();
-    let mut chosen: BTreeSet<FeatureId> = selection
-        .iter()
-        .filter_map(|pickable| match pickable {
-            Pickable::Face { body, .. } | Pickable::Edge { body, .. } => Some(body),
-            _ => None,
-        })
-        .collect();
-    if chosen.len() > 1 {
-        return Err(SEVERAL_BODIES);
+    let body = if selection.is_empty() && tree.is_empty() {
+        last_body(document).ok_or(NO_BODY)?
+    } else {
+        move_tools::chosen_body(model, selection, tree, NO_BODY_SELECTED)?
+    };
+    let axis = chosen_axis(model, selection, body, document.bar_index())?;
+    Ok(PatternSource { body, axis })
+}
+
+fn chosen_axis(
+    model: &Model,
+    selection: &Selection,
+    body: FeatureId,
+    index: usize,
+) -> Result<Option<AxisReference>, &'static str> {
+    let mut candidates: Vec<(Pickable, AxisReference)> = Vec::new();
+    for pickable in selection.in_pick_order() {
+        if let Some(axis) = datum_tools::axis_reference(model, pickable, index)
+            && !candidates.iter().any(|(_, known)| *known == axis)
+        {
+            candidates.push((pickable, axis));
+        }
     }
-    let body = chosen
-        .pop_first()
-        .or_else(|| last_body(document))
-        .ok_or(NO_BODY)?;
-    Ok(PatternSource {
-        body,
-        axis: axis.cloned(),
-    })
+    let outside: Vec<&AxisReference> = candidates
+        .iter()
+        .filter(|(pickable, _)| pickable.body() != Some(body))
+        .map(|(_, axis)| axis)
+        .collect();
+    match (candidates.as_slice(), outside.as_slice()) {
+        ([], _) => Ok(None),
+        ([(_, axis)], _) => Ok(Some(axis.clone())),
+        (_, [axis]) => Ok(Some((*axis).clone())),
+        _ => Err(SEVERAL_AXES),
+    }
 }
 
 fn default_spacing(model: &Model, body: FeatureId, axis: &AxisReference) -> f64 {
@@ -280,17 +298,6 @@ pub fn reshaped(model: &Model, pattern: &Pattern, shape: Shape) -> Pattern {
     Pattern::new(pattern.body, kind)
 }
 
-fn selected_axis(
-    model: &Model,
-    selection: &Selection,
-    feature: FeatureId,
-) -> Option<AxisReference> {
-    let index = model.document().feature_index(feature)?;
-    selection
-        .iter()
-        .find_map(|pickable| datum_tools::axis_reference(model, pickable, index))
-}
-
 fn with_selected(
     model: &Model,
     selection: &Selection,
@@ -298,7 +305,8 @@ fn with_selected(
     pattern: &Pattern,
     reference: Reference,
 ) -> Result<Pattern, &'static str> {
-    let axis = selected_axis(model, selection, feature).ok_or(NO_AXIS)?;
+    let index = model.document().feature_index(feature).ok_or(GONE)?;
+    let axis = chosen_axis(model, selection, pattern.body, index)?.ok_or(NO_AXIS)?;
     with_axis(model, pattern, reference, axis)
 }
 

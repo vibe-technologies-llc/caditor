@@ -1123,15 +1123,12 @@ pub fn selected_axis_change(
     revolve: &Revolve,
 ) -> Result<Transaction, String> {
     let index = model.document().feature_index(feature).unwrap_or(0);
-    let chosen = selection
-        .iter()
-        .find_map(|pickable| datum_tools::axis_reference(model, pickable, index))
-        .map(|axis| match axis {
-            AxisReference::Sketch { sketch, entity } if sketch == revolve.sketch => {
-                RevolveAxis::Sketch(entity)
-            }
-            axis => RevolveAxis::Model(axis),
-        });
+    let chosen = datum_tools::only_axis(model, selection, index)?.map(|axis| match axis {
+        AxisReference::Sketch { sketch, entity } if sketch == revolve.sketch => {
+            RevolveAxis::Sketch(entity)
+        }
+        axis => RevolveAxis::Model(axis),
+    });
     match chosen {
         Some(axis) if revolve.axis == axis => {
             Err("The revolve already turns about the selected axis".to_owned())

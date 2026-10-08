@@ -80,7 +80,8 @@ paths:
   (`feature_tree::current_feature`, the offer's detail; `feature_tree::commands`), sharing the
   button's availability. The selection-taking ones are `sketch_placement::place_on_selection`,
   `solid_panel::selected_axis_change` and `up_to_selected_change`, `datum_panel::base_change` and
-  `rotation_change`, and `pattern_tools::selected_change`. Each feature row has a "⋯" menu with
+  `rotation_change`, and `pattern_tools::selected_change`; they act on the open feature before the
+  tree's row, so a row only being looked at is never changed. Each feature row has a "⋯" menu with
   what its right-click menu holds.
 - Tree order and the rollback bar are commands too (move, suppress, update references, roll back
   to here, roll to end, move the bar one row), so nothing needs a drag. Edit feature refuses a

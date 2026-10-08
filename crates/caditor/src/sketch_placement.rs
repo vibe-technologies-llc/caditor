@@ -1,6 +1,6 @@
 use caditor_document::{
-    Document, Edit, FaceAttachment, FeatureId, FeatureKind, FeatureState, SketchAttachment,
-    SketchFeature, Transaction, face_plane,
+    Document, Edit, FaceAttachment, FeatureId, FeatureKind, FeatureState, PrincipalPlane,
+    SketchAttachment, SketchFeature, Transaction, face_plane,
 };
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{FaceReference, Solid};
@@ -276,10 +276,55 @@ pub enum PlacementTarget {
     Face(FaceChoice),
 }
 
-pub fn placement_target(document: &Document, selection: &Selection) -> Option<PlacementTarget> {
-    datum_tools::selected_datum_plane(document, selection)
-        .map(PlacementTarget::Plane)
-        .or_else(|| selected_face(selection).map(PlacementTarget::Face))
+pub const SEVERAL_TO_SKETCH_ON: &str =
+    "Several planes or faces are selected; select only the one to sketch on";
+
+pub fn placement_target(
+    document: &Document,
+    selection: &Selection,
+) -> Result<Option<PlacementTarget>, &'static str> {
+    let targets: Vec<PlacementTarget> = selection
+        .iter()
+        .filter_map(|pickable| match pickable {
+            Pickable::Datum(feature) if datum_tools::is_plane(document, feature) => {
+                Some(PlacementTarget::Plane(feature))
+            }
+            pickable => FaceChoice::of(pickable).map(PlacementTarget::Face),
+        })
+        .collect();
+    match targets.as_slice() {
+        [] => Ok(None),
+        [target] => Ok(Some(*target)),
+        [_, _, ..] => Err(SEVERAL_TO_SKETCH_ON),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SketchTarget {
+    Principal(PrincipalPlane),
+    Datum(FeatureId),
+    Face(FaceChoice),
+    Choose,
+}
+
+pub fn sketch_target(model: &Model, selection: &Selection) -> Result<SketchTarget, &'static str> {
+    let document = model.document();
+    let targets: Vec<SketchTarget> = selection
+        .iter()
+        .filter_map(|pickable| match pickable {
+            Pickable::Plane(plane) => Some(SketchTarget::Principal(plane)),
+            Pickable::Datum(feature) if datum_tools::is_plane(document, feature) => {
+                Some(SketchTarget::Datum(feature))
+            }
+            pickable => FaceChoice::of(pickable).map(SketchTarget::Face),
+        })
+        .collect();
+    match targets.as_slice() {
+        [] => Ok(SketchTarget::Choose),
+        [SketchTarget::Face(face)] if !is_flat(model, *face) => Ok(SketchTarget::Choose),
+        [target] => Ok(*target),
+        [_, _, ..] => Err(SEVERAL_TO_SKETCH_ON),
+    }
 }
 
 pub fn place_on_selection(
@@ -287,7 +332,7 @@ pub fn place_on_selection(
     selection: &Selection,
     sketch: FeatureId,
 ) -> Result<Transaction, &'static str> {
-    match placement_target(model.document(), selection).ok_or(NOTHING_TO_PLACE_ON)? {
+    match placement_target(model.document(), selection)?.ok_or(NOTHING_TO_PLACE_ON)? {
         PlacementTarget::Plane(datum) => place_on_datum(model, sketch, datum),
         PlacementTarget::Face(face) => place(model, sketch, face),
     }

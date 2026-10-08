@@ -280,13 +280,13 @@ pub fn marks(document: &Document, report: &Report) -> Vec<Mark> {
 pub struct InterferenceContext<'a> {
     pub model: &'a Model,
     pub selection: &'a Selection,
-    pub tree_selected: Option<FeatureId>,
+    pub tree_bodies: &'a [FeatureId],
 }
 
 pub fn refresh(context: &InterferenceContext<'_>, tool: &mut InterferenceTool) {
     let refreshed =
         tool.interference
-            .refresh(context.model, context.selection, context.tree_selected);
+            .refresh(context.model, context.selection, context.tree_bodies);
     if let Some(report) = refreshed {
         tool.report = Some(report);
     }
