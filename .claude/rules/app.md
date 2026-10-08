@@ -159,6 +159,11 @@ paths:
   selection, the model revision, its evaluation or the length unit changes, not every frame. It
   describes only the first `MAX_DESCRIBED` items and counts the rest (the status bar's tooltip
   ends "and N more"), since describing an item can scan its body.
+- A lone selected face or edge, or a lone body chosen in the tree with nothing selected, also gets
+  its size in `Offers::size` (Area, Length or Size, `measure::size_text` and `body_size_text`,
+  marked ≈ when approximate), which the status bar shows beside the selection; the offers are
+  worked out again when the bodies' meshes finish (`Model::bodies_pending`), since curved areas
+  and sizes read the mesh.
 - `Selection::generation` is globally unique per content change, so caches key on it rather than
   cloning and comparing the set: the offers, Measure, the panels' Use selected offers
   (`feature_fields::offered_change`, kept per feature and slot in egui's memory), and the

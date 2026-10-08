@@ -130,6 +130,10 @@ fn trailing(
             filter(ui, context.filter, actions);
             divider(ui);
         }
+        if let Some(size) = &context.offers.size {
+            ui.label(RichText::new(size).color(appearance::tokens(ui).text_muted));
+            divider(ui);
+        }
         widgets::remember_width(ui, id, ui.min_rect().width());
         selection(
             ui,

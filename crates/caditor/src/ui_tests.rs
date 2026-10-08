@@ -10127,6 +10127,10 @@ fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
     assert_eq!(harness.model.undo_label(), Some("Create Scale body 1"));
     assert!(harness.shows("Factor"));
     assert!(harness.shows("Centre X"));
+    assert!(volume_about(&harness, plate, 16000.0));
+
+    harness.type_into_field(Id::new(("scale-field", ("factor", 0usize), scale)), "2");
+    harness.settle();
     assert!(volume_about(&harness, plate, 8.0 * 16000.0));
 
     harness.type_into_field(Id::new(("scale-field", ("factor", 0usize), scale)), "0.5");
@@ -10146,11 +10150,37 @@ fn a_body_is_scaled_by_a_factor_about_a_centre_typed_in_the_panel() {
     assert!(harness.shows_containing("above zero"));
     assert_eq!(harness.workspace.editing.solid(), Some(scale));
 
-    for _ in 0..3 {
+    for _ in 0..4 {
         harness.perform(Action::Undo);
     }
     harness.settle();
     assert!(volume_about(&harness, plate, 16000.0));
+}
+
+#[test]
+fn the_status_bar_gives_the_size_of_the_selected_face_edge_or_body() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+
+    harness.select([]);
+    harness.settle();
+    assert!(!harness.shows_containing("Area"));
+    assert!(!harness.shows_containing("Length"));
+
+    harness.select([top]);
+    harness.settle();
+    assert!(harness.shows_containing("Area 1600"));
+
+    let edge = top_edge_along_x(&harness, plate, 0.0);
+    harness.select([Pickable::Edge { body: plate, edge }]);
+    harness.settle();
+    assert!(harness.shows_containing("Length 40"));
+    assert!(!harness.shows_containing("Area"));
+
+    harness.select([]);
+    harness.workspace.panels.choose_only(plate);
+    harness.settle();
+    assert!(harness.shows_containing("Size 40.000 × 40.000 × 10.000"));
 }
 
 fn shell_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Shell {

@@ -10,7 +10,7 @@ use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::{BodyMass, BodyMeshes, MassAccuracy},
     field, icons, layout,
-    measure::{Freshness, MeasureTool, MeasuredLine, Readout, Value},
+    measure::{APPROXIMATELY, Freshness, MeasureTool, MeasuredLine, Readout, Value},
     model::Model,
     selection::{Pickable, Selection},
     units::{LengthUnit, Units},
@@ -30,7 +30,6 @@ const MIN_PANEL_WIDTH: f32 = 220.0;
 const MAX_MASS_CARDS: usize = 50;
 const MASS_SECTION: &str = "measure-mass";
 const STALE_OPACITY: f32 = 0.5;
-const APPROXIMATELY: &str = "≈ ";
 const DIRECTION_STEP: f64 = 1e-4;
 const MESHING: &str = "Waiting for the body's mesh.";
 const NO_DENSITY: &str = "No density set";

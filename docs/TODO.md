@@ -269,8 +269,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] No user coordinate system: Measure, Move and the patterns read from the origin and
   the principal axes. A coordinate system placed at a point, its axes taken from edges or faces,
   would be a second origin to measure and place from.
-- [low · easy] Scale body starts at a factor of 2 (`DEFAULT_FACTOR` in `scale_tools.rs`, and
-  `app-modelling.md` says "by 2"); start it at 1.0, so the body is unchanged until a factor is typed.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
   axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
   surfaces do not have).
@@ -361,9 +359,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
-- [medium · easy] Selecting a face, edge or body with no measure tool open shows its size as text
-  in the status line: the area of a face, the length of an edge, the bounding box of a body, so a
-  dimension is one click away without starting Measure.
 - [medium · medium] A face, edge or body hidden behind another can be reached only by hiding the
   one in front or by stepping the keyboard highlight: a click held on a spot, or a key, should list
   everything under the pointer to choose from.

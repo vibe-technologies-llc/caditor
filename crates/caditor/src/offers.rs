@@ -2,7 +2,7 @@ use caditor_document::{AxisReference, Datum, DatumAxis, FeatureId};
 
 use crate::{
     combine_tools::{self, BodyPair},
-    datum_tools,
+    datum_tools, measure,
     mirror_tools::{self, MirrorSource},
     model::Model,
     move_tools,
@@ -25,6 +25,7 @@ struct Basis {
     revision: u64,
     evaluation: u64,
     unit: LengthUnit,
+    meshing: bool,
 }
 
 pub type Chosen<'a> = (&'a [FeatureId], &'a [FeatureId]);
@@ -45,6 +46,15 @@ pub struct Offers {
     pub pattern: Result<PatternSource, &'static str>,
     pub described: Vec<String>,
     pub selected: usize,
+    pub size: Option<String>,
+}
+
+fn size_of(model: &Model, selection: &Selection, tree: &[FeatureId]) -> Option<String> {
+    match (selection.iter().collect::<Vec<_>>().as_slice(), tree) {
+        ([only], _) => measure::size_text(model, *only),
+        ([], [body]) => measure::body_size_text(model, *body),
+        _ => None,
+    }
 }
 
 impl Offers {
@@ -78,6 +88,7 @@ impl Offers {
                 .map(|pickable| pickable.describe(document, evaluation))
                 .collect(),
             selected: selection.len(),
+            size: size_of(model, selection, tree),
         }
     }
 }
@@ -99,6 +110,7 @@ impl SelectionOffers {
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
             unit: model.length_unit(),
+            meshing: model.bodies_pending(),
         };
         let (_, offers) = match self.current.take() {
             Some((known, offers)) if known == basis => self.current.insert((known, offers)),

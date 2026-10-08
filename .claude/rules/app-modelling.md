@@ -281,9 +281,9 @@ paths:
   selected, Choose in the view with slot `SplitPlane`, the palette's Split along selected), with
   Keep the other side and rows naming the body and the split-off body. While open both bodies show
   as previews.
-- Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 2 about the
-  origin. The panel has the factor (a plain number above zero) and the centre's three coordinates,
-  all expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
+- Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 (the body unchanged until
+  a factor is typed) about the origin. The panel has the factor (a plain number above zero) and
+  the centre's three coordinates, all expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
 
 ## Patterns
 

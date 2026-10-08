@@ -17,7 +17,8 @@ use caditor_kernel::{
 };
 
 use crate::{
-    bodies, datum_tools,
+    bodies::{self, BodyMass, MassAccuracy},
+    datum_tools,
     model::{Model, Waker},
     scene,
     selection::{Pickable, Selection},
@@ -27,6 +28,7 @@ pub const TOO_MANY: &str = "Select one or two items to measure between them.";
 pub const FAILED: &str = "The measurement could not be worked out for this selection.";
 pub const UNMEASURABLE: &str =
     "Only points, edges, faces, sketch curves, planes and axes can be measured.";
+pub const APPROXIMATELY: &str = "≈ ";
 const FULL_TURN_SLACK: f64 = 1e-9;
 const PARALLEL_SINE: f64 = 1e-9;
 
@@ -238,6 +240,46 @@ pub fn direction_of(model: &Model, pickable: Pickable) -> Option<Vector3> {
         return Some(axis.direction);
     }
     plane_of(element).ok().flatten().map(|(_, normal)| normal)
+}
+
+pub fn size_text(model: &Model, pickable: Pickable) -> Option<String> {
+    let item = Item {
+        name: String::new(),
+        subject: subject_of(model, pickable)?,
+    };
+    let (label, readings) = match &item.subject {
+        Subject::Face { .. } => ("Area", readings_of(&item, item.element()?).ok()?),
+        Subject::Edge { .. } => ("Length", readings_of(&item, item.element()?).ok()?),
+        _ => return None,
+    };
+    let reading = readings
+        .into_iter()
+        .find(|reading| reading.label == label)?;
+    let units = model.units();
+    let text = match reading.value {
+        Value::Area(area) => units.measured_area(area),
+        Value::Length(length) => units.measured_length(length),
+        _ => return None,
+    };
+    let approximately = if reading.accuracy == Accuracy::Approximate {
+        APPROXIMATELY
+    } else {
+        ""
+    };
+    Some(format!("{label} {approximately}{text}"))
+}
+
+pub fn body_size_text(model: &Model, body: FeatureId) -> Option<String> {
+    let result = body_result(model, body)?;
+    let solid = result.solid()?;
+    let mass = BodyMass::of(&solid.solid, solid.mesh()?);
+    let text = model.units().measured_size(mass.size?);
+    let approximately = if mass.accuracy == MassAccuracy::Exact {
+        ""
+    } else {
+        APPROXIMATELY
+    };
+    Some(format!("Size {approximately}{text}"))
 }
 
 fn items_of(model: &Model, selection: &Selection) -> Vec<Item> {

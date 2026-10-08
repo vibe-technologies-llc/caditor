@@ -13,7 +13,7 @@ pub const TITLE: &str = "Scale body";
 pub const DESCRIPTION: &str =
     "Resize a body by a factor about a centre point, such as 25.4 for a part drawn in inches";
 const NO_BODY: &str = "Select a face or edge of the body to scale";
-const DEFAULT_FACTOR: f64 = 2.0;
+const DEFAULT_FACTOR: f64 = 1.0;
 
 pub fn selected_body(
     model: &Model,
