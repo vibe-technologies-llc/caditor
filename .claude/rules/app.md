@@ -235,8 +235,10 @@ paths:
   (`widgets::announced`: assertive for an error, polite otherwise). The viewport is named "3D
   view" and described in words (`scene_description.rs`, rebuilt only when the revision, the
   evaluation or the edited sketch changes): the shown bodies, sketches and datums by name and
-  count and how many bodies are hidden, or while a sketch is edited its curves, points,
-  constraints and how constrained it is, and text painted over it (prompt, hover description, snap and measure labels) is also a
+  count and how many bodies are hidden, the first `NAMED_AT_MOST` bodies with their size and
+  lowest corner and sketches with the plane they face (`LengthUnit::spoken_length`, trailing zeros
+  dropped), or while a sketch is edited its curves, points, constraints, how constrained it is and
+  the span of its points, and text painted over it (prompt, hover description, snap and measure labels) is also a
   `Label` node (`canvas::announce`), the prompt and keyboard-highlight description polite live
   regions.
 - Wayland app ID, X11 class and Windows window class are `about::APP_ID`, which must match the

@@ -7850,10 +7850,17 @@ fn the_3d_view_tells_screen_readers_what_it_shows() {
     harness.frame();
     let editing = harness.view_description().unwrap_or_default();
 
-    assert!(shown.starts_with("1 body shown: Extrude 1"), "{shown}");
+    assert!(
+        shown.starts_with(
+            "1 body shown: Extrude 1 (40 mm by 40 mm by 10 mm, lowest corner at 0, 0, 0 mm)"
+        ),
+        "{shown}"
+    );
     assert!(shown.contains("sketch"), "{shown}");
+    assert!(shown.contains("(facing +z, at z = 0 mm)"), "{shown}");
     assert!(editing.starts_with("Editing Base sketch: "), "{editing}");
     assert!(editing.contains("constraint"), "{editing}");
+    assert!(editing.contains("; its points span x from "), "{editing}");
 }
 
 #[test]

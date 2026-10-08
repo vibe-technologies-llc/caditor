@@ -118,6 +118,27 @@ impl LengthUnit {
         format!("{x}, {y}, {z} {}", self.symbol())
     }
 
+    pub fn spoken_length(self, millimetres: f64) -> String {
+        format!("{} {}", self.spoken_number(millimetres), self.symbol())
+    }
+
+    pub fn spoken_position(self, coordinates: [f64; 3]) -> String {
+        let [x, y, z] = coordinates.map(|millimetres| self.spoken_number(millimetres));
+        format!("{x}, {y}, {z} {}", self.symbol())
+    }
+
+    fn spoken_number(self, millimetres: f64) -> String {
+        let number = self.measured_number(millimetres, 1, MEASURED_LENGTH_DECIMALS);
+        if number.contains('.') {
+            number
+                .trim_end_matches('0')
+                .trim_end_matches('.')
+                .to_owned()
+        } else {
+            number
+        }
+    }
+
     pub fn measured_size(self, extents: [f64; 3]) -> String {
         let [x, y, z] = extents
             .map(|millimetres| self.measured_number(millimetres, 1, MEASURED_LENGTH_DECIMALS));

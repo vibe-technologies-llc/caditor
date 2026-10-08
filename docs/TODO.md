@@ -254,9 +254,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 
 ## Accessibility
 
-- [low · medium] The 3D view's description names the bodies, sketches and datums it shows and
-  counts an edited sketch's geometry, but says nothing of where anything is, and single bodies,
-  faces or sketch curves have no nodes of their own to step through.
+- [low · medium] In the 3D view's description, single bodies, faces or sketch curves have no nodes
+  of their own to step through, and datums are named without where they lie.
 
 ## Viewer
 

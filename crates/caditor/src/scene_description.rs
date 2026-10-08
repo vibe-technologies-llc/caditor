@@ -1,7 +1,13 @@
 use caditor_document::{Document, FeatureId};
+use caditor_geometry::{Plane, Vector3};
 use caditor_sketch::Entity;
 
-use crate::{feature_tree::count, model::Model, sketch_status::SketchSummary, visibility};
+use crate::{
+    feature_tree::count, model::Model, scene, sketch_status::SketchSummary, units::LengthUnit,
+    visibility,
+};
+
+const SQUARE: f64 = 1e-9;
 
 const NAMED_AT_MOST: usize = 6;
 
@@ -71,17 +77,49 @@ pub fn describe(model: &Model, edited: Option<FeatureId>) -> String {
         return sketch;
     }
     let evaluation = model.evaluation();
+    let unit = model.length_unit();
     let bodies: Vec<String> = evaluation
         .bodies()
         .map(|(body, _)| body)
         .filter(|body| visibility::is_shown(document, *body))
-        .filter_map(|body| document.body_name(body).map(str::to_owned))
+        .enumerate()
+        .filter_map(|(index, body)| {
+            let name = document.body_name(body)?;
+            let placed = (index < NAMED_AT_MOST)
+                .then(|| evaluation.body(body)?.bounding_box())
+                .flatten()
+                .map(|bounds| {
+                    let size = bounds.max() - bounds.min();
+                    let low = bounds.min();
+                    format!(
+                        " ({} by {} by {}, lowest corner at {})",
+                        unit.spoken_length(size.x),
+                        unit.spoken_length(size.y),
+                        unit.spoken_length(size.z),
+                        unit.spoken_position([low.x, low.y, low.z])
+                    )
+                })
+                .unwrap_or_default();
+            Some(format!("{name}{placed}"))
+        })
         .collect();
     let hidden_bodies = evaluation
         .bodies()
         .filter(|(body, _)| !visibility::is_shown(document, *body))
         .count();
-    let sketches = shown_names(document, |feature| feature.kind.sketch().is_some());
+    let sketches: Vec<String> = document
+        .active_features()
+        .filter(|feature| !feature.hidden && feature.kind.sketch().is_some())
+        .enumerate()
+        .map(|(index, feature)| {
+            let plane = (index < NAMED_AT_MOST)
+                .then(|| scene::sketch_plane(document, evaluation, feature.id()))
+                .flatten()
+                .map(|plane| format!(" ({})", plane_words(plane, unit)))
+                .unwrap_or_default();
+            format!("{}{plane}", feature.name)
+        })
+        .collect();
     let datums = shown_names(document, |feature| feature.kind.datum().is_some());
     let mut parts: Vec<String> = [
         group(&bodies, "body", "bodies"),
@@ -111,6 +149,30 @@ fn shown_names(
         .collect()
 }
 
+fn plane_words(plane: Plane, unit: LengthUnit) -> String {
+    let normal = plane.normal();
+    let origin = plane.origin();
+    let axes = [
+        (Vector3::X, "x", origin.x),
+        (Vector3::Y, "y", origin.y),
+        (Vector3::Z, "z", origin.z),
+    ];
+    for (axis, name, offset) in axes {
+        let along = normal.dot(axis);
+        if (along.abs() - 1.0).abs() <= SQUARE {
+            let sign = if along > 0.0 { "+" } else { "-" };
+            return format!(
+                "facing {sign}{name}, at {name} = {}",
+                unit.spoken_length(offset)
+            );
+        }
+    }
+    format!(
+        "on a slanted plane through {}",
+        unit.spoken_position([origin.x, origin.y, origin.z])
+    )
+}
+
 fn edited_sketch(model: &Model, feature: FeatureId) -> Option<String> {
     let owner = model.document().feature(feature)?;
     let sketch = model.displayed_sketch(owner)?;
@@ -130,6 +192,30 @@ fn edited_sketch(model: &Model, feature: FeatureId) -> Option<String> {
         }
     }
     let constraints = sketch.constraints().count();
+    let unit = model.length_unit();
+    let spans = sketch
+        .entities()
+        .filter(|(id, _)| id.reference().is_none())
+        .filter_map(|(id, _)| sketch.point(id))
+        .fold(
+            None,
+            |bounds: Option<(caditor_geometry::Point2, caditor_geometry::Point2)>, point| {
+                Some(match bounds {
+                    Some((low, high)) => (low.min(point), high.max(point)),
+                    None => (point, point),
+                })
+            },
+        )
+        .map(|(low, high)| {
+            format!(
+                "; its points span x from {} to {} and y from {} to {}",
+                unit.spoken_length(low.x),
+                unit.spoken_length(high.x),
+                unit.spoken_length(low.y),
+                unit.spoken_length(high.y)
+            )
+        })
+        .unwrap_or_default();
     let summary = SketchSummary::of(model.evaluation(), feature);
     let open: String = [summary.open_ends_text(), summary.beyond_text()]
         .into_iter()
@@ -137,7 +223,7 @@ fn edited_sketch(model: &Model, feature: FeatureId) -> Option<String> {
         .map(|note| format!("; {note}"))
         .collect();
     Some(format!(
-        "Editing {}: {}, {} and {}; {}{open}.",
+        "Editing {}: {}, {} and {}; {}{spans}{open}.",
         owner.name,
         count(curves, "curve", "curves"),
         count(points, "point", "points"),
