@@ -4,10 +4,11 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use glam::{DVec2, Vec3};
 
 use crate::{
+    SurfaceSize,
     camera::{Projection, View},
     culling::ClipWindow,
     gpu::{self, Bytes, GrowableBuffer},
-    image::{self, Background, ChannelOrder, ImageReadback, ImageRequest, TileReadback},
+    image::{self, Background, ChannelOrder, ImageRequest, Tile},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{Batch, Fill, Grid, Layer, PickId, Primitive, Scene, ViewportRect},
@@ -95,6 +96,7 @@ impl Uniform {
     }
 }
 
+#[derive(Clone)]
 struct Pipelines {
     meshes: wgpu::RenderPipeline,
     translucent_meshes: wgpu::RenderPipeline,
@@ -111,6 +113,23 @@ struct Pipelines {
     pick_reference_fills: wgpu::RenderPipeline,
     pick_meshes: wgpu::RenderPipeline,
     pick_translucent_meshes: wgpu::RenderPipeline,
+}
+
+pub struct ImagePlan {
+    size: SurfaceSize,
+    order: ChannelOrder,
+    view: View,
+    anchor: Point3,
+    pixels_per_point: f32,
+    clear: wgpu::Color,
+    grid: bool,
+    targets: ImageTargets,
+}
+
+impl ImagePlan {
+    pub fn order(&self) -> ChannelOrder {
+        self.order
+    }
 }
 
 struct ImageTargets {
@@ -717,13 +736,47 @@ impl ViewportRenderer {
         faults
     }
 
-    pub fn encode_image(
+    pub fn image_sibling(&self, device: &wgpu::Device) -> Self {
+        Self {
+            format: self.format,
+            sample_count: self.sample_count,
+            shading: self.shading,
+            view_layout: self.view_layout.clone(),
+            grid_layout: self.grid_layout.clone(),
+            pipelines: self.pipelines.clone(),
+            view_uniform: Uniform::new(device, &self.view_layout, "view", VIEW_UNIFORM_SIZE),
+            pick_view_uniform: Uniform::new(
+                device,
+                &self.view_layout,
+                "pick view",
+                VIEW_UNIFORM_SIZE,
+            ),
+            grid_uniform: Uniform::new(device, &self.grid_layout, "grid", GRID_UNIFORM_SIZE),
+            batches: Vec::new(),
+            anchor: None,
+            fill_order: FillOrder::default(),
+            #[cfg(test)]
+            work: Work::default(),
+            meshes: self.meshes.sibling(device),
+            translucent: self.translucent.sibling(device),
+            overlay: self.overlay.sibling(device),
+            flat: self.flat.sibling(device),
+            staging: Bytes::default(),
+            targets: None,
+            targets_refused: None,
+            picking: Picking::new(device, DEPTH_FORMAT),
+            pick_refused: false,
+            pick_window: None,
+        }
+    }
+
+    pub fn prepare_image(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         request: &ImageRequest<'_>,
         tile_side: u32,
-    ) -> Option<ImageReadback> {
+    ) -> Option<ImagePlan> {
         let order = ChannelOrder::of(self.format)?;
         let size = request.size;
         let frame = ViewportFrame {
@@ -741,7 +794,6 @@ impl ViewportRenderer {
         if self.upload(device, queue, &frame).any() {
             return None;
         }
-        let tiles = image::tiles(size, tile_side);
         let targets = ImageTargets::new(
             device,
             self.format,
@@ -752,62 +804,71 @@ impl ViewportRenderer {
                 depth_or_array_layers: 1,
             },
         );
-        let clear = match request.background {
-            Background::Viewport => BACKGROUND,
-            Background::Transparent => wgpu::Color::TRANSPARENT,
-        };
-        let pixels_per_point = valid_scale(request.pixels_per_point);
-        let grid = request.scene.grid.is_some();
+        Some(ImagePlan {
+            size,
+            order,
+            view: *request.view,
+            anchor: self.anchor.unwrap_or_else(|| request.view.eye()),
+            pixels_per_point: valid_scale(request.pixels_per_point),
+            clear: match request.background {
+                Background::Viewport => BACKGROUND,
+                Background::Transparent => wgpu::Color::TRANSPARENT,
+            },
+            grid: request.scene.grid.is_some(),
+            targets,
+        })
+    }
 
-        let mut readbacks = Vec::with_capacity(tiles.len());
-        let anchor = self.anchor.unwrap_or_else(|| request.view.eye());
-        for tile in tiles {
-            let transform = image::tile_transform(tile, size);
-            view_uniform(
-                &mut self.staging,
-                &AnchoredView {
-                    view: request.view,
-                    anchor,
+    pub fn draw_tile(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        plan: &ImagePlan,
+        tile: Tile,
+        readback: &wgpu::Buffer,
+    ) {
+        let transform = image::tile_transform(tile, plan.size);
+        view_uniform(
+            &mut self.staging,
+            &AnchoredView {
+                view: &plan.view,
+                anchor: plan.anchor,
+            },
+            plan.pixels_per_point,
+            self.shading,
+            transform,
+        );
+        queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("image tile"),
+        });
+        let mut pass = plan.targets.begin_pass(&mut encoder, plan.clear);
+        pass.set_viewport(0.0, 0.0, tile.width as f32, tile.height as f32, 0.0, 1.0);
+        pass.set_scissor_rect(0, 0, tile.width, tile.height);
+        self.draw_scene(
+            &mut pass,
+            plan.grid,
+            &ClipWindow::new(&plan.view, transform),
+        );
+        drop(pass);
+        encoder.copy_texture_to_buffer(
+            plan.targets.resolved.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(tile.row_pitch()),
+                    rows_per_image: Some(tile.height),
                 },
-                pixels_per_point,
-                self.shading,
-                transform,
-            );
-            queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("image readback"),
-                size: tile.readback_bytes(),
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("image tile"),
-            });
-            let mut pass = targets.begin_pass(&mut encoder, clear);
-            pass.set_viewport(0.0, 0.0, tile.width as f32, tile.height as f32, 0.0, 1.0);
-            pass.set_scissor_rect(0, 0, tile.width, tile.height);
-            self.draw_scene(&mut pass, grid, &ClipWindow::new(request.view, transform));
-            drop(pass);
-            encoder.copy_texture_to_buffer(
-                targets.resolved.as_image_copy(),
-                wgpu::TexelCopyBufferInfo {
-                    buffer: &buffer,
-                    layout: wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(tile.row_pitch()),
-                        rows_per_image: Some(tile.height),
-                    },
-                },
-                wgpu::Extent3d {
-                    width: tile.width,
-                    height: tile.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            queue.submit([encoder.finish()]);
-            readbacks.push(TileReadback { tile, buffer });
-        }
-        Some(ImageReadback::new(size, order, readbacks))
+            },
+            wgpu::Extent3d {
+                width: tile.width,
+                height: tile.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
     }
 
     fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool, window: &ClipWindow) {

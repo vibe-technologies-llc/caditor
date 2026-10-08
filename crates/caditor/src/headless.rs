@@ -9,13 +9,14 @@ use caditor_document::{
     CancelToken, Document, Evaluation, FeatureState, ModelEvaluator, Recompute,
 };
 use caditor_file::{
-    DXF_EXTENSION, ExportBody, ExportFormat, MeshResolution, PNG_EXTENSION, RgbaImage,
+    DXF_EXTENSION, ExportBody, ExportFormat, MeshResolution, PNG_EXTENSION, PngExportError,
     bodies_transaction, export_png,
 };
 use caditor_render::{Background, GraphicsSettings, ImageRequest, OffscreenRenderer, SurfaceSize};
 
 use crate::{
     export::{ExportSource, OwnedLook},
+    image_export::RenderedRows,
     import,
     model::display_name,
     snapshot,
@@ -172,7 +173,7 @@ fn draw_image(
     let snapshot = snapshot::take(document, evaluation, size)?;
     let mut renderer = OffscreenRenderer::new(GraphicsSettings::default())
         .map_err(|error| anyhow!("no graphics adapter could draw “{name}”: {error}"))?;
-    let image = renderer
+    let bands = renderer
         .render(&ImageRequest {
             size,
             view: &snapshot.view,
@@ -181,16 +182,13 @@ fn draw_image(
             background: Background::Viewport,
         })
         .map_err(|error| anyhow!("could not draw “{name}”: {error}"))?;
-    export_png(
-        output,
-        &RgbaImage {
-            width: image.width,
-            height: image.height,
-            pixels: &image.pixels,
-        },
-        &CancelToken::never(),
-    )
-    .with_context(|| format!("could not export “{name}”"))
+    export_png(output, &mut RenderedRows(bands), &CancelToken::never()).map_err(|error| match error
+    {
+        PngExportError::Pixels(error) => anyhow!("could not draw “{name}”: {error}"),
+        PngExportError::Export(error) => {
+            anyhow!(error).context(format!("could not export “{name}”"))
+        }
+    })
 }
 
 fn open(model: &Path) -> Result<Opened> {

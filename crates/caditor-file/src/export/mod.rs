@@ -24,7 +24,7 @@ use caditor_sketch::Sketch;
 use caditor_step::{StepBody, StepDetails, StepWritten, WriteError, write_step_detailed};
 
 use self::figure::Figure;
-pub use self::image::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png};
+pub use self::image::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, export_png};
 use crate::{reason::WriteFailure, save::write_atomically};
 
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));

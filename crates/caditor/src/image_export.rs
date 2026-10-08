@@ -10,8 +10,8 @@ use std::{
 };
 
 use caditor_document::CancelToken;
-use caditor_file::{ImageExportError, PNG_EXTENSION, RgbaImage, export_png};
-use caditor_render::{Background, Image, ImageError, MAX_IMAGE_SIDE, SurfaceSize};
+use caditor_file::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, export_png};
+use caditor_render::{Background, ImageBands, ImageError, MAX_IMAGE_SIDE, SurfaceSize};
 use egui::{Id, Ui};
 use parking_lot::Mutex;
 
@@ -99,7 +99,7 @@ pub enum ImageFailure {
     Crashed,
 }
 
-pub type ReadPixels = Box<dyn FnOnce() -> Result<Image, ImageError> + Send>;
+pub type ReadPixels = Box<dyn PixelRows<Error = ImageError> + Send>;
 pub type Finished = Box<dyn FnOnce(PathBuf, Result<SurfaceSize, ImageFailure>) + Send>;
 
 struct Queued {
@@ -291,26 +291,37 @@ impl ImageExporter {
     }
 }
 
+pub struct RenderedRows(pub ImageBands);
+
+impl PixelRows for RenderedRows {
+    type Error = ImageError;
+
+    fn width(&self) -> u32 {
+        self.0.size().width
+    }
+
+    fn height(&self) -> u32 {
+        self.0.size().height
+    }
+
+    fn next_rows(&mut self) -> Option<Result<&[u8], ImageError>> {
+        self.0.next_band()
+    }
+}
+
 fn write_image(
     path: &Path,
-    read: ReadPixels,
+    mut rows: ReadPixels,
     cancel: &CancelToken,
 ) -> Result<SurfaceSize, ImageFailure> {
-    let image = read().map_err(ImageFailure::Render)?;
     let size = SurfaceSize {
-        width: image.width,
-        height: image.height,
+        width: rows.width(),
+        height: rows.height(),
     };
-    export_png(
-        path,
-        &RgbaImage {
-            width: image.width,
-            height: image.height,
-            pixels: &image.pixels,
-        },
-        cancel,
-    )
-    .map_err(ImageFailure::Write)?;
+    export_png(path, &mut *rows, cancel).map_err(|error| match error {
+        PngExportError::Pixels(error) => ImageFailure::Render(error),
+        PngExportError::Export(error) => ImageFailure::Write(error),
+    })?;
     Ok(size)
 }
 
@@ -387,6 +398,9 @@ fn outcome(name: &str, result: Result<SurfaceSize, ImageFailure>) -> Notice {
         }
         ImageFailure::Render(ImageError::Readback) => {
             "the image could not be read back from the graphics card. Try again".to_owned()
+        }
+        ImageFailure::Render(ImageError::Abandoned) => {
+            "drawing it stopped before it was finished. Export the image again".to_owned()
         }
         ImageFailure::Write(error @ ImageExportError::Writing(_)) => {
             format!("{error}. Choose another folder or name")

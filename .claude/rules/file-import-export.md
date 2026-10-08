@@ -135,7 +135,9 @@ paths:
   `polyline`s and points as small filled circles. Shapes off layer 0 are grouped in a `g` whose `id`
   is the layer's name.
 - `export_png` writes 8-bit RGBA, straight alpha, sRGB chunk, through the pure-Rust `png` crate,
-  atomically, checking the pixel count and cancellation; errors are `ImageExportError` variants.
+  atomically, streaming whatever `PixelRows` yields (bands of whole rows) into the encoder, so
+  the image is never held whole; it checks the pixel count and cancellation between bands. Its
+  errors are `PngExportError`: the source's own error as `Pixels`, else an `ImageExportError`.
 - 3MF is a ZIP from a small writer (`zip.rs`; deflate through `miniz_oxide` unless storing is
   smaller, CRC32, no ZIP64): deflate and CRC32 live only here, for the foreign format.
 

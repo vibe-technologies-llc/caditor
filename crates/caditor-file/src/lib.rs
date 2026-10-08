@@ -24,8 +24,9 @@ pub use crate::{
     binary::{FileDigest, History, MAX_MODEL_RECORDS, SavedState, Version},
     export::{
         ExportBody, ExportError, ExportFormat, Exported, FaceExported, ImageExportError, Look,
-        MeshResolution, PNG_EXTENSION, RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, SketchExported,
-        SketchFormat, export_bodies, export_face, export_faces, export_png, export_sketch,
+        MeshResolution, PNG_EXTENSION, PixelRows, PngExportError, STEP_EXTENSION, STEP_EXTENSIONS,
+        SketchExported, SketchFormat, export_bodies, export_face, export_faces, export_png,
+        export_sketch,
     },
     format::FORMAT_VERSION,
     import::{

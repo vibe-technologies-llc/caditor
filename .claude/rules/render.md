@@ -165,14 +165,28 @@ paths:
   app offers can pass the texture limit. Each tile writes the view uniform with
   `image::tile_transform`, the same clip-space transform the pick window uses, so line widths and
   grid fades stay those of the whole image; one submit per tile, since uniform writes land at the
-  next submit. Memory is not yet bounded: every tile's readback buffer is held (`docs/TODO.md`).
-- It reuses the window's `ViewportRenderer` when the surface is `Rgba8Unorm` or `Bgra8Unorm`, else
-  a throwaway one in `Rgba8Unorm`. Output is written unconverted, as on screen, so pixels are sRGB.
-- Errors are `ImageError` (`Busy` while another image runs, `OutOfMemory`, `Refused`,
-  `DeviceLost`). `poll_image` never waits on the GPU; `ImageReadback::into_image` is `Send`, meant
-  for a worker, and turns the premultiplied colour of a transparent clear into straight alpha.
+  next submit.
+- Memory is a small multiple of one band (a row of tiles), never the image: `ImageTiles` (kept
+  by the `Renderer`) draws tiles in rows from the top into at most `READBACK_BUFFERS` readback
+  buffers, and `ImageBands` (`Send`, for the writer's thread) waits for each tile by polling the
+  device every millisecond (never wgpu's blocking wait, which on GL holds the context the UI
+  thread draws with), copies it into the band, returns the buffer and wakes the app, whose next
+  frame's `advance_image` draws the next tiles into the returned buffers. A finished band is
+  straightened and handed out whole rows at a time; 8192² takes about 75 MB rather than 260 MB
+  (debug build, peak RSS above an idle process). Errors after the start reach the bands in order;
+  dropping the bands stops the tiles at the next frame.
+- The tiles draw with their own `ViewportRenderer` (`image_sibling`): the window's pipelines,
+  layouts and uploaded mesh buffers shared, its own uniforms, batches and face styles, so the
+  window's frames between tiles neither disturb the image nor upload anything again. When the
+  surface is neither `Rgba8Unorm` nor `Bgra8Unorm` a throwaway one in `Rgba8Unorm` is built
+  instead. Output is written unconverted, as on screen, so pixels are sRGB.
+- Errors are `ImageError` (`Busy` while another image's tiles are still drawing, `OutOfMemory`,
+  `Refused`, `DeviceLost`, `Readback`, `Abandoned` when the tiles stopped without saying
+  why). Nothing on the UI thread waits on the GPU, and the bands turn the premultiplied colour of
+  a transparent clear into straight alpha.
 - `OffscreenRenderer` opens a device without a surface and draws the same `ImageRequest` into an
-  `Rgba8Unorm` target, waiting for the result: the headless `--export` of a PNG (`app.md`) uses it.
+  `Rgba8Unorm` target, its `ImageBands` drawing the tiles inline as it reads them (`drawn_inline`):
+  the headless `--export` of a PNG (`app.md`) streams them to the file.
 - The renderer draws whatever scene it is given; leaving out highlights and the grid is the app's
   choice (`app-files.md`).
 

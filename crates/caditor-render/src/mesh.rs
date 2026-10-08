@@ -224,7 +224,7 @@ impl GpuPart {
 
 struct GpuMesh {
     mesh: Arc<ShadedMesh>,
-    parts: Vec<GpuPart>,
+    parts: Arc<[GpuPart]>,
     layout: StyleLayout,
     placement: wgpu::Buffer,
     styles: wgpu::Texture,
@@ -311,6 +311,24 @@ impl GpuMesh {
                     .collect()
             }
         };
+        Self::with_parts(device, layout, mesh, parts.into())
+    }
+
+    fn sharing(&self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Self {
+        Self::with_parts(
+            device,
+            layout,
+            Arc::clone(&self.mesh),
+            Arc::clone(&self.parts),
+        )
+    }
+
+    fn with_parts(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        mesh: Arc<ShadedMesh>,
+        parts: Arc<[GpuPart]>,
+    ) -> Self {
         let style_layout =
             StyleLayout::new(mesh.face_count, device.limits().max_texture_dimension_2d);
         let placement = device.create_buffer(&wgpu::BufferDescriptor {
@@ -477,6 +495,19 @@ impl MeshCache {
         &self.layout
     }
 
+    pub fn sibling(&self, device: &wgpu::Device) -> Self {
+        Self {
+            layout: self.layout.clone(),
+            meshes: self
+                .meshes
+                .iter()
+                .map(|mesh| mesh.sharing(device, &self.layout))
+                .collect(),
+            rejected: self.rejected.clone(),
+            staging: Bytes::default(),
+        }
+    }
+
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -543,7 +574,7 @@ impl MeshCache {
         pass.set_pipeline(pipeline);
         for mesh in seen {
             pass.set_bind_group(1, &mesh.bind_group, &[]);
-            for part in &mesh.parts {
+            for part in mesh.parts.iter() {
                 pass.set_vertex_buffer(0, part.vertices.slice(..));
                 pass.set_index_buffer(part.indices.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..part.index_count, 0, 0..1);

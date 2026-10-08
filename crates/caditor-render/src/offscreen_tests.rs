@@ -1,6 +1,6 @@
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
@@ -10,7 +10,7 @@ use crate::{
     SurfaceSize,
     camera::{Projection, View, Viewpoint},
     gpu::{self, Bytes, DeviceLoss, GrowableBuffer},
-    image::{Background, Image, ImagePoll, ImageRequest, PendingImage},
+    image::{self, Background, Image, ImageGpu, ImageRequest},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{
         Batch, Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, Stroke,
@@ -2088,23 +2088,25 @@ fn enhanced_shading_sets_faces_apart_keeps_their_tint_and_keeps_dimmed_bodies_da
 }
 
 fn export_image(
-    renderer: &mut ViewportRenderer,
+    renderer: &ViewportRenderer,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     request: &ImageRequest<'_>,
     tile_side: u32,
 ) -> Image {
-    let readback = renderer
-        .encode_image(device, queue, request, tile_side)
-        .unwrap();
-    let pending = PendingImage::map(readback, 0);
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-
-    assert!(pending.is_mapped());
-    let ImagePoll::Ready(readback) = pending.finish() else {
-        panic!("the image should be read back");
-    };
-    readback.into_image().unwrap()
+    image::drawn_inline(
+        ImageGpu {
+            device: device.clone(),
+            queue: queue.clone(),
+            loss: DeviceLoss::default(),
+        },
+        || renderer.image_sibling(device),
+        request,
+        tile_side,
+    )
+    .unwrap()
+    .into_image()
+    .unwrap()
 }
 
 fn image_pixel(image: &Image, at: DVec2) -> [u8; 4] {
@@ -2145,37 +2147,31 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
         pixels_per_point: 1.0,
         background,
     };
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
-    let mut bgra = ViewportRenderer::new(&device, wgpu::TextureFormat::Bgra8Unorm, 1);
+    let renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let bgra = ViewportRenderer::new(&device, wgpu::TextureFormat::Bgra8Unorm, 1);
 
     let whole = export_image(
-        &mut renderer,
+        &renderer,
         &device,
         &queue,
         &request(Background::Viewport),
         512,
     );
     let tiled = export_image(
-        &mut renderer,
+        &renderer,
         &device,
         &queue,
         &request(Background::Viewport),
         64,
     );
     let transparent = export_image(
-        &mut renderer,
+        &renderer,
         &device,
         &queue,
         &request(Background::Transparent),
         64,
     );
-    let swapped = export_image(
-        &mut bgra,
-        &device,
-        &queue,
-        &request(Background::Viewport),
-        128,
-    );
+    let swapped = export_image(&bgra, &device, &queue, &request(Background::Viewport), 128);
     let differing = whole
         .pixels
         .as_chunks::<4>()
@@ -2209,6 +2205,122 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
         "a BGRA target gave {red} {green} {blue}"
     );
     assert!(is_background(image_pixel(&swapped, corner)));
+}
+
+fn green_box_scene() -> Scene {
+    Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: vec![
+                FaceStyle {
+                    color: Color::from_rgb8(40, 200, 40),
+                    pick: None,
+                };
+                6
+            ],
+            placement: None,
+        }],
+        ..Scene::default()
+    }
+}
+
+fn image_gpu(device: &wgpu::Device, queue: &wgpu::Queue) -> ImageGpu {
+    ImageGpu {
+        device: device.clone(),
+        queue: queue.clone(),
+        loss: DeviceLoss::default(),
+    }
+}
+
+#[test]
+fn an_exported_image_streams_in_bands_through_a_few_reused_readback_buffers() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let size = SurfaceSize {
+        width: 300,
+        height: 180,
+    };
+    let scene = green_box_scene();
+    let view = looking_down(150.0, f64::from(size.width), f64::from(size.height));
+    let request = ImageRequest {
+        size,
+        view: &view,
+        scene: &scene,
+        pixels_per_point: 1.0,
+        background: Background::Viewport,
+    };
+    let renderer = ViewportRenderer::new(&device, FORMAT, 4);
+
+    let mut bands = image::drawn_inline(
+        image_gpu(&device, &queue),
+        || renderer.image_sibling(&device),
+        &request,
+        64,
+    )
+    .unwrap();
+    let mut streamed = Vec::new();
+    let mut rows = Vec::new();
+    while let Some(band) = bands.next_band() {
+        let band = band.unwrap();
+        rows.push(band.len() / (300 * 4));
+        streamed.extend_from_slice(band);
+    }
+    let made = bands.buffers_made();
+    let collected = export_image(&renderer, &device, &queue, &request, 64);
+
+    assert_eq!(rows, [64, 64, 52]);
+    assert_eq!(made, Some(image::READBACK_BUFFERS));
+    assert_eq!(streamed, collected.pixels);
+}
+
+#[test]
+fn image_tiles_wake_for_each_returned_buffer_and_stop_once_the_bands_are_dropped() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let size = SurfaceSize {
+        width: 128,
+        height: 180,
+    };
+    let scene = green_box_scene();
+    let view = looking_down(150.0, f64::from(size.width), f64::from(size.height));
+    let request = ImageRequest {
+        size,
+        view: &view,
+        scene: &scene,
+        pixels_per_point: 1.0,
+        background: Background::Viewport,
+    };
+    let renderer = ViewportRenderer::new(&device, FORMAT, 1);
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&wakes);
+
+    let (mut tiles, mut bands) = image::start(
+        image_gpu(&device, &queue),
+        || renderer.image_sibling(&device),
+        &request,
+        64,
+        Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }),
+    )
+    .unwrap();
+    tiles.advance();
+    let drawn_first = tiles.buffers_made();
+    let first = bands.next_band().unwrap().unwrap().len();
+    let woken_by_the_first_band = wakes.load(Ordering::SeqCst);
+    tiles.advance();
+    let made = tiles.buffers_made();
+    drop(bands);
+    tiles.advance();
+
+    assert_eq!(drawn_first, image::READBACK_BUFFERS);
+    assert_eq!(first, 128 * 64 * 4);
+    assert_eq!(woken_by_the_first_band, 2);
+    assert_eq!(made, image::READBACK_BUFFERS);
+    assert!(tiles.is_finished());
+    assert_eq!(wakes.load(Ordering::SeqCst), 3);
 }
 
 #[test]
@@ -2261,6 +2373,8 @@ fn a_window_less_renderer_draws_an_image_without_a_surface() {
             pixels_per_point: 1.0,
             background: Background::Viewport,
         })
+        .unwrap()
+        .into_image()
         .unwrap();
     let again = renderer
         .render(&ImageRequest {
@@ -2270,6 +2384,8 @@ fn a_window_less_renderer_draws_an_image_without_a_surface() {
             pixels_per_point: 1.0,
             background: Background::Transparent,
         })
+        .unwrap()
+        .into_image()
         .unwrap();
 
     assert_eq!((image.width, image.height), (300, 180));
@@ -2306,10 +2422,10 @@ fn lines_in_an_exported_image_widen_with_its_pixels_per_point() {
     let view = looking_down(100.0, f64::from(size.width), f64::from(size.height));
     let scene = line_and_marker();
     let across = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap();
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 1);
-    let mut width = |pixels_per_point: f32| {
+    let renderer = ViewportRenderer::new(&device, FORMAT, 1);
+    let width = |pixels_per_point: f32| {
         let image = export_image(
-            &mut renderer,
+            &renderer,
             &device,
             &queue,
             &ImageRequest {

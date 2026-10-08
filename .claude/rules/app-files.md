@@ -101,10 +101,12 @@ paths:
   and graphics settings in use, without hover, selection, keyboard highlights, grid or drawing
   preview; egui overlays (labels, annotations, view cube) are never in it. A wider image shows
   more at the sides, and sketch curves are faceted for the image's size (`app.md`).
-- After the save dialog the job waits in `Files` (`image_job`); the session renders it with
-  `Renderer::render_image` before the frame's own drawing and polls it each frame (UI tests stand
-  in for the renderer). The PNG is written on its own thread under `catch_unwind`, cancellable
-  from the status bar and the palette.
+- After the save dialog the job waits in `Files` (`image_job`); the session starts it with
+  `Renderer::render_image` before the frame's own drawing and hands its `ImageBands` (as
+  `RenderedRows`) to the PNG writer, then calls `advance_image` every frame (UI tests stand in
+  with rows of their own). The PNG is streamed band by band on its own thread under
+  `catch_unwind`, cancellable from the status bar and the palette; cancelling drops the bands,
+  which stops the tiles still to draw.
 - Failures say what to change (size, scale, anti-aliasing, folder).
 
 ## Import

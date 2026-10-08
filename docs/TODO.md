@@ -304,17 +304,13 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] Meshes are uploaded whole on the UI thread in the frame that first shows them;
   the render crate's `frame_costs_of_drawing_a_large_scene` benchmark has no meshes, picking or
   hover.
-- [medium · medium] Image export submits every tile at once and holds every tile's readback buffer
-  until the image is assembled beside them, about twice the image's size (some 540 MB at the 8192²
-  limit), so memory is not yet bounded as `render.md` intends; reuse a few buffers and stream bands
-  to the encoder.
 - [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of
   that to upload for a sketch of 24,000 curves in a release build. A batch per feature, with pick
   ids of its own, would limit both to what changed. Face styles are likewise rewritten whole on
   every highlight change.
-- [low · medium] A pick or image readback in flight redraws full frames until polled complete;
+- [low · medium] A pick readback in flight redraws full frames until polled complete;
   vertex records repeat per-layer data and both ends of shared segments; invisible vertex markers go
   through the colour pass; resizing recreates
   the MSAA targets per pixel; and an MSAA change rebuilds all ten pipelines with no pipeline cache.

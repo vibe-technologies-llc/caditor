@@ -22,9 +22,7 @@ use wgpu::rwh::{HasDisplayHandle, HasWindowHandle};
 pub use crate::{
     camera::{Camera, Projection, View, Viewpoint},
     gpu::Wake,
-    image::{
-        Background, Image, ImageError, ImagePoll, ImageReadback, ImageRequest, MAX_IMAGE_SIDE,
-    },
+    image::{Background, ImageBands, ImageError, ImageRequest, MAX_IMAGE_SIDE},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     offscreen::OffscreenRenderer,
     picking::PickPoll,
@@ -37,7 +35,7 @@ pub use crate::{
 };
 use crate::{
     gpu::DeviceLoss,
-    image::{IMAGE_FORMAT, PendingImage, TILE_SIDE},
+    image::{ChannelOrder, IMAGE_FORMAT, ImageGpu, ImageTiles, TILE_SIDE},
     viewport::{DEPTH_FORMAT, Faults},
 };
 
@@ -293,7 +291,7 @@ pub struct Renderer {
     viewport: ViewportRenderer,
     generation: u64,
     pick_dropped: bool,
-    image: Option<PendingImage>,
+    image: Option<ImageTiles>,
     recovery: Option<mpsc::Receiver<Result<Recovered, RenderError>>>,
     validation_failures: u32,
     faults: Vec<RenderFault>,
@@ -514,53 +512,39 @@ impl Renderer {
         self.viewport.is_pick_pending()
     }
 
-    pub fn render_image(&mut self, request: &ImageRequest<'_>) -> Result<(), ImageError> {
+    pub fn render_image(&mut self, request: &ImageRequest<'_>) -> Result<ImageBands, ImageError> {
         if self.image.is_some() {
             return Err(ImageError::Busy);
         }
-        image::check_size(request.size)?;
-        if self.gpu.loss.is_lost() {
-            return Err(ImageError::DeviceLost);
-        }
         let gpu = &self.gpu;
-        let tile_side = TILE_SIDE.min(gpu.largest_side()).max(1);
-        let readback = encode_checked(&gpu.device, || {
-            match self
-                .viewport
-                .encode_image(&gpu.device, &gpu.queue, request, tile_side)
-            {
-                Some(readback) => Some(readback),
-                None => gpu.image_viewport(self.graphics.shading).encode_image(
-                    &gpu.device,
-                    &gpu.queue,
-                    request,
-                    tile_side,
-                ),
+        let viewport = &self.viewport;
+        let shading = self.graphics.shading;
+        let (mut tiles, bands) = image::start(
+            ImageGpu {
+                device: gpu.device.clone(),
+                queue: gpu.queue.clone(),
+                loss: gpu.loss.clone(),
+            },
+            || match ChannelOrder::of(viewport.format()) {
+                Some(_) => viewport.image_sibling(&gpu.device),
+                None => gpu.image_viewport(shading),
+            },
+            request,
+            TILE_SIDE.min(gpu.largest_side()),
+            Arc::clone(&self.wake),
+        )?;
+        tiles.advance();
+        self.image = (!tiles.is_finished()).then_some(tiles);
+        Ok(bands)
+    }
+
+    pub fn advance_image(&mut self) {
+        if let Some(tiles) = self.image.as_mut() {
+            tiles.advance();
+            if tiles.is_finished() {
+                self.image = None;
             }
-        })?;
-        self.image = Some(PendingImage::map(readback, self.generation));
-        Ok(())
-    }
-
-    pub fn poll_image(&mut self) -> ImagePoll {
-        let Some(pending) = self.image.take() else {
-            return ImagePoll::Idle;
-        };
-        if pending.generation() != self.generation || self.gpu.loss.is_lost() {
-            return ImagePoll::Failed(ImageError::DeviceLost);
         }
-        if let Err(error) = self.gpu.device.poll(wgpu::PollType::Poll) {
-            log::warn!("could not poll the graphics device for an exported image: {error}");
-        }
-        if pending.is_mapped() {
-            return pending.finish();
-        }
-        self.image = Some(pending);
-        ImagePoll::Pending
-    }
-
-    pub fn is_image_pending(&self) -> bool {
-        self.image.is_some()
     }
 
     fn new_frame_encoder(&self) -> wgpu::CommandEncoder {
@@ -706,26 +690,6 @@ impl Renderer {
         self.resize(self.size());
         Ok(())
     }
-}
-
-fn encode_checked(
-    device: &wgpu::Device,
-    encode: impl FnOnce() -> Option<ImageReadback>,
-) -> Result<ImageReadback, ImageError> {
-    let out_of_memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-    let invalid = device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let readback = encode();
-    let refused = pollster::block_on(invalid.pop());
-    let exhausted = pollster::block_on(out_of_memory.pop());
-    if let Some(error) = exhausted {
-        log::warn!("the exported image did not fit in graphics memory: {error}");
-        return Err(ImageError::OutOfMemory);
-    }
-    if let Some(error) = refused {
-        log::warn!("the graphics device refused to draw the exported image: {error}");
-        return Err(ImageError::Refused);
-    }
-    readback.ok_or(ImageError::Refused)
 }
 
 const CONSERVATIVE_FRAME_LATENCY: u32 = 2;

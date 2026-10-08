@@ -7,8 +7,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use caditor_render::{
-    FrameStart, ImagePoll, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake,
-    WindowTarget,
+    FrameStart, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake, WindowTarget,
 };
 use egui_winit::accesskit_winit;
 use parking_lot::Mutex;
@@ -30,6 +29,7 @@ use crate::{
     files::{self, FileCommand, Files},
     fonts,
     graphics::{FramePacer, Hardware},
+    image_export::{ReadPixels, RenderedRows},
     interference::InterferenceTool,
     interference_panel::{self, InterferenceContext},
     layout::{
@@ -1300,17 +1300,10 @@ impl Session {
                 pixels_per_point: image.pixels_per_point,
                 background: job.background,
             });
-            if let Err(error) = started {
-                files.image_rendered(Err(error), model);
-            }
+            let rows = started.map(|bands| Box::new(RenderedRows(bands)) as ReadPixels);
+            files.image_rendered(rows, model);
         }
-        match self.renderer.poll_image() {
-            ImagePoll::Idle | ImagePoll::Pending => {}
-            ImagePoll::Ready(readback) => {
-                files.image_rendered(Ok(Box::new(move || readback.into_image())), model);
-            }
-            ImagePoll::Failed(error) => files.image_rendered(Err(error), model),
-        }
+        self.renderer.advance_image();
     }
 
     fn redraw(&mut self, model: &mut Model, files: &mut Files) {
@@ -1422,7 +1415,6 @@ impl Session {
         } else if repaint_now
             || self.workspace.viewport.is_animating()
             || self.renderer.is_pick_pending()
-            || self.renderer.is_image_pending()
         {
             self.request_redraw();
         } else {

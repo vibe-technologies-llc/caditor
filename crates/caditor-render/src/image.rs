@@ -1,13 +1,27 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+use std::{
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, RecvError, Sender, TryRecvError},
+    },
+    thread,
+    time::Duration,
 };
 
-use crate::{SurfaceSize, camera::View, scene::Scene};
+use parking_lot::Mutex;
+
+use crate::{
+    SurfaceSize,
+    camera::View,
+    gpu::{self, DeviceLoss, Wake},
+    scene::Scene,
+    viewport::{ImagePlan, ViewportRenderer},
+};
 
 pub const MAX_IMAGE_SIDE: u32 = 8192;
 pub const TILE_SIDE: u32 = 2048;
 pub const IMAGE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+pub const READBACK_BUFFERS: usize = 3;
+const MAPPING_POLL_INTERVAL: Duration = Duration::from_millis(1);
 const TEXEL_BYTES: u32 = 4;
 const OPAQUE: u8 = u8::MAX;
 
@@ -26,6 +40,7 @@ pub struct ImageRequest<'a> {
     pub background: Background,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Image {
     pub width: u32,
@@ -51,13 +66,8 @@ pub enum ImageError {
     Refused,
     #[error("the image could not be read back from the graphics card")]
     Readback,
-}
-
-pub enum ImagePoll {
-    Idle,
-    Pending,
-    Ready(ImageReadback),
-    Failed(ImageError),
+    #[error("drawing the image stopped before it was finished")]
+    Abandoned,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,17 +138,6 @@ pub fn tile_transform(tile: Tile, size: SurfaceSize) -> [f32; 4] {
     ]
 }
 
-pub struct TileReadback {
-    pub tile: Tile,
-    pub buffer: wgpu::Buffer,
-}
-
-pub struct ImageReadback {
-    size: SurfaceSize,
-    order: ChannelOrder,
-    tiles: Vec<TileReadback>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChannelOrder {
     Rgba,
@@ -152,47 +151,6 @@ impl ChannelOrder {
             wgpu::TextureFormat::Bgra8Unorm => Some(Self::Bgra),
             _ => None,
         }
-    }
-}
-
-impl ImageReadback {
-    pub fn new(size: SurfaceSize, order: ChannelOrder, tiles: Vec<TileReadback>) -> Self {
-        Self { size, order, tiles }
-    }
-
-    pub fn into_image(self) -> Result<Image, ImageError> {
-        let width = self.size.width as usize;
-        let row_bytes = width * TEXEL_BYTES as usize;
-        let mut pixels = vec![0u8; row_bytes * self.size.height as usize];
-        for readback in &self.tiles {
-            let tile = readback.tile;
-            let mapped = readback
-                .buffer
-                .get_mapped_range(..)
-                .map_err(|_| ImageError::Readback)?;
-            let pitch = tile.row_pitch() as usize;
-            let tile_bytes = tile.width as usize * TEXEL_BYTES as usize;
-            for row in 0..tile.height as usize {
-                let source = mapped
-                    .get(row * pitch..row * pitch + tile_bytes)
-                    .ok_or(ImageError::Readback)?;
-                let start = (tile.y as usize + row) * row_bytes + tile.x as usize * 4;
-                let target = pixels
-                    .get_mut(start..start + tile_bytes)
-                    .ok_or(ImageError::Readback)?;
-                target.copy_from_slice(source);
-            }
-            drop(mapped);
-            readback.buffer.unmap();
-        }
-        for texel in pixels.as_chunks_mut::<{ TEXEL_BYTES as usize }>().0 {
-            straighten(texel, self.order);
-        }
-        Ok(Image {
-            width: self.size.width,
-            height: self.size.height,
-            pixels,
-        })
     }
 }
 
@@ -220,57 +178,365 @@ pub fn unpremultiply(color: [u8; 3], alpha: u8) -> [u8; 4] {
     }
 }
 
-#[derive(Default)]
-struct MapProgress {
-    remaining: AtomicUsize,
-    failed: AtomicBool,
+type MapOutcome = Arc<Mutex<Option<Result<(), wgpu::BufferAsyncError>>>>;
+
+struct DrawnTile {
+    tile: Tile,
+    buffer: wgpu::Buffer,
+    mapped: MapOutcome,
 }
 
-pub struct PendingImage {
-    generation: u64,
-    readback: ImageReadback,
-    progress: Arc<MapProgress>,
+type TileMessage = Result<DrawnTile, ImageError>;
+
+pub struct ImageGpu {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub loss: DeviceLoss,
 }
 
-impl PendingImage {
-    pub fn map(readback: ImageReadback, generation: u64) -> Self {
-        let progress = Arc::new(MapProgress {
-            remaining: AtomicUsize::new(readback.tiles.len()),
-            failed: AtomicBool::new(false),
+pub struct ImageTiles {
+    gpu: ImageGpu,
+    renderer: ViewportRenderer,
+    plan: ImagePlan,
+    remaining: std::vec::IntoIter<Tile>,
+    spare: Vec<wgpu::Buffer>,
+    made: usize,
+    buffer_bytes: u64,
+    returned: Receiver<wgpu::Buffer>,
+    drawn: Option<Sender<TileMessage>>,
+}
+
+pub fn start(
+    gpu: ImageGpu,
+    renderer: impl FnOnce() -> ViewportRenderer,
+    request: &ImageRequest<'_>,
+    tile_side: u32,
+    wake: Wake,
+) -> Result<(ImageTiles, ImageBands), ImageError> {
+    check_size(request.size)?;
+    if gpu.loss.is_lost() {
+        return Err(ImageError::DeviceLost);
+    }
+    let tile_side = tile_side.max(1);
+    let (prepared, error) = gpu::scoped(&gpu.device, || {
+        let mut renderer = renderer();
+        renderer
+            .prepare_image(&gpu.device, &gpu.queue, request, tile_side)
+            .map(|plan| (renderer, plan))
+    });
+    if let Some(error) = error {
+        return Err(refusal(&error));
+    }
+    let (renderer, plan) = prepared.ok_or(ImageError::Refused)?;
+
+    let tiles = tiles(request.size, tile_side);
+    let buffer_bytes = tiles.first().map_or(0, |tile| tile.readback_bytes());
+    let (drawn_sender, drawn) = mpsc::channel();
+    let (returned_sender, returned) = mpsc::channel();
+    let bands = ImageBands {
+        device: gpu.device.clone(),
+        loss: gpu.loss.clone(),
+        size: request.size,
+        order: plan.order(),
+        link: Some(Link {
+            drawn,
+            returned: returned_sender,
+        }),
+        inline: None,
+        wake,
+        band: Vec::new(),
+        next_row: 0,
+    };
+    let producer = ImageTiles {
+        gpu,
+        renderer,
+        plan,
+        remaining: tiles.into_iter(),
+        spare: Vec::new(),
+        made: 0,
+        buffer_bytes,
+        returned,
+        drawn: Some(drawn_sender),
+    };
+    Ok((producer, bands))
+}
+
+pub fn drawn_inline(
+    gpu: ImageGpu,
+    renderer: impl FnOnce() -> ViewportRenderer,
+    request: &ImageRequest<'_>,
+    tile_side: u32,
+) -> Result<ImageBands, ImageError> {
+    let (tiles, mut bands) = start(gpu, renderer, request, tile_side, Arc::new(|| {}))?;
+    bands.inline = Some(Box::new(tiles));
+    Ok(bands)
+}
+
+fn refusal(error: &wgpu::Error) -> ImageError {
+    match error {
+        wgpu::Error::OutOfMemory { .. } => {
+            log::warn!("the exported image did not fit in graphics memory: {error}");
+            ImageError::OutOfMemory
+        }
+        _ => {
+            log::warn!("the graphics device refused to draw the exported image: {error}");
+            ImageError::Refused
+        }
+    }
+}
+
+impl ImageTiles {
+    pub fn is_finished(&self) -> bool {
+        self.drawn.is_none()
+    }
+
+    #[cfg(test)]
+    pub fn buffers_made(&self) -> usize {
+        self.made
+    }
+
+    pub fn advance(&mut self) {
+        while self.drawn.is_some() {
+            if self.remaining.as_slice().is_empty() {
+                self.drawn = None;
+                return;
+            }
+            let Some(buffer) = self.free_buffer() else {
+                return;
+            };
+            self.draw_next(buffer);
+        }
+    }
+
+    fn free_buffer(&mut self) -> Option<Option<wgpu::Buffer>> {
+        loop {
+            match self.returned.try_recv() {
+                Ok(buffer) => self.spare.push(buffer),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    self.drawn = None;
+                    return None;
+                }
+            }
+        }
+        match self.spare.pop() {
+            Some(buffer) => Some(Some(buffer)),
+            None => (self.made < READBACK_BUFFERS).then_some(None),
+        }
+    }
+
+    fn draw_next(&mut self, reused: Option<wgpu::Buffer>) {
+        let Some(tile) = self.remaining.next() else {
+            return;
+        };
+        if self.gpu.loss.is_lost() {
+            self.fail(ImageError::DeviceLost);
+            return;
+        }
+        let created = reused.is_none();
+        let gpu = &self.gpu;
+        let renderer = &mut self.renderer;
+        let plan = &self.plan;
+        let buffer_bytes = self.buffer_bytes;
+        let (buffer, error) = gpu::scoped(&gpu.device, || {
+            let buffer = reused.unwrap_or_else(|| {
+                gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("image readback"),
+                    size: buffer_bytes,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                })
+            });
+            renderer.draw_tile(&gpu.device, &gpu.queue, plan, tile, &buffer);
+            buffer
         });
-        for tile in &readback.tiles {
-            let progress = Arc::clone(&progress);
-            tile.buffer
-                .map_async(wgpu::MapMode::Read, .., move |result| {
-                    if let Err(error) = result {
-                        log::warn!("reading back an exported image failed: {error}");
-                        progress.failed.store(true, Ordering::Release);
-                    }
-                    progress.remaining.fetch_sub(1, Ordering::AcqRel);
+        if created {
+            self.made += 1;
+        }
+        if let Some(error) = error {
+            self.fail(refusal(&error));
+            return;
+        }
+
+        let mapped = MapOutcome::default();
+        let sink = Arc::clone(&mapped);
+        buffer.map_async(wgpu::MapMode::Read, .., move |result| {
+            *sink.lock() = Some(result);
+        });
+        let sent = self.drawn.as_ref().map(|drawn| {
+            drawn.send(Ok(DrawnTile {
+                tile,
+                buffer,
+                mapped,
+            }))
+        });
+        if !matches!(sent, Some(Ok(()))) {
+            self.drawn = None;
+        }
+    }
+
+    fn fail(&mut self, error: ImageError) {
+        if let Some(drawn) = self.drawn.take() {
+            let _ = drawn.send(Err(error));
+        }
+    }
+}
+
+struct Link {
+    drawn: Receiver<TileMessage>,
+    returned: Sender<wgpu::Buffer>,
+}
+
+pub struct ImageBands {
+    device: wgpu::Device,
+    loss: DeviceLoss,
+    size: SurfaceSize,
+    order: ChannelOrder,
+    link: Option<Link>,
+    inline: Option<Box<ImageTiles>>,
+    wake: Wake,
+    band: Vec<u8>,
+    next_row: u32,
+}
+
+impl ImageBands {
+    pub fn size(&self) -> SurfaceSize {
+        self.size
+    }
+
+    pub fn next_band(&mut self) -> Option<Result<&[u8], ImageError>> {
+        if self.next_row >= self.size.height {
+            return None;
+        }
+        match self.fill_band() {
+            Ok(bytes) => Some(self.band.get(..bytes).ok_or(ImageError::Readback)),
+            Err(error) => {
+                self.next_row = self.size.height;
+                self.hang_up();
+                Some(Err(error))
+            }
+        }
+    }
+
+    fn fill_band(&mut self) -> Result<usize, ImageError> {
+        let row_bytes = self.size.width as usize * TEXEL_BYTES as usize;
+        let mut covered = 0;
+        let mut rows = 0;
+        while covered < self.size.width {
+            let drawn = self.next_tile()?;
+            let tile = drawn.tile;
+            if tile.y != self.next_row || tile.x != covered {
+                return Err(ImageError::Readback);
+            }
+            self.wait_until_mapped(&drawn.mapped)?;
+
+            rows = tile.height as usize;
+            let needed = rows * row_bytes;
+            if self.band.len() < needed {
+                self.band.resize(needed, 0);
+            }
+            let copied = copy_tile(&drawn, &mut self.band, row_bytes);
+            drawn.buffer.unmap();
+            if let Some(link) = &self.link {
+                let _ = link.returned.send(drawn.buffer);
+            }
+            (self.wake)();
+            copied?;
+            covered += tile.width;
+        }
+
+        let bytes = rows * row_bytes;
+        let band = self.band.get_mut(..bytes).ok_or(ImageError::Readback)?;
+        for texel in band.as_chunks_mut::<{ TEXEL_BYTES as usize }>().0 {
+            straighten(texel, self.order);
+        }
+        self.next_row = self.next_row.saturating_add(rows as u32);
+        Ok(bytes)
+    }
+
+    fn next_tile(&mut self) -> Result<DrawnTile, ImageError> {
+        if let Some(tiles) = self.inline.as_mut() {
+            tiles.advance();
+        }
+        let link = self.link.as_ref().ok_or(ImageError::Abandoned)?;
+        match link.drawn.recv() {
+            Ok(message) => message,
+            Err(RecvError) => Err(ImageError::Abandoned),
+        }
+    }
+
+    fn wait_until_mapped(&self, mapped: &MapOutcome) -> Result<(), ImageError> {
+        loop {
+            if let Some(outcome) = mapped.lock().take() {
+                return outcome.map_err(|error| {
+                    log::warn!("reading back an exported image failed: {error}");
+                    ImageError::Readback
                 });
-        }
-        Self {
-            generation,
-            readback,
-            progress,
+            }
+            if self.loss.is_lost() {
+                return Err(ImageError::DeviceLost);
+            }
+            if let Err(error) = self.device.poll(wgpu::PollType::Poll) {
+                log::warn!("could not poll the graphics device for an exported image: {error}");
+                return Err(ImageError::Readback);
+            }
+            if mapped.lock().is_none() {
+                thread::sleep(MAPPING_POLL_INTERVAL);
+            }
         }
     }
 
-    pub fn generation(&self) -> u64 {
-        self.generation
-    }
-
-    pub fn is_mapped(&self) -> bool {
-        self.progress.remaining.load(Ordering::Acquire) == 0
-    }
-
-    pub fn finish(self) -> ImagePoll {
-        if self.progress.failed.load(Ordering::Acquire) {
-            ImagePoll::Failed(ImageError::Readback)
-        } else {
-            ImagePoll::Ready(self.readback)
+    fn hang_up(&mut self) {
+        self.inline = None;
+        if self.link.take().is_some() {
+            (self.wake)();
         }
     }
+
+    #[cfg(test)]
+    pub fn buffers_made(&self) -> Option<usize> {
+        self.inline.as_ref().map(|tiles| tiles.buffers_made())
+    }
+
+    #[cfg(test)]
+    pub fn into_image(mut self) -> Result<Image, ImageError> {
+        let mut pixels = Vec::new();
+        while let Some(band) = self.next_band() {
+            pixels.extend_from_slice(band?);
+        }
+        Ok(Image {
+            width: self.size.width,
+            height: self.size.height,
+            pixels,
+        })
+    }
+}
+
+impl Drop for ImageBands {
+    fn drop(&mut self) {
+        self.hang_up();
+    }
+}
+
+fn copy_tile(drawn: &DrawnTile, band: &mut [u8], row_bytes: usize) -> Result<(), ImageError> {
+    let tile = drawn.tile;
+    let mapped = drawn
+        .buffer
+        .get_mapped_range(..)
+        .map_err(|_| ImageError::Readback)?;
+    let pitch = tile.row_pitch() as usize;
+    let tile_bytes = tile.width as usize * TEXEL_BYTES as usize;
+    let left = tile.x as usize * TEXEL_BYTES as usize;
+    for row in 0..tile.height as usize {
+        let source = mapped
+            .get(row * pitch..row * pitch + tile_bytes)
+            .ok_or(ImageError::Readback)?;
+        let start = row * row_bytes + left;
+        band.get_mut(start..start + tile_bytes)
+            .ok_or(ImageError::Readback)?
+            .copy_from_slice(source);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -303,6 +569,23 @@ mod tests {
             tiles
                 .iter()
                 .all(|tile| tile.x + tile.width <= 500 && tile.y + tile.height <= 300)
+        );
+    }
+
+    #[test]
+    fn tiles_come_in_bands_from_the_top_left_to_the_right() {
+        let tiles = tiles(size(500, 300), 200);
+
+        let starts: Vec<(u32, u32)> = tiles.iter().map(|tile| (tile.x, tile.y)).collect();
+
+        assert_eq!(
+            starts,
+            [(0, 0), (200, 0), (400, 0), (0, 200), (200, 200), (400, 200)]
+        );
+        assert!(
+            tiles
+                .iter()
+                .all(|tile| tile.readback_bytes() <= tiles[0].readback_bytes())
         );
     }
 

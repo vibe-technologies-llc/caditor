@@ -276,7 +276,7 @@ pub fn write_atomically(path: &Path, contents: &[u8]) -> io::Result<()> {
     replace_atomically(path, |file| file.write_all(contents))
 }
 
-fn replace_atomically(
+pub(crate) fn replace_atomically(
     path: &Path,
     fill: impl FnOnce(&mut File) -> io::Result<()>,
 ) -> io::Result<()> {

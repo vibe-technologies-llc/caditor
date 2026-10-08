@@ -10,10 +10,12 @@ use caditor_document::{
     MoveAxis, RegionChoice, RollbackBar, SolidFeature, SolidResult, Transaction,
 };
 use caditor_expression::{Expression, ParameterId, Unit};
-use caditor_file::{DrawingUnit, ExportFormat, JournalEntry, Start, Storage, StorageConfig};
+use caditor_file::{
+    DrawingUnit, ExportFormat, JournalEntry, PixelRows, Start, Storage, StorageConfig,
+};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::MeshQuality;
-use caditor_render::{Background, GraphicsInfo, Image, ImageError, Msaa, Shading};
+use caditor_render::{Background, GraphicsInfo, ImageError, Msaa, Shading};
 use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use egui::{
     Color32, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
@@ -172,6 +174,30 @@ struct Harness {
 struct Painted {
     shapes: Vec<ClippedShape>,
     pixels_per_point: f32,
+}
+
+struct SolidRows {
+    width: u32,
+    height: u32,
+    pixels: Option<Vec<u8>>,
+    sent: Vec<u8>,
+}
+
+impl PixelRows for SolidRows {
+    type Error = ImageError;
+
+    fn width(&self) -> u32 {
+        self.width
+    }
+
+    fn height(&self) -> u32 {
+        self.height
+    }
+
+    fn next_rows(&mut self) -> Option<Result<&[u8], ImageError>> {
+        self.sent = self.pixels.take()?;
+        Some(Ok(&self.sent))
+    }
 }
 
 impl Harness {
@@ -343,13 +369,11 @@ impl Harness {
                     Background::Transparent => [0; 4],
                 };
                 let (width, height) = (job.size.width, job.size.height);
-                let pixels = texel.repeat(width as usize * height as usize);
-                Ok(Box::new(move || {
-                    Ok(Image {
-                        width,
-                        height,
-                        pixels,
-                    })
+                Ok(Box::new(SolidRows {
+                    width,
+                    height,
+                    pixels: Some(texel.repeat(width as usize * height as usize)),
+                    sent: Vec::new(),
                 }))
             }
         };
