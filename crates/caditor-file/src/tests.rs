@@ -1428,6 +1428,57 @@ fn added_constraint_kinds_round_trip() {
 }
 
 #[test]
+fn arc_dimensions_round_trip_and_fall_back_to_their_drawn_values() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Arc dimensions");
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(
+        Point2::new(50.0, 5.0),
+        Point2::new(58.0, 5.0),
+        Point2::new(50.0, 13.0),
+    );
+    sketch
+        .add_constraint(Constraint::ArcLength {
+            arc,
+            value: Expression::Measure(12.0, Unit::Millimetre),
+        })
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Sweep {
+            arc,
+            value: Expression::Measure(80.0, Unit::Degree),
+        })
+        .unwrap();
+    transaction.add_feature("Arc dimensions", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    for record in [
+        "\"arc_length\":{\"arc\":3,\"value\":\"12 mm\"}",
+        "\"sweep\":{\"arc\":3,\"value\":\"80 deg\"}",
+    ] {
+        assert!(text.contains(record), "{record} is missing from {text}");
+    }
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let damaged = text
+        .replace("\"value\":\"12 mm\"", "\"value\":\"12 ((\"")
+        .replace("\"value\":\"80 deg\"", "\"value\":\"80 ((\"");
+    let loaded = decode_text(&damaged);
+    assert_eq!(
+        loaded.issues,
+        [
+            "In “Arc dimensions”, the value of an arc length could not be read, so it was set to \
+             its drawn arc length, 12.566371 mm.",
+            "In “Arc dimensions”, the value of a sweep could not be read, so it was set to its \
+             drawn sweep, 90°.",
+        ]
+    );
+}
+
+#[test]
 fn unreadable_added_dimensions_take_their_drawn_values() {
     let (document, kinds) = with_added_kinds(Document::default());
     let text = encode(&document)

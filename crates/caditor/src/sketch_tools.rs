@@ -93,8 +93,8 @@ impl ConstraintTool {
             Self::Equal => "Give lines the same length, or circles and arcs the same radius",
             Self::Symmetric => "Mirror two points, or two lines, about a line or a point",
             Self::Distance => {
-                "Fix the distance between two points, lines or circles, any two of them, or the \
-                 ends of a line"
+                "Fix the distance between two points, lines or circles, any two of them, the ends \
+                 of a line, or the length of an arc"
             }
             Self::HorizontalDistance => {
                 "Fix the horizontal distance between two points or the ends of a line"
@@ -102,7 +102,7 @@ impl ConstraintTool {
             Self::VerticalDistance => {
                 "Fix the vertical distance between two points or the ends of a line"
             }
-            Self::Angle => "Fix the angle between two lines",
+            Self::Angle => "Fix the angle between two lines, or how far an arc sweeps",
             Self::Radius => "Fix the radius of circles and arcs",
             Self::Diameter => "Fix the diameter of circles and arcs",
         }
@@ -121,7 +121,7 @@ impl ConstraintTool {
             Self::Fix => "Select the points or curves to lock",
             Self::Horizontal | Self::Vertical => "Select one or more lines, or two or more points",
             Self::Perpendicular => "Select two or more lines; the others turn square to the first",
-            Self::Angle => "Select two lines",
+            Self::Angle => "Select two lines or one arc",
             Self::Tangent => {
                 "Select a line, circle or arc, and one or more circles, arcs or splines to touch it"
             }
@@ -129,7 +129,7 @@ impl ConstraintTool {
             Self::Symmetric => {
                 "Select two points or two lines, and the line or point to mirror them about"
             }
-            Self::Distance => "Select one line, or two of points, lines and circles",
+            Self::Distance => "Select one line or arc, or two of points, lines and circles",
             Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
             Self::Radius | Self::Diameter => "Select one or more circles or arcs",
         }
@@ -240,6 +240,22 @@ impl ConstraintTool {
                 Some(vec![self.offset(shown, a, b)?])
             }
             (Self::Angle, &[(a, Line), (b, Line)]) => Some(vec![angle(shown, a, b)?]),
+            (Self::Distance, &[(arc, Circular)]) if is_arc(definition, arc) => {
+                Some(vec![measured(shown, |value| Constraint::ArcLength {
+                    arc,
+                    value,
+                })?])
+            }
+            (Self::Angle, &[(arc, Circular)]) if is_arc(definition, arc) => {
+                let sweep = shown.measured(&Constraint::Sweep {
+                    arc,
+                    value: Expression::Number(0.0),
+                })?;
+                Some(vec![Constraint::Sweep {
+                    arc,
+                    value: Expression::Measure(rounded_for_display(sweep), Unit::Degree),
+                }])
+            }
             (Self::Radius, _) => each_measured(shown, items, |entity, value| Constraint::Radius {
                 entity,
                 value,
@@ -257,6 +273,10 @@ impl ConstraintTool {
             _ => Constraint::HorizontalDistance { from, to, value },
         })
     }
+}
+
+fn is_arc(sketch: &Sketch, entity: EntityId) -> bool {
+    matches!(sketch.entity(entity), Some(Entity::Arc { .. }))
 }
 
 fn new_relations(
@@ -626,6 +646,14 @@ pub fn in_unit(constraints: Vec<Constraint>, unit: impl Into<Units>) -> Vec<Cons
             Constraint::Diameter { entity, value } => Constraint::Diameter {
                 entity,
                 value: converted(value),
+            },
+            Constraint::ArcLength { arc, value } => Constraint::ArcLength {
+                arc,
+                value: converted(value),
+            },
+            Constraint::Sweep { arc, value } => Constraint::Sweep {
+                arc,
+                value: turned(value),
             },
             Constraint::Angle {
                 from,
@@ -1295,6 +1323,24 @@ mod tests {
                 to: f.circle,
                 value: mm(23.045),
             }])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Distance, &[f.arc]),
+            Ok(vec![Constraint::ArcLength {
+                arc: f.arc,
+                value: measure(4.712, Unit::Millimetre),
+            }])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Angle, &[f.arc]),
+            Ok(vec![Constraint::Sweep {
+                arc: f.arc,
+                value: measure(90.0, Unit::Degree),
+            }])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Angle, &[f.circle]),
+            Err("Select two lines or one arc".to_owned())
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Distance, &[f.circle, f.horizontal]),

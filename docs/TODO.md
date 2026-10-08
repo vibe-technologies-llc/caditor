@@ -146,9 +146,8 @@ the unblocked ones; the entry that does the unblocking comes before it.
 - [medium · medium] A constraint that fails only once solved (one contradicting the sketch through
   other constraints) is still accepted and reported afterwards; trial-solve it off the UI thread
   before committing.
-- [medium · medium] Constraint kinds missing: distance to a spline; arc length and sweep; angle or
-  perpendicular to an arc; equal splines; spline–spline tangency; curvature continuity; symmetric
-  curves.
+- [medium · medium] Constraint kinds missing: distance to a spline; angle or perpendicular to an
+  arc; equal splines; spline–spline tangency; curvature continuity; symmetric curves.
 - [medium · medium] No size readout while drawing splines, tangent arcs or arc slots; no
   closed-region or open-end feedback while sketching (only a failed extrusion names a sketch's open
   ends); and no smart-dimension tool that takes the entities after the command.

@@ -62,7 +62,9 @@ impl Sketch {
                 second,
                 about,
             } => Subject::Triple(kind, about, ordered(first, second)),
-            Constraint::Fix { point, .. } => Subject::Single(kind, point),
+            Constraint::Fix { point, .. }
+            | Constraint::ArcLength { arc: point, .. }
+            | Constraint::Sweep { arc: point, .. } => Subject::Single(kind, point),
             Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => {
                 Subject::Size(entity)
             }

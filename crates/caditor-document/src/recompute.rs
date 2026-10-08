@@ -1453,8 +1453,14 @@ fn dimension_error(
             "Edit the dimension so it gives zero or more.".to_owned(),
             dimension,
         ),
-        DimensionError::NotPositive | DimensionError::DiameterNotPositive => (
+        DimensionError::NotPositive
+        | DimensionError::DiameterNotPositive
+        | DimensionError::ArcLengthNotPositive => (
             "Edit the dimension so it gives more than zero.".to_owned(),
+            dimension,
+        ),
+        DimensionError::SweepOutsideTurn => (
+            "Edit the dimension so it gives an angle between 0 and 360 deg.".to_owned(),
             dimension,
         ),
         DimensionError::TooLong => (

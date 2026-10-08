@@ -4,7 +4,7 @@ use std::{
 };
 
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Constraint, Entity, EntityId, Reference, Sketch};
+use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Reference, Sketch};
 
 use crate::snap::Screen;
 
@@ -129,6 +129,10 @@ pub enum Measured {
         radius: f64,
         toward: Vector2,
     },
+    AlongArc {
+        arc: ArcGeometry,
+        from_centre: bool,
+    },
 }
 
 pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
@@ -172,6 +176,14 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
                 toward,
             })
         }
+        Constraint::ArcLength { arc, .. } => Some(Measured::AlongArc {
+            arc: sketch.arc(arc)?,
+            from_centre: false,
+        }),
+        Constraint::Sweep { arc, .. } => Some(Measured::AlongArc {
+            arc: sketch.arc(arc)?,
+            from_centre: true,
+        }),
         Constraint::Coincident(..)
         | Constraint::Horizontal(_)
         | Constraint::Vertical(_)
@@ -338,7 +350,45 @@ pub fn layout(
             radius,
             toward,
         } => diameter_layout(screen, center, radius, toward),
+        Measured::AlongArc { arc, from_centre } => along_arc_layout(screen, &arc, from_centre),
     }
+}
+
+fn along_arc_layout(
+    screen: &impl Screen,
+    arc: &ArcGeometry,
+    from_centre: bool,
+) -> Option<DimensionLayout> {
+    let middle = arc.point_at(arc.start_angle + arc.sweep / 2.0);
+    let projector = Projector::new(screen, middle)?;
+    let radius = arc.radius + projector.units(DIMENSION_OFFSET);
+    let ray = |fraction: f64| Vector2::from_angle(arc.start_angle + arc.sweep * fraction);
+    let segments = (arc.sweep / ARC_STEP).ceil().max(MIN_ARC_SEGMENTS);
+    let dimension: Vec<Point2> = (0..=segments as usize)
+        .map(|index| arc.center + ray(index as f64 / segments) * radius)
+        .collect();
+    let mut strokes = vec![projector.polyline(&dimension)?];
+    for fraction in [0.0, 1.0] {
+        let outward = ray(fraction);
+        let inner = if from_centre {
+            arc.center
+        } else {
+            arc.center + outward * (arc.radius + projector.units(EXTENSION_GAP))
+        };
+        let outer = arc.center + outward * (radius + projector.units(EXTENSION_OVERSHOOT));
+        strokes.push(projector.polyline(&[inner, outer])?);
+    }
+    let bisector = ray(0.5);
+    let label_at = arc.center + bisector * radius;
+    Some(DimensionLayout {
+        strokes,
+        arrows: vec![
+            projector.arrow(arc.center + ray(0.0) * radius, -ray(0.0).perp())?,
+            projector.arrow(arc.center + ray(1.0) * radius, ray(1.0).perp())?,
+        ],
+        label: projector.point(label_at)?,
+        label_side: projector.direction(label_at, bisector)?,
+    })
 }
 
 fn away_from(normal: Vector2, at: Point2, centre: Option<Point2>) -> Vector2 {
@@ -676,7 +726,9 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
         | Constraint::VerticalDistance { .. }
         | Constraint::Angle { .. }
         | Constraint::Radius { .. }
-        | Constraint::Diameter { .. } => Vec::new(),
+        | Constraint::Diameter { .. }
+        | Constraint::ArcLength { .. }
+        | Constraint::Sweep { .. } => Vec::new(),
     }
 }
 
@@ -1207,6 +1259,40 @@ mod tests {
         assert_close(squarely.arrows[0].tip, Vector2::new(130.0, 280.0));
         assert_close(squarely.arrows[1].tip, Vector2::new(150.0, 280.0));
         assert_close(squarely.label, Vector2::new(140.0, 280.0));
+    }
+
+    #[test]
+    fn an_arc_length_runs_outside_the_arc_and_a_sweep_reaches_back_to_its_centre() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+        let value = caditor_expression::Expression::Number(1.0);
+        let length = measured(
+            &sketch,
+            &Constraint::ArcLength {
+                arc,
+                value: value.clone(),
+            },
+        )
+        .unwrap();
+        let sweep = measured(&sketch, &Constraint::Sweep { arc, value }).unwrap();
+
+        let along = layout(&length, &Flat, None).unwrap();
+        let centre = Vector2::new(100.0, 300.0);
+        let reach = 20.0 + DIMENSION_OFFSET;
+        let half = FRAC_1_SQRT_2;
+        assert_close(along.label, centre + Vector2::new(half, -half) * reach);
+        assert_close(along.arrows[0].tip, centre + Vector2::new(reach, 0.0));
+        assert_close(along.arrows[0].direction, Vector2::new(0.0, 1.0));
+        assert_close(along.arrows[1].tip, centre + Vector2::new(0.0, -reach));
+        assert_close(along.arrows[1].direction, Vector2::new(-1.0, 0.0));
+        assert_close(
+            along.strokes[1][0],
+            Vector2::new(120.0 + EXTENSION_GAP, 300.0),
+        );
+
+        let turned = layout(&sweep, &Flat, None).unwrap();
+        assert_close(turned.strokes[1][0], centre);
+        assert_close(turned.strokes[2][0], centre);
     }
 
     #[test]

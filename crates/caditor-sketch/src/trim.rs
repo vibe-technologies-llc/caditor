@@ -1085,7 +1085,10 @@ pub(crate) fn keeps_length(constraint: &Constraint) -> bool {
 }
 
 pub(crate) fn keeps_sweep(constraint: &Constraint) -> bool {
-    !matches!(constraint, Constraint::Midpoint { .. })
+    !matches!(
+        constraint,
+        Constraint::Midpoint { .. } | Constraint::ArcLength { .. } | Constraint::Sweep { .. }
+    )
 }
 
 fn end_point_near(

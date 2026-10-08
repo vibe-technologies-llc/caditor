@@ -45,6 +45,11 @@ paths:
   a gap of crossing curves is zero. An angle measures from its first line's direction (or its
   reverse when `reversed`, which the UI sets so a chain's corner is measured inside it) to its
   second's.
+- `ArcLength` and `Sweep` take an arc, never a circle: the sweep is the angle from the radius to
+  its start to the radius to its end (`Form::Angle`, so any sweep below a full turn holds without
+  flipping), the length the start radius times that counter-clockwise sweep (`Form::ArcLength`).
+  A sweep must lie strictly between 0° and 360° and a length above zero (`DimensionError`). The
+  app offers them from the Distance and Angle tools with one arc selected.
 - `check_constraint` refuses constraints that do not fit the entity kinds; the UI asks before
   offering one. `restating` and `contradicting` (`relation.rs`) find the constraint already in the
   sketch that a new one repeats (same kind on the same items; a level line is the same as
@@ -71,8 +76,8 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
 - Trim and extend (`trim.rs`): cutters and targets are every other curve, construction curves and
   splines included; reference axes and lone points are not. A crossing at a curve's own end is a
   joint, not a cut. Splines cannot themselves be trimmed or extended.
-  - `Midpoint` and `Equal` on a shortened line, and `Midpoint` on a shortened or extended arc
-    (`keeps_sweep`; the sketch fillet does the same), are dropped, as is any distance dimension between
+  - `Midpoint` and `Equal` on a shortened line, and `Midpoint`, `ArcLength` and `Sweep` on a
+    shortened or extended arc (`keeps_sweep`; the sketch fillet does the same), are dropped, as is any distance dimension between
     its two old ends or points joined to them by `Coincident` (one end often outlives the trim,
     shared with another curve, and would keep measuring to the far end).
   - A split-off piece gets fresh IDs and the construction flag. A line piece is `Collinear` with

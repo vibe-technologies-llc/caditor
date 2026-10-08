@@ -683,6 +683,88 @@ fn a_circle_keeps_its_gap_from_a_line_on_its_side() {
 }
 
 #[test]
+fn an_arc_takes_its_sweep_and_length_the_long_way_round_too() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    let Some(&Entity::Arc { center, start, end }) = sketch.entity(arc) else {
+        panic!("expected an arc");
+    };
+    fix(&mut sketch, center);
+    fix(&mut sketch, start);
+    let sweep = add(
+        &mut sketch,
+        Constraint::Sweep {
+            arc,
+            value: Expression::Measure(270.0, Unit::Degree),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, end), Point2::new(0.0, -10.0));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+
+    sketch.remove_constraint(sweep).unwrap();
+    let length = add(
+        &mut sketch,
+        Constraint::ArcLength {
+            arc,
+            value: mm(10.0 * std::f64::consts::PI),
+        },
+    );
+    let solved = solve(&sketch).unwrap();
+    assert_near(at(&solved, end), Point2::new(-10.0, 0.0));
+    assert_close(
+        solved
+            .geometry
+            .measured(sketch.constraint(length).unwrap())
+            .unwrap(),
+        10.0 * std::f64::consts::PI,
+    );
+}
+
+#[test]
+fn a_sweep_outside_one_turn_or_on_a_circle_is_refused() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    let circle = sketch.add_circle(Point2::ZERO, 3.0);
+    let refused = |sketch: &mut Sketch, constraint| {
+        sketch.add_constraint(constraint).unwrap_err().to_string()
+    };
+
+    assert_eq!(
+        refused(
+            &mut sketch,
+            Constraint::Sweep {
+                arc,
+                value: Expression::Measure(360.0, Unit::Degree),
+            }
+        ),
+        "a sweep must be more than 0° and less than 360°"
+    );
+    assert_eq!(
+        refused(
+            &mut sketch,
+            Constraint::ArcLength {
+                arc,
+                value: mm(0.0),
+            }
+        ),
+        "an arc length must be greater than zero"
+    );
+    assert!(
+        refused(
+            &mut sketch,
+            Constraint::ArcLength {
+                arc: circle,
+                value: mm(3.0),
+            }
+        )
+        .contains("an arc")
+    );
+}
+
+#[test]
 fn new_kinds_survive_degenerate_starts_without_nan() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::new(3.0, 3.0), Point2::new(3.0, 3.0 + 1e-13));

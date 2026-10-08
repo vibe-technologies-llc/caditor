@@ -5,6 +5,8 @@ use crate::id::EntityId;
 
 pub const MAX_LENGTH: f64 = 1e6;
 
+const FULL_TURN_DEGREES: f64 = 360.0;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Constraint {
     Coincident(EntityId, EntityId),
@@ -60,6 +62,14 @@ pub enum Constraint {
         entity: EntityId,
         value: Expression,
     },
+    ArcLength {
+        arc: EntityId,
+        value: Expression,
+    },
+    Sweep {
+        arc: EntityId,
+        value: Expression,
+    },
 }
 
 impl Constraint {
@@ -87,6 +97,8 @@ impl Constraint {
             Self::Angle { .. } => "Angle",
             Self::Radius { .. } => "Radius",
             Self::Diameter { .. } => "Diameter",
+            Self::ArcLength { .. } => "Arc length",
+            Self::Sweep { .. } => "Sweep",
         }
     }
 
@@ -96,7 +108,9 @@ impl Constraint {
             | Self::Vertical(entity)
             | Self::Fix { point: entity, .. }
             | Self::Radius { entity, .. }
-            | Self::Diameter { entity, .. } => vec![entity],
+            | Self::Diameter { entity, .. }
+            | Self::ArcLength { arc: entity, .. }
+            | Self::Sweep { arc: entity, .. } => vec![entity],
             Self::Coincident(a, b)
             | Self::HorizontalPoints(a, b)
             | Self::VerticalPoints(a, b)
@@ -126,7 +140,9 @@ impl Constraint {
             | Self::VerticalDistance { value, .. }
             | Self::Angle { value, .. }
             | Self::Radius { value, .. }
-            | Self::Diameter { value, .. } => Some(value),
+            | Self::Diameter { value, .. }
+            | Self::ArcLength { value, .. }
+            | Self::Sweep { value, .. } => Some(value),
             Self::Coincident(..)
             | Self::Horizontal(_)
             | Self::Vertical(_)
@@ -146,7 +162,7 @@ impl Constraint {
 
     pub fn dimension_kind(&self) -> Option<Dimension> {
         match self {
-            Self::Angle { .. } => Some(Dimension::ANGLE),
+            Self::Angle { .. } | Self::Sweep { .. } => Some(Dimension::ANGLE),
             _ if self.dimension().is_some() => Some(Dimension::LENGTH),
             _ => None,
         }
@@ -164,7 +180,11 @@ impl Constraint {
             }
             Self::Radius { .. } if value <= 0.0 => Err(DimensionError::NotPositive),
             Self::Diameter { .. } if value <= 0.0 => Err(DimensionError::DiameterNotPositive),
-            Self::Angle { .. } => Ok(()),
+            Self::ArcLength { .. } if value <= 0.0 => Err(DimensionError::ArcLengthNotPositive),
+            Self::Sweep { .. } if value <= 0.0 || value >= FULL_TURN_DEGREES => {
+                Err(DimensionError::SweepOutsideTurn)
+            }
+            Self::Angle { .. } | Self::Sweep { .. } => Ok(()),
             _ if self.dimension().is_some() && value > MAX_LENGTH => Err(DimensionError::TooLong),
             _ => Ok(()),
         }
@@ -177,7 +197,9 @@ impl Constraint {
             | Self::VerticalDistance { value, .. }
             | Self::Angle { value, .. }
             | Self::Radius { value, .. }
-            | Self::Diameter { value, .. } => Some(value),
+            | Self::Diameter { value, .. }
+            | Self::ArcLength { value, .. }
+            | Self::Sweep { value, .. } => Some(value),
             Self::Coincident(..)
             | Self::Horizontal(_)
             | Self::Vertical(_)
@@ -207,7 +229,9 @@ impl Constraint {
             | Self::Vertical(entity)
             | Self::Fix { point: entity, .. }
             | Self::Radius { entity, .. }
-            | Self::Diameter { entity, .. } => *entity = swap(*entity),
+            | Self::Diameter { entity, .. }
+            | Self::ArcLength { arc: entity, .. }
+            | Self::Sweep { arc: entity, .. } => *entity = swap(*entity),
             Self::Coincident(a, b)
             | Self::HorizontalPoints(a, b)
             | Self::VerticalPoints(a, b)
@@ -249,6 +273,10 @@ pub enum DimensionError {
     NotPositive,
     #[error("a diameter must be greater than zero")]
     DiameterNotPositive,
+    #[error("an arc length must be greater than zero")]
+    ArcLengthNotPositive,
+    #[error("a sweep must be more than 0° and less than 360°")]
+    SweepOutsideTurn,
     #[error("the value is too large to use")]
     NotFinite,
     #[error("a length cannot be more than {} m", MAX_LENGTH / 1_000.0)]

@@ -279,6 +279,11 @@ pub(crate) enum Form {
         circle: CircleHandle,
         value: f64,
     },
+    ArcLength {
+        from: LineHandle,
+        to: LineHandle,
+        value: f64,
+    },
     Middle {
         point: PointHandle,
         ends: (PointHandle, PointHandle),
@@ -396,7 +401,8 @@ impl Form {
             | Self::Offset { value, .. }
             | Self::CircleDistance { value, .. }
             | Self::CircleGap { value, .. }
-            | Self::LineGap { value, .. } => Some(value),
+            | Self::LineGap { value, .. }
+            | Self::ArcLength { value, .. } => Some(value),
             Self::SameX(a, b) => fixed_coordinate(a, b, |position| position.x),
             Self::SameY(a, b) => fixed_coordinate(a, b, |position| position.y),
             Self::OnLine { .. }
@@ -685,6 +691,29 @@ impl Form {
                 circle.push_radius(values, context, gradient, 1.0);
                 circle.radius(values) - value
             }
+            Self::ArcLength { from, to, value } => {
+                let (first, second) = (
+                    from.direction(values, context),
+                    to.direction(values, context),
+                );
+                let turn = first
+                    .unit
+                    .perp_dot(second.unit)
+                    .atan2(first.unit.dot(second.unit))
+                    .rem_euclid(TAU);
+                let sweep = if turn > 0.0 { turn } else { TAU };
+                if first.degenerate {
+                    from.push_vector(gradient, Vector2::ZERO);
+                } else {
+                    from.push_vector(gradient, first.unit * sweep - first.unit.perp());
+                }
+                if second.degenerate {
+                    to.push_vector(gradient, Vector2::ZERO);
+                } else {
+                    to.push_vector(gradient, second.unit.perp() * first.length / second.length);
+                }
+                first.length * sweep - value
+            }
             Self::Middle {
                 point,
                 ends: (a, b),
@@ -951,6 +980,16 @@ mod tests {
             },
             Form::Radius {
                 circle: arc(4, 12),
+                value: 3.0,
+            },
+            Form::ArcLength {
+                from: line(4, 0),
+                to: line(4, 12),
+                value: 3.0,
+            },
+            Form::ArcLength {
+                from: line(4, 12),
+                to: line(4, 0),
                 value: 3.0,
             },
             Form::Middle {

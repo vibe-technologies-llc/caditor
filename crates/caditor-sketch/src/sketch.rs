@@ -313,7 +313,10 @@ impl Sketch {
             | Constraint::Angle { from, to, .. } => {
                 format!("{kind} between {} and {}", label(from), label(to))
             }
-            Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => {
+            Constraint::Radius { entity, .. }
+            | Constraint::Diameter { entity, .. }
+            | Constraint::ArcLength { arc: entity, .. }
+            | Constraint::Sweep { arc: entity, .. } => {
                 format!("{kind} of {}", label(entity))
             }
         }
@@ -337,6 +340,11 @@ impl Sketch {
             }
             Constraint::Radius { entity, .. } => self.circle(entity)?.1,
             Constraint::Diameter { entity, .. } => 2.0 * self.circle(entity)?.1,
+            Constraint::ArcLength { arc, .. } => {
+                let arc = self.arc(arc)?;
+                arc.radius * arc.sweep
+            }
+            Constraint::Sweep { arc, .. } => self.arc(arc)?.sweep.to_degrees(),
             Constraint::Coincident(..)
             | Constraint::Horizontal(_)
             | Constraint::Vertical(_)
@@ -708,6 +716,16 @@ impl Sketch {
             Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => self
                 .expect(entity, &[Role::Circular], "a circle or an arc")
                 .map(|_| ()),
+            Constraint::ArcLength { arc, .. } | Constraint::Sweep { arc, .. } => {
+                match self.entity(arc) {
+                    Some(Entity::Arc { .. }) => Ok(()),
+                    _ => Err(SketchError::WrongKind {
+                        entity: arc,
+                        found: self.entity_label(arc),
+                        needed: "an arc",
+                    }),
+                }
+            }
         }
     }
 

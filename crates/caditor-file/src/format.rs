@@ -810,9 +810,17 @@ pub(crate) enum ConstraintKindRecord {
         entity: u64,
         value: String,
     },
+    ArcLength {
+        arc: u64,
+        value: String,
+    },
+    Sweep {
+        arc: u64,
+        value: String,
+    },
 }
 
-const CONSTRAINT_KINDS: [&str; 20] = [
+const CONSTRAINT_KINDS: [&str; 22] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -833,6 +841,8 @@ const CONSTRAINT_KINDS: [&str; 20] = [
     "horizontal_distance",
     "vertical_distance",
     "diameter",
+    "arc_length",
+    "sweep",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -2121,6 +2131,14 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
         }
         Constraint::Diameter { entity, value } => ConstraintKindRecord::Diameter {
             entity: entity.raw(),
+            value: value.to_stored_text(),
+        },
+        Constraint::ArcLength { arc, value } => ConstraintKindRecord::ArcLength {
+            arc: arc.raw(),
+            value: value.to_stored_text(),
+        },
+        Constraint::Sweep { arc, value } => ConstraintKindRecord::Sweep {
+            arc: arc.raw(),
             value: value.to_stored_text(),
         },
     }
@@ -3769,6 +3787,16 @@ fn constraint_from_record(
                 value,
             }
         }
+        ConstraintKindRecord::ArcLength { arc, value: text } => {
+            let arc = entity(*arc);
+            let value = value(text, DrawnValue::ArcLength(arc))?;
+            Constraint::ArcLength { arc, value }
+        }
+        ConstraintKindRecord::Sweep { arc, value: text } => {
+            let arc = entity(*arc);
+            let value = value(text, DrawnValue::Sweep(arc))?;
+            Constraint::Sweep { arc, value }
+        }
     })
 }
 
@@ -3793,6 +3821,8 @@ enum DrawnValue {
     },
     Radius(EntityId),
     Diameter(EntityId),
+    ArcLength(EntityId),
+    Sweep(EntityId),
 }
 
 impl DrawnValue {
@@ -3804,6 +3834,8 @@ impl DrawnValue {
             Self::Angle { .. } => "an angle",
             Self::Radius(_) => "a radius",
             Self::Diameter(_) => "a diameter",
+            Self::ArcLength(_) => "an arc length",
+            Self::Sweep(_) => "a sweep",
         }
     }
 
@@ -3815,6 +3847,8 @@ impl DrawnValue {
             Self::Angle { .. } => "drawn angle",
             Self::Radius(_) => "drawn radius",
             Self::Diameter(_) => "drawn diameter",
+            Self::ArcLength(_) => "drawn arc length",
+            Self::Sweep(_) => "drawn sweep",
         }
     }
 
@@ -3834,16 +3868,21 @@ impl DrawnValue {
             },
             Self::Radius(entity) => Constraint::Radius { entity, value },
             Self::Diameter(entity) => Constraint::Diameter { entity, value },
+            Self::ArcLength(arc) => Constraint::ArcLength { arc, value },
+            Self::Sweep(arc) => Constraint::Sweep { arc, value },
         };
         let measured = sketch.measured(&constraint)?;
         let quantity = match self {
-            Self::Angle { .. } => Quantity::angle(measured),
-            Self::Radius(_) | Self::Diameter(_) if measured <= 0.0 => return None,
+            Self::Angle { .. } | Self::Sweep(_) => Quantity::angle(measured),
+            Self::Radius(_) | Self::Diameter(_) | Self::ArcLength(_) if measured <= 0.0 => {
+                return None;
+            }
             Self::Distance { .. }
             | Self::HorizontalDistance { .. }
             | Self::VerticalDistance { .. }
             | Self::Radius(_)
-            | Self::Diameter(_) => Quantity::length(measured),
+            | Self::Diameter(_)
+            | Self::ArcLength(_) => Quantity::length(measured),
         };
         Some(quantity)
     }

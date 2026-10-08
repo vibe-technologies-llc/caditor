@@ -509,6 +509,23 @@ impl System {
                 circle: self.circle(sketch, entity)?,
                 value: dimension()? / 2.0,
             }],
+            Constraint::ArcLength { arc, .. } => {
+                let (from, to) = self.arc_radii(sketch, arc)?;
+                vec![Form::ArcLength {
+                    from,
+                    to,
+                    value: dimension()?,
+                }]
+            }
+            Constraint::Sweep { arc, .. } => {
+                let (from, to) = self.arc_radii(sketch, arc)?;
+                vec![Form::Angle {
+                    from,
+                    to,
+                    reversed: false,
+                    radians: dimension()?.to_radians(),
+                }]
+            }
         })
     }
 
@@ -547,6 +564,34 @@ impl System {
             side: if inside { -1.0 } else { 1.0 },
             value,
         })
+    }
+
+    fn arc_radii(
+        &self,
+        sketch: &Sketch,
+        arc: EntityId,
+    ) -> Result<(LineHandle, LineHandle), SketchError> {
+        let Some(&Entity::Arc { center, start, end }) = sketch.entity(arc) else {
+            return Err(SketchError::WrongKind {
+                entity: arc,
+                found: sketch.entity_label(arc),
+                needed: "an arc",
+            });
+        };
+        let center = self.point(center)?;
+        let (start, end) = (self.point(start)?, self.point(end)?);
+        Ok((
+            LineHandle {
+                start: center,
+                end: start,
+                fallback: self.initial_direction(center, start),
+            },
+            LineHandle {
+                start: center,
+                end,
+                fallback: self.initial_direction(center, end),
+            },
+        ))
     }
 
     fn line_gap(
