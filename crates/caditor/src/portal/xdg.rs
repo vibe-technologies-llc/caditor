@@ -5,7 +5,10 @@ use std::{
     os::unix::ffi::{OsStrExt, OsStringExt},
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use zbus::{
@@ -35,6 +38,33 @@ const MISSING: [&str; 4] = [
 ];
 
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(0);
+static OWNER: OnceLock<ParentWindow> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParentWindow {
+    X11(u64),
+}
+
+impl ParentWindow {
+    fn identifier(self) -> String {
+        match self {
+            Self::X11(window) => format!("x11:{window:x}"),
+        }
+    }
+}
+
+pub fn own_dialogs(parent: ParentWindow) {
+    if OWNER.set(parent).is_err() {
+        log::debug!("file dialogs already belong to the first window");
+    }
+}
+
+fn parent_identifier() -> String {
+    OWNER
+        .get()
+        .map(|parent| parent.identifier())
+        .unwrap_or_default()
+}
 
 fn patterns(filter: &Filter) -> Vec<String> {
     filter
@@ -97,8 +127,9 @@ fn through_portal(request: &FileRequest) -> Result<Option<PathBuf>, DialogError>
         Mode::Save => "SaveFile",
     };
     let options = portal_options(request, &token);
+    let parent = parent_identifier();
     let handle: OwnedObjectPath = chooser
-        .call(method, &("", request.title.as_str(), options))
+        .call(method, &(parent.as_str(), request.title.as_str(), options))
         .map_err(classify)?;
     let mut responses = if handle.as_str() == expected {
         responses
@@ -318,6 +349,11 @@ mod tests {
             ["*.[dD][xX][fF]", "*.3[mM][fF]", "*.[sS][tT][pP]"]
         );
         assert_eq!(patterns(&Filter::any()), ["*"]);
+    }
+
+    #[test]
+    fn an_x11_parent_is_named_by_its_window_id_in_hexadecimal() {
+        assert_eq!(ParentWindow::X11(0x3a0_0007).identifier(), "x11:3a00007");
     }
 
     #[test]

@@ -363,9 +363,11 @@ the unblocked ones; the entry that does the unblocking comes before it.
   modal, and the opening modal is drawn before the unsaved-changes prompt, so closing the window
   during a load hides the prompt until the load ends. Give imports their own cancellable job. When a
   worker thread cannot be spawned the job runs on the UI thread.
-- [medium · medium] The portal file dialog request passes an empty parent window, so the dialog is
-  not tied to caditor's and can open behind it (Stop waiting in the status bar recovers the
-  window); X11 needs the window's id and Wayland an exported xdg-foreign handle.
+- [medium · medium] On Wayland the portal file dialog request passes an empty parent window, so the
+  dialog is not tied to caditor's and can open behind it (Stop waiting in the status bar recovers
+  the window); it needs an exported xdg-foreign handle, which winit does not offer and the raw
+  Wayland connection would need `unsafe` to reach (a third `unsafe` crate, as `windows.md` keeps
+  for Win32). X11 names the window already.
 - [medium · hard] Version history shows when a version was saved and after which change, but no
   preview of what it holds, and no way to keep a version from being thinned out.
 - [medium · hard] No user guide: Help has only the welcome, the command search, the keyboard

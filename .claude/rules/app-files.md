@@ -23,7 +23,10 @@ paths:
   under `catch_unwind` so a panic becomes its failure.
 - `portal.rs` holds the request and error types; `portal/xdg.rs` shows file dialogs on Unix
   through the XDG desktop portal over `zbus` (pure Rust, no `libdbus`) and falls back to `zenity`,
-  `portal/windows.rs` through rfd, owned by the main window. A dialog that cannot be shown is a
+  `portal/windows.rs` through rfd, owned by the main window. On X11 the portal request names the
+  main window as its parent (`x11:<id>`, `portal::own_dialogs` at startup) so the dialog stays
+  above it; on Wayland it passes none, since exporting an `xdg-foreign` handle needs the raw
+  Wayland connection, which only `unsafe` code could reach. A dialog that cannot be shown is a
   `DialogError` whose `notice` says what to install, never a silent Cancel.
 - While a native dialog is open (`Files::picking`, a ticket and its purpose) the window is blocked
   and the status bar says it is waiting, with Stop waiting (and Esc) abandoning the pick as a

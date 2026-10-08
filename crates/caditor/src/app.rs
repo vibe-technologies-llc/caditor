@@ -1064,6 +1064,23 @@ fn own_the_window(window: &Window) {
     }
 }
 
+#[cfg(unix)]
+fn own_the_window(window: &Window) {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let parent = match window.window_handle().map(|handle| handle.as_raw()) {
+        Ok(RawWindowHandle::Xlib(handle)) => crate::portal::ParentWindow::X11(handle.window),
+        Ok(RawWindowHandle::Xcb(handle)) => {
+            crate::portal::ParentWindow::X11(u64::from(handle.window.get()))
+        }
+        _ => {
+            log::debug!("file dialogs are not tied to the window, which is not an X11 window");
+            return;
+        }
+    };
+    crate::portal::own_dialogs(parent);
+}
+
 fn monitor_areas(event_loop: &ActiveEventLoop) -> Vec<MonitorArea> {
     event_loop
         .available_monitors()
@@ -1135,7 +1152,6 @@ impl Session {
         let layout = (preferences.window, preferences.panels);
         let mut overlay = Overlay::new(&window, &renderer);
         overlay.enable_accessibility(event_loop, &window, proxy);
-        #[cfg(windows)]
         own_the_window(&window);
         window.set_visible(true);
         let mut workspace = Workspace::with_preferences(preferences);

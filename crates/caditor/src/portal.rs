@@ -8,7 +8,7 @@ mod xdg;
 #[cfg(windows)]
 pub use self::windows::{choose, own_dialogs};
 #[cfg(unix)]
-pub use self::xdg::choose;
+pub use self::xdg::{ParentWindow, choose, own_dialogs};
 
 const TRY_AGAIN: &str = " Try again, or choose a file on this computer.";
 const ANY_EXTENSION: &str = "*";
