@@ -583,6 +583,106 @@ fn spaced_lines_become_parallel_at_the_distance_on_their_side() {
 }
 
 #[test]
+fn circles_keep_their_gap_outside_or_within_each_other() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let fixed = sketch.add_circle(Point2::ZERO, 10.0);
+    let middle = center(&sketch, fixed);
+    fix(&mut sketch, middle);
+    add(
+        &mut sketch,
+        Constraint::Radius {
+            entity: fixed,
+            value: mm(10.0),
+        },
+    );
+    let outside = sketch.add_circle(Point2::new(17.0, 0.0), 3.0);
+    let inside = sketch.add_circle(Point2::new(0.0, -5.0), 2.0);
+    let outside_centre = center(&sketch, outside);
+    let inside_centre = center(&sketch, inside);
+    for (circle, radius) in [(outside, 3.0), (inside, 2.0)] {
+        add(
+            &mut sketch,
+            Constraint::Radius {
+                entity: circle,
+                value: mm(radius),
+            },
+        );
+    }
+    add(
+        &mut sketch,
+        Constraint::HorizontalPoints(outside_centre, middle),
+    );
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(inside_centre, middle),
+    );
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: outside,
+            to: fixed,
+            value: mm(5.0),
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: fixed,
+            to: inside,
+            value: mm(1.5),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, outside_centre), Point2::new(18.0, 0.0));
+    assert_near(at(&solved, inside_centre), Point2::new(0.0, -6.5));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn a_circle_keeps_its_gap_from_a_line_on_its_side() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let circle = sketch.add_circle(Point2::new(4.0, -9.0), 2.0);
+    let centre = center(&sketch, circle);
+    add(
+        &mut sketch,
+        Constraint::Radius {
+            entity: circle,
+            value: mm(2.5),
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::VerticalPoints(centre, EntityId::ORIGIN),
+    );
+    let gap = add(
+        &mut sketch,
+        Constraint::Distance {
+            from: EntityId::HORIZONTAL_AXIS,
+            to: circle,
+            value: mm(3.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, centre), Point2::new(0.0, -5.5));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert_close(
+        solved
+            .geometry
+            .measured(sketch.constraint(gap).unwrap())
+            .unwrap(),
+        3.0,
+    );
+
+    sketch.set_dimension(gap, mm(0.0)).unwrap();
+    let touching = solve(&sketch).unwrap();
+    assert_near(at(&touching, centre), Point2::new(0.0, -2.5));
+}
+
+#[test]
 fn new_kinds_survive_degenerate_starts_without_nan() {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::new(3.0, 3.0), Point2::new(3.0, 3.0 + 1e-13));

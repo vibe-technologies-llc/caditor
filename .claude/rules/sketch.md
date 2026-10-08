@@ -38,9 +38,13 @@ paths:
 ## Constraints
 
 - Stable `ConstraintId`s; dimensions hold `Expression`s. A distance between two lines holds both
-  ends of the second at the distance from the first, so it implies parallel. An angle measures from
-  its first line's direction (or its reverse when `reversed`, which the UI sets so a chain's corner
-  is measured inside it) to its second's.
+  ends of the second at the distance from the first, so it implies parallel. A distance between
+  two circles or arcs is the gap between their full circles, apart or one within the other as
+  drawn (`Form::CircleGap`, the tangency equation offset by the value, so zero is tangent); from a
+  line to a circle or arc it is the gap on the side the centre lies (`Form::LineGap`). Measured,
+  a gap of crossing curves is zero. An angle measures from its first line's direction (or its
+  reverse when `reversed`, which the UI sets so a chain's corner is measured inside it) to its
+  second's.
 - `check_constraint` refuses constraints that do not fit the entity kinds; the UI asks before
   offering one. `restating` and `contradicting` (`relation.rs`) find the constraint already in the
   sketch that a new one repeats (same kind on the same items; a level line is the same as

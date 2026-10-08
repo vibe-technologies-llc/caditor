@@ -93,8 +93,8 @@ impl ConstraintTool {
             Self::Equal => "Give lines the same length, or circles and arcs the same radius",
             Self::Symmetric => "Mirror two points, or two lines, about a line or a point",
             Self::Distance => {
-                "Fix the distance between two points, a point and a line or circle, two lines, or \
-                 the ends of a line"
+                "Fix the distance between two points, lines or circles, any two of them, or the \
+                 ends of a line"
             }
             Self::HorizontalDistance => {
                 "Fix the horizontal distance between two points or the ends of a line"
@@ -129,9 +129,7 @@ impl ConstraintTool {
             Self::Symmetric => {
                 "Select two points or two lines, and the line or point to mirror them about"
             }
-            Self::Distance => {
-                "Select two points, a point and a line or circle, two lines, or one line"
-            }
+            Self::Distance => "Select one line, or two of points, lines and circles",
             Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
             Self::Radius | Self::Diameter => "Select one or more circles or arcs",
         }
@@ -226,7 +224,7 @@ impl ConstraintTool {
                 Self::Distance,
                 &[(from, Point), (to, Circular)]
                 | &[(to, Circular), (from, Point)]
-                | &[(from, Line), (to, Line)],
+                | &[(from, Line | Circular), (to, Line | Circular)],
             ) => Some(vec![measured(shown, |value| Constraint::Distance {
                 from,
                 to,
@@ -1296,6 +1294,22 @@ mod tests {
                 from: f.lone,
                 to: f.circle,
                 value: mm(23.045),
+            }])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Distance, &[f.circle, f.horizontal]),
+            Ok(vec![Constraint::Distance {
+                from: f.circle,
+                to: f.horizontal,
+                value: measure(0.75, Unit::Millimetre),
+            }])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Distance, &[f.arc, f.circle]),
+            Ok(vec![Constraint::Distance {
+                from: f.arc,
+                to: f.circle,
+                value: measure(22.75, Unit::Millimetre),
             }])
         );
         assert_eq!(

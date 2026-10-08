@@ -317,6 +317,19 @@ pub(crate) enum Form {
         side: f64,
         value: f64,
     },
+    CircleGap {
+        first: CircleHandle,
+        second: CircleHandle,
+        fallback: Vector2,
+        contact: Contact,
+        value: f64,
+    },
+    LineGap {
+        line: LineHandle,
+        circle: CircleHandle,
+        side: f64,
+        value: f64,
+    },
     OnSpline {
         point: PointHandle,
         spline: Arc<SplineHandle>,
@@ -381,7 +394,9 @@ impl Form {
             | Self::LineDistance { value, .. }
             | Self::Radius { value, .. }
             | Self::Offset { value, .. }
-            | Self::CircleDistance { value, .. } => Some(value),
+            | Self::CircleDistance { value, .. }
+            | Self::CircleGap { value, .. }
+            | Self::LineGap { value, .. } => Some(value),
             Self::SameX(a, b) => fixed_coordinate(a, b, |position| position.x),
             Self::SameY(a, b) => fixed_coordinate(a, b, |position| position.y),
             Self::OnLine { .. }
@@ -571,33 +586,44 @@ impl Form {
                 second,
                 fallback,
                 contact,
+            } => circle_tangency(
+                (first, second),
+                fallback,
+                contact,
+                values,
+                context,
+                gradient,
+            ),
+            Self::CircleGap {
+                first,
+                second,
+                fallback,
+                contact,
+                value,
             } => {
-                let direction = Direction::of(
-                    first.center.at(values) - second.center.at(values),
+                let tangency = circle_tangency(
+                    (first, second),
                     fallback,
+                    contact,
+                    values,
                     context,
+                    gradient,
                 );
-                first.center.push(gradient, direction.unit);
-                second.center.push(gradient, -direction.unit);
-                let (first_radius, second_radius) = (first.radius(values), second.radius(values));
                 match contact {
-                    Contact::External => {
-                        first.push_radius(values, context, gradient, -1.0);
-                        second.push_radius(values, context, gradient, -1.0);
-                        direction.length - (first_radius + second_radius)
-                    }
-                    Contact::Internal { larger_first } => {
-                        let larger_first =
-                            if (first_radius - second_radius).abs() > context.degenerate_length {
-                                (first_radius - second_radius).signum()
-                            } else {
-                                larger_first
-                            };
-                        first.push_radius(values, context, gradient, -larger_first);
-                        second.push_radius(values, context, gradient, larger_first);
-                        direction.length - larger_first * (first_radius - second_radius)
-                    }
+                    Contact::External => tangency - value,
+                    Contact::Internal { .. } => tangency + value,
                 }
+            }
+            Self::LineGap {
+                line,
+                circle,
+                side,
+                value,
+            } => {
+                let distance =
+                    signed_distance(circle.center, &line, values, context, gradient, side);
+                circle.push_radius(values, context, gradient, -1.0);
+                distance - circle.radius(values) - value
             }
             Self::EqualLength(a, b) => {
                 let (first, second) = (a.direction(values, context), b.direction(values, context));
@@ -734,6 +760,41 @@ fn fixed_coordinate(a: PointHandle, b: PointHandle, coordinate: fn(Point2) -> f6
             Some(coordinate(position))
         }
         (PointHandle::Variable(_), PointHandle::Variable(_)) => None,
+    }
+}
+
+fn circle_tangency(
+    (first, second): (CircleHandle, CircleHandle),
+    fallback: Vector2,
+    contact: Contact,
+    values: &[f64],
+    context: &Context,
+    gradient: &mut Gradient,
+) -> f64 {
+    let direction = Direction::of(
+        first.center.at(values) - second.center.at(values),
+        fallback,
+        context,
+    );
+    first.center.push(gradient, direction.unit);
+    second.center.push(gradient, -direction.unit);
+    let (first_radius, second_radius) = (first.radius(values), second.radius(values));
+    match contact {
+        Contact::External => {
+            first.push_radius(values, context, gradient, -1.0);
+            second.push_radius(values, context, gradient, -1.0);
+            direction.length - (first_radius + second_radius)
+        }
+        Contact::Internal { larger_first } => {
+            let larger_first = if (first_radius - second_radius).abs() > context.degenerate_length {
+                (first_radius - second_radius).signum()
+            } else {
+                larger_first
+            };
+            first.push_radius(values, context, gradient, -larger_first);
+            second.push_radius(values, context, gradient, larger_first);
+            direction.length - larger_first * (first_radius - second_radius)
+        }
     }
 }
 
@@ -941,6 +1002,32 @@ mod tests {
                 fallback: Vector2::X,
                 side: 1.0,
                 value: 2.0,
+            },
+            Form::CircleGap {
+                first: circle(6, 10),
+                second: arc(12, 14),
+                fallback: Vector2::X,
+                contact: Contact::External,
+                value: 0.75,
+            },
+            Form::CircleGap {
+                first: arc(4, 0),
+                second: circle(12, 11),
+                fallback: Vector2::X,
+                contact: Contact::Internal { larger_first: 1.0 },
+                value: 0.25,
+            },
+            Form::LineGap {
+                line: line(0, 2),
+                circle: arc(6, 8),
+                side: -1.0,
+                value: 1.5,
+            },
+            Form::LineGap {
+                line: line(0, 2),
+                circle: circle(6, 11),
+                side: 1.0,
+                value: 0.5,
             },
             Form::OnSpline {
                 point: point(14),

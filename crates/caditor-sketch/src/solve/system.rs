@@ -471,6 +471,19 @@ impl System {
                         vec![self.circle_distance(sketch, to, from, value)?]
                     }
                     (Role::Line, Role::Line) => self.line_spacing(sketch, from, to, value)?,
+                    (Role::Line, Role::Circular) => vec![self.line_gap(sketch, from, to, value)?],
+                    (Role::Circular, Role::Line) => vec![self.line_gap(sketch, to, from, value)?],
+                    (Role::Circular, Role::Circular) => {
+                        let (first, second) =
+                            (self.circle(sketch, from)?, self.circle(sketch, to)?);
+                        vec![Form::CircleGap {
+                            fallback: self.initial_direction(second.center, first.center),
+                            contact: self.initial_contact(&first, &second),
+                            first,
+                            second,
+                            value,
+                        }]
+                    }
                     _ => return Err(not_applicable(from, to)),
                 }
             }
@@ -532,6 +545,22 @@ impl System {
             circle,
             fallback: self.initial_direction(circle.center, point),
             side: if inside { -1.0 } else { 1.0 },
+            value,
+        })
+    }
+
+    fn line_gap(
+        &self,
+        sketch: &Sketch,
+        line: EntityId,
+        circle: EntityId,
+        value: f64,
+    ) -> Result<Form, SketchError> {
+        let (line, circle) = (self.line(sketch, line)?, self.circle(sketch, circle)?);
+        Ok(Form::LineGap {
+            side: self.initial_side(circle.center, &line),
+            line,
+            circle,
             value,
         })
     }

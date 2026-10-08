@@ -137,18 +137,7 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
             (Some(a), Some(b)) => Some(Measured::Points(a, b)),
             (Some(point), None) => point_to_curve(sketch, point, to),
             (None, Some(point)) => point_to_curve(sketch, point, from),
-            (None, None) => {
-                let (anchor, other) = if to.is_reference() {
-                    (to, from)
-                } else {
-                    (from, to)
-                };
-                let (start, end) = sketch.line_endpoints(other)?;
-                Some(Measured::PointToLine(
-                    (start + end) / 2.0,
-                    LineSpan::of(sketch, anchor)?,
-                ))
-            }
+            (None, None) => curve_to_curve(sketch, from, to),
         },
         Constraint::HorizontalDistance { from, to, .. } => Some(Measured::Aligned {
             from: sketch.point(from)?,
@@ -210,6 +199,51 @@ fn point_to_curve(sketch: &Sketch, point: Point2, curve: EntityId) -> Option<Mea
         center,
         radius,
     })
+}
+
+fn curve_to_curve(sketch: &Sketch, from: EntityId, to: EntityId) -> Option<Measured> {
+    match (sketch.circle(from), sketch.circle(to)) {
+        (None, None) => {
+            let (anchor, other) = if to.is_reference() {
+                (to, from)
+            } else {
+                (from, to)
+            };
+            let (start, end) = sketch.line_endpoints(other)?;
+            Some(Measured::PointToLine(
+                (start + end) / 2.0,
+                LineSpan::of(sketch, anchor)?,
+            ))
+        }
+        (Some(circle), None) => circle_to_line(circle, LineSpan::of(sketch, to)?),
+        (None, Some(circle)) => circle_to_line(circle, LineSpan::of(sketch, from)?),
+        (Some((first, first_radius)), Some((second, second_radius))) => {
+            let (center, radius, inner, inner_radius) = if first_radius >= second_radius {
+                (first, first_radius, second, second_radius)
+            } else {
+                (second, second_radius, first, first_radius)
+            };
+            let outward = (inner - center).try_normalize().unwrap_or(Vector2::X);
+            let between = inner.distance(center);
+            let near_side = if between > radius + inner_radius {
+                -inner_radius
+            } else {
+                inner_radius
+            };
+            Some(Measured::PointToCircle {
+                point: inner + outward * near_side,
+                center,
+                radius,
+            })
+        }
+    }
+}
+
+fn circle_to_line((center, radius): (Point2, f64), line: LineSpan) -> Option<Measured> {
+    let toward = (line.foot(center) - center)
+        .try_normalize()
+        .unwrap_or(line.direction.perp());
+    Some(Measured::PointToLine(center + toward * radius, line))
 }
 
 fn leader(sketch: &Sketch, entity: EntityId) -> Option<(Point2, f64, Vector2)> {
@@ -1173,6 +1207,48 @@ mod tests {
         assert_close(squarely.arrows[0].tip, Vector2::new(130.0, 280.0));
         assert_close(squarely.arrows[1].tip, Vector2::new(150.0, 280.0));
         assert_close(squarely.label, Vector2::new(140.0, 280.0));
+    }
+
+    #[test]
+    fn gaps_between_circles_and_from_a_line_run_between_their_nearest_points() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let large = sketch.add_circle(Point2::ZERO, 10.0);
+        let apart = sketch.add_circle(Point2::new(20.0, 0.0), 4.0);
+        let within = sketch.add_circle(Point2::new(0.0, 5.0), 2.0);
+        let line = sketch.add_line(Point2::new(-5.0, 30.0), Point2::new(5.0, 30.0));
+        let gap = |from, to| {
+            measured(
+                &sketch,
+                &Constraint::Distance {
+                    from,
+                    to,
+                    value: caditor_expression::Expression::Number(1.0),
+                },
+            )
+            .unwrap()
+        };
+
+        assert_eq!(
+            gap(apart, large),
+            Measured::PointToCircle {
+                point: Point2::new(16.0, 0.0),
+                center: Point2::ZERO,
+                radius: 10.0,
+            }
+        );
+        assert_eq!(
+            gap(large, within),
+            Measured::PointToCircle {
+                point: Point2::new(0.0, 7.0),
+                center: Point2::ZERO,
+                radius: 10.0,
+            }
+        );
+        let Measured::PointToLine(point, span) = gap(line, large) else {
+            panic!("expected a gap to the line");
+        };
+        assert_close(point, Point2::new(0.0, 10.0));
+        assert_close(span.foot(point), Point2::new(0.0, 30.0));
     }
 
     #[test]

@@ -371,8 +371,23 @@ impl Sketch {
                 let (start, end) = self.line_endpoints(other)?;
                 self.distance_to_line((start + end) / 2.0, anchor)
             }
+            (Role::Line, Role::Circular) => self.line_to_circle(from, to),
+            (Role::Circular, Role::Line) => self.line_to_circle(to, from),
+            (Role::Circular, Role::Circular) => {
+                let ((first, first_radius), (second, second_radius)) =
+                    (self.circle(from)?, self.circle(to)?);
+                let between = first.distance(second);
+                let apart = between - first_radius - second_radius;
+                let within = (first_radius - second_radius).abs() - between;
+                Some(apart.max(within).max(0.0))
+            }
             _ => None,
         }
+    }
+
+    fn line_to_circle(&self, line: EntityId, circle: EntityId) -> Option<f64> {
+        let (center, radius) = self.circle(circle)?;
+        Some((self.distance_to_line(center, line)? - radius).max(0.0))
     }
 
     fn distance_to_line(&self, point: Point2, line: EntityId) -> Option<f64> {
@@ -684,12 +699,12 @@ impl Sketch {
                     Err(SketchError::NotFinite)
                 }
             }
-            Constraint::Distance { from, to, .. } => {
-                if (self.role(from), self.role(to)) == (Some(Role::Line), Some(Role::Line)) {
-                    return self.check_not_only_reference(&entities);
+            Constraint::Distance { from, to, .. } => match (self.role(from), self.role(to)) {
+                (Some(Role::Line | Role::Circular), Some(Role::Line | Role::Circular)) => {
+                    self.check_not_only_reference(&entities)
                 }
-                self.check_point_on_curve(constraint, from, to)
-            }
+                _ => self.check_point_on_curve(constraint, from, to),
+            },
             Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => self
                 .expect(entity, &[Role::Circular], "a circle or an arc")
                 .map(|_| ()),
@@ -1412,6 +1427,21 @@ mod tests {
                 to: start,
                 value: Expression::Number(1.0),
             },
+            Constraint::Distance {
+                from: circle,
+                to: line,
+                value: Expression::Number(1.0),
+            },
+            Constraint::Distance {
+                from: arc,
+                to: circle,
+                value: Expression::Number(1.0),
+            },
+            Constraint::Distance {
+                from: EntityId::HORIZONTAL_AXIS,
+                to: circle,
+                value: Expression::Number(1.0),
+            },
         ] {
             assert_eq!(sketch.check_constraint(&allowed), Ok(()), "{allowed:?}");
         }
@@ -1469,6 +1499,7 @@ mod tests {
         let arc = sketch.add_arc(Point2::new(5.0, 5.0), Point2::new(6.0, 5.0), Point2::Y);
         let lone = sketch.add_point(Point2::new(3.0, 4.0));
         let center = sketch.center_of(circle).unwrap();
+        let spline = sketch.add_spline(&[Point2::ZERO, Point2::new(1.0, 3.0), Point2::X]);
         let value = Expression::Number(1.0);
         let refused = |constraint: Constraint| {
             sketch
@@ -1557,11 +1588,11 @@ mod tests {
         );
         assert_eq!(
             refused(Constraint::Distance {
-                from: circle,
+                from: spline,
                 to: line,
                 value: value.clone()
             }),
-            "Distance does not apply to Circle 7 and Line 2"
+            "Distance does not apply to Spline 16 and Line 2"
         );
         assert_eq!(
             refused(Constraint::Diameter {
