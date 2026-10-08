@@ -11,6 +11,7 @@ use crate::{
     curve::{ArcGeometry, BSpline, Faceting},
     entity::{Entity, Role},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
+    solve::{joined_at_end, not_joined, straight_spline},
 };
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -49,6 +50,12 @@ pub enum SketchError {
     },
     #[error("{constraint} does not apply to {first} and {second}")]
     NotApplicable {
+        constraint: &'static str,
+        first: String,
+        second: String,
+    },
+    #[error("{constraint} needs {first} and {second} to share an end")]
+    NotJoined {
         constraint: &'static str,
         first: String,
         second: String,
@@ -291,6 +298,7 @@ impl Sketch {
             | Constraint::Parallel(a, b)
             | Constraint::Perpendicular(a, b)
             | Constraint::Tangent(a, b)
+            | Constraint::Curvature(a, b)
             | Constraint::Equal(a, b)
             | Constraint::Concentric(a, b)
             | Constraint::Collinear(a, b) => format!("{kind} {} and {}", label(a), label(b)),
@@ -353,6 +361,7 @@ impl Sketch {
             | Constraint::Parallel(..)
             | Constraint::Perpendicular(..)
             | Constraint::Tangent(..)
+            | Constraint::Curvature(..)
             | Constraint::Equal(..)
             | Constraint::Midpoint { .. }
             | Constraint::Concentric(..)
@@ -368,6 +377,8 @@ impl Sketch {
             (Role::Point, Role::Point) => Some(self.point(from)?.distance(self.point(to)?)),
             (Role::Point, Role::Line) => self.distance_to_line(self.point(from)?, to),
             (Role::Line, Role::Point) => self.distance_to_line(self.point(to)?, from),
+            (Role::Point, Role::Spline) => self.distance_to_spline(self.point(from)?, to),
+            (Role::Spline, Role::Point) => self.distance_to_spline(self.point(to)?, from),
             (Role::Point, Role::Circular) => self.distance_to_circle(self.point(from)?, to),
             (Role::Circular, Role::Point) => self.distance_to_circle(self.point(to)?, from),
             (Role::Line, Role::Line) => {
@@ -405,6 +416,10 @@ impl Sketch {
             None => Point2::ZERO,
         };
         Some(direction.perp_dot(point - anchor).abs())
+    }
+
+    fn distance_to_spline(&self, point: Point2, spline: EntityId) -> Option<f64> {
+        Some(point.distance(self.closest_on_curve(spline, point)?))
     }
 
     fn distance_to_circle(&self, point: Point2, circle: EntityId) -> Option<f64> {
@@ -662,12 +677,35 @@ impl Sketch {
                 let kinds = [Role::Line, Role::Circular, Role::Spline];
                 let first = self.expect(a, &kinds, needed)?;
                 let second = self.expect(b, &kinds, needed)?;
-                let same_straight_or_spline =
-                    first == second && matches!(first, Role::Line | Role::Spline);
-                if same_straight_or_spline {
+                match (first, second) {
+                    (Role::Line, Role::Line) => Err(self.not_applicable(constraint, a, b)),
+                    (Role::Spline, Role::Spline) if !joined_at_end(self, a, b) => {
+                        Err(not_joined(self, constraint, a, b))
+                    }
+                    _ => Ok(()),
+                }
+            }
+            Constraint::Curvature(a, b) => {
+                let needed = "a line, a circle, an arc or a spline";
+                let kinds = [Role::Line, Role::Circular, Role::Spline];
+                let first = self.expect(a, &kinds, needed)?;
+                let second = self.expect(b, &kinds, needed)?;
+                if first != Role::Spline && second != Role::Spline {
                     return Err(self.not_applicable(constraint, a, b));
                 }
-                Ok(())
+                for (entity, role) in [(a, first), (b, second)] {
+                    let straight = matches!(
+                        self.entity(entity),
+                        Some(Entity::Spline { control_points }) if control_points.len() < 3
+                    );
+                    if role == Role::Spline && straight {
+                        return Err(straight_spline(self, entity));
+                    }
+                }
+                if !joined_at_end(self, a, b) {
+                    return Err(not_joined(self, constraint, a, b));
+                }
+                self.check_not_only_reference(&entities)
             }
             Constraint::Equal(a, b) => {
                 let needed = "a line, a circle or an arc";
@@ -719,6 +757,14 @@ impl Sketch {
             Constraint::Distance { from, to, .. } => match (self.role(from), self.role(to)) {
                 (Some(Role::Line | Role::Circular), Some(Role::Line | Role::Circular)) => {
                     self.check_not_only_reference(&entities)
+                }
+                (Some(Role::Point), Some(Role::Spline)) => {
+                    self.check_not_only_reference(&entities)?;
+                    self.check_not_own_point(from, to)
+                }
+                (Some(Role::Spline), Some(Role::Point)) => {
+                    self.check_not_only_reference(&entities)?;
+                    self.check_not_own_point(to, from)
                 }
                 _ => self.check_point_on_curve(constraint, from, to),
             },
@@ -1410,7 +1456,7 @@ mod tests {
             "it uses Spline 14 twice"
         );
         let other_spline = Entity::Spline {
-            control_points: vec![start, control_points[1]],
+            control_points: vec![start, endpoints(&sketch, other).0],
         };
         let mut two_splines = sketch.clone();
         two_splines
@@ -1421,7 +1467,7 @@ mod tests {
                 .check_constraint(&Constraint::Tangent(spline, EntityId::from_raw(30)))
                 .unwrap_err()
                 .to_string(),
-            "Tangent does not apply to Spline 14 and Spline 30"
+            "Tangent needs Spline 14 and Spline 30 to share an end"
         );
         assert_eq!(
             refused(Constraint::Horizontal(EntityId::HORIZONTAL_AXIS)),

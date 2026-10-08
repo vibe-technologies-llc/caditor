@@ -120,8 +120,9 @@ comes last.
 
 ## Sketching
 
-- [medium · medium] Constraint kinds missing: distance to a spline; angle to an arc; equal
-  splines; spline–spline tangency; curvature continuity.
+- [medium · medium] Constraint kinds missing: angle to an arc; equal splines; tangency between two
+  splines touching away from their ends (only end-to-end joints take `Tangent` and `Curvature`);
+  distance between a spline and a line or circle.
 - [medium · hard] Tools missing: ellipse (a new entity kind across the solver, the kernel's 2D
   profile curves, which have no ellipse although its 3D curves do, and the file format),
   rectangular and circular patterns, text, and fit-point,

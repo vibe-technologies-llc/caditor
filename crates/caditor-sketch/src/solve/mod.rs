@@ -23,6 +23,7 @@ use std::{
 use caditor_expression::{EvalError, ParameterId, Quantity};
 use caditor_geometry::Point2;
 
+pub(crate) use crate::solve::spline::{joined_at_end, not_joined, straight_spline};
 pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
 use crate::{
     id::{ConstraintId, EntityId},

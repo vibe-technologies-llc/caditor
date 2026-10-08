@@ -195,6 +195,7 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
         | Constraint::Parallel(..)
         | Constraint::Perpendicular(..)
         | Constraint::Tangent(..)
+        | Constraint::Curvature(..)
         | Constraint::Equal(..)
         | Constraint::Midpoint { .. }
         | Constraint::Concentric(..)
@@ -207,6 +208,12 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
 fn point_to_curve(sketch: &Sketch, point: Point2, curve: EntityId) -> Option<Measured> {
     if let Some(line) = LineSpan::of(sketch, curve) {
         return Some(Measured::PointToLine(point, line));
+    }
+    if sketch.spline(curve).is_some() {
+        return Some(Measured::Points(
+            point,
+            sketch.closest_on_curve(curve, point)?,
+        ));
     }
     let (center, radius) = sketch.circle(curve)?;
     Some(Measured::PointToCircle {
@@ -771,6 +778,7 @@ pub enum GlyphKind {
     Parallel,
     Perpendicular,
     Tangent,
+    Curvature,
     Equal,
     Coincident,
     OnCurve,
@@ -804,6 +812,7 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
         Constraint::Parallel(a, b) => on_each(GlyphKind::Parallel, [a, b]),
         Constraint::Perpendicular(a, b) => on_each(GlyphKind::Perpendicular, [a, b]),
         Constraint::Tangent(a, b) => on_each(GlyphKind::Tangent, [a, b]),
+        Constraint::Curvature(a, b) => on_each(GlyphKind::Curvature, [a, b]),
         Constraint::Equal(a, b) => on_each(GlyphKind::Equal, [a, b]),
         Constraint::Coincident(a, b) => {
             let is_point = |entity| sketch.point(entity).is_some();

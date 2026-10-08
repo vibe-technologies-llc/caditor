@@ -53,8 +53,10 @@ paths:
 
 ## Spline parameters (`solve/spline.rs`)
 
-- A point on a spline, and a tangent between a spline and a curve not sharing one of its end
-  points, get a parameter of their own along the spline: an extra variable after the geometry's,
+- A point on a spline, a point at a distance from one (`Form::SplineFoot`, square to it there, and
+  `Form::SplineDistance`, the signed distance along its normal on the side the point started), and
+  a tangent between a spline and a curve not sharing one of its end points, get a parameter of
+  their own along the spline: an extra variable after the geometry's,
   counted in the degrees of freedom, never perturbed, clamped to the spline's range (a point held
   beyond the end of a spline that cannot move is a conflict), kept in the `SolveMemo`.
 - It starts at the closest point (or the stationary point of the distance to the other curve),
@@ -63,6 +65,16 @@ paths:
   second derivative, never a fixed fallback that could line up by chance.
 - A step pushing a parameter already at an end of its range further out is retaken with it held, so
   the rest moves instead of the step being spent on the clamp.
+
+## Curvature at a spline's end
+
+- A clamped spline's curvature at its end is `end_factor(count)` (from its knots) times the cross
+  product of its first two legs over the first leg's length cubed, at either end with the legs
+  taken from that end; a test checks it against the spline's own derivatives.
+- `Curvature` with a line holds the first two legs parallel; with a circle or arc,
+  `Form::EndCurvature` holds the curvature times the radius at the side the centre lay on at the
+  start; between splines, `Form::MatchedCurvature` holds the two curvatures, each measured going
+  into its spline, opposite.
 
 ## Constraint state
 

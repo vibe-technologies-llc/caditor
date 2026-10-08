@@ -31,6 +31,7 @@ pub const ARC_LABEL: &str = "Arc";
 pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
 pub const OFF_RIBBON: [Tool; 1] = [Tool::Chamfer];
+pub const OFF_RIBBON_CONSTRAINTS: [ConstraintTool; 1] = [ConstraintTool::Curvature];
 pub const DELETE_LABEL: &str = "Delete";
 pub const MOVE_LABEL: &str = "Move";
 pub const SELECT_ALL_LABEL: &str = "Select all";
@@ -772,11 +773,18 @@ impl Bar<'_, '_> {
     }
 
     fn constraint_buttons(&mut self, ui: &mut Ui, dimensions: bool, columns: usize) -> f32 {
-        let offers: Vec<&Offer> = self
-            .offers
+        let offers = self.offers;
+        let (off_ribbon, offers): (Vec<&Offer>, Vec<&Offer>) = offers
             .iter()
             .filter(|(tool, _)| tool.is_dimension() == dimensions)
-            .collect();
+            .partition(|(tool, _)| OFF_RIBBON_CONSTRAINTS.contains(tool));
+        for (tool, offer) in off_ribbon {
+            if self.commands.invoke(Command::Constraint(*tool), offer)
+                && let Ok(constraints) = offer
+            {
+                self.request.constraints = Some((*tool, constraints.clone()));
+            }
+        }
         offers
             .chunks(columns.max(1))
             .map(|row| {

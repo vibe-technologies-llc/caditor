@@ -33,6 +33,7 @@ pub enum ConstraintTool {
     Parallel,
     Perpendicular,
     Tangent,
+    Curvature,
     Equal,
     Symmetric,
     Distance,
@@ -53,7 +54,7 @@ enum Shape {
 
 type Item = (EntityId, Shape);
 
-all_variants!(ConstraintTool: Coincident, Midpoint, Concentric, Collinear, Fix, Horizontal, Vertical, Parallel, Perpendicular, Tangent, Equal, Symmetric, Distance, HorizontalDistance, VerticalDistance, Angle, Radius, Diameter);
+all_variants!(ConstraintTool: Coincident, Midpoint, Concentric, Collinear, Fix, Horizontal, Vertical, Parallel, Perpendicular, Tangent, Curvature, Equal, Symmetric, Distance, HorizontalDistance, VerticalDistance, Angle, Radius, Diameter);
 
 impl ConstraintTool {
     pub fn label(self) -> &'static str {
@@ -68,6 +69,7 @@ impl ConstraintTool {
             Self::Parallel => "Parallel",
             Self::Perpendicular => "Perpendicular",
             Self::Tangent => "Tangent",
+            Self::Curvature => "Curvature",
             Self::Equal => "Equal",
             Self::Symmetric => "Symmetric",
             Self::Distance => "Distance",
@@ -94,11 +96,15 @@ impl ConstraintTool {
                  through its centre"
             }
             Self::Tangent => "Make a line and a curve, or two curves, touch smoothly",
+            Self::Curvature => {
+                "Make a spline run on from a line, arc or spline it shares an end with, tangent \
+                 and bending alike, so the joint shows no kink in its curvature"
+            }
             Self::Equal => "Give lines the same length, or circles and arcs the same radius",
             Self::Symmetric => "Mirror two points, lines, circles or arcs about a line or a point",
             Self::Distance => {
-                "Fix the distance between two points, lines or circles, any two of them, the ends \
-                 of a line, or the length of an arc"
+                "Fix the distance between two points, lines or circles, any two of them, a point \
+                 and a spline, the ends of a line, or the length of an arc"
             }
             Self::HorizontalDistance => {
                 "Fix the horizontal distance between two points or the ends of a line"
@@ -132,12 +138,15 @@ impl ConstraintTool {
             Self::Tangent => {
                 "Select a line, circle or arc, and one or more circles, arcs or splines to touch it"
             }
+            Self::Curvature => "Select a spline and the line, arc or spline at one of its ends",
             Self::Equal => "Select two or more lines, or two or more circles or arcs",
             Self::Symmetric => {
                 "Select two points, lines, circles or arcs, and the line or point to mirror them \
                  about"
             }
-            Self::Distance => "Select one line or arc, or two of points, lines and circles",
+            Self::Distance => {
+                "Select one line or arc, two of points, lines and circles, or a point and a spline"
+            }
             Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
             Self::Radius | Self::Diameter => "Select one or more circles or arcs",
         }
@@ -224,6 +233,13 @@ impl ConstraintTool {
             ) => Some(vec![Constraint::Perpendicular(line, curve)]),
             (Self::Perpendicular, _) => chained(items, Line, Constraint::Perpendicular),
             (Self::Tangent, _) => touching(items),
+            (Self::Curvature, &[(a, first), (b, second)])
+                if (first == Shape::Spline || second == Shape::Spline)
+                    && first != Shape::Point
+                    && second != Shape::Point =>
+            {
+                Some(vec![Constraint::Tangent(a, b), Constraint::Curvature(a, b)])
+            }
             (Self::Equal, _) => chained(items, Line, Constraint::Equal)
                 .or_else(|| chained(items, Circular, Constraint::Equal)),
             (Self::Symmetric, _) => symmetric(definition, shown, items),
@@ -233,6 +249,14 @@ impl ConstraintTool {
                 };
                 let (from, to) = shown.line_endpoints(line)?;
                 Some(vec![distance(start, end, from.distance(to))])
+            }
+            (Self::Distance, &[(point, Point), (spline, Shape::Spline)])
+            | (Self::Distance, &[(spline, Shape::Spline), (point, Point)]) => {
+                Some(vec![measured(shown, |value| Constraint::Distance {
+                    from: point,
+                    to: spline,
+                    value,
+                })?])
             }
             (Self::Distance, &[(a, Point), (b, Point)]) => {
                 let length = shown.point(a)?.distance(shown.point(b)?);

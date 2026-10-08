@@ -17,6 +17,7 @@ pub enum Constraint {
     Parallel(EntityId, EntityId),
     Perpendicular(EntityId, EntityId),
     Tangent(EntityId, EntityId),
+    Curvature(EntityId, EntityId),
     Equal(EntityId, EntityId),
     Midpoint {
         point: EntityId,
@@ -85,6 +86,7 @@ impl Constraint {
             Self::Parallel(..) => "Parallel",
             Self::Perpendicular(..) => "Perpendicular",
             Self::Tangent(..) => "Tangent",
+            Self::Curvature(..) => "Curvature",
             Self::Equal(..) => "Equal",
             Self::Midpoint { .. } => "Midpoint",
             Self::Concentric(..) => "Concentric",
@@ -117,6 +119,7 @@ impl Constraint {
             | Self::Parallel(a, b)
             | Self::Perpendicular(a, b)
             | Self::Tangent(a, b)
+            | Self::Curvature(a, b)
             | Self::Equal(a, b)
             | Self::Midpoint { point: a, curve: b }
             | Self::Concentric(a, b)
@@ -151,6 +154,7 @@ impl Constraint {
             | Self::Parallel(..)
             | Self::Perpendicular(..)
             | Self::Tangent(..)
+            | Self::Curvature(..)
             | Self::Equal(..)
             | Self::Midpoint { .. }
             | Self::Concentric(..)
@@ -208,6 +212,7 @@ impl Constraint {
             | Self::Parallel(..)
             | Self::Perpendicular(..)
             | Self::Tangent(..)
+            | Self::Curvature(..)
             | Self::Equal(..)
             | Self::Midpoint { .. }
             | Self::Concentric(..)
@@ -241,6 +246,7 @@ impl Constraint {
             | Self::Parallel(a, b)
             | Self::Perpendicular(a, b)
             | Self::Tangent(a, b)
+            | Self::Curvature(a, b)
             | Self::Equal(a, b)
             | Self::Midpoint { point: a, curve: b }
             | Self::Concentric(a, b)

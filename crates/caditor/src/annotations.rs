@@ -919,6 +919,7 @@ pub fn glyph_letter(kind: GlyphKind) -> Option<&'static str> {
         GlyphKind::Horizontal => Some("H"),
         GlyphKind::Vertical => Some("V"),
         GlyphKind::Equal => Some("="),
+        GlyphKind::Curvature => Some("κ"),
         GlyphKind::Parallel
         | GlyphKind::Perpendicular
         | GlyphKind::Tangent
@@ -979,6 +980,7 @@ fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Co
         GlyphKind::Horizontal
         | GlyphKind::Vertical
         | GlyphKind::Equal
+        | GlyphKind::Curvature
         | GlyphKind::Parallel
         | GlyphKind::Perpendicular
         | GlyphKind::Tangent
@@ -1081,6 +1083,7 @@ fn paint_glyph(painter: &egui::Painter, center: Pos2, kind: GlyphKind, color: Co
         GlyphKind::Horizontal
         | GlyphKind::Vertical
         | GlyphKind::Equal
+        | GlyphKind::Curvature
         | GlyphKind::Coincident
         | GlyphKind::OnCurve => {}
     }
@@ -1104,6 +1107,7 @@ mod tests {
             GlyphKind::Parallel,
             GlyphKind::Perpendicular,
             GlyphKind::Tangent,
+            GlyphKind::Curvature,
             GlyphKind::Equal,
             GlyphKind::Coincident,
             GlyphKind::OnCurve,

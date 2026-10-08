@@ -10,6 +10,7 @@ const MIN_SPLINE_SAMPLES: usize = 256;
 const BISECTION_STEPS: usize = 100;
 const NEWTON_STEPS: usize = 30;
 const NEWTON_SETTLED: f64 = 1e-6;
+const CLOSEST_REFINEMENTS: usize = 16;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Shape {
@@ -65,20 +66,7 @@ impl Shape {
                     end
                 }
             }
-            Self::Spline(spline) => {
-                let samples = spline_samples(spline);
-                let points: Vec<Point2> = (0..=samples)
-                    .map(|index| spline.point_at(index as f64 / samples as f64))
-                    .collect();
-                points
-                    .windows(2)
-                    .filter_map(|pair| match *pair {
-                        [a, b] => Some(closest_on_segment(a, b, to)),
-                        _ => None,
-                    })
-                    .min_by(|a, b| a.distance(to).total_cmp(&b.distance(to)))
-                    .unwrap_or_else(|| spline.point_at(0.0))
-            }
+            Self::Spline(spline) => closest_on_spline(spline, to),
         }
     }
 }
@@ -210,6 +198,50 @@ fn circle_circle(
     }
     let across = toward.perp() * height;
     vec![base + across, base - across]
+}
+
+fn closest_on_spline(spline: &BSpline, to: Point2) -> Point2 {
+    let samples = spline_samples(spline);
+    let step = 1.0 / samples as f64;
+    let rough = (0..samples)
+        .map(|index| {
+            let (from, until) = (index as f64 * step, (index + 1) as f64 * step);
+            let (start, end) = (spline.point_at(from), spline.point_at(until));
+            let along = end - start;
+            let fraction = if along.length_squared() > 0.0 {
+                ((to - start).dot(along) / along.length_squared()).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            from + fraction * step
+        })
+        .min_by(|a, b| {
+            spline
+                .point_at(*a)
+                .distance(to)
+                .total_cmp(&spline.point_at(*b).distance(to))
+        })
+        .unwrap_or(0.0);
+    let mut parameter = rough;
+    for _ in 0..CLOSEST_REFINEMENTS {
+        let [tangent, bend] = spline.derivatives(parameter);
+        let offset = spline.point_at(parameter) - to;
+        let slope = tangent.dot(tangent) + offset.dot(bend);
+        if !(slope > 0.0 && slope.is_finite()) {
+            break;
+        }
+        let next = (parameter - offset.dot(tangent) / slope).clamp(0.0, 1.0);
+        if (next - parameter).abs() <= f64::EPSILON {
+            break;
+        }
+        parameter = next;
+    }
+    let (refined, first) = (spline.point_at(parameter), spline.point_at(rough));
+    if refined.distance(to) <= first.distance(to) {
+        refined
+    } else {
+        first
+    }
 }
 
 fn spline_samples(spline: &BSpline) -> usize {

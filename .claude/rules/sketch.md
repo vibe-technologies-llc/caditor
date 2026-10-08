@@ -75,6 +75,15 @@ paths:
   dimension at solve with its own message.
 - `Sketch::measured` gives a dimension's drawn value: new dimensions start from it and unreadable
   stored ones fall back to it.
+- `Tangent` between two splines needs them to share an end (end points joined directly or by
+  `Coincident`; refused otherwise as `NotJoined`, and a stored one failing the solve the same way):
+  the two first legs at the joint are parallel.
+- `Curvature(a, b)` holds a spline's curvature at one of its ends equal to that of the line, arc,
+  circle or spline its end lies on (another spline: end to end), so a smooth joint shows no kink in
+  its curvature. It holds the curvature only; the app adds `Tangent` with it. A spline of two
+  control points is straight and refused (`WrongKind`), and so is a pair not sharing an end.
+- `Distance` from a point to a spline is measured square to the spline, from its closest point
+  (`Sketch::closest_on_curve`, refined by Newton on the spline's parameter).
 - `Midpoint { point, curve }` takes a line or an arc, never a circle. On an arc it is two
   single-branch equations (`Form::OnBisector`, the point on the chord's perpendicular bisector, and
   `Form::ArcBulge`, its signed distance from the centre across the chord equal to the radius on the

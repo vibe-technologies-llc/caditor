@@ -910,9 +910,10 @@ pub(crate) enum ConstraintKindRecord {
         arc: u64,
         value: String,
     },
+    Curvature([u64; 2]),
 }
 
-const CONSTRAINT_KINDS: [&str; 22] = [
+const CONSTRAINT_KINDS: [&str; 23] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -935,6 +936,7 @@ const CONSTRAINT_KINDS: [&str; 22] = [
     "diameter",
     "arc_length",
     "sweep",
+    "curvature",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -2347,6 +2349,7 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
             arc: arc.raw(),
             value: value.to_stored_text(),
         },
+        Constraint::Curvature(a, b) => ConstraintKindRecord::Curvature(pair(a, b)),
     }
 }
 
@@ -4242,6 +4245,10 @@ fn constraint_from_record(
             let arc = entity(*arc);
             let value = value(text, DrawnValue::Sweep(arc))?;
             Constraint::Sweep { arc, value }
+        }
+        ConstraintKindRecord::Curvature(ids) => {
+            let (a, b) = pair(*ids);
+            Constraint::Curvature(a, b)
         }
     })
 }

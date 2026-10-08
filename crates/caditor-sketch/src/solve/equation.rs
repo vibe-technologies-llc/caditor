@@ -133,6 +133,56 @@ pub(crate) struct SplineHandle {
     pub knots: Vec<f64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SplineEndHandle {
+    pub end: PointHandle,
+    pub next: PointHandle,
+    pub after: PointHandle,
+    pub factor: f64,
+}
+
+struct EndBend {
+    value: f64,
+    end: Vector2,
+    next: Vector2,
+    after: Vector2,
+}
+
+impl SplineEndHandle {
+    fn bend(&self, values: &[f64], context: &Context) -> EndBend {
+        let end = self.end.at(values);
+        let next = self.next.at(values);
+        let first = next - end;
+        let second = self.after.at(values) - next;
+        let length = first.length();
+        if !(length > context.degenerate_length && length.is_finite()) {
+            return EndBend {
+                value: 0.0,
+                end: Vector2::ZERO,
+                next: Vector2::ZERO,
+                after: Vector2::ZERO,
+            };
+        }
+        let cube = length.powi(3);
+        let value = self.factor * first.perp_dot(second) / cube;
+        let by_first =
+            -second.perp() * (self.factor / cube) - first * (3.0 * value / (length * length));
+        let by_second = first.perp() * (self.factor / cube);
+        EndBend {
+            value,
+            end: -by_first,
+            next: by_first - by_second,
+            after: by_second,
+        }
+    }
+
+    fn push(&self, gradient: &mut Gradient, bend: &EndBend, factor: f64) {
+        self.end.push(gradient, bend.end * factor);
+        self.next.push(gradient, bend.next * factor);
+        self.after.push(gradient, bend.after * factor);
+    }
+}
+
 struct SplineAt {
     point: Point2,
     tangent: Vector2,
@@ -364,6 +414,26 @@ pub(crate) enum Form {
         circle: CircleHandle,
         fallbacks: (Vector2, Vector2),
     },
+    SplineFoot {
+        point: PointHandle,
+        spline: Arc<SplineHandle>,
+        parameter: usize,
+        fallback: Vector2,
+    },
+    SplineDistance {
+        point: PointHandle,
+        spline: Arc<SplineHandle>,
+        parameter: usize,
+        fallback: Vector2,
+        side: f64,
+        value: f64,
+    },
+    EndCurvature {
+        end: SplineEndHandle,
+        circle: CircleHandle,
+        side: f64,
+    },
+    MatchedCurvature(SplineEndHandle, SplineEndHandle),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -402,7 +472,8 @@ impl Form {
             | Self::CircleDistance { value, .. }
             | Self::CircleGap { value, .. }
             | Self::LineGap { value, .. }
-            | Self::ArcLength { value, .. } => Some(value),
+            | Self::ArcLength { value, .. }
+            | Self::SplineDistance { value, .. } => Some(value),
             Self::SameX(a, b) => fixed_coordinate(a, b, |position| position.x),
             Self::SameY(a, b) => fixed_coordinate(a, b, |position| position.y),
             Self::OnLine { .. }
@@ -425,12 +496,65 @@ impl Form {
             | Self::SplineOnLine { .. }
             | Self::SplineAlongLine { .. }
             | Self::SplineOnCircle { .. }
-            | Self::SplineAcrossRadius { .. } => None,
+            | Self::SplineAcrossRadius { .. }
+            | Self::SplineFoot { .. }
+            | Self::EndCurvature { .. }
+            | Self::MatchedCurvature(..) => None,
         }
     }
 
     fn evaluate(&self, values: &[f64], context: &Context, gradient: &mut Gradient) -> f64 {
         match *self {
+            Self::SplineFoot {
+                point,
+                ref spline,
+                parameter,
+                fallback,
+            } => {
+                let at = spline.at(values, parameter);
+                let along = at.tangent_line(fallback, context);
+                let offset = point.at(values) - at.point;
+                let turning = along.back_from_unit(offset);
+                point.push(gradient, along.unit);
+                spline.push_point(&at, gradient, -along.unit);
+                spline.push_tangent(&at, gradient, turning);
+                gradient.push((parameter, turning.dot(at.bend) - along.unit.dot(at.tangent)));
+                along.unit.dot(offset)
+            }
+            Self::SplineDistance {
+                point,
+                ref spline,
+                parameter,
+                fallback,
+                side,
+                value,
+            } => {
+                let at = spline.at(values, parameter);
+                let along = at.tangent_line(fallback, context);
+                let offset = point.at(values) - at.point;
+                let normal = along.unit.perp() * side;
+                let turning = along.back_from_unit(-offset.perp() * side);
+                point.push(gradient, normal);
+                spline.push_point(&at, gradient, -normal);
+                spline.push_tangent(&at, gradient, turning);
+                gradient.push((parameter, turning.dot(at.bend) - normal.dot(at.tangent)));
+                normal.dot(offset) - value
+            }
+            Self::EndCurvature { end, circle, side } => {
+                let bend = end.bend(values, context);
+                let radius = circle.radius(values);
+                let scale = context.scale;
+                end.push(gradient, &bend, radius * scale);
+                circle.push_radius(values, context, gradient, bend.value * scale);
+                (bend.value * radius - side) * scale
+            }
+            Self::MatchedCurvature(first, second) => {
+                let squared = context.scale * context.scale;
+                let (one, other) = (first.bend(values, context), second.bend(values, context));
+                first.push(gradient, &one, squared);
+                second.push(gradient, &other, squared);
+                (one.value + other.value) * squared
+            }
             Self::OnSpline {
                 point,
                 ref spline,

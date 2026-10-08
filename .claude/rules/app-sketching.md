@@ -315,6 +315,10 @@ paths:
 - `sketch_tools.rs` turns the selection into candidates checked by `Sketch::check_constraint`;
   `sketch_toolbar.rs` offers them as buttons and commands, disabled with what to select
   (`app-look.md`).
+- Curvature (`ConstraintTool::Curvature`) takes a spline and the line, arc or spline at one of its
+  ends and adds `Tangent` (left out when already there) with `Curvature`. It is not on the sketch
+  bar, whose Constrain group would grow a third row (`sketch_toolbar::OFF_RIBBON_CONSTRAINTS`, its
+  command still offered there); Sketch › Constraints, the palette and its key reach it.
 - Chaining constraints (parallel, equal, collinear, concentric, perpendicular, coincident points,
   horizontal or vertical points) relate every selected item to the first in one transaction.
   Coincident also puts every selected point on the one curve selected with them, and Tangent
@@ -364,8 +368,9 @@ paths:
   horizontal span and above or below them the horizontal distance, within their vertical span and
   beside them the vertical one, elsewhere (and always for level or upright ones) the aligned one;
   for a lone arc, beyond it within its sweep its length, inside it its sweep, outside its sweep its
-  radius. Enter always adds the aligned distance, the length or the radius. A spline is refused in
-  words and a lone point waits. The dimension goes
+  radius. Enter always adds the aligned distance, the length or the radius. A spline waits for a
+  point, whose distance from it is the dimension; with anything else it is refused in words, and a
+  lone point waits. The dimension goes
   through the same candidates, checks, reference rule and inline field as the dimension buttons
   (`ConstraintTool::candidates_among`, `add_constraints`), the field taking the typed value. The
   prompt says what Enter would add and the hover what a click would; with the tool active labels

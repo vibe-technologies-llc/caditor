@@ -1400,6 +1400,50 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
 }
 
 #[test]
+fn a_curvature_between_joined_splines_round_trips_and_older_readers_report_it() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Splines");
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_spline(&[
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 0.0),
+    ]);
+    let second = sketch.add_spline(&[
+        Point2::new(20.0, 0.0),
+        Point2::new(25.0, -5.0),
+        Point2::new(30.0, -15.0),
+    ]);
+    let ends = [first, second].map(|spline| match sketch.entity(spline) {
+        Some(caditor_sketch::Entity::Spline { control_points }) => control_points.clone(),
+        _ => panic!("expected a spline"),
+    });
+    sketch
+        .add_constraint(Constraint::Coincident(ends[1][0], ends[0][2]))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Tangent(first, second))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::Curvature(first, second))
+        .unwrap();
+    transaction.add_feature("Smooth", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("\"curvature\"", "\"curling\""));
+
+    assert!(
+        text.contains(&format!("\"curvature\":[{},{}]", first.raw(), second.raw())),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(!older.issues.is_empty());
+}
+
+#[test]
 fn added_constraint_kinds_round_trip() {
     let (document, _) = with_added_kinds(Document::default());
     let text = encode(&document).unwrap();

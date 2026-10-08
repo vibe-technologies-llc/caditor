@@ -1069,3 +1069,272 @@ fn a_spline_touching_an_axis_at_a_cusp_solves_again_whenever_it_solves() {
         assert!(solve(&solved.geometry).is_ok());
     }
 }
+
+fn control_points(sketch: &Sketch, spline: EntityId) -> Vec<EntityId> {
+    match sketch.entity(spline) {
+        Some(Entity::Spline { control_points }) => control_points.clone(),
+        other => panic!("expected a spline, found {other:?}"),
+    }
+}
+
+fn guide(sketch: &mut Sketch, position: Point2) -> EntityId {
+    let point = sketch.add_point(position);
+    fix(sketch, point);
+    point
+}
+
+fn signed_curvature(first: Point2, second: Point2, third: Point2, factor: f64) -> f64 {
+    let (leg, next) = (second - first, third - second);
+    factor * leg.perp_dot(next) / leg.length().powi(3)
+}
+
+#[test]
+fn the_end_factor_gives_the_curvature_at_either_end_of_a_spline() {
+    let points = [
+        Point2::new(0.0, 0.0),
+        Point2::new(4.0, 3.0),
+        Point2::new(9.0, 1.0),
+        Point2::new(13.0, 6.0),
+        Point2::new(15.0, 2.0),
+        Point2::new(19.0, 4.0),
+        Point2::new(22.0, -1.0),
+    ];
+    for count in 3..=points.len() {
+        let used = &points[..count];
+        let curve = crate::curve::BSpline::clamped(used.to_vec()).unwrap();
+        let factor = super::spline::end_factor(count);
+        let curvature = |parameter: f64| {
+            let [tangent, bend] = curve.derivatives(parameter);
+            tangent.perp_dot(bend) / tangent.length().powi(3)
+        };
+
+        let start = signed_curvature(used[0], used[1], used[2], factor);
+        let last = count - 1;
+        let end = signed_curvature(used[last], used[last - 1], used[last - 2], factor);
+
+        assert!((start - curvature(0.0)).abs() < 1e-9, "{count}: {start}");
+        assert!((end + curvature(1.0)).abs() < 1e-9, "{count}: {end}");
+    }
+}
+
+#[test]
+fn two_splines_joined_end_to_end_turn_tangent_at_the_joint() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = arch(&mut sketch);
+    let second = sketch.add_spline(&[
+        Point2::new(20.0, 0.0),
+        Point2::new(25.0, 3.0),
+        Point2::new(30.0, 0.0),
+    ]);
+    let (ours, theirs) = (
+        control_points(&sketch, first),
+        control_points(&sketch, second),
+    );
+    add(&mut sketch, Constraint::Coincident(theirs[0], ours[2]));
+    fix(&mut sketch, theirs[2]);
+    let column = guide(&mut sketch, Point2::new(25.0, -20.0));
+    add(&mut sketch, Constraint::VerticalPoints(theirs[1], column));
+    add(&mut sketch, Constraint::Tangent(first, second));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, theirs[1]), Point2::new(25.0, -5.0));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn tangent_and_curvature_between_splines_need_them_to_share_an_end() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = arch(&mut sketch);
+    let apart = sketch.add_spline(&[
+        Point2::new(30.0, 0.0),
+        Point2::new(35.0, 3.0),
+        Point2::new(40.0, 0.0),
+    ]);
+    let straight = sketch.add_spline(&[Point2::new(20.0, 0.0), Point2::new(30.0, -4.0)]);
+    let line = sketch.add_line(Point2::new(0.0, -5.0), Point2::new(10.0, -5.0));
+    let circle = sketch.add_circle(Point2::new(0.0, -20.0), 3.0);
+    let joined = Constraint::Coincident(
+        control_points(&sketch, straight)[0],
+        control_points(&sketch, first)[2],
+    );
+    add(&mut sketch, joined);
+
+    let refused = |constraint: Constraint| {
+        sketch
+            .check_constraint(&constraint)
+            .map_err(|error| error.to_string())
+    };
+
+    assert_eq!(
+        refused(Constraint::Tangent(first, apart)),
+        Err(format!(
+            "Tangent needs {} and {} to share an end",
+            sketch.entity_label(first),
+            sketch.entity_label(apart)
+        ))
+    );
+    assert!(refused(Constraint::Curvature(first, apart)).is_err());
+    assert!(refused(Constraint::Curvature(line, circle)).is_err());
+    assert!(refused(Constraint::Curvature(first, straight)).is_err());
+    assert_eq!(refused(Constraint::Tangent(first, straight)), Ok(()));
+}
+
+#[test]
+fn a_spline_joined_to_an_arc_with_curvature_bends_as_the_arc_does() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_arc(Point2::ZERO, Point2::new(10.0, 0.0), Point2::new(0.0, 10.0));
+    let middle = center(&sketch, arc);
+    fix(&mut sketch, middle);
+    let Some(&Entity::Arc { start, end, .. }) = sketch.entity(arc) else {
+        panic!("expected an arc");
+    };
+    fix(&mut sketch, start);
+    fix(&mut sketch, end);
+    let spline = sketch.add_spline(&[
+        Point2::new(10.0, 0.0),
+        Point2::new(10.0, -5.0),
+        Point2::new(8.0, -12.0),
+    ]);
+    let points = control_points(&sketch, spline);
+    add(&mut sketch, Constraint::Coincident(points[0], start));
+    fix(&mut sketch, points[1]);
+    let row = guide(&mut sketch, Point2::new(-20.0, -12.0));
+    add(&mut sketch, Constraint::HorizontalPoints(points[2], row));
+    add(&mut sketch, Constraint::Curvature(spline, arc));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, points[2]), Point2::new(5.0, -12.0));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert!(solved.solution.redundancies().is_empty());
+    let [tangent, bend] = solved.geometry.spline(spline).unwrap().derivatives(0.0);
+    let curvature = tangent.perp_dot(bend) / tangent.length().powi(3);
+    assert_close(curvature, -0.1);
+}
+
+#[test]
+fn a_spline_running_on_from_a_line_with_curvature_starts_straight() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(-10.0, 0.0), Point2::ZERO);
+    fix_line(&mut sketch, line);
+    let (_, end) = ends(&sketch, line);
+    let spline = sketch.add_spline(&[Point2::ZERO, Point2::new(5.0, 0.5), Point2::new(10.0, 3.0)]);
+    let points = control_points(&sketch, spline);
+    add(&mut sketch, Constraint::Coincident(points[0], end));
+    let near = guide(&mut sketch, Point2::new(5.0, -20.0));
+    let far = guide(&mut sketch, Point2::new(10.0, -20.0));
+    add(&mut sketch, Constraint::VerticalPoints(points[1], near));
+    add(&mut sketch, Constraint::VerticalPoints(points[2], far));
+    add(&mut sketch, Constraint::Tangent(spline, line));
+    add(&mut sketch, Constraint::Curvature(spline, line));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, points[1]), Point2::new(5.0, 0.0));
+    assert_near(at(&solved, points[2]), Point2::new(10.0, 0.0));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn two_splines_with_curvature_bend_alike_through_their_joint() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = arch(&mut sketch);
+    let second = sketch.add_spline(&[
+        Point2::new(20.0, 0.0),
+        Point2::new(25.0, -2.0),
+        Point2::new(30.0, -8.0),
+    ]);
+    let (ours, theirs) = (
+        control_points(&sketch, first),
+        control_points(&sketch, second),
+    );
+    add(&mut sketch, Constraint::Coincident(theirs[0], ours[2]));
+    let near = guide(&mut sketch, Point2::new(25.0, 20.0));
+    let far = guide(&mut sketch, Point2::new(30.0, 20.0));
+    add(&mut sketch, Constraint::VerticalPoints(theirs[1], near));
+    add(&mut sketch, Constraint::VerticalPoints(theirs[2], far));
+    add(&mut sketch, Constraint::Tangent(second, first));
+    add(&mut sketch, Constraint::Curvature(second, first));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_near(at(&solved, theirs[1]), Point2::new(25.0, -5.0));
+    assert_near(at(&solved, theirs[2]), Point2::new(30.0, -15.0));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert!(solved.solution.redundancies().is_empty());
+}
+
+#[test]
+fn a_point_keeps_its_distance_from_a_spline_measured_square_to_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let point = sketch.add_point(Point2::new(10.0, 9.0));
+    let column = guide(&mut sketch, Point2::new(10.0, -20.0));
+    add(&mut sketch, Constraint::VerticalPoints(point, column));
+    let measured = sketch
+        .measured(&Constraint::Distance {
+            from: point,
+            to: spline,
+            value: mm(0.0),
+        })
+        .unwrap();
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: point,
+            to: spline,
+            value: mm(3.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_close(measured, 4.0);
+    assert_near(at(&solved, point), Point2::new(10.0, 8.0));
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert!(solved.solution.redundancies().is_empty());
+    let distance = solved
+        .geometry
+        .measured(&Constraint::Distance {
+            from: point,
+            to: spline,
+            value: mm(0.0),
+        })
+        .unwrap();
+    assert_close(distance, 3.0);
+}
+
+#[test]
+fn a_point_off_the_side_of_a_spline_slides_to_its_distance_along_a_guide() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = arch(&mut sketch);
+    let point = sketch.add_point(Point2::new(4.0, 1.0));
+    let row = guide(&mut sketch, Point2::new(-30.0, 1.0));
+    add(&mut sketch, Constraint::HorizontalPoints(point, row));
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: spline,
+            to: point,
+            value: mm(2.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    let distance = solved
+        .geometry
+        .measured(&Constraint::Distance {
+            from: point,
+            to: spline,
+            value: mm(0.0),
+        })
+        .unwrap();
+    assert_close(distance, 2.0);
+    assert_close(at(&solved, point).y, 1.0);
+    assert!(at(&solved, point).x > 4.0);
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}

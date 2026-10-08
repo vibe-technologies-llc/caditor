@@ -858,6 +858,7 @@ impl Sketch {
             .filter(|(_, constraint, _)| {
                 let other = match constraint {
                     Constraint::Tangent(a, b)
+                    | Constraint::Curvature(a, b)
                     | Constraint::Parallel(a, b)
                     | Constraint::Perpendicular(a, b)
                     | Constraint::Angle { from: a, to: b, .. } => {

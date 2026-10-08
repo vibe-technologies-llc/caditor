@@ -298,6 +298,7 @@ pub fn constraint(tool: ConstraintTool) -> &'static str {
         ConstraintTool::Parallel => phosphor::PAUSE,
         ConstraintTool::Perpendicular => phosphor::ANGLE,
         ConstraintTool::Tangent => phosphor::ARROW_ARC_RIGHT,
+        ConstraintTool::Curvature => phosphor::WAVE_SINE,
         ConstraintTool::Equal => phosphor::EQUALS,
         ConstraintTool::Symmetric => phosphor::FLIP_HORIZONTAL,
         ConstraintTool::Distance => phosphor::RULER,

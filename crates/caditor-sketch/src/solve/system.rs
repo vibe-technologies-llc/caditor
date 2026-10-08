@@ -237,7 +237,7 @@ impl System {
         }
     }
 
-    fn span_context(&self, from: PointHandle, to: PointHandle, value: f64) -> Context {
+    pub(super) fn span_context(&self, from: PointHandle, to: PointHandle, value: f64) -> Context {
         let (from, to) = (from.at(&self.values), to.at(&self.values));
         Context::at_scale(scale_of([from.x, from.y, to.x, to.y, value]))
     }
@@ -448,8 +448,27 @@ impl System {
                     let parameter = self.parameters.get(&id).copied();
                     self.spline_tangent(sketch, joints, (b, a), parameter)?
                 }
+                (Role::Spline, Role::Spline) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    vec![self.spline_pair_tangent(sketch, joints, constraint, (a, b))?]
+                }
                 _ => return Err(not_applicable(a, b)),
             },
+            Constraint::Curvature(a, b) => {
+                let joints = joints.get_or_init(|| Joints::of(sketch));
+                match (role(a)?, role(b)?) {
+                    (Role::Spline, Role::Spline) => {
+                        self.spline_pair_curvature(sketch, joints, constraint, (a, b))?
+                    }
+                    (Role::Spline, Role::Line | Role::Circular) => {
+                        self.spline_curvature(sketch, joints, constraint, (a, b))?
+                    }
+                    (Role::Line | Role::Circular, Role::Spline) => {
+                        self.spline_curvature(sketch, joints, constraint, (b, a))?
+                    }
+                    _ => return Err(not_applicable(a, b)),
+                }
+            }
             Constraint::Equal(a, b) => match (role(a)?, role(b)?) {
                 (Role::Line, Role::Line) => vec![Form::EqualLength(
                     self.line(sketch, a)?,
@@ -475,6 +494,12 @@ impl System {
                             fallback: self.initial_direction(from, to),
                             value,
                         }]
+                    }
+                    (Role::Point, Role::Spline) => {
+                        self.spline_distance(sketch, (from, to), self.parameter_of(id)?, value)?
+                    }
+                    (Role::Spline, Role::Point) => {
+                        self.spline_distance(sketch, (to, from), self.parameter_of(id)?, value)?
                     }
                     (Role::Point, Role::Line) => vec![self.line_distance(sketch, from, to, value)?],
                     (Role::Line, Role::Point) => vec![self.line_distance(sketch, to, from, value)?],

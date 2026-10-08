@@ -15,8 +15,8 @@ pub const PICKED_KEYS: &str =
     "Enter: dimension it   Click empty space: dimension it as placed   Esc: start again";
 pub const PLACING_KEYS: &str = "Enter: the aligned distance   Esc: start again";
 pub const POINT_KEYS: &str = "Esc: start again";
-const SPLINE_REFUSED: &str =
-    "A spline takes no dimension; dimension the points or lines that shape it instead";
+const SPLINE_REFUSED: &str = "A spline takes only a distance from a point; dimension the points or lines that shape \
+     it otherwise";
 const NOT_IN_SKETCH: &str = "That is not part of the sketch being edited";
 const PARALLEL_TOLERANCE: f64 = 1e-9;
 const LEVEL_TOLERANCE: f64 = 1e-9;
@@ -57,8 +57,13 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
     let Some(kinds) = kinds else {
         return Fit::Refused(NOT_IN_SKETCH);
     };
-    if kinds.contains(&Kind::Spline) {
-        return Fit::Refused(SPLINE_REFUSED);
+    match kinds.as_slice() {
+        [Kind::Spline] => return Fit::Waiting,
+        [Kind::Point, Kind::Spline] | [Kind::Spline, Kind::Point] => {
+            return Fit::Ready(ConstraintTool::Distance);
+        }
+        _ if kinds.contains(&Kind::Spline) => return Fit::Refused(SPLINE_REFUSED),
+        _ => {}
     }
     match (kinds.as_slice(), picks) {
         ([] | [Kind::Point], _) => Fit::Waiting,
@@ -330,7 +335,11 @@ mod tests {
             fitting(&sketch, &[EntityId::ORIGIN, circle]),
             Fit::Ready(ConstraintTool::Distance)
         );
-        assert_eq!(fitting(&sketch, &[spline]), Fit::Refused(SPLINE_REFUSED));
+        assert_eq!(fitting(&sketch, &[spline]), Fit::Waiting);
+        assert_eq!(
+            fitting(&sketch, &[spline, point]),
+            Fit::Ready(ConstraintTool::Distance)
+        );
         assert_eq!(
             fitting(&sketch, &[level, spline]),
             Fit::Refused(SPLINE_REFUSED)

@@ -3368,6 +3368,88 @@ fn horizontal_from_the_selection_levels_a_line_and_updates_the_freedom() {
     assert!(harness.shows("Redundant: Horizontal Line 2 already does this. Delete one of them."));
 }
 
+#[test]
+fn curvature_joins_two_splines_tangent_and_bending_alike_from_its_key() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let first = sketch.add_spline(&[
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 0.0),
+    ]);
+    let second = sketch.add_spline(&[
+        Point2::new(20.0, 0.0),
+        Point2::new(25.0, -2.0),
+        Point2::new(30.0, -8.0),
+    ]);
+    let points = [first, second].map(|spline| match sketch.entity(spline) {
+        Some(caditor_sketch::Entity::Spline { control_points }) => control_points.clone(),
+        other => panic!("expected a spline, found {other:?}"),
+    });
+    sketch
+        .add_constraint(Constraint::Coincident(points[1][0], points[0][2]))
+        .unwrap();
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.settle();
+
+    harness.select([first, second].map(|entity| Pickable::SketchEntity { feature, entity }));
+    harness.frame();
+    harness.key(Key::G, Modifiers::SHIFT);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Tangent").len(),
+        1
+    );
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Curvature").len(),
+        1
+    );
+    let shown = harness.shown(feature);
+    let curvature = |spline: EntityId, parameter: f64| {
+        let [tangent, bend] = shown.spline(spline).unwrap().derivatives(parameter);
+        tangent.perp_dot(bend) / tangent.length().powi(3)
+    };
+    let (arriving, leaving) = (curvature(first, 1.0), curvature(second, 0.0));
+    assert!((arriving - leaving).abs() < 1e-6, "{arriving} {leaving}");
+
+    harness.key(Key::G, Modifiers::SHIFT);
+    harness.frame();
+    assert_eq!(
+        constraints_of_kind(harness.sketch(feature), "Curvature").len(),
+        1
+    );
+}
+
+#[test]
+fn distance_dimensions_a_point_from_a_spline_square_to_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let spline = sketch.add_spline(&[
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 0.0),
+    ]);
+    let point = sketch.add_point(Point2::new(10.0, 9.0));
+    let feature = harness.add_sketch(sketch);
+    harness.edit(feature);
+    harness.settle();
+
+    harness.select([spline, point].map(|entity| Pickable::SketchEntity { feature, entity }));
+    harness.frame();
+    harness.click_button("Distance");
+    harness.settle();
+
+    let distances = constraints_of_kind(harness.sketch(feature), "Distance");
+    let [Constraint::Distance { from, to, value }] = &distances[..] else {
+        panic!("one distance is added: {distances:?}");
+    };
+    assert_eq!((*from, *to), (point, spline));
+    assert_eq!(*value, Expression::Measure(4.0, Unit::Millimetre));
+}
+
 fn only_constraint(sketch: &Sketch) -> (caditor_sketch::ConstraintId, Constraint) {
     let mut constraints = sketch.constraints();
     let (id, constraint) = constraints.next().unwrap();
@@ -3961,8 +4043,11 @@ fn the_smart_dimension_dimensions_two_lines_by_their_angle_and_a_circle_by_a_cli
         sketch_entity(feature, spline),
     );
     harness.frame();
-    assert!(harness.shows_containing("A spline takes no dimension"));
+    assert_eq!(harness.workspace.viewport.selection().iter().count(), 1);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
     assert!(harness.workspace.viewport.selection().is_empty());
+    assert_eq!(harness.tool(), Some(Tool::Dimension));
 
     harness.click_pickable(
         Plane::XY,
@@ -6838,7 +6923,12 @@ fn sketch_bar_buttons() -> Vec<String> {
             !sketch_toolbar::ARC_TOOLS.contains(tool) && !sketch_toolbar::OFF_RIBBON.contains(tool)
         })
         .map(Tool::label)
-        .chain(ConstraintTool::ALL.map(ConstraintTool::label))
+        .chain(
+            ConstraintTool::ALL
+                .into_iter()
+                .filter(|tool| !sketch_toolbar::OFF_RIBBON_CONSTRAINTS.contains(tool))
+                .map(ConstraintTool::label),
+        )
         .chain([
             sketch_toolbar::ARC_LABEL,
             sketch_toolbar::ARC_WAYS_LABEL,
