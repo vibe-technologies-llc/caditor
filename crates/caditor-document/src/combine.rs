@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, iter};
 
 use caditor_kernel::{BooleanError, BooleanOperation, Solid, boolean};
 
@@ -40,12 +40,36 @@ impl CombineOperation {
 pub struct Combine {
     pub body: FeatureId,
     pub tool: FeatureId,
+    pub more_tools: Vec<FeatureId>,
+    pub keep_tool: bool,
     pub operation: CombineOperation,
 }
 
 impl Combine {
+    pub fn new(body: FeatureId, tool: FeatureId, operation: CombineOperation) -> Self {
+        Self {
+            body,
+            tool,
+            more_tools: Vec::new(),
+            keep_tool: false,
+            operation,
+        }
+    }
+
+    pub fn tools(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        iter::once(self.tool).chain(self.more_tools.iter().copied())
+    }
+
     pub fn features(&self) -> BTreeSet<FeatureId> {
-        BTreeSet::from([self.body, self.tool])
+        iter::once(self.body).chain(self.tools()).collect()
+    }
+
+    pub fn consumed(&self) -> Vec<FeatureId> {
+        if self.keep_tool {
+            Vec::new()
+        } else {
+            self.tools().collect()
+        }
     }
 }
 
@@ -81,23 +105,38 @@ pub(crate) fn evaluate(
     cancel: &CancelToken,
 ) -> Result<FeatureResult, Failure> {
     let context = Context { feature, inputs };
-    if definition.body == definition.tool {
-        return Err(context.error(
-            "A body cannot be combined with itself.".to_owned(),
-            "Choose another body for the tool.".to_owned(),
-        ));
+    let mut seen = BTreeSet::from([definition.body]);
+    for tool in definition.tools() {
+        if tool == definition.body {
+            return Err(context.error(
+                "A body cannot be combined with itself.".to_owned(),
+                "Choose another body for the tool.".to_owned(),
+            ));
+        }
+        if !seen.insert(tool) {
+            return Err(context.error(
+                format!("{} is chosen as a tool more than once.", context.name(tool)),
+                "Choose each tool body once.".to_owned(),
+            ));
+        }
     }
     let target = inputs
         .body(definition.body)
         .ok_or_else(|| inputs.missing_body(definition.body))?;
-    let tool = inputs
-        .body(definition.tool)
-        .ok_or_else(|| inputs.missing_body(definition.tool))?;
-    if cancel.is_cancelled() {
-        return Err(Failure::Cancelled);
+    let mut combined: Option<Solid> = None;
+    for tool_id in definition.tools() {
+        let tool = inputs
+            .body(tool_id)
+            .ok_or_else(|| inputs.missing_body(tool_id))?;
+        if cancel.is_cancelled() {
+            return Err(Failure::Cancelled);
+        }
+        let base = combined.as_ref().unwrap_or(target);
+        let next = boolean(base, tool, definition.operation.kernel())
+            .map_err(|error| failure(&context, definition, tool_id, [base, tool], &error))?;
+        combined = Some(next);
     }
-    let combined = boolean(target, tool, definition.operation.kernel())
-        .map_err(|error| failure(&context, definition, [target, tool], &error))?;
+    let combined = combined.ok_or_else(|| inputs.missing_body(definition.body))?;
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,
         combined,
@@ -107,11 +146,12 @@ pub(crate) fn evaluate(
 fn failure(
     context: &Context<'_>,
     definition: &Combine,
+    tool_id: FeatureId,
     operands: [&Solid; 2],
     error: &BooleanError,
 ) -> Failure {
     let target = context.name(definition.body);
-    let tool = context.name(definition.tool);
+    let tool = context.name(tool_id);
     let failure = match error {
         BooleanError::Cancelled(_) => Failure::Cancelled,
         BooleanError::Empty => {

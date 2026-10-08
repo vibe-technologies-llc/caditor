@@ -4,12 +4,15 @@ use egui::{Id, Ui};
 use crate::{
     combine_tools,
     feature_fields::{self, Choice, Segment},
-    field,
+    field, icons,
     model::{Action, Model},
     widgets,
 };
 
-pub const DESCRIPTION: &str = "Combines two bodies into one";
+pub const DESCRIPTION: &str = "Combines bodies into one";
+pub const KEEP_TOOL: &str = "Keep tool";
+pub const ALSO_COMBINES: &str = "Also with";
+pub const ADD_TOOL_BODY: &str = "Add another tool body";
 const NOT_A_BODY: &str = "A body that is no longer there";
 
 fn change(model: &Model, feature: FeatureId, combine: Combine) -> Result<Transaction, String> {
@@ -79,10 +82,12 @@ impl Role {
         }
     }
 
-    fn other(self, combine: &Combine) -> FeatureId {
+    fn taken(self, combine: &Combine) -> Vec<FeatureId> {
         match self {
-            Self::Target => combine.tool,
-            Self::Tool => combine.body,
+            Self::Target => combine.tools().collect(),
+            Self::Tool => std::iter::once(combine.body)
+                .chain(combine.more_tools.iter().copied())
+                .collect(),
         }
     }
 
@@ -112,6 +117,7 @@ fn body_row(
     let id = feature.id();
     widgets::caption(ui, role.caption());
     let current = role.current(combine);
+    let taken = role.taken(combine);
     let selected = feature_fields::combo_text(
         ui,
         feature_fields::feature_name(document, current),
@@ -121,7 +127,7 @@ fn body_row(
         document
             .bodies_before(id)
             .into_iter()
-            .filter(|body| *body != role.other(combine))
+            .filter(|body| !taken.contains(body))
             .filter_map(|body| {
                 Some(Choice {
                     label: feature_fields::feature_name(document, body)?.to_owned(),
@@ -148,5 +154,101 @@ pub fn show(
         operation_row(ui, model, feature, combine, actions);
         body_row(ui, model, feature, combine, Role::Target, actions);
         body_row(ui, model, feature, combine, Role::Tool, actions);
+        more_tool_rows(ui, model, feature, combine, actions);
+        keep_tool_row(ui, model, feature, combine, actions);
     });
+}
+
+fn more_tool_rows(
+    ui: &mut Ui,
+    model: &Model,
+    feature: &Feature,
+    combine: &Combine,
+    actions: &mut Vec<Action>,
+) {
+    let document = model.document();
+    let id = feature.id();
+    for (index, tool) in combine.more_tools.iter().enumerate() {
+        if index == 0 {
+            widgets::caption(ui, ALSO_COMBINES);
+        } else {
+            ui.label("");
+        }
+        let name = feature_fields::feature_name(document, *tool);
+        let hover = format!("Stop using {}", name.unwrap_or("the missing body"));
+        let mut dropped = false;
+        ui.horizontal(|ui| {
+            match name {
+                Some(name) => {
+                    ui.label(name);
+                }
+                None => feature_fields::missing(ui, NOT_A_BODY),
+            }
+            dropped = widgets::icon_button(ui, icons::REMOVE, &hover).clicked();
+        });
+        ui.end_row();
+        if dropped {
+            let mut kept = combine.clone();
+            kept.more_tools.retain(|other| other != tool);
+            actions.push(feature_fields::applied(
+                &feature.name,
+                change(model, id, kept),
+            ));
+        }
+    }
+    let candidates: Vec<FeatureId> = document
+        .bodies_before(id)
+        .into_iter()
+        .filter(|body| combine.body != *body && !combine.tools().any(|tool| tool == *body))
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    if combine.more_tools.is_empty() {
+        widgets::caption(ui, ALSO_COMBINES);
+    } else {
+        ui.label("");
+    }
+    let chosen = feature_fields::combo(
+        ui,
+        Id::new(("combine-more-tool", id)),
+        ADD_TOOL_BODY,
+        || {
+            candidates
+                .iter()
+                .filter_map(|body| {
+                    let mut extended = combine.clone();
+                    extended.more_tools.push(*body);
+                    Some(Choice {
+                        label: feature_fields::feature_name(document, *body)?.to_owned(),
+                        selected: false,
+                        change: change(model, id, extended).map(|transaction| {
+                            feature_fields::applied(&feature.name, Ok(transaction))
+                        }),
+                    })
+                })
+                .collect()
+        },
+    );
+    actions.extend(chosen);
+    ui.end_row();
+}
+
+fn keep_tool_row(
+    ui: &mut Ui,
+    model: &Model,
+    feature: &Feature,
+    combine: &Combine,
+    actions: &mut Vec<Action>,
+) {
+    if let Some(keep_tool) = feature_fields::reverse_row(ui, KEEP_TOOL, combine.keep_tool) {
+        let kept = Combine {
+            keep_tool,
+            ..combine.clone()
+        };
+        actions.push(feature_fields::applied(
+            &feature.name,
+            change(model, feature.id(), kept),
+        ));
+    }
 }

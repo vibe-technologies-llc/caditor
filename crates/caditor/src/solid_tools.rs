@@ -809,11 +809,11 @@ mod tests {
         let tool = extrude("Peg", side);
         let combine = transaction.add_feature(
             "Combine 1",
-            FeatureKind::Combine(caditor_document::Combine {
-                body: target,
+            FeatureKind::Combine(caditor_document::Combine::new(
+                target,
                 tool,
-                operation: caditor_document::CombineOperation::Join,
-            }),
+                caditor_document::CombineOperation::Join,
+            )),
         );
         document.apply(transaction.finish()).unwrap();
 

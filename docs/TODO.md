@@ -274,12 +274,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
   without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
   in part can be had. It is a feature of its own, naming the faces it splits.
-- [low · easy] Combine takes one target and one tool and uses the tool up: a Keep tool switch, and
-  several tool bodies in one combine (one cutter for several targets, or several bodies joined),
-  are missing, so a cutter used for several cuts must be copied first.
-- [low · easy] A hole ends flat: a drilled hole whose bottom is the cone of a drill point (118°
-  unless set) with the depth counted to the full diameter, which is what a drill leaves, is
-  missing.
 - [low · medium] Expressions cannot refer to measured values or sketch dimensions, and a dimension
   or a feature's value cannot be named and listed with the parameters (Fusion's model parameters)
   for other expressions to use.

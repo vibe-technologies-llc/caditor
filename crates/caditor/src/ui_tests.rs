@@ -9272,6 +9272,101 @@ fn two_bodies_are_combined_from_the_selection_and_the_panel_changes_how() {
     assert!((harness.body_volume(plate) - plate_volume).abs() < 100.0);
 }
 
+fn add_post(harness: &mut Harness) -> FeatureId {
+    let mut outline = Sketch::new(Plane::XY);
+    rectangle(&mut outline, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    let mut transaction = harness.document().transaction("Add a post");
+    let sketch = transaction.add_feature("Post sketch", FeatureKind::from(outline));
+    let post = transaction.add_feature(
+        "Post",
+        FeatureKind::Solid(SolidFeature::Extrude(caditor_document::Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(Expression::parse_stored("5 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+        })),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    post
+}
+
+#[test]
+fn a_combine_takes_several_tool_bodies_and_can_keep_them() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    let post = add_post(&mut harness);
+    let peg_top = pickable_described(&mut harness, "Peg › Peg end face");
+    let plate_volume = 16000.0;
+    let peg_cut = 10.0 * 20.0 * 5.0;
+    let post_cut = 10.0 * 10.0 * 5.0;
+
+    harness.select([top, peg_top]);
+    harness.click("Combine");
+    harness.settle();
+    let combine = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the combine is open");
+    harness.click_button("Cut");
+    harness.settle();
+    assert!(harness.shows(crate::combine_panel::KEEP_TOOL));
+    assert!(harness.shows(crate::combine_panel::ADD_TOOL_BODY));
+
+    choose(&mut harness, crate::combine_panel::ADD_TOOL_BODY, "Post");
+    let definition = harness
+        .document()
+        .feature(combine)
+        .unwrap()
+        .kind
+        .combine()
+        .unwrap()
+        .clone();
+    assert_eq!(definition.more_tools, vec![post]);
+    assert!(!definition.keep_tool);
+    assert!(harness.shows(crate::combine_panel::ALSO_COMBINES));
+    assert!(!harness.shows(crate::combine_panel::ADD_TOOL_BODY));
+    assert!(harness.model.evaluation().body_result(peg).is_none());
+    assert!(harness.model.evaluation().body_result(post).is_none());
+    assert!(
+        (harness.body_volume(plate) - (plate_volume - peg_cut - post_cut)).abs() < 100.0,
+        "{}",
+        harness.body_volume(plate)
+    );
+
+    harness.click_lowest(crate::combine_panel::KEEP_TOOL);
+    harness.settle();
+    let definition = harness
+        .document()
+        .feature(combine)
+        .unwrap()
+        .kind
+        .combine()
+        .unwrap()
+        .clone();
+    assert!(definition.keep_tool);
+    assert!(harness.model.evaluation().body_result(peg).is_some());
+    assert!(harness.model.evaluation().body_result(post).is_some());
+    assert!((harness.body_volume(plate) - (plate_volume - peg_cut - post_cut)).abs() < 100.0);
+
+    harness.click_button("Stop using Post");
+    harness.settle();
+    let definition = harness
+        .document()
+        .feature(combine)
+        .unwrap()
+        .kind
+        .combine()
+        .unwrap()
+        .clone();
+    assert!(definition.more_tools.is_empty());
+    assert!((harness.body_volume(plate) - (plate_volume - peg_cut)).abs() < 100.0);
+}
+
 fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
     let mut transaction = harness.document().transaction("Nearly touching blocks");
     let mut bodies = Vec::new();
@@ -9296,11 +9391,11 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
     }
     let combine = transaction.add_feature(
         "Combine 1",
-        FeatureKind::Combine(caditor_document::Combine {
-            body: bodies[0],
-            tool: bodies[1],
-            operation: caditor_document::CombineOperation::Join,
-        }),
+        FeatureKind::Combine(caditor_document::Combine::new(
+            bodies[0],
+            bodies[1],
+            caditor_document::CombineOperation::Join,
+        )),
     );
     harness.perform(Action::Apply(transaction.finish()));
     harness.settle();
@@ -9501,6 +9596,66 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
         plate,
         std::f64::consts::PI * 25.0 * 10.0
     ));
+}
+
+#[test]
+fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut sketch = Sketch::new(top);
+    sketch.add_point(Point2::new(20.0, 20.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    harness.type_into_field(Id::new(("hole-field", "depth", hole)), "2 mm");
+    harness.settle();
+    let flat = std::f64::consts::PI * 3.0 * 3.0 * 2.0;
+    let cone = std::f64::consts::PI * 3.0 * 3.0 * (3.0 / 59.0_f64.to_radians().tan()) / 3.0;
+
+    assert!(harness.shows(crate::hole_panel::DRILL_POINT));
+    assert!(!harness.shows(crate::hole_panel::DRILL_POINT_ANGLE));
+    assert_eq!(
+        open_hole(&harness, hole).bottom,
+        caditor_document::HoleBottom::Flat
+    );
+    assert!(removed_about(&harness, plate, flat));
+
+    harness.click_lowest(crate::hole_panel::DRILL_POINT);
+    harness.settle();
+
+    assert_eq!(
+        open_hole(&harness, hole).bottom,
+        caditor_document::HoleBottom::DrillPoint(Expression::parse_stored("118 deg").unwrap())
+    );
+    assert!(harness.shows(crate::hole_panel::DRILL_POINT_ANGLE));
+    assert!(removed_about(&harness, plate, flat + cone));
+
+    harness.type_into_field(Id::new(("hole-field", "drill-point-angle", hole)), "90 deg");
+    harness.settle();
+    assert_eq!(
+        open_hole(&harness, hole).bottom,
+        caditor_document::HoleBottom::DrillPoint(Expression::parse_stored("90 deg").unwrap())
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.type_into_field(
+        Id::new(("hole-field", "drill-point-angle", hole)),
+        "180 deg",
+    );
+    assert!(harness.shows("Enter an angle above 0° and up to 179°"));
+
+    harness.click("Through all");
+    harness.settle();
+    assert!(!harness.shows(crate::hole_panel::DRILL_POINT));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
 #[test]

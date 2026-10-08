@@ -1,6 +1,4 @@
-use caditor_document::{
-    Document, FeatureId, MAX_COUNTERSINK_ANGLE, MAX_PATTERN_INSTANCES, Transaction,
-};
+use caditor_document::{Document, FeatureId, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, Transaction};
 use caditor_expression::{Dimension, Expression};
 use egui::{ComboBox, Id, Label, RichText, Ui, WidgetText};
 
@@ -40,7 +38,7 @@ pub enum Rule {
     Turn,
     TurnBeside(f64),
     Count,
-    Countersink,
+    ConeAngle,
 }
 
 impl Rule {
@@ -60,12 +58,12 @@ impl Rule {
                 return Err(format!("Enter a count of at most {MAX_PATTERN_INSTANCES}"));
             }
             Self::Count => None,
-            Self::Countersink if value <= 0.0 || value > MAX_COUNTERSINK_ANGLE => {
+            Self::ConeAngle if value <= 0.0 || value > MAX_CONE_ANGLE => {
                 return Err(format!(
-                    "Enter an angle above 0° and up to {MAX_COUNTERSINK_ANGLE}°"
+                    "Enter an angle above 0° and up to {MAX_CONE_ANGLE}°"
                 ));
             }
-            Self::Countersink => None,
+            Self::ConeAngle => None,
         };
         refusal.map_or(Ok(()), |refusal| Err(refusal.to_owned()))
     }

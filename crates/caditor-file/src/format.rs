@@ -8,8 +8,8 @@ use caditor_document::{
     AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, CircularPattern, Combine, CombineOperation, Datum, DatumAxis, DatumPlane,
     DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour,
-    Feature, FeatureId, FeatureKind, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
-    HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
+    Feature, FeatureId, FeatureKind, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing,
+    HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
     MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MIN_OPACITY_PERCENT,
     MetricSize, Mirror, ModelProperties, ModelProperty, Move, OPAQUE_PERCENT, ORIGINAL_INSTANCE,
     Parameter, Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointReference,
@@ -165,6 +165,23 @@ pub(crate) enum FeatureKindRecord {
     FeaturePattern(Box<FeaturePatternRecord>),
     MoveAboutCentre(Box<MoveAboutCentreRecord>),
     MoveAboutAxis(Box<MoveAboutAxisRecord>),
+    CombineTools(Box<CombineToolsRecord>),
+    DrillPointHole(Box<DrillPointHoleRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct DrillPointHoleRecord {
+    pub feature: FeatureKindRecord,
+    pub angle: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CombineToolsRecord {
+    pub feature: FeatureKindRecord,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub more_tools: Vec<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_tool: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -218,7 +235,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 36] = [
+pub(crate) const FEATURE_KINDS: [&str; 38] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -255,6 +272,8 @@ pub(crate) const FEATURE_KINDS: [&str; 36] = [
     "feature_pattern",
     "move_about_centre",
     "move_about_axis",
+    "combine_tools",
+    "drill_point_hole",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1299,6 +1318,16 @@ fn restore_appearance(
 }
 
 fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
+    if let FeatureKind::Combine(combine) = kind
+        && (!combine.more_tools.is_empty() || combine.keep_tool)
+    {
+        let alone = Combine::new(combine.body, combine.tool, combine.operation);
+        return FeatureKindRecord::CombineTools(Box::new(CombineToolsRecord {
+            feature: feature_kind_record(&FeatureKind::Combine(alone)),
+            more_tools: combine.more_tools.iter().map(|tool| tool.raw()).collect(),
+            keep_tool: combine.keep_tool,
+        }));
+    }
     if let FeatureKind::Solid(solid) = kind
         && !solid.other_bodies().is_empty()
     {
@@ -1718,7 +1747,7 @@ fn hole_record(hole: &Hole) -> FeatureKindRecord {
         HoleSizing::Circles => FeatureKindRecord::HoleByCircles(record),
         HoleSizing::CirclesAndHeads => FeatureKindRecord::HoleScaledByCircles(record),
     };
-    match &hole.style {
+    let feature = match &hole.style {
         HoleStyle::Stepped(steps) => FeatureKindRecord::SteppedHole(Box::new(SteppedHoleRecord {
             feature,
             steps: steps
@@ -1730,6 +1759,15 @@ fn hole_record(hole: &Hole) -> FeatureKindRecord {
                 .collect(),
         })),
         HoleStyle::Plain | HoleStyle::Counterbore { .. } | HoleStyle::Countersink { .. } => feature,
+    };
+    match &hole.bottom {
+        HoleBottom::Flat => feature,
+        HoleBottom::DrillPoint(angle) => {
+            FeatureKindRecord::DrillPointHole(Box::new(DrillPointHoleRecord {
+                feature,
+                angle: angle.to_stored_text(),
+            }))
+        }
     }
 }
 
@@ -2795,6 +2833,24 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::DrillPointHole(pointed) => {
+            let mut kind = restore_kind(&pointed.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Hole(hole) => {
+                    hole.bottom = HoleBottom::DrillPoint(restore_value(
+                        &pointed.angle,
+                        "drill point angle",
+                        "118 deg",
+                        name,
+                        issues,
+                    ));
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to end in a drill point, but it is not a hole, so it ends flat."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::SteppedHole(stepped) => {
             let mut kind = restore_kind(&stepped.feature, name, texts, issues);
             match &mut kind {
@@ -3122,15 +3178,36 @@ fn restore_kind(
         FeatureKindRecord::Remove(record) => FeatureKind::Remove(Remove {
             body: FeatureId::from_raw(record.body),
         }),
-        FeatureKindRecord::Combine(record) => FeatureKind::Combine(Combine {
-            body: FeatureId::from_raw(record.body),
-            tool: FeatureId::from_raw(record.tool),
-            operation: match record.operation {
+        FeatureKindRecord::Combine(record) => FeatureKind::Combine(Combine::new(
+            FeatureId::from_raw(record.body),
+            FeatureId::from_raw(record.tool),
+            match record.operation {
                 CombineOperationRecord::Join => CombineOperation::Join,
                 CombineOperationRecord::Cut => CombineOperation::Cut,
                 CombineOperationRecord::Intersect => CombineOperation::Intersect,
             },
-        }),
+        )),
+        FeatureKindRecord::CombineTools(tools) => {
+            let mut kind = restore_kind(&tools.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Combine(combine) => {
+                    let mut more_tools = Vec::new();
+                    for raw in &tools.more_tools {
+                        let tool = FeatureId::from_raw(*raw);
+                        if tool != combine.tool && !more_tools.contains(&tool) {
+                            more_tools.push(tool);
+                        }
+                    }
+                    combine.more_tools = more_tools;
+                    combine.keep_tool = tools.keep_tool;
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed tool bodies to combine, but it is not a combine, so they \
+                     were left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::Move(record) => {
             FeatureKind::Move(restore_move(record, false, name, issues))
         }
@@ -3705,6 +3782,7 @@ fn restore_hole(
         shape,
         standard,
         sizing,
+        bottom: HoleBottom::Flat,
     }
 }
 

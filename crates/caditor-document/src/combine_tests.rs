@@ -67,11 +67,7 @@ fn combine(pair: &mut Pair, operation: CombineOperation) -> FeatureId {
     let mut transaction = pair.document.transaction("Combine");
     let combined = transaction.add_feature(
         "Combine 1",
-        FeatureKind::Combine(Combine {
-            body: plate,
-            tool: peg,
-            operation,
-        }),
+        FeatureKind::Combine(Combine::new(plate, peg, operation)),
     );
     pair.document.apply(transaction.finish()).unwrap();
     combined
@@ -149,11 +145,7 @@ fn a_combine_that_fails_leaves_both_bodies_as_they_were() {
     let mut transaction = pair.document.transaction("Combine");
     let combined = transaction.add_feature(
         "Combine 1",
-        FeatureKind::Combine(Combine {
-            body: pair.plate,
-            tool: far,
-            operation: CombineOperation::Intersect,
-        }),
+        FeatureKind::Combine(Combine::new(pair.plate, far, CombineOperation::Intersect)),
     );
     pair.document.apply(transaction.finish()).unwrap();
     let mut engine = Recompute::default();
@@ -175,11 +167,7 @@ fn a_body_cannot_be_combined_with_itself() {
     let mut transaction = pair.document.transaction("Combine");
     let combined = transaction.add_feature(
         "Combine 1",
-        FeatureKind::Combine(Combine {
-            body: pair.plate,
-            tool: pair.plate,
-            operation: CombineOperation::Join,
-        }),
+        FeatureKind::Combine(Combine::new(pair.plate, pair.plate, CombineOperation::Join)),
     );
     pair.document.apply(transaction.finish()).unwrap();
     let mut engine = Recompute::default();
@@ -244,11 +232,7 @@ fn the_bodies_before_a_combine_leave_out_those_an_earlier_combine_consumed() {
     let mut transaction = pair.document.transaction("Second combine");
     let second = transaction.add_feature(
         "Combine 2",
-        FeatureKind::Combine(Combine {
-            body: pair.plate,
-            tool: third,
-            operation: CombineOperation::Join,
-        }),
+        FeatureKind::Combine(Combine::new(pair.plate, third, CombineOperation::Join)),
     );
     pair.document.apply(transaction.finish()).unwrap();
 
@@ -273,11 +257,7 @@ fn a_peg_a_few_micrometres_past_the_edge_of_a_plate_joins_it() {
     );
     let combined = transaction.add_feature(
         "Combine 1",
-        FeatureKind::Combine(Combine {
-            body: plate,
-            tool: peg,
-            operation: CombineOperation::Join,
-        }),
+        FeatureKind::Combine(Combine::new(plate, peg, CombineOperation::Join)),
     );
     document.apply(transaction.finish()).unwrap();
     let mut engine = Recompute::default();
@@ -324,11 +304,7 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
     );
     let combined = transaction.add_feature(
         "Combine 1",
-        FeatureKind::Combine(Combine {
-            body: plate,
-            tool: peg,
-            operation: CombineOperation::Join,
-        }),
+        FeatureKind::Combine(Combine::new(plate, peg, CombineOperation::Join)),
     );
     document.apply(transaction.finish()).unwrap();
     let mut engine = Recompute::default();
@@ -437,4 +413,132 @@ fn a_feature_using_a_consumed_body_blames_the_combine_that_took_it() {
         "Use the body of Plate instead, or move this feature above Combine 1."
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(combined)));
+}
+
+const POST: f64 = 5.0 * 10.0 * 4.0;
+
+fn pair_with_post() -> (Pair, FeatureId) {
+    let mut pair = pair();
+    let mut transaction = pair.document.transaction("Post");
+    let post = block(&mut transaction, "Post", (0.0, 0.0), (5.0, 10.0), "6 mm");
+    pair.document.apply(transaction.finish()).unwrap();
+    (pair, post)
+}
+
+fn combine_with(
+    pair: &mut Pair,
+    post: FeatureId,
+    operation: CombineOperation,
+    keep_tool: bool,
+) -> FeatureId {
+    let mut transaction = pair.document.transaction("Combine");
+    let combined = transaction.add_feature(
+        "Combine 1",
+        FeatureKind::Combine(Combine {
+            more_tools: vec![post],
+            keep_tool,
+            ..Combine::new(pair.plate, pair.peg, operation)
+        }),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+    combined
+}
+
+#[test]
+fn several_tools_are_cut_from_one_target_and_all_consumed() {
+    let (mut pair, post) = pair_with_post();
+    let combined = combine_with(&mut pair, post, CombineOperation::Cut, false);
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let bodies: Vec<FeatureId> = evaluation.bodies().map(|(body, _)| body).collect();
+    assert_eq!(bodies, vec![pair.plate]);
+    let expected = PLATE - OVERLAP - POST;
+    assert!((volume(&evaluation, pair.plate) - expected).abs() < 0.01 * expected);
+    let feature = pair.document.feature(combined).unwrap();
+    assert_eq!(feature.kind.consumed_bodies(), vec![pair.peg, post]);
+    assert!(feature.kind.dependencies().contains(&post));
+    assert_eq!(pair.document.dependents_of(&[post]), vec![combined]);
+}
+
+#[test]
+fn several_bodies_join_the_target_in_one_combine() {
+    let (mut pair, post) = pair_with_post();
+    combine_with(&mut pair, post, CombineOperation::Join, false);
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let expected = PLATE + (PEG - OVERLAP) + (6.0 * 50.0 - POST);
+    assert!((volume(&evaluation, pair.plate) - expected).abs() < 0.01 * expected);
+}
+
+#[test]
+fn a_kept_tool_stays_standing_and_can_cut_again() {
+    let (mut pair, post) = pair_with_post();
+    let combined = combine_with(&mut pair, post, CombineOperation::Cut, true);
+    let mut transaction = pair.document.transaction("Second target");
+    let other = block(&mut transaction, "Other", (14.0, 0.0), (30.0, 10.0), "4 mm");
+    let again = transaction.add_feature(
+        "Combine 2",
+        FeatureKind::Combine(Combine::new(other, pair.peg, CombineOperation::Cut)),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(
+        pair.document
+            .feature(combined)
+            .unwrap()
+            .kind
+            .consumed_bodies()
+            .is_empty()
+    );
+    assert_eq!(
+        pair.document.bodies_before(again),
+        vec![pair.plate, pair.peg, post, other]
+    );
+    let bodies: Vec<FeatureId> = evaluation.bodies().map(|(body, _)| body).collect();
+    assert_eq!(bodies, vec![pair.plate, post, other]);
+    let expected = PLATE - OVERLAP - POST;
+    assert!((volume(&evaluation, pair.plate) - expected).abs() < 0.01 * expected);
+}
+
+#[test]
+fn a_tool_chosen_twice_or_equal_to_the_target_fails_the_combine() {
+    let (mut pair, post) = pair_with_post();
+    let mut transaction = pair.document.transaction("Combine");
+    let twice = transaction.add_feature(
+        "Twice",
+        FeatureKind::Combine(Combine {
+            more_tools: vec![pair.peg],
+            ..Combine::new(pair.plate, pair.peg, CombineOperation::Cut)
+        }),
+    );
+    let itself = transaction.add_feature(
+        "Itself",
+        FeatureKind::Combine(Combine {
+            more_tools: vec![pair.plate],
+            ..Combine::new(pair.plate, post, CombineOperation::Cut)
+        }),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    let FeatureState::Failed(error) = &evaluation.feature(twice).unwrap().state else {
+        panic!("the combine should fail");
+    };
+    assert!(error.reason.contains("more than once"), "{}", error.reason);
+    let FeatureState::Failed(error) = &evaluation.feature(itself).unwrap().state else {
+        panic!("the combine should fail");
+    };
+    assert_eq!(error.reason, "A body cannot be combined with itself.");
 }

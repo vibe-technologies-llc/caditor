@@ -1,6 +1,6 @@
 use caditor_document::{
-    Feature, FeatureId, Hole, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep,
-    HoleStyle, MAX_HOLE_STEPS, MetricSize, Transaction, circle_sizes, pitch_text,
+    Feature, FeatureId, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
+    HoleStep, HoleStyle, MAX_HOLE_STEPS, MetricSize, Transaction, circle_sizes, pitch_text,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -25,6 +25,8 @@ const SCALED_BY_CIRCLES_NOTE: &str = "Holes at circles take each circle's diamet
                                       below; holes at points take the sizes below";
 pub const SCALE_HEADS: &str = "Scale the counterbore or countersink with each circle";
 pub const PITCH: &str = "Pitch";
+pub const DRILL_POINT: &str = "Drill point";
+pub const DRILL_POINT_ANGLE: &str = "Drill point angle";
 pub const ADD_STEP: &str = "Add a step";
 pub const REMOVE_STEP: &str = "Remove the last step";
 
@@ -369,6 +371,44 @@ impl Panel<'_> {
         self.actions.extend(chosen);
     }
 
+    fn bottom_rows(&mut self, ui: &mut Ui) {
+        let blind = matches!(self.hole.depth, HoleDepth::Blind(_));
+        let round = matches!(self.hole.shape, HoleShape::Round);
+        if !blind || !round {
+            return;
+        }
+        let pointed = matches!(self.hole.bottom, HoleBottom::DrillPoint(_));
+        if let Some(pointed) = feature_fields::reverse_row(ui, DRILL_POINT, pointed) {
+            let bottom = if pointed {
+                hole_tools::default_drill_point()
+            } else {
+                HoleBottom::Flat
+            };
+            let change = self.change(Hole {
+                bottom,
+                ..self.hole.clone()
+            });
+            self.actions
+                .push(feature_fields::applied(&self.feature.name, change));
+        }
+        if let HoleBottom::DrillPoint(angle) = &self.hole.bottom {
+            self.length_row(
+                ui,
+                Field {
+                    caption: DRILL_POINT_ANGLE,
+                    key: "drill-point-angle",
+                    dimension: Dimension::ANGLE,
+                    rule: Rule::ConeAngle,
+                },
+                angle,
+                |hole, value| Hole {
+                    bottom: HoleBottom::DrillPoint(value),
+                    ..hole.clone()
+                },
+            );
+        }
+    }
+
     fn length_row(
         &mut self,
         ui: &mut Ui,
@@ -589,7 +629,7 @@ impl Panel<'_> {
                         caption: "Countersink angle",
                         key: "countersink-angle",
                         dimension: Dimension::ANGLE,
-                        rule: Rule::Countersink,
+                        rule: Rule::ConeAngle,
                     },
                     &angle.clone(),
                     |hole, value| Hole {
@@ -655,6 +695,7 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Fea
                 },
             );
         }
+        panel.bottom_rows(ui);
         if let Some(reversed) = feature_fields::reverse_row(ui, REVERSE_DIRECTION, hole.reversed) {
             let flipped = Hole {
                 reversed,

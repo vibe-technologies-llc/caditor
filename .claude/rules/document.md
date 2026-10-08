@@ -276,8 +276,14 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   also scales the counterbore's diameter and depth, or the countersink's diameter, by the circle's
   diameter over the typed one, so one counterbore setting suits circles of several sizes;
   `Circles` keeps the typed counterbore or countersink, as holes sized by circles always did.
+- `bottom` is `Flat` or `DrillPoint(angle)` (an expression, 118 deg in the app): the bore ends in the
+  cone of a drill point, its apex `radius / tan(angle / 2)` below the depth, so the depth stays
+  what is counted to the full diameter, as a drill leaves it. The cone is the revolved profile's
+  last segment, so it keeps the bottom part and its name. It applies to blind round holes only: a
+  through hole is unchanged (the drill point lies past the body) and a slot with one fails alone
+  saying it ends flat; the angle follows the countersink's range (above 0° to `MAX_CONE_ANGLE`).
 - It fails alone, naming the point, when a size is not positive, the counterbore or countersink is
-  not wider than the hole or as deep as it, the angle is outside 0° to `MAX_COUNTERSINK_ANGLE`
+  not wider than the hole or as deep as it, the angle is outside 0° to `MAX_CONE_ANGLE`
   (179°, also the Hole panel's field rule), the sketch has no
   points, more than `MAX_HOLES`, or a hole does not cut into the body (it adds no face).
 
@@ -335,17 +341,21 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Combine (`combine.rs`)
 
-- `Combine { body, tool, operation }` joins, cuts or intersects two existing bodies (kernel `boolean`)
-  and keeps the target's body ID; the tool's body is consumed. `consumed_bodies` tells recompute to
-  drop it from the bodies standing after the combine (and not to show it as a stale last-good body),
-  so features below cannot use it and suppressing or rolling back the combine brings it back.
-  Both bodies count as used (`bodies_used`), so deleting either asks first and neither moves below
-  the combine. `bodies_before` lists the bodies standing before a feature, for the panel.
+- `Combine { body, tool, more_tools, keep_tool, operation }` joins, cuts or intersects existing bodies
+  (kernel `boolean`) and keeps the target's body ID. `Combine::tools` is `tool` then `more_tools`;
+  the target meets them one after another, so one cutter cuts several bodies' worth of tools at
+  once and several bodies join in one feature, and a failure names the tool it stopped at. Unless
+  `keep_tool` is set the tools' bodies are consumed: `consumed_bodies` tells recompute to drop them
+  from the bodies standing after the combine (and not to show them as stale last-good bodies), so
+  features below cannot use them and suppressing or rolling back the combine brings them back. A
+  kept tool stays a standing body, so a later Combine can use it again on another target. Every
+  body counts as used (`bodies_used`), so deleting any asks first and none moves below the combine.
+  `bodies_before` lists the bodies standing before a feature, for the panel.
 - Every evaluator reports an absent input body through `Inputs::missing_body`: when a Combine already
   evaluated consumed it, the error names that Combine and the body it kept, with the fix target on
   the Combine, never blaming the healthy body.
-- A body combined with itself, a missing shape and kernel failures fail the combine alone with the
-  bodies named; both inputs keep their results.
+- A body combined with itself, a tool chosen twice, a missing shape and kernel failures fail the
+  combine alone with the bodies named; every input keeps its result.
 
 ### Pattern (`pattern.rs`)
 

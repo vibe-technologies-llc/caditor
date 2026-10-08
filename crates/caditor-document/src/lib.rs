@@ -62,8 +62,8 @@ pub use crate::{
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     healing::Healing,
     hole::{
-        CircleSize, Hole, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
-        MAX_COUNTERSINK_ANGLE, MAX_HOLE_STEPS, MAX_HOLES, centres as hole_centres, circle_sizes,
+        CircleSize, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
+        MAX_CONE_ANGLE, MAX_HOLE_STEPS, MAX_HOLES, centres as hole_centres, circle_sizes,
     },
     hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,

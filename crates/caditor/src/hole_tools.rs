@@ -1,6 +1,6 @@
 use caditor_document::{
-    Document, Edit, FeatureId, FeatureKind, Hole, HoleDepth, HoleShape, HoleSizing, HoleStandard,
-    HoleStep, HoleStyle, SketchFeature, Transaction, hole_centres,
+    Document, Edit, FeatureId, FeatureKind, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing,
+    HoleStandard, HoleStep, HoleStyle, SketchFeature, Transaction, hole_centres,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2};
@@ -27,6 +27,7 @@ pub const DEFAULT_COUNTERBORE_DIAMETER: f64 = 10.0;
 pub const DEFAULT_COUNTERBORE_DEPTH: f64 = 3.0;
 pub const DEFAULT_COUNTERSINK_DIAMETER: f64 = 10.0;
 pub const DEFAULT_COUNTERSINK_ANGLE: f64 = 90.0;
+pub const DEFAULT_DRILL_POINT_ANGLE: f64 = 118.0;
 pub const DEFAULT_SLOT_LENGTH: f64 = 10.0;
 pub const DEFAULT_STEP_DIAMETER: f64 = 8.0;
 pub const DEFAULT_STEP_DEPTH: f64 = 2.0;
@@ -157,6 +158,10 @@ impl Kind {
     }
 }
 
+pub fn default_drill_point() -> HoleBottom {
+    HoleBottom::DrillPoint(solid_tools::degrees(DEFAULT_DRILL_POINT_ANGLE))
+}
+
 pub fn default_depth(unit: LengthUnit) -> Expression {
     unit.default_length(DEFAULT_DEPTH)
 }
@@ -248,6 +253,7 @@ fn new_hole(sketch: FeatureId, body: FeatureId, unit: LengthUnit) -> FeatureKind
         shape: HoleShape::Round,
         standard: None,
         sizing: HoleSizing::Typed,
+        bottom: HoleBottom::Flat,
     })
 }
 

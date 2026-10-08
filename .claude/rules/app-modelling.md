@@ -210,7 +210,8 @@ paths:
   last, and Remove the last step), Sized by (Diameter, Circles, which sets `CirclesAndHeads`; shown while the sketch has
   circles or the hole is sized by them, with Scale the counterbore or countersink with each circle
   for a counterbored or countersunk one), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
-  (Blind with its field, or Through all), Reverse direction, and the Sketch and Body rows (the body
+  (Blind with its field, or Through all), for a blind round hole Drill point (a switch giving the
+  bottom a 118° cone, with its Drill point angle field, key `drill-point-angle`), Reverse direction, and the Sketch and Body rows (the body
   a list of `bodies_before`). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.
 
@@ -219,8 +220,10 @@ paths:
 - Combine (Alt+J) is offered when the selection touches faces, edges or vertices of exactly two
   bodies shown now, or two bodies are chosen in the tree; the earlier body in the tree is the target and the later the tool. It creates a
   Join and opens the panel, whose Operation switch (Join, Cut, Intersect) and Target and Tool
-  lists (`Document::bodies_before`, each leaving out the other) change it. Nothing is chosen in the
-  view while it is open.
+  lists (`Document::bodies_before`, each leaving out the bodies the other rows hold) change it.
+  Under the Tool list, Also with lists the further tool bodies, each with a button to drop it, and
+  an Add another tool body list offers the standing bodies not yet used; Keep tool leaves the tool
+  bodies standing instead of using them up. Nothing is chosen in the view while it is open.
 
 ## Move
 
