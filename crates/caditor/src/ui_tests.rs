@@ -9599,6 +9599,66 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
 }
 
 #[test]
+fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut sketch = Sketch::new(top);
+    sketch.add_point(Point2::new(20.0, 20.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    harness.type_into_field(Id::new(("hole-field", "depth", hole)), "2 mm");
+    harness.settle();
+    let flat = std::f64::consts::PI * 3.0 * 3.0 * 2.0;
+    let cone = std::f64::consts::PI * 3.0 * 3.0 * (3.0 / 59.0_f64.to_radians().tan()) / 3.0;
+
+    assert!(harness.shows(crate::hole_panel::DRILL_POINT));
+    assert!(!harness.shows(crate::hole_panel::DRILL_POINT_ANGLE));
+    assert_eq!(
+        open_hole(&harness, hole).bottom,
+        caditor_document::HoleBottom::Flat
+    );
+    assert!(removed_about(&harness, plate, flat));
+
+    harness.click_lowest(crate::hole_panel::DRILL_POINT);
+    harness.settle();
+
+    assert_eq!(
+        open_hole(&harness, hole).bottom,
+        caditor_document::HoleBottom::DrillPoint(Expression::parse_stored("118 deg").unwrap())
+    );
+    assert!(harness.shows(crate::hole_panel::DRILL_POINT_ANGLE));
+    assert!(removed_about(&harness, plate, flat + cone));
+
+    harness.type_into_field(Id::new(("hole-field", "drill-point-angle", hole)), "90 deg");
+    harness.settle();
+    assert_eq!(
+        open_hole(&harness, hole).bottom,
+        caditor_document::HoleBottom::DrillPoint(Expression::parse_stored("90 deg").unwrap())
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+
+    harness.type_into_field(
+        Id::new(("hole-field", "drill-point-angle", hole)),
+        "180 deg",
+    );
+    assert!(harness.shows("Enter an angle above 0° and up to 179°"));
+
+    harness.click("Through all");
+    harness.settle();
+    assert!(!harness.shows(crate::hole_panel::DRILL_POINT));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
 fn a_stepped_hole_takes_steps_added_sized_and_removed_in_its_panel() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);

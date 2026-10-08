@@ -5140,6 +5140,7 @@ fn holed_model(style: caditor_document::HoleStyle, through: bool) -> (Document, 
             shape: caditor_document::HoleShape::Round,
             standard: None,
             sizing: caditor_document::HoleSizing::Typed,
+            bottom: caditor_document::HoleBottom::Flat,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -5230,6 +5231,53 @@ fn a_stepped_hole_is_a_kind_older_readers_report_and_reads_its_steps_back() {
     assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
     assert!(
         damaged.issues[0].contains("step 2 depth"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
+fn a_hole_ending_in_a_drill_point_is_a_kind_older_readers_report_and_reads_back() {
+    use caditor_document::{HoleBottom, HoleStep, HoleStyle};
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let style = HoleStyle::Stepped(vec![HoleStep {
+        diameter: parse("10 mm"),
+        depth: parse("1 mm"),
+    }]);
+    let (mut document, hole) = holed_model(style, false);
+    let mut pointed = document.feature(hole).unwrap().kind.clone();
+    if let FeatureKind::Hole(definition) = &mut pointed {
+        definition.bottom = HoleBottom::DrillPoint(parse("118 deg"));
+    }
+    let transaction = Transaction::single(
+        "Drill point",
+        Edit::SetFeatureKind {
+            id: hole,
+            kind: pointed,
+        },
+    );
+    document.apply(transaction.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("drill_point_hole", "drill_tip_hole"));
+    let damaged = decode_text(&text.replacen("\"angle\":\"118 deg\"", "\"angle\":\"((\"", 1));
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
+    assert!(
+        text.contains("\"drill_point_hole\":{\"angle\":\"118 deg\",\"feature\":{\"stepped_hole\":")
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(hole).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    assert!(
+        damaged.issues[0].contains("drill point angle"),
         "{:?}",
         damaged.issues
     );

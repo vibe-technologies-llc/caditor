@@ -210,7 +210,8 @@ paths:
   last, and Remove the last step), Sized by (Diameter, Circles, which sets `CirclesAndHeads`; shown while the sketch has
   circles or the hole is sized by them, with Scale the counterbore or countersink with each circle
   for a counterbored or countersunk one), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
-  (Blind with its field, or Through all), Reverse direction, and the Sketch and Body rows (the body
+  (Blind with its field, or Through all), for a blind round hole Drill point (a switch giving the
+  bottom a 118° cone, with its Drill point angle field, key `drill-point-angle`), Reverse direction, and the Sketch and Body rows (the body
   a list of `bodies_before`). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.
 

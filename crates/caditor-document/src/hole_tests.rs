@@ -40,6 +40,7 @@ fn drilled(
         shape: HoleShape::Round,
         standard: None,
         sizing: HoleSizing::Typed,
+        bottom: HoleBottom::Flat,
     };
     let mut transaction = pair.document.transaction("Drill");
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
@@ -100,6 +101,7 @@ fn each_point_of_the_sketch_gets_a_hole_and_curve_ends_do_not() {
             shape: HoleShape::Round,
             standard: None,
             sizing: HoleSizing::Typed,
+            bottom: HoleBottom::Flat,
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -339,6 +341,7 @@ fn a_hole_that_misses_the_body_or_a_sketch_without_points_fails_in_words() {
             shape: HoleShape::Round,
             standard: None,
             sizing: HoleSizing::Typed,
+            bottom: HoleBottom::Flat,
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -515,6 +518,7 @@ fn a_circle_drawn_where_a_hole_goes_drills_at_its_centre() {
         shape: HoleShape::Round,
         standard: None,
         sizing: HoleSizing::Typed,
+        bottom: HoleBottom::Flat,
     };
     let mut transaction = pair.document.transaction("Drill");
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
@@ -737,6 +741,7 @@ fn circled(
         shape: HoleShape::Round,
         standard: None,
         sizing,
+        bottom: HoleBottom::Flat,
     };
     let feature = transaction.add_feature("Hole 1", FeatureKind::Hole(hole));
     pair.document.apply(transaction.finish()).unwrap();
@@ -1105,4 +1110,106 @@ fn a_stepped_slot_steps_out_at_each_step() {
         stadium(6.0, 8.0) * 0.5 + stadium(6.0, 6.0) * 0.5 + stadium(6.0, 4.0) * (2.0 - 1.0);
     let found = volume(&evaluation, pair.plate);
     assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
+}
+
+fn ending(pair: &mut Pair, feature: FeatureId, bottom: HoleBottom) {
+    let mut hole = pair
+        .document
+        .feature(feature)
+        .unwrap()
+        .kind
+        .hole()
+        .unwrap()
+        .clone();
+    hole.bottom = bottom;
+    let mut transaction = pair.document.transaction("Drill point");
+    transaction.edit(Edit::SetFeatureKind {
+        id: feature,
+        kind: FeatureKind::Hole(hole),
+    });
+    pair.document.apply(transaction.finish()).unwrap();
+}
+
+fn drill_point(pair: &Pair, angle: &str) -> HoleBottom {
+    HoleBottom::DrillPoint(expression(&pair.document, angle))
+}
+
+#[test]
+fn a_drill_point_adds_its_cone_below_the_depth_counted_to_the_full_diameter() {
+    let mut pair = pair();
+    let hole = plain(&mut pair, &[(5.0, 5.0)], "2 mm");
+    let bottom = drill_point(&pair, "118 deg");
+    ending(&mut pair, hole, bottom);
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let cone = 2.0 / (59.0_f64).to_radians().tan();
+    let removed = PI * 2.0 * 2.0 * 2.0 + PI * 2.0 * 2.0 * cone / 3.0;
+    let found = volume(&evaluation, pair.plate);
+    assert!((PLATE - found - removed).abs() < 0.01 * removed, "{found}");
+}
+
+#[test]
+fn a_drill_point_on_a_through_hole_changes_nothing() {
+    let mut pair = pair();
+    let hole = drilled(
+        &mut pair,
+        &[(5.0, 5.0)],
+        |_| HoleStyle::Plain,
+        |_| HoleDepth::ThroughAll,
+        false,
+    );
+    let mut engine = Recompute::default();
+    let flat = volume(&evaluate(&pair.document, &mut engine), pair.plate);
+    let bottom = drill_point(&pair, "118 deg");
+    ending(&mut pair, hole, bottom);
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!((volume(&evaluation, pair.plate) - flat).abs() < 1e-6);
+}
+
+#[test]
+fn a_drill_point_angle_outside_its_range_or_on_a_slot_fails_the_hole_in_words() {
+    let mut pair = pair();
+    let hole = plain(&mut pair, &[(5.0, 5.0)], "2 mm");
+    let mut engine = Recompute::default();
+
+    for angle in ["0 deg", "180 deg", "5 mm"] {
+        let bottom = drill_point(&pair, angle);
+        ending(&mut pair, hole, bottom);
+        let error = failure(&evaluate(&pair.document, &mut engine), hole);
+        assert!(
+            error.reason.contains("drill point angle"),
+            "{angle}: {}",
+            error.reason
+        );
+    }
+
+    let bottom = drill_point(&pair, "118 deg");
+    ending(&mut pair, hole, bottom);
+    let mut slotted = pair
+        .document
+        .feature(hole)
+        .unwrap()
+        .kind
+        .hole()
+        .unwrap()
+        .clone();
+    slotted.shape = HoleShape::Slot {
+        length: expression(&pair.document, "6 mm"),
+        angle: expression(&pair.document, "0 deg"),
+    };
+    let mut transaction = pair.document.transaction("Slot");
+    transaction.edit(Edit::SetFeatureKind {
+        id: hole,
+        kind: FeatureKind::Hole(slotted),
+    });
+    pair.document.apply(transaction.finish()).unwrap();
+
+    let error = failure(&evaluate(&pair.document, &mut engine), hole);
+    assert!(error.reason.contains("slot ends flat"), "{}", error.reason);
 }

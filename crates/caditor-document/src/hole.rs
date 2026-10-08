@@ -22,12 +22,19 @@ const PARTS: u64 = 16;
 const STEP_SHIFT: u32 = 56;
 const MARGIN: f64 = 1.0;
 const THROUGH_ALL_REACH: f64 = 0.05;
-pub const MAX_COUNTERSINK_ANGLE: f64 = 179.0;
+pub const MAX_CONE_ANGLE: f64 = 179.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HoleDepth {
     Blind(Expression),
     ThroughAll,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum HoleBottom {
+    #[default]
+    Flat,
+    DrillPoint(Expression),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -121,6 +128,7 @@ pub struct Hole {
     pub shape: HoleShape,
     pub standard: Option<HoleStandard>,
     pub sizing: HoleSizing,
+    pub bottom: HoleBottom,
 }
 
 impl Hole {
@@ -133,6 +141,9 @@ impl Hole {
         if let HoleShape::Slot { length, angle } = &self.shape {
             expressions.extend([length, angle]);
         }
+        if let HoleBottom::DrillPoint(angle) = &self.bottom {
+            expressions.push(angle);
+        }
         expressions
     }
 
@@ -144,6 +155,9 @@ impl Hole {
         expressions.extend(self.style.expressions_mut());
         if let HoleShape::Slot { length, angle } = &mut self.shape {
             expressions.extend([length, angle]);
+        }
+        if let HoleBottom::DrillPoint(angle) = &mut self.bottom {
+            expressions.push(angle);
         }
         expressions
     }
@@ -313,6 +327,7 @@ struct Values {
     depth: Option<f64>,
     style: StyleValues,
     slot: Option<SlotValues>,
+    point_half_angle: Option<f64>,
 }
 
 #[derive(Clone, Copy)]
@@ -523,9 +538,11 @@ impl Context<'_> {
                         "Enter a countersink diameter above the hole diameter.".to_owned(),
                     ));
                 }
-                if angle <= 0.0 || angle > MAX_COUNTERSINK_ANGLE {
+                if angle <= 0.0 || angle > MAX_CONE_ANGLE {
                     return Err(self.error(
-                        format!("The countersink angle must be above 0° and at most {MAX_COUNTERSINK_ANGLE}°."),
+                        format!(
+                            "The countersink angle must be above 0° and at most {MAX_CONE_ANGLE}°."
+                        ),
                         "Enter a countersink angle such as 90 deg.".to_owned(),
                     ));
                 }
@@ -544,6 +561,21 @@ impl Context<'_> {
                 }
             }
         };
+        let point_half_angle = match &definition.bottom {
+            HoleBottom::Flat => None,
+            HoleBottom::DrillPoint(angle) => {
+                let angle = self.value(angle, Dimension::ANGLE, "drill point angle")?;
+                if angle <= 0.0 || angle > MAX_CONE_ANGLE {
+                    return Err(self.error(
+                        format!(
+                            "The drill point angle must be above 0° and at most {MAX_CONE_ANGLE}°."
+                        ),
+                        "Enter a drill point angle such as 118 deg.".to_owned(),
+                    ));
+                }
+                depth.map(|_| (angle / 2.0).to_radians())
+            }
+        };
         let slot = match &definition.shape {
             HoleShape::Round => None,
             HoleShape::Slot { length, angle } => {
@@ -552,6 +584,12 @@ impl Context<'_> {
                         "A slot can be plain, counterbored or stepped, but not countersunk."
                             .to_owned(),
                         "Choose a plain, counterbored or stepped slot, or a round hole.".to_owned(),
+                    ));
+                }
+                if point_half_angle.is_some() {
+                    return Err(self.error(
+                        "A slot ends flat, so it cannot have a drill point.".to_owned(),
+                        "Turn the drill point off, or choose a round hole.".to_owned(),
                     ));
                 }
                 Some(SlotValues {
@@ -567,6 +605,7 @@ impl Context<'_> {
             depth,
             style,
             slot,
+            point_half_angle,
         })
     }
 }
@@ -575,9 +614,12 @@ fn outline(values: &Values, depth: f64, base: u64) -> Vec<(Point2, u64)> {
     let radius = values.diameter / 2.0;
     let top = MARGIN;
     let own = |part: HolePart| base.wrapping_add(part as u64);
+    let tip = values
+        .point_half_angle
+        .map_or(0.0, |half_angle| radius / half_angle.tan());
     let bore = [
         (Point2::new(radius, -depth), own(HolePart::Bottom)),
-        (Point2::new(0.0, -depth), own(HolePart::Axis)),
+        (Point2::new(0.0, -depth - tip), own(HolePart::Axis)),
     ];
     let mut outline = vec![(Point2::new(0.0, top), own(HolePart::Top))];
     match &values.style {
