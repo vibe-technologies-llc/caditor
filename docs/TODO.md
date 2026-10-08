@@ -347,6 +347,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
   edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
   outright when the file declares no precision.
+- [medium · medium] Transparency in a STEP file is lost: a body or face styled see-through
+  (`SURFACE_STYLE_TRANSPARENT`, or the transparency of `SURFACE_STYLE_RENDERING_WITH_PROPERTIES`
+  in AP214 and AP242 presentation) imports opaque, so the clear acrylic panels of a printer frame
+  (a VzBot's enclosure, say) hide everything behind them. Read the transparency with the colour,
+  set the imported body's opacity from it (to the nearest of the body's opacity steps, or an
+  exact value if opacity becomes free), and keep it per face once face colours are mapped.
 - [medium · hard] One unsupported surface or curve loses the whole body: an `OFFSET_SURFACE` of a
   spline, extrusion or revolution (it would need a surface fitted within tolerance) and the
   `*_REPLICA` forms. Fit a spline within the declared precision, or keep the
@@ -402,8 +408,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
 - [low · medium] Lighting and the MSAA resolve happen in gamma space.
-- [low · medium] Bodies are opaque or all see-through (X-ray): a body cannot be made translucent on
-  its own, to see a part inside another while modelling it.
 - [low · medium] Dragging a brush over faces to select them (paint selection), and named selection
   sets: a group of faces, edges or bodies saved under a name, picked again later as the input of a
   fillet, a hide or a pattern, and healed like other references when the model changes.
@@ -434,6 +438,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
+- [medium · medium] Choosing a row in the tree (a feature that made a body, a row of the Bodies
+  group, a sketch or a datum) neither highlights nor selects what it made in the view, so the body
+  a row names has to be found by eye; the view's selection already marks its rows in the tree
+  (`app-look.md`), the other way is missing. Highlight the chosen rows' bodies, sketches and
+  datums in the view as hovered or chosen geometry is, without making the faces the selection
+  (so commands keep taking the tree's choice as they do), and frame them on request.
 - [low · medium] Cancelling Open only drops its result while the files worker reads on, so a save or
   another open queues behind a slow load; the loader would need a cancel token and its own thread
   as imports have.
