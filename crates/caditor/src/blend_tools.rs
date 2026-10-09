@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{
-    Blend, BlendKind, Document, Edit, Evaluation, FeatureId, FeatureKind, Transaction,
+    Blend, BlendKind, ChamferForm, Document, Edit, Evaluation, FeatureId, FeatureKind, Transaction,
 };
 use caditor_kernel::{EdgeId, EdgeName, EdgeNaming, EdgeReference, Solid, blend_chain};
 
@@ -82,6 +82,8 @@ pub fn create(
             body: source.body,
             edges,
             size: unit.default_length(DEFAULT_SIZE),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     Ok((transaction.finish(), feature))

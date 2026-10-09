@@ -160,7 +160,7 @@ impl FeatureKind {
                         * (size_of::<EntityId>() + size_of::<ProjectionSource>())
             }
             Self::Solid(solid) => solid.heap_size(),
-            Self::Blend(blend) => size_of_val(blend.edges.as_slice()) + blend.size.heap_size(),
+            Self::Blend(blend) => blend.heap_size(),
             Self::Shell(shell) => {
                 size_of_val(shell.open.as_slice())
                     + shell

@@ -309,6 +309,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Blend and shell (`blend.rs`, `shell.rs`)
 
+- A `Blend` is a fillet or chamfer of `size` (radius or first distance). A chamfer's `form` is
+  `Equal`, `TwoDistances { second }` or `DistanceAngle { angle }` (degrees, below 180), with
+  `flipped` swapping which face of each edge the first distance is measured on (the kernel's
+  choice: the face more chosen edges share). A fillet ignores both but keeps them, so switching
+  back restores the chamfer; the extra expression counts among the feature's expressions
+  (`Blend::expressions`, parameters, inlining) and a second distance scales with the model.
+
 - Both modify a body and resolve their references (`EdgeReference`s, opened `FaceReference`s) in
   the body's state before the feature, each to a `Resolution` (`pieces.rs`; the panel lists them in
   the same terms): one match; the pieces of a split edge on one line or circle (a shell face tied

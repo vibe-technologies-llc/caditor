@@ -126,6 +126,8 @@ fn model() -> Model {
             body: base,
             edges,
             size: transaction.parse("1 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     document.apply(transaction.finish()).unwrap();

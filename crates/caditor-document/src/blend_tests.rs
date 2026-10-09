@@ -104,6 +104,8 @@ fn model() -> Model {
             body: base,
             edges,
             size: Expression::Parameter(radius),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -450,6 +452,8 @@ fn ambiguous_edges_and_faces_count_only_when_their_pieces_are_one_edge_or_face()
         body: base,
         edges: vec![front_top],
         size: Expression::parse_stored("1 mm").unwrap(),
+        form: ChamferForm::Equal,
+        flipped: false,
     };
     let pieces = blend.resolve(solid).unwrap();
     let back_top_reference = edge_at(solid, Point3::new(2.0, 8.0, 4.0));
@@ -572,6 +576,8 @@ fn a_failure_message_follows_the_renaming_of_a_feature_that_made_a_face() {
             body: base,
             edges: vec![rim],
             size: Expression::parse_stored("5 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -633,6 +639,8 @@ fn a_fillet_on_a_cap_edge_survives_a_hole_added_inside_the_outline() {
             body: base,
             edges,
             size: mm("1"),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -710,6 +718,8 @@ fn filleted_boss() -> Boss {
             body: base,
             edges,
             size: mm("0.5"),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -803,6 +813,8 @@ fn fillet_saved_before_origins(rolled_back: bool) -> SavedBeforeOrigins {
             body: base,
             edges: vec![edge],
             size: mm("1"),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -911,4 +923,101 @@ fn completing_origins_leaves_an_edge_it_cannot_find_and_stops_when_cancelled() {
     assert!(cancelled.is_empty());
     assert!(after_hole.is_empty());
     assert_eq!(fillet_edges(&document, fillet), before);
+}
+
+fn reshape(model: &mut Model, form: ChamferForm, flipped: bool) -> Evaluation {
+    let FeatureKind::Blend(mut definition) =
+        model.document.feature(model.fillet).unwrap().kind.clone()
+    else {
+        panic!("the fillet should be a blend");
+    };
+    definition.kind = BlendKind::Chamfer;
+    definition.form = form;
+    definition.flipped = flipped;
+    model
+        .document
+        .apply(Transaction::single(
+            "Reshape",
+            Edit::SetFeatureKind {
+                id: model.fillet,
+                kind: FeatureKind::Blend(definition),
+            },
+        ))
+        .unwrap();
+    evaluate(&model.document, &mut model.engine)
+}
+
+fn assert_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
+    let found = volume(evaluation, body);
+    assert!(
+        (found - expected).abs() < 0.02,
+        "volume {found} instead of {expected}"
+    );
+}
+
+#[test]
+fn a_chamfer_takes_two_distances_or_a_distance_and_an_angle() {
+    let mut model = model();
+    let angle = model.document.parse("30 deg").unwrap();
+    let mut transaction = model.document.transaction("Angle");
+    let tilt = transaction.add_parameter("tilt", angle);
+    model.document.apply(transaction.finish()).unwrap();
+    let two = |text: &str| ChamferForm::TwoDistances {
+        second: Expression::parse_stored(text).unwrap(),
+    };
+    let tangent = 30f64.to_radians().tan();
+
+    let on_top = reshape(&mut model, two("2 mm"), false);
+    assert_eq!(on_top.failed_count(), 0);
+    assert_volume(&on_top, model.base, 320.0 - 18.0 + 2.0 / 3.0);
+    let on_sides = reshape(&mut model, two("2 mm"), true);
+    assert_volume(&on_sides, model.base, 320.0 - 18.0 + 4.0 / 3.0);
+    let angled = reshape(
+        &mut model,
+        ChamferForm::DistanceAngle {
+            angle: Expression::Parameter(tilt),
+        },
+        false,
+    );
+    assert_volume(
+        &angled,
+        model.base,
+        320.0 - 18.0 * 0.5 * tangent + tangent / 3.0,
+    );
+    let definition = model.document.feature(model.fillet).unwrap();
+    assert!(definition.kind.uses_parameter(tilt));
+    assert!(definition.kind.parameters().contains(&tilt));
+
+    let flat = reshape(&mut model, two("0 mm"), false);
+    assert_eq!(
+        failure(&flat, model.fillet).reason,
+        "The second distance must be more than zero."
+    );
+    let past = reshape(
+        &mut model,
+        ChamferForm::DistanceAngle {
+            angle: Expression::parse_stored("200 deg").unwrap(),
+        },
+        false,
+    );
+    assert_eq!(
+        failure(&past, model.fillet).reason,
+        "The angle must be less than 180 degrees."
+    );
+    let square = reshape(
+        &mut model,
+        ChamferForm::DistanceAngle {
+            angle: Expression::parse_stored("90 deg").unwrap(),
+        },
+        false,
+    );
+    let error = failure(&square, model.fillet);
+    assert!(
+        error
+            .reason
+            .starts_with("At this angle the cut never meets the other face next to"),
+        "{}",
+        error.reason
+    );
+    assert!(error.remedy.contains("flip the chamfer"));
 }

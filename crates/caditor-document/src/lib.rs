@@ -51,7 +51,7 @@ mod worker;
 
 pub use crate::{
     attachment::{AttachmentError, FaceAttachment, SketchAttachment, SketchFeature, face_plane},
-    blend::{Blend, BlendKind},
+    blend::{Blend, BlendKind, ChamferForm},
     body_appearance::{
         BodyAppearance, DensityError, FaceColour, MAX_BODY_NAME_CHARS, MAX_DENSITY,
         MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT, OPACITY_STEPS, OPAQUE_PERCENT, Rgb,

@@ -225,6 +225,12 @@ paths:
   record: `feature`, the hole record it would be ending flat (itself a `stepped_hole` when stepped),
   and `angle` (stored text; unreadable: 118 deg, reported), since an older reader would drill a
   flat bottom; an inner record that is no hole loads without it, reported.
+- A chamfer by two distances or by a distance and an angle is a `shaped_chamfer` record:
+  `feature`, the `chamfer` record of its first distance, `form` (`two_distances` with `second`, or
+  `distance_angle` with `angle`, stored text; unreadable ones load as 1 mm and 45 deg, reported)
+  and `flipped` when set, since an older reader would bevel both faces by the first distance; an
+  inner record that is no chamfer loads without them, reported. An equal chamfer is still a
+  `chamfer` record.
 - A datum point is a `point` record (`base`, a point reference: `origin`, `datum`, `vertex` with
   `body` and the vertex name's digest, `centre` with `body` and an edge record, `surface_centre`
   with `body` and a face record, or `sketch` with `sketch` and `entity`; `offset`, three stored

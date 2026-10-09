@@ -98,7 +98,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
             expressions.extend(revolve.wall.as_deref_mut().map(|wall| &mut wall.thickness));
             expressions
         }
-        FeatureKind::Blend(blend) => vec![&mut blend.size],
+        FeatureKind::Blend(blend) => blend.expressions_mut(),
         FeatureKind::Shell(shell) => vec![&mut shell.thickness],
         FeatureKind::OffsetFace(offset) => vec![&mut offset.distance],
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
