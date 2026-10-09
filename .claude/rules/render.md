@@ -73,9 +73,10 @@ paths:
   upload once per `Arc` and drop when the mesh leaves the scene; a mesh past `max_buffer_size` is
   split into parts that each fit.
 - New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
-  shared by the five mesh caches and the silhouette cache): each frame packs and writes the next whole vertices and indices
-  into buffers made at the start, so the frame that first shows a large body never stalls (about
-  2 ms at worst instead of 8 to 11 ms for 39 MB in a release build). A mesh is drawn only once it
+  shared by the five mesh caches and the silhouette cache): each frame packs the next whole
+  vertices and indices into buffers made at the start, so the frame that first shows a large body
+  never stalls (under 2 ms at worst instead of 11 ms for 39 MB of meshes and 58 MB of silhouettes
+  in a release build). A mesh is drawn only once it
   is complete, never half; while any mesh of a cache is still uploading, the meshes the cache drew
   before that are no longer in the scene stay drawn (the old result of a recomputed body), at their
   last styles with their pick ids withdrawn, since the app's pick table no longer knows them, so
@@ -139,6 +140,11 @@ paths:
   `max_buffer_size` draws only its first whole primitives (logged once). A buffer an upload
   outgrows is replaced by one a quarter larger than the upload (aligned), and one an upload fills
   to under a quarter by one fitting that upload the same way, so the band between keeps it.
+- Vertex, index and silhouette records are packed one fixed-size `gpu::record` at a time straight
+  into wgpu's staging memory (`gpu::write_records` over `Queue::write_buffer_with`), so no CPU copy
+  of a batch or mesh outlives its upload; the `Bytes` staging left for uniforms and face styles
+  drops any capacity past 64 KiB when cleared. Replacing the frame-cost benchmark's batch every
+  frame costs about 2.8 ms instead of 7.9.
 - Draw order: every batch's lines, then markers, then fills. Translucent fills sort back to front
   by centroid depth across all batches, front-layer fills last (`FillOrder`).
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth
@@ -190,9 +196,8 @@ paths:
   `ShadedMesh` counts its curved triangles when built, so starting an upload costs nothing. The
   frame-cost benchmark gives its four meshes waving normals and silhouettes, so every triangle is
   a candidate (about 14.6 MB each against 9.8 MB of mesh): steady frames stay within noise (about
-  45 µs idle, 55 µs orbiting, release build), an upload frame under the budget stays near 2 ms
-  at worst but new meshes take about 2.5 times as many frames, and an unbudgeted upload of all
-  four takes about 19 ms instead of 7.
+  55 µs idle or orbiting, release build), an upload frame under the budget stays under 2 ms
+  at worst but new meshes take about 2.5 times as many frames.
 - `Scene::overlay_meshes` draw right after the translucent ones, blended, with no depth test or
   write and never in the pick pass, so they show through whatever covers them (the cut preview).
 - `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and

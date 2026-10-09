@@ -6,12 +6,13 @@ use glam::Vec3;
 use crate::{
     by_mesh::{ByMesh, OfMesh},
     culling::{ClipWindow, placed_corners},
-    gpu::{self, Bytes},
+    gpu::{self, Bytes, Pack},
     scene::{Color, PickId},
     viewport::relative_to_eye,
 };
 
-pub const MESH_VERTEX_STRIDE: u64 = 28;
+const MESH_VERTEX_BYTES: usize = 28;
+pub const MESH_VERTEX_STRIDE: u64 = MESH_VERTEX_BYTES as u64;
 const INDEX_BYTES: u64 = 4;
 const STYLE_BINDING: u32 = 1;
 const PLACEMENT_BINDING: u32 = 2;
@@ -382,28 +383,26 @@ impl PartSource {
         }
     }
 
-    fn pack_vertices(&self, mesh: &ShadedMesh, bytes: &mut Bytes, range: Range<usize>) {
-        let pack = |vertex: &GpuVertex| {
-            bytes
-                .vec3(vertex.position)
-                .vec3(vertex.normal)
-                .u32(vertex.face);
+    fn vertex_records<'a>(
+        &'a self,
+        mesh: &'a ShadedMesh,
+        range: Range<usize>,
+    ) -> impl Iterator<Item = [u8; MESH_VERTEX_BYTES]> + 'a {
+        let (whole, split): (&[GpuVertex], &[u32]) = match self {
+            Self::Whole => (mesh.vertices.get(range).unwrap_or_default(), &[]),
+            Self::Split(part) => (&[], part.vertices.get(range).unwrap_or_default()),
         };
-        match self {
-            Self::Whole => mesh
-                .vertices
-                .get(range)
-                .into_iter()
-                .flatten()
-                .for_each(pack),
-            Self::Split(part) => part
-                .vertices
-                .get(range)
-                .into_iter()
-                .flatten()
-                .filter_map(|vertex| mesh.vertices.get(*vertex as usize))
-                .for_each(pack),
-        }
+        let picked = split
+            .iter()
+            .filter_map(|vertex| mesh.vertices.get(*vertex as usize));
+        whole.iter().chain(picked).map(|vertex| {
+            gpu::record(|record| {
+                record
+                    .vec3(vertex.position)
+                    .vec3(vertex.normal)
+                    .u32(vertex.face);
+            })
+        })
     }
 }
 
@@ -452,7 +451,6 @@ impl PartUpload {
         &mut self,
         mesh: &ShadedMesh,
         queue: &wgpu::Queue,
-        bytes: &mut Bytes,
         budget: &mut UploadBudget,
     ) -> bool {
         let vertex_count = self.source.vertex_count(mesh);
@@ -462,10 +460,9 @@ impl PartUpload {
                 return false;
             }
             let range = self.vertices_written..self.vertices_written + granted;
-            bytes.clear();
-            self.source.pack_vertices(mesh, bytes, range);
             let offset = self.vertices_written as u64 * MESH_VERTEX_STRIDE;
-            queue.write_buffer(&self.gpu.vertices, offset, bytes.as_slice());
+            let records = self.source.vertex_records(mesh, range);
+            gpu::write_records(queue, &self.gpu.vertices, offset, granted, records);
             self.vertices_written += granted;
         }
         let indices = self.source.indices(mesh);
@@ -475,12 +472,13 @@ impl PartUpload {
                 return false;
             }
             let range = self.indices_written..self.indices_written + granted;
-            bytes.clear();
-            for index in indices.get(range).into_iter().flatten() {
-                bytes.u32(*index);
-            }
             let offset = self.indices_written as u64 * INDEX_BYTES;
-            queue.write_buffer(&self.gpu.indices, offset, bytes.as_slice());
+            let records = indices
+                .get(range)
+                .unwrap_or_default()
+                .iter()
+                .map(|index| index.to_le_bytes());
+            gpu::write_records(queue, &self.gpu.indices, offset, granted, records);
             self.indices_written += granted;
         }
         true
@@ -513,15 +511,10 @@ impl MeshUpload {
         Self { mesh, parts }
     }
 
-    fn advance(
-        &mut self,
-        queue: &wgpu::Queue,
-        bytes: &mut Bytes,
-        budget: &mut UploadBudget,
-    ) -> bool {
+    fn advance(&mut self, queue: &wgpu::Queue, budget: &mut UploadBudget) -> bool {
         self.parts
             .iter_mut()
-            .all(|part| part.advance(&self.mesh, queue, bytes, budget))
+            .all(|part| part.advance(&self.mesh, queue, budget))
     }
 
     fn finish(self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> GpuMesh {
@@ -897,7 +890,7 @@ impl MeshCache {
                         let mut upload = started.unwrap_or_else(|| {
                             MeshUpload::start(device, Arc::clone(&instance.mesh))
                         });
-                        if !upload.advance(queue, staging, budget) {
+                        if !upload.advance(queue, budget) {
                             return Prepared::Uploading(upload);
                         }
                         upload.finish(device, layout)

@@ -259,54 +259,114 @@ pub fn offered_msaa(
         .collect()
 }
 
-#[derive(Debug, Default)]
-pub struct Bytes(Vec<u8>);
+pub trait Pack {
+    fn put(&mut self, bytes: &[u8]) -> &mut Self;
 
-impl Bytes {
-    pub fn clear(&mut self) {
-        self.0.clear();
+    fn f32(&mut self, value: f32) -> &mut Self {
+        self.put(&value.to_le_bytes())
     }
 
-    pub fn as_slice(&self) -> &[u8] {
-        &self.0
+    fn u32(&mut self, value: u32) -> &mut Self {
+        self.put(&value.to_le_bytes())
     }
 
-    pub fn len(&self) -> u64 {
-        self.0.len() as u64
-    }
-
-    pub fn f32(&mut self, value: f32) -> &mut Self {
-        self.0.extend_from_slice(&value.to_le_bytes());
-        self
-    }
-
-    pub fn u32(&mut self, value: u32) -> &mut Self {
-        self.0.extend_from_slice(&value.to_le_bytes());
-        self
-    }
-
-    pub fn extend(&mut self, bytes: &[u8]) -> &mut Self {
-        self.0.extend_from_slice(bytes);
-        self
-    }
-
-    pub fn floats(&mut self, values: &[f32]) -> &mut Self {
+    fn floats(&mut self, values: &[f32]) -> &mut Self {
         for value in values {
             self.f32(*value);
         }
         self
     }
 
-    pub fn vec3(&mut self, value: Vec3) -> &mut Self {
+    fn vec3(&mut self, value: Vec3) -> &mut Self {
         self.floats(&value.to_array())
     }
 
-    pub fn vec4(&mut self, value: Vec3, w: f32) -> &mut Self {
+    fn vec4(&mut self, value: Vec3, w: f32) -> &mut Self {
         self.vec3(value).f32(w)
     }
 
-    pub fn mat4(&mut self, value: Mat4) -> &mut Self {
+    fn mat4(&mut self, value: Mat4) -> &mut Self {
         self.floats(&value.to_cols_array())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Bytes(Vec<u8>);
+
+impl Bytes {
+    const KEPT_CAPACITY: usize = 64 << 10;
+
+    pub fn clear(&mut self) {
+        if self.0.capacity() > Self::KEPT_CAPACITY {
+            self.0 = Vec::new();
+        } else {
+            self.0.clear();
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> u64 {
+        self.0.len() as u64
+    }
+
+    #[cfg(test)]
+    pub fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
+}
+
+impl Pack for Bytes {
+    fn put(&mut self, bytes: &[u8]) -> &mut Self {
+        self.0.extend_from_slice(bytes);
+        self
+    }
+}
+
+pub struct Record<const N: usize> {
+    bytes: [u8; N],
+    at: usize,
+}
+
+impl<const N: usize> Pack for Record<N> {
+    fn put(&mut self, bytes: &[u8]) -> &mut Self {
+        let end = self.at.saturating_add(bytes.len());
+        if let Some(slot) = self.bytes.get_mut(self.at..end) {
+            slot.copy_from_slice(bytes);
+        }
+        self.at = end;
+        self
+    }
+}
+
+pub fn record<const N: usize>(fill: impl FnOnce(&mut Record<N>)) -> [u8; N] {
+    let mut record = Record {
+        bytes: [0; N],
+        at: 0,
+    };
+    fill(&mut record);
+    record.bytes
+}
+
+pub fn write_records<const N: usize>(
+    queue: &wgpu::Queue,
+    buffer: &wgpu::Buffer,
+    offset: u64,
+    count: usize,
+    records: impl IntoIterator<Item = [u8; N]>,
+) {
+    let size = (count as u64)
+        .checked_mul(N as u64)
+        .and_then(wgpu::BufferSize::new);
+    let Some(mut view) = size.and_then(|size| queue.write_buffer_with(buffer, offset, size)) else {
+        return;
+    };
+    let mut records = records.into_iter();
+    for slot in view.slice(..).into_chunks::<N>().0 {
+        slot.write(records.next().unwrap_or([0; N]));
     }
 }
 
@@ -360,28 +420,34 @@ impl GrowableBuffer {
         })
     }
 
-    pub fn upload(
+    pub fn upload<const N: usize>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        bytes: &Bytes,
-        unit: u64,
+        Records {
+            count,
+            per_primitive,
+            records,
+        }: Records<impl Iterator<Item = [u8; N]>>,
     ) -> u64 {
-        let unit = unit.max(wgpu::COPY_BUFFER_ALIGNMENT);
-        let length = bytes.len().min(self.limit / unit * unit);
-        self.note_truncation(length < bytes.len());
+        let primitive = (N as u64).saturating_mul(per_primitive.max(1));
+        let fitting = self.limit / primitive.max(1) * per_primitive.max(1);
+        let kept = count.min(fitting);
+        self.note_truncation(kept < count);
 
+        let length = kept * N as u64;
         if let Some(size) = resized(self.buffer.size(), length, self.limit) {
             self.buffer = Self::allocate(device, self.label, self.usage, size);
         }
-        let written = usize::try_from(length)
-            .ok()
-            .and_then(|length| bytes.as_slice().get(..length))
-            .unwrap_or_default();
-        if !written.is_empty() {
-            queue.write_buffer(&self.buffer, 0, written);
-        }
-        written.len() as u64 / unit
+        let kept_records = usize::try_from(kept).unwrap_or(usize::MAX);
+        write_records(
+            queue,
+            &self.buffer,
+            0,
+            kept_records,
+            records.take(kept_records),
+        );
+        kept
     }
 
     fn note_truncation(&mut self, truncated: bool) {
@@ -403,6 +469,12 @@ impl GrowableBuffer {
     pub fn slice(&self, length: u64) -> wgpu::BufferSlice<'_> {
         self.buffer.slice(..length.min(self.buffer.size()))
     }
+}
+
+pub struct Records<I> {
+    pub count: u64,
+    pub per_primitive: u64,
+    pub records: I,
 }
 
 fn resized(current: u64, length: u64, limit: u64) -> Option<u64> {
@@ -432,6 +504,30 @@ mod tests {
         assert_eq!(bytes.len(), 20);
         assert_eq!(bytes.as_slice().get(..4), Some(&7u32.to_le_bytes()[..]));
         assert_eq!(bytes.as_slice().get(16..), Some(&4.0f32.to_le_bytes()[..]));
+    }
+
+    #[test]
+    fn a_record_packs_values_in_order_and_drops_what_does_not_fit() {
+        let packed = record::<8>(|record| {
+            record.u32(7).f32(2.0).u32(9);
+        });
+
+        assert_eq!(packed[..4], 7u32.to_le_bytes());
+        assert_eq!(packed[4..], 2.0f32.to_le_bytes());
+    }
+
+    #[test]
+    fn staging_keeps_only_a_small_capacity_once_cleared() {
+        let mut small = Bytes::default();
+        small.floats(&[1.0; 100]);
+        let mut large = Bytes::default();
+        large.floats(&[1.0; 100_000]);
+
+        small.clear();
+        large.clear();
+
+        assert!(small.capacity() >= 400);
+        assert_eq!(large.capacity(), 0);
     }
 
     #[test]

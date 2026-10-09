@@ -7,13 +7,13 @@ use crate::{
     SurfaceSize,
     camera::{Projection, View},
     culling::ClipWindow,
-    gpu::{self, Bytes, GrowableBuffer, QuadIndices},
+    gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, UploadBudget},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{
-        Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, PickId, Primitive,
-        Reflection, Scene, SectionPlane, ViewportRect, section_slack,
+        Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickId,
+        Primitive, Reflection, Scene, SectionPlane, ViewportRect, section_slack,
     },
     settings::Shading,
     silhouette::{SILHOUETTE_STRIDE, SilhouetteCache},
@@ -37,10 +37,12 @@ const BEHIND_FACES_DEPTH_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
     slope_scale: -4.0,
     clamp: 0.0,
 };
-const LINE_STRIDE: u64 = 60;
-const MARKER_STRIDE: u64 = 44;
-const FILL_VERTEX_STRIDE: u64 = 40;
-const FILL_TRIANGLE_STRIDE: u64 = FILL_VERTEX_STRIDE * 3;
+const LINE_BYTES: usize = 60;
+const LINE_STRIDE: u64 = LINE_BYTES as u64;
+const MARKER_BYTES: usize = 44;
+const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
+const FILL_VERTEX_BYTES: usize = 40;
+const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
 const VIEW_UNIFORM_SIZE: u64 = 400;
 const HATCH_SPACING_POINTS: f64 = 8.0;
 const REANCHOR_DISTANCES: f64 = 4.0;
@@ -519,56 +521,43 @@ impl GpuBatch {
                 .is_some_and(|shown| Arc::ptr_eq(shown, batch))
     }
 
-    fn upload(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        staging: &mut Bytes,
-        uploaded: Uploaded<'_>,
-    ) {
+    fn upload(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, uploaded: Uploaded<'_>) {
         let Uploaded {
             batch,
             anchor,
             slot,
         } = uploaded;
-        staging.clear();
         let ordered = OrderedLines::of(&batch.lines);
-        for line in ordered.lines {
-            staging
-                .vec3(relative_to_eye(line.start, anchor))
-                .vec3(relative_to_eye(line.end, anchor))
-                .floats(&line.color.to_array())
-                .f32(line.width)
-                .u32(PickId::raw(line.pick))
-                .f32(line.layer.depth_bias(Primitive::Line))
-                .f32(line.stroke.along())
-                .u32(line.layer.flags());
-        }
-        let uploaded = count(self.lines.upload(device, queue, staging, LINE_STRIDE));
+        let uploaded = count(self.lines.upload(
+            device,
+            queue,
+            Records {
+                count: ordered.total,
+                per_primitive: 1,
+                records: ordered.lines.map(|line| line_record(line, anchor)),
+            },
+        ));
         self.line_count = uploaded.min(count(ordered.pickable));
         self.shown_lines = count(ordered.shown).min(self.line_count);
         self.hidden_line_count = uploaded.saturating_sub(self.line_count);
 
-        staging.clear();
         let (shown_markers, markers) = shown_first(&batch.markers, |marker| marker.color);
-        for marker in markers {
-            staging
-                .vec3(relative_to_eye(marker.position, anchor))
-                .floats(&marker.color.to_array())
-                .f32(marker.diameter)
-                .u32(PickId::raw(marker.pick))
-                .f32(marker.layer.depth_bias(Primitive::Marker))
-                .u32(marker.layer.flags());
-        }
-        self.marker_count = count(self.markers.upload(device, queue, staging, MARKER_STRIDE));
+        self.marker_count = count(self.markers.upload(
+            device,
+            queue,
+            Records {
+                count: batch.markers.len() as u64,
+                per_primitive: 1,
+                records: markers.map(|marker| marker_record(marker, anchor)),
+            },
+        ));
         self.shown_markers = count(shown_markers).min(self.marker_count);
 
-        staging.clear();
         let mut written = 0u32;
         let mut spans = Vec::with_capacity(batch.fills.len());
         for fill in &batch.fills {
             let start = written;
-            written = written.saturating_add(stage_fill(staging, fill, anchor));
+            written = written.saturating_add(fill_vertex_count(fill));
             spans.push(FillSpan {
                 slot,
                 vertices: start..written,
@@ -577,11 +566,11 @@ impl GpuBatch {
                 behind_faces: fill.layer == Layer::Reference,
             });
         }
-        self.fill_vertices = count(
-            self.fills
-                .upload(device, queue, staging, FILL_TRIANGLE_STRIDE)
-                .saturating_mul(3),
-        );
+        self.fill_vertices = count(self.fills.upload(
+            device,
+            queue,
+            fill_records(&batch.fills, anchor),
+        ));
         let uploaded = self.fill_vertices;
         self.fill_spans = spans
             .into_iter()
@@ -592,7 +581,7 @@ impl GpuBatch {
             .filter(|span| !span.vertices.is_empty())
             .collect();
 
-        self.upload_pick_fills(device, queue, staging, &batch.fills, anchor);
+        self.upload_pick_fills(device, queue, &batch.fills, anchor);
         self.shown = Some(Arc::clone(batch));
         self.anchor = anchor;
     }
@@ -601,27 +590,32 @@ impl GpuBatch {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        staging: &mut Bytes,
         fills: &[Fill],
         anchor: Point3,
     ) {
-        staging.clear();
-        let pickable = fills.iter().filter(|fill| fill.pick.is_some());
-        let (reference, nearer): (Vec<&Fill>, Vec<&Fill>) =
-            pickable.partition(|fill| fill.layer == Layer::Reference);
-        let mut stage = |fills: Vec<&Fill>| {
-            fills.into_iter().fold(0u32, |written, fill| {
-                written.saturating_add(stage_fill(staging, fill, anchor))
+        let reference = |fill: &&Fill| fill.pick.is_some() && fill.layer == Layer::Reference;
+        let nearer = |fill: &&Fill| fill.pick.is_some() && fill.layer != Layer::Reference;
+        let vertices = |chosen: fn(&&Fill) -> bool| {
+            fills.iter().filter(chosen).fold(0u32, |written, fill| {
+                written.saturating_add(fill_vertex_count(fill))
             })
         };
-        let reference_written = stage(reference);
-        let nearer_written = stage(nearer);
+        let reference_written = vertices(reference);
+        let nearer_written = vertices(nearer);
+        let ordered = fills
+            .iter()
+            .filter(reference)
+            .chain(fills.iter().filter(nearer));
 
-        let uploaded = count(
-            self.pick_fills
-                .upload(device, queue, staging, FILL_TRIANGLE_STRIDE)
-                .saturating_mul(3),
-        );
+        let uploaded = count(self.pick_fills.upload(
+            device,
+            queue,
+            Records {
+                count: u64::from(reference_written) + u64::from(nearer_written),
+                per_primitive: 3,
+                records: ordered.flat_map(|fill| fill_vertices(fill, anchor)),
+            },
+        ));
         self.reference_pick_vertices = reference_written.min(uploaded);
         self.nearer_pick_vertices =
             nearer_written.min(uploaded.saturating_sub(self.reference_pick_vertices));
@@ -706,6 +700,7 @@ impl GpuBatch {
 struct OrderedLines<'a> {
     shown: u64,
     pickable: u64,
+    total: u64,
     lines: Box<dyn Iterator<Item = &'a Line> + 'a>,
 }
 
@@ -718,6 +713,10 @@ impl<'a> OrderedLines<'a> {
             .filter(|line| !hidden(line) && drawn(line))
             .count() as u64;
         let pickable = lines.iter().filter(|line| !hidden(line)).count() as u64;
+        let hidden_drawn = lines
+            .iter()
+            .filter(|line| hidden(line) && drawn(line))
+            .count() as u64;
         let ordered = lines
             .iter()
             .filter(move |line| !hidden(line) && drawn(line))
@@ -730,6 +729,7 @@ impl<'a> OrderedLines<'a> {
         Self {
             shown,
             pickable,
+            total: pickable + hidden_drawn,
             lines: Box::new(ordered),
         }
     }
@@ -1420,12 +1420,10 @@ impl ViewportRenderer {
                 continue;
             };
             if !gpu.holds(batch, anchor) {
-                let staging = &mut self.staging;
                 let ((), error) = gpu::scoped(device, || {
                     gpu.upload(
                         device,
                         queue,
-                        staging,
                         Uploaded {
                             batch,
                             anchor,
@@ -1959,20 +1957,68 @@ fn build_pipeline(device: &wgpu::Device, spec: &PipelineSpec<'_>) -> wgpu::Rende
     })
 }
 
-fn stage_fill(bytes: &mut Bytes, fill: &Fill, anchor: Point3) -> u32 {
+fn line_record(line: &Line, anchor: Point3) -> [u8; LINE_BYTES] {
+    gpu::record(|record| {
+        record
+            .vec3(relative_to_eye(line.start, anchor))
+            .vec3(relative_to_eye(line.end, anchor))
+            .floats(&line.color.to_array())
+            .f32(line.width)
+            .u32(PickId::raw(line.pick))
+            .f32(line.layer.depth_bias(Primitive::Line))
+            .f32(line.stroke.along())
+            .u32(line.layer.flags());
+    })
+}
+
+fn marker_record(marker: &Marker, anchor: Point3) -> [u8; MARKER_BYTES] {
+    gpu::record(|record| {
+        record
+            .vec3(relative_to_eye(marker.position, anchor))
+            .floats(&marker.color.to_array())
+            .f32(marker.diameter)
+            .u32(PickId::raw(marker.pick))
+            .f32(marker.layer.depth_bias(Primitive::Marker))
+            .u32(marker.layer.flags());
+    })
+}
+
+fn fill_vertex_count(fill: &Fill) -> u32 {
+    u32::try_from(fill.triangles.len().saturating_mul(3)).unwrap_or(u32::MAX)
+}
+
+fn fill_vertices(
+    fill: &Fill,
+    anchor: Point3,
+) -> impl Iterator<Item = [u8; FILL_VERTEX_BYTES]> + '_ {
     let depth_bias = fill.layer.depth_bias(Primitive::Fill);
     let flags = fill.layer.flags();
-    let mut written = 0u32;
-    for corner in fill.triangles.iter().flatten() {
-        bytes
-            .vec3(relative_to_eye(*corner, anchor))
-            .floats(&fill.color.to_array())
-            .u32(PickId::raw(fill.pick))
-            .f32(depth_bias)
-            .u32(flags);
-        written = written.saturating_add(1);
+    fill.triangles.iter().flatten().map(move |corner| {
+        gpu::record(|record| {
+            record
+                .vec3(relative_to_eye(*corner, anchor))
+                .floats(&fill.color.to_array())
+                .u32(PickId::raw(fill.pick))
+                .f32(depth_bias)
+                .u32(flags);
+        })
+    })
+}
+
+fn fill_records(
+    fills: &[Fill],
+    anchor: Point3,
+) -> Records<impl Iterator<Item = [u8; FILL_VERTEX_BYTES]> + '_> {
+    Records {
+        count: fills
+            .iter()
+            .map(|fill| u64::from(fill_vertex_count(fill)))
+            .sum(),
+        per_primitive: 3,
+        records: fills
+            .iter()
+            .flat_map(move |fill| fill_vertices(fill, anchor)),
     }
-    written
 }
 
 fn reanchor_reach(view: &View) -> f64 {

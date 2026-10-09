@@ -13,7 +13,7 @@ use glam::DVec2;
 use crate::{
     SurfaceSize,
     camera::{Projection, View, Viewpoint},
-    gpu::{self, Bytes, DeviceLoss, GrowableBuffer},
+    gpu::{self, DeviceLoss, GrowableBuffer, Records},
     image::{self, Background, Image, ImageGpu, ImageRequest},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{
@@ -1196,22 +1196,21 @@ fn a_buffer_grows_with_headroom_and_shrinks_back_once_an_upload_fills_under_a_qu
         return;
     };
     let mut buffer = GrowableBuffer::new(&device, "test", wgpu::BufferUsages::VERTEX);
-    let mut large = Bytes::default();
-    large.floats(&[1.0; 100_000]);
-    let mut half = Bytes::default();
-    half.floats(&[1.0; 50_000]);
-    let mut small = Bytes::default();
-    small.floats(&[1.0; 10]);
+    let floats = |count: u64| Records {
+        count,
+        per_primitive: 1,
+        records: std::iter::repeat_n(1.0f32.to_le_bytes(), count as usize),
+    };
 
-    let written = buffer.upload(&device, &queue, &large, 4);
+    let written = buffer.upload(&device, &queue, floats(100_000));
     let grown = buffer.size();
-    buffer.upload(&device, &queue, &half, 4);
+    buffer.upload(&device, &queue, floats(50_000));
     let after_half = buffer.size();
-    buffer.upload(&device, &queue, &small, 4);
+    buffer.upload(&device, &queue, floats(10));
     let after_small = buffer.size();
 
     assert_eq!(written, 100_000);
-    assert_eq!(grown, large.len() + large.len() / 4);
+    assert_eq!(grown, 500_000);
     assert_eq!(after_half, grown);
     assert_eq!(after_small, GrowableBuffer::INITIAL_SIZE);
 }

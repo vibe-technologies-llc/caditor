@@ -6,12 +6,13 @@ use glam::Vec3;
 use crate::{
     by_mesh::{ByMesh, OfMesh},
     culling::{ClipWindow, placed_corners},
-    gpu::{self, Bytes},
+    gpu::{self, Bytes, Pack},
     mesh::{Corner, Placed, PlacedAt, ShadedMesh, UploadBudget},
     scene::{Color, Layer, Primitive},
 };
 
-pub const SILHOUETTE_STRIDE: u64 = 60;
+const SILHOUETTE_BYTES: usize = 60;
+pub const SILHOUETTE_STRIDE: u64 = SILHOUETTE_BYTES as u64;
 const SILHOUETTE_BINDING: u32 = 3;
 const SILHOUETTE_UNIFORM_BYTES: u64 = 80;
 const SNORM16_SCALE: f32 = i16::MAX as f32;
@@ -107,12 +108,7 @@ impl SilhouetteUpload {
         }
     }
 
-    fn advance(
-        &mut self,
-        queue: &wgpu::Queue,
-        bytes: &mut Bytes,
-        budget: &mut UploadBudget,
-    ) -> bool {
+    fn advance(&mut self, queue: &wgpu::Queue, budget: &mut UploadBudget) -> bool {
         while self.written < self.total {
             let (chunk, within) = (self.written / self.per_chunk, self.written % self.per_chunk);
             let room = (self.per_chunk - within).min(self.total - self.written);
@@ -120,20 +116,22 @@ impl SilhouetteUpload {
             if granted == 0 {
                 return false;
             }
-            bytes.clear();
             let mut staged = 0;
-            for (index, corners) in self.mesh.curved_triangles(self.next_triangle).take(granted) {
-                stage_triangle(bytes, &corners);
-                self.next_triangle = index + 1;
-                staged += 1;
-            }
+            let mut next_triangle = self.next_triangle;
+            let records = self
+                .mesh
+                .curved_triangles(self.next_triangle)
+                .take(granted)
+                .map(|(index, corners)| {
+                    next_triangle = index + 1;
+                    staged += 1;
+                    packed_triangle(&corners)
+                });
             if let Some(chunk) = self.chunks.get(chunk) {
-                queue.write_buffer(
-                    &chunk.buffer,
-                    within as u64 * SILHOUETTE_STRIDE,
-                    bytes.as_slice(),
-                );
+                let offset = within as u64 * SILHOUETTE_STRIDE;
+                gpu::write_records(queue, &chunk.buffer, offset, granted, records);
             }
+            self.next_triangle = next_triangle;
             self.written += staged;
             if staged < granted {
                 self.total = self.written;
@@ -159,8 +157,8 @@ impl SilhouetteUpload {
     }
 }
 
-fn stage_triangle(bytes: &mut Bytes, corners: &[Corner; 3]) {
-    let mut packed = [0u8; SILHOUETTE_STRIDE as usize];
+fn packed_triangle(corners: &[Corner; 3]) -> [u8; SILHOUETTE_BYTES] {
+    let mut packed = [0u8; SILHOUETTE_BYTES];
     let (positions, normals) = packed.split_at_mut(POSITIONS_BYTES);
     let position_floats = corners.iter().flat_map(|corner| corner.position.to_array());
     for (slot, value) in positions
@@ -179,7 +177,7 @@ fn stage_triangle(bytes: &mut Bytes, corners: &[Corner; 3]) {
     {
         *slot = snorm16(corner.normal);
     }
-    bytes.extend(&packed);
+    packed
 }
 
 fn snorm16(normal: Vec3) -> [u8; NORMAL_BYTES] {
@@ -387,7 +385,7 @@ impl SilhouetteCache {
                         let mut upload = started.unwrap_or_else(|| {
                             SilhouetteUpload::start(device, Arc::clone(&silhouette.mesh))
                         });
-                        if !upload.advance(queue, staging, budget) {
+                        if !upload.advance(queue, budget) {
                             return Prepared::Uploading(upload);
                         }
                         upload.finish(device, layout)
@@ -552,28 +550,20 @@ mod tests {
 
     #[test]
     fn triangles_pack_three_positions_then_three_signed_sixteen_bit_normals() {
-        let mut bytes = Bytes::default();
         let corner = |x: f32, normal: Vec3| Corner {
             position: Vec3::new(x, 0.0, 0.0),
             normal,
         };
 
-        stage_triangle(
-            &mut bytes,
-            &[
-                corner(1.0, Vec3::new(1.0, -1.0, 0.5)),
-                corner(2.0, Vec3::Z),
-                corner(3.0, Vec3::X),
-            ],
-        );
+        let bytes = packed_triangle(&[
+            corner(1.0, Vec3::new(1.0, -1.0, 0.5)),
+            corner(2.0, Vec3::Z),
+            corner(3.0, Vec3::X),
+        ]);
 
-        assert_eq!(bytes.len(), SILHOUETTE_STRIDE);
-        assert_eq!(bytes.as_slice()[..4], 1.0f32.to_le_bytes());
-        assert_eq!(bytes.as_slice()[24..28], 3.0f32.to_le_bytes());
-        assert_eq!(
-            bytes.as_slice()[36..44],
-            [0xff, 0x7f, 0x01, 0x80, 0xff, 0x3f, 0, 0]
-        );
-        assert_eq!(bytes.as_slice()[44..52], [0, 0, 0, 0, 0xff, 0x7f, 0, 0]);
+        assert_eq!(bytes[..4], 1.0f32.to_le_bytes());
+        assert_eq!(bytes[24..28], 3.0f32.to_le_bytes());
+        assert_eq!(bytes[36..44], [0xff, 0x7f, 0x01, 0x80, 0xff, 0x3f, 0, 0]);
+        assert_eq!(bytes[44..52], [0, 0, 0, 0, 0xff, 0x7f, 0, 0]);
     }
 }
