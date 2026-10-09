@@ -44,6 +44,15 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
     };
     let name = &feature.name;
     match origin {
+        FaceOrigin::Side { entity, .. } if let Some(primitive) = feature.kind.primitive() => {
+            format!("{name} {}", primitive.shape.side_name(entity))
+        }
+        FaceOrigin::StartCap { .. } if feature.kind.primitive().is_some() => {
+            format!("{name} bottom face")
+        }
+        FaceOrigin::EndCap { .. } if feature.kind.primitive().is_some() => {
+            format!("{name} top face")
+        }
         FaceOrigin::Side { entity, .. } if feature.kind.hole().is_some() => {
             let part = Hole::part_name(entity);
             format!("{name} {part}")

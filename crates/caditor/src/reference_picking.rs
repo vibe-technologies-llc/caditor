@@ -8,6 +8,7 @@ use crate::{
     model::{Action, Model, Notice},
     move_tools,
     pattern_tools::{self, Reference},
+    primitive_tools,
     selection::{Pickable, Selection},
     solid_panel, split_tools,
 };
@@ -35,6 +36,7 @@ pub enum Slot {
     DatumBase,
     DatumRotation,
     MoveAxis,
+    PrimitivePlace,
 }
 
 pub const MAX_HELD: usize = 2;
@@ -124,6 +126,15 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         }
         Slot::MirrorPlane => "Click a plane or flat face to mirror across".to_owned(),
         Slot::SplitPlane => "Click a plane or flat face to split along".to_owned(),
+        Slot::PrimitivePlace => {
+            let noun = kind(model, picking.feature)
+                .and_then(FeatureKind::primitive)
+                .map_or("shape", |primitive| primitive.shape.kind().noun());
+            format!(
+                "Click a plane or flat face where the {noun} goes, or press Escape to leave it \
+                 where it is"
+            )
+        }
         Slot::PatternDirection if circular => format!("Click {AXIS} to turn about"),
         Slot::PatternDirection => format!("Click {AXIS} to repeat along"),
         Slot::PatternSecond => format!("Click {AXIS} to also repeat along"),
@@ -207,6 +218,9 @@ pub fn change(
         }
         (Slot::MoveAxis, FeatureKind::Move(movement)) => {
             move_tools::axis_change(model, selection, feature, movement)
+        }
+        (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
+            primitive_tools::place_change(model, selection, feature, primitive)
         }
         _ => Err(format!("{} no longer takes this reference", owner.name)),
     }

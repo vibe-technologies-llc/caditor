@@ -254,6 +254,30 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   faces or edges involved and what to change (`OffsetError`: a face that would vanish, faces that
   would cross, a neighbour it cannot follow, a corner where the faces cannot meet).
 
+### Primitive (`primitive.rs`)
+
+- `Primitive { shape, plane, at, anchor, reversed, operation }` makes a box (length, width,
+  height), cylinder (diameter, height), sphere (diameter) or torus (diameter across the middle of
+  the tube, tube diameter) without a sketch. Every size is a length expression above zero (and at
+  most `MAX_SIZE`), a torus's tube narrower than its diameter; `at` is two lengths of any sign
+  along the plane's X and Y axes. `plane` is a `PlaneReference` resolved like a mirror's at the
+  feature's place (its datum and face body count as used, its face is healed as "the face it
+  stands on"), so a primitive on a face follows that face's own frame.
+- The shape's footprint box (a round shape's square around it) has a corner at `at`
+  (`PrimitiveAnchor::Corner`), its base's middle there (`BaseCentre`), or its middle there, half
+  above the plane (`Centre`); it grows along the plane's normal, or against it when `reversed`.
+- A box and a cylinder are a profile extruded by the kernel (`extrude`), a sphere and a torus one
+  revolved a full turn (`revolve`), with fixed entities so the faces are named from the feature:
+  a box's sides are entities 1 to 4 (front at the plane's -Y, then right, back, left), a round
+  shape's curve entity 1, and the caps are the start (bottom, on the plane) and end (top) caps.
+  `describe_origin` words them "Box 1 front face", "Cylinder 1 wall", "… bottom face", "… top
+  face", "Sphere 1 surface". Resizing or moving the shape keeps every name, so later references
+  survive; switching the shape (`SetFeatureKind` allows it) changes them.
+- `operation` is a `BodyOperation` as a solid's: a new body of its own (`makes_body`), or joined
+  to, cut from or intersected with the target body (kernel `boolean`), keeping the tool as the
+  result's `joins` or `cuts`. A failure names the shape and the body in words (`trouble.rs`), the
+  feature failing alone.
+
 ### Hole (`hole.rs`)
 
 - `Hole { sketch, body, diameter, depth, style, reversed }` drills at every free point of its sketch

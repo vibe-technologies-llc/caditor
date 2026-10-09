@@ -14,10 +14,11 @@ use caditor_document::{
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView,
     OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter, Pattern, PatternKind, PlaneReference,
-    PlaneRotation, PlaneThrough, PointBy, PointReference, PrincipalAxis, PrincipalGeometry,
-    PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
-    Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, Transaction, TurnCentre, group_name, material_name, view_name,
+    PlaneRotation, PlaneThrough, PointBy, PointReference, Primitive, PrimitiveAnchor,
+    PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource,
+    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView,
+    SavedViews, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split,
+    Transaction, TurnCentre, group_name, material_name, view_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector3};
@@ -194,6 +195,47 @@ pub(crate) enum FeatureKindRecord {
     PlaneConstruction(Box<PlaneConstructionRecord>),
     PointConstruction(Box<PointConstructionRecord>),
     OffsetFace(Box<OffsetFaceRecord>),
+    Primitive(Box<PrimitiveRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PrimitiveShapeRecord {
+    Box {
+        length: String,
+        width: String,
+        height: String,
+    },
+    Cylinder {
+        diameter: String,
+        height: String,
+    },
+    Sphere {
+        diameter: String,
+    },
+    Torus {
+        diameter: String,
+        tube: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PrimitiveAnchorRecord {
+    Corner,
+    BaseCentre,
+    Centre,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PrimitiveRecord {
+    pub shape: PrimitiveShapeRecord,
+    pub plane: Lenient<PlaneReferenceRecord>,
+    pub at: [String; 2],
+    pub anchor: PrimitiveAnchorRecord,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reversed: bool,
+    pub operation: OperationRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -271,7 +313,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 41] = [
+pub(crate) const FEATURE_KINDS: [&str; 42] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -313,6 +355,7 @@ pub(crate) const FEATURE_KINDS: [&str; 41] = [
     "plane_construction",
     "point_construction",
     "offset_face",
+    "primitive",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1602,6 +1645,9 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             plane: Lenient::Read(plane_reference_record(&mirror.plane)),
             keep_original: mirror.keep_original,
         }),
+        FeatureKind::Primitive(primitive) => {
+            FeatureKindRecord::Primitive(Box::new(primitive_record(primitive)))
+        }
         FeatureKind::Split(split) => FeatureKindRecord::Split(SplitRecord {
             body: split.body.raw(),
             plane: Lenient::Read(plane_reference_record(&split.plane)),
@@ -3485,6 +3531,9 @@ fn restore_kind(
             FeatureKind::Mirror(restore_mirror(record, name, issues))
         }
         FeatureKindRecord::Split(record) => FeatureKind::Split(restore_split(record, name, issues)),
+        FeatureKindRecord::Primitive(record) => {
+            FeatureKind::Primitive(restore_primitive(record, name, issues))
+        }
         FeatureKindRecord::Scale(record) => FeatureKind::Scale(restore_scale(record, name, issues)),
         FeatureKindRecord::Hole(record) => {
             FeatureKind::Hole(restore_hole(record, HoleSizing::Typed, name, issues))
@@ -4218,6 +4267,100 @@ fn restore_split(record: &SplitRecord, feature: &str, issues: &mut Vec<String>) 
         body: FeatureId::from_raw(record.body),
         plane,
         flipped: record.flipped,
+    }
+}
+
+fn primitive_record(primitive: &Primitive) -> PrimitiveRecord {
+    let text = Expression::to_stored_text;
+    PrimitiveRecord {
+        shape: match &primitive.shape {
+            PrimitiveShape::Box {
+                length,
+                width,
+                height,
+            } => PrimitiveShapeRecord::Box {
+                length: text(length),
+                width: text(width),
+                height: text(height),
+            },
+            PrimitiveShape::Cylinder { diameter, height } => PrimitiveShapeRecord::Cylinder {
+                diameter: text(diameter),
+                height: text(height),
+            },
+            PrimitiveShape::Sphere { diameter } => PrimitiveShapeRecord::Sphere {
+                diameter: text(diameter),
+            },
+            PrimitiveShape::Torus { diameter, tube } => PrimitiveShapeRecord::Torus {
+                diameter: text(diameter),
+                tube: text(tube),
+            },
+        },
+        plane: Lenient::Read(plane_reference_record(&primitive.plane)),
+        at: primitive.at.each_ref().map(text),
+        anchor: match primitive.anchor {
+            PrimitiveAnchor::Corner => PrimitiveAnchorRecord::Corner,
+            PrimitiveAnchor::BaseCentre => PrimitiveAnchorRecord::BaseCentre,
+            PrimitiveAnchor::Centre => PrimitiveAnchorRecord::Centre,
+        },
+        reversed: primitive.reversed,
+        operation: operation_record(primitive.operation),
+    }
+}
+
+fn restore_primitive(
+    record: &PrimitiveRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Primitive {
+    let mut size = |text: &str, what: &str| restore_value(text, what, "10 mm", feature, issues);
+    let shape = match &record.shape {
+        PrimitiveShapeRecord::Box {
+            length,
+            width,
+            height,
+        } => PrimitiveShape::Box {
+            length: size(length, "length"),
+            width: size(width, "width"),
+            height: size(height, "height"),
+        },
+        PrimitiveShapeRecord::Cylinder { diameter, height } => PrimitiveShape::Cylinder {
+            diameter: size(diameter, "diameter"),
+            height: size(height, "height"),
+        },
+        PrimitiveShapeRecord::Sphere { diameter } => PrimitiveShape::Sphere {
+            diameter: size(diameter, "diameter"),
+        },
+        PrimitiveShapeRecord::Torus { diameter, tube } => PrimitiveShape::Torus {
+            diameter: size(diameter, "diameter"),
+            tube: restore_value(tube, "tube diameter", "2 mm", feature, issues),
+        },
+    };
+    let plane = match &record.plane {
+        Lenient::Read(plane) => restore_plane_reference(plane),
+        Lenient::Unreadable(_) => None,
+    };
+    let plane = plane.unwrap_or_else(|| {
+        issues.push(format!(
+            "The plane or face “{feature}” stands on could not be read, so it stands on the XY \
+             plane."
+        ));
+        PlaneReference::Principal(PrincipalPlane::Xy)
+    });
+    let [along, across] = &record.at;
+    Primitive {
+        shape,
+        plane,
+        at: [
+            restore_value(along, "position along X", "0 mm", feature, issues),
+            restore_value(across, "position along Y", "0 mm", feature, issues),
+        ],
+        anchor: match record.anchor {
+            PrimitiveAnchorRecord::Corner => PrimitiveAnchor::Corner,
+            PrimitiveAnchorRecord::BaseCentre => PrimitiveAnchor::BaseCentre,
+            PrimitiveAnchorRecord::Centre => PrimitiveAnchor::Centre,
+        },
+        reversed: record.reversed,
+        operation: restore_operation(record.operation),
     }
 }
 

@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use caditor_document::{FeatureId, FeatureKind, SavedView, Transaction};
-use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
 use caditor_render::{
     Camera, PickResult, ProjectionMode, Scene, SurfaceSize, View, Viewpoint, ViewportRect,
     grid_minor_spacing,
@@ -36,7 +36,9 @@ use crate::{
     move_manipulator::{Handle, Manipulating, Manipulator},
     offset_face_tools, pattern_tools,
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
-    projecting, reference_picking, saved_views,
+    primitive_tools, projecting,
+    reference_picking::{self, Slot},
+    saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
@@ -98,6 +100,8 @@ const CHOOSE_MIRROR_PROMPT: &str =
 const CHOOSE_SPLIT_PROMPT: &str =
     "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
 const CHOOSE_HOLE_PROMPT: &str = "Choose the hole's style and sizes in the feature's panel";
+const CHOOSE_PRIMITIVE_PROMPT: &str =
+    "Enter the sizes and position in the feature's panel, or choose in the view where it goes";
 const CHOOSE_REFERENCES_PROMPT: &str = "Select planes, faces, axes or edges for the feature's panel, or choose them in the view from it";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
@@ -1784,7 +1788,10 @@ impl ViewportState {
         if !click.primary {
             return;
         }
-        if let Some(action) = pick_action(self.hovered, model, editing) {
+        let ray = self
+            .cursor
+            .and_then(|cursor| self.view()?.ray_through(cursor));
+        if let Some(action) = pick_action(self.hovered, ray, model, editing) {
             actions.extend(action);
             return;
         }
@@ -2165,7 +2172,7 @@ impl ViewportState {
                 self.dimension_click(model, feature, Some(highlight), actions);
                 return;
             }
-            match pick_action(Some(highlight), model, editing) {
+            match pick_action(Some(highlight), None, model, editing) {
                 Some(action) => actions.extend(action),
                 None => self.toggle_chosen(model, highlight),
             }
@@ -3143,6 +3150,7 @@ impl ViewportState {
                 Some(FeatureKind::Mirror(_)) => CHOOSE_MIRROR_PROMPT,
                 Some(FeatureKind::Split(_)) => CHOOSE_SPLIT_PROMPT,
                 Some(FeatureKind::Hole(_)) => CHOOSE_HOLE_PROMPT,
+                Some(FeatureKind::Primitive(_)) => CHOOSE_PRIMITIVE_PROMPT,
                 Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,
                 _ => CHOOSE_REGIONS_PROMPT,
             };
@@ -3460,9 +3468,19 @@ fn open_command(pickable: Option<Pickable>, model: &Model) -> Option<EditingComm
 
 fn pick_action(
     pickable: Option<Pickable>,
+    ray: Option<Ray>,
     model: &Model,
     editing: &SketchEditing,
 ) -> Option<Vec<Action>> {
+    if let Some(picking) = editing.picking()
+        && picking.slot == Slot::PrimitivePlace
+    {
+        return Some(
+            pickable
+                .map(|pickable| primitive_tools::place_click(model, picking.feature, pickable, ray))
+                .unwrap_or_default(),
+        );
+    }
     if let Some(picking) = editing.picking() {
         return Some(
             pickable

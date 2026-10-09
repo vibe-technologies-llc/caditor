@@ -1,4 +1,4 @@
-use caditor_document::{BlendKind, Datum, describe_axis};
+use caditor_document::{BlendKind, Datum, PrimitiveKind, describe_axis};
 use egui::{Frame, Response, Ui, Vec2};
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
     offers::Offers,
     offset_face_tools,
     pattern_tools::{self, Shape},
-    ribbon, scale_tools,
+    primitive_tools, ribbon, scale_tools,
     selection::Selection,
     shell_tools,
     sketch_placement::SketchTarget,
@@ -129,6 +129,7 @@ fn group_buttons(
         Group::Solid => {
             solid_buttons(ui, model, context, commands, actions);
             hole_button(ui, model, context, commands, actions);
+            primitive_offers(model, context, commands, actions);
         }
         Group::Modify => {
             blend_buttons(ui, model, context, commands, actions);
@@ -498,6 +499,22 @@ fn offset_face_offer(
             source,
             model.length_unit(),
         ));
+    }
+}
+
+fn primitive_offers(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.primitive;
+    for kind in PrimitiveKind::ALL {
+        if commands.invoke(primitive_tools::command(kind), source)
+            && let Ok(source) = source
+        {
+            actions.extend(primitive_tools::create_actions(model, kind, source));
+        }
     }
 }
 

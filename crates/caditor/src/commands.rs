@@ -101,6 +101,10 @@ pub enum Command {
     Extrude,
     Revolve,
     Hole,
+    NewBox,
+    NewCylinder,
+    NewSphere,
+    NewTorus,
     Fillet,
     Chamfer,
     Shell,
@@ -525,6 +529,10 @@ plain_commands! {
     Extrude,
     Revolve,
     Hole,
+    NewBox,
+    NewCylinder,
+    NewSphere,
+    NewTorus,
     Fillet,
     Chamfer,
     Shell,
@@ -715,6 +723,10 @@ impl Command {
             Self::Extrude => "model.extrude",
             Self::Revolve => "model.revolve",
             Self::Hole => "model.hole",
+            Self::NewBox => "model.box",
+            Self::NewCylinder => "model.cylinder",
+            Self::NewSphere => "model.sphere",
+            Self::NewTorus => "model.torus",
             Self::Fillet => "model.fillet",
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
@@ -897,6 +909,10 @@ impl Command {
             Self::Extrude => "Extrude",
             Self::Revolve => "Revolve",
             Self::Hole => "Hole",
+            Self::NewBox => "Box",
+            Self::NewCylinder => "Cylinder",
+            Self::NewSphere => "Sphere",
+            Self::NewTorus => "Torus",
             Self::Fillet => "Fillet",
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
@@ -1096,6 +1112,10 @@ impl Command {
             | Self::Extrude
             | Self::Revolve
             | Self::Hole
+            | Self::NewBox
+            | Self::NewCylinder
+            | Self::NewSphere
+            | Self::NewTorus
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
@@ -1269,6 +1289,10 @@ impl Command {
             Self::Extrude => vec![alt(Key::E)],
             Self::Revolve => vec![alt(Key::R)],
             Self::Hole => vec![alt(Key::O)],
+            Self::NewBox => vec![alt(Key::B)],
+            Self::NewCylinder => vec![alt(Key::Y)],
+            Self::NewSphere => vec![alt(Key::U)],
+            Self::NewTorus => vec![alt_shift(Key::U)],
             Self::Fillet => vec![alt(Key::F)],
             Self::Chamfer => vec![alt(Key::C)],
             Self::Shell => vec![alt(Key::S)],

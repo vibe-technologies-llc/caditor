@@ -3061,6 +3061,106 @@ fn an_unreadable_moved_face_is_left_where_it_is_and_reported() {
     assert!(restored.kind.offset_face().unwrap().faces.is_empty());
 }
 
+fn primitive_model() -> (Document, FeatureId, FeatureId) {
+    use caditor_document::{BodyOperation, Primitive, PrimitiveAnchor, PrimitiveShape};
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Primitives");
+    let side = transaction.add_parameter("side", transaction.parse("8 mm").unwrap());
+    let block = transaction.add_feature(
+        "Box 1",
+        FeatureKind::Primitive(Primitive {
+            shape: PrimitiveShape::Box {
+                length: Expression::Parameter(side),
+                width: transaction.parse("side / 2").unwrap(),
+                height: transaction.parse("3 mm").unwrap(),
+            },
+            plane: PlaneReference::Principal(PrincipalPlane::Xz),
+            at: [
+                transaction.parse("1 mm").unwrap(),
+                transaction.parse("-2 mm").unwrap(),
+            ],
+            anchor: PrimitiveAnchor::Corner,
+            reversed: false,
+            operation: BodyOperation::NewBody,
+        }),
+    );
+    let top = FaceReference::new(
+        FaceName::from_digest(0xcafe),
+        Some(FaceOrigin::EndCap {
+            feature: block.raw(),
+        }),
+        [FaceName::from_digest(3)],
+    );
+    let bore = transaction.add_feature(
+        "Cylinder 1",
+        FeatureKind::Primitive(Primitive {
+            shape: PrimitiveShape::Cylinder {
+                diameter: transaction.parse("2 mm").unwrap(),
+                height: transaction.parse("1 mm").unwrap(),
+            },
+            plane: PlaneReference::Face(FaceAttachment {
+                body: block,
+                face: top,
+            }),
+            at: [
+                transaction.parse("4 mm").unwrap(),
+                transaction.parse("2 mm").unwrap(),
+            ],
+            anchor: PrimitiveAnchor::BaseCentre,
+            reversed: true,
+            operation: BodyOperation::Remove(block),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, block, bore)
+}
+
+#[test]
+fn primitives_are_saved_and_loaded_as_a_record_of_their_own() {
+    let (document, block, bore) = primitive_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains(
+        "\"primitive\":{\"anchor\":\"corner\",\"at\":[\"1 mm\",\"-2 mm\"],\"operation\":\
+         \"new_body\",\"plane\":{\"principal\":\"xz\"},\"shape\":{\"box\":{\"height\":\"3 mm\",\
+         \"length\":\"$0\",\"width\":\"$0 / 2\"}}}"
+    ));
+    assert!(text.contains("\"reversed\":true"));
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    for feature in [block, bore] {
+        let kind = document.feature(feature).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn an_unreadable_primitive_plane_and_size_are_reported_and_replaced() {
+    let (document, block, _) = primitive_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("{\"principal\":\"xz\"}", "{\"principal\":\"sideways\"}", 1)
+        .replacen("\"height\":\"3 mm\"", "\"height\":\"3 (\"", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        [
+            "The height of “Box 1” could not be read, so it was set to 10 mm.",
+            "The plane or face “Box 1” stands on could not be read, so it stands on the XY plane.",
+        ]
+    );
+    let restored = loaded.document.feature(block).unwrap();
+    assert_eq!(
+        restored.kind.primitive().unwrap().plane,
+        PlaneReference::Principal(PrincipalPlane::Xy)
+    );
+}
+
 fn patterned_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{
         AxisReference, CircularPattern, LinearDirection, LinearSpacing, Pattern, PatternKind,

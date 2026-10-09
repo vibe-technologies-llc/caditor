@@ -780,6 +780,7 @@ impl Document {
             (FeatureKind::Blend(_), FeatureKind::Blend(_))
             | (FeatureKind::Shell(_), FeatureKind::Shell(_))
             | (FeatureKind::OffsetFace(_), FeatureKind::OffsetFace(_))
+            | (FeatureKind::Primitive(_), FeatureKind::Primitive(_))
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))
             | (FeatureKind::Move(_), FeatureKind::Move(_))
             | (FeatureKind::Mirror(_), FeatureKind::Mirror(_))
@@ -799,7 +800,10 @@ impl Document {
         let keeps_body = matches!(kind, FeatureKind::Import(_))
             || kind
                 .solid()
-                .is_some_and(|solid| solid.operation() == BodyOperation::NewBody);
+                .is_some_and(|solid| solid.operation() == BodyOperation::NewBody)
+            || kind
+                .primitive()
+                .is_some_and(|primitive| primitive.operation == BodyOperation::NewBody);
         if !keeps_body {
             let users: Vec<String> = self
                 .features()

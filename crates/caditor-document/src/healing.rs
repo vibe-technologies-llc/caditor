@@ -145,6 +145,9 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
         FeatureKind::Split(split) => {
             visit_plane(&mut split.plane, "the face it splits along", visitor);
         }
+        FeatureKind::Primitive(primitive) => {
+            visit_plane(&mut primitive.plane, "the face it stands on", visitor);
+        }
         FeatureKind::Shell(shell) => {
             let count = shell.open.len();
             for (index, face) in shell.open.iter_mut().enumerate() {

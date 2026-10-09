@@ -192,11 +192,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · medium] A body splits only along a plane (`Split`), not along a curved face or a sketch
   curve swept through it, and cannot be placed by mating faces (a face onto another, flush or at a
   distance, an axis onto another).
-- [medium · medium] No solid primitives: a box, cylinder, sphere or torus always starts as a sketch
-  and an Extrude or Revolve. Primitive features placed on a plane or face by a click and sizes
-  (typed expressions allowed), starting at a corner, a centre or a chosen point, joining, cutting,
-  intersecting or making a new body, named from their faces (a box's six sides, a cylinder's wall
-  and caps) and previewed live, would start most simple parts in one step.
 - [medium · medium] Mirror reflects a whole body: mirroring only chosen features (a hole, a boss, a
   rib) or faces across a plane, kept linked so editing the original updates the mirror as a
   pattern of features does its copies, is missing; today the feature is drawn again or the body is
@@ -259,6 +254,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
   without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
   in part can be had. It is a feature of its own, naming the faces it splits.
+- [low · medium] A primitive shows a typed size only once it is entered, not while typing as a
+  fillet's does (the draft preview draws only a body that stood before the feature), and a pattern
+  cannot repeat a primitive adding to or cutting a body as it repeats an extrusion's tool
+  (`repeatable_on`).
 - [low · medium] Expressions cannot refer to measured values or sketch dimensions, and a dimension
   or a feature's value cannot be named and listed with the parameters (Fusion's model parameters)
   for other expressions to use.

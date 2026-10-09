@@ -24,6 +24,7 @@ mod parameter_list;
 mod pattern;
 mod pieces;
 mod presenting;
+mod primitive;
 mod projection;
 mod properties;
 mod recompute;
@@ -80,6 +81,7 @@ pub use crate::{
         ORIGINAL_INSTANCE, Pattern, PatternKind, instance_name, repeatable_on,
     },
     pieces::{Resolution, Unresolved},
+    primitive::{Primitive, PrimitiveAnchor, PrimitiveKind, PrimitiveShape},
     projection::{
         Outline, PROJECTED_SPLINE_POINTS, ProjectionSource, edge_outline, sketch_outline,
         vertex_outline,
@@ -145,6 +147,8 @@ mod parameter_tests;
 mod pattern_tests;
 #[cfg(test)]
 mod presenting_tests;
+#[cfg(test)]
+mod primitive_tests;
 #[cfg(test)]
 mod projection_tests;
 #[cfg(test)]

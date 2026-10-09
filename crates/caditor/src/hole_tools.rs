@@ -288,7 +288,7 @@ pub fn create_on_face(
     Ok((transaction.finish(), feature, told))
 }
 
-fn face_middle(model: &Model, face: FaceChoice, plane: &Plane) -> Option<Point2> {
+pub fn face_middle(model: &Model, face: FaceChoice, plane: &Plane) -> Option<Point2> {
     let body = bodies::shown(model.evaluation(), face.body)?;
     let id = bodies::find_face(body, face.face)?;
     let segments: Vec<[Point2; 2]> = face_boundary(&body.solid, id)

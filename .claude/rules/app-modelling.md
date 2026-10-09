@@ -8,6 +8,8 @@ paths:
   - "crates/caditor/src/shell_panel.rs"
   - "crates/caditor/src/offset_face_tools.rs"
   - "crates/caditor/src/offset_face_panel.rs"
+  - "crates/caditor/src/primitive_tools.rs"
+  - "crates/caditor/src/primitive_panel.rs"
   - "crates/caditor/src/combine_tools.rs"
   - "crates/caditor/src/combine_panel.rs"
   - "crates/caditor/src/move_tools.rs"
@@ -204,6 +206,28 @@ paths:
   the feature, so the keys of the state before it find them. A failed or pending one shows the
   body before it with every face pickable, so the choice can be mended. Hover texts and the prompt
   say move rather than open.
+
+## Primitives
+
+- Box (Alt+B), Cylinder (Alt+Y), Sphere (Alt+U) and Torus (Alt+Shift+U) are in the Model menu's
+  Primitives group and the palette, not on the ribbon, which they would widen past one row. Each
+  creates a `Primitive` of the `DEFAULT_*` sizes of `primitive_tools.rs`, a box and a cylinder
+  starting at their base's centre, a sphere and a torus at their centre, and opens it, previewed
+  like an extrusion (see-through while open, the cut tool over the body for a removal).
+- With one plane, datum plane or flat face selected (`datum_tools::chosen_plane`; several are
+  refused), it stands there: on a face at its middle (`hole_tools::face_middle`) and added to that
+  face's body, on a plane at its origin as a new body. With none it stands on the XY plane at the
+  origin as a new body and starts choosing its place in the view (`Slot::PrimitivePlace`, prompt
+  saying Escape leaves it there): a click on a plane, datum plane or flat face places it on that
+  one where the pointer's ray meets it (`primitive_tools::place_click`, the ray handed to
+  `pick_action`); the keyboard highlight places it at the face's middle or the plane's origin.
+- The panel has the Shape switch (switching takes the new shape's default sizes), Placed on with
+  Use selected or Choose in the view (the same slot), Position X and Y (key `primitive-field`,
+  `("at", index)`), Starts at (Corner, Base centre, Centre), the sizes (`("size", index)`),
+  Reverse direction (left out for Centre, where it changes nothing), and Result with Body as an
+  extrusion's. Switching Result between joining (New body, Add) and cutting (Remove, Intersect)
+  on a face reverses the direction to match (`primitive_tools::with_operation`), so a cut goes
+  into the body. Placing it again never changes the operation.
 
 ## Hole
 
