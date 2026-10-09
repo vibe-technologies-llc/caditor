@@ -96,6 +96,26 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   deleted features, `remove_sketch_items` those owned by the dimensions it removes; reshaping a
   sketch keeps constraint IDs, so owners survive it.
 
+## Pasting features (`paste.rs`)
+
+- `Document::paste_features` plans one transaction inserting copies of features at the rollback
+  bar in the order given (tree order), each under a fresh id from `add_copied_feature` and named
+  "<name> copy" (numbered when taken), keeping hidden, suppressed and appearance but not the group.
+- `FeatureKind::rename_features` rewrites the plain feature ids a kind holds (sketch, body, tools,
+  datum and frame attachments, projections' bodies, sketches and datums). Inputs inside the copy
+  are first renamed to placeholders above `PLACEHOLDER_BASE`; any input still among the copied
+  ids afterwards is held deeper (a face or edge reference names its feature in its digest), so the
+  feature is left out with `PasteRefusal::CopiedGeometry` rather than silently rewired to the
+  original, and features using a left-out one are left out with `LeftOutInput`.
+- Inputs outside the copy are kept when pasting into the model they came from
+  (`PasteOrigin::ThisDocument`) if they exist before the bar, and refused (`OutsideFeature`) when
+  the copy came from another model, where the same id names something else.
+- Parameters travel as `CarriedParameters` (name and value at copy time). `carry` keeps an id the
+  target still has when pasting in the same model, else takes the target's parameter of the same
+  name, else writes the copied value as a literal (`literal`: lengths in mm, angles in degrees,
+  plain numbers), counted in `inlined`; a value of another kind refuses the feature in words.
+  `Expression::substituting` replaces every id in one pass, so swapped ids never collide.
+
 ## Hidden flags
 
 - `hidden` (`Edit::SetFeatureHidden`) is undoable, saved only when set, journaled; recompute

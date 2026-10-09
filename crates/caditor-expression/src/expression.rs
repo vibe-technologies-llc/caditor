@@ -425,27 +425,38 @@ impl Expression {
     }
 
     pub fn inlining(&self, parameter: ParameterId, replacement: &Self) -> Result<Self, ParseError> {
-        let mut inlined = self.clone();
-        inlined.replace_parameter(parameter, replacement);
-        Self::parse_stored(&inlined.to_stored_text())
+        self.substituting(&|id| (id == parameter).then(|| replacement.clone()))
     }
 
-    fn replace_parameter(&mut self, parameter: ParameterId, replacement: &Self) {
+    pub fn substituting(
+        &self,
+        replacement_of: &dyn Fn(ParameterId) -> Option<Self>,
+    ) -> Result<Self, ParseError> {
+        let mut substituted = self.clone();
+        substituted.replace_parameters(replacement_of);
+        Self::parse_stored(&substituted.to_stored_text())
+    }
+
+    fn replace_parameters(&mut self, replacement_of: &dyn Fn(ParameterId) -> Option<Self>) {
         match self {
-            Self::Parameter(id) if *id == parameter => *self = replacement.clone(),
+            Self::Parameter(id) => {
+                if let Some(replacement) = replacement_of(*id) {
+                    *self = replacement;
+                }
+            }
             Self::Negate(inner) | Self::WithUnit(inner, ..) => {
-                inner.replace_parameter(parameter, replacement);
+                inner.replace_parameters(replacement_of);
             }
             Self::Binary(_, left, right) => {
-                left.replace_parameter(parameter, replacement);
-                right.replace_parameter(parameter, replacement);
+                left.replace_parameters(replacement_of);
+                right.replace_parameters(replacement_of);
             }
             Self::Call(_, arguments) => {
                 for argument in arguments {
-                    argument.replace_parameter(parameter, replacement);
+                    argument.replace_parameters(replacement_of);
                 }
             }
-            Self::Number(_) | Self::Measure(..) | Self::Constant(_) | Self::Parameter(_) => {}
+            Self::Number(_) | Self::Measure(..) | Self::Constant(_) => {}
         }
     }
 
