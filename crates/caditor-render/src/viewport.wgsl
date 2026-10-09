@@ -148,49 +148,79 @@ struct LineInstance {
     @location(7) in_front: u32,
 }
 
-@vertex
-fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
-    let near = view.forward_near.w * 1.01;
-    let line_start = from_anchor(line.start);
-    var start = line_start;
-    var end = from_anchor(line.end);
+struct Segment {
+    start: vec3<f32>,
+    end: vec3<f32>,
+    start_clip: vec4<f32>,
+    end_clip: vec4<f32>,
+    along_pixels: vec2<f32>,
+}
+
+fn near_limit() -> f32 {
+    return view.forward_near.w * 1.01;
+}
+
+fn is_before_near(start: vec3<f32>, end: vec3<f32>) -> bool {
+    return view_depth(start) < near_limit() && view_depth(end) < near_limit();
+}
+
+fn clipped_segment(head: vec3<f32>, tail: vec3<f32>) -> Segment {
+    let near = near_limit();
+    var start = head;
+    var end = tail;
     let start_depth = view_depth(start);
     let end_depth = view_depth(end);
-    if start_depth < near && end_depth < near {
-        return empty_varyings();
-    }
     if start_depth < near {
         start = mix(start, end, (near - start_depth) / (end_depth - start_depth));
     }
     if end_depth < near {
         end = mix(end, start, (near - end_depth) / (start_depth - end_depth));
     }
-
     let start_clip = to_clip(start);
     let end_clip = to_clip(end);
-    let along_pixels = ndc_to_pixels(end_clip) - ndc_to_pixels(start_clip);
-    var direction = vec2<f32>(1.0, 0.0);
-    if length(along_pixels) > 1e-6 {
-        direction = normalize(along_pixels);
-    }
-    let normal = vec2<f32>(-direction.y, direction.x);
+    return Segment(start, end, start_clip, end_clip, ndc_to_pixels(end_clip) - ndc_to_pixels(start_clip));
+}
 
+fn segment_direction(segment: Segment) -> vec2<f32> {
+    if length(segment.along_pixels) > 1e-6 {
+        return normalize(segment.along_pixels);
+    }
+    return vec2<f32>(1.0, 0.0);
+}
+
+fn stroke(vertex: u32, segment: Segment, width: f32, depth_bias: f32, in_front: u32) -> Varyings {
+    let direction = segment_direction(segment);
+    let normal = vec2<f32>(-direction.y, direction.x);
     let corner = quad_corner(vertex);
     let at_end = corner.x > 0.0;
-    let half_width = line.width * pixels_per_point() * 0.5;
+    let half_width = width * pixels_per_point() * 0.5;
     let offset = normal * corner.y * half_width;
-    var clip = select(start_clip, end_clip, at_end);
+    var clip = select(segment.start_clip, segment.end_clip, at_end);
     clip = vec4<f32>(clip.xy + pixels_to_ndc(offset) * clip.w, clip.zw);
 
     var out = empty_varyings();
-    out.position = finish(clip, line.depth_bias, line.in_front);
+    out.position = finish(clip, depth_bias, in_front);
+    out.depth = select(view_depth(segment.start), view_depth(segment.end), at_end);
+    return out;
+}
+
+@vertex
+fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
+    let line_start = from_anchor(line.start);
+    let line_end = from_anchor(line.end);
+    if is_before_near(line_start, line_end) {
+        return empty_varyings();
+    }
+    let segment = clipped_segment(line_start, line_end);
+
+    var out = stroke(vertex, segment, line.width, line.depth_bias, line.in_front);
     out.color = line.color;
     out.pick = line.pick;
-    out.depth = select(view_depth(start), view_depth(end), at_end);
     if line.along >= 0.0 {
-        let clipped_length = distance(start, end);
-        let points_per_unit = length(along_pixels) / (max(clipped_length, 1e-12) * pixels_per_point());
-        let along_start = line.along + distance(line_start, start);
+        let at_end = quad_corner(vertex).x > 0.0;
+        let clipped_length = distance(segment.start, segment.end);
+        let points_per_unit = length(segment.along_pixels) / (max(clipped_length, 1e-12) * pixels_per_point());
+        let along_start = line.along + distance(line_start, segment.start);
         out.dash_points = (along_start + select(0.0, clipped_length, at_end)) * points_per_unit;
     }
     return out;
@@ -276,6 +306,94 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     out.depth = view_depth(relative);
     out.relative = relative;
     out.normal = turned(vertex.normal);
+    return out;
+}
+
+struct SilhouetteStyle {
+    offset_width: vec4<f32>,
+    color: vec4<f32>,
+    turn_x_bias: vec4<f32>,
+    turn_y_dashed: vec4<f32>,
+    turn_z: vec4<f32>,
+}
+
+@group(1) @binding(3) var<uniform> silhouette: SilhouetteStyle;
+
+struct SilhouetteTriangle {
+    @location(0) first: vec3<f32>,
+    @location(1) second: vec3<f32>,
+    @location(2) third: vec3<f32>,
+    @location(3) first_normal: vec4<f32>,
+    @location(4) second_normal: vec4<f32>,
+    @location(5) third_normal: vec4<f32>,
+}
+
+fn silhouette_turned(vector: vec3<f32>) -> vec3<f32> {
+    return silhouette.turn_x_bias.xyz * vector.x + silhouette.turn_y_dashed.xyz * vector.y + silhouette.turn_z.xyz * vector.z;
+}
+
+fn silhouette_placed(position: vec3<f32>) -> vec3<f32> {
+    return silhouette_turned(position) + silhouette.offset_width.xyz;
+}
+
+fn facing(position: vec3<f32>, normal: vec4<f32>) -> f32 {
+    return dot(silhouette_turned(normal.xyz), toward_eye(position));
+}
+
+fn crossing(head: vec3<f32>, tail: vec3<f32>, head_facing: f32, tail_facing: f32) -> vec3<f32> {
+    return mix(head, tail, head_facing / (head_facing - tail_facing));
+}
+
+fn screen_dash_points(segment: Segment, vertex: u32) -> f32 {
+    let clip = select(segment.start_clip, segment.end_clip, quad_corner(vertex).x > 0.0);
+    let pixels = ndc_to_pixels(clip);
+    let direction = segment_direction(segment);
+    let along = select(pixels.y, pixels.x, abs(direction.x) >= abs(direction.y));
+    return along / pixels_per_point() + 1e4;
+}
+
+@vertex
+fn vs_silhouette(@builtin(vertex_index) vertex: u32, triangle: SilhouetteTriangle) -> Varyings {
+    let first = silhouette_placed(triangle.first);
+    let second = silhouette_placed(triangle.second);
+    let third = silhouette_placed(triangle.third);
+    let first_facing = facing(first, triangle.first_normal);
+    let second_facing = facing(second, triangle.second_normal);
+    let third_facing = facing(third, triangle.third_normal);
+    let front = vec3<bool>(first_facing >= 0.0, second_facing >= 0.0, third_facing >= 0.0);
+    if all(front) || !any(front) {
+        return empty_varyings();
+    }
+
+    var lone = first;
+    var lone_facing = first_facing;
+    var one = second;
+    var one_facing = second_facing;
+    var other = third;
+    var other_facing = third_facing;
+    if front.y != front.x && front.y != front.z {
+        lone = second;
+        lone_facing = second_facing;
+        one = first;
+        one_facing = first_facing;
+    } else if front.z != front.x && front.z != front.y {
+        lone = third;
+        lone_facing = third_facing;
+        other = first;
+        other_facing = first_facing;
+    }
+    let start = crossing(lone, one, lone_facing, one_facing);
+    let end = crossing(lone, other, lone_facing, other_facing);
+    if is_before_near(start, end) {
+        return empty_varyings();
+    }
+    let segment = clipped_segment(start, end);
+
+    var out = stroke(vertex, segment, silhouette.offset_width.w, silhouette.turn_x_bias.w, BEHIND);
+    out.color = silhouette.color;
+    if silhouette.turn_y_dashed.w > 0.5 {
+        out.dash_points = screen_dash_points(segment, vertex);
+    }
     return out;
 }
 

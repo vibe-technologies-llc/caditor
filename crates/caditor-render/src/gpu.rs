@@ -258,6 +258,11 @@ impl Bytes {
         self
     }
 
+    pub fn extend(&mut self, bytes: &[u8]) -> &mut Self {
+        self.0.extend_from_slice(bytes);
+        self
+    }
+
     pub fn floats(&mut self, values: &[f32]) -> &mut Self {
         for value in values {
             self.f32(*value);

@@ -15,6 +15,7 @@ use crate::{
         Batch, Color, Fill, Grid, Layer, Line, PickId, Primitive, Reflection, Scene, ViewportRect,
     },
     settings::Shading,
+    silhouette::{SILHOUETTE_STRIDE, SilhouetteCache},
 };
 
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -106,6 +107,7 @@ struct Pipelines {
     overlay_meshes: wgpu::RenderPipeline,
     flat_meshes: wgpu::RenderPipeline,
     reflective_meshes: wgpu::RenderPipeline,
+    silhouettes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     hidden_lines: wgpu::RenderPipeline,
     markers: wgpu::RenderPipeline,
@@ -643,6 +645,7 @@ pub struct ViewportRenderer {
     flat: MeshCache,
     mesh_upload_bytes: u64,
     reflective: MeshCache,
+    silhouettes: SilhouetteCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
     targets_refused: Option<(u32, u32)>,
@@ -671,10 +674,12 @@ impl ViewportRenderer {
         let view_layout = uniform_layout("view uniform");
         let grid_layout = uniform_layout("grid uniform");
         let meshes = MeshCache::new(device);
+        let silhouettes = SilhouetteCache::new(device);
         let layouts = Layouts {
             view: &view_layout,
             grid: &grid_layout,
             mesh: meshes.layout(),
+            silhouette: silhouettes.layout(),
         };
 
         Self {
@@ -699,6 +704,7 @@ impl ViewportRenderer {
             flat: MeshCache::new(device),
             mesh_upload_bytes: MESH_UPLOAD_BYTES_PER_FRAME,
             reflective: MeshCache::new(device),
+            silhouettes,
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -735,6 +741,7 @@ impl ViewportRenderer {
                 view: &self.view_layout,
                 grid: &self.grid_layout,
                 mesh: self.meshes.layout(),
+                silhouette: self.silhouettes.layout(),
             };
             Pipelines::new(
                 device,
@@ -773,6 +780,7 @@ impl ViewportRenderer {
         ]
         .iter()
         .any(|cache| cache.is_uploading())
+            || self.silhouettes.is_uploading()
     }
 
     #[cfg(test)]
@@ -888,6 +896,7 @@ impl ViewportRenderer {
             flat: self.flat.sibling(device),
             mesh_upload_bytes: self.mesh_upload_bytes,
             reflective: self.reflective.sibling(device),
+            silhouettes: self.silhouettes.sibling(device),
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -1012,6 +1021,8 @@ impl ViewportRenderer {
             .draw(pass, &self.pipelines.translucent_meshes, window);
         self.overlay
             .draw(pass, &self.pipelines.overlay_meshes, window);
+        self.silhouettes
+            .draw(pass, &self.pipelines.silhouettes, window);
         for batch in &self.batches {
             batch.draw_lines(pass, &self.pipelines.lines, batch.shown_lines);
         }
@@ -1185,7 +1196,14 @@ impl ViewportRenderer {
         .into_iter()
         .fold(0, |refused: u32, (cache, instances)| {
             refused.saturating_add(cache.prepare(device, queue, instances, eye, &mut budget))
-        });
+        })
+        .saturating_add(self.silhouettes.prepare(
+            device,
+            queue,
+            &scene.silhouettes,
+            eye,
+            &mut budget,
+        ));
         let (changed, refused_batches) =
             self.upload_batches(device, queue, &scene.batches, anchored.anchor);
         faults.batches = refused_batches;
@@ -1296,6 +1314,11 @@ impl ViewportRenderer {
     }
 
     #[cfg(test)]
+    pub fn silhouette_triangles(&self) -> usize {
+        self.silhouettes.triangles()
+    }
+
+    #[cfg(test)]
     pub fn uploaded(&self) -> Vec<Option<Arc<Batch>>> {
         self.batches
             .iter()
@@ -1384,6 +1407,7 @@ struct Layouts<'a> {
     view: &'a wgpu::BindGroupLayout,
     grid: &'a wgpu::BindGroupLayout,
     mesh: &'a wgpu::BindGroupLayout,
+    silhouette: &'a wgpu::BindGroupLayout,
 }
 
 impl Pipelines {
@@ -1407,11 +1431,16 @@ impl Pipelines {
             pipeline_layout("grid", &[Some(layouts.view), Some(layouts.grid)]);
         let mesh_pipeline_layout =
             pipeline_layout("mesh", &[Some(layouts.view), Some(layouts.mesh)]);
+        let silhouette_pipeline_layout = pipeline_layout(
+            "silhouette",
+            &[Some(layouts.view), Some(layouts.silhouette)],
+        );
 
         let line_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32, 4 => Uint32, 5 => Float32, 6 => Float32, 7 => Uint32];
         let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32, 3 => Uint32, 4 => Float32, 5 => Uint32];
         let fill_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Uint32, 3 => Float32, 4 => Uint32];
         let mesh_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32];
+        let silhouette_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Snorm16x4, 4 => Snorm16x4, 5 => Snorm16x4];
         let lines = [Some(wgpu::VertexBufferLayout {
             array_stride: LINE_STRIDE,
             step_mode: wgpu::VertexStepMode::Instance,
@@ -1432,6 +1461,12 @@ impl Pipelines {
             array_stride: MESH_VERTEX_STRIDE,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &mesh_attributes,
+        })];
+
+        let silhouettes = [Some(wgpu::VertexBufferLayout {
+            array_stride: SILHOUETTE_STRIDE,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &silhouette_attributes,
         })];
 
         let color_target = [Some(wgpu::ColorTargetState {
@@ -1534,6 +1569,14 @@ impl Pipelines {
                 "vs_mesh",
                 &meshes,
                 "fs_reflective",
+                true,
+            ),
+            silhouettes: color(
+                "silhouettes",
+                &silhouette_pipeline_layout,
+                "vs_silhouette",
+                &silhouettes,
+                "fs_line",
                 true,
             ),
             lines: color("lines", &scene_layout, "vs_line", &lines, "fs_line", true),

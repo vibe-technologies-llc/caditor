@@ -11,6 +11,7 @@ mod offscreen_tests;
 mod picking;
 mod scene;
 mod settings;
+mod silhouette;
 mod through;
 mod viewport;
 
@@ -34,6 +35,7 @@ pub use crate::{
         Scene, Stroke, ViewportRect,
     },
     settings::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading},
+    silhouette::Silhouette,
     viewport::{BACKGROUND, SurfaceTarget, ViewportFrame, ViewportRenderer, grid_minor_spacing},
 };
 use crate::{

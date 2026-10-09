@@ -69,7 +69,7 @@ paths:
   upload once per `Arc` and drop when the mesh leaves the scene; a mesh past `max_buffer_size` is
   split into parts that each fit.
 - New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
-  shared by the five mesh caches): each frame packs and writes the next whole vertices and indices
+  shared by the five mesh caches and the silhouette cache): each frame packs and writes the next whole vertices and indices
   into buffers made at the start, so the frame that first shows a large body never stalls (about
   2 ms at worst instead of 8 to 11 ms for 39 MB in a release build). A mesh is drawn only once it
   is complete, never half; while any mesh of a cache is still uploading, the meshes the cache drew
@@ -78,7 +78,7 @@ paths:
   they hide what is behind them in the pick pass but pick nothing. `Renderer::is_uploading` says
   whether frames must follow (`app.md`); image export uploads whatever is left at once.
 - The ignored `frame_costs_of_drawing_a_large_scene` test times the UI thread's share of a frame
-  for a scene of lines, markers, fills and four 245,000-triangle meshes: idle, with the camera
+  for a scene of lines, markers, fills and four 245,000-triangle meshes with their silhouettes: idle, with the camera
   moving, hovering with a pick and a face restyled every frame, with the batch replaced every
   frame, and with new meshes shown every 20 frames, uploaded whole and under the budget.
 - A `MeshInstance` may carry a `placement` (a `RigidTransform`) drawing the mesh moved and turned
@@ -138,6 +138,23 @@ paths:
   horizon, ground and one light panel, tinted halfway to the face colour's hue, so hover and
   selection still show). The reflection rides in the view uniform's last two vectors (the stripe
   axes' orthonormal pair, the stripe count and a zebra flag).
+- `Scene::silhouettes` (`silhouette.rs`) draw the outline of curved faces as seen from the
+  current view, after every mesh and before the batches' lines, with the line pipeline's depth
+  test and `fs_line`, never in the pick pass (the face beneath picks). A `Silhouette` names a mesh,
+  a colour, a width, a dash flag and a placement, with no faces drawn needed, so wireframe shows
+  it too. On upload (under the same per-frame byte budget as meshes, in chunks that fit a
+  buffer) every triangle whose corner normals differ (`ShadedMesh::curved_triangles`, so flat
+  faces cost nothing) becomes a `SILHOUETTE_STRIDE` instance of three positions and three
+  `Snorm16x4` normals; `vs_silhouette` finds where the facing of the interpolated normals toward
+  the eye changes sign across the triangle and strokes that segment like a line, so the outline
+  follows every orbit without re-meshing and with no CPU work per frame. A dashed silhouette
+  dashes along its dominant screen axis, since contour segments carry no distance along a curve.
+  `ShadedMesh` counts its curved triangles when built, so starting an upload costs nothing. The
+  frame-cost benchmark gives its four meshes waving normals and silhouettes, so every triangle is
+  a candidate (about 14.6 MB each against 9.8 MB of mesh): steady frames stay within noise (about
+  45 µs idle, 55 µs orbiting, release build), an upload frame under the budget stays near 2 ms
+  at worst but new meshes take about 2.5 times as many frames, and an unbudgeted upload of all
+  four takes about 19 ms instead of 7.
 - `Scene::overlay_meshes` draw right after the translucent ones, blended, with no depth test or
   write and never in the pick pass, so they show through whatever covers them (the cut preview).
 - `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and

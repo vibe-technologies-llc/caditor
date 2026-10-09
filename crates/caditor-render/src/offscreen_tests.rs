@@ -17,6 +17,7 @@ use crate::{
         Stroke, ViewportRect,
     },
     settings::{Msaa, Shading},
+    silhouette::Silhouette,
     viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer, Work},
 };
 
@@ -62,6 +63,7 @@ fn scene() -> Scene {
         overlay_meshes: Vec::new(),
         flat_meshes: Vec::new(),
         reflective_meshes: Vec::new(),
+        silhouettes: Vec::new(),
         reflection: Reflection::default(),
         grid: None,
         batches: vec![Arc::new(Batch {
@@ -756,6 +758,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
         overlay_meshes: Vec::new(),
         flat_meshes: Vec::new(),
         reflective_meshes: Vec::new(),
+        silhouettes: Vec::new(),
         reflection: Reflection::default(),
         grid: None,
         batches: vec![Arc::new(Batch {
@@ -1434,6 +1437,149 @@ fn bumped_square(half: f64, steps: u32) -> ShadedMesh {
         })
         .collect();
     ShadedMesh::new([MeshFace { points, triangles }])
+}
+
+fn cylinder(radius: f64, length: f64, segments: u32) -> ShadedMesh {
+    let points = (0..=segments)
+        .flat_map(|step| {
+            let angle = std::f64::consts::TAU * f64::from(step) / f64::from(segments);
+            let normal = Vector3::new(0.0, angle.cos(), angle.sin());
+            [-0.5, 0.5].map(|end| MeshPoint {
+                position: Point3::new(end * length, 0.0, 0.0) + normal * radius,
+                normal,
+            })
+        })
+        .collect();
+    let triangles = (0..segments)
+        .flat_map(|step| {
+            let first = step * 2;
+            [[first, first + 2, first + 3], [first, first + 3, first + 1]]
+        })
+        .collect();
+    ShadedMesh::new([MeshFace { points, triangles }])
+}
+
+const SILHOUETTE_COLOR: Color = Color::from_rgb8(250, 20, 20);
+
+fn silhouetted(mesh: &Arc<ShadedMesh>, with_faces: bool) -> Scene {
+    Scene {
+        meshes: match with_faces {
+            true => vec![MeshInstance {
+                mesh: Arc::clone(mesh),
+                faces: vec![FaceStyle {
+                    color: Color::from_rgb8(120, 120, 120),
+                    pick: PickId::from_index(0),
+                }],
+                placement: None,
+            }],
+            false => Vec::new(),
+        },
+        silhouettes: vec![Silhouette {
+            mesh: Arc::clone(mesh),
+            color: SILHOUETTE_COLOR,
+            width: 2.0,
+            dashed: false,
+            placement: None,
+        }],
+        ..Scene::default()
+    }
+}
+
+fn red_runs(rendered: &Rendered, pixels: impl Iterator<Item = DVec2>) -> Vec<f64> {
+    let mut runs: Vec<(f64, f64)> = Vec::new();
+    let mut previous = false;
+    for at in pixels {
+        let [red, green, _, _] = pixel(rendered, at);
+        let lit = i32::from(red) - i32::from(green) > 100;
+        match (lit, previous, runs.last_mut()) {
+            (true, true, Some((sum, count))) => {
+                *sum += at.y;
+                *count += 1.0;
+            }
+            (true, _, _) => runs.push((at.y, 1.0)),
+            (false, _, _) => {}
+        }
+        previous = lit;
+    }
+    runs.into_iter().map(|(sum, count)| sum / count).collect()
+}
+
+#[test]
+fn a_cylinder_seen_side_on_shows_its_silhouette_wherever_the_view_turns() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let mesh = Arc::new(cylinder(15.0, 60.0, 48));
+    let top = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
+    let tilted = View::new(
+        Viewpoint::looking_from(Vector3::new(0.5, -1.0, 0.8), Point3::ZERO, 200.0).unwrap(),
+        f64::from(SIZE),
+        f64::from(SIZE),
+    );
+    let middle = top.project(Point3::ZERO).unwrap();
+    let side = top.project(Point3::new(0.0, 15.0, 0.0)).unwrap();
+    let across = |view: &View, scene: &Scene| {
+        let centre = view.project(Point3::ZERO).unwrap();
+        let rendered = render(&device, &queue, view, scene, centre);
+        red_runs(&rendered, column(centre.x.floor(), centre.y, 40.0))
+    };
+
+    let shaded = render(&device, &queue, &top, &silhouetted(&mesh, true), middle);
+    let plain = render(
+        &device,
+        &queue,
+        &top,
+        &Scene {
+            silhouettes: Vec::new(),
+            ..silhouetted(&mesh, true)
+        },
+        middle,
+    );
+    let from_above = across(&top, &silhouetted(&mesh, true));
+    let turned = across(&tilted, &silhouetted(&mesh, true));
+    let wireframe = across(&tilted, &silhouetted(&mesh, false));
+    let silhouette_pixel = pixel(&shaded, side.floor());
+
+    assert!(
+        silhouette_pixel[0] > 200 && silhouette_pixel[1] < 60,
+        "{silhouette_pixel:?}"
+    );
+    assert!(pixel(&plain, side.floor())[0] < 200);
+    assert!(i32::from(pixel(&shaded, middle)[0]) - i32::from(pixel(&shaded, middle)[1]) < 20);
+    assert_eq!(from_above.len(), 2, "{from_above:?}");
+    assert!(
+        from_above
+            .iter()
+            .all(|y| ((y - middle.y).abs() - (side.y - middle.y).abs()).abs() < 1.5),
+        "{from_above:?} against {side:?}"
+    );
+    assert_eq!(turned.len(), 2, "{turned:?}");
+    assert_eq!(wireframe.len(), 2, "{wireframe:?}");
+    assert_eq!(shaded.pick.hits[0].id, PickId::from_index(0).unwrap());
+}
+
+#[test]
+fn flat_faces_upload_no_silhouette_and_curved_ones_upload_theirs() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
+    let flat = Arc::new(box_mesh(20.0));
+    let curved = Arc::new(cylinder(15.0, 60.0, 48));
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut silhouettes_of = |mesh: &Arc<ShadedMesh>| {
+        let scene = silhouetted(mesh, true);
+        render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, &scene, DVec2::ZERO),
+        );
+        renderer.silhouette_triangles()
+    };
+
+    assert_eq!(silhouettes_of(&flat), 0);
+    assert_eq!(silhouettes_of(&curved), 96);
 }
 
 fn reflective_scene(reflection: Reflection, pick: PickId) -> Scene {
@@ -2732,12 +2878,13 @@ fn large_scene() -> Scene {
 const LARGE_MESHES: u32 = 4;
 const LARGE_MESH_SIDE: u32 = 350;
 const LARGE_MESH_WIDTH: f64 = 140.0;
+const LARGE_MESH_WAVE: f64 = 0.2;
 
 fn large_mesh(left: f64) -> ShadedMesh {
     let step = LARGE_MESH_WIDTH / f64::from(LARGE_MESH_SIDE);
     let at = |column: u32, row: u32| MeshPoint {
         position: Point3::new(left + f64::from(column) * step, f64::from(row) * step, -1.0),
-        normal: Vector3::Z,
+        normal: Vector3::new((f64::from(column) * LARGE_MESH_WAVE).sin(), 0.0, 1.0),
     };
     ShadedMesh::new((0..LARGE_MESH_SIDE).map(|row| {
         MeshFace {
@@ -2764,6 +2911,19 @@ fn large_meshes() -> Vec<MeshInstance> {
                     pick: PickId::from_index((100_000 + index * LARGE_MESH_SIDE + face) as usize),
                 })
                 .collect(),
+            placement: None,
+        })
+        .collect()
+}
+
+fn silhouettes_of(meshes: &[MeshInstance]) -> Vec<Silhouette> {
+    meshes
+        .iter()
+        .map(|instance| Silhouette {
+            mesh: Arc::clone(&instance.mesh),
+            color: SILHOUETTE_COLOR,
+            width: 1.5,
+            dashed: false,
             placement: None,
         })
         .collect()
@@ -2798,7 +2958,7 @@ fn frame_costs_of_drawing_a_large_scene() {
         return;
     };
     const FRAMES: u32 = 100;
-    const WARM_UP: u32 = 10;
+    const WARM_UP: u32 = 30;
     let size = SurfaceSize {
         width: 1600,
         height: 1000,
@@ -2818,8 +2978,10 @@ fn frame_costs_of_drawing_a_large_scene() {
         view_formats: &[],
     });
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let meshes = large_meshes();
     let scene = Scene {
-        meshes: large_meshes(),
+        silhouettes: silhouettes_of(&meshes),
+        meshes,
         ..large_scene()
     };
     let replaced = Scene {
@@ -2830,15 +2992,17 @@ fn frame_costs_of_drawing_a_large_scene() {
             .collect(),
         ..scene.clone()
     };
+    let reshown_meshes: Vec<MeshInstance> = scene
+        .meshes
+        .iter()
+        .map(|instance| MeshInstance {
+            mesh: Arc::new(ShadedMesh::clone(&instance.mesh)),
+            ..instance.clone()
+        })
+        .collect();
     let reshown = Scene {
-        meshes: scene
-            .meshes
-            .iter()
-            .map(|instance| MeshInstance {
-                mesh: Arc::new(ShadedMesh::clone(&instance.mesh)),
-                ..instance.clone()
-            })
-            .collect(),
+        silhouettes: silhouettes_of(&reshown_meshes),
+        meshes: reshown_meshes,
         ..scene.clone()
     };
     let viewpoint =

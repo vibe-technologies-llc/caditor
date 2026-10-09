@@ -370,7 +370,8 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
   distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
   at once, which only looks into the model and changes nothing. Measure works on what it shows.
-- [low · medium] Silhouette edges on curved bodies.
+- [low · easy] Silhouettes of curved faces are not drawn again dashed where a face hides them in
+  shaded with hidden edges dashed, and never pick (the face beneath does).
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
 - [low · medium] Lighting and the MSAA resolve happen in gamma space.
 - [low · medium] Dragging a brush over faces to select them (paint selection), and named selection

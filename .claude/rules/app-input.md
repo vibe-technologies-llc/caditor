@@ -204,7 +204,10 @@ paths:
   show through), hidden lines removed (faces in `Scene::flat_meshes`, unlit in `DRAWING_FACE`
   whatever the body's colour, still pickable and hiding what lies behind them, edges drawn over
   them, so it reads as a drawing) or X-ray (faces in `Scene::translucent_meshes` at
-  `XRAY_FACE_ALPHA`, unpickable, edges on top). It applies to bodies outside sketch editing, reaches the scene through
+  `XRAY_FACE_ALPHA`, unpickable, edges on top). Every style that draws edges also gives each body
+  a `Silhouette` in the edge colour and width (dashed with a troubled body's edges, the dimmed
+  edge colour for background bodies, and for the body an opened feature shows), so the outline of
+  its curved faces is drawn as the view turns (`render.md`). It applies to bodies outside sketch editing, reaches the scene through
   `Sources::style` and `Revisions::style`, shapes image exports too and is kept for the session.
 
 ## Typed-point field

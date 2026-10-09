@@ -8251,6 +8251,15 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
             .map(|line| line.color.alpha)
             .collect()
     };
+    let silhouettes = |harness: &mut Harness| -> Vec<caditor_render::Color> {
+        harness
+            .built()
+            .scene
+            .silhouettes
+            .iter()
+            .map(|silhouette| silhouette.color)
+            .collect()
+    };
     let faces_pickable = |harness: &mut Harness| {
         harness
             .built()
@@ -8264,6 +8273,10 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     );
     assert_eq!(harness.built().scene.meshes.len(), 1);
     assert!(edge_alphas(&mut harness).iter().all(|alpha| *alpha > 0.0));
+    assert_eq!(
+        silhouettes(&mut harness),
+        vec![scene_palette::STANDARD.body_edge]
+    );
 
     run_from_palette(&mut harness, "shaded without edges");
     harness.frame();
@@ -8271,12 +8284,17 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     assert_eq!(harness.built().scene.meshes.len(), 1);
     let hidden = edge_alphas(&mut harness);
     assert!(!hidden.is_empty() && hidden.iter().all(|alpha| *alpha == 0.0));
+    assert!(silhouettes(&mut harness).is_empty());
     assert!(faces_pickable(&mut harness));
 
     harness.key(Key::Escape, Modifiers::NONE);
     run_from_palette(&mut harness, "wireframe");
     harness.frame();
     assert_eq!(harness.workspace.viewport.style(), DisplayStyle::Wireframe);
+    assert_eq!(
+        silhouettes(&mut harness),
+        vec![scene_palette::STANDARD.body_edge]
+    );
     assert!(harness.built().scene.meshes.is_empty());
     assert!(edge_alphas(&mut harness).iter().all(|alpha| *alpha > 0.0));
     assert!(!faces_pickable(&mut harness));
@@ -8285,6 +8303,10 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     run_from_palette(&mut harness, "x-ray");
     harness.frame();
     assert_eq!(harness.workspace.viewport.style(), DisplayStyle::XRay);
+    assert_eq!(
+        silhouettes(&mut harness),
+        vec![scene_palette::STANDARD.body_edge]
+    );
     let built = harness.built();
     assert!(built.scene.meshes.is_empty());
     assert_eq!(built.scene.translucent_meshes.len(), 1);
@@ -8301,6 +8323,10 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
     run_from_palette(&mut harness, "hidden lines removed");
     harness.frame();
     assert_eq!(harness.workspace.viewport.style(), DisplayStyle::HiddenLine);
+    assert_eq!(
+        silhouettes(&mut harness),
+        vec![scene_palette::STANDARD.body_edge]
+    );
     let built = harness.built();
     assert!(built.scene.meshes.is_empty());
     assert!(built.scene.translucent_meshes.is_empty());
