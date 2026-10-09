@@ -9,7 +9,7 @@ use egui::Id;
 use crate::{
     appearance::{SPACE_L, SPACE_S},
     bodies_tree,
-    commands::CommandFrame,
+    commands::{Command, CommandFrame},
     editing::SketchEditing,
     feature_tree, icons,
     layout::{self, MIN_SIDE_WIDTH, PanelLayout},
@@ -115,6 +115,7 @@ pub struct PanelState {
     pub hovered_in_tree: Option<Pickable>,
     pub chosen_in_tree: Option<Pickable>,
     pub selected_in_tree: Option<Vec<Pickable>>,
+    pub sketch_command: Option<Command>,
     pub in_view: BTreeSet<FeatureId>,
     view_selection: Option<u64>,
     pub shown_place: Option<Point3>,

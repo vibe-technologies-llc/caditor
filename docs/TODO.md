@@ -117,11 +117,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
-- [medium · easy] The sketch bar's header wraps the sketch's status pills under its title, so the
-  bar grows a line, and the view under it moves down, when a second pill ("2 open ends", "1 point
-  beyond its curve") appears while drawing. Keep the header one height whatever the status: the
-  status pill alone with the others as compact counts beside it (their words on hover), or room
-  reserved for them.
 - [medium · hard] Tools missing: a pattern of sketch geometry along a path (copies tied to the
   path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
   font, a height, bold and italic, set along a curve, its letters becoming closed regions that

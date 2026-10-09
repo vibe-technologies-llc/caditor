@@ -682,6 +682,9 @@ pub fn show(
     if let Some(chosen) = panels.chosen_in_tree.take() {
         viewport.select_only(chosen);
     }
+    if let Some(command) = panels.sketch_command.take() {
+        commands.trigger(command);
+    }
     if let Some(chosen) = panels.selected_in_tree.take() {
         viewport.select_exactly(chosen);
     }

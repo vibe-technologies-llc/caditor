@@ -41,13 +41,14 @@ impl From<Result<Transaction, String>> for Outcome {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Hint {
     Targets,
     Keys(&'static str),
+    Text(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prompt {
     pub text: &'static str,
     pub hint: Hint,
@@ -123,15 +124,75 @@ enum State {
     Blend(Box<BlendCurving>),
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct LastSizes {
+    round: Option<String>,
+    chamfer: Option<String>,
+}
+
+impl LastSizes {
+    fn of(&self, cut: CornerCut) -> Option<String> {
+        match cut {
+            CornerCut::Round => self.round.clone(),
+            CornerCut::Chamfer => self.chamfer.clone(),
+        }
+    }
+
+    fn keep(&mut self, filleting: &Filleting) {
+        let last = filleting.last().map(str::to_owned);
+        match filleting.cut() {
+            CornerCut::Round => self.round = last,
+            CornerCut::Chamfer => self.chamfer = last,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Modifying {
     context: Option<(FeatureId, Tool)>,
     state: State,
+    last: LastSizes,
 }
 
 impl Modifying {
     pub fn is_active(&self) -> bool {
         self.context.is_some()
+    }
+
+    pub fn gathers(&self) -> bool {
+        match &self.state {
+            State::Mirror(mirroring) => mirroring.gathers(),
+            State::Pattern(patterning) => patterning.gathers(),
+            State::Offset(_)
+            | State::Fillet(_)
+            | State::Tangent(_)
+            | State::Blend(_)
+            | State::Idle => false,
+        }
+    }
+
+    pub fn lets_go_of_selection(&self) -> bool {
+        match &self.state {
+            State::Mirror(mirroring) => mirroring.gathers() && mirroring.gathered(),
+            State::Pattern(patterning) => patterning.gathers() && patterning.gathered(),
+            State::Offset(_)
+            | State::Fillet(_)
+            | State::Tangent(_)
+            | State::Blend(_)
+            | State::Idle => false,
+        }
+    }
+
+    pub fn last_value(&self) -> Option<&str> {
+        match &self.state {
+            State::Fillet(filleting) => filleting.last(),
+            State::Offset(_)
+            | State::Mirror(_)
+            | State::Pattern(_)
+            | State::Tangent(_)
+            | State::Blend(_)
+            | State::Idle => None,
+        }
     }
 
     pub fn sync(
@@ -145,16 +206,21 @@ impl Modifying {
             .filter(|active| active.tool.reshapes())
             .map(|active| (active.feature, active.tool));
         if context != self.context {
+            if let State::Fillet(filleting) = &self.state {
+                self.last.keep(filleting);
+            }
             self.context = context;
+            let round = self.last.of(CornerCut::Round);
+            let chamfer = self.last.of(CornerCut::Chamfer);
             self.state = match (context, sketch) {
                 (Some((_, Tool::Offset)), _) => State::Offset(Offsetting::default()),
-                (Some((_, Tool::Mirror)), _) => State::Mirror(Mirroring::default()),
-                (Some((_, Tool::RectangularPattern)), _) => {
-                    State::Pattern(Box::new(Patterning::new(PatternKind::Rectangular)))
-                }
-                (Some((_, Tool::CircularPattern)), _) => {
-                    State::Pattern(Box::new(Patterning::new(PatternKind::Circular)))
-                }
+                (Some((_, Tool::Mirror)), _) => State::Mirror(Mirroring::starting(selected)),
+                (Some((_, Tool::RectangularPattern)), _) => State::Pattern(Box::new(
+                    Patterning::starting(PatternKind::Rectangular, selected),
+                )),
+                (Some((_, Tool::CircularPattern)), _) => State::Pattern(Box::new(
+                    Patterning::starting(PatternKind::Circular, selected),
+                )),
                 (Some((_, Tool::TangentCircle)), Some(sketch)) => {
                     State::Tangent(Box::new(TangentCircling::starting(sketch, selected)))
                 }
@@ -164,16 +230,16 @@ impl Modifying {
                 )),
                 (Some((_, Tool::BlendCurve)), None) => State::Blend(Box::default()),
                 (Some((_, Tool::Fillet)), Some(sketch)) => State::Fillet(Box::new(
-                    Filleting::starting(sketch, selected, CornerCut::Round),
+                    Filleting::starting(sketch, selected, CornerCut::Round, round),
                 )),
                 (Some((_, Tool::Chamfer)), Some(sketch)) => State::Fillet(Box::new(
-                    Filleting::starting(sketch, selected, CornerCut::Chamfer),
+                    Filleting::starting(sketch, selected, CornerCut::Chamfer, chamfer),
                 )),
                 (Some((_, Tool::Fillet)), None) => {
-                    State::Fillet(Box::new(Filleting::new(CornerCut::Round)))
+                    State::Fillet(Box::new(Filleting::new(CornerCut::Round, round)))
                 }
                 (Some((_, Tool::Chamfer)), None) => {
-                    State::Fillet(Box::new(Filleting::new(CornerCut::Chamfer)))
+                    State::Fillet(Box::new(Filleting::new(CornerCut::Chamfer, chamfer)))
                 }
                 _ => State::Idle,
             };
@@ -363,8 +429,8 @@ impl Modifying {
         };
         match &mut self.state {
             State::Offset(offsetting) => offsetting.enter_value(model, feature, value),
-            State::Fillet(filleting) => filleting.enter_value(model, feature, value),
-            State::Mirror(_)
+            State::Fillet(_)
+            | State::Mirror(_)
             | State::Pattern(_)
             | State::Tangent(_)
             | State::Blend(_)
@@ -378,8 +444,8 @@ impl Modifying {
         };
         match &mut self.state {
             State::Offset(offsetting) => offsetting.click(model, feature, sketch),
-            State::Mirror(mirroring) => mirroring.activate(model, feature),
-            State::Pattern(patterning) => patterning.activate(),
+            State::Mirror(mirroring) => mirroring.finish(model, feature),
+            State::Pattern(patterning) => patterning.finish(),
             State::Fillet(filleting) => filleting.activate(model, feature),
             State::Tangent(tangent) => tangent.activate(model, feature),
             State::Blend(blend) => blend.activate(model, feature),
@@ -390,7 +456,8 @@ impl Modifying {
     pub fn steps_targets(&self) -> bool {
         match &self.state {
             State::Pattern(patterning) => patterning.steps_targets(),
-            State::Mirror(_) | State::Fillet(_) | State::Tangent(_) | State::Blend(_) => true,
+            State::Mirror(mirroring) => !mirroring.gathers(),
+            State::Fillet(_) | State::Tangent(_) | State::Blend(_) => true,
             State::Offset(_) | State::Idle => false,
         }
     }

@@ -11,7 +11,8 @@ make regions and take constraints like drawn ones.
 
 ## Intersect
 
-{command:sketch.intersect} draws where the model crosses the sketch plane. Click a face for the cut
+{command:sketch.intersect}, also in the small menu in the corner of the Project button, draws where
+the model crosses the sketch plane. Click a face for the cut
 through that face, or Shift-click it for the cut through the whole body
 ({command:sketch.intersect_body} from the keyboard). Click a datum or principal plane for the line
 where it crosses the sketch, drawn as construction.

@@ -756,6 +756,8 @@ impl Menus<'_, '_> {
                     Command::ScaleGeometry,
                     Command::SelectAll,
                     Command::SelectFree,
+                    Command::SelectOpenEnds,
+                    Command::SelectRedundant,
                 ],
             );
             self.items(

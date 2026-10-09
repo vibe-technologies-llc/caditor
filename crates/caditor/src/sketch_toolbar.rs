@@ -9,7 +9,9 @@ use egui::{
 
 use crate::{
     annotations,
-    appearance::{self, CONTROL_HEIGHT, ICON_SIZE, SPACE_M, SPACE_S, Tokens, WIDGET_RADIUS},
+    appearance::{
+        self, CONTROL_HEIGHT, ICON_SIZE, SPACE_M, SPACE_S, SPACE_XS, Tokens, WIDGET_RADIUS,
+    },
     commands::{Command, CommandFrame},
     constraint_trial::ConstraintTrial,
     editing::{ActiveSketch, EditingCommand, SketchEditing, Tool},
@@ -21,7 +23,7 @@ use crate::{
     selection::Selection,
     shape_modes::{ShapeMode, ShapeModes},
     sketch_drag::{self, Moving},
-    sketch_status::{self, SketchSummary},
+    sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools::{
         self, ActivityChange, BreakChange, ConstraintTool, ConstructionChange, SplitChange,
     },
@@ -86,6 +88,40 @@ pub const OFF_RIBBON: [Tool; 6] = [
     Tool::BlendCurve,
 ];
 pub const OFF_RIBBON_CONSTRAINTS: [ConstraintTool; 1] = [ConstraintTool::Curvature];
+pub const CORNER_TOOLS: Partners = Partners {
+    host: Tool::Fillet,
+    others: &[Tool::Chamfer],
+    name: "Round or cut a corner",
+};
+pub const CURVE_FROM_GEOMETRY_TOOLS: Partners = Partners {
+    host: Tool::Offset,
+    others: &[Tool::TangentCircle, Tool::BlendCurve],
+    name: "Draw from existing curves",
+};
+pub const COPYING_TOOLS: Partners = Partners {
+    host: Tool::Mirror,
+    others: &[Tool::RectangularPattern, Tool::CircularPattern],
+    name: "Mirror or repeat geometry",
+};
+pub const MODEL_GEOMETRY_TOOLS: Partners = Partners {
+    host: Tool::Project,
+    others: &[Tool::Intersect],
+    name: "Bring in model geometry",
+};
+
+pub struct Partners {
+    host: Tool,
+    others: &'static [Tool],
+    pub name: &'static str,
+}
+
+impl Partners {
+    pub fn tools(&self) -> Vec<Tool> {
+        std::iter::once(self.host)
+            .chain(self.others.iter().copied())
+            .collect()
+    }
+}
 pub const DELETE_LABEL: &str = "Delete";
 pub const MOVE_LABEL: &str = "Move";
 pub const SELECT_ALL_LABEL: &str = "Select all";
@@ -115,6 +151,7 @@ const HEADER_TEXT_MIN_WIDTH: f32 = 160.0;
 const HEADER_TEXT_MAX_WIDTH: f32 = 240.0;
 const HEADER_GAP: f32 = SPACE_M;
 const HEADER_LINE_GAP: f32 = SPACE_S;
+const HEADER_COUNT_GAP: f32 = SPACE_XS;
 const BADGE_SIDE: f32 = CONTROL_HEIGHT;
 const FINISH_HEIGHT: f32 = CONTROL_HEIGHT;
 const ACCENT_LINE_WIDTH: f32 = 2.0;
@@ -533,7 +570,8 @@ impl Bar<'_, '_> {
         let text = title
             .size()
             .x
-            .clamp(HEADER_TEXT_MIN_WIDTH, HEADER_TEXT_MAX_WIDTH);
+            .clamp(HEADER_TEXT_MIN_WIDTH, HEADER_TEXT_MAX_WIDTH)
+            .max(sketch_status::widest_status(ui));
         BADGE_SIDE + HEADER_GAP + text
     }
 
@@ -542,6 +580,8 @@ impl Bar<'_, '_> {
         let width = packing.header;
         let height = ribbon::height(ui, packing.captions);
         let title = self.title();
+        let summary = SketchSummary::of(self.model.evaluation(), self.feature.id());
+        let mut requested = None;
         ui.horizontal_top(|ui| {
             ui.set_min_size(vec2(width, height));
             ui.set_max_width(width);
@@ -557,26 +597,44 @@ impl Bar<'_, '_> {
                     ui.spacing_mut().item_spacing.y = HEADER_LINE_GAP;
                     ui.add_space(((height - known) / 2.0).max(0.0));
                     let top = ui.cursor().min.y;
-                    ui.add(
-                        Label::new(
-                            RichText::new(&title)
-                                .text_style(TextStyle::Button)
-                                .color(tokens.text),
+                    let line = widgets::count_pill_height(ui)
+                        .max(ui.text_style_height(&TextStyle::Button));
+                    let counts = ui
+                        .allocate_ui_with_layout(
+                            vec2(ui.available_width(), line),
+                            Layout::right_to_left(Align::Center),
+                            |ui| {
+                                ui.set_min_height(line);
+                                ui.spacing_mut().item_spacing.x = HEADER_COUNT_GAP;
+                                let counted =
+                                    sketch_status::counts_from_the_right(ui, &summary, true);
+                                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                                    ui.add(
+                                        Label::new(
+                                            RichText::new(&title)
+                                                .text_style(TextStyle::Button)
+                                                .color(tokens.text),
+                                        )
+                                        .truncate()
+                                        .selectable(false),
+                                    );
+                                });
+                                counted
+                            },
                         )
-                        .truncate()
-                        .selectable(false),
-                    );
-                    ui.horizontal_wrapped(|ui| {
-                        let summary = SketchSummary::of(self.model.evaluation(), self.feature.id());
-                        if let Some(focus) = sketch_status::show(ui, &summary) {
-                            self.request.focus = Some(focus);
-                        }
-                    });
+                        .inner;
+                    let status = sketch_status::status_pill(ui, &summary, true);
+                    requested = status.or(counts);
                     ui.min_rect().bottom() - top
                 })
                 .inner;
             widgets::remember_width(ui, height_id, content);
         });
+        match requested {
+            Some(StatusRequest::ShowProblem(focus)) => self.request.focus = Some(focus),
+            Some(StatusRequest::Run(command)) => self.commands.trigger(command),
+            None => {}
+        }
         width
     }
 
@@ -656,7 +714,7 @@ impl Bar<'_, '_> {
         }
     }
 
-    fn compact_tool_button(&mut self, ui: &mut Ui, tool: Tool) {
+    fn compact_tool_button(&mut self, ui: &mut Ui, tool: Tool) -> Rect {
         let command = Command::SketchTool(tool);
         let invoked = self.commands.available(command);
         let button = ToolButton::new(icons::tool(tool), tool.label())
@@ -665,6 +723,40 @@ impl Bar<'_, '_> {
         let help = Ok(self.commands.with_keys(command, tool.description()));
         let response = explained(ui.add(button), tool.label(), &help);
         if response.clicked() || invoked {
+            self.request.tool = Some(tool);
+        }
+        response.rect
+    }
+
+    fn partnered_tool_button(&mut self, ui: &mut Ui, partners: &Partners) {
+        let button = self.compact_tool_button(ui, partners.host);
+        let tools = partners.tools();
+        let id = Id::new(("sketch-bar-partners", partners.host));
+        let selected = tools.contains(&self.active.tool);
+        let response = widgets::compact_corner_menu_button(ui, id, button, partners.name, selected);
+        let commands = &*self.commands;
+        let active = self.active.tool;
+        let shown = Popup::menu(&response).show(|ui| {
+            widgets::fitted_menu(ui, |ui| {
+                let mut chosen = None;
+                for tool in tools.iter().copied() {
+                    let keys = commands.keys(Command::SketchTool(tool));
+                    if widgets::menu_choice(
+                        ui,
+                        icons::tool(tool),
+                        tool.label(),
+                        keys,
+                        tool == active,
+                    )
+                    .clicked()
+                    {
+                        chosen = Some(tool);
+                    }
+                }
+                chosen
+            })
+        });
+        if let Some(tool) = shown.and_then(|shown| shown.inner) {
             self.request.tool = Some(tool);
         }
     }
@@ -770,12 +862,12 @@ impl Bar<'_, '_> {
             self.construction_button(ui);
             self.compact_tool_button(ui, Tool::Trim);
             self.compact_tool_button(ui, Tool::Extend);
-            self.compact_tool_button(ui, Tool::Fillet);
-            self.compact_tool_button(ui, Tool::Offset);
+            self.partnered_tool_button(ui, &CORNER_TOOLS);
+            self.partnered_tool_button(ui, &CURVE_FROM_GEOMETRY_TOOLS);
         });
         let second = ui.horizontal_top(|ui| {
-            self.compact_tool_button(ui, Tool::Mirror);
-            self.compact_tool_button(ui, Tool::Project);
+            self.partnered_tool_button(ui, &COPYING_TOOLS);
+            self.partnered_tool_button(ui, &MODEL_GEOMETRY_TOOLS);
             let moving = self.moving.clone();
             if self.command_button(ui, Command::MoveGeometry, MOVE_LABEL, MOVE_HELP, &moving) {
                 self.commands.trigger(Command::MoveGeometry);

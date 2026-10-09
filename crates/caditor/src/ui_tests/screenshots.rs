@@ -40,7 +40,7 @@ use crate::{
     scale_tools,
     section::SectionTool,
     selection::{Pickable, Selection},
-    shell_tools, view_cube,
+    shell_tools, sketch_toolbar, view_cube,
 };
 
 const OUTPUT: &str = "CADITOR_SCREENSHOTS";
@@ -682,6 +682,10 @@ fn beyond_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     harness.edit(feature);
     harness.frame();
     shoot(harness, gpu, out, "point-beyond", look);
+    harness.click_button(sketch_toolbar::COPYING_TOOLS.name);
+    shoot(harness, gpu, out, "sketch-partner-menu", look);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
 }
 
 fn move_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {

@@ -161,7 +161,8 @@ paths:
   action through `pick_action`); Enter opens what the item belongs to as a double-click would,
   and with nothing highlighted Enter confirms the open feature like its checkmark. With Trim,
   Extend, Mirror, Circular pattern or Sketch fillet active they step through that tool's targets
-  instead (`app-sketching.md`). With a drawing tool active, Activate on a highlighted point of the edited
+  instead (`app-sketching.md`), except while Mirror or a pattern is gathering what it copies,
+  when Activate toggles the highlighted item into the selection. With a drawing tool active, Activate on a highlighted point of the edited
   sketch or the origin places the shape's next point there, snapped to it as a click would
   (`place_at_highlight` through `Drawing::type_point`), and on a highlighted curve at its middle
   (`Drawing::type_on_curve`: a line's or arc's with `Midpoint`, a circle's rightmost point or a

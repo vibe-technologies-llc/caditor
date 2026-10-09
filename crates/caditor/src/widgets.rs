@@ -30,6 +30,7 @@ const CALLOUT_MARGIN: Margin = Margin::symmetric(10, 8);
 const PILL_MARGIN: Margin = Margin::symmetric(8, 2);
 const PILL_RADIUS: u8 = 10;
 const PILL_ICON_GAP: f32 = 4.0;
+const BUTTON_PILL_OUTLINE: f32 = 0.5;
 const TOOL_PADDING: Vec2 = vec2(6.0, 5.0);
 const TOOL_MIN_WIDTH: f32 = 46.0;
 const TOOL_LABEL_GAP: f32 = 2.0;
@@ -44,6 +45,8 @@ const KEY_CAP_MARGIN: Margin = Margin::symmetric(5, 1);
 const KEY_CAP_RADIUS: u8 = 4;
 const EMPTY_STATE_MARGIN: Margin = Margin::symmetric(4, 6);
 const MIN_CORNER_BUTTON_SIDE: f32 = 14.0;
+const COMPACT_CORNER_SIDE: f32 = 11.0;
+const NOTCH_INSET: f32 = 2.5;
 const DIALOG_FOOTER_GAP: f32 = 14.0;
 const UNDERLINE_WIDTH: f32 = 1.0;
 const TAB_PADDING: egui::Vec2 = vec2(10.0, 6.0);
@@ -642,6 +645,136 @@ pub fn status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response
     status_pill_parts(ui, tone, text).0
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PillRole<'a> {
+    Shown,
+    Named(&'a str),
+    Button(&'a str),
+}
+
+pub fn glyph_pill(
+    ui: &mut Ui,
+    tone: Tone,
+    glyph: &str,
+    text: impl Into<String>,
+    role: PillRole<'_>,
+) -> Response {
+    glyph_pill_sized(
+        ui,
+        tone,
+        glyph,
+        text.into(),
+        ui.spacing().interact_size.y,
+        role,
+    )
+}
+
+pub fn count_pill(
+    ui: &mut Ui,
+    tone: Tone,
+    glyph: &str,
+    count: usize,
+    role: PillRole<'_>,
+) -> Response {
+    glyph_pill_sized(ui, tone, glyph, count.to_string(), 0.0, role)
+}
+
+pub fn count_pill_height(ui: &Ui) -> f32 {
+    let icon = RichText::new(icons::INFO).font(icon_font(SMALL_SIZE));
+    let digits = RichText::new("0").text_style(TextStyle::Small);
+    pill_room(
+        &[
+            unwrapped(ui, icon, TextStyle::Small),
+            unwrapped(ui, digits, TextStyle::Small),
+        ],
+        0.0,
+    )
+    .y
+}
+
+pub fn status_pill_width(ui: &Ui, glyph: &str, text: &str) -> f32 {
+    let icon = RichText::new(glyph).font(icon_font(SMALL_SIZE));
+    let text = RichText::new(text).text_style(TextStyle::Small);
+    pill_room(
+        &[
+            unwrapped(ui, icon, TextStyle::Small),
+            unwrapped(ui, text, TextStyle::Small),
+        ],
+        ui.spacing().interact_size.y,
+    )
+    .x
+}
+
+fn glyph_pill_sized(
+    ui: &mut Ui,
+    tone: Tone,
+    glyph: &str,
+    text: String,
+    row_height: f32,
+    role: PillRole<'_>,
+) -> Response {
+    let tokens = appearance::tokens(ui);
+    let color = tone.color(tokens);
+    let icon = RichText::new(glyph)
+        .font(icon_font(SMALL_SIZE))
+        .color(color);
+    let text = RichText::new(text)
+        .text_style(TextStyle::Small)
+        .color(color);
+    let room = pill_room(
+        &[
+            unwrapped(ui, icon.clone(), TextStyle::Small),
+            unwrapped(ui, text.clone(), TextStyle::Small),
+        ],
+        row_height,
+    );
+    let hidden_text = role != PillRole::Shown;
+    let response = ui
+        .allocate_ui(room, |ui| {
+            pill_frame(tokens, tone).show(ui, |ui| {
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = PILL_ICON_GAP;
+                    let glyph = ui.add(Label::new(icon).selectable(false));
+                    decorative(ui, &glyph);
+                    let label = ui.add(Label::new(text).selectable(false));
+                    if hidden_text {
+                        decorative(ui, &label);
+                    }
+                });
+            })
+        })
+        .inner
+        .response;
+    match role {
+        PillRole::Shown => response,
+        PillRole::Named(name) => {
+            response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, name));
+            response
+        }
+        PillRole::Button(name) => {
+            let response = response
+                .interact(Sense::click())
+                .on_hover_cursor(CursorIcon::PointingHand);
+            let stroke = if response.has_focus() {
+                Stroke::new(FOCUS_WIDTH, tokens.focus)
+            } else if response.is_pointer_button_down_on() {
+                Stroke::new(FOCUS_WIDTH, color)
+            } else if response.hovered() {
+                Stroke::new(BORDER_WIDTH, color)
+            } else {
+                Stroke::new(BORDER_WIDTH, color.gamma_multiply(BUTTON_PILL_OUTLINE))
+            };
+            ui.painter().rect_stroke(
+                response.rect,
+                CornerRadius::same(PILL_RADIUS),
+                stroke,
+                StrokeKind::Inside,
+            );
+            name_button(response, name, None)
+        }
+    }
+}
+
 pub fn announced_status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
     let (pill, label) = status_pill_parts(ui, tone, text);
     announced(ui, &label, tone == Tone::Error);
@@ -1003,7 +1136,6 @@ pub fn corner_menu_button(
     name: &str,
     on_selected: bool,
 ) -> Response {
-    let tokens = appearance::tokens(ui);
     let glyph = unwrapped(
         ui,
         RichText::new(icons::EXPANDED).font(icon_font(SMALL_SIZE)),
@@ -1011,6 +1143,37 @@ pub fn corner_menu_button(
     );
     let side = glyph.size().max_elem().max(MIN_CORNER_BUTTON_SIDE);
     let rect = Rect::from_min_size(pos2(host.right() - side, host.top()), Vec2::splat(side));
+    corner_menu(ui, id, rect, name, on_selected, CornerMark::Caret(glyph))
+}
+
+pub fn compact_corner_menu_button(
+    ui: &mut Ui,
+    id: Id,
+    host: Rect,
+    name: &str,
+    on_selected: bool,
+) -> Response {
+    let rect = Rect::from_min_max(
+        host.right_bottom() - Vec2::splat(COMPACT_CORNER_SIDE),
+        host.right_bottom(),
+    );
+    corner_menu(ui, id, rect, name, on_selected, CornerMark::Notch)
+}
+
+enum CornerMark {
+    Caret(Arc<Galley>),
+    Notch,
+}
+
+fn corner_menu(
+    ui: &mut Ui,
+    id: Id,
+    rect: Rect,
+    name: &str,
+    on_selected: bool,
+    mark: CornerMark,
+) -> Response {
+    let tokens = appearance::tokens(ui);
     let response = ui.interact(rect, id, Sense::click());
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response));
@@ -1039,8 +1202,20 @@ pub fn corner_menu_button(
             stroke,
             StrokeKind::Inside,
         );
-        ui.painter()
-            .galley(rect.center() - glyph.size() / 2.0, glyph, color);
+        match mark {
+            CornerMark::Caret(glyph) => {
+                ui.painter()
+                    .galley(rect.center() - glyph.size() / 2.0, glyph, color);
+            }
+            CornerMark::Notch => {
+                let inner = rect.shrink(NOTCH_INSET);
+                ui.painter().add(egui::Shape::convex_polygon(
+                    vec![inner.right_top(), inner.right_bottom(), inner.left_bottom()],
+                    color,
+                    Stroke::NONE,
+                ));
+            }
+        }
     }
     response.on_hover_text(name)
 }
