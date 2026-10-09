@@ -874,7 +874,15 @@ fn body(
             body_display(ui, model, feature);
         }
         FeatureKind::Mirror(mirror) => {
-            mirror_panel::show(ui, model, row.selection, actions, feature, mirror);
+            let chosen = state.chosen();
+            mirror_panel::show(
+                ui,
+                model,
+                (row.selection, &chosen),
+                actions,
+                feature,
+                mirror,
+            );
             body_display(ui, model, feature);
         }
         FeatureKind::Split(split) => {

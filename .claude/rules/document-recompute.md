@@ -71,9 +71,9 @@ paths:
   requested meshes), which the app does for the edited sketch past `MAX_UNSWEPT_REGION_ENTITIES`.
 - The state before an open blend or shell, and the tools of an open cut (`SolidResult::cuts`: the
   swept tool of an extrusion or revolve removing from a body, each drill of a hole, the placed
-  copies of a pattern's repeated cuts, kept with the result), are meshed only when the app asks
-  (`Recomputer::mesh`). An addition keeps its swept tool as `SolidResult::joins`, which only a
-  pattern repeating it reads.
+  copies of a pattern's repeated cuts or a mirror's reflected ones, kept with the result), are
+  meshed only when the app asks (`Recomputer::mesh`). An addition keeps its swept tool as
+  `SolidResult::joins`, which only a pattern or mirror of features reads.
 - A panic or failure while meshing leaves the body without a mesh (`mesh_failed`) but keeps its
   shape for later features. A run cancelled before every shown body was meshed is not complete.
 - A mesh is kept with its result, so a different `set_mesh_quality` clears the cache and the next

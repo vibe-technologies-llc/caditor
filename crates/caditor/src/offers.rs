@@ -81,7 +81,7 @@ impl Offers {
             offset_face: offset_face_tools::selected_faces(model, selection),
             combine: combine_tools::selected_bodies(model, selection, tree),
             movement: move_tools::selected_body(model, selection, tree),
-            mirror: mirror_tools::source(model, selection, tree),
+            mirror: mirror_tools::source(model, selection, (tree, rows)),
             split: split_tools::source(model, selection, tree),
             scale: scale_tools::selected_body(model, selection, tree),
             described: selection

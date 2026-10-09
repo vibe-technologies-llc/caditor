@@ -197,10 +197,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   (typed expressions allowed), starting at a corner, a centre or a chosen point, joining, cutting,
   intersecting or making a new body, named from their faces (a box's six sides, a cylinder's wall
   and caps) and previewed live, would start most simple parts in one step.
-- [medium · medium] Mirror reflects a whole body: mirroring only chosen features (a hole, a boss, a
-  rib) or faces across a plane, kept linked so editing the original updates the mirror as a
-  pattern of features does its copies, is missing; today the feature is drawn again or the body is
-  mirrored and combined.
+- [low · medium] Mirror reflects a whole body or chosen features (extrusions, revolves, holes), but
+  not chosen faces: reflecting a set of faces (a pocket's walls and floor of an imported body
+  with no features) across a plane, kept linked to the faces it copies, is missing.
 - [medium · medium] No thread feature: a tapped hole names its ISO thread only in its panel, and a
   shaft or boss takes none. A cosmetic thread on a cylindrical face (a bore, a shaft, a boss),
   chosen by designation (ISO metric coarse and fine, M3 to M64, internal or external, with the
