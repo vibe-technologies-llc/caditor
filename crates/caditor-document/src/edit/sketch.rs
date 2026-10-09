@@ -741,7 +741,15 @@ impl Document {
 fn is_valid(entity: &Entity) -> bool {
     match entity {
         Entity::Point(position) => position.is_finite(),
-        Entity::Circle { radius, .. } => radius.is_finite() && *radius > 0.0,
+        Entity::Circle { radius, .. }
+        | Entity::Ellipse {
+            minor_radius: radius,
+            ..
+        }
+        | Entity::EllipticalArc {
+            minor_radius: radius,
+            ..
+        } => radius.is_finite() && *radius > 0.0,
         Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => true,
     }
 }

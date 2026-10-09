@@ -404,6 +404,41 @@ fn construction_curves_cut_and_pieces_stay_construction() {
 }
 
 #[test]
+fn ellipses_cut_other_curves_but_cannot_be_trimmed_split_or_extended() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(20.0, 0.0), Point2::new(28.0, 0.0), 3.0);
+    let arc = sketch.add_elliptical_arc(
+        Point2::new(0.0, 30.0),
+        Point2::new(5.0, 30.0),
+        2.0,
+        Point2::new(5.0, 30.0),
+        Point2::new(0.0, 32.0),
+    );
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+
+    assert!(matches!(
+        sketch.trim(ellipse, Point2::new(20.0, 3.0)),
+        Err(TrimError::NotTrimmable { .. })
+    ));
+    assert!(matches!(
+        sketch.extend(arc, Point2::new(5.0, 30.0)),
+        Err(ExtendError::NotExtendable { .. })
+    ));
+    let on_ellipse = sketch.add_point(Point2::new(20.0, 3.0));
+    assert!(matches!(
+        sketch.check_split(ellipse, on_ellipse),
+        Err(crate::SplitError::NotLineOrArc { .. })
+    ));
+    assert!(matches!(
+        sketch.trim(line, Point2::new(20.0, 0.0)),
+        Ok(Trimmed::Split { .. })
+    ));
+    let (_, end) = ends(&sketch, line);
+    assert!(has(&sketch, &Constraint::Coincident(end, ellipse)));
+    assert!((sketch.point(end).unwrap().x - 12.0).abs() < 1e-9);
+}
+
+#[test]
 fn splines_cut_other_curves_but_cannot_be_trimmed() {
     let mut sketch = Sketch::new(Plane::XY);
     let spline = sketch.add_spline(&[
@@ -415,7 +450,7 @@ fn splines_cut_other_curves_but_cannot_be_trimmed() {
 
     assert!(matches!(
         sketch.trim(spline, Point2::new(11.0, 0.0)),
-        Err(TrimError::Spline { .. })
+        Err(TrimError::NotTrimmable { .. })
     ));
     assert_eq!(
         sketch.trim(line, Point2::new(25.0, 0.0)),

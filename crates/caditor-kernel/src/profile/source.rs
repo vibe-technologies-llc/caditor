@@ -4,7 +4,7 @@ use caditor_geometry::{Aabb2, Point2};
 
 use crate::{
     bspline::BSpline,
-    curve2::{Circle2, Curve2, Line2},
+    curve2::{Circle2, Curve2, Ellipse2, Line2},
     error::GeometryError,
     interval::Interval,
     parametric::refined_seeds,
@@ -82,6 +82,42 @@ impl Source {
                 let range = spline.domain();
                 Ok(Self::open(entity, spline.into(), range))
             }
+            ProfileShape::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => {
+                if !center.is_finite() || !major.is_finite() {
+                    return Err(non_finite);
+                }
+                let ellipse = Ellipse2::new(*center, *major, *minor_radius).map_err(invalid)?;
+                Ok(Self {
+                    entity,
+                    curve: ellipse.into(),
+                    range: Interval::FULL_TURN,
+                    closed: true,
+                })
+            }
+            ProfileShape::EllipticalArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+            } => {
+                let points = [*center, *start, *end];
+                if !points.iter().all(|point| point.is_finite()) || !major.is_finite() {
+                    return Err(non_finite);
+                }
+                let ellipse = Ellipse2::new(*center, *major, *minor_radius).map_err(invalid)?;
+                let first = ellipse.parameter_of(*start);
+                let sweep = (ellipse.parameter_of(*end) - first).rem_euclid(TAU);
+                if sweep <= 0.0 {
+                    return Err(degenerate());
+                }
+                let range = Interval::new(first, first + sweep).ok_or(non_finite)?;
+                Ok(Self::open(entity, ellipse.into(), range))
+            }
         }
     }
 
@@ -132,7 +168,7 @@ impl Source {
         let mut breaks = match &self.curve {
             Curve2::Line(_) => Vec::new(),
             Curve2::Circle(circle) => circle_breaks(circle, self.range),
-            Curve2::BSpline(_) => spline_breaks(&self.curve, self.range),
+            Curve2::BSpline(_) | Curve2::Ellipse(_) => spline_breaks(&self.curve, self.range),
         };
         breaks.retain(|parameter| *parameter > self.range.start() && *parameter < self.range.end());
         breaks.sort_by(f64::total_cmp);

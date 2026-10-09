@@ -128,9 +128,11 @@ impl Sketch {
                 second,
                 about,
             } => Subject::Triple(kind, about, ordered(first, second)),
+            Constraint::MajorRadius { ellipse, .. } => Subject::Spacing(self.ends(ellipse)),
             Constraint::Fix { point, .. }
             | Constraint::ArcLength { arc: point, .. }
-            | Constraint::Sweep { arc: point, .. } => Subject::Single(kind, point),
+            | Constraint::Sweep { arc: point, .. }
+            | Constraint::MinorRadius { ellipse: point, .. } => Subject::Single(kind, point),
             Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => {
                 Subject::Size(entity)
             }
@@ -139,7 +141,19 @@ impl Sketch {
 
     fn ends(&self, line: EntityId) -> [EntityId; 2] {
         match self.entity(line) {
-            Some(&Entity::Line { start, end }) => ordered(start, end),
+            Some(
+                &Entity::Line { start, end }
+                | &Entity::Ellipse {
+                    center: start,
+                    major: end,
+                    ..
+                }
+                | &Entity::EllipticalArc {
+                    center: start,
+                    major: end,
+                    ..
+                },
+            ) => ordered(start, end),
             _ => [line, line],
         }
     }

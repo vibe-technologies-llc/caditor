@@ -27,7 +27,7 @@ pub use crate::{
     breaking::{BreakError, Broken},
     clip::{ClipError, SketchClip},
     constraint::{Constraint, DimensionError, MAX_LENGTH},
-    curve::{ArcGeometry, BSpline, Faceting},
+    curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
     entity::Entity,
     fillet::{Bevel, ChamferSize, Corner, FilletError, Rounding},
     fit::FittedSpline,

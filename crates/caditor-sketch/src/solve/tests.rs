@@ -59,7 +59,15 @@ fn assert_finite(solved: &Solved) {
     for (id, entity) in solved.geometry.entities() {
         match entity {
             Entity::Point(position) => assert!(position.is_finite(), "Point {id} is {position}"),
-            Entity::Circle { radius, .. } => assert!(radius.is_finite() && *radius > 0.0),
+            Entity::Circle { radius, .. }
+            | Entity::Ellipse {
+                minor_radius: radius,
+                ..
+            }
+            | Entity::EllipticalArc {
+                minor_radius: radius,
+                ..
+            } => assert!(radius.is_finite() && *radius > 0.0),
             Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => {}
         }
     }

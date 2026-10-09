@@ -22,6 +22,8 @@ pub enum MirrorError {
     NoLength { entity: EntityId, label: String },
     #[error("everything selected lies on {label} or is its own mirror image about it")]
     NothingToMirror { entity: EntityId, label: String },
+    #[error("{label} is an ellipse, which cannot be mirrored yet; leave it out of the selection")]
+    Ellipse { entity: EntityId, label: String },
     #[error(transparent)]
     Edit(SketchError),
 }
@@ -150,6 +152,12 @@ impl Sketch {
         if chosen.is_empty() {
             return Err(MirrorError::NothingSelected);
         }
+        if let Some(ellipse) = chosen.iter().copied().find(|item| self.is_elliptic(*item)) {
+            return Err(MirrorError::Ellipse {
+                entity: ellipse,
+                label: self.entity_label(ellipse),
+            });
+        }
         let scale = chosen
             .iter()
             .filter_map(|item| self.entity(*item))
@@ -218,7 +226,8 @@ impl Sketch {
                 let backward = control_points.iter().rev().map(|point| at(*point));
                 forward.zip(backward).all(|(a, b)| same(a, b))
             }
-            Some(Entity::Point(_)) | None => false,
+            Some(Entity::Point(_) | Entity::Ellipse { .. } | Entity::EllipticalArc { .. })
+            | None => false,
         }
     }
 
@@ -268,7 +277,9 @@ impl Sketch {
                 Entity::Spline { control_points } => Entity::Spline {
                     control_points: control_points.into_iter().map(image_of).collect(),
                 },
-                Entity::Point(_) => continue,
+                Entity::Point(_) | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                    continue;
+                }
             };
             let circle = matches!(image, Entity::Circle { .. });
             let copy = EntityId::from_raw(self.next_id());

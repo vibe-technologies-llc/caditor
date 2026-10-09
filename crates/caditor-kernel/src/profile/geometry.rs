@@ -21,7 +21,7 @@ pub(crate) fn area_under(curve: &Curve2, range: Interval) -> f64 {
                 .point(range.start())
                 .perp_dot(curve.point(range.end()))
         }
-        Curve2::Circle(_) | Curve2::BSpline(_) => {
+        Curve2::Circle(_) | Curve2::BSpline(_) | Curve2::Ellipse(_) => {
             let breaks = refined_seeds(curve, range, AREA_REFINEMENT);
             integrate(&breaks, |parameter| {
                 let derivatives = curve.evaluate(parameter);

@@ -426,7 +426,9 @@ fn sketch_shapes(
                 Entity::Line { .. }
                 | Entity::Circle { .. }
                 | Entity::Arc { .. }
-                | Entity::Spline { .. } => Outline::Curve(
+                | Entity::Spline { .. }
+                | Entity::Ellipse { .. }
+                | Entity::EllipticalArc { .. } => Outline::Curve(
                     curve_segments(
                         plane,
                         &sketch.faceted(entity, faceting)?,

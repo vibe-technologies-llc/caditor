@@ -33,6 +33,39 @@ pub const FINISH_LABEL: &str = "Finish sketch";
 pub const ARC_LABEL: &str = "Arc";
 pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
+pub const CURVE_LABEL: &str = "Curve";
+pub const CURVE_WAYS_LABEL: &str = "Ways to draw a curve";
+pub const CURVE_TOOLS: [Tool; 3] = [Tool::Spline, Tool::Ellipse, Tool::EllipticalArc];
+const ARC_GROUP: ToolGroup = ToolGroup {
+    tools: &ARC_TOOLS,
+    label: ARC_LABEL,
+    ways: ARC_WAYS_LABEL,
+    id: "sketch-bar-arc",
+};
+const CURVE_GROUP: ToolGroup = ToolGroup {
+    tools: &CURVE_TOOLS,
+    label: CURVE_LABEL,
+    ways: CURVE_WAYS_LABEL,
+    id: "sketch-bar-curve",
+};
+const TOOL_GROUPS: [ToolGroup; 2] = [ARC_GROUP, CURVE_GROUP];
+
+struct ToolGroup {
+    tools: &'static [Tool],
+    label: &'static str,
+    ways: &'static str,
+    id: &'static str,
+}
+
+impl ToolGroup {
+    fn of(tool: Tool) -> Option<&'static ToolGroup> {
+        TOOL_GROUPS.iter().find(|group| group.tools.contains(&tool))
+    }
+
+    fn leads_with(&self, tool: Tool) -> bool {
+        self.tools.first() == Some(&tool)
+    }
+}
 pub const OFF_RIBBON: [Tool; 6] = [
     Tool::Chamfer,
     Tool::Intersect,
@@ -629,10 +662,12 @@ impl Bar<'_, '_> {
         ui.horizontal_wrapped(|ui| {
             Tool::ALL
                 .into_iter()
-                .filter(|tool| tool.draws() && (*tool == Tool::Arc || !ARC_TOOLS.contains(tool)))
+                .filter(|tool| {
+                    tool.draws() && ToolGroup::of(*tool).is_none_or(|group| group.leads_with(*tool))
+                })
                 .map(|tool| {
-                    if tool == Tool::Arc {
-                        return self.arc_button(ui);
+                    if let Some(group) = ToolGroup::of(tool) {
+                        return self.group_button(ui, group);
                     }
                     let button = self.tool_button(ui, tool, tool.label()).rect;
                     if let Some(mode) = self.modes.of(tool) {
@@ -646,29 +681,30 @@ impl Bar<'_, '_> {
         .inner
     }
 
-    fn arc_button(&mut self, ui: &mut Ui) -> f32 {
-        let remembered = Id::new("sketch-bar-arc");
-        let current = if ARC_TOOLS.contains(&self.active.tool) {
+    fn group_button(&mut self, ui: &mut Ui, group: &ToolGroup) -> f32 {
+        let remembered = Id::new(group.id);
+        let first = group.tools.first().copied().unwrap_or(Tool::Arc);
+        let current = if group.tools.contains(&self.active.tool) {
             ui.data_mut(|data| data.insert_temp(remembered, self.active.tool));
             self.active.tool
         } else {
             ui.data(|data| data.get_temp::<Tool>(remembered))
-                .unwrap_or(Tool::Arc)
+                .unwrap_or(first)
         };
-        for tool in ARC_TOOLS {
+        for tool in group.tools.iter().copied() {
             if tool != current && self.commands.available(Command::SketchTool(tool)) {
                 self.request.tool = Some(tool);
             }
         }
-        let button = self.tool_button(ui, current, ARC_LABEL).rect;
-        let id = Id::new("sketch-bar-arc-ways");
-        let selected = ARC_TOOLS.contains(&self.active.tool);
-        let response = widgets::corner_menu_button(ui, id, button, ARC_WAYS_LABEL, selected);
+        let button = self.tool_button(ui, current, group.label).rect;
+        let id = Id::new(group.id).with("ways");
+        let selected = group.tools.contains(&self.active.tool);
+        let response = widgets::corner_menu_button(ui, id, button, group.ways, selected);
         let commands = &*self.commands;
         let shown = Popup::menu(&response).show(|ui| {
             widgets::fitted_menu(ui, |ui| {
                 let mut chosen = None;
-                for tool in ARC_TOOLS {
+                for tool in group.tools.iter().copied() {
                     let keys = commands.keys(Command::SketchTool(tool));
                     let glyph = icons::tool(tool);
                     if widgets::menu_choice(ui, glyph, tool.label(), keys, tool == current)

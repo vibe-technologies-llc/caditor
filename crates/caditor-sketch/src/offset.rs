@@ -25,7 +25,7 @@ pub enum OffsetError {
     #[error("select the lines, arcs or circles to offset")]
     NothingSelected,
     #[error("{label} cannot be offset; only lines, arcs and circles can")]
-    Spline { entity: EntityId, label: String },
+    NotOffsettable { entity: EntityId, label: String },
     #[error("{label} has no length to offset")]
     NoLength { entity: EntityId, label: String },
     #[error("three or more of the selected curves meet at one point; offset one chain at a time")]
@@ -921,8 +921,8 @@ impl Sketch {
                 let (at, radius) = self.circle(curve).ok_or_else(no_length)?;
                 (center, Some(center), Course::Circle { center: at, radius })
             }
-            Entity::Spline { .. } => {
-                return Err(OffsetError::Spline {
+            Entity::Spline { .. } | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                return Err(OffsetError::NotOffsettable {
                     entity: curve,
                     label: label(),
                 });

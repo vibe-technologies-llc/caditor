@@ -76,6 +76,14 @@ pub enum Constraint {
         arc: EntityId,
         value: Expression,
     },
+    MajorRadius {
+        ellipse: EntityId,
+        value: Expression,
+    },
+    MinorRadius {
+        ellipse: EntityId,
+        value: Expression,
+    },
 }
 
 impl Constraint {
@@ -107,6 +115,8 @@ impl Constraint {
             Self::Diameter { .. } => "Diameter",
             Self::ArcLength { .. } => "Arc length",
             Self::Sweep { .. } => "Sweep",
+            Self::MajorRadius { .. } => "Major radius",
+            Self::MinorRadius { .. } => "Minor radius",
         }
     }
 
@@ -118,7 +128,13 @@ impl Constraint {
             | Self::Radius { entity, .. }
             | Self::Diameter { entity, .. }
             | Self::ArcLength { arc: entity, .. }
-            | Self::Sweep { arc: entity, .. } => vec![entity],
+            | Self::Sweep { arc: entity, .. }
+            | Self::MajorRadius {
+                ellipse: entity, ..
+            }
+            | Self::MinorRadius {
+                ellipse: entity, ..
+            } => vec![entity],
             Self::Coincident(a, b)
             | Self::HorizontalPoints(a, b)
             | Self::VerticalPoints(a, b)
@@ -155,7 +171,9 @@ impl Constraint {
             | Self::Radius { value, .. }
             | Self::Diameter { value, .. }
             | Self::ArcLength { value, .. }
-            | Self::Sweep { value, .. } => Some(value),
+            | Self::Sweep { value, .. }
+            | Self::MajorRadius { value, .. }
+            | Self::MinorRadius { value, .. } => Some(value),
             Self::Coincident(..)
             | Self::Horizontal(_)
             | Self::Vertical(_)
@@ -192,7 +210,11 @@ impl Constraint {
             {
                 Err(DimensionError::Negative)
             }
-            Self::Radius { .. } if value <= 0.0 => Err(DimensionError::NotPositive),
+            Self::Radius { .. } | Self::MajorRadius { .. } | Self::MinorRadius { .. }
+                if value <= 0.0 =>
+            {
+                Err(DimensionError::NotPositive)
+            }
             Self::Diameter { .. } if value <= 0.0 => Err(DimensionError::DiameterNotPositive),
             Self::AxisDiameter { .. } if value < 0.0 => Err(DimensionError::Negative),
             Self::ArcLength { .. } if value <= 0.0 => Err(DimensionError::ArcLengthNotPositive),
@@ -215,7 +237,9 @@ impl Constraint {
             | Self::Radius { value, .. }
             | Self::Diameter { value, .. }
             | Self::ArcLength { value, .. }
-            | Self::Sweep { value, .. } => Some(value),
+            | Self::Sweep { value, .. }
+            | Self::MajorRadius { value, .. }
+            | Self::MinorRadius { value, .. } => Some(value),
             Self::Coincident(..)
             | Self::Horizontal(_)
             | Self::Vertical(_)
@@ -251,7 +275,13 @@ impl Constraint {
             | Self::Radius { entity, .. }
             | Self::Diameter { entity, .. }
             | Self::ArcLength { arc: entity, .. }
-            | Self::Sweep { arc: entity, .. } => *entity = swap(*entity),
+            | Self::Sweep { arc: entity, .. }
+            | Self::MajorRadius {
+                ellipse: entity, ..
+            }
+            | Self::MinorRadius {
+                ellipse: entity, ..
+            } => *entity = swap(*entity),
             Self::Coincident(a, b)
             | Self::HorizontalPoints(a, b)
             | Self::VerticalPoints(a, b)

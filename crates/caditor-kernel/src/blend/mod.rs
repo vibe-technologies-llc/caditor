@@ -840,6 +840,11 @@ fn innermost(curves: &[ProfileCurve]) -> f64 {
                 .iter()
                 .map(|point| point.x)
                 .fold(f64::INFINITY, f64::min),
+            ProfileShape::Ellipse { .. } | ProfileShape::EllipticalArc { .. } => {
+                curve.curve().map_or(f64::INFINITY, |(shape, range)| {
+                    shape.bounding_box(range).min().x
+                })
+            }
         })
         .fold(f64::INFINITY, f64::min)
 }

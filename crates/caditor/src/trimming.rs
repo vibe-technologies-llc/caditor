@@ -152,7 +152,10 @@ impl Trimming {
         let offered = sketch.entities().any(|(_, entity)| match entity {
             Entity::Line { .. } | Entity::Arc { .. } => true,
             Entity::Circle { .. } => tool == Tool::Trim,
-            Entity::Point(_) | Entity::Spline { .. } => false,
+            Entity::Point(_)
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => false,
         });
         match (offered, tool) {
             (true, _) => Ok(()),

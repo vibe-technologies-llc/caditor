@@ -51,6 +51,7 @@ enum Shape {
     Line,
     Circular,
     Spline,
+    Elliptic,
 }
 
 type Item = (EntityId, Shape);
@@ -86,11 +87,17 @@ impl ConstraintTool {
         match self {
             Self::Coincident => "Join two points, or put a point on a curve",
             Self::Midpoint => "Put a point at the middle of a line or arc",
-            Self::Concentric => "Give circles and arcs one centre, or put a point at their centre",
+            Self::Concentric => {
+                "Give circles, arcs and ellipses one centre, or put a point at their centre"
+            }
             Self::Collinear => "Put lines on one straight line",
             Self::Fix => "Lock points where they are; a curve is locked by its points",
-            Self::Horizontal => "Make lines horizontal, or line points up horizontally",
-            Self::Vertical => "Make lines vertical, or line points up vertically",
+            Self::Horizontal => {
+                "Make lines or an ellipse's major axis horizontal, or line points up horizontally"
+            }
+            Self::Vertical => {
+                "Make lines or an ellipse's major axis vertical, or line points up vertically"
+            }
             Self::Parallel => "Make lines parallel",
             Self::Perpendicular => {
                 "Make two lines meet at a right angle, or a line cross a circle or arc square, \
@@ -119,7 +126,7 @@ impl ConstraintTool {
                 "Fix the angle between two lines or a line and an arc at their shared end, or \
                  how far an arc sweeps"
             }
-            Self::Radius => "Fix the radius of circles and arcs",
+            Self::Radius => "Fix the radius of circles and arcs, or both radii of an ellipse",
             Self::Diameter => {
                 "Fix the diameter of circles and arcs, or of a point turned about a line, twice \
                  its distance from it, as a lathe drawing shows a revolved profile"
@@ -134,11 +141,13 @@ impl ConstraintTool {
             }
             Self::Midpoint => "Select a point and a line or arc",
             Self::Concentric => {
-                "Select two or more circles or arcs, or a point and a circle or arc"
+                "Select two or more circles, arcs or ellipses, or a point and one of them"
             }
             Self::Collinear | Self::Parallel => "Select two or more lines",
             Self::Fix => "Select the points or curves to lock",
-            Self::Horizontal | Self::Vertical => "Select one or more lines, or two or more points",
+            Self::Horizontal | Self::Vertical => {
+                "Select one or more lines or ellipses, or two or more points"
+            }
             Self::Perpendicular => {
                 "Select two or more lines, the others turning square to the first, or a line and \
                  a circle or arc"
@@ -158,7 +167,7 @@ impl ConstraintTool {
                  point, line or circle"
             }
             Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
-            Self::Radius => "Select one or more circles or arcs",
+            Self::Radius => "Select one or more circles, arcs or ellipses",
             Self::Diameter => {
                 "Select one or more circles or arcs, or a point and the line it turns about"
             }
@@ -215,7 +224,7 @@ impl ConstraintTool {
         shown: &Sketch,
         items: &[Item],
     ) -> Option<Vec<Constraint>> {
-        use Shape::{Circular, Line, Point};
+        use Shape::{Circular, Elliptic, Line, Point};
         match (self, items) {
             (Self::Coincident, _) => chained(items, Point, Constraint::Coincident)
                 .or_else(|| onto_one_curve(items, Constraint::Coincident)),
@@ -226,9 +235,10 @@ impl ConstraintTool {
             ) => Some(vec![Constraint::Midpoint { point, curve }]),
             (
                 Self::Concentric,
-                &[(point, Point), (curve, Circular)] | &[(curve, Circular), (point, Point)],
+                &[(point, Point), (curve, Circular | Elliptic)]
+                | &[(curve, Circular | Elliptic), (point, Point)],
             ) => Some(vec![Constraint::Concentric(point, curve)]),
-            (Self::Concentric, _) => chained(items, Circular, Constraint::Concentric),
+            (Self::Concentric, _) => centred(items),
             (Self::Collinear, _) => chained(items, Line, Constraint::Collinear),
             (Self::Fix, _) => fixed(definition, shown, items),
             (Self::Horizontal, &[(_, Point), ..]) => {
@@ -237,8 +247,8 @@ impl ConstraintTool {
             (Self::Vertical, &[(_, Point), ..]) => {
                 chained(items, Point, Constraint::VerticalPoints)
             }
-            (Self::Horizontal, _) => each(items, Line, Constraint::Horizontal),
-            (Self::Vertical, _) => each(items, Line, Constraint::Vertical),
+            (Self::Horizontal, _) => each(items, Constraint::Horizontal),
+            (Self::Vertical, _) => each(items, Constraint::Vertical),
             (Self::Parallel, _) => chained(items, Line, Constraint::Parallel),
             (
                 Self::Perpendicular,
@@ -324,10 +334,7 @@ impl ConstraintTool {
                     value: Expression::Measure(rounded_for_display(sweep), Unit::Degree),
                 }])
             }
-            (Self::Radius, _) => each_measured(shown, items, |entity, value| Constraint::Radius {
-                entity,
-                value,
-            }),
+            (Self::Radius, _) => radii(shown, items),
             (Self::Diameter, &[(point, Point), (axis, Line)] | &[(axis, Line), (point, Point)]) => {
                 Some(vec![measured(shown, |value| Constraint::AxisDiameter {
                     point,
@@ -392,19 +399,57 @@ fn shape_of(sketch: &Sketch, id: EntityId) -> Option<Shape> {
         Entity::Line { .. } => Shape::Line,
         Entity::Circle { .. } | Entity::Arc { .. } => Shape::Circular,
         Entity::Spline { .. } => Shape::Spline,
+        Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => Shape::Elliptic,
     })
 }
 
-fn each(
-    items: &[Item],
-    needed: Shape,
-    make: fn(EntityId) -> Constraint,
-) -> Option<Vec<Constraint>> {
+fn each(items: &[Item], make: fn(EntityId) -> Constraint) -> Option<Vec<Constraint>> {
     items
         .iter()
-        .map(|(entity, shape)| (*shape == needed).then(|| make(*entity)))
+        .map(|(entity, shape)| {
+            matches!(shape, Shape::Line | Shape::Elliptic).then(|| make(*entity))
+        })
         .collect::<Option<Vec<_>>>()
         .filter(|constraints| !constraints.is_empty())
+}
+
+fn centred(items: &[Item]) -> Option<Vec<Constraint>> {
+    let ((first, _), rest) = items.split_first()?;
+    let round = items
+        .iter()
+        .all(|(_, shape)| matches!(shape, Shape::Circular | Shape::Elliptic));
+    (round && !rest.is_empty()).then(|| {
+        rest.iter()
+            .map(|(other, _)| Constraint::Concentric(*first, *other))
+            .collect()
+    })
+}
+
+fn radii(shown: &Sketch, items: &[Item]) -> Option<Vec<Constraint>> {
+    let mut constraints = Vec::new();
+    for (entity, shape) in items {
+        let entity = *entity;
+        match shape {
+            Shape::Circular => {
+                constraints.push(measured(shown, |value| Constraint::Radius {
+                    entity,
+                    value,
+                })?);
+            }
+            Shape::Elliptic => {
+                constraints.push(measured(shown, |value| Constraint::MajorRadius {
+                    ellipse: entity,
+                    value,
+                })?);
+                constraints.push(measured(shown, |value| Constraint::MinorRadius {
+                    ellipse: entity,
+                    value,
+                })?);
+            }
+            Shape::Point | Shape::Line | Shape::Spline => return None,
+        }
+    }
+    (!constraints.is_empty()).then_some(constraints)
 }
 
 fn onto_one_curve(
@@ -502,7 +547,9 @@ fn fixed(definition: &Sketch, shown: &Sketch, items: &[Item]) -> Option<Vec<Cons
     for (entity, shape) in items {
         let owned = match shape {
             Shape::Point => vec![*entity],
-            Shape::Line | Shape::Circular | Shape::Spline => definition.entity(*entity)?.points(),
+            Shape::Line | Shape::Circular | Shape::Spline | Shape::Elliptic => {
+                definition.entity(*entity)?.points()
+            }
         };
         for point in owned {
             if seen.insert(point) {
@@ -536,7 +583,7 @@ impl Mirror {
                 let (origin, direction) = line_through(shown, entity)?;
                 Some(Self::Line(origin, direction.try_normalize()?))
             }
-            Shape::Circular | Shape::Spline => None,
+            Shape::Circular | Shape::Spline | Shape::Elliptic => None,
         }
     }
 
@@ -841,6 +888,14 @@ pub fn in_unit(constraints: Vec<Constraint>, unit: impl Into<Units>) -> Vec<Cons
             },
             Constraint::ArcLength { arc, value } => Constraint::ArcLength {
                 arc,
+                value: converted(value),
+            },
+            Constraint::MajorRadius { ellipse, value } => Constraint::MajorRadius {
+                ellipse,
+                value: converted(value),
+            },
+            Constraint::MinorRadius { ellipse, value } => Constraint::MinorRadius {
+                ellipse,
                 value: converted(value),
             },
             Constraint::Sweep { arc, value } => Constraint::Sweep {
@@ -1164,6 +1219,28 @@ fn scaled_to_first_dimension(
                 center: *center,
                 radius: radius * factor,
             },
+            Entity::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => Entity::Ellipse {
+                center: *center,
+                major: *major,
+                minor_radius: minor_radius * factor,
+            },
+            Entity::EllipticalArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+            } => Entity::EllipticalArc {
+                center: *center,
+                major: *major,
+                minor_radius: minor_radius * factor,
+                start: *start,
+                end: *end,
+            },
             Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => continue,
         };
         scaled.replace_entity(id, resized).ok()?;
@@ -1257,11 +1334,11 @@ mod tests {
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Vertical, &[f.slanted, f.lone]),
-            Err("Select one or more lines, or two or more points".to_owned())
+            Err("Select one or more lines or ellipses, or two or more points".to_owned())
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Horizontal, &[]),
-            Err("Select one or more lines, or two or more points".to_owned())
+            Err("Select one or more lines or ellipses, or two or more points".to_owned())
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Horizontal, &[EntityId::HORIZONTAL_AXIS]),
@@ -1864,7 +1941,7 @@ mod tests {
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Radius, &[f.slanted]),
-            Err("Select one or more circles or arcs".to_owned())
+            Err("Select one or more circles, arcs or ellipses".to_owned())
         );
     }
 

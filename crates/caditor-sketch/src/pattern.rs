@@ -46,6 +46,8 @@ pub enum PatternError {
     SpreadOutsideTurn,
     #[error("the pattern reaches further than {} m from the origin", MAX_LENGTH / 1_000.0)]
     OutOfReach,
+    #[error("{label} is an ellipse, which cannot be patterned yet; leave it out of the selection")]
+    Ellipse { entity: EntityId, label: String },
     #[error(transparent)]
     Edit(SketchError),
 }
@@ -330,9 +332,19 @@ impl Sketch {
         if chosen.is_empty() {
             return Err(PatternError::NothingSelected);
         }
-        let (lone, curves) = chosen
+        let (lone, curves): (Vec<EntityId>, Vec<EntityId>) = chosen
             .into_iter()
             .partition(|item| matches!(self.entity(*item), Some(Entity::Point(_))));
+        if let Some(ellipse) = curves
+            .iter()
+            .copied()
+            .find(|curve| self.is_elliptic(*curve))
+        {
+            return Err(PatternError::Ellipse {
+                entity: ellipse,
+                label: self.entity_label(ellipse),
+            });
+        }
         Ok(Chosen { curves, lone })
     }
 
@@ -385,7 +397,9 @@ impl Sketch {
                     Entity::Spline { control_points } => Entity::Spline {
                         control_points: control_points.into_iter().map(image_of).collect(),
                     },
-                    Entity::Point(_) => continue,
+                    Entity::Point(_) | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                        continue;
+                    }
                 };
                 let round = matches!(image, Entity::Circle { .. });
                 let copy = EntityId::from_raw(self.next_id());

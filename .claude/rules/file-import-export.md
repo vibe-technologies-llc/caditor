@@ -47,7 +47,10 @@ paths:
   not double its outline.
 - Everything becomes a 3D shape in its object coordinate system (arbitrary axis algorithm), is
   transformed, then flattened onto XY: conics projecting to circles become circles and arcs; other
-  conics and non-uniform splines are fitted within a millionth of the drawing's size.
+  conics become exact `DrawingCurve::Ellipse`s (`flatten::planar_ellipse`: the principal axes of
+  the projected conjugate diameters, the longer as the major axis, a partial one by its end points
+  ordered counter-clockwise), which `drawing_transaction` makes sketch ellipses and elliptical
+  arcs; non-uniform splines are fitted within a millionth of the drawing's size.
 - `drawing_transaction` makes one transaction on an existing or new sketch, dropping curves shorter
   than the joint tolerance and joining ends within it with `Coincident` constraints.
 
@@ -83,8 +86,8 @@ paths:
   Béziers become exact sketch splines (three or four control points, clamped with no inner knots,
   as `BSpline::clamped` makes them) and a Bézier whose controls lie on its chord a line; elliptical
   arcs follow the SVG centre conversion (radii too small scaled up, a zero radius a line) and
-  become a conic, which `flatten` makes an arc when circular after the transforms and otherwise a
-  spline within the drawing's fit tolerance with the ellipse note. `rect` (rounded with
+  become a conic, which `flatten` makes an arc when circular after the transforms and otherwise an
+  exact ellipse or elliptical arc. `rect` (rounded with
   auto `rx`/`ry` clamped to half the sides), `circle`, `ellipse`, `line`, `polyline` and `polygon`
   are read; zero-sized shapes draw nothing.
 - `transform` lists (`matrix`, `translate`, `scale`, `rotate` about a point, `skewX`, `skewY`)
@@ -236,7 +239,8 @@ paths:
   the one-source, default-sheet ones. Written atomically, cancellation checked between sources,
   while nesting and before writing.
 - A sketch writes its solved curves in its own 2D coordinates on layer 0, and a `POINT` for a point
-  no curve uses. Construction curves (`DrawingSheet::construction`) are counted and left out
+  no curve uses; an ellipse or elliptical arc is an `ELLIPSE` (`figure::drawn_ellipse`, the longer
+  radius as its major axis since DXF wants a ratio at most 1). Construction curves (`DrawingSheet::construction`) are counted and left out
   (`Construction::LeftOut`), or with `Construction::OnLayer` written on layer `Construction` in a
   dashed linetype and counted in `SketchExported::construction`; sketches with nothing to write
   are `ExportError::NoCurves`. The DXF reads back through `parse_dxf` as the same curves, the

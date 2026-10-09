@@ -243,6 +243,21 @@ impl DrawingCurve {
                     *point = change(*point);
                 }
             }
+            Self::Ellipse {
+                center,
+                major,
+                minor_radius,
+                ends,
+            } => {
+                let scale = (change(*center + Point2::X) - change(*center)).length();
+                *major = change(*center + *major) - change(*center);
+                *minor_radius *= scale;
+                *center = change(*center);
+                if let Some((start, end)) = ends {
+                    *start = change(*start);
+                    *end = change(*end);
+                }
+            }
         }
     }
 }

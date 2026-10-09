@@ -44,7 +44,7 @@ pub use crate::{
         BSplineCurve, Circle, Curve, CurveDerivatives, CurveSample, Ellipse, IntersectionCurve,
         IntersectionNode, Line,
     },
-    curve2::{BSplineCurve2, Circle2, Curve2, Curve2Derivatives, Curve2Sample, Line2},
+    curve2::{BSplineCurve2, Circle2, Curve2, Curve2Derivatives, Curve2Sample, Ellipse2, Line2},
     error::GeometryError,
     faceted::{
         FacetedError, FacetedSolids, MAX_FACETED_FACES, MAX_FILLED_HOLE_EDGES, MeshRepairs,

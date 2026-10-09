@@ -105,6 +105,16 @@ fn extreme_points(piece: &Piece, slope: Vector2) -> Vec<Point2> {
             }
         }
         Curve2::BSpline(spline) => points.extend_from_slice(spline.control_points_over(range)),
+        Curve2::Ellipse(ellipse) => {
+            if let Some(peak) = ellipse.extreme_along(slope) {
+                for angle in [peak, peak + PI] {
+                    let unwrapped = range.start() + (angle - range.start()).rem_euclid(TAU);
+                    if unwrapped <= range.end() {
+                        points.push(curve.point(unwrapped));
+                    }
+                }
+            }
+        }
     }
     points
 }
@@ -178,10 +188,25 @@ impl Cap {
                     Interval::new(0.0, from.distance(to)).ok_or(SweepError::Unassembled)?;
                 (Line::through(from, to)?.into(), length)
             }
-            Curve2::Circle(circle) => {
-                let center = at(circle.center());
-                let first = at(circle.center() + circle.x_axis() * circle.radius()) - center;
-                let second = at(circle.center() + circle.y_axis() * circle.radius()) - center;
+            Curve2::Circle(_) | Curve2::Ellipse(_) => {
+                let (middle, along_x, along_y) = match piece.curve() {
+                    Curve2::Ellipse(ellipse) => (
+                        ellipse.center(),
+                        ellipse.x_axis() * ellipse.major_radius(),
+                        ellipse.y_axis() * ellipse.minor_radius(),
+                    ),
+                    Curve2::Circle(circle) => (
+                        circle.center(),
+                        circle.x_axis() * circle.radius(),
+                        circle.y_axis() * circle.radius(),
+                    ),
+                    Curve2::Line(_) | Curve2::BSpline(_) => {
+                        return Err(SweepError::Unassembled);
+                    }
+                };
+                let center = at(middle);
+                let first = at(middle + along_x) - center;
+                let second = at(middle + along_y) - center;
                 let turn = 0.5
                     * (2.0 * first.dot(second))
                         .atan2(first.length_squared() - second.length_squared());
@@ -430,7 +455,13 @@ fn extrude_loop(
                     PlanCoedge::given(
                         bottom_edge,
                         travel,
-                        cap_pcurve(piece, &walls.low.level, walls.base_height, travel)?,
+                        cap_pcurve(
+                            piece,
+                            &walls.low.level,
+                            walls.base_height,
+                            travel,
+                            bottom_range.start() - range.start(),
+                        )?,
                     ),
                     PlanCoedge::given(
                         top_edge,
@@ -440,6 +471,7 @@ fn extrude_loop(
                             &walls.high.level,
                             walls.base_height,
                             travel.reversed(),
+                            top_range.start() - range.start(),
                         )?,
                     ),
                 )
@@ -490,10 +522,11 @@ fn cap_pcurve(
     level: &Level,
     base_height: f64,
     sense: Sense,
+    shift: f64,
 ) -> Result<Pcurve, SweepError> {
     let curve = piece.curve();
     let sample = |parameter: f64| PcurveSample {
-        parameter,
+        parameter: parameter + shift,
         uv: Point2::new(parameter, level.at(curve.point(parameter)) - base_height),
     };
     let tolerance = SamplingTolerance::new(PCURVE_TOLERANCE, PCURVE_SAMPLING_ANGLE)
@@ -512,7 +545,7 @@ fn cap_pcurve(
         let mut last = *from;
         samples.push(last);
         while let Some((next, depth)) = pending.pop() {
-            let middle = sample(0.5 * (last.parameter + next.parameter));
+            let middle = sample(0.5 * (last.uv.x + next.uv.x));
             let straight = 0.5 * (last.uv.y + next.uv.y);
             if depth < MAX_PCURVE_BISECTIONS
                 && (middle.uv.y - straight).abs() > 0.25 * PCURVE_TOLERANCE
@@ -552,7 +585,7 @@ fn side_surface(bottom: &Plane, piece: &Piece) -> Result<(Surface, bool), SweepE
             .ok_or(SweepError::Geometry(GeometryError::ZeroDirection))?;
             (Cylinder::new(frame, circle.radius())?.into(), false)
         }
-        Curve2::BSpline(_) => (
+        Curve2::BSpline(_) | Curve2::Ellipse(_) => (
             Extrusion::new(piece.curve().on_plane(bottom)?, normal)?.into(),
             true,
         ),

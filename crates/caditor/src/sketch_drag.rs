@@ -372,7 +372,17 @@ impl Transforming {
         let circles: Vec<(EntityId, f64)> = moved
             .iter()
             .filter_map(|entity| match sketch.entity(*entity) {
-                Some(Entity::Circle { radius, .. }) => Some((*entity, *radius)),
+                Some(
+                    Entity::Circle { radius, .. }
+                    | Entity::Ellipse {
+                        minor_radius: radius,
+                        ..
+                    }
+                    | Entity::EllipticalArc {
+                        minor_radius: radius,
+                        ..
+                    },
+                ) => Some((*entity, *radius)),
                 _ => None,
             })
             .collect();
@@ -450,7 +460,11 @@ fn extent_centre(
 ) -> Point2 {
     let rims = circles.iter().filter_map(|(circle, radius)| {
         let centre = match sketch.entity(*circle) {
-            Some(Entity::Circle { center, .. }) => sketch.point(*center)?,
+            Some(
+                Entity::Circle { center, .. }
+                | Entity::Ellipse { center, .. }
+                | Entity::EllipticalArc { center, .. },
+            ) => sketch.point(*center)?,
             _ => return None,
         };
         Some([

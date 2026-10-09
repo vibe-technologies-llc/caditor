@@ -1225,15 +1225,47 @@ pub(crate) struct EntityRecord {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum EntityKindRecord {
     Point([f64; 2]),
-    Line { start: u64, end: u64 },
-    Circle { center: u64, radius: f64 },
-    Arc { center: u64, start: u64, end: u64 },
-    Spline { control_points: Vec<u64> },
+    Line {
+        start: u64,
+        end: u64,
+    },
+    Circle {
+        center: u64,
+        radius: f64,
+    },
+    Arc {
+        center: u64,
+        start: u64,
+        end: u64,
+    },
+    Spline {
+        control_points: Vec<u64>,
+    },
+    Ellipse {
+        center: u64,
+        major: u64,
+        minor_radius: f64,
+    },
+    EllipticalArc {
+        center: u64,
+        major: u64,
+        minor_radius: f64,
+        start: u64,
+        end: u64,
+    },
 }
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 
-const ENTITY_KINDS: [&str; 5] = ["point", "line", "circle", "arc", "spline"];
+const ENTITY_KINDS: [&str; 7] = [
+    "point",
+    "line",
+    "circle",
+    "arc",
+    "spline",
+    "ellipse",
+    "elliptical_arc",
+];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ConstraintRecord {
@@ -1314,9 +1346,17 @@ pub(crate) enum ConstraintKindRecord {
         value: String,
     },
     Curvature([u64; 2]),
+    MajorRadius {
+        ellipse: u64,
+        value: String,
+    },
+    MinorRadius {
+        ellipse: u64,
+        value: String,
+    },
 }
 
-const CONSTRAINT_KINDS: [&str; 23] = [
+const CONSTRAINT_KINDS: [&str; 25] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -1340,6 +1380,8 @@ const CONSTRAINT_KINDS: [&str; 23] = [
     "arc_length",
     "sweep",
     "curvature",
+    "major_radius",
+    "minor_radius",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -1556,6 +1598,8 @@ impl Unreadable<'_> {
     }
 }
 
+const RECORD_FLAGS: [&str; 5] = ["id", "name", "construction", "inactive", "label"];
+
 pub(crate) fn unknown_kind<'a>(value: &'a Value, known: &[&str]) -> Option<&'a str> {
     let Value::Object(fields) = value else {
         return None;
@@ -1563,7 +1607,7 @@ pub(crate) fn unknown_kind<'a>(value: &'a Value, known: &[&str]) -> Option<&'a s
     fields
         .keys()
         .map(String::as_str)
-        .find(|key| *key != "id" && *key != "name" && !known.contains(key))
+        .find(|key| !RECORD_FLAGS.contains(key) && !known.contains(key))
 }
 
 pub(crate) fn parameter_record(parameter: &Parameter) -> ParameterRecord {
@@ -3195,6 +3239,28 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
         Entity::Spline { control_points } => EntityKindRecord::Spline {
             control_points: control_points.iter().map(|point| point.raw()).collect(),
         },
+        Entity::Ellipse {
+            center,
+            major,
+            minor_radius,
+        } => EntityKindRecord::Ellipse {
+            center: center.raw(),
+            major: major.raw(),
+            minor_radius: *minor_radius,
+        },
+        Entity::EllipticalArc {
+            center,
+            major,
+            minor_radius,
+            start,
+            end,
+        } => EntityKindRecord::EllipticalArc {
+            center: center.raw(),
+            major: major.raw(),
+            minor_radius: *minor_radius,
+            start: start.raw(),
+            end: end.raw(),
+        },
     }
 }
 
@@ -3283,6 +3349,14 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
             value: value.to_stored_text(),
         },
         Constraint::Curvature(a, b) => ConstraintKindRecord::Curvature(pair(a, b)),
+        Constraint::MajorRadius { ellipse, value } => ConstraintKindRecord::MajorRadius {
+            ellipse: ellipse.raw(),
+            value: value.to_stored_text(),
+        },
+        Constraint::MinorRadius { ellipse, value } => ConstraintKindRecord::MinorRadius {
+            ellipse: ellipse.raw(),
+            value: value.to_stored_text(),
+        },
     }
 }
 
@@ -5832,6 +5906,28 @@ fn restore_entity(record: &EntityKindRecord) -> Entity {
         EntityKindRecord::Spline { control_points } => Entity::Spline {
             control_points: control_points.iter().copied().map(entity).collect(),
         },
+        EntityKindRecord::Ellipse {
+            center,
+            major,
+            minor_radius,
+        } => Entity::Ellipse {
+            center: entity(*center),
+            major: entity(*major),
+            minor_radius: *minor_radius,
+        },
+        EntityKindRecord::EllipticalArc {
+            center,
+            major,
+            minor_radius,
+            start,
+            end,
+        } => Entity::EllipticalArc {
+            center: entity(*center),
+            major: entity(*major),
+            minor_radius: *minor_radius,
+            start: entity(*start),
+            end: entity(*end),
+        },
     }
 }
 
@@ -6074,6 +6170,22 @@ fn constraint_from_record(
             let (a, b) = pair(*ids);
             Constraint::Curvature(a, b)
         }
+        ConstraintKindRecord::MajorRadius {
+            ellipse,
+            value: text,
+        } => {
+            let ellipse = entity(*ellipse);
+            let value = value(text, DrawnValue::MajorRadius(ellipse))?;
+            Constraint::MajorRadius { ellipse, value }
+        }
+        ConstraintKindRecord::MinorRadius {
+            ellipse,
+            value: text,
+        } => {
+            let ellipse = entity(*ellipse);
+            let value = value(text, DrawnValue::MinorRadius(ellipse))?;
+            Constraint::MinorRadius { ellipse, value }
+        }
     })
 }
 
@@ -6131,6 +6243,8 @@ enum DrawnValue {
     Diameter(EntityId),
     ArcLength(EntityId),
     Sweep(EntityId),
+    MajorRadius(EntityId),
+    MinorRadius(EntityId),
 }
 
 impl DrawnValue {
@@ -6144,6 +6258,8 @@ impl DrawnValue {
             Self::Diameter(_) => "a diameter",
             Self::ArcLength(_) => "an arc length",
             Self::Sweep(_) => "a sweep",
+            Self::MajorRadius(_) => "a major radius",
+            Self::MinorRadius(_) => "a minor radius",
         }
     }
 
@@ -6157,6 +6273,8 @@ impl DrawnValue {
             Self::Diameter(_) => "drawn diameter",
             Self::ArcLength(_) => "drawn arc length",
             Self::Sweep(_) => "drawn sweep",
+            Self::MajorRadius(_) => "drawn major radius",
+            Self::MinorRadius(_) => "drawn minor radius",
         }
     }
 
@@ -6178,11 +6296,19 @@ impl DrawnValue {
             Self::Diameter(entity) => Constraint::Diameter { entity, value },
             Self::ArcLength(arc) => Constraint::ArcLength { arc, value },
             Self::Sweep(arc) => Constraint::Sweep { arc, value },
+            Self::MajorRadius(ellipse) => Constraint::MajorRadius { ellipse, value },
+            Self::MinorRadius(ellipse) => Constraint::MinorRadius { ellipse, value },
         };
         let measured = sketch.measured(&constraint)?;
         let quantity = match self {
             Self::Angle { .. } | Self::Sweep(_) => Quantity::angle(measured),
-            Self::Radius(_) | Self::Diameter(_) | Self::ArcLength(_) if measured <= 0.0 => {
+            Self::Radius(_)
+            | Self::Diameter(_)
+            | Self::ArcLength(_)
+            | Self::MajorRadius(_)
+            | Self::MinorRadius(_)
+                if measured <= 0.0 =>
+            {
                 return None;
             }
             Self::Distance { .. }
@@ -6190,7 +6316,9 @@ impl DrawnValue {
             | Self::VerticalDistance { .. }
             | Self::Radius(_)
             | Self::Diameter(_)
-            | Self::ArcLength(_) => Quantity::length(measured),
+            | Self::ArcLength(_)
+            | Self::MajorRadius(_)
+            | Self::MinorRadius(_) => Quantity::length(measured),
         };
         Some(quantity)
     }

@@ -167,3 +167,118 @@ impl Circle2 {
         bounds
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Ellipse2 {
+    center: Point2,
+    major_radius: f64,
+    minor_radius: f64,
+    x_axis: Vector2,
+    y_axis: Vector2,
+}
+
+impl Ellipse2 {
+    pub fn new(center: Point2, major: Vector2, minor_radius: f64) -> Result<Self, GeometryError> {
+        Self::with_axes(center, major.length(), minor_radius, major, true)
+    }
+
+    pub fn with_axes(
+        center: Point2,
+        major_radius: f64,
+        minor_radius: f64,
+        x_axis: Vector2,
+        counter_clockwise: bool,
+    ) -> Result<Self, GeometryError> {
+        let x_axis = unit2(x_axis)?;
+        let y_axis = if counter_clockwise {
+            x_axis.perp()
+        } else {
+            -x_axis.perp()
+        };
+        Ok(Self {
+            center: finite_point2(center)?,
+            major_radius: size(major_radius)?,
+            minor_radius: size(minor_radius)?,
+            x_axis,
+            y_axis,
+        })
+    }
+
+    pub fn center(&self) -> Point2 {
+        self.center
+    }
+
+    pub fn major_radius(&self) -> f64 {
+        self.major_radius
+    }
+
+    pub fn minor_radius(&self) -> f64 {
+        self.minor_radius
+    }
+
+    pub fn x_axis(&self) -> Vector2 {
+        self.x_axis
+    }
+
+    pub fn y_axis(&self) -> Vector2 {
+        self.y_axis
+    }
+
+    pub fn is_counter_clockwise(&self) -> bool {
+        self.x_axis.perp_dot(self.y_axis) > 0.0
+    }
+
+    #[must_use]
+    pub fn reversed(&self) -> Self {
+        Self {
+            y_axis: -self.y_axis,
+            ..*self
+        }
+    }
+
+    pub fn parameter_of(&self, point: Point2) -> f64 {
+        let local = point - self.center;
+        let along = local.dot(self.x_axis) / self.major_radius;
+        let across = local.dot(self.y_axis) / self.minor_radius;
+        across.atan2(along)
+    }
+
+    pub(crate) fn evaluate(&self, parameter: f64) -> [Point2; 3] {
+        let (sin, cos) = parameter.sin_cos();
+        let radial =
+            self.x_axis * (self.major_radius * cos) + self.y_axis * (self.minor_radius * sin);
+        let tangent =
+            self.y_axis * (self.minor_radius * cos) - self.x_axis * (self.major_radius * sin);
+        [self.center + radial, tangent, -radial]
+    }
+
+    pub(crate) fn extreme_along(&self, direction: Vector2) -> Option<f64> {
+        let along = Vector2::new(
+            self.major_radius * direction.dot(self.x_axis),
+            self.minor_radius * direction.dot(self.y_axis),
+        );
+        (along != Vector2::ZERO).then(|| along.y.atan2(along.x))
+    }
+
+    pub(crate) fn bounds(&self, range: Interval) -> Aabb2 {
+        let point = |parameter: f64| {
+            let [position, _, _] = self.evaluate(parameter);
+            position
+        };
+        let mut bounds = Aabb2::from_point(point(range.start())).including(point(range.end()));
+        for direction in [Vector2::X, Vector2::Y] {
+            let Some(extreme) = self.extreme_along(direction) else {
+                continue;
+            };
+            let first = ((range.start() - extreme) / PI).ceil();
+            for step in 0..MAX_EXTREMA_PER_AXIS {
+                let parameter = extreme + (first + step as f64) * PI;
+                if parameter > range.end() {
+                    break;
+                }
+                bounds = bounds.including(point(parameter));
+            }
+        }
+        bounds
+    }
+}

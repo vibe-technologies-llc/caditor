@@ -80,6 +80,7 @@ mod shaped_sweeps;
 mod sketch_blend_curves;
 mod sketch_breaks;
 mod sketch_chamfers;
+mod sketch_ellipses;
 mod sketch_first_dimension;
 mod sketch_free;
 mod sketch_patterns;
@@ -7334,7 +7335,9 @@ fn sketch_bar_buttons() -> Vec<String> {
     Tool::ALL
         .into_iter()
         .filter(|tool| {
-            !sketch_toolbar::ARC_TOOLS.contains(tool) && !sketch_toolbar::OFF_RIBBON.contains(tool)
+            !sketch_toolbar::ARC_TOOLS.contains(tool)
+                && !sketch_toolbar::CURVE_TOOLS.contains(tool)
+                && !sketch_toolbar::OFF_RIBBON.contains(tool)
         })
         .map(Tool::label)
         .chain(
@@ -7346,6 +7349,8 @@ fn sketch_bar_buttons() -> Vec<String> {
         .chain([
             sketch_toolbar::ARC_LABEL,
             sketch_toolbar::ARC_WAYS_LABEL,
+            sketch_toolbar::CURVE_LABEL,
+            sketch_toolbar::CURVE_WAYS_LABEL,
             sketch_toolbar::CONSTRUCTION_LABEL,
             sketch_toolbar::MOVE_LABEL,
             sketch_toolbar::SELECT_ALL_LABEL,

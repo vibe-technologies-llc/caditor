@@ -28,8 +28,12 @@ paths:
   the sweep runs, so flipping the direction keeps every name.
 - A `LinearBound` is an offset along the sketch normal or a `Plane` where the profile, moved along
   the normal, meets it (`LinearExtent::between`). A plane level over the profile is an offset;
-  otherwise its cap is tilted (a line's edge the line between its moved ends, a circle's the
-  ellipse it maps to, a spline's the spline of its moved control points). Caps keep the names they
+  otherwise its cap is tilted (a line's edge the line between its moved ends, a circle's or an
+  ellipse's the ellipse it maps to, found from the moved conjugate diameters, a spline's the spline
+  of its moved control points; the given cap pcurves are shifted by the edge's parameter offset).
+  An ellipse's side face is an `Extrusion` of its `Curve::Ellipse`, mapped like a spline's; a
+  revolved ellipse is first the rational quadratic B-spline of its arc (the affine image of the
+  circle's), so it revolves through a `Revolution` like any spline. Caps keep the names they
   have at a distance, so switching an end between a distance and a plane renames nothing.
 - A plane along the direction is `EndAlongDirection`, ends that meet or cross within the profile
   `EndsCross`, a height past `MAX_SIZE` `TooLong`.

@@ -13,8 +13,8 @@ use crate::{
     sketch::{DimensionValues, Sketch, SketchError},
     solve::{
         equation::{
-            CircleHandle, Contact, Context, Equation, Form, LineHandle, PointHandle, RadiusHandle,
-            fallback_direction, value,
+            CircleHandle, Contact, Context, EllipseHandle, Equation, Form, LineHandle, PointHandle,
+            RadiusHandle, fallback_direction, value,
         },
         numeric::Component,
         spline::not_joined,
@@ -53,10 +53,26 @@ impl System {
                     points.insert(id, values.len());
                     values.extend([position.x, position.y]);
                 }
-                Entity::Circle { radius, .. } if sketch.is_projected(id) => {
+                Entity::Circle { radius, .. }
+                | Entity::Ellipse {
+                    minor_radius: radius,
+                    ..
+                }
+                | Entity::EllipticalArc {
+                    minor_radius: radius,
+                    ..
+                } if sketch.is_projected(id) => {
                     fixed_radii.insert(id, radius);
                 }
-                Entity::Circle { radius, .. } => {
+                Entity::Circle { radius, .. }
+                | Entity::Ellipse {
+                    minor_radius: radius,
+                    ..
+                }
+                | Entity::EllipticalArc {
+                    minor_radius: radius,
+                    ..
+                } => {
                     radii.insert(id, values.len());
                     values.push(radius);
                 }
@@ -86,6 +102,8 @@ impl System {
             let span = match *entity {
                 Entity::Line { start, end } => Some((start, end)),
                 Entity::Arc { center, start, .. } => Some((center, start)),
+                Entity::Ellipse { center, major, .. }
+                | Entity::EllipticalArc { center, major, .. } => Some((center, major)),
                 Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => None,
             };
             if let Some((from, to)) = span {
@@ -104,6 +122,16 @@ impl System {
             }
         }
         for (id, entity) in sketch.entities() {
+            if let Entity::EllipticalArc { start, end, .. } = *entity {
+                let ellipse = system.ellipse(sketch, id)?;
+                for point in [start, end] {
+                    let form = Form::OnEllipse {
+                        point: system.point(point)?,
+                        ellipse,
+                    };
+                    system.equations.push(Equation { owner: None, form });
+                }
+            }
             if let Entity::Arc { end, .. } = *entity {
                 let circle = system.circle(sketch, id)?;
                 let point = system.point(end)?;
@@ -176,6 +204,12 @@ impl System {
             Entity::Circle { center, .. } => point_variables(center)
                 .chain(self.radii.get(&id).copied())
                 .collect(),
+            Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => entity
+                .points()
+                .iter()
+                .flat_map(point_variables)
+                .chain(self.radii.get(&id).copied())
+                .collect(),
             Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => {
                 entity.points().iter().flat_map(point_variables).collect()
             }
@@ -206,8 +240,21 @@ impl System {
             Some(Reference::VerticalAxis) => return Ok(axis(Vector2::Y)),
             Some(Reference::Origin) | None => {}
         }
-        let Some(&Entity::Line { start, end }) = sketch.entity(id) else {
-            return Err(SketchError::MissingEntity(id));
+        let (start, end) = match sketch.entity(id) {
+            Some(
+                &Entity::Line { start, end }
+                | &Entity::Ellipse {
+                    center: start,
+                    major: end,
+                    ..
+                }
+                | &Entity::EllipticalArc {
+                    center: start,
+                    major: end,
+                    ..
+                },
+            ) => (start, end),
+            _ => return Err(SketchError::MissingEntity(id)),
         };
         let (start, end) = (self.point(start)?, self.point(end)?);
         Ok(LineHandle {
@@ -244,6 +291,55 @@ impl System {
             }
             _ => Err(SketchError::MissingEntity(id)),
         }
+    }
+
+    pub(super) fn ellipse(
+        &self,
+        sketch: &Sketch,
+        id: EntityId,
+    ) -> Result<EllipseHandle, SketchError> {
+        let (center, major) = match sketch.entity(id) {
+            Some(
+                &Entity::Ellipse { center, major, .. }
+                | &Entity::EllipticalArc { center, major, .. },
+            ) => (self.point(center)?, self.point(major)?),
+            _ => return Err(SketchError::MissingEntity(id)),
+        };
+        let minor = match self.fixed_radii.get(&id) {
+            Some(radius) => RadiusHandle::Fixed(*radius),
+            None => {
+                RadiusHandle::Variable(*self.radii.get(&id).ok_or(SketchError::MissingEntity(id))?)
+            }
+        };
+        Ok(EllipseHandle {
+            center,
+            major,
+            minor,
+            fallback: self.initial_direction(center, major),
+        })
+    }
+
+    fn ellipse_tangent(
+        &self,
+        sketch: &Sketch,
+        joints: &Joints,
+        line: EntityId,
+        ellipse: EntityId,
+    ) -> Result<Form, SketchError> {
+        let joint = joints.joint(sketch, line, ellipse);
+        let (line, ellipse) = (self.line(sketch, line)?, self.ellipse(sketch, ellipse)?);
+        if let Some(point) = joint {
+            return Ok(Form::EllipseTouch {
+                line,
+                point: self.point(point)?,
+                ellipse,
+            });
+        }
+        Ok(Form::EllipseTangent {
+            side: self.initial_side(ellipse.center, &line),
+            line,
+            ellipse,
+        })
     }
 
     pub(super) fn span_context(&self, from: PointHandle, to: PointHandle, value: f64) -> Context {
@@ -320,6 +416,14 @@ impl System {
                 (Role::Spline, Role::Point) => {
                     self.on_spline(sketch, b, a, self.parameter_of(id)?)?
                 }
+                (Role::Point, Role::Elliptic) => vec![Form::OnEllipse {
+                    point: self.point(a)?,
+                    ellipse: self.ellipse(sketch, b)?,
+                }],
+                (Role::Elliptic, Role::Point) => vec![Form::OnEllipse {
+                    point: self.point(b)?,
+                    ellipse: self.ellipse(sketch, a)?,
+                }],
                 _ => return Err(not_applicable(a, b)),
             },
             Constraint::Horizontal(line) => vec![Form::Horizontal(self.line(sketch, line)?)],
@@ -355,6 +459,7 @@ impl System {
             Constraint::Concentric(a, b) => {
                 let centre = |entity: EntityId| match role(entity)? {
                     Role::Point => self.point(entity),
+                    Role::Elliptic => Ok(self.ellipse(sketch, entity)?.center),
                     Role::Line | Role::Circular | Role::Spline => {
                         Ok(self.circle(sketch, entity)?.center)
                     }
@@ -410,7 +515,7 @@ impl System {
                             },
                         ]
                     }
-                    Role::Circular | Role::Spline => return Err(refused),
+                    Role::Circular | Role::Spline | Role::Elliptic => return Err(refused),
                 }
             }
             Constraint::Fix { point, at } => {
@@ -460,6 +565,14 @@ impl System {
                 (Role::Spline, Role::Spline) => {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
                     self.spline_pair_tangent(sketch, joints, id, (a, b))?
+                }
+                (Role::Line, Role::Elliptic) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    vec![self.ellipse_tangent(sketch, joints, a, b)?]
+                }
+                (Role::Elliptic, Role::Line) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    vec![self.ellipse_tangent(sketch, joints, b, a)?]
                 }
                 _ => return Err(not_applicable(a, b)),
             },
@@ -593,6 +706,25 @@ impl System {
                     to,
                     reversed: false,
                     radians: dimension()?.to_radians(),
+                }]
+            }
+            Constraint::MajorRadius { ellipse, .. } => {
+                let ellipse = self.ellipse(sketch, ellipse)?;
+                vec![Form::PointDistance {
+                    from: ellipse.center,
+                    to: ellipse.major,
+                    fallback: ellipse.fallback,
+                    value: dimension()?,
+                }]
+            }
+            Constraint::MinorRadius { ellipse, .. } => {
+                let ellipse = self.ellipse(sketch, ellipse)?;
+                vec![Form::Radius {
+                    circle: CircleHandle {
+                        center: ellipse.center,
+                        radius: ellipse.minor,
+                    },
+                    value: dimension()?,
                 }]
             }
         })
@@ -901,12 +1033,18 @@ impl Joints {
 
     pub(super) fn points_on(&self, sketch: &Sketch, curve: EntityId) -> BTreeSet<EntityId> {
         let mut points: BTreeSet<EntityId> = match sketch.entity(curve) {
-            Some(Entity::Line { start, end } | Entity::Arc { start, end, .. }) => {
-                BTreeSet::from([*start, *end])
-            }
-            Some(Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. }) | None => {
-                BTreeSet::new()
-            }
+            Some(
+                Entity::Line { start, end }
+                | Entity::Arc { start, end, .. }
+                | Entity::EllipticalArc { start, end, .. },
+            ) => BTreeSet::from([*start, *end]),
+            Some(
+                Entity::Point(_)
+                | Entity::Circle { .. }
+                | Entity::Spline { .. }
+                | Entity::Ellipse { .. },
+            )
+            | None => BTreeSet::new(),
         };
         if let Some(on_curve) = self.on_curve.get(&curve) {
             points.extend(on_curve);

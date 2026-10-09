@@ -165,6 +165,8 @@ paths:
   several ways to draw carry a `corner_menu_button` listing them as `menu_choice`s.
 - The three arc tools share one Draw button (`sketch_toolbar::ARC_TOOLS`) showing the arc tool last
   used or chosen; each keeps its own key and command, which the button handles whichever is shown.
+  Spline, Ellipse and Elliptical arc share the Curve button (`CURVE_TOOLS`) the same way (a
+  `ToolGroup`), so the sketch bar still fits one row at 1400 points.
 - The status bar (`status_bar.rs`) runs recompute | file activity | notice, then right-aligned
   selection | unit | size. Recompute is progress (the feature running, and for how long once past
   two seconds, from `Progress`) with Cancel, Up to date, or a failed

@@ -140,6 +140,35 @@ fn a_circle_inside_a_rectangle_is_a_hole() {
 }
 
 #[test]
+fn an_ellipse_is_a_hole_and_a_line_across_it_splits_it_in_two() {
+    let mut curves = rectangle(1, (-10.0, -10.0), (10.0, 10.0));
+    curves.push(ProfileCurve::ellipse(
+        5,
+        Point2::ZERO,
+        caditor_geometry::Vector2::new(6.0, 0.0),
+        3.0,
+    ));
+    let holed = profile(&curves);
+    let ellipse = 18.0 * PI;
+    assert_areas(&holed, &[ellipse, 400.0 - ellipse]);
+    for region in holed.regions() {
+        assert_closed(region);
+    }
+
+    curves.push(line(6, (0.0, -10.0), (0.0, 10.0)));
+    let split = profile(&curves);
+    assert_areas(
+        &split,
+        &[
+            ellipse / 2.0,
+            ellipse / 2.0,
+            200.0 - ellipse / 2.0,
+            200.0 - ellipse / 2.0,
+        ],
+    );
+}
+
+#[test]
 fn an_island_inside_a_hole_is_chosen_again() {
     let mut curves = rectangle(1, (0.0, 0.0), (10.0, 10.0));
     curves.push(circle(5, (5.0, 5.0), 3.0));

@@ -2,7 +2,9 @@ use std::f64::consts::{PI, TAU};
 
 use caditor_document::{FeatureId, Transaction, TransactionBuilder};
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, EntityId, Faceting, Sketch};
+use caditor_sketch::{
+    ArcGeometry, BSpline, Constraint, EllipseGeometry, Entity, EntityId, Faceting, Sketch,
+};
 
 use crate::{
     editing::{self, ActiveSketch, Tool},
@@ -29,6 +31,8 @@ const CANCEL_RECTANGLE: &str = "Esc: cancel the rectangle";
 const CANCEL_CIRCLE: &str = "Esc: cancel the circle";
 const CANCEL_SLOT: &str = "Esc: cancel the slot";
 const CANCEL_POLYGON: &str = "Esc: cancel the polygon";
+const CANCEL_ELLIPSE: &str = "Esc: cancel the ellipse";
+const CANCEL_ELLIPTICAL_ARC: &str = "Esc: cancel the elliptical arc";
 
 const TOO_FEW_SIDES: &str = "A polygon needs at least three sides";
 const TOO_MANY_SIDES: &str = "A polygon has at most 64 sides";
@@ -56,6 +60,9 @@ pub enum Refusal {
     PolygonSize,
     PolygonSideMiddle,
     PolygonSide,
+    EllipseAxis,
+    EllipseWidth,
+    EllipticalArcSweep,
 }
 
 impl Refusal {
@@ -98,6 +105,11 @@ impl Refusal {
                 "A polygon needs the middle of its side away from its centre"
             }
             Self::PolygonSide => "A polygon needs the two ends of its side apart",
+            Self::EllipseAxis => "An ellipse needs the end of its major axis away from its centre",
+            Self::EllipseWidth => {
+                "An ellipse needs a minor radius: click away from the line of its major axis"
+            }
+            Self::EllipticalArcSweep => "An elliptical arc needs its end away from its start",
         }
     }
 }
@@ -114,6 +126,8 @@ enum Shape {
     Slot(SlotMode),
     Polygon(PolygonMode),
     Spline,
+    Ellipse,
+    EllipticalArc,
 }
 
 impl Shape {
@@ -138,6 +152,8 @@ impl Shape {
             Tool::ThreePointArc => Some(Self::ThreePointArc),
             Tool::TangentArc => Some(Self::TangentArc),
             Tool::Spline => Some(Self::Spline),
+            Tool::Ellipse => Some(Self::Ellipse),
+            Tool::EllipticalArc => Some(Self::EllipticalArc),
             Tool::Select
             | Tool::Trim
             | Tool::Extend
@@ -166,7 +182,9 @@ impl Shape {
             | Self::Arc
             | Self::ThreePointArc
             | Self::TangentArc
-            | Self::Spline => None,
+            | Self::Spline
+            | Self::Ellipse
+            | Self::EllipticalArc => None,
         }
     }
 
@@ -183,6 +201,25 @@ impl Shape {
             Self::Slot(SlotMode::Ends | SlotMode::Center) => "slot",
             Self::Polygon(_) => "polygon",
             Self::Spline => "spline",
+            Self::Ellipse => "ellipse",
+            Self::EllipticalArc => "elliptical arc",
+        }
+    }
+
+    fn sweeps_from(self) -> Option<usize> {
+        match self {
+            Self::Arc | Self::Slot(SlotMode::Arc) => Some(2),
+            Self::EllipticalArc => Some(3),
+            Self::Point
+            | Self::Line
+            | Self::Rectangle(_)
+            | Self::Circle(_)
+            | Self::ThreePointArc
+            | Self::TangentArc
+            | Self::Slot(SlotMode::Ends | SlotMode::Center)
+            | Self::Polygon(_)
+            | Self::Spline
+            | Self::Ellipse => None,
         }
     }
 
@@ -191,6 +228,8 @@ impl Shape {
             Self::Rectangle(RectangleMode::ThreePoints)
             | Self::Slot(SlotMode::Ends | SlotMode::Center) => placed == 2,
             Self::Slot(SlotMode::Arc) => placed == 3,
+            Self::Ellipse => placed == 2,
+            Self::EllipticalArc => placed >= 2,
             Self::Point
             | Self::Line
             | Self::Rectangle(RectangleMode::Corners | RectangleMode::Center)
@@ -226,7 +265,9 @@ impl Shape {
             | Self::TangentArc
             | Self::Slot(SlotMode::Arc)
             | Self::Polygon(PolygonMode::Corner | PolygonMode::SideMiddle)
-            | Self::Spline => false,
+            | Self::Spline
+            | Self::Ellipse
+            | Self::EllipticalArc => false,
         }
     }
 }
@@ -792,7 +833,8 @@ impl Drawing {
     }
 
     fn choosing_arc_end(&self) -> bool {
-        self.sweep.is_some() && self.placed.len() == 2
+        let sweeps_from = self.context.and_then(|(_, shape)| shape.sweeps_from());
+        self.sweep.is_some() && sweeps_from == Some(self.placed.len())
     }
 
     fn find_tangent(&mut self, shape: Shape, sketch: &Sketch) {
@@ -836,6 +878,25 @@ impl Drawing {
                     Some(format!(
                         "R {}   {}",
                         length(center.position.distance(start.position)),
+                        unit.angle.readout_text(sweep.degrees())
+                    ))
+                }
+                (Shape::Ellipse | Shape::EllipticalArc, [center, axis]) => {
+                    let ellipse = shapes::ellipse_through(center.position, axis.position, hover)?;
+                    Some(format!(
+                        "R {}   r {}",
+                        length(ellipse.major_radius()),
+                        length(ellipse.minor_radius)
+                    ))
+                }
+                (Shape::EllipticalArc, [center, axis, start]) => {
+                    let ellipse =
+                        shapes::ellipse_through(center.position, axis.position, start.position)?;
+                    let sweep = self.sweep?;
+                    Some(format!(
+                        "R {}   r {}   {}",
+                        length(ellipse.major_radius()),
+                        length(ellipse.minor_radius),
                         unit.angle.readout_text(sweep.degrees())
                     ))
                 }
@@ -914,6 +975,11 @@ impl Drawing {
             )),
             Shape::Circle(CircleMode::Center) => Some(format!("R {}", length(delta.length()))),
             Shape::Circle(CircleMode::TwoPoints) => Some(format!("Ø {}", length(delta.length()))),
+            Shape::Ellipse | Shape::EllipticalArc => Some(format!(
+                "R {}   {}",
+                length(delta.length()),
+                unit.angle.readout_text(delta.y.atan2(delta.x).to_degrees())
+            )),
             _ => None,
         }
     }
@@ -991,6 +1057,13 @@ impl Drawing {
             Some(Entity::Spline { .. }) => {
                 let spline = sketch.spline(curve).ok_or(ONLY_AT_POINTS)?;
                 (spline.point_at(0.5), Target::Curve(curve))
+            }
+            Some(Entity::Ellipse { .. } | Entity::EllipticalArc { .. }) => {
+                let ellipse = sketch.ellipse(curve).ok_or(ONLY_AT_POINTS)?;
+                (
+                    ellipse.point_at(ellipse.start + ellipse.sweep / 2.0),
+                    Target::Curve(curve),
+                )
             }
             Some(Entity::Point(_)) | None => return Err(ONLY_AT_POINTS),
         };
@@ -1117,7 +1190,8 @@ impl Drawing {
             return true;
         }
         self.placed.pop();
-        if self.placed.len() < 2 {
+        let sweeps_from = self.context.and_then(|(_, shape)| shape.sweeps_from());
+        if sweeps_from.is_none_or(|from| self.placed.len() < from) {
             self.sweep = None;
         }
         if self.placed.is_empty() {
@@ -1143,7 +1217,9 @@ impl Drawing {
                 | Shape::ThreePointArc
                 | Shape::TangentArc
                 | Shape::Slot(_)
-                | Shape::Polygon(_) => {
+                | Shape::Polygon(_)
+                | Shape::Ellipse
+                | Shape::EllipticalArc => {
                     self.cancel();
                     None
                 }
@@ -1397,6 +1473,46 @@ impl Drawing {
                     draft
                 })
             }
+            (Shape::Ellipse | Shape::EllipticalArc, &[center]) => {
+                apart(center, Refusal::EllipseAxis)?;
+                self.placed.push(placement);
+                return Ok(None);
+            }
+            (Shape::Ellipse, &[center, axis]) => {
+                let ellipse =
+                    shapes::ellipse_through(center.position, axis.position, placement.position)
+                        .ok_or(Refusal::EllipseWidth)?;
+                draft(shape.name()).map(|mut draft| {
+                    draft.ellipse(center, axis, ellipse.minor_radius);
+                    draft
+                })
+            }
+            (Shape::EllipticalArc, &[center, axis]) => {
+                let ellipse =
+                    shapes::ellipse_through(center.position, axis.position, placement.position)
+                        .ok_or(Refusal::EllipseWidth)?;
+                let start = shapes::toward_on_ellipse(&ellipse, placement.position)
+                    .ok_or(Refusal::EllipseWidth)?;
+                self.sweep = Some(Sweep::new(center.position, start));
+                self.placed.push(placement);
+                return Ok(None);
+            }
+            (Shape::EllipticalArc, &[center, axis, width]) => {
+                let ellipse =
+                    shapes::ellipse_through(center.position, axis.position, width.position)
+                        .ok_or(Refusal::EllipseWidth)?;
+                let start = shapes::toward_on_ellipse(&ellipse, width.position)
+                    .ok_or(Refusal::EllipseWidth)?;
+                let end = shapes::toward_on_ellipse(&ellipse, placement.position)
+                    .filter(|end| end.distance(start) >= DEGENERATE_LENGTH)
+                    .ok_or(Refusal::EllipticalArcSweep)?;
+                let counter_clockwise = self.counter_clockwise();
+                draft(shape.name()).map(|mut draft| {
+                    let (first, last) = arc_ends(counter_clockwise, start, end);
+                    draft.elliptical_arc(center, axis, ellipse.minor_radius, [first, last]);
+                    draft
+                })
+            }
             (Shape::Polygon(PolygonMode::Corner), &[center]) => {
                 apart(center, Refusal::PolygonSize)?;
                 let corners =
@@ -1436,7 +1552,9 @@ impl Drawing {
                 | Shape::TangentArc
                 | Shape::Slot(_)
                 | Shape::Polygon(_)
-                | Shape::Spline,
+                | Shape::Spline
+                | Shape::Ellipse
+                | Shape::EllipticalArc,
                 _,
             ) => {
                 self.placed.push(placement);
@@ -1640,6 +1758,41 @@ impl Drawing {
                         None => vec![first, cursor],
                     });
             }
+            (Shape::Ellipse | Shape::EllipticalArc, &[center]) => {
+                preview.curves.push(vec![center, cursor]);
+            }
+            (Shape::Ellipse | Shape::EllipticalArc, &[center, axis]) => {
+                if let Some(ellipse) = shapes::ellipse_through(center, axis, cursor) {
+                    preview.curves.push(ellipse.faceted(faceting));
+                    preview.points = vec![center, axis];
+                    if shape == Shape::EllipticalArc {
+                        preview
+                            .points
+                            .extend(shapes::toward_on_ellipse(&ellipse, cursor));
+                    }
+                } else {
+                    preview.curves.push(vec![center, axis]);
+                }
+            }
+            (Shape::EllipticalArc, &[center, axis, width]) => {
+                let ends = shapes::ellipse_through(center, axis, width).and_then(|ellipse| {
+                    let start = shapes::toward_on_ellipse(&ellipse, width)?;
+                    let end = shapes::toward_on_ellipse(&ellipse, cursor)?;
+                    Some((ellipse, start, end))
+                });
+                if let Some((ellipse, start, end)) = ends {
+                    let (first, last) = arc_ends(self.counter_clockwise(), start, end);
+                    let arc = EllipseGeometry::from_points(
+                        ellipse.center,
+                        ellipse.center + ellipse.major,
+                        ellipse.minor_radius,
+                        first,
+                        last,
+                    );
+                    preview.curves.push(arc.faceted(faceting));
+                    preview.points = vec![center, axis, start, end];
+                }
+            }
             (Shape::Spline, _) if !placed.is_empty() => {
                 if let Some(spline) = BSpline::clamped(preview.points.clone()) {
                     preview.curves.push(spline.faceted(faceting));
@@ -1823,6 +1976,24 @@ impl Drawing {
                 format!("Click where that side of the {polygon} ends"),
                 CANCEL_POLYGON,
             ),
+            (Shape::Ellipse, 0) => prompt("Click the ellipse's centre", BACK_TO_SELECT),
+            (Shape::Ellipse, 1) => prompt("Click the end of its major axis", CANCEL_ELLIPSE),
+            (Shape::Ellipse, _) => prompt("Click to set its minor radius", CANCEL_ELLIPSE),
+            (Shape::EllipticalArc, 0) => {
+                prompt("Click the centre of the arc's ellipse", BACK_TO_SELECT)
+            }
+            (Shape::EllipticalArc, 1) => {
+                prompt("Click the end of its major axis", CANCEL_ELLIPTICAL_ARC)
+            }
+            (Shape::EllipticalArc, 2) => prompt(
+                "Click where the arc starts, which also sets the minor radius",
+                CANCEL_ELLIPTICAL_ARC,
+            ),
+            (Shape::EllipticalArc, _) => prompt(
+                "Click where the arc ends",
+                "The arc follows your sweep around the centre, a typed end the shorter way   Esc: \
+                 cancel the elliptical arc",
+            ),
             (Shape::Spline, 0) => prompt("Click the spline's first control point", BACK_TO_SELECT),
             (Shape::Spline, _) => prompt(
                 "Click the next control point",
@@ -1962,7 +2133,11 @@ impl Drawing {
     fn levelled_from(&self, shape: Shape) -> Option<Placement> {
         match (shape, self.placed.as_slice()) {
             (
-                Shape::Arc | Shape::Slot(SlotMode::Arc) | Shape::Polygon(PolygonMode::Corner),
+                Shape::Arc
+                | Shape::Slot(SlotMode::Arc)
+                | Shape::Polygon(PolygonMode::Corner)
+                | Shape::Ellipse
+                | Shape::EllipticalArc,
                 &[from],
             )
             | (Shape::Spline, &[.., from]) => Some(from),
@@ -2000,7 +2175,9 @@ impl Drawing {
             | Shape::Arc
             | Shape::ThreePointArc
             | Shape::Slot(_)
-            | Shape::Polygon(_) => None,
+            | Shape::Polygon(_)
+            | Shape::Ellipse
+            | Shape::EllipticalArc => None,
         }
         .into_iter()
         .collect()
@@ -2207,7 +2384,9 @@ fn continuing(sketch: &Sketch, point: EntityId) -> Option<Tangent> {
                 Entity::Point(_)
                 | Entity::Line { .. }
                 | Entity::Circle { .. }
-                | Entity::Arc { .. } => return None,
+                | Entity::Arc { .. }
+                | Entity::Ellipse { .. }
+                | Entity::EllipticalArc { .. } => return None,
             };
             Some(Tangent {
                 curve,
@@ -2576,6 +2755,38 @@ impl<'a> Draft<'a> {
             center: center_point,
             start: first,
             end: last,
+        });
+    }
+
+    fn ellipse(&mut self, center: Placement, axis: Placement, minor_radius: f64) {
+        let center_point = self.point(center);
+        let major = self.point(axis);
+        self.level(center_point, major, axis);
+        self.entity(Entity::Ellipse {
+            center: center_point,
+            major,
+            minor_radius,
+        });
+    }
+
+    fn elliptical_arc(
+        &mut self,
+        center: Placement,
+        axis: Placement,
+        minor_radius: f64,
+        [start, end]: [Point2; 2],
+    ) {
+        let center_point = self.point(center);
+        let major = self.point(axis);
+        self.level(center_point, major, axis);
+        let start = self.entity(Entity::Point(start));
+        let end = self.entity(Entity::Point(end));
+        self.entity(Entity::EllipticalArc {
+            center: center_point,
+            major,
+            minor_radius,
+            start,
+            end,
         });
     }
 

@@ -46,7 +46,9 @@ impl SketchClip {
             Entity::Line { .. }
             | Entity::Circle { .. }
             | Entity::Arc { .. }
-            | Entity::Spline { .. } => None,
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => None,
         });
         Aabb2::from_points(positions).map(|bounds| bounds.center())
     }
@@ -57,7 +59,9 @@ impl SketchClip {
             Entity::Line { .. }
             | Entity::Circle { .. }
             | Entity::Arc { .. }
-            | Entity::Spline { .. } => None,
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => None,
         });
         Aabb2::from_points(positions).map_or(0.0, |bounds| {
             let extent = bounds.max() - bounds.min();
@@ -151,6 +155,9 @@ impl Sketch {
                         .map(|point| rename(&renamed, *point))
                         .collect(),
                 },
+                Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                    entity.with_points_mapped(|point| rename(&renamed, point))
+                }
             };
             let id = EntityId::from_raw(working.next_id());
             working.insert_entity(id, moved)?;

@@ -13,7 +13,7 @@ use crate::{
         traversal_sense, traversal_tangent,
     },
     curve::Circle,
-    curve2::{BSplineCurve2, Circle2, Curve2, Line2},
+    curve2::{BSplineCurve2, Circle2, Curve2, Ellipse2, Line2},
     error::GeometryError,
     interrupt,
     interval::Interval,
@@ -298,7 +298,25 @@ fn prepare(frame: &Frame, piece: &Piece) -> Result<Prepared, SweepError> {
             piece: piece.clone(),
             kind: Kind::Curved { mapped: true },
         }),
+        Curve2::Ellipse(ellipse) => {
+            let spline = ellipse_spline(ellipse, piece.range())?;
+            let domain = spline.domain();
+            Ok(Prepared {
+                piece: piece.with_curve(spline.into(), domain),
+                kind: Kind::Curved { mapped: true },
+            })
+        }
     }
+}
+
+fn ellipse_spline(ellipse: &Ellipse2, range: Interval) -> Result<BSplineCurve2, GeometryError> {
+    let unit = Circle2::new(Point2::ZERO, 1.0)?;
+    let center = ellipse.center();
+    let (along_x, along_y) = (
+        ellipse.x_axis() * ellipse.major_radius(),
+        ellipse.y_axis() * ellipse.minor_radius(),
+    );
+    arc_spline(&unit, range)?.map_points(|point| center + along_x * point.x + along_y * point.y)
 }
 
 fn arc_spline(circle: &Circle2, range: Interval) -> Result<BSplineCurve2, GeometryError> {
@@ -369,7 +387,7 @@ fn surface_of(frame: &Frame, prepared: &Prepared) -> Result<Surface, SweepError>
                 Torus::new(frame.meridian(height)?, center_distance, circle.radius())?.into()
             }
         }
-        (Curve2::BSpline(_), _) => {
+        (Curve2::BSpline(_) | Curve2::Ellipse(_), _) => {
             let profile = piece
                 .curve()
                 .on_plane(&frame.plane)?

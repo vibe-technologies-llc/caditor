@@ -17,7 +17,7 @@ mod zip_read;
 use std::{collections::BTreeSet, path::Path};
 
 use caditor_document::CancelToken;
-use caditor_geometry::Point2;
+use caditor_geometry::{Point2, Vector2};
 use caditor_step::ReadError;
 
 pub use crate::import::{
@@ -61,6 +61,12 @@ pub enum DrawingCurve {
     Spline {
         control_points: Vec<Point2>,
     },
+    Ellipse {
+        center: Point2,
+        major: Vector2,
+        minor_radius: f64,
+        ends: Option<(Point2, Point2)>,
+    },
 }
 
 impl DrawingCurve {
@@ -71,6 +77,7 @@ impl DrawingCurve {
             Self::Spline { control_points } => {
                 Some((*control_points.first()?, *control_points.last()?))
             }
+            Self::Ellipse { ends, .. } => *ends,
         }
     }
 
@@ -91,6 +98,15 @@ impl DrawingCurve {
                 ]
             }
             Self::Spline { control_points } => control_points.clone(),
+            Self::Ellipse {
+                center,
+                major,
+                minor_radius,
+                ..
+            } => {
+                let reach = Point2::splat(major.length().max(*minor_radius));
+                vec![*center - reach, *center + reach]
+            }
         }
     }
 }

@@ -206,6 +206,22 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
             arc: sketch.arc(arc)?,
             from_centre: true,
         }),
+        Constraint::MajorRadius { ellipse, .. } => {
+            let shape = sketch.ellipse(ellipse)?;
+            Some(Measured::Radius {
+                center: shape.center,
+                radius: shape.major_radius(),
+                toward: shape.axis(),
+            })
+        }
+        Constraint::MinorRadius { ellipse, .. } => {
+            let shape = sketch.ellipse(ellipse)?;
+            Some(Measured::Radius {
+                center: shape.center,
+                radius: shape.minor_radius,
+                toward: shape.axis().perp(),
+            })
+        }
         Constraint::Coincident(..)
         | Constraint::Horizontal(_)
         | Constraint::Vertical(_)
@@ -1238,7 +1254,9 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
         | Constraint::Radius { .. }
         | Constraint::Diameter { .. }
         | Constraint::ArcLength { .. }
-        | Constraint::Sweep { .. } => Vec::new(),
+        | Constraint::Sweep { .. }
+        | Constraint::MajorRadius { .. }
+        | Constraint::MinorRadius { .. } => Vec::new(),
     }
 }
 
@@ -1283,6 +1301,13 @@ pub fn glyph_anchor(
             on_curve(
                 arc.center,
                 arc.point_at(arc.start_angle + arc.sweep * ARC_GLYPH_FRACTION),
+            )
+        }
+        Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+            let shape = sketch.ellipse(entity)?;
+            on_curve(
+                shape.center,
+                shape.point_at(shape.start + shape.sweep * ARC_GLYPH_FRACTION),
             )
         }
         Entity::Spline { .. } => {

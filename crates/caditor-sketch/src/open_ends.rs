@@ -59,6 +59,8 @@ impl Sketch {
                         | Entity::Circle { .. }
                         | Entity::Arc { .. }
                         | Entity::Spline { .. }
+                        | Entity::Ellipse { .. }
+                        | Entity::EllipticalArc { .. }
                 )
             )
     }
@@ -66,14 +68,16 @@ impl Sketch {
 
 fn curve_ends(entity: &Entity) -> Vec<EntityId> {
     match entity {
-        Entity::Line { start, end } | Entity::Arc { start, end, .. } => vec![*start, *end],
+        Entity::Line { start, end }
+        | Entity::Arc { start, end, .. }
+        | Entity::EllipticalArc { start, end, .. } => vec![*start, *end],
         Entity::Spline { control_points } => {
             match (control_points.first(), control_points.last()) {
                 (Some(first), Some(last)) => vec![*first, *last],
                 _ => Vec::new(),
             }
         }
-        Entity::Point(_) | Entity::Circle { .. } => Vec::new(),
+        Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => Vec::new(),
     }
 }
 

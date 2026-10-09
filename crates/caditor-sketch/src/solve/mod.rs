@@ -1,6 +1,8 @@
 mod diagnosis;
 #[cfg(test)]
 mod diagnosis_tests;
+#[cfg(test)]
+mod ellipse_tests;
 mod equation;
 #[cfg(test)]
 mod kind_tests;

@@ -1425,6 +1425,44 @@ fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
 }
 
 #[test]
+fn a_sketch_ellipse_exports_to_a_dxf_ellipse_that_reads_back_exactly() {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_ellipse(Point2::new(5.0, 5.0), Point2::new(5.0, 15.0), 4.0);
+    let start = Point2::new(30.0 + 2.0 * 0.6, 3.0 * 0.8);
+    let end = Point2::new(30.0, -3.0);
+    sketch.add_elliptical_arc(
+        Point2::new(30.0, 0.0),
+        Point2::new(32.0, 0.0),
+        3.0,
+        start,
+        end,
+    );
+
+    let (figure, exported) = Figure::of_sketch(&sketch, Construction::LeftOut);
+    let drawing = crate::parse_dxf(dxf::encode(&figure).as_bytes()).unwrap();
+
+    assert_eq!(exported.curves, 2);
+    assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
+    let near = |a: Point2, b: Point2| a.distance(b) < 1e-9;
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        crate::DrawingCurve::Ellipse { center, major, minor_radius, ends: None }
+            if near(*center, Point2::new(5.0, 5.0))
+                && (major.length() - 10.0).abs() < 1e-9
+                && major.x.abs() < 1e-9
+                && (minor_radius - 4.0).abs() < 1e-9
+    )));
+    assert!(drawing.curves.iter().any(|curve| matches!(
+        curve,
+        crate::DrawingCurve::Ellipse { center, minor_radius, ends: Some((from, to)), .. }
+            if near(*center, Point2::new(30.0, 0.0))
+                && (minor_radius - 2.0).abs() < 1e-9
+                && near(*from, start)
+                && near(*to, end)
+    )));
+}
+
+#[test]
 fn construction_kept_goes_on_its_own_dashed_layer_and_reads_back_as_construction() {
     let sketch = drawn_sketch();
 
@@ -1795,6 +1833,18 @@ fn several_faces_go_into_one_drawing_side_by_side() {
                     ]
                 }
                 crate::DrawingCurve::Spline { control_points } => control_points.clone(),
+                crate::DrawingCurve::Ellipse {
+                    center,
+                    major,
+                    minor_radius,
+                    ..
+                } => {
+                    let reach = major.length().max(*minor_radius);
+                    vec![
+                        *center - Vector2::splat(reach),
+                        *center + Vector2::splat(reach),
+                    ]
+                }
             })
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), point| {
                 (low.min(point.x), high.max(point.x))

@@ -76,7 +76,11 @@ impl Sketch {
                 };
                 off <= tolerance && turned > slack && turned < arc.sweep - slack
             }
-            Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => {
+            Entity::Point(_)
+            | Entity::Circle { .. }
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => {
                 return Err(not_line_or_arc());
             }
         };
@@ -175,13 +179,15 @@ impl Sketch {
                 self.move_constraints(moved, curve, piece)?;
                 Ok(piece)
             }
-            Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => {
-                Err(SketchError::WrongKind {
-                    entity: curve,
-                    found: self.entity_label(curve),
-                    needed: "a line or an arc",
-                })
-            }
+            Entity::Point(_)
+            | Entity::Circle { .. }
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => Err(SketchError::WrongKind {
+                entity: curve,
+                found: self.entity_label(curve),
+                needed: "a line or an arc",
+            }),
         }
     }
 }

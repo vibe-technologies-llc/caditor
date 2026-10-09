@@ -724,6 +724,19 @@ pub fn profile_curve(sketch: &Sketch, id: EntityId) -> Option<ProfileCurve> {
                 spline.control_points().to_vec(),
             )
         }),
+        Entity::Ellipse { .. } => sketch.ellipse(id).map(|ellipse| {
+            ProfileCurve::ellipse(raw, ellipse.center, ellipse.major, ellipse.minor_radius)
+        }),
+        Entity::EllipticalArc { start, end, .. } => {
+            let ellipse = sketch.ellipse(id)?;
+            Some(ProfileCurve::elliptical_arc(
+                raw,
+                ellipse.center,
+                ellipse.major,
+                ellipse.minor_radius,
+                (sketch.point(*start)?, sketch.point(*end)?),
+            ))
+        }
     }
 }
 
