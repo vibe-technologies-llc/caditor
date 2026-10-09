@@ -7,7 +7,8 @@ use egui::{ScrollArea, Ui};
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::MassAccuracy,
-    icons,
+    guide::Page,
+    guide_panel, icons,
     interference::{Bodies, Finding, InterferenceTool, Pair, Report, Scope},
     layout,
     measure_panel::{self, Card, Row},
@@ -311,6 +312,7 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) 
             ui.add_space(SPACE_S);
             widgets::panel_header(ui, icons::INTERFERENCE, TITLE, |ui| {
                 close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+                guide_panel::help_button(ui, Page::Interference);
                 let everything = summary
                     .iter()
                     .map(|(_, text)| text.clone())

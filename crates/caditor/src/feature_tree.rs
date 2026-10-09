@@ -23,7 +23,9 @@ use crate::{
     feature_clipboard, feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, hole_panel, icons, import_panel, mate_panel, mirror_panel, mirror_tools,
+    fonts,
+    guide::Page,
+    guide_panel, hole_panel, icons, import_panel, mate_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
@@ -692,7 +694,12 @@ fn feature_row(
                 healed(ui, document, actions, healing);
             }
             collapsing.show_body_unindented(ui, |ui| {
-                widgets::card(ui, |ui| body(ui, model, state, actions, row));
+                widgets::card(ui, |ui| {
+                    body(ui, model, state, actions, row);
+                    if row.edited {
+                        guide_panel::help_link(ui, Page::of_feature(&row.feature.kind));
+                    }
+                });
             })
         });
         ui.add_space(SPACE_S);

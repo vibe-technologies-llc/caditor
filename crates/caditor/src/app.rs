@@ -36,6 +36,8 @@ use crate::{
     font_fallbacks::FallbackFonts,
     fonts,
     graphics::{FramePacer, Hardware},
+    guide::{self, SidePanel},
+    guide_panel::{self, Guide},
     image_export::{ReadPixels, RenderedRows},
     interference::InterferenceTool,
     interference_panel::{self, InterferenceContext},
@@ -150,6 +152,7 @@ pub struct Workspace {
     pub comb: CombTool,
     pub isocurves: IsocurveTool,
     pub tidying: Tidying,
+    pub guide: Guide,
     pub(crate) frame_failures: FrameFailures,
     fallback_fonts: FallbackFonts,
     applied_appearance: Option<Appearance>,
@@ -200,6 +203,7 @@ impl Workspace {
             comb: CombTool::default(),
             isocurves: IsocurveTool::default(),
             tidying: Tidying::default(),
+            guide: Guide::default(),
             frame_failures: FrameFailures::default(),
             fallback_fonts: FallbackFonts::Off,
             applied_appearance: None,
@@ -236,6 +240,7 @@ impl Workspace {
         self.comb = CombTool::default();
         self.isocurves = IsocurveTool::default();
         self.tidying = Tidying::default();
+        self.guide = Guide::default();
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
@@ -473,6 +478,7 @@ pub fn show(
         comb,
         isocurves,
         tidying,
+        guide,
         keyboard_was_taken,
         deferred_commands,
         awaiting_paste,
@@ -569,6 +575,22 @@ pub fn show(
     );
     tidy_panel::commands(editing, viewport.selection(), tidying, &mut commands);
     tidying.refresh(model, editing.active().map(|active| active.feature));
+    guide_commands(
+        ui.ctx(),
+        model,
+        editing,
+        &GuideBasis {
+            panels,
+            measure,
+            interference,
+            analysis,
+            comb,
+            isocurves,
+            tidying,
+        },
+        guide,
+        &mut commands,
+    );
     let status = StatusContext {
         files,
         offers,
@@ -601,7 +623,8 @@ pub fn show(
         + usize::from(analysis.open)
         + usize::from(comb.open)
         + usize::from(isocurves.open)
-        + usize::from(tidying.feature().is_some());
+        + usize::from(tidying.feature().is_some())
+        + usize::from(guide.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
     panels::show(
         ui,
@@ -613,6 +636,9 @@ pub fn show(
         actions,
     );
     preferences.panels = panels.layout();
+    if guide.open {
+        guide_panel::show(ui, guide, &preferences.keymap, room);
+    }
     route_dimension_focus(panels, editing, viewport);
     if let Some(chosen) = panels.chosen_in_tree.take() {
         viewport.select_only(chosen);
@@ -912,6 +938,57 @@ pub fn show(
     window_frame::frame(ui.ctx(), chrome);
     *last_offers = offers;
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
+}
+
+struct GuideBasis<'a> {
+    panels: &'a PanelState,
+    measure: &'a MeasureTool,
+    interference: &'a InterferenceTool,
+    analysis: &'a AnalysisTool,
+    comb: &'a CombTool,
+    isocurves: &'a IsocurveTool,
+    tidying: &'a Tidying,
+}
+
+fn guide_commands(
+    ctx: &egui::Context,
+    model: &Model,
+    editing: &SketchEditing,
+    basis: &GuideBasis<'_>,
+    guide: &mut Guide,
+    commands: &mut CommandFrame<'_>,
+) {
+    if let Some(page) = guide::take_asked(ctx) {
+        guide.open_at(page);
+    }
+    let document = model.document();
+    let side_panels: Vec<SidePanel> = [
+        (basis.tidying.feature().is_some(), SidePanel::Tidying),
+        (
+            basis.analysis.open,
+            SidePanel::Analysis(basis.analysis.kind),
+        ),
+        (basis.comb.open, SidePanel::Comb),
+        (basis.isocurves.open, SidePanel::Isocurves),
+        (basis.interference.open, SidePanel::Interference),
+        (basis.measure.open, SidePanel::Measure),
+    ]
+    .into_iter()
+    .filter_map(|(open, panel)| open.then_some(panel))
+    .collect();
+    let kind_of = |id| document.feature(id).map(|feature| &feature.kind);
+    let situation = guide::Situation {
+        tool: editing.active().map(|active| active.tool),
+        choosing_plane: editing.is_choosing_plane(),
+        open_feature: editing.solid().and_then(kind_of),
+        panels: &side_panels,
+        tree_row: basis.panels.selected.and_then(kind_of),
+    };
+    let page = guide::context(&situation).map(guide::Context::page);
+    let detail = page.map(|page| format!("Opens “{}”", page.title()));
+    if commands.invoke_detailed(Command::Guide, detail, &Ok::<(), String>(())) {
+        guide.toggle_at(page);
+    }
 }
 
 fn welcome_chosen(choice: WelcomeChoice, model: &Model, actions: &mut Vec<Action>) {

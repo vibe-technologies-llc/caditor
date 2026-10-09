@@ -52,6 +52,8 @@ mod fonts;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
 mod graphics;
+mod guide;
+mod guide_panel;
 mod headless;
 mod history;
 mod hole_panel;

@@ -242,6 +242,7 @@ pub enum Command {
     DismissTip,
     HideTips,
     Welcome,
+    Guide,
     About,
     Messages,
     Mate,
@@ -510,6 +511,7 @@ plain_commands! {
     Preferences,
     KeyboardShortcuts,
     Welcome,
+    Guide,
     About,
     Messages,
     Quit,
@@ -929,6 +931,7 @@ impl Command {
             Self::DismissTip => "help.dismiss_tip",
             Self::HideTips => "help.hide_tips",
             Self::Welcome => "help.welcome",
+            Self::Guide => "help.guide",
             Self::About => "help.about",
             Self::Messages => "help.messages",
             Self::Mate => "model.mate",
@@ -1136,6 +1139,7 @@ impl Command {
             Self::DismissTip => "Dismiss the tip",
             Self::HideTips => "Hide tips",
             Self::Welcome => "Welcome and samples…",
+            Self::Guide => "User guide",
             Self::About => "About caditor",
             Self::Messages => "Recent messages",
             Self::Mate => "Mate body",
@@ -1171,9 +1175,12 @@ impl Command {
             | Self::CancelExport
             | Self::CancelImageExport
             | Self::CancelImport => Category::File,
-            Self::Welcome | Self::About | Self::Messages | Self::DismissTip | Self::HideTips => {
-                Category::Help
-            }
+            Self::Welcome
+            | Self::Guide
+            | Self::About
+            | Self::Messages
+            | Self::DismissTip
+            | Self::HideTips => Category::Help,
             Self::Palette
             | Self::Undo
             | Self::UndoHistory
@@ -1430,6 +1437,7 @@ impl Command {
             Self::Recompute => vec![plain(Key::F5)],
             Self::EditFeature => vec![plain(Key::E)],
             Self::ShowFirstFailed => vec![plain(Key::F8)],
+            Self::Guide => vec![plain(Key::F1)],
             Self::FilterFeatures => vec![command(Key::F)],
             Self::RollbackUp => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowUp)],
             Self::RollbackDown => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowDown)],
@@ -1565,7 +1573,7 @@ impl Command {
         }
     }
 
-    fn from_id(id: &str) -> Option<Self> {
+    pub fn from_id(id: &str) -> Option<Self> {
         Self::all().find(|command| command.id() == id)
     }
 }

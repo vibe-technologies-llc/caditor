@@ -8,7 +8,8 @@ use crate::{
     appearance::{SPACE_M, SPACE_S},
     commands::{Command, CommandFrame},
     editing::SketchEditing,
-    icons, layout,
+    guide::Page,
+    guide_panel, icons, layout,
     model::{Action, Model},
     selection::{Pickable, Selection},
     sketch_tools,
@@ -94,6 +95,7 @@ pub fn show(
             ui.add_space(SPACE_S);
             widgets::panel_header(ui, icons::AUTOMATIC_CONSTRAINTS, TITLE, |ui| {
                 close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+                guide_panel::help_button(ui, Page::AutomaticConstraints);
             });
             ui.add_space(SPACE_S);
             let choices: Vec<(&str, &str)> = Task::ALL

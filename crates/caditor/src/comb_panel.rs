@@ -3,7 +3,8 @@ use egui::{Label, ScrollArea, Slider, TextWrapMode, Ui};
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     comb::{self, Comb, CombTool, Continuity},
-    icons, layout,
+    guide::Page,
+    guide_panel, icons, layout,
     model::Model,
     units::Units,
     widgets::{self, Tone},
@@ -144,6 +145,7 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut CombTool, comb: &Comb, room: 
             ui.add_space(SPACE_S);
             widgets::panel_header(ui, icons::CURVATURE_COMB, TITLE, |ui| {
                 close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+                guide_panel::help_button(ui, Page::CurvatureComb);
             });
             ui.add_space(SPACE_S);
             ScrollArea::vertical().show(ui, |ui| {

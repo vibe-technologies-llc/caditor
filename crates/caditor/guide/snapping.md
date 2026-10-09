@@ -1,0 +1,28 @@
+# Snapping
+
+While drawing, the pointer snaps to what is near it, and a label beside it names the snap. A
+snapped point keeps the relation as a constraint, so a line ending on a circle stays on it.
+
+## What it snaps to
+
+- Points, the sketch origin and the middle of lines and arcs.
+- The centre of a closed outline such as a rectangle, slot or regular polygon.
+- Where two curves cross, and the right, top, left and bottom of circles and arcs.
+- Any line, circle, arc, spline or axis, and the extension of a line past its ends.
+- The point where a line from its start would touch a circle or arc.
+
+## Directions and tracking
+
+A line near horizontal or vertical, or near parallel or perpendicular to a nearby line, takes that
+direction exactly. Points you hover are remembered for a while: moving level with one, or straight
+above it, shows a dashed guide and lines the new point up with it.
+
+## Controlling it
+
+- Hold Ctrl to place a point exactly under the pointer, with no snapping or guides.
+- Hold Alt to step along the grid: the point lands on the nearest grid crossing unless something to
+  snap to is nearer.
+- {command:view.toggle_snapping} turns snapping off for good; Alt still snaps.
+- {command:view.toggle_grid_snapping} puts free points on the grid's crossings.
+
+Dragging geometry with Select snaps the same way.

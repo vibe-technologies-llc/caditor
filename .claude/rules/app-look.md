@@ -206,8 +206,8 @@ paths:
 
 ## Side panel
 
-- The model panel, Measure, Interference, Analyse faces, the curvature comb and Constrain
-  automatically together take at most `MAX_PANELS_SHARE` (60%) of the
+- The model panel, Measure, Interference, Analyse faces, the curvature comb, Constrain
+  automatically and the user guide (`app.md`) together take at most `MAX_PANELS_SHARE` (60%) of the
   window, split evenly between those open (`layout::panel_room`, `panel_widths`); each one's
   minimum width yields to that share, so at 200% on a small screen the 3D view keeps a usable
   width. A model panel narrowed by the share keeps the width the user chose for when there is room.
