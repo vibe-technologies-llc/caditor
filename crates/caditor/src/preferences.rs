@@ -1,9 +1,11 @@
+use caditor_document::Rgb;
 use caditor_file::{Settings, SettingsError};
 use caditor_render::{AdapterPreference, Msaa, ProjectionMode, Shading};
 use egui::{Id, KeyboardShortcut, Label, ThemePreference, Ui};
 
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
+    body_appearance::SWATCHES,
     commands::{self, Command, Keymap},
     defender,
     dialog_parts::{self, BodyRoom},
@@ -32,6 +34,8 @@ const INPUT_MODE_KEY: &str = "navigation.input_mode";
 const PROJECTION_KEY: &str = "navigation.projection";
 const TITLE_BAR_KEY: &str = "appearance.title_bar";
 const PALETTE_RECENT_KEY: &str = "palette.recent";
+const RECENT_COLOURS_KEY: &str = "body.recent_colours";
+pub const RECENT_COLOURS_LIMIT: usize = 6;
 const EMPTY_MODEL: &str = "An empty model";
 const DIALOG_HEIGHT_SHARE: f32 = 0.75;
 const HEIGHT_CHANGE: f32 = 0.5;
@@ -400,6 +404,7 @@ pub struct Preferences {
     pub panels: PanelLayout,
     pub default_template: Option<String>,
     pub palette_recent: Vec<Command>,
+    pub recent_colours: Vec<Rgb>,
     loaded_keymap: Keymap,
     raw: Settings,
 }
@@ -433,6 +438,7 @@ pub enum PreferenceChange {
     ShowHints(bool),
     RestoreHints,
     DefenderReminded,
+    RecentColour(Rgb),
     Defaults(PreferencesTab),
 }
 
@@ -503,6 +509,17 @@ fn palette_recent(raw: &Settings) -> Vec<Command> {
     recent
 }
 
+fn recent_colours(raw: &Settings) -> Vec<Rgb> {
+    let mut recent = Vec::new();
+    let stored = raw.texts(RECENT_COLOURS_KEY).unwrap_or_default();
+    for colour in stored.iter().filter_map(|hex| Rgb::from_hex(hex)) {
+        if recent.len() < RECENT_COLOURS_LIMIT && !recent.contains(&colour) {
+            recent.push(colour);
+        }
+    }
+    recent
+}
+
 fn speed(value: Option<f64>) -> f64 {
     value.map_or(1.0, |value| value.clamp(MIN_SPEED, MAX_SPEED))
 }
@@ -552,6 +569,7 @@ impl Preferences {
             panels: PanelLayout::from_settings(&raw),
             default_template: templates::default_template(&raw),
             palette_recent: palette_recent(&raw),
+            recent_colours: recent_colours(&raw),
             loaded_keymap: Keymap::from_settings(&raw),
             raw,
         }
@@ -583,6 +601,14 @@ impl Preferences {
                 .map(|command| command.id().to_owned())
                 .collect();
             settings.set_texts(PALETTE_RECENT_KEY, &ids);
+        }
+        if !self.recent_colours.is_empty() {
+            let hexes: Vec<String> = self
+                .recent_colours
+                .iter()
+                .map(|colour| colour.hex())
+                .collect();
+            settings.set_texts(RECENT_COLOURS_KEY, &hexes);
         }
         settings
     }
@@ -623,12 +649,22 @@ impl Preferences {
             }
             PreferenceChange::ShowHints(shown) => self.onboarding.hints = shown,
             PreferenceChange::DefenderReminded => self.onboarding.defender_reminded = true,
+            PreferenceChange::RecentColour(colour) => self.remember_colour(colour),
             PreferenceChange::RestoreHints => {
                 self.onboarding.hints = true;
                 self.onboarding.dismissed.clear();
             }
             PreferenceChange::Defaults(tab) => self.restore_defaults(tab),
         }
+    }
+
+    fn remember_colour(&mut self, colour: Rgb) {
+        if SWATCHES.iter().any(|swatch| swatch.colour == colour) {
+            return;
+        }
+        self.recent_colours.retain(|kept| *kept != colour);
+        self.recent_colours.insert(0, colour);
+        self.recent_colours.truncate(RECENT_COLOURS_LIMIT);
     }
 
     pub fn restoring(&self, change: &PreferenceChange) -> Option<Restored> {
@@ -1213,6 +1249,59 @@ mod tests {
         assert_eq!(
             Preferences::from_settings(raw).palette_recent.len(),
             palette::RECENT_LIMIT
+        );
+    }
+
+    #[test]
+    fn recent_custom_colours_are_kept_newest_first_without_the_fixed_swatches() {
+        let mut preferences = Preferences::default();
+        let fixed = SWATCHES[0].colour;
+
+        for step in 1..=RECENT_COLOURS_LIMIT as u8 + 2 {
+            preferences.apply(PreferenceChange::RecentColour(Rgb::new(step, 0, 0)));
+        }
+        preferences.apply(PreferenceChange::RecentColour(Rgb::new(5, 0, 0)));
+        preferences.apply(PreferenceChange::RecentColour(fixed));
+
+        let expected: Vec<Rgb> = [5, 8, 7, 6, 4, 3]
+            .into_iter()
+            .map(|red| Rgb::new(red, 0, 0))
+            .collect();
+
+        assert_eq!(preferences.recent_colours, expected);
+        assert_eq!(
+            Preferences::from_settings(preferences.settings()).recent_colours,
+            expected
+        );
+    }
+
+    #[test]
+    fn stored_recent_colours_skip_what_cannot_be_read_and_older_files_have_none() {
+        let mut raw = Settings::default();
+        raw.set_texts(
+            RECENT_COLOURS_KEY,
+            &[
+                "#336699".to_owned(),
+                "not a colour".to_owned(),
+                "#336699".to_owned(),
+                "#f80".to_owned(),
+            ],
+        );
+
+        let preferences = Preferences::from_settings(raw);
+
+        assert_eq!(
+            preferences.recent_colours,
+            [Rgb::new(51, 102, 153), Rgb::new(255, 136, 0)]
+        );
+        assert!(
+            Preferences::from_settings(Settings::default())
+                .recent_colours
+                .is_empty()
+        );
+        assert_eq!(
+            Preferences::default().settings().texts(RECENT_COLOURS_KEY),
+            None
         );
     }
 

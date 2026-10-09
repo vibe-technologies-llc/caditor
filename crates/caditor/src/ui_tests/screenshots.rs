@@ -784,6 +784,14 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     model.frame();
     model.frame();
     shoot(model, gpu, out, "body-appearance", look);
+    model.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::RecentColour(caditor_document::Rgb::new(51, 102, 153)),
+    )));
+    model.frame();
+    model.click_button(crate::body_appearance::CUSTOM_COLOUR_NAME);
+    model.frame();
+    model.frame();
+    shoot(model, gpu, out, "body-appearance-custom", look);
     model.workspace.panels.painting = None;
     model.frame();
     let keys: Vec<_> = model

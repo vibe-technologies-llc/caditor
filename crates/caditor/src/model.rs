@@ -8,8 +8,8 @@ use std::{
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
     FeatureResult, FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Pivot, Prepared,
-    Progress, Recomputer, SketchResult, Stale, Transaction, TurnCentre, UndoMark, displayed_axis,
-    displayed_frame,
+    Progress, Recomputer, Rgb, SketchResult, Stale, Transaction, TurnCentre, UndoMark,
+    displayed_axis, displayed_frame,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, JournalEntry, JournalFailure, KeepRequest, Recovered, Report,
@@ -225,6 +225,7 @@ pub struct Model {
     file_events: Vec<FileEvent>,
     length_unit: LengthUnit,
     angle_unit: AngleUnit,
+    recent_colours: Vec<Rgb>,
     mesh_quality: MeshQuality,
     mesh_requested: Vec<Arc<FeatureResult>>,
     regions_requested: Option<Arc<FeatureResult>>,
@@ -264,6 +265,7 @@ impl Model {
             file_events: Vec::new(),
             length_unit: LengthUnit::default(),
             angle_unit: AngleUnit::default(),
+            recent_colours: Vec::new(),
             mesh_quality: MeshQuality::default(),
             mesh_requested: Vec::new(),
             regions_requested: None,
@@ -300,6 +302,15 @@ impl Model {
 
     pub fn set_length_unit(&mut self, unit: LengthUnit) {
         self.length_unit = unit;
+    }
+
+    pub fn recent_colours(&self) -> &[Rgb] {
+        &self.recent_colours
+    }
+
+    pub fn set_recent_colours(&mut self, colours: &[Rgb]) {
+        self.recent_colours.clear();
+        self.recent_colours.extend_from_slice(colours);
     }
 
     pub fn mesh_quality(&self) -> MeshQuality {

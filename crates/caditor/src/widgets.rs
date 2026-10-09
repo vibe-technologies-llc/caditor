@@ -248,6 +248,21 @@ pub fn label_before_icon_buttons(ui: &mut Ui, text: &str, buttons: usize) -> Res
 }
 
 pub fn swatch(ui: &mut Ui, fill: Color32, name: &str, chosen: bool) -> Response {
+    paint_swatch(ui, fill, None, name, chosen)
+}
+
+pub fn icon_swatch(ui: &mut Ui, glyph: &str, name: &str, chosen: bool) -> Response {
+    let fill = appearance::tokens(ui).sunken;
+    paint_swatch(ui, fill, Some(glyph), name, chosen)
+}
+
+fn paint_swatch(
+    ui: &mut Ui,
+    fill: Color32,
+    glyph: Option<&str>,
+    name: &str,
+    chosen: bool,
+) -> Response {
     let tokens = appearance::tokens(ui);
     let side = ui.spacing().interact_size.y;
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
@@ -267,6 +282,15 @@ pub fn swatch(ui: &mut Ui, fill: Color32, name: &str, chosen: bool) -> Response 
             Stroke::new(BORDER_WIDTH, outline),
             StrokeKind::Inside,
         );
+        if let Some(glyph) = glyph {
+            painter.text(
+                colour.center(),
+                Align2::CENTER_CENTER,
+                glyph,
+                egui::FontId::new(ICON_SIZE, fonts::icons()),
+                tokens.text,
+            );
+        }
         if chosen {
             painter.rect_stroke(
                 colour,
