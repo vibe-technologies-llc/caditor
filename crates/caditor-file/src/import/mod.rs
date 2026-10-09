@@ -7,6 +7,9 @@ mod mesh;
 mod mesh_tests;
 mod model;
 mod sketch;
+mod svg;
+#[cfg(test)]
+mod svg_tests;
 #[cfg(test)]
 mod tests;
 mod zip_read;
@@ -26,15 +29,18 @@ pub use crate::import::{
         read_step_file,
     },
     sketch::{DrawingImport, SketchTarget, drawing_transaction},
+    svg::{SVG_EXTENSIONS, parse_svg},
 };
 use crate::{read::read_file, reason::ReadFailure};
 
 pub const DXF_EXTENSION: &str = "dxf";
+pub const DRAWING_IMPORT_EXTENSIONS: [&str; 3] = [DXF_EXTENSION, "svg", "svgz"];
 pub const MAX_DRAWING_CURVES: usize = 20_000;
 pub const MAX_READ_CURVES: usize = 5 * MAX_DRAWING_CURVES;
 pub const MAX_EXPANDED_OBJECTS: usize = 1_000_000;
 pub const MAX_DRAWING_POINTS: usize = 2_000_000;
 pub const MAX_DRAWING_VALUES: usize = 16_000_000;
+pub const MAX_DRAWING_ELEMENTS: usize = 4_000_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DrawingCurve {
@@ -142,6 +148,8 @@ pub enum ImportError {
     Cancelled,
     #[error("it is not a DXF drawing")]
     NotDxf,
+    #[error("it is not an SVG drawing")]
+    NotSvg,
     #[error("it is not a STEP file")]
     NotStep,
     #[error("{0}")]
@@ -195,12 +203,43 @@ pub enum ImportError {
          reads from one drawing; split it into smaller drawings"
     )]
     TooManyValues,
+    #[error(
+        "it holds more than {MAX_DRAWING_ELEMENTS} elements, more than caditor reads from one \
+         drawing; split it into smaller drawings"
+    )]
+    TooManyElements,
+    #[error(
+        "its reused elements repeat into more than {MAX_EXPANDED_OBJECTS} objects, more than \
+         caditor reads from one drawing"
+    )]
+    TooManyCopies,
 }
 
 pub fn read_dxf(path: &Path, cancel: &CancelToken) -> Result<Drawing, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
     ensure_going(cancel)?;
     let drawing = parse_dxf(&bytes)?;
+    ensure_going(cancel)?;
+    Ok(drawing)
+}
+
+pub fn read_drawing(path: &Path, cancel: &CancelToken) -> Result<Drawing, ImportError> {
+    let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
+    ensure_going(cancel)?;
+    let named = |extensions: &[&str]| {
+        path.extension().is_some_and(|extension| {
+            extensions
+                .iter()
+                .any(|known| extension.eq_ignore_ascii_case(known))
+        })
+    };
+    let is_svg =
+        named(&SVG_EXTENSIONS) || (!named(&[DXF_EXTENSION]) && svg::looks_like_svg(&bytes));
+    let drawing = if is_svg {
+        parse_svg(&bytes)
+    } else {
+        parse_dxf(&bytes)
+    }?;
     ensure_going(cancel)?;
     Ok(drawing)
 }

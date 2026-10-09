@@ -1,6 +1,6 @@
 mod code_page;
-mod flatten;
-mod geometry;
+pub(super) mod flatten;
+pub(super) mod geometry;
 mod hatch;
 mod mline;
 mod outline;

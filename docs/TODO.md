@@ -354,12 +354,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Drawing import and export
 
-- [medium · medium] No SVG import: logos, outlines drawn in a vector editor and laser-cutting files
-  cannot be brought into a sketch. A finished import reads paths (lines, elliptical arcs, quadratic
-  and cubic Béziers as exact splines), the basic shapes and their transforms, sizes them from the
-  document's width and viewBox in millimetres (a bare pixel at CSS's 96 to 25.4 mm, with a note
-  saying so), and goes through the same dialog as DXF: scale, centring and the groups to leave
-  out.
+- [low · medium] SVG import does not read `<style>` sheets, so an element hidden or dashed through a
+  class is imported as drawn, and a `symbol` placed by a `use` ignores its own viewBox and the
+  use's width and height. Text is left out with a note rather than imported as outlines, and
+  markers are not drawn.
 - [low · medium] Drawing export nests bounding rectangles, so an L-shaped or ring part never takes
   a smaller part into its hollow, and turns only by quarter turns. Its dimensions are placed by a
   fixed offset from the sketch's middle without the canvas's lanes or obstacle avoidance, so

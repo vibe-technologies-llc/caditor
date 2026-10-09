@@ -346,6 +346,7 @@ jobs:
         include:
           - { target: expression, seeds: expression, dictionary: expression }
           - { target: dxf, seeds: dxf, dictionary: dxf }
+          - { target: svg, seeds: svg, dictionary: svg }
           - { target: model, seeds: model, dictionary: model }
           - { target: model_sealed, seeds: model, dictionary: model }
           - { target: journal, seeds: journal, dictionary: model }

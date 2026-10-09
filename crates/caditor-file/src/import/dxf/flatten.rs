@@ -31,7 +31,7 @@ struct Tally {
     deviation: f64,
 }
 
-pub(super) fn flatten(
+pub(in crate::import) fn flatten(
     shapes: &[Shape],
     layers: &[usize],
     dashed: &BTreeSet<usize>,

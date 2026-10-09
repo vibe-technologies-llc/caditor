@@ -44,6 +44,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "svg"
+path = "fuzz_targets/svg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "model"
 path = "fuzz_targets/model.rs"
 test = false

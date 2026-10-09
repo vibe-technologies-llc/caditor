@@ -4,7 +4,7 @@ paths:
   - "crates/caditor-file/src/export/**"
 ---
 
-# DXF and STEP import, export
+# DXF, SVG and STEP import, export
 
 ## DXF import (`import/`)
 
@@ -51,12 +51,66 @@ paths:
 - `drawing_transaction` makes one transaction on an existing or new sketch, dropping curves shorter
   than the joint tolerance and joining ends within it with `Coincident` constraints.
 
+## SVG import (`import/svg/`)
+
+- `read_drawing` reads SVG for a `.svg` or `.svgz` file, or a file not named `.dxf` whose content
+  starts with `<` (after a BOM and spaces), gzip or a UTF-16 BOM; anything else goes to
+  `parse_dxf`. `parse_svg` unpacks gzip like `.stpz` (`model::unpacked`), decodes UTF-8 or
+  UTF-16 by BOM, else Latin-1 with a note, and returns the same `Drawing` as DXF, flattened by the
+  DXF reader's `flatten`, so the import dialog, arrangement and `drawing_transaction` are shared.
+- `xml.rs` is caditor's own small XML reader, since roxmltree's tokenizer recurses per nesting
+  level and overflows the stack on hostile depth: iterative, namespaces resolved, attribute values
+  decoded (the five named entities, character references and the DOCTYPE's own text entities,
+  which Illustrator uses for `xmlns`; an entity holding markup, nested past `MAX_ENTITY_DEPTH` or
+  expanding past `MAX_ENTITY_WORK` is damage), text content never decoded. Past
+  `MAX_DRAWING_ELEMENTS` elements the file is `ImportError::TooManyElements`. Damage ends reading
+  where it is found: the elements before it are kept with their open ancestors and a note names
+  the line; damage before the root element is `DamagedAt`.
+- The root `svg` sizes the drawing (`sizing.rs`): with a viewBox and a width or height, a user unit
+  is that length in millimetres over the viewBox's side (`preserveAspectRatio` meet takes the
+  smaller of the two, slice the larger, none each); mm, cm, in, pt, pc and px are converted and
+  every unit but millimetres gets a note; a bare number is a CSS pixel, as is every user unit
+  without a viewBox or size, 96 to the inch, with a note saying a pixel is 0.2646 mm. The
+  viewBox's origin is not subtracted, so user coordinates keep their place and caditor's own SVG
+  export reads back where it was drawn; y is flipped to point up. `Drawing::unit_scale` is the
+  millimetres per user unit, so the dialog's unit choice reads user units as that unit.
+- Lengths inside take units at 96 px to the inch and percentages of the nearest viewport (x of its
+  width, y of its height, a radius of the normalised diagonal); a nested `svg` places its viewBox
+  with x, y, width, height and `preserveAspectRatio` alignment.
+- `path` reads every command, absolute and relative, with implicit repeats and the reflected
+  controls of S and T; damaged data is read up to the damage and counted. Quadratic and cubic
+  Béziers become exact sketch splines (three or four control points, clamped with no inner knots,
+  as `BSpline::clamped` makes them) and a Bézier whose controls lie on its chord a line; elliptical
+  arcs follow the SVG centre conversion (radii too small scaled up, a zero radius a line) and
+  become a conic, which `flatten` makes an arc when circular after the transforms and otherwise a
+  spline within the drawing's fit tolerance with the ellipse note. `rect` (rounded with
+  auto `rx`/`ry` clamped to half the sides), `circle`, `ellipse`, `line`, `polyline` and `polygon`
+  are read; zero-sized shapes draw nothing.
+- `transform` lists (`matrix`, `translate`, `scale`, `rotate` about a point, `skewX`, `skewY`)
+  compose down the tree; one that cannot be read is ignored and counted. `use` places its target
+  (`href` or `xlink:href`, by id) at x and y, a `symbol` drawn as a group without its own viewBox;
+  a target that is the use's own ancestor or already being placed, uses nested past
+  `MAX_USE_DEPTH` and elements nested past `MAX_NESTING` are left out with a note. Inside a use
+  every element and shape is charged against `MAX_EXPANDED_OBJECTS` (`TooManyCopies`), and each
+  element's properties and local shapes are decoded once and shared by its instances.
+- Layers: below the root (or below a single group that wraps everything, repeatedly) each group or
+  nested `svg` is a layer named by its `inkscape:label`, else its `id`, else `Group <n>`; shapes
+  outside them are on `Ungrouped`. Layers are interned like DXF's, names compared without case.
+- `display: none` and `visibility: hidden` (attribute or `style`) leave elements out with a note;
+  `stroke-dasharray` (inherited) makes curves construction geometry, as a dashed DXF linetype does;
+  a `clip-path` or `mask` is ignored and counted, the shape imported whole. A `switch` draws its
+  first child without conditions. `text`, `image` and `foreignObject` are counted as left out,
+  other unknown SVG elements named in a note, definitions, styles and metadata skipped silently,
+  and elements of other namespaces (Inkscape's, Sodipodi's) ignored. `<style>` sheets are not
+  read. Shapes whose numbers overflow are left out and counted; the curve, point and empty limits
+  are DXF's.
+
 ## STEP import (`import/model.rs`)
 
 - `read_step_file` unpacks gzip first (`.stpz`, or the gzip magic), within `MAX_FILE_SIZE` and with
   the trailer's CRC and size checked, else `DamagedArchive` or `UnpacksTooLarge`. Non-UTF-8 text
   is read as Latin-1 with a note.
-- `read_step_file`, `read_mesh_file` and `read_dxf` take a `CancelToken`: it is checked between
+- `read_step_file`, `read_mesh_file`, `read_dxf` and `read_drawing` take a `CancelToken`: it is checked between
   the file's stages and installed as the kernel interrupt around parsing and building, so the STEP
   reader stops between solids (`ReadError::Cancelled`) and meshing stops inside a shell. A
   cancelled read is `ImportError::Cancelled`, never a partial import.

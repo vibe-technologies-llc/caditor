@@ -8,7 +8,7 @@ const FULL_TURN_TOLERANCE: f64 = 1e-9;
 const CIRCULAR_TOLERANCE: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Affine {
+pub(in crate::import) struct Affine {
     x: Vector3,
     y: Vector3,
     z: Vector3,
@@ -57,6 +57,15 @@ impl Affine {
         }
     }
 
+    pub fn planar(x: Vector2, y: Vector2, origin: Point2) -> Self {
+        Self {
+            x: x.extend(0.0),
+            y: y.extend(0.0),
+            z: Vector3::Z,
+            origin: origin.extend(0.0),
+        }
+    }
+
     pub fn rotation_z(angle: f64) -> Self {
         let (sin, cos) = angle.sin_cos();
         Self {
@@ -90,7 +99,7 @@ impl Affine {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct Nurbs {
+pub(in crate::import) struct Nurbs {
     pub degree: usize,
     pub knots: Vec<f64>,
     pub points: Vec<Point3>,
@@ -218,7 +227,7 @@ impl Nurbs {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum Shape {
+pub(in crate::import) enum Shape {
     Point(Point3),
     Line(Point3, Point3),
     Conic {
@@ -233,7 +242,7 @@ pub(super) enum Shape {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(super) struct FitPoints {
+pub(in crate::import) struct FitPoints {
     pub points: Vec<Point3>,
     pub start_tangent: Option<Vector3>,
     pub end_tangent: Option<Vector3>,

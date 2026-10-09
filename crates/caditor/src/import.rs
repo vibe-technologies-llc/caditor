@@ -20,9 +20,9 @@ use crate::{
     model::{Action, Model, Notice, SessionBase, display_name},
 };
 
-pub const IMPORT_HINT: &str = "Add a DXF drawing to the sketch you are editing or to a new sketch, \
-                               or the bodies of a STEP model or an STL, OBJ or 3MF mesh to the \
-                               model";
+pub const IMPORT_HINT: &str = "Add a DXF or SVG drawing to the sketch you are editing or to a new \
+                               sketch, or the bodies of a STEP model or an STL, OBJ or 3MF mesh \
+                               to the model";
 const STEP_SIGNATURE: &[u8] = b"ISO-10303-21";
 const SNIFFED_BYTES: usize = 256;
 const MAX_NAME_CHARACTERS: usize = 60;

@@ -175,7 +175,7 @@ fn zstd_seeds_decompress_after_their_prefix() {
 }
 
 #[test]
-fn step_and_dxf_seeds_import() {
+fn step_dxf_and_svg_seeds_import() {
     for (path, bytes) in seeds_in("step") {
         let text = String::from_utf8(bytes).unwrap();
         let import = parse_step(&text, "seed.step")
@@ -185,6 +185,11 @@ fn step_and_dxf_seeds_import() {
     for (path, bytes) in seeds_in("dxf") {
         let drawing =
             parse_dxf(&bytes).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        assert!(!drawing.curves.is_empty(), "{}", path.display());
+    }
+    for (path, bytes) in seeds_in("svg") {
+        let drawing =
+            parse_svg(&bytes).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         assert!(!drawing.curves.is_empty(), "{}", path.display());
     }
 }
