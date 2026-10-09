@@ -2607,7 +2607,7 @@ fn operation_record(operation: BodyOperation) -> OperationRecord {
     }
 }
 
-fn plane_record(plane: Plane) -> PlaneRecord {
+pub(crate) fn plane_record(plane: Plane) -> PlaneRecord {
     PlaneRecord {
         origin: plane.origin().to_array(),
         normal: plane.normal().to_array(),
@@ -3198,7 +3198,7 @@ fn restore_projections(
     projections
 }
 
-fn entity_record(id: EntityId, entity: &Entity, construction: bool) -> EntityRecord {
+pub(crate) fn entity_record(id: EntityId, entity: &Entity, construction: bool) -> EntityRecord {
     EntityRecord {
         id: id.raw(),
         construction,
@@ -3206,7 +3206,7 @@ fn entity_record(id: EntityId, entity: &Entity, construction: bool) -> EntityRec
     }
 }
 
-fn constraint_record(
+pub(crate) fn constraint_record(
     id: ConstraintId,
     constraint: &Constraint,
     inactive: bool,
@@ -5832,7 +5832,11 @@ fn restore_operation(record: OperationRecord) -> BodyOperation {
     }
 }
 
-fn restore_sketch(record: &SketchRecord, feature: &str, issues: &mut Vec<String>) -> Sketch {
+pub(crate) fn restore_sketch(
+    record: &SketchRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Sketch {
     let plane = restore_plane(record.plane).unwrap_or_else(|| {
         issues.push(format!(
             "The plane of “{feature}” could not be read, so the sketch was placed on the XY \

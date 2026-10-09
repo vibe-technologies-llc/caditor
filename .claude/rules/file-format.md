@@ -394,3 +394,22 @@ paths:
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
   before applying; each kind of record applied as one transaction, halved only where it fails; at
   most `MAX_RECORDS` parameters and features loaded, the rest reported.
+
+## Clipboard (`clipboard.rs`)
+
+- What caditor puts on the system clipboard is text: a header line
+  `caditor clipboard: <kind>, version <n>` (`ClipboardKind::SketchGeometry` or `Features`,
+  `CLIPBOARD_VERSION`), then one line of JSON made of the model file's own records
+  (`EntityRecord`, `ConstraintRecord`, `FeatureRecord`, each `Lenient`), so a damaged or unknown
+  item is left out with a note and the rest pastes, as when loading.
+- Each payload names its `source` (the copying process and document session, chosen by the app)
+  and carries the parameters its expressions use by id, name and value
+  (`CarriedParameters`, values as stored literal text); `PasteOrigin` is `ThisDocument` only when
+  the source is the reader's own, and parameters are then kept by id (`document.md`).
+- Sketch geometry is written from a scratch sketch the clip is pasted into and read back through
+  `restore_sketch` and `Sketch::clip`, so the same checks as loading apply; dimensions whose
+  parameters cannot be carried are left out with a note. The payload also names the sketch it was
+  copied from, so pasting into it again can shift the copy.
+- Reading refuses in words (`ClipboardError`): text without the header (`Foreign`), another kind,
+  an unknown kind, a newer version, damaged JSON, nothing usable, and text over
+  `MAX_CLIPBOARD_TEXT`. The header tolerates a byte-order mark and CRLF line ends.
