@@ -5420,7 +5420,7 @@ pub mod timing {
         (document, feature)
     }
 
-    fn plate_document() -> Document {
+    pub fn plate_document() -> Document {
         let mut document = Document::default();
         let mut transaction = document.transaction("Add plate");
         let sketch = transaction.add_feature("Plate sketch", FeatureKind::from(holed_plate()));
@@ -5595,6 +5595,18 @@ pub mod timing {
         scenario.time("model, camera moving", |state, _| orbit(state));
         scenario.time("model, hover changing", |state, frame| {
             hover(state, faces[frame as usize % faces.len()]);
+        });
+        scenario.time("model, whole body hovered, idle", |state, _| {
+            state.set_filter(SelectionFilter::Bodies);
+            hover(state, faces[0]);
+        });
+        scenario.time("model, whole body hover toggling", |state, frame| {
+            state.set_filter(SelectionFilter::Bodies);
+            if frame % 2 == 0 {
+                hover(state, faces[0]);
+            } else {
+                state.hovered = None;
+            }
         });
     }
 }
