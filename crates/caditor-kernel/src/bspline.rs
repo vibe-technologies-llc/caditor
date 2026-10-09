@@ -266,17 +266,7 @@ impl<P: Coordinates> BSpline<P> {
     }
 
     pub fn interpolating(degree: usize, points: &[P]) -> Result<Self, GeometryError> {
-        let count = points.len();
-        if degree == 0 || degree > MAX_SPLINE_DEGREE {
-            return Err(GeometryError::SplineDegree(degree));
-        }
-        if count <= degree {
-            return Err(GeometryError::TooFewControlPoints {
-                degree,
-                points: count,
-            });
-        }
-        let mut parameters = Vec::with_capacity(count);
+        let mut parameters = Vec::with_capacity(points.len());
         let mut travelled = 0.0;
         for (index, point) in points.iter().enumerate() {
             if let Some(previous) = index.checked_sub(1).and_then(|before| points.get(before)) {
@@ -288,16 +278,50 @@ impl<P: Coordinates> BSpline<P> {
             }
             parameters.push(travelled);
         }
-        let mut knots = vec![0.0; degree + 1];
-        for first in 1..count - degree {
-            let window = parameters.get(first..first + degree).unwrap_or_default();
+        Self::interpolating_at(degree, &parameters, points)
+    }
+
+    pub fn interpolating_at(
+        degree: usize,
+        parameters: &[f64],
+        points: &[P],
+    ) -> Result<Self, GeometryError> {
+        let count = points.len();
+        if degree == 0 || degree > MAX_SPLINE_DEGREE {
+            return Err(GeometryError::SplineDegree(degree));
+        }
+        if count <= degree {
+            return Err(GeometryError::TooFewControlPoints {
+                degree,
+                points: count,
+            });
+        }
+        if parameters.len() != count {
+            return Err(GeometryError::KnotCount {
+                degree,
+                points: count,
+                knots: parameters.len(),
+            });
+        }
+        let increasing = parameters
+            .windows(2)
+            .all(|pair| matches!(pair, [a, b] if a.is_finite() && b.is_finite() && a < b));
+        if !increasing {
+            return Err(GeometryError::Knots);
+        }
+        let (Some(first), Some(last)) = (parameters.first(), parameters.last()) else {
+            return Err(GeometryError::Knots);
+        };
+        let mut knots = vec![*first; degree + 1];
+        for start in 1..count - degree {
+            let window = parameters.get(start..start + degree).unwrap_or_default();
             knots.push(window.iter().sum::<f64>() / degree as f64);
         }
-        knots.extend(std::iter::repeat_n(travelled, degree + 1));
+        knots.extend(std::iter::repeat_n(*last, degree + 1));
         let shape = Self::new(degree, knots.clone(), vec![P::ORIGIN; count])?;
         let mut band = Vec::with_capacity(count);
         let mut firsts = Vec::with_capacity(count);
-        for parameter in &parameters {
+        for parameter in parameters {
             let span = shape.span(*parameter);
             band.push(shape.basis_values(span, *parameter));
             firsts.push(span - degree);
@@ -1045,6 +1069,29 @@ mod tests {
         assert!(matches!(
             BSpline::interpolating(3, &[Point3::ZERO; 5]),
             Err(GeometryError::ZeroDirection)
+        ));
+    }
+
+    #[test]
+    fn a_spline_interpolating_at_given_parameters_meets_each_point_there() {
+        let on_helix = |angle: f64| Point3::new(angle.cos(), angle.sin(), 0.2 * angle);
+        let parameters: Vec<f64> = (0..=12).map(|index| 1.0 + index as f64 * 0.5).collect();
+        let points: Vec<Point3> = parameters.iter().map(|angle| on_helix(*angle)).collect();
+
+        let spline = BSpline::interpolating_at(3, &parameters, &points).unwrap();
+
+        assert_eq!(spline.domain(), Interval::new(1.0, 7.0).unwrap());
+        for (parameter, point) in parameters.iter().zip(&points) {
+            assert!(spline.point(*parameter).distance(*point) < 1e-12);
+        }
+        assert!(spline.point(2.25).distance(on_helix(2.25)) < 1e-3);
+        assert!(matches!(
+            BSpline::interpolating_at(3, &[0.0, 1.0, 1.0, 2.0, 3.0], &points[..5]),
+            Err(GeometryError::Knots)
+        ));
+        assert!(matches!(
+            BSpline::interpolating_at(3, &parameters[..4], &points[..5]),
+            Err(GeometryError::KnotCount { .. })
         ));
     }
 }

@@ -365,6 +365,16 @@ impl Surface {
             .map(|(surface, _)| surface)
     }
 
+    pub fn similar(&self, similarity: &Similarity) -> Result<(Self, Sense), GeometryError> {
+        let (surface, uv) = self.mapped(similarity)?;
+        let sense = if uv.keeps_orientation() {
+            Sense::Same
+        } else {
+            Sense::Reversed
+        };
+        Ok((surface, sense))
+    }
+
     pub(crate) fn mapped(&self, similarity: &Similarity) -> Result<(Self, UvMap), GeometryError> {
         let scale = similarity.scale();
         let stretch = Affine::scaling(scale);

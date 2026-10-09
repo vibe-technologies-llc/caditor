@@ -217,9 +217,18 @@ pub fn with_face_colours(
         .cloned()
         .collect();
     if let Some(colour) = colour {
+        let opacity_of = |face: &FaceReference| {
+            appearance
+                .faces
+                .iter()
+                .rev()
+                .find(|coloured| coloured.face.name() == face.name())
+                .and_then(|coloured| coloured.opacity)
+        };
         faces_coloured.extend(faces.iter().map(|face| FaceColour {
             face: face.clone(),
             colour,
+            opacity: opacity_of(face),
         }));
     }
     BodyAppearance {

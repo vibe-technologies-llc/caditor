@@ -1,14 +1,17 @@
 use std::{collections::BTreeMap, path::Path, sync::Arc, time::SystemTime};
 
 use caditor_document::{
-    BodyAppearance, BodyPlacement, CancelToken, Document, Edit, FeatureKind, Import,
-    MAX_GROUP_NAME_CHARS, ParameterValues, Rgb, Transaction, group_name, nearest_opacity_step,
+    BodyAppearance, BodyPlacement, CancelToken, Document, Edit, FaceColour, FeatureKind, Import,
+    MAX_GROUP_NAME_CHARS, OPAQUE_PERCENT, ParameterValues, Rgb, Transaction, group_name,
+    nearest_opacity_step,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Similarity, Vector3};
-use caditor_kernel::{LINEAR_RESOLUTION, Solid, check_interrupt, interruptible};
+use caditor_kernel::{
+    FaceName, FaceOrigin, FaceReference, LINEAR_RESOLUTION, Solid, check_interrupt, interruptible,
+};
 use caditor_step::{
-    Misplacement, ReadError, StepBody, StepCopy, read_step, read_step_copies, write_step,
+    FaceLook, Misplacement, ReadError, StepBody, StepCopy, read_step, read_step_copies, write_step,
 };
 
 use crate::{
@@ -44,6 +47,14 @@ pub struct ImportedBody {
     pub colour: Option<Rgb>,
     pub opacity: Option<u8>,
     pub group: Option<String>,
+    pub faces: Vec<ImportedFace>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImportedFace {
+    pub face: u32,
+    pub colour: Option<Rgb>,
+    pub opacity: Option<u8>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -171,18 +182,22 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
                     colour,
                     opacity,
                     layer,
+                    faces,
                 } = copy;
                 match solid.mapped(&placement) {
                     Ok(mapped) => match canonical(&name, &mapped) {
                         Some(lumps) => {
+                            let opacity = opacity.and_then(nearest_opacity_step);
+                            let faces = face_looks(&faces, opacity, &mapped, &lumps);
                             imported
                                 .bodies
                                 .extend(lumps.into_iter().map(|(stored, step)| ImportedBody {
                                     import: Import::new(source, stored, step),
                                     name: name.clone(),
                                     colour: colour.map(rgb),
-                                    opacity: opacity.and_then(nearest_opacity_step),
+                                    opacity,
                                     group: layer.clone(),
+                                    faces: faces.clone(),
                                 }))
                         }
                         None => lost.push(name),
@@ -228,6 +243,8 @@ fn placed_copies(
     } else {
         body_placement(&copy.placement, &copy.solid)?
     };
+    let opacity = copy.opacity.and_then(nearest_opacity_step);
+    let faces = face_looks(&copy.faces, opacity, &copy.solid, lumps);
     Some(
         lumps
             .iter()
@@ -236,11 +253,43 @@ fn placed_copies(
                     .placed(placement.clone()),
                 name: copy.name.clone(),
                 colour: copy.colour.map(rgb),
-                opacity: copy.opacity.and_then(nearest_opacity_step),
+                opacity,
                 group: copy.layer.clone(),
+                faces: faces.clone(),
             })
             .collect(),
     )
+}
+
+fn face_looks<S: std::borrow::Borrow<Solid>>(
+    looks: &[FaceLook],
+    body_opacity: Option<u8>,
+    read: &Solid,
+    lumps: &[(S, impl Sized)],
+) -> Vec<ImportedFace> {
+    let [(stored, _)] = lumps else {
+        return Vec::new();
+    };
+    if stored.borrow().faces().count() != read.faces().count() {
+        return Vec::new();
+    }
+    let body_opacity = body_opacity.unwrap_or(OPAQUE_PERCENT);
+    looks
+        .iter()
+        .filter_map(|look| {
+            let opacity = look
+                .opacity
+                .map(|percent| nearest_opacity_step(percent).unwrap_or(OPAQUE_PERCENT))
+                .filter(|opacity| *opacity != body_opacity);
+            let colour = look.colour.map(rgb);
+            let face = u32::try_from(look.face).ok()?;
+            (colour.is_some() || opacity.is_some()).then_some(ImportedFace {
+                face,
+                colour,
+                opacity,
+            })
+        })
+        .collect()
 }
 
 fn rgb([red, green, blue]: [u8; 3]) -> Rgb {
@@ -329,12 +378,14 @@ pub fn bodies_transaction(
         let name = unique_name(&body.name, &taken);
         taken.push(name.clone());
         let id = builder.add_feature(name, FeatureKind::Import(body.import.clone()));
-        if body.colour.is_some() || body.opacity.is_some() {
+        let faces = coloured_faces(id.raw(), body);
+        if body.colour.is_some() || body.opacity.is_some() || !faces.is_empty() {
             builder.edit(Edit::SetBodyAppearance {
                 id,
                 appearance: BodyAppearance {
                     colour: body.colour,
                     opacity: body.opacity,
+                    faces,
                     ..BodyAppearance::default()
                 },
             });
@@ -347,6 +398,26 @@ pub fn bodies_transaction(
         }
     }
     builder.finish()
+}
+
+fn coloured_faces(feature: u64, body: &ImportedBody) -> Vec<FaceColour> {
+    body.faces
+        .iter()
+        .filter_map(|face| {
+            Some(FaceColour {
+                face: FaceReference::new(
+                    FaceName::imported(feature, face.face),
+                    Some(FaceOrigin::Imported {
+                        feature,
+                        face: face.face,
+                    }),
+                    [],
+                ),
+                colour: face.colour.or(body.colour)?,
+                opacity: face.opacity,
+            })
+        })
+        .collect()
 }
 
 fn by_layer(bodies: &[ImportedBody]) -> Vec<&ImportedBody> {

@@ -16290,6 +16290,60 @@ fn a_body_drawn_half_see_through_goes_to_the_translucent_pass() {
 }
 
 #[test]
+fn a_face_of_its_own_opacity_is_drawn_see_through_and_the_rest_of_its_body_solid() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let Pickable::Face { face, .. } = top else {
+        panic!("{top:?}");
+    };
+    let shown = crate::bodies::shown(harness.model.evaluation(), plate).unwrap();
+    let reference = caditor_kernel::FaceReference::capture(
+        &shown.solid,
+        crate::bodies::find_face(shown, face).unwrap(),
+    )
+    .unwrap();
+    harness.model.perform(Action::Apply(Transaction::single(
+        "See through the top",
+        Edit::SetBodyAppearance {
+            id: plate,
+            appearance: caditor_document::BodyAppearance {
+                faces: vec![caditor_document::FaceColour {
+                    face: reference,
+                    colour: caditor_document::Rgb::new(200, 64, 52),
+                    opacity: Some(50),
+                }],
+                ..Default::default()
+            },
+        },
+    )));
+    harness.settle();
+
+    let built = harness.built_with_meshes(2);
+    let alphas = |faces: &[caditor_render::FaceStyle]| {
+        let mut alphas: Vec<f32> = faces.iter().map(|face| face.color.alpha).collect();
+        alphas.sort_by(f32::total_cmp);
+        alphas
+    };
+
+    assert_eq!(built.scene.meshes.len(), 1);
+    assert_eq!(built.scene.translucent_meshes.len(), 1);
+    assert_eq!(
+        alphas(&built.scene.meshes[0].faces),
+        [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    );
+    assert_eq!(
+        alphas(&built.scene.translucent_meshes[0].faces),
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.5]
+    );
+    assert!(
+        built.scene.translucent_meshes[0]
+            .faces
+            .iter()
+            .all(|face| face.pick.is_some())
+    );
+}
+
+#[test]
 fn selected_faces_take_a_colour_of_their_own_from_the_body_card() {
     use crate::body_appearance::{CLEAR_FACE_COLOURS, face_swatch_name};
 

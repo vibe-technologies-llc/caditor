@@ -151,7 +151,13 @@ paths:
   placed import. A copy scaled or mirrored, or one the turns cannot reproduce, is mapped and
   canonicalised on its own at the origin as before; one whose mapping fails is left out with
   `Misplacement::CopyUnplaceable`'s note.
-- Each `ImportedBody` carries the copy's STEP `colour`, its `opacity` and its `layer` as `group`.
+- Each `ImportedBody` carries the copy's STEP `colour`, its `opacity` and its `layer` as `group`,
+  and its faces' own looks as `ImportedFace`s (index in the stored solid, colour, opacity snapped
+  like the body's with solid as 100, kept only when it differs from the body's), only when the
+  part is stored as one lump of as many faces, since canonicalising keeps the face order.
+  `bodies_transaction` makes each a `FaceColour` naming the imported face
+  (`FaceName::imported`, origin `Imported`), coloured with its own colour else the body's; a face
+  see-through but coloured by neither keeps the body's look.
   The STEP opacity (a percent) is snapped when the copy is read to the nearest of the body's
   opacity steps, solid included (`nearest_opacity_step`, `document.md`), so a nearly solid body
   imports solid. `bodies_transaction` sets a coloured or see-through body's appearance colour and

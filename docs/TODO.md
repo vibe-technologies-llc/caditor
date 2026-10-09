@@ -311,12 +311,14 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
   edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
   outright when the file declares no precision.
-- [medium · hard] One unsupported surface or curve loses the whole body: an `OFFSET_SURFACE` of a
-  spline, extrusion or revolution (it would need a surface fitted within tolerance) and the
-  `*_REPLICA` forms. Fit a spline within the declared precision, or keep the
-  other faces and say which were lost. A body of faces in mixed colours imports in the default
-  look, since face colours are not mapped onto the imported faces, and a body with only some
-  faces see-through imports opaque for the same reason.
+- [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
+  faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
+  holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve
+  cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
+  is refused even where the face's own region is clear: fit over the region the face uses. Face
+  looks are dropped for parts stored as several lumps and for faceted bodies, a see-through face
+  coloured by neither itself nor its body imports opaque, and STEP export writes body colours
+  only.
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
 

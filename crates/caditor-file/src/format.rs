@@ -177,6 +177,8 @@ pub(crate) struct FaceColourRecord {
     #[serde(flatten)]
     pub face: FaceRecord,
     pub colour: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1598,6 +1600,7 @@ fn appearance_record(appearance: &BodyAppearance) -> AppearanceRecord {
                 Lenient::Read(FaceColourRecord {
                     face: face_record(&coloured.face),
                     colour: coloured.colour.hex(),
+                    opacity: coloured.opacity,
                 })
             })
             .collect(),
@@ -1664,6 +1667,7 @@ fn restore_appearance(
         }
         usable.then_some(opacity)
     });
+    let mut unusable_opacities = 0;
     let faces: Vec<FaceColour> = record
         .faces
         .iter()
@@ -1676,10 +1680,27 @@ fn restore_appearance(
                     &coloured.face.neighbours,
                 )?,
                 colour: Rgb::from_hex(&coloured.colour)?,
+                opacity: coloured.opacity.and_then(|opacity| {
+                    let usable = (MIN_OPACITY_PERCENT..=OPAQUE_PERCENT).contains(&opacity);
+                    if !usable {
+                        unusable_opacities += 1;
+                    }
+                    usable.then_some(opacity)
+                }),
             }),
             Lenient::Unreadable(_) => None,
         })
         .collect();
+    match unusable_opacities {
+        0 => {}
+        1 => issues.push(format!(
+            "The opacity of a face of “{name}” could not be used, so it is drawn like the body."
+        )),
+        unusable => issues.push(format!(
+            "The opacity of {unusable} faces of “{name}” could not be used, so they are drawn \
+             like the body."
+        )),
+    }
     match record.faces.len() - faces.len() {
         0 => {}
         1 => issues.push(format!(
