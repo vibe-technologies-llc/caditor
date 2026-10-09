@@ -23,8 +23,8 @@ shown in this guide are your current ones.
   double-click would.
 - In a sketch, the highlight also reaches constraints and dimensions, and Enter on a dimension
   edits its value.
-- With a drawing tool active, type a number to place a point exactly; see
-  [sketches](sketches).
+- With a drawing tool active, type a number, or `=` before a parameter's name, to place a point
+  exactly, or use {command:sketch.type_value}; see [sketches](sketches).
 
 ## In panels and dialogs
 

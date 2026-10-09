@@ -186,6 +186,7 @@ pub enum Command {
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
+    TypeValue,
     ToggleFirstDimensionScales,
     ToggleGlyphs,
     ToggleCentresOfMass,
@@ -536,6 +537,7 @@ plain_commands! {
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
+    TypeValue,
     ToggleFirstDimensionScales,
     ToggleGlyphs,
     ToggleCentresOfMass,
@@ -887,6 +889,7 @@ impl Command {
             Self::ToggleSelectThrough => "view.toggle_select_through",
             Self::CycleSelectionPriority => "select.priority",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
+            Self::TypeValue => "sketch.type_value",
             Self::ToggleFirstDimensionScales => "sketch.toggle_first_dimension_scales",
             Self::ToggleGlyphs => "view.toggle_glyphs",
             Self::ToggleCentresOfMass => "view.toggle_centres_of_mass",
@@ -1106,6 +1109,7 @@ impl Command {
             Self::ToggleSelectThrough => "Select through to what is hidden",
             Self::CycleSelectionPriority => "Cycle the selection priority: body, face, edge",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
+            Self::TypeValue => "Type an exact value",
             Self::ToggleFirstDimensionScales => "Scale the whole sketch on its first dimension",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
             Self::ToggleCentresOfMass => "Show or hide centres of mass",
@@ -1365,6 +1369,7 @@ impl Command {
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
+            | Self::TypeValue
             | Self::ToggleFirstDimensionScales
             | Self::MoveGeometry
             | Self::SelectAll
@@ -1396,6 +1401,7 @@ impl Command {
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
+            | Self::TypeValue
             | Self::ToggleFirstDimensionScales
             | Self::MoveGeometry
             | Self::SelectAll
@@ -1538,6 +1544,7 @@ impl Command {
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
+            | Self::TypeValue
             | Self::ToggleFirstDimensionScales
             | Self::Filter(_)
             | Self::Style(_)

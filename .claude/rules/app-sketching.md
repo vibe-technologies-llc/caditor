@@ -298,7 +298,7 @@ paths:
   `patterning.rs`; Sketch menu and palette, no default key since every free one is taken, and
   not on the sketch bar, `sketch_toolbar::OFF_RIBBON`) repeat the selection (`sketch.md`, Patterns)
   and ask for it first. Both take their numbers in the typed-point field ("Repeat"), which opens
-  on a digit and previews the copies live while the text parses; Enter makes one undoable
+  on a digit or `=` and previews the copies live while the text parses; Enter makes one undoable
   "Pattern geometry" transaction and an error (a refusal or text it cannot read) keeps the field
   open. Rectangular reads `count x spacing`, optionally `< angle` for a slanted direction, and a
   second such term after a comma for rows, square to the first unless it has its own angle:
@@ -315,7 +315,7 @@ paths:
   included; clicking a chosen curve lets it go, Escape lets go of the last). A third curve
   finishes it at once, previewed live while the pointer is over it, as the circle whose centre is
   nearest the pointer, so inside or outside a triangle's sides picks its incircle or an
-  excircle. With two chosen the typed-point field ("Radius", opens on a digit) draws the circle
+  excircle. With two chosen the typed-point field ("Radius", opens on a digit or `=`) draws the circle
   of that radius nearest the pointer instead, previewed while the text parses and kept as typed
   with parameters. Each draw is one undoable "Draw tangent circle" transaction.
 - Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Sketch menu and palette, not on the
@@ -395,7 +395,8 @@ paths:
 - Snapping to geometry wins over a direction, which joins it only where compatible
   (`Snap::AlignedOn`): a point snap keeps a direction that already holds (`HELD_TOLERANCE`) and
   never moves the point; a curve snap moves to where the direction's ray crosses the curve, within
-  `ALIGNED_CROSSING_TOLERANCE` of the pointer. Typed points never align.
+  `ALIGNED_CROSSING_TOLERANCE` of the pointer. Typed points never align, and a locked heading
+  (`app-input.md`) takes the place of every snap.
 - Points the hover snapped to are acquired (`tracking::Acquired`, newest first, at most
   `MAX_ACQUIRED_POINTS`), as are the centre of a circle or arc whose rim, middle or centre was
   hovered and the lines ending at a hovered point (`MAX_ACQUIRED_LINES`); they are kept across

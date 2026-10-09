@@ -44,6 +44,9 @@ const CANCEL_SLOT: &str = "Esc: cancel the slot";
 const CANCEL_POLYGON: &str = "Esc: cancel the polygon";
 const CANCEL_ELLIPSE: &str = "Esc: cancel the ellipse";
 const CANCEL_ELLIPTICAL_ARC: &str = "Esc: cancel the elliptical arc";
+pub const HEADING_PROMPT: &str = "The direction is locked: move the pointer to set the length and \
+                                  click to place the point";
+const HEADING_KEYS: &str = "Type a length for an exact one   Esc: let go of the direction";
 
 const TOO_FEW_SIDES: &str = "A polygon needs at least three sides";
 const TOO_MANY_SIDES: &str = "A polygon has at most 64 sides";
@@ -625,6 +628,33 @@ pub struct Drawing {
     extension_guide: Option<[Point2; 2]>,
     typed: Vec<TypedMark>,
     typed_hover: Option<TypedMark>,
+    heading: Option<Heading>,
+    pointed: Option<Pointed>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Heading {
+    from: Point2,
+    along: Vector2,
+    dimensions: Vec<TypedDimension>,
+}
+
+impl Heading {
+    fn reach(&self, toward: Point2) -> Point2 {
+        self.from + self.along * (toward - self.from).dot(self.along).max(0.0)
+    }
+
+    fn guide(&self, reached: Point2) -> Option<[Point2; 2]> {
+        let drawn = reached - self.from;
+        (drawn.length() >= DEGENERATE_LENGTH).then_some([self.from, reached + drawn])
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Pointed {
+    hover: Option<Placement>,
+    sweep: Option<Sweep>,
+    heading: Option<Heading>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -853,6 +883,7 @@ impl Drawing {
     }
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
+        self.end_typed_preview();
         let Some((_, shape)) = self.context else {
             self.hover = None;
             return;
@@ -861,6 +892,17 @@ impl Drawing {
             return;
         }
         self.hover = pointer.map(|pointer| self.place(shape, sketch, screen, pointer));
+        let headed = self
+            .active_heading()
+            .zip(self.hover)
+            .filter(|(heading, _)| !heading.dimensions.is_empty())
+            .map(|(heading, hover)| TypedMark {
+                position: hover.position,
+                dimensions: heading.dimensions.clone(),
+            });
+        if headed.is_some() {
+            self.typed_hover = headed;
+        }
         self.extension_guide = self.hover.and_then(|hover| match hover.snap.target()? {
             Target::Extension(line) => snap::extension_guide(sketch, line, hover.position),
             _ => None,
@@ -1034,7 +1076,72 @@ impl Drawing {
     }
 
     pub fn pointer_position(&self) -> Option<Point2> {
-        self.hover.map(|hover| hover.position)
+        self.pointed
+            .as_ref()
+            .map_or(self.hover, |pointed| pointed.hover)
+            .map(|hover| hover.position)
+    }
+
+    pub fn preview_typed(&mut self, sketch: &Sketch, position: Point2) {
+        self.keep_pointed();
+        self.type_point(sketch, position);
+    }
+
+    pub fn preview_heading(&mut self, sketch: &Sketch, degrees: f64) {
+        let Some(toward) = self.pointer_position() else {
+            return;
+        };
+        self.keep_pointed();
+        self.heading = self.heading_from(degrees, Vec::new());
+        if let Some(reached) = self.heading.as_ref().map(|heading| heading.reach(toward)) {
+            self.type_point(sketch, reached);
+        }
+    }
+
+    pub fn lock_heading(&mut self, degrees: f64, dimensions: Vec<TypedDimension>) {
+        self.end_typed_preview();
+        self.heading = self.heading_from(degrees, dimensions);
+    }
+
+    pub fn has_heading(&self) -> bool {
+        self.active_heading().is_some()
+    }
+
+    pub fn release_heading(&mut self) {
+        self.heading = None;
+        self.typed_hover = None;
+    }
+
+    fn heading_from(&self, degrees: f64, dimensions: Vec<TypedDimension>) -> Option<Heading> {
+        Some(Heading {
+            from: self.last_placed()?,
+            along: Vector2::from_angle(degrees.to_radians()),
+            dimensions,
+        })
+    }
+
+    fn active_heading(&self) -> Option<&Heading> {
+        self.heading
+            .as_ref()
+            .filter(|heading| self.last_placed() == Some(heading.from))
+    }
+
+    fn keep_pointed(&mut self) {
+        if self.pointed.is_none() {
+            self.pointed = Some(Pointed {
+                hover: self.hover,
+                sweep: self.sweep,
+                heading: self.heading.clone(),
+            });
+        }
+    }
+
+    fn end_typed_preview(&mut self) {
+        if let Some(pointed) = self.pointed.take() {
+            self.hover = pointed.hover;
+            self.sweep = pointed.sweep;
+            self.heading = pointed.heading;
+        }
     }
 
     pub fn type_point(&mut self, sketch: &Sketch, position: Point2) {
@@ -1066,13 +1173,24 @@ impl Drawing {
     }
 
     pub fn type_dimensioned(&mut self, sketch: &Sketch, placed: Placed) {
+        let along_heading = self
+            .active_heading()
+            .filter(|heading| {
+                heading.reach(placed.position).distance(placed.position) <= TYPED_TOLERANCE
+            })
+            .map(|heading| heading.dimensions.clone())
+            .unwrap_or_default();
+        let mut dimensions = placed.dimensions;
+        if !dimensions.is_empty() {
+            dimensions.extend(along_heading);
+        }
         self.type_point(sketch, placed.position);
         self.typed_hover = self
             .hover
-            .filter(|hover| hover.snap == Snap::Free && !placed.dimensions.is_empty())
+            .filter(|hover| hover.snap == Snap::Free && !dimensions.is_empty())
             .map(|hover| TypedMark {
                 position: hover.position,
-                dimensions: placed.dimensions,
+                dimensions,
             });
     }
 
@@ -1229,10 +1347,13 @@ impl Drawing {
     }
 
     pub fn leave(&mut self) {
+        self.end_typed_preview();
         self.hover = None;
     }
 
     pub fn cancel(&mut self) {
+        self.pointed = None;
+        self.heading = None;
         self.placed.clear();
         self.typed.clear();
         self.typed_hover = None;
@@ -1252,6 +1373,8 @@ impl Drawing {
         if undoes_segment {
             return true;
         }
+        self.pointed = None;
+        self.heading = None;
         self.placed.pop();
         let sweeps_from = self.context.and_then(|(_, shape)| shape.sweeps_from());
         if sweeps_from.is_none_or(|from| self.placed.len() < from) {
@@ -1266,6 +1389,15 @@ impl Drawing {
     }
 
     pub fn click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
+        self.pointed = None;
+        let clicked = self.placed_by_click(model);
+        if clicked.is_ok() {
+            self.heading = None;
+        }
+        clicked
+    }
+
+    fn placed_by_click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
         let (Some((feature, shape)), Some(placement)) = (self.context, self.hover) else {
             return Ok(None);
         };
@@ -1710,6 +1842,11 @@ impl Drawing {
                 .into_iter()
                 .flat_map(|hover| hover.tracks.guides(hover.position))
                 .chain(self.extension_guide)
+                .chain(
+                    self.active_heading()
+                        .zip(hover)
+                        .and_then(|(heading, reached)| heading.guide(reached)),
+                )
                 .collect(),
             construction: self.construction,
             ..Preview::default()
@@ -1977,6 +2114,12 @@ impl Drawing {
 
     pub fn prompt(&self) -> Option<Prompt> {
         let (_, shape) = self.context?;
+        if self.has_heading() {
+            return Some(Prompt {
+                text: HEADING_PROMPT.to_owned(),
+                keys: HEADING_KEYS,
+            });
+        }
         let prompt = |text: &str, keys| {
             Some(Prompt {
                 text: text.to_owned(),
@@ -2153,6 +2296,9 @@ impl Drawing {
         screen: &impl Screen,
         pointer: Pointer,
     ) -> Placement {
+        if let Some(heading) = self.active_heading() {
+            return Placement::free(heading.reach(pointer.sketch));
+        }
         if self.free || shape.sizes_by_width(self.placed.len()) {
             return Placement::free(pointer.sketch);
         }
