@@ -48,6 +48,21 @@ struct Written {
     dashed_where_hidden: bool,
 }
 
+impl Written {
+    fn of(silhouette: &Silhouette, eye: Point3) -> Self {
+        Self {
+            placed: PlacedAt {
+                placement: silhouette.placement,
+                eye,
+            },
+            color: silhouette.color,
+            width: silhouette.width,
+            dashed: silhouette.dashed,
+            dashed_where_hidden: silhouette.dashed_where_hidden,
+        }
+    }
+}
+
 struct Chunk {
     buffer: wgpu::Buffer,
     count: u32,
@@ -222,6 +237,10 @@ impl GpuSilhouette {
         )
     }
 
+    fn needs_writing(&self, silhouette: &Silhouette, eye: Point3) -> bool {
+        self.written != Some(Written::of(silhouette, eye))
+    }
+
     fn write(
         &mut self,
         queue: &wgpu::Queue,
@@ -229,16 +248,7 @@ impl GpuSilhouette {
         silhouette: &Silhouette,
         eye: Point3,
     ) {
-        let written = Written {
-            placed: PlacedAt {
-                placement: silhouette.placement,
-                eye,
-            },
-            color: silhouette.color,
-            width: silhouette.width,
-            dashed: silhouette.dashed,
-            dashed_where_hidden: silhouette.dashed_where_hidden,
-        };
+        let written = Written::of(silhouette, eye);
         if self.written == Some(written) {
             return;
         }
@@ -341,6 +351,12 @@ impl SilhouetteCache {
                 continue;
             }
             let reused = take_of(&mut previous, &silhouette.mesh, |cached| &cached.mesh);
+            if let Some(ready) = &reused
+                && !ready.needs_writing(silhouette, eye)
+            {
+                self.silhouettes.extend(reused);
+                continue;
+            }
             let started = take_of(&mut uploads, &silhouette.mesh, |upload| &upload.mesh);
             let staging = &mut self.staging;
             let layout = &self.layout;
@@ -387,6 +403,14 @@ impl SilhouetteCache {
         mut previous: Vec<GpuSilhouette>,
         eye: Point3,
     ) {
+        if previous.iter().all(|silhouette| {
+            silhouette
+                .written
+                .is_none_or(|written| written.placed.eye == eye)
+        }) {
+            self.silhouettes.append(&mut previous);
+            return;
+        }
         let staging = &mut self.staging;
         let ((), error) = gpu::scoped(device, || {
             for silhouette in &mut previous {

@@ -664,6 +664,22 @@ impl GpuMesh {
         }
     }
 
+    fn needs_writing(&self, instance: &MeshInstance, eye: Point3) -> bool {
+        let placed = PlacedAt {
+            placement: instance.placement,
+            eye,
+        };
+        self.placed != Some(placed) || self.written.as_deref() != Some(instance.faces.as_slice())
+    }
+
+    fn needs_unpicking(&self, eye: Point3) -> bool {
+        self.placed.is_none_or(|placed| placed.eye != eye)
+            || self
+                .written
+                .as_ref()
+                .is_some_and(|written| written.iter().any(|style| style.pick.is_some()))
+    }
+
     fn write_styles(
         &mut self,
         queue: &wgpu::Queue,
@@ -855,6 +871,12 @@ impl MeshCache {
                 continue;
             }
             let reused = take_of(&mut previous, &instance.mesh, |cached| &cached.mesh);
+            if let Some(ready) = &reused
+                && !ready.needs_writing(instance, eye)
+            {
+                self.meshes.extend(reused);
+                continue;
+            }
             let started = take_of(&mut uploads, &instance.mesh, |upload| &upload.mesh);
             let staging = &mut self.staging;
             let layout = &self.layout;
@@ -901,6 +923,10 @@ impl MeshCache {
         mut previous: Vec<GpuMesh>,
         eye: Point3,
     ) {
+        if !previous.iter().any(|mesh| mesh.needs_unpicking(eye)) {
+            self.meshes.append(&mut previous);
+            return;
+        }
         let staging = &mut self.staging;
         let ((), error) = gpu::scoped(device, || {
             for mesh in &mut previous {
