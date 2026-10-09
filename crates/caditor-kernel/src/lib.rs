@@ -36,8 +36,8 @@ pub use crate::{
     boolean::{BooleanError, BooleanOperation, BooleanSite, Interference, boolean, interference},
     bspline::{BSpline, MAX_SPLINE_DEGREE},
     build::{
-        AngularExtent, Axis2, Heights, LinearBound, LinearExtent, NextFace, ReachError, SweepError,
-        extrude, heights, next_face, revolve,
+        AngularExtent, Axis2, Heights, LinearBound, LinearExtent, MAX_TAPER_DEGREES, NextFace,
+        ReachError, SweepError, extrude, extrude_tapered, heights, next_face, revolve,
     },
     coordinates::Coordinates,
     curve::{
@@ -73,7 +73,7 @@ pub use crate::{
         AreaMoments, BoundaryPiece, Neighbour, OpenEnd, Piece, PieceBound, PieceId,
         PrincipalMoments, Profile, ProfileCurve, ProfileError, ProfileLoop, ProfileShape, Region,
         RegionKey, RegionMatch, RegionMesh, RegionReference, ResolvedRegions, Section, Selection,
-        Side, resolve_regions, section_of,
+        Side, WallError, WallSide, resolve_regions, section_of, wall_regions,
     },
     sense::Sense,
     shell::{OffsetError, ShellError, offset_faces, shell},

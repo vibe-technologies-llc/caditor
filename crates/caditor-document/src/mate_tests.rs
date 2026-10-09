@@ -33,6 +33,8 @@ fn model() -> Model {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let peg = block(&mut transaction, "Peg", (20.0, 0.0), (30.0, 5.0), "6 mm");

@@ -39,6 +39,8 @@ pub(crate) fn block(
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     )
 }
@@ -286,6 +288,8 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let mut round = Sketch::new(Plane::XY);
@@ -300,6 +304,8 @@ fn a_combine_failing_where_faces_nearly_touch_names_them_and_where() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let combined = transaction.add_feature(
@@ -348,6 +354,8 @@ fn boss_on_peg(pair: &mut Pair) -> FeatureId {
             operation: BodyOperation::Add(pair.peg),
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     pair.document.apply(transaction.finish()).unwrap();

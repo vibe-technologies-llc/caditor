@@ -3,12 +3,12 @@ use std::collections::BTreeSet;
 use caditor_document::{
     AxisReference, BodyOperation, Document, Edit, Evaluation, Extrude, ExtrudeExtent, Feature,
     FeatureId, FeatureKind, FeatureResult, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
-    SketchAttachment, SketchFeature, SketchRegion, SolidFeature, SolidStart, Transaction,
-    describe_axis,
+    SketchAttachment, SketchFeature, SketchRegion, SolidFeature, SolidStart, Transaction, Wall,
+    describe_axis, profile_curve, sketch_regions,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::Point2;
-use caditor_kernel::RegionKey;
+use caditor_kernel::{RegionKey, WallSide};
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
@@ -25,6 +25,7 @@ use crate::{
 pub const DEFAULT_DISTANCE: f64 = 10.0;
 pub const DEFAULT_PARTIAL_ANGLE: f64 = 180.0;
 pub const DEFAULT_BACKWARD_ANGLE: f64 = 30.0;
+pub const DEFAULT_WALL_THICKNESS: f64 = 1.0;
 const OUTLINE_SEGMENT_ANGLE: f64 = 0.02;
 const OUTLINE_GAP: f64 = 1e-6;
 pub const NOT_FLAT_TO_EXTRUDE: &str =
@@ -184,6 +185,9 @@ pub fn has_unswept_regions(
     let regions = match regions {
         None => return users.is_empty(),
         Some(Err(_)) => return false,
+        Some(Ok(regions)) if regions.is_empty() => {
+            return users.is_empty() && is_open_profile(document, sketch);
+        }
         Some(Ok(regions)) => regions,
     };
     let mut swept: BTreeSet<RegionKey> = BTreeSet::new();
@@ -265,6 +269,8 @@ pub fn create_on_face(
             operation: BodyOperation::Add(face.body),
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let told = format!(
@@ -458,6 +464,31 @@ pub fn degrees(value: f64) -> Expression {
     Expression::measure(value, Unit::Degree)
 }
 
+pub fn default_wall(unit: LengthUnit) -> Wall {
+    Wall {
+        thickness: unit.default_length(DEFAULT_WALL_THICKNESS),
+        side: WallSide::Centred,
+    }
+}
+
+fn is_open_profile(document: &Document, sketch: FeatureId) -> bool {
+    let Some(sketch) = editing::edited_sketch(document, sketch) else {
+        return false;
+    };
+    let has_curves = sketch
+        .entities()
+        .any(|(id, _)| !sketch.is_construction(id) && profile_curve(sketch, id).is_some());
+    has_curves && sketch_regions(sketch).is_ok_and(|regions| regions.is_empty())
+}
+
+fn open_profile_wall(
+    document: &Document,
+    sketch: FeatureId,
+    unit: LengthUnit,
+) -> Option<Box<Wall>> {
+    is_open_profile(document, sketch).then(|| Box::new(default_wall(unit)))
+}
+
 pub fn create(
     document: &Document,
     sweep: Sweep,
@@ -465,6 +496,10 @@ pub fn create(
     unit: LengthUnit,
 ) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, sweep.label());
+    let wall = match source.regions {
+        RegionChoice::All => open_profile_wall(document, source.sketch, unit),
+        RegionChoice::Chosen(_) => None,
+    };
     let operation = source
         .body
         .map_or_else(|| default_operation(document, None), BodyOperation::Add);
@@ -486,6 +521,8 @@ pub fn create(
                 operation,
                 start: None,
                 other_bodies: Vec::new(),
+                taper: None,
+                wall,
             })
         }
         Sweep::Revolve => SolidFeature::Revolve(Revolve {
@@ -499,6 +536,7 @@ pub fn create(
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall,
         }),
     };
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -550,6 +588,21 @@ pub fn with_start(solid: &SolidFeature, start: Option<SolidStart>) -> SolidFeatu
     match &mut changed {
         SolidFeature::Extrude(extrude) => extrude.start = start,
         SolidFeature::Revolve(revolve) => revolve.start = start,
+    }
+    changed
+}
+
+pub fn with_wall(solid: &SolidFeature, wall: Option<Wall>) -> SolidFeature {
+    let wall = wall.map(Box::new);
+    let mut changed = solid.clone();
+    match &mut changed {
+        SolidFeature::Extrude(extrude) => extrude.wall = wall,
+        SolidFeature::Revolve(revolve) => {
+            if wall.is_some() {
+                revolve.side = None;
+            }
+            revolve.wall = wall;
+        }
     }
     changed
 }
@@ -802,6 +855,8 @@ mod tests {
                     operation: BodyOperation::NewBody,
                     start: None,
                     other_bodies: Vec::new(),
+                    taper: None,
+                    wall: None,
                 })),
             )
         };

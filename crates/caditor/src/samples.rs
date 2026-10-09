@@ -149,6 +149,8 @@ fn extrude(sketch: FeatureId, extent: ExtrudeExtent) -> FeatureKind {
         operation: BodyOperation::NewBody,
         start: None,
         other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
     }))
 }
 
@@ -262,6 +264,7 @@ fn spool(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         })),
     );
     Ok(())
@@ -323,6 +326,8 @@ fn bracket(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
             operation: BodyOperation::Remove(body),
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     Ok(())

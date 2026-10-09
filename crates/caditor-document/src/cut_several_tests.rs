@@ -28,6 +28,8 @@ fn cut_through_both(pair: &mut Pair, end: ExtrudeEnd, operation: BodyOperation) 
             operation,
             start: None,
             other_bodies: vec![pair.peg],
+            taper: None,
+            wall: None,
         })),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -116,6 +118,8 @@ fn a_cut_listing_its_target_twice_cuts_it_once() {
             operation: BodyOperation::Remove(pair.plate),
             start: None,
             other_bodies: vec![pair.plate, pair.peg, pair.peg],
+            taper: None,
+            wall: None,
         })),
     );
     pair.document.apply(transaction.finish()).unwrap();

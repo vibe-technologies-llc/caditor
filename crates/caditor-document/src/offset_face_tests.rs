@@ -81,6 +81,8 @@ fn model() -> Model {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

@@ -27,6 +27,8 @@ fn extrude(sketch: FeatureId, distance: &str, operation: BodyOperation) -> Featu
         operation,
         start: None,
         other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
     }))
 }
 
@@ -97,6 +99,8 @@ fn model() -> Model {
             operation: BodyOperation::Remove(base),
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let lug = transaction.add_feature(

@@ -36,6 +36,17 @@ paths:
 - A profile on the right of the revolution axis is revolved about the reversed axis. Lines on the
   axis become shared cap edges or nothing, endpoints on it poles; a full turn has no caps (holes
   become void shells).
+- `extrude_tapered(plane, regions, extent, angle, feature)` (`taper.rs`) offsets each loop's
+  pieces to their left (inward, so a positive angle draws in) by `tan(angle)` times the height from
+  the sketch plane clamped into the extent, so a one-sided extrusion tapers from the profile as
+  drawn and one spanning the sketch plane tapers both ways from it (two side faces per piece, the
+  middle ring shared). Lines sweep planes, arcs and circles cones about their own centre; corners
+  are re-met at each level (`profile::offset_strands`), straight where both pieces are lines or meet
+  tangentially, else an `IntersectionCurve` through `JOINT_SAMPLES` levels on the two side
+  surfaces. Below `STRAIGHT_TAPER` it is `extrude`; splines are `TaperedSpline`, a slanted end
+  `TaperedTiltedEnd`, `MAX_TAPER_DEGREES` or steeper `TaperTooSteep`, and a piece used up, an arc
+  shrunk to nothing, corners that no longer meet, a loop turned over or loops crossing at a cap
+  `TaperCloses` (naming the pieces' entities when known).
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, which the document uses to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids

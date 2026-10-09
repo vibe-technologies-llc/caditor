@@ -76,3 +76,23 @@ paths:
   was deleted is gone rather than taken for the region it was a hole of. A reference of a key alone
   (older files) is `Same` or `Gone`. `resolve_regions` resolves a feature's whole choice
   and fails only on a tie or when every chosen region is gone (`MissingRegion`).
+
+## Offsets and walls (`strand.rs`, `wall.rs`)
+
+- A `Strand` is a line or an arc (signed sweep, a full circle sweeping a whole turn) in the
+  direction of travel. `offset_strands` moves every strand of a chain or loop to its left by a
+  distance and re-meets each corner: tangent corners at the moved ends' midpoint, others at the
+  crossing of the moved carriers nearest an aim (the previous level's corner when tapering),
+  failing as `OffsetFailure` (`Shrinks`: a strand reversed or an arc gone, `Apart`, `Folds`).
+  `polygons_cross` finds proper crossings between non-adjacent segments of sampled loops.
+- `wall_regions(curves, thickness, WallSide)` chains the curves by their ends (within the
+  arrangement's relative tolerance; three ends at a point are `Branches`), offsets each chain to
+  both sides (`Inside` is the side a closed chain encloses, or the side an open chain bends around,
+  by the sign of its area closed by its chord; `Centred` half each way) and returns one region per
+  chain: an open chain's outline closed by straight caps at its ends, a closed chain's ring. Pieces
+  keep their entity with bounds that no arrangement makes, so every face is named stably whichever
+  way the chain is drawn: the entity's own right side `(Start, End)`, its left `(End, Start)`, the
+  cap at its own start `(Start, Start)` and end `(End, End)`. Splines are `Spline`; a wall too thick
+  for a curve, corners that no longer meet, a turned-over loop or walls crossing each other
+  (`CrossesItself`) are refused. The regions extrude, taper and revolve like any other.
+

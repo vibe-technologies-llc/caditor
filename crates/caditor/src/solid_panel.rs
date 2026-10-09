@@ -1,10 +1,11 @@
 use caditor_document::{
     AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature,
     FeatureId, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
-    SolidStart, Transaction, capitalized, describe_plane, displayed_axis,
+    SolidStart, Transaction, Wall, capitalized, describe_plane, displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
+use caditor_kernel::WallSide;
 use caditor_sketch::{Entity, EntityId, Reference};
 use egui::{Id, Ui};
 
@@ -35,6 +36,16 @@ pub const KEEP_OTHER_SIDE: &str = "Keep the other side of the axis";
 pub const ALSO_CUTS: &str = "Also cuts";
 pub const ADD_CUT_BODY: &str = "Add another body";
 const START_OFFSET: &str = "Start offset";
+pub const TAPER: &str = "Taper";
+pub const THIN_WALL: &str = "Thin wall";
+pub const WALL_THICKNESS: &str = "Thickness";
+const FILL_SOLID: &str = "Fill the closed regions of the sketch";
+const FILL_WALL: &str = "Thicken the curves of the sketch into a wall, whether they close or not";
+const WALL_CURVES: &str = "The wall follows every curve of the sketch";
+const WALL_INSIDE: &str =
+    "Thicken towards the enclosed side of a closed outline, or the side an open chain bends around";
+const WALL_OUTSIDE: &str = "Thicken away from the inside";
+const WALL_CENTRED: &str = "Thicken half the thickness to each side of the curves";
 pub const CLEAR_REGIONS: &str = "Clear";
 const CLEAR_REGIONS_HOVER: &str = "Choose no region, then click in the view the regions to sweep";
 const START_BY_OFFSET: &str = "Sketch plane, offset";
@@ -469,6 +480,98 @@ impl Panel<'_> {
         self.start_rows(ui, extrude.start.as_ref());
     }
 
+    fn taper_row(&mut self, ui: &mut Ui, extrude: &Extrude) {
+        let angle = extrude
+            .taper
+            .as_deref()
+            .cloned()
+            .unwrap_or_else(|| solid_tools::degrees(0.0));
+        self.expression(
+            ui,
+            TAPER,
+            "taper",
+            &angle,
+            (Dimension::ANGLE, Rule::Taper),
+            |value| {
+                SolidFeature::Extrude(Extrude {
+                    taper: (!is_zero(&value)).then(|| Box::new(value)),
+                    ..extrude.clone()
+                })
+            },
+        );
+    }
+
+    fn wall_note_row(&mut self, ui: &mut Ui) {
+        widgets::caption(ui, "Regions");
+        ui.add(egui::Label::new(widgets::muted(WALL_CURVES, ui)).wrap());
+        ui.end_row();
+    }
+
+    fn fill_rows(&mut self, ui: &mut Ui) {
+        let solid = self.solid;
+        let wall = solid.wall();
+        let thin = solid_tools::default_wall(self.model.length_unit());
+        let segments = vec![
+            Segment {
+                label: "Solid",
+                hover: FILL_SOLID,
+                change: wall
+                    .is_some()
+                    .then(|| self.change(solid_tools::with_wall(solid, None))),
+            },
+            Segment {
+                label: THIN_WALL,
+                hover: FILL_WALL,
+                change: wall
+                    .is_none()
+                    .then(|| self.change(solid_tools::with_wall(solid, Some(thin)))),
+            },
+        ];
+        let chosen = feature_fields::segmented_row(ui, "Fill", &self.feature.name, segments);
+        self.actions.extend(chosen);
+        let Some(wall) = wall else {
+            return;
+        };
+        self.expression(
+            ui,
+            WALL_THICKNESS,
+            "wall-thickness",
+            &wall.thickness,
+            (Dimension::LENGTH, Rule::AboveZero),
+            |thickness| {
+                solid_tools::with_wall(
+                    solid,
+                    Some(Wall {
+                        thickness,
+                        side: wall.side,
+                    }),
+                )
+            },
+        );
+        let segments = [
+            (WallSide::Inside, "Inside", WALL_INSIDE),
+            (WallSide::Outside, "Outside", WALL_OUTSIDE),
+            (WallSide::Centred, "Centred", WALL_CENTRED),
+        ]
+        .into_iter()
+        .map(|(side, label, hover)| Segment {
+            label,
+            hover,
+            change: (side != wall.side).then(|| {
+                self.change(solid_tools::with_wall(
+                    solid,
+                    Some(Wall {
+                        thickness: wall.thickness.clone(),
+                        side,
+                    }),
+                ))
+            }),
+        })
+        .collect();
+        let chosen = feature_fields::segmented_row(ui, "Wall", &self.feature.name, segments);
+        self.actions.extend(chosen);
+    }
+
     fn degrees_of(&self, angle: &Expression) -> Option<f64> {
         self.model
             .parameters()
@@ -717,7 +820,9 @@ impl Panel<'_> {
 
     fn revolve_rows(&mut self, ui: &mut Ui, revolve: &Revolve) {
         self.axis_row(ui, revolve);
-        self.side_rows(ui, revolve);
+        if revolve.wall.is_none() {
+            self.side_rows(ui, revolve);
+        }
         match &revolve.extent {
             RevolveExtent::Full => {}
             RevolveExtent::OneSide { angle, reversed } => {
@@ -1290,9 +1395,17 @@ pub fn show(
             SolidFeature::Revolve(revolve) => panel.turn_row(ui, revolve),
         }
         panel.sketch_row(ui);
-        panel.regions_row(ui, opened);
+        if solid.wall().is_some() {
+            panel.wall_note_row(ui);
+        } else {
+            panel.regions_row(ui, opened);
+        }
+        panel.fill_rows(ui);
         match solid {
-            SolidFeature::Extrude(extrude) => panel.extrude_rows(ui, extrude),
+            SolidFeature::Extrude(extrude) => {
+                panel.extrude_rows(ui, extrude);
+                panel.taper_row(ui, extrude);
+            }
             SolidFeature::Revolve(revolve) => panel.revolve_rows(ui, revolve),
         }
         panel.operation_rows(ui);

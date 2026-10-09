@@ -243,9 +243,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   optional guide rail, taper and twist; a loft takes two or more profiles or faces (a point may
   end it), open or closed back to the first, with optional rails or a centreline and tangent or
   curvature-continuous conditions at its ends.
-- [medium · hard] Extrusions and revolves have no taper angle or thin wall (an open profile given a
-  thickness, placed inside, outside or centred on the profile), which needs a tapered sweep and a
-  wall of an open profile in the kernel.
 - [medium · hard] No pattern along a curve or driven by sketch points: a pattern repeats along one
   or two axes (sketch lines included) or about one, never along a spline or arc (the copies kept
   as they are or turned to follow the curve), nor at the points of a sketch, and it repeats
@@ -281,9 +278,8 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard · blocked by: direct face edits ("Bodies cannot be edited directly")] Draft angle
   on existing faces: a fixed angle from a plane, a split at a parting line with an angle on each
   side, and an angle per face, following tangent faces as one chain.
-- [medium · hard · blocked by: thin-wall extrusion ("Extrusions and revolves have no taper angle or thin wall")]
-  Rib and web from an open profile: a rib extrudes parallel to the sketch plane and a web square
-  to it, each thickened and run on to the nearest faces of the body.
+- [medium · hard] Rib and web from an open profile: a rib extrudes parallel to the sketch plane
+  and a web square to it, each thickened and run on to the nearest faces of the body.
 - [low · hard · blocked by: sketch text ("Tools missing" under Sketching)] Emboss or deboss sketch
   text, or any sketch profile, onto a face, flat or curved (wrapped around it), raised or
   recessed by a depth.

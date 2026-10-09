@@ -82,6 +82,8 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
                     .collect(),
             };
             expressions.extend(start_distance(&mut extrude.start));
+            expressions.extend(extrude.taper.as_deref_mut());
+            expressions.extend(extrude.wall.as_deref_mut().map(|wall| &mut wall.thickness));
             expressions
         }
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
@@ -93,6 +95,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
                 RevolveExtent::TwoSides { forward, backward } => vec![forward, backward],
             };
             expressions.extend(start_distance(&mut revolve.start));
+            expressions.extend(revolve.wall.as_deref_mut().map(|wall| &mut wall.thickness));
             expressions
         }
         FeatureKind::Blend(blend) => vec![&mut blend.size],

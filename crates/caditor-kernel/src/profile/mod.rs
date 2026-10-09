@@ -7,14 +7,21 @@ mod reference;
 mod region;
 mod section;
 mod source;
+mod strand;
 #[cfg(test)]
 mod tests;
 mod triangulate;
+mod wall;
+#[cfg(test)]
+mod wall_tests;
 
 use std::collections::BTreeSet;
 
 use caditor_geometry::{Aabb2, Point2};
 
+pub(crate) use self::strand::{
+    OffsetFailure, Strand, is_smooth, offset_strands, polygon, polygons_cross, signed_area,
+};
 use self::{
     arrangement::Arrangement,
     culprits::culprits,
@@ -25,6 +32,7 @@ pub use self::{
     reference::{BoundaryPiece, RegionMatch, RegionReference, ResolvedRegions, resolve_regions},
     section::{AreaMoments, PrincipalMoments, Section, section_of},
     triangulate::RegionMesh,
+    wall::{WallError, WallSide, wall_regions},
 };
 use crate::{
     curve2::Curve2, interrupt, interval::Interval, naming::Digest, tolerance::SamplingTolerance,

@@ -2,6 +2,9 @@ mod extrude;
 pub(crate) mod plan;
 mod reach;
 mod revolve;
+mod taper;
+#[cfg(test)]
+mod taper_tests;
 #[cfg(test)]
 mod tests;
 
@@ -14,6 +17,7 @@ pub use self::{
     extrude::extrude,
     reach::{Heights, NextFace, ReachError, heights, next_face},
     revolve::revolve,
+    taper::{MAX_TAPER_DEGREES, extrude_tapered},
 };
 use crate::{
     error::GeometryError,
@@ -47,7 +51,7 @@ pub(crate) fn traversal_tangent(piece: &Piece, parameter: f64) -> Vector2 {
     }
 }
 
-fn curves(entities: &[u64]) -> String {
+pub(crate) fn curves(entities: &[u64]) -> String {
     let names: Vec<String> = entities.iter().map(u64::to_string).collect();
     match names.as_slice() {
         [] => "no curves".to_owned(),
@@ -82,6 +86,14 @@ pub enum SweepError {
     BothSidesOfAxis { left: Vec<u64>, right: Vec<u64> },
     #[error("the profile lies on the revolution axis")]
     OnAxis,
+    #[error("a taper must stay below {MAX_TAPER_DEGREES}°")]
+    TaperTooSteep,
+    #[error("{} cannot be tapered; only lines, arcs and circles can", curves(.entities))]
+    TaperedSpline { entities: Vec<u64> },
+    #[error("a tapered extrusion needs both ends parallel to the sketch")]
+    TaperedTiltedEnd,
+    #[error("the taper closes the profile before the end of the extrusion")]
+    TaperCloses { entities: Vec<u64> },
     #[error("the swept solid could not be assembled from the profile")]
     Unassembled,
     #[error("the swept geometry cannot be built: {0}")]
@@ -110,7 +122,10 @@ impl From<BuildError> for SweepError {
 impl SweepError {
     pub fn entities(&self) -> Vec<u64> {
         match self {
-            Self::CrossesAxis { entities } | Self::Invalid { entities, .. } => entities.clone(),
+            Self::CrossesAxis { entities }
+            | Self::Invalid { entities, .. }
+            | Self::TaperedSpline { entities }
+            | Self::TaperCloses { entities } => entities.clone(),
             Self::BothSidesOfAxis { left, right } => left.iter().chain(right).copied().collect(),
             Self::NoRegions
             | Self::NonFinite
@@ -122,6 +137,8 @@ impl SweepError {
             | Self::BeyondFullTurn
             | Self::DegenerateAxis
             | Self::OnAxis
+            | Self::TaperTooSteep
+            | Self::TaperedTiltedEnd
             | Self::Unassembled
             | Self::Geometry(_)
             | Self::Cancelled(_) => Vec::new(),

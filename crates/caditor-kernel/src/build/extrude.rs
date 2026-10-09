@@ -26,7 +26,7 @@ const FLAT: f64 = 0.5 * LINEAR_RESOLUTION;
 const PCURVE_SAMPLING_ANGLE: f64 = 0.1;
 const MAX_PCURVE_BISECTIONS: usize = 24;
 
-fn offset_plane(plane: &Plane, offset: f64) -> Result<Plane, SweepError> {
+pub(super) fn offset_plane(plane: &Plane, offset: f64) -> Result<Plane, SweepError> {
     Plane::from_frame(
         plane.origin() + plane.normal() * offset,
         plane.normal(),
@@ -74,6 +74,10 @@ impl Level {
         self.slope == Vector2::ZERO
     }
 
+    pub(super) fn flat_height(&self) -> Option<f64> {
+        self.is_flat().then_some(self.at_origin)
+    }
+
     fn minus(self, other: Self) -> Self {
         Self {
             at_origin: self.at_origin - other.at_origin,
@@ -117,7 +121,7 @@ pub(super) fn span(level: &Level, regions: &[Region]) -> Option<(f64, f64)> {
         })
 }
 
-fn settled(level: Level, regions: &[Region]) -> Level {
+pub(super) fn settled(level: Level, regions: &[Region]) -> Level {
     if level.is_flat() {
         return level;
     }
