@@ -1,4 +1,5 @@
 mod binary;
+mod configurations;
 mod export;
 mod format;
 #[cfg(feature = "fuzzing")]

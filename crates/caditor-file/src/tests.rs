@@ -4666,6 +4666,7 @@ fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
     );
 }
 
+mod configurations;
 mod seeds;
 mod selection_sets;
 #[cfg(unix)]

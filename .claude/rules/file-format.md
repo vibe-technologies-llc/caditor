@@ -80,6 +80,18 @@ paths:
   out, names are repaired like the views' ("Set N", cut, numbered), members past
   `MAX_SET_MEMBERS` and sets past `MAX_SELECTION_SETS` are left out, each reported. The journal
   snapshot carries the same record as `selection_sets`, and `set_selection_sets` holds it.
+- The configurations are a `configurations` record, written only when there are rows or
+  columns: `values` (each `parameter`, `suppressed` or `colour` with its id), `rows` (each `id`,
+  `name` and `settings`, each a `value` with `expression` as stored text, `suppressed` or
+  `colour` as `#rrggbb`, absent for the default colour), `active` and `next_id`. The active
+  configuration's values are also the model's own, so an older reader computes the same model
+  and, like the selection sets, reports the unknown record. Loading (`configurations.rs`,
+  `restore_configurations`) reads each part on its own: an unreadable column or row is left out,
+  an unreadable setting is dropped (switching then leaves that value), names are repaired like
+  the sets' ("Configuration N", cut, numbered), a row repeating an id is left out and an unknown
+  active row leaves none active, each reported. It is applied after suppression and the bar, so
+  the active row follows the live values. The journal snapshot carries the same record as
+  `configurations`; `set_configurations` holds it and `set_active_configuration` the id.
 - A feature record carries `group`, its folder's name, only when it has one; losing it changes
   nothing computed, so it is a field, and an older reader drops it. A name too long for this
   version is cut at `MAX_GROUP_NAME_CHARS`, reported. The journal's `set_feature_group` holds the

@@ -13,6 +13,7 @@ use crate::{
     blend::Blend,
     body_appearance::BodyAppearance,
     combine::Combine,
+    configurations::Configurations,
     datum::{Datum, PrincipalGeometry},
     edit::{Edit, Transaction},
     hole::Hole,
@@ -1132,6 +1133,7 @@ pub struct Document {
     pub(crate) properties: Arc<ModelProperties>,
     pub(crate) views: Arc<SavedViews>,
     pub(crate) selection_sets: Arc<SelectionSets>,
+    pub(crate) configurations: Arc<Configurations>,
 }
 
 impl Document {
@@ -1257,6 +1259,7 @@ impl Document {
             && self.properties == other.properties
             && self.views == other.views
             && self.selection_sets == other.selection_sets
+            && self.configurations.same_content(&other.configurations)
             && self.rollback == other.rollback
             && self.features.len() == other.features.len()
             && self
@@ -1340,15 +1343,28 @@ impl Document {
             (self.selection_sets != target.selection_sets).then(|| Edit::SetSelectionSets {
                 sets: Box::new(SelectionSets::clone(&target.selection_sets)),
             });
+        let configurations =
+            (!self.configurations.same_content(&target.configurations)).then(|| {
+                Edit::SetConfigurations {
+                    configurations: Box::new(Configurations::clone(&target.configurations)),
+                }
+            });
+        let deactivation = configurations
+            .as_ref()
+            .and(self.configurations.active)
+            .map(|_| Edit::SetActiveConfiguration { active: None });
         Transaction::new(
             label,
-            removals
+            deactivation
+                .into_iter()
+                .chain(removals)
                 .chain(insertions)
                 .chain(visibility)
                 .chain(rollback)
                 .chain(properties)
                 .chain(views)
                 .chain(selection_sets)
+                .chain(configurations)
                 .collect(),
         )
     }

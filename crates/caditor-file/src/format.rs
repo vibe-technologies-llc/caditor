@@ -6,11 +6,11 @@ use std::{
 
 use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
-    BodyPlacement, CircularPattern, Combine, CombineOperation, CurveStation, Datum, DatumAxis,
-    DatumFrame, DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent,
-    FaceAttachment, FaceColour, FaceMate, FaceTangent, Feature, FeatureId, FeatureKind,
-    HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
-    HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
+    BodyPlacement, CircularPattern, Combine, CombineOperation, ConfigurationId, CurveStation,
+    Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd,
+    ExtrudeExtent, FaceAttachment, FaceColour, FaceMate, FaceTangent, Feature, FeatureId,
+    FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing,
+    HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
     MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS,
     MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MetricSize, Mirror, ModelProperties,
     ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter,
@@ -32,8 +32,9 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
-use crate::selection_sets::{
-    SelectionSetsRecord, restore_selection_sets, selection_sets_record_of,
+use crate::{
+    configurations::{ConfigurationsRecord, configurations_record_of, restore_configurations},
+    selection_sets::{SelectionSetsRecord, restore_selection_sets, selection_sets_record_of},
 };
 
 pub const FORMAT_VERSION: u32 = 3;
@@ -51,9 +52,10 @@ pub(crate) enum Record {
     Views(ViewsRecord),
     NamedValues(NamedValuesRecord),
     SelectionSets(SelectionSetsRecord),
+    Configurations(ConfigurationsRecord),
 }
 
-pub(crate) const RECORD_KINDS: [&str; 10] = [
+pub(crate) const RECORD_KINDS: [&str; 11] = [
     "parameter",
     "feature",
     "next_ids",
@@ -64,6 +66,7 @@ pub(crate) const RECORD_KINDS: [&str; 10] = [
     "views",
     "named_values",
     "selection_sets",
+    "configurations",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1478,6 +1481,13 @@ pub(crate) enum EditRecord {
     },
     SetSelectionSets {
         sets: SelectionSetsRecord,
+    },
+    SetConfigurations {
+        configurations: ConfigurationsRecord,
+    },
+    SetActiveConfiguration {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        active: Option<u64>,
     },
     SetFeatureKind {
         feature: FeatureRecord,
@@ -3451,6 +3461,12 @@ fn edit_record(edit: &Edit) -> EditRecord {
         Edit::SetSelectionSets { sets } => EditRecord::SetSelectionSets {
             sets: selection_sets_record_of(sets),
         },
+        Edit::SetConfigurations { configurations } => EditRecord::SetConfigurations {
+            configurations: configurations_record_of(configurations),
+        },
+        Edit::SetActiveConfiguration { active } => EditRecord::SetActiveConfiguration {
+            active: active.map(ConfigurationId::raw),
+        },
         Edit::SetFeatureKind { id, kind } => EditRecord::SetFeatureKind {
             feature: FeatureRecord {
                 id: id.raw(),
@@ -3681,6 +3697,19 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
         },
         EditRecord::SetSelectionSets { sets } => Edit::SetSelectionSets {
             sets: Box::new(restore_selection_sets(sets, &mut Vec::new())),
+        },
+        EditRecord::SetConfigurations { configurations } => {
+            let mut issues = Vec::new();
+            let configurations = restore_configurations(configurations, &mut issues);
+            if !issues.is_empty() {
+                return None;
+            }
+            Edit::SetConfigurations {
+                configurations: Box::new(configurations),
+            }
+        }
+        EditRecord::SetActiveConfiguration { active } => Edit::SetActiveConfiguration {
+            active: active.map(ConfigurationId::from_raw),
         },
         EditRecord::SetFeatureKind { feature } => {
             let mut issues = Vec::new();
