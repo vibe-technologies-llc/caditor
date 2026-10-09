@@ -61,6 +61,7 @@ use crate::{
     },
     reference_picking,
     saved_views::{self, ViewsDraft},
+    scale_model::{self, ScaleDraft},
     scene_palette::Contrast,
     selection::{Selection, SelectionFilter},
     selection_sets::{self, SetsDraft},
@@ -135,6 +136,7 @@ pub struct Workspace {
     pub model_properties: Option<PropertiesDraft>,
     pub saved_views: Option<ViewsDraft>,
     pub selection_sets: Option<SetsDraft>,
+    pub scale_model: Option<ScaleDraft>,
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
@@ -179,6 +181,7 @@ impl Workspace {
             model_properties: None,
             saved_views: None,
             selection_sets: None,
+            scale_model: None,
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
@@ -209,6 +212,7 @@ impl Workspace {
         self.model_properties = None;
         self.saved_views = None;
         self.selection_sets = None;
+        self.scale_model = None;
         self.last_offers.clear();
         self.selection_offers = SelectionOffers::default();
         self.measure = MeasureTool::default();
@@ -229,6 +233,7 @@ impl Workspace {
             self.model_properties = None;
             self.saved_views = None;
             self.selection_sets = None;
+            self.scale_model = None;
             self.interference.interference.forget();
             self.comb.forget();
         }
@@ -298,6 +303,10 @@ impl Workspace {
                 self.selection_sets = Some(SetsDraft::of(model.document()));
             }
             PreferencesCommand::CloseSelectionSets => self.selection_sets = None,
+            PreferencesCommand::ShowScaleModel => {
+                self.scale_model.get_or_insert_with(ScaleDraft::default);
+            }
+            PreferencesCommand::CloseScaleModel => self.scale_model = None,
             PreferencesCommand::SelectSet(index) => {
                 let in_sketch = self.editing.feature().is_some();
                 let report = match selection_sets::choose(model, index, in_sketch) {
@@ -391,6 +400,7 @@ pub fn show(
         || workspace.model_properties.is_some()
         || workspace.saved_views.is_some()
         || workspace.selection_sets.is_some()
+        || workspace.scale_model.is_some()
         || workspace.panels.deleting.is_some()
         || workspace.panels.noting.is_some();
     let dialog_open = modal_open || palette_open;
@@ -414,6 +424,7 @@ pub fn show(
         model_properties,
         saved_views,
         selection_sets,
+        scale_model,
         last_offers,
         selection_offers,
         measure,
@@ -649,6 +660,13 @@ pub fn show(
     if commands.available(Command::UndoHistory) {
         actions.push(Action::Preferences(PreferencesCommand::ShowUndoHistory));
     }
+    let outside_sketch = match editing.active() {
+        Some(_) => Err(scale_model::IN_SKETCH),
+        None => Ok(()),
+    };
+    if commands.invoke(Command::ScaleModel, &outside_sketch) {
+        actions.push(Action::Preferences(PreferencesCommand::ShowScaleModel));
+    }
     if commands.available(Command::Messages) {
         actions.push(Action::Preferences(PreferencesCommand::ShowMessages));
     }
@@ -734,6 +752,15 @@ pub fn show(
             actions.push(Action::Preferences(
                 PreferencesCommand::CloseModelProperties,
             ));
+        }
+        if let Some(draft) = scale_model
+            && let Some(outcome) = scale_model::dialog(ui.ctx(), model, draft)
+        {
+            if let scale_model::Outcome::Scale(transaction, summary) = outcome {
+                actions.push(Action::Apply(transaction));
+                actions.push(Action::Inform(Notice::info(summary)));
+            }
+            actions.push(Action::Preferences(PreferencesCommand::CloseScaleModel));
         }
         if let Some(draft) = saved_views
             && let Some(outcome) = saved_views::dialog(ui.ctx(), model.document(), draft)

@@ -72,6 +72,7 @@ mod import_jobs;
 mod paint_selection;
 mod pick_list;
 mod primitives;
+mod scale_model;
 mod screenshots;
 mod selection_sets;
 mod selection_targets;

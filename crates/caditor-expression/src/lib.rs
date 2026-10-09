@@ -1,6 +1,7 @@
 mod expression;
 mod parse;
 mod quantity;
+mod scaling;
 
 use std::fmt;
 

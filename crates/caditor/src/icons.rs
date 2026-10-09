@@ -176,6 +176,7 @@ pub fn command(command: Command) -> &'static str {
         Command::DatumAxis => AXIS,
         Command::DatumPoint => POINT,
         Command::CoordinateSystem => COORDINATE_SYSTEM,
+        Command::ScaleModel => phosphor::ARROWS_OUT,
         Command::FitView => phosphor::FRAME_CORNERS,
         Command::Measure => MEASURE,
         Command::Interference => INTERFERENCE,

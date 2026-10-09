@@ -106,6 +106,7 @@ mod removal;
 mod ribbon;
 mod samples;
 mod saved_views;
+mod scale_model;
 mod scale_panel;
 mod scale_tools;
 mod scene;

@@ -17,6 +17,7 @@ fn scaled(pair: &mut Pair, factor: &str, center: [&str; 3]) -> FeatureId {
         body: plate,
         factor: transaction.parse(factor).unwrap(),
         center: center.map(|text| transaction.parse(text).unwrap()),
+        frame: None,
     };
     let feature = transaction.add_feature("Scale 1", FeatureKind::Scale(scale));
     pair.document.apply(transaction.finish()).unwrap();

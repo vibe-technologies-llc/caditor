@@ -58,6 +58,7 @@ const MODEL_BODIES: [&[Command]; 2] = [
         Command::Split,
         Command::Scale,
         Command::Mate,
+        Command::ScaleModel,
     ],
     &[
         Command::BodyAppearance,

@@ -46,6 +46,26 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   round-trips through stored text so precedence is kept), then the parameter is removed. The
   model computes exactly as before. An expression that would grow past what the stored text reads
   back refuses as `InliningTooLong`.
+- `Document::scaled` (`model_scale.rs`) builds the one transaction resizing the whole model by a
+  `ModelScale` (a factor from `MIN_SCALE_FACTOR` to `MAX_SCALE_FACTOR`, not 1, about a centre),
+  rewriting stored values in place so no ID, name or reference changes and undo is one step:
+  sketch planes are mapped (`Plane::mapped`), points, radii, `Fix` positions, label offsets and
+  projection reaches multiplied, and every length expression of sketches and features scaled;
+  angles, counts and plain factors never change. The values a feature holds in the world
+  (an unattached sketch's plane, a datum plane offset from a principal plane, a datum point from
+  the origin, a primitive's place on a principal plane, a scale's centre, an import's offsets, a
+  move turning about the origin) also take the shift a centre off the origin brings, so the
+  centre stays put; geometry a feature uses that cannot move (a principal plane, axis or the
+  origin not holding the centre, `Anchor`) refuses the scale as `CentreOffPrincipal` naming the
+  feature. Saved views follow (target mapped, distance multiplied).
+- `ScaledValues::Plain` scales parameter-free values and named values (owned length parameters
+  with no parameters of their own); a value using any other parameter is left to follow it and
+  listed in `ScaleSummary::kept`. `AndParameters` also rewrites every parameter in evaluation
+  order by its length power. Each expression is rewritten by
+  `Expression::with_lengths_scaled` and kept only when it evaluates to the factor to its power
+  times its old value; otherwise it becomes the exact form (scaled parameters divided back,
+  times the factor), so a value never silently changes size. A hole whose diameter changes
+  loses its `standard`, and threads keep their size; both are in the summary for the app to say.
 - `Document::transaction_to` builds the transaction turning one document into another (bar to the
   end, everything removed, the target's inserted with IDs, flags, notes and owners, its bar
   restored), never
@@ -495,10 +515,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   lookup (`pattern::seed`, worded through `SeedWords`) is shared with the pattern, so the same
   failures name the feature with the fix on it, the mirrored features are in `features()` and an
   edit to them recomputes the mirror. The cut images are the mirror's own `cuts`.
-- `Scale { body, factor, center }` resizes its body about a point (`Solid::mapped`), keeping every
-  name. The factor is a plain number from `MIN_SCALE_FACTOR` to `MAX_SCALE_FACTOR`; the centre is
-  three lengths. A result past `MAX_SIZE` or with an edge below the resolution fails it alone,
-  saying which.
+- `Scale { body, factor, center, frame }` resizes its body about a point (`Solid::mapped`),
+  keeping every name. The factor is a plain number from `MIN_SCALE_FACTOR` to `MAX_SCALE_FACTOR`;
+  the centre is three lengths, from the origin along the world's axes or, with `frame` (a
+  coordinate system, counted in `frames_used`), from its origin along its axes. A result past
+  `MAX_SIZE` or with an edge below the resolution fails it alone, saying which.
 - Both change their body but, like a pattern, are not `modifies_body`: nothing is chosen on the
   state before them, so the app shows the result while one is open.
 
@@ -643,8 +664,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `PlaneReference::Frame` name one of its three axes or planes, placed by
   `PrincipalAxis::in_frame` and `PrincipalPlane::in_frame` (the principal geometry carried by the
   frame), so they work wherever an axis or plane reference does; `displayed_frame` and
-  `displayed_plane` read them for drawing. A `PointReference::Datum` cannot name one.
-- A `PointReference` is the origin, a datum point, a body corner (`VertexName`, resolved when
+  `displayed_plane` read them for drawing. A `PointReference::Datum` cannot name one;
+  `PointReference::Frame` names its origin (`frames_used` through `Datum::frames`, so naming
+  another kind of feature is `NotACoordinateSystem`), worded "the origin of …".
+- A `PointReference` is the origin, a coordinate system's origin, a datum point, a body corner (`VertexName`, resolved when
   exactly one vertex has it), the centre of a round edge (an `EdgeReference`, pieces of one circle
   accepted), the centre of a spherical or toroidal face (`SurfaceCentre`, a `FaceReference`, pieces
   of one surface accepted) or a sketch point (in its solved plane). An `AxisReference::Sketch` is a line of an
@@ -694,7 +717,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   features hold its faces and edges like any body's.
 - Its `placement` (`BodyPlacement`, `movement.rs`) turns the body about the X, Y then Z axes
   through the origin, then shifts it, as a `Move` does, all expressions (any sign) counted in the
-  feature's parameters and inlined like any other. Zero everywhere (`is_at_origin`) leaves the
-  solid as read; otherwise `Solid::transformed` keeps every face and edge name, so references held
+  feature's parameters and inlined like any other. With `frame` (a coordinate system, in
+  `frames_used`) the file's origin and axes are the system's: the body is turned and shifted in
+  it, then carried to it (`RigidTransform::from_frame`). Its `scale`, a plain factor expression
+  (1 by default, `is_unscaled`), first resizes the solid about the file's origin
+  (`Solid::mapped`, from `MIN_SCALE_FACTOR` to `MAX_SCALE_FACTOR`, else the import fails alone),
+  so a part in the wrong unit is fixed in place. Zero everywhere, scale 1 and no frame
+  (`is_at_origin`) leaves the solid as read; otherwise `Solid::transformed` keeps every face and edge name, so references held
   through the import survive moving it. A value that is not a length or angle, or a body placed
   too far, fails the import alone.

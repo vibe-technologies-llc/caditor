@@ -243,7 +243,16 @@ paths:
   it would be in the world, itself possibly turning about its centre or an axis, and `frame`), since
   an older reader would leave the sketch where it was or move along the world's axes; an inner
   record of another kind loads without it, reported. The journal's `set_sketch_placement` carries
-  `frame` for a sketch placed on one.
+  `frame` for a sketch placed on one. A scale whose centre is measured in one is a
+  `scale_in_frame` record and an import placed in one an `import_in_frame` record, each the same
+  `feature` and `frame` (the inner import record is `import` or `placed_import` as its offsets
+  and turns decide, `BodyPlacement::is_unmoved`), since an older reader would scale about the
+  world's point or place the import in the world. A point reference to a system's origin is
+  `frame` (its id); a datum using one is a `frame_origin_datum` record wrapping the datum's
+  record (`feature`), so an older reader reports the datum as from a newer version rather than
+  damaged. An import scaled as it is read is a `scaled_import` record (`feature`, the import
+  record as above, and `scale`, its stored text; unreadable: 1, reported), inside any
+  `import_in_frame`, since an older reader would keep the file's size.
 - The constructed planes are `plane_construction` records (`tangent` with `body`, `face` and
   `toward`, a point reference; `square_to_curve` with `body`, an `edge` record and the `distance`
   text; `lines`, two axis references) and the constructed points `point_construction` records

@@ -10,6 +10,9 @@ use crate::{
 };
 
 pub const DESCRIPTION: &str = "Resizes the body by the factor, keeping the centre in place";
+pub const CENTRE_IN: &str = "Centre in";
+pub const FRAME_DESCRIPTION: &str =
+    "The centre is measured from the origin of the coordinate system, along its X, Y and Z axes";
 
 fn change(model: &Model, feature: FeatureId, scale: Scale) -> Result<Transaction, String> {
     let document = model.document();
@@ -73,6 +76,26 @@ pub fn show(
                 ..scale.clone()
             },
         );
+        let row = feature_fields::FrameRow {
+            feature: feature.id(),
+            salt: "scale-frame",
+            caption: CENTRE_IN,
+            current: scale.frame,
+        };
+        let chosen = feature_fields::frame_row(ui, model.document(), &row, |frame| {
+            change(
+                model,
+                feature.id(),
+                Scale {
+                    frame,
+                    ..scale.clone()
+                },
+            )
+        });
+        panel.actions.extend(chosen);
+        if scale.frame.is_some() {
+            feature_fields::description_row(ui, FRAME_DESCRIPTION);
+        }
         for axis in MoveAxis::ALL {
             panel.row(
                 ui,

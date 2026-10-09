@@ -313,6 +313,7 @@ fn body_placement(similarity: &Similarity, solid: &Solid) -> Option<BodyPlacemen
     let placement = BodyPlacement {
         offset: [shift.x, shift.y, shift.z].map(millimetres),
         turn: [about_x, tilt, about_z].map(degrees),
+        ..BodyPlacement::default()
     };
     let transform = placement.transform(&ParameterValues::default())?;
     let bounds = solid.bounding_box()?;

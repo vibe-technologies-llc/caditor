@@ -428,6 +428,8 @@ pub enum PreferencesCommand {
     GoToView(usize),
     ShowSelectionSets,
     CloseSelectionSets,
+    ShowScaleModel,
+    CloseScaleModel,
     SelectSet(usize),
     Tab(PreferencesTab),
     Change(PreferenceChange),

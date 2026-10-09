@@ -38,6 +38,15 @@ paths:
 - `format_number` output must be readable back by the parser.
 - Every intermediate value must be finite; a literal too large for an f64 is refused at parse time.
 
+## Scaling
+
+- `with_lengths_scaled` multiplies each literal by the factor to its length power (`mm²` by the
+  square, angles never), and a plain literal by the power it is read at: the field's when the
+  whole expression is plain, or the power of what it is added to, compared with or paired with
+  in a same-kind function; a plain product or quotient carries it on its plain operand, and a
+  plain value that cannot carry it (a parameter, a function) is multiplied by the factor. The
+  caller checks the result and falls back when it does not agree (`document.md`).
+
 ## Limits
 
 - Parsing bounds length (`MAX_LENGTH`, more for stored text), nesting and tree depth (checked as

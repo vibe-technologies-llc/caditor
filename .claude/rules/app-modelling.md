@@ -23,6 +23,7 @@ paths:
   - "crates/caditor/src/mirror_panel.rs"
   - "crates/caditor/src/scale_tools.rs"
   - "crates/caditor/src/scale_panel.rs"
+  - "crates/caditor/src/scale_model.rs"
   - "crates/caditor/src/datum_tools.rs"
   - "crates/caditor/src/datum_panel.rs"
   - "crates/caditor/src/pattern_tools.rs"
@@ -396,8 +397,24 @@ paths:
   Face the same way or Point the other way checkbox, and the body. A mate keeps the kind it was
   made with; another kind is another mate.
 - Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 (the body unchanged until
-  a factor is typed) about the origin. The panel has the factor (a plain number above zero) and
-  the centre's three coordinates, all expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
+  a factor is typed) about the origin. The panel has the factor (a plain number above zero), a
+  Centre in combo (World, or a coordinate system above it, through the shared
+  `feature_fields::frame_row`, shown once the model has one; a description says the centre is
+  measured from its origin along its axes) and the centre's three coordinates, all expressions
+  (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
+
+## Scale model
+
+- Scale model… (`Command::ScaleModel`, the Model menu's Bodies group and the palette, no default
+  key, refused while a sketch is edited) opens a modal (`Workspace::scale_model`, dropped with the
+  session) with the Factor (an expression that must give a plain number; focus starts there and
+  Enter scales), the Centre (the origin, a datum point or a coordinate system's origin, read from
+  the evaluation) and what to Scale (Typed values, or Values and parameters, `ScaledValues`).
+  Scale model builds `Document::scaled` (`scale_model::scaling`) and applies it as one undoable
+  change with a notice summing up what changed, what was left to follow parameters, which holes
+  lost their standard size and which threads to check; a refusal (no factor, a length, zero or
+  less, 1, a centre a feature's principal geometry does not hold) stays in the dialog as an error
+  callout and nothing is applied.
 
 ## Patterns
 
@@ -514,7 +531,11 @@ paths:
 - A move's Directions combo (World, or a coordinate system above it; shown once the model has
   one) sets `Move::frame`, with a description saying it turns and shifts along that system's axes;
   the manipulator's arrows, squares and rings follow the system's axes (`Model::move_frame`, the
-  world being `Plane::XY`).
+  world being `Plane::XY`). The scale's Centre in and the import's Placed in combos are the same
+  row (`feature_fields::frame_row`).
+- Its origin marker is a point wherever one is taken from the selection
+  (`datum_tools::point_reference` gives `PointReference::Frame`), so a datum point, plane or axis
+  through a system's origin needs no point of its own.
 
 ## Sketches on faces and planes
 
