@@ -30,3 +30,5 @@ belongs to. Typing a plain expression in the field again unnames it.
 {command:file.export_parameters} writes them to a CSV file a spreadsheet opens;
 {command:file.import_parameters} reads one back and shows what would be added, changed or left out
 before anything is applied. The import is one change, so Undo takes it back.
+
+To keep several sets of values in one model, see [Configurations](configurations).

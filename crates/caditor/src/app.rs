@@ -623,6 +623,7 @@ pub fn show(
             analysis,
             comb,
             isocurves,
+            section,
             tidying,
         },
         guide,
@@ -1028,6 +1029,7 @@ struct GuideBasis<'a> {
     analysis: &'a AnalysisTool,
     comb: &'a CombTool,
     isocurves: &'a IsocurveTool,
+    section: &'a SectionTool,
     tidying: &'a Tidying,
 }
 
@@ -1051,6 +1053,7 @@ fn guide_commands(
         ),
         (basis.comb.open, SidePanel::Comb),
         (basis.isocurves.open, SidePanel::Isocurves),
+        (basis.section.open, SidePanel::Section),
         (basis.interference.open, SidePanel::Interference),
         (basis.measure.open, SidePanel::Measure),
     ]

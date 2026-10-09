@@ -45,6 +45,7 @@ pub enum Page {
     BlendCurve,
     Parameters,
     Expressions,
+    Configurations,
     FeatureTree,
     Extrude,
     Revolve,
@@ -70,6 +71,7 @@ pub enum Page {
     FaceAnalysis,
     CurvatureComb,
     Isocurves,
+    SectionView,
     Saving,
     VersionHistory,
     Importing,
@@ -115,6 +117,7 @@ all_variants!(
     BlendCurve,
     Parameters,
     Expressions,
+    Configurations,
     FeatureTree,
     Extrude,
     Revolve,
@@ -140,6 +143,7 @@ all_variants!(
     FaceAnalysis,
     CurvatureComb,
     Isocurves,
+    SectionView,
     Saving,
     VersionHistory,
     Importing,
@@ -231,6 +235,7 @@ impl Page {
             Self::BlendCurve => "blend-curve",
             Self::Parameters => "parameters",
             Self::Expressions => "expressions",
+            Self::Configurations => "configurations",
             Self::FeatureTree => "feature-tree",
             Self::Extrude => "extrude",
             Self::Revolve => "revolve",
@@ -256,6 +261,7 @@ impl Page {
             Self::FaceAnalysis => "face-analysis",
             Self::CurvatureComb => "curvature-comb",
             Self::Isocurves => "isocurves",
+            Self::SectionView => "section-view",
             Self::Saving => "saving",
             Self::VersionHistory => "version-history",
             Self::Importing => "importing",
@@ -307,6 +313,7 @@ impl Page {
             Self::BlendCurve => include_str!("../guide/blend-curve.md"),
             Self::Parameters => include_str!("../guide/parameters.md"),
             Self::Expressions => include_str!("../guide/expressions.md"),
+            Self::Configurations => include_str!("../guide/configurations.md"),
             Self::FeatureTree => include_str!("../guide/feature-tree.md"),
             Self::Extrude => include_str!("../guide/extrude.md"),
             Self::Revolve => include_str!("../guide/revolve.md"),
@@ -332,6 +339,7 @@ impl Page {
             Self::FaceAnalysis => include_str!("../guide/face-analysis.md"),
             Self::CurvatureComb => include_str!("../guide/curvature-comb.md"),
             Self::Isocurves => include_str!("../guide/isocurves.md"),
+            Self::SectionView => include_str!("../guide/section-view.md"),
             Self::Saving => include_str!("../guide/saving.md"),
             Self::VersionHistory => include_str!("../guide/version-history.md"),
             Self::Importing => include_str!("../guide/importing.md"),
@@ -377,7 +385,7 @@ impl Page {
             | Self::SketchFillet
             | Self::ProjectAndIntersect
             | Self::BlendCurve => Chapter::SketchTools,
-            Self::Parameters | Self::Expressions => Chapter::Parameters,
+            Self::Parameters | Self::Expressions | Self::Configurations => Chapter::Parameters,
             Self::FeatureTree
             | Self::Extrude
             | Self::Revolve
@@ -402,7 +410,8 @@ impl Page {
             | Self::Interference
             | Self::FaceAnalysis
             | Self::CurvatureComb
-            | Self::Isocurves => Chapter::Inspecting,
+            | Self::Isocurves
+            | Self::SectionView => Chapter::Inspecting,
             Self::Saving
             | Self::VersionHistory
             | Self::Importing
@@ -487,6 +496,7 @@ impl Page {
             SidePanel::Analysis(kind) => Self::of_analysis(kind),
             SidePanel::Comb => Self::CurvatureComb,
             SidePanel::Isocurves => Self::Isocurves,
+            SidePanel::Section => Self::SectionView,
             SidePanel::Tidying => Self::AutomaticConstraints,
         }
     }
@@ -507,6 +517,7 @@ pub enum SidePanel {
     Analysis(Kind),
     Comb,
     Isocurves,
+    Section,
     Tidying,
 }
 
@@ -896,6 +907,7 @@ mod tests {
             SidePanel::Interference,
             SidePanel::Comb,
             SidePanel::Isocurves,
+            SidePanel::Section,
         ] {
             assert_eq!(Page::of_panel(panel).chapter(), Chapter::Inspecting);
         }

@@ -8,6 +8,11 @@ out; the panel lists the chosen ones in words, each with a button to leave it ou
 continue smoothly are taken together as a chain.
 
 - Fillet takes a **Radius**, Chamfer a **Distance**.
+- A chamfer's **Distances** row chooses **Equal** (one distance on both faces), **Two** (a second
+  distance on the other face) or **Angle** (a distance and the angle from the first face).
+  **Measure from the other face** swaps which face takes the first distance. The same choices are
+  {command:model.chamfer_equal}, {command:model.chamfer_two_distances},
+  {command:model.chamfer_distance_angle} and {command:model.flip_chamfer}.
 - Typing a value previews it before you press Enter; when it cannot be made, the reason shows under
   the field and the body before it stays shown.
 

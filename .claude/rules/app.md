@@ -441,7 +441,7 @@ paths:
 - Help › User guide (`Command::Guide`, F1) opens the page of the current context
   (`guide::context`): the active sketch tool other than Select, else the open feature
   (`Page::of_feature`), else the first open side panel (Constrain automatically, face analysis,
-  comb, isocurves, interference, Measure), else the edited sketch or plane choice, else the tree's
+  comb, isocurves, section view, interference, Measure), else the edited sketch or plane choice, else the tree's
   selected row; with none, the contents with the search field focused. Run again on the page it
   would open, it closes the guide. The palette's detail names the page.
 - Panels link to their page: each side panel's header has a help button

@@ -5,7 +5,9 @@ use egui::{Id, Label, ScrollArea, Sides, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
-    feature_fields, field, icons, layout,
+    feature_fields, field,
+    guide::Page,
+    guide_panel, icons, layout,
     model::Model,
     section::{self, Cut, SectionTool},
     selection::{Pickable, PrincipalPlane, Selection},
@@ -272,6 +274,7 @@ pub fn show(ui: &mut Ui, context: &SectionContext<'_>, tool: &mut SectionTool, r
             ui.add_space(SPACE_S);
             widgets::panel_header(ui, icons::SECTION, TITLE, |ui| {
                 close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+                guide_panel::help_button(ui, Page::SectionView);
             });
             ui.add_space(SPACE_S);
             ScrollArea::vertical().show(ui, |ui| body(ui, context, tool));
