@@ -454,8 +454,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   or the network unasked).
 - [low · hard] One document per process.
 - [low · hard] No localisation.
-- [low · hard · blocked by: winit 0.30 has no drag and drop on Wayland (0.31 is only a beta)]
-  Dropping files on the window works only under X11.
+- [medium · hard · blocked by: winit 0.30 has no drag and drop on Wayland (0.31 is only a beta)]
+  Dropping files on the window, and the outline and card that say what the drop would do
+  (`drop_target.rs`), work only under X11 and Windows: on Wayland nothing is reported while files
+  are dragged over the window and a drop does nothing, so importing there goes through the file
+  dialog alone. Move to a winit that reports `HoveredFile` and `DroppedFile` on Wayland, or take the
+  `wl_data_device` events directly (which needs `unsafe` access to the raw connection, as the
+  portal parent window above does), and test that a drag over the window shows the card and a drop
+  imports on a Wayland session. Dragging a file from the file manager onto the window is how most
+  people expect to import, so this is the way in that most needs to work everywhere.
 
 ## Technical drawings
 
