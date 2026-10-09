@@ -4,8 +4,8 @@ use caditor_geometry::{Aabb, Point3};
 
 use super::{EdgeId, FaceId, ShellId, Solid, ValidationError, validate::face_edges};
 use crate::{
-    box_tree::BoxTree, intersect::boxes_overlap, sense::Sense, tessellation::triangles_contain,
-    tolerance::LINEAR_RESOLUTION,
+    box_tree::BoxTree, interrupt, intersect::boxes_overlap, sense::Sense,
+    tessellation::TriangleIndex, tolerance::LINEAR_RESOLUTION,
 };
 
 const EDGE_PROBES: usize = 16;
@@ -25,6 +25,7 @@ pub(super) struct Lump<'a> {
     sense: Sense,
     mesh: &'a ShellMesh,
     bounds: Aabb,
+    index: OnceCell<TriangleIndex>,
     feet: Vec<OnceCell<Option<Point3>>>,
 }
 
@@ -65,6 +66,7 @@ impl<'a> Lump<'a> {
             sense,
             mesh,
             bounds,
+            index: OnceCell::new(),
             feet: mesh.triangles.iter().map(|_| OnceCell::new()).collect(),
         })
     }
@@ -108,12 +110,16 @@ impl<'a> Lump<'a> {
         if !boxes_overlap(&self.bounds, &Aabb::from_point(point), LINEAR_RESOLUTION) {
             return Placement::Outside;
         }
-        let nearest = self
-            .mesh
-            .triangles
-            .iter()
-            .enumerate()
-            .map(|(index, triangle)| (closest_on_triangle(point, triangle).distance(point), index))
+        let indexed = self
+            .index
+            .get_or_init(|| TriangleIndex::new(&self.mesh.triangles));
+        let nearest = indexed
+            .possibly_nearest(point)
+            .into_iter()
+            .filter_map(|index| {
+                let triangle = self.mesh.triangles.get(index)?;
+                Some((closest_on_triangle(point, triangle).distance(point), index))
+            })
             .min_by(|a, b| a.0.total_cmp(&b.0));
         let Some((distance, index)) = nearest else {
             return Placement::Outside;
@@ -122,7 +128,7 @@ impl<'a> Lump<'a> {
         if distance.is_nan() || distance <= band {
             return Placement::Touching;
         }
-        match triangles_contain(&self.mesh.triangles, point) {
+        match indexed.contains(&self.mesh.triangles, point) {
             Some(true) => Placement::Inside,
             Some(false) => Placement::Outside,
             None => Placement::Undecided,
@@ -224,6 +230,7 @@ impl<'a> Lump<'a> {
             .step_by(stride)
             .filter_map(|probe| self.exact(solid, probe));
         for probe in exact {
+            interrupt::check()?;
             match self.depth_at(solid, others, probe) {
                 Depth::Known { depth, lump, void } => {
                     if depth != self.expected_depth() {

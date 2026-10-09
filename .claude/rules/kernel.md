@@ -162,7 +162,10 @@ paths:
   the other shells (outward +1, voids −1, by mesh parity) must be 0 on a lump and 1 on a void. A
   probe within `DEVIATION_ALLOWANCE` times the mesh deviation of another shell is touching and
   decides nothing, so lumps touching at a point, line or face validate; an overlap shallower than
-  that band or narrower than the probe spacing is not seen.
+  that band or narrower than the probe spacing is not seen. A shell's nearest triangle and its ray
+  parity come from a box tree of its triangles (`TriangleIndex`, boxes widened to every triangle a
+  ray may cross or graze), so the up to `MAX_PROBES` probes against a fine retry's tens of thousands
+  of triangles stay cheap; each probe polls the interrupt.
 - Validation never intersects faces with each other, since every build runs it; `find_crossing`
   does, for importers.
 - A coedge a builder marks settled (`SolidBuilder::settle`, from `PlanPcurve::Settled`) was
