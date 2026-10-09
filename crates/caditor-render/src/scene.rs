@@ -3,7 +3,7 @@ use std::{num::NonZeroU32, sync::Arc};
 use caditor_geometry::{Plane, Point3, Vector3};
 use glam::DVec2;
 
-use crate::mesh::MeshInstance;
+use crate::{mesh::MeshInstance, silhouette::Silhouette};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PickId(NonZeroU32);
@@ -194,6 +194,7 @@ pub struct Scene {
     pub overlay_meshes: Vec<MeshInstance>,
     pub flat_meshes: Vec<MeshInstance>,
     pub reflective_meshes: Vec<MeshInstance>,
+    pub silhouettes: Vec<Silhouette>,
     pub reflection: Reflection,
     pub batches: Vec<Arc<Batch>>,
     pub grid: Option<Grid>,

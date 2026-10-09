@@ -37,6 +37,13 @@ const GRID_DEPTH_BIAS: f32 = 0.99998;
 const BEHIND: u32 = 0u;
 const DASH_PERIOD_POINTS: f32 = 10.0;
 const DASH_DRAWN_FRACTION: f32 = 0.6;
+const STROKE_FRINGE_PIXELS: f32 = 1.0;
+const OPAQUE_ALPHA: f32 = 0.999;
+const SRGB_LINEAR_SLOPE: f32 = 12.92;
+const SRGB_DECODED_KNEE: f32 = 0.04045;
+const SRGB_ENCODED_KNEE: f32 = 0.0031308;
+const SRGB_OFFSET: f32 = 0.055;
+const SRGB_EXPONENT: f32 = 2.4;
 
 struct Varyings {
     @builtin(position) position: vec4<f32>,
@@ -48,11 +55,26 @@ struct Varyings {
     @location(5) relative: vec3<f32>,
     @location(6) normal: vec3<f32>,
     @location(7) dash_points: f32,
+    @location(8) stroke: vec3<f32>,
+    @location(9) @interpolate(flat) stroke_extent: vec3<f32>,
 }
 
 struct PickOutput {
     @location(0) id: u32,
     @location(1) depth: u32,
+}
+
+fn to_linear(color: vec3<f32>) -> vec3<f32> {
+    let low = color / SRGB_LINEAR_SLOPE;
+    let high = pow((max(color, vec3<f32>(0.0)) + SRGB_OFFSET) / (1.0 + SRGB_OFFSET), vec3<f32>(SRGB_EXPONENT));
+    return select(high, low, color <= vec3<f32>(SRGB_DECODED_KNEE));
+}
+
+fn to_srgb(color: vec3<f32>) -> vec3<f32> {
+    let clamped = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+    let low = clamped * SRGB_LINEAR_SLOPE;
+    let high = (1.0 + SRGB_OFFSET) * pow(clamped, vec3<f32>(1.0 / SRGB_EXPONENT)) - SRGB_OFFSET;
+    return select(high, low, clamped <= vec3<f32>(SRGB_ENCODED_KNEE));
 }
 
 fn from_anchor(position: vec3<f32>) -> vec3<f32> {
@@ -122,6 +144,8 @@ fn empty_varyings() -> Varyings {
     out.relative = vec3<f32>(0.0);
     out.normal = vec3<f32>(0.0);
     out.dash_points = -1.0;
+    out.stroke = vec3<f32>(0.0);
+    out.stroke_extent = vec3<f32>(0.0);
     return out;
 }
 
@@ -148,50 +172,127 @@ struct LineInstance {
     @location(7) in_front: u32,
 }
 
-@vertex
-fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
-    let near = view.forward_near.w * 1.01;
-    let line_start = from_anchor(line.start);
-    var start = line_start;
-    var end = from_anchor(line.end);
+struct Segment {
+    start: vec3<f32>,
+    end: vec3<f32>,
+    start_clip: vec4<f32>,
+    end_clip: vec4<f32>,
+    along_pixels: vec2<f32>,
+}
+
+fn near_limit() -> f32 {
+    return view.forward_near.w * 1.01;
+}
+
+fn is_before_near(start: vec3<f32>, end: vec3<f32>) -> bool {
+    return view_depth(start) < near_limit() && view_depth(end) < near_limit();
+}
+
+fn clipped_segment(head: vec3<f32>, tail: vec3<f32>) -> Segment {
+    let near = near_limit();
+    var start = head;
+    var end = tail;
     let start_depth = view_depth(start);
     let end_depth = view_depth(end);
-    if start_depth < near && end_depth < near {
-        return empty_varyings();
-    }
     if start_depth < near {
         start = mix(start, end, (near - start_depth) / (end_depth - start_depth));
     }
     if end_depth < near {
         end = mix(end, start, (near - end_depth) / (start_depth - end_depth));
     }
-
     let start_clip = to_clip(start);
     let end_clip = to_clip(end);
-    let along_pixels = ndc_to_pixels(end_clip) - ndc_to_pixels(start_clip);
-    var direction = vec2<f32>(1.0, 0.0);
-    if length(along_pixels) > 1e-6 {
-        direction = normalize(along_pixels);
-    }
-    let normal = vec2<f32>(-direction.y, direction.x);
+    return Segment(start, end, start_clip, end_clip, ndc_to_pixels(end_clip) - ndc_to_pixels(start_clip));
+}
 
+fn segment_direction(segment: Segment) -> vec2<f32> {
+    if length(segment.along_pixels) > 1e-6 {
+        return normalize(segment.along_pixels);
+    }
+    return vec2<f32>(1.0, 0.0);
+}
+
+fn finishes_strokes() -> bool {
+    return view.fill_light.w > 0.5;
+}
+
+struct Stroke {
+    width: f32,
+    depth_bias: f32,
+    in_front: u32,
+    capped: bool,
+}
+
+fn stroke_reach(stroke: Stroke) -> vec2<f32> {
+    let half_width = stroke.width * pixels_per_point() * 0.5;
+    if !finishes_strokes() {
+        return vec2<f32>(0.0, half_width);
+    }
+    let cap = select(0.0, half_width, stroke.capped);
+    return vec2<f32>(cap + STROKE_FRINGE_PIXELS, half_width + STROKE_FRINGE_PIXELS);
+}
+
+fn stroked(vertex: u32, segment: Segment, stroke: Stroke) -> Varyings {
+    let direction = segment_direction(segment);
+    let normal = vec2<f32>(-direction.y, direction.x);
     let corner = quad_corner(vertex);
     let at_end = corner.x > 0.0;
-    let half_width = line.width * pixels_per_point() * 0.5;
-    let offset = normal * corner.y * half_width;
-    var clip = select(start_clip, end_clip, at_end);
-    clip = vec4<f32>(clip.xy + pixels_to_ndc(offset) * clip.w, clip.zw);
+    let reach = stroke_reach(stroke);
+    let along = corner.x * reach.x;
+    let across = corner.y * reach.y;
+    var clip = select(segment.start_clip, segment.end_clip, at_end);
+    clip = vec4<f32>(clip.xy + pixels_to_ndc(direction * along + normal * across) * clip.w, clip.zw);
 
     var out = empty_varyings();
-    out.position = finish(clip, line.depth_bias, line.in_front);
+    out.position = finish(clip, stroke.depth_bias, stroke.in_front);
+    out.depth = select(view_depth(segment.start), view_depth(segment.end), at_end);
+    if finishes_strokes() {
+        let span = length(segment.along_pixels);
+        let from_start = along + select(0.0, span, at_end);
+        out.stroke = vec3<f32>(from_start, across, 1.0) * clip.w;
+        out.stroke_extent = vec3<f32>(span, stroke.width * pixels_per_point() * 0.5, select(0.0, 1.0, stroke.capped));
+    }
+    return out;
+}
+
+fn stroke_coverage(in: Varyings) -> f32 {
+    if in.stroke.z <= 0.0 {
+        return 1.0;
+    }
+    let along = in.stroke.x / in.stroke.z;
+    let across = abs(in.stroke.y / in.stroke.z);
+    let span = in.stroke_extent.x;
+    let half_width = in.stroke_extent.y;
+    let beyond = max(-along, along - span);
+    let across_coverage = clamp(half_width + 0.5 - across, 0.0, 1.0);
+    if in.stroke_extent.z > 0.5 {
+        let from_end = length(vec2<f32>(max(beyond, 0.0), across));
+        return clamp(half_width + 0.5 - from_end, 0.0, 1.0);
+    }
+    return min(across_coverage, clamp(0.5 - beyond, 0.0, 1.0));
+}
+
+@vertex
+fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
+    let line_start = from_anchor(line.start);
+    let line_end = from_anchor(line.end);
+    if is_before_near(line_start, line_end) {
+        return empty_varyings();
+    }
+    let segment = clipped_segment(line_start, line_end);
+
+    let stroke = Stroke(line.width, line.depth_bias, line.in_front, line.color.a >= OPAQUE_ALPHA);
+    var out = stroked(vertex, segment, stroke);
     out.color = line.color;
     out.pick = line.pick;
-    out.depth = select(view_depth(start), view_depth(end), at_end);
     if line.along >= 0.0 {
-        let clipped_length = distance(start, end);
-        let points_per_unit = length(along_pixels) / (max(clipped_length, 1e-12) * pixels_per_point());
-        let along_start = line.along + distance(line_start, start);
-        out.dash_points = (along_start + select(0.0, clipped_length, at_end)) * points_per_unit;
+        let corner = quad_corner(vertex);
+        let at_end = corner.x > 0.0;
+        let clipped_length = distance(segment.start, segment.end);
+        let points_per_unit = length(segment.along_pixels) / (max(clipped_length, 1e-12) * pixels_per_point());
+        let along_start = line.along + distance(line_start, segment.start);
+        let beyond_points = corner.x * stroke_reach(stroke).x / pixels_per_point();
+        out.dash_points = max((along_start + select(0.0, clipped_length, at_end)) * points_per_unit + beyond_points, 0.0);
     }
     return out;
 }
@@ -279,6 +380,95 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     return out;
 }
 
+struct SilhouetteStyle {
+    offset_width: vec4<f32>,
+    color: vec4<f32>,
+    turn_x_bias: vec4<f32>,
+    turn_y_dashed: vec4<f32>,
+    turn_z: vec4<f32>,
+}
+
+@group(1) @binding(3) var<uniform> silhouette: SilhouetteStyle;
+
+struct SilhouetteTriangle {
+    @location(0) first: vec3<f32>,
+    @location(1) second: vec3<f32>,
+    @location(2) third: vec3<f32>,
+    @location(3) first_normal: vec4<f32>,
+    @location(4) second_normal: vec4<f32>,
+    @location(5) third_normal: vec4<f32>,
+}
+
+fn silhouette_turned(vector: vec3<f32>) -> vec3<f32> {
+    return silhouette.turn_x_bias.xyz * vector.x + silhouette.turn_y_dashed.xyz * vector.y + silhouette.turn_z.xyz * vector.z;
+}
+
+fn silhouette_placed(position: vec3<f32>) -> vec3<f32> {
+    return silhouette_turned(position) + silhouette.offset_width.xyz;
+}
+
+fn facing(position: vec3<f32>, normal: vec4<f32>) -> f32 {
+    return dot(silhouette_turned(normal.xyz), toward_eye(position));
+}
+
+fn crossing(head: vec3<f32>, tail: vec3<f32>, head_facing: f32, tail_facing: f32) -> vec3<f32> {
+    return mix(head, tail, head_facing / (head_facing - tail_facing));
+}
+
+fn screen_dash_points(segment: Segment, vertex: u32) -> f32 {
+    let clip = select(segment.start_clip, segment.end_clip, quad_corner(vertex).x > 0.0);
+    let pixels = ndc_to_pixels(clip);
+    let direction = segment_direction(segment);
+    let along = select(pixels.y, pixels.x, abs(direction.x) >= abs(direction.y));
+    return along / pixels_per_point() + 1e4;
+}
+
+@vertex
+fn vs_silhouette(@builtin(vertex_index) vertex: u32, triangle: SilhouetteTriangle) -> Varyings {
+    let first = silhouette_placed(triangle.first);
+    let second = silhouette_placed(triangle.second);
+    let third = silhouette_placed(triangle.third);
+    let first_facing = facing(first, triangle.first_normal);
+    let second_facing = facing(second, triangle.second_normal);
+    let third_facing = facing(third, triangle.third_normal);
+    let front = vec3<bool>(first_facing >= 0.0, second_facing >= 0.0, third_facing >= 0.0);
+    if all(front) || !any(front) {
+        return empty_varyings();
+    }
+
+    var lone = first;
+    var lone_facing = first_facing;
+    var one = second;
+    var one_facing = second_facing;
+    var other = third;
+    var other_facing = third_facing;
+    if front.y != front.x && front.y != front.z {
+        lone = second;
+        lone_facing = second_facing;
+        one = first;
+        one_facing = first_facing;
+    } else if front.z != front.x && front.z != front.y {
+        lone = third;
+        lone_facing = third_facing;
+        other = first;
+        other_facing = first_facing;
+    }
+    let start = crossing(lone, one, lone_facing, one_facing);
+    let end = crossing(lone, other, lone_facing, other_facing);
+    if is_before_near(start, end) {
+        return empty_varyings();
+    }
+    let segment = clipped_segment(start, end);
+
+    let stroke = Stroke(silhouette.offset_width.w, silhouette.turn_x_bias.w, BEHIND, silhouette.color.a >= OPAQUE_ALPHA);
+    var out = stroked(vertex, segment, stroke);
+    out.color = silhouette.color;
+    if silhouette.turn_y_dashed.w > 0.5 {
+        out.dash_points = screen_dash_points(segment, vertex);
+    }
+    return out;
+}
+
 @vertex
 fn vs_grid(@builtin(vertex_index) vertex: u32) -> Varyings {
     let local = quad_corner(vertex) * grid.origin_extent.w;
@@ -307,25 +497,29 @@ fn fs_line(in: Varyings) -> @location(0) vec4<f32> {
     if in.dash_points >= 0.0 && fract(in.dash_points / DASH_PERIOD_POINTS) > DASH_DRAWN_FRACTION {
         discard;
     }
-    return in.color;
+    let coverage = stroke_coverage(in);
+    if coverage <= 0.0 {
+        discard;
+    }
+    return vec4<f32>(in.color.rgb, in.color.a * coverage);
 }
 
-const AMBIENT: f32 = 0.3;
-const KEY_LIGHT: f32 = 0.55;
-const HEADLIGHT: f32 = 0.2;
-const SPECULAR: f32 = 0.12;
+const AMBIENT: f32 = 0.07;
+const KEY_LIGHT: f32 = 0.76;
+const HEADLIGHT: f32 = 0.28;
+const SPECULAR: f32 = 0.15;
 const SHININESS: f32 = 40.0;
 
-const GROUND_AMBIENT: f32 = 0.17;
-const SKY_AMBIENT: f32 = 0.34;
-const ENHANCED_KEY_LIGHT: f32 = 0.5;
-const ENHANCED_FILL_LIGHT: f32 = 0.17;
-const ENHANCED_HEADLIGHT: f32 = 0.12;
-const ENHANCED_SPECULAR: f32 = 0.24;
+const GROUND_AMBIENT: f32 = 0.02;
+const SKY_AMBIENT: f32 = 0.093;
+const ENHANCED_KEY_LIGHT: f32 = 0.77;
+const ENHANCED_FILL_LIGHT: f32 = 0.26;
+const ENHANCED_HEADLIGHT: f32 = 0.185;
+const ENHANCED_SPECULAR: f32 = 0.4;
 const ENHANCED_SHININESS: f32 = 72.0;
-const SHEEN: f32 = 0.05;
+const SHEEN: f32 = 0.08;
 const SHEEN_SHININESS: f32 = 8.0;
-const RIM: f32 = 0.16;
+const RIM: f32 = 0.05;
 const RIM_EXPONENT: f32 = 3.0;
 const RIM_WHITENING: f32 = 0.5;
 const REFLECTANCE_PER_LUMINANCE: f32 = 1.6;
@@ -368,7 +562,8 @@ fn enhanced_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f
         + ENHANCED_FILL_LIGHT * fill
         + ENHANCED_HEADLIGHT * facing;
 
-    let reflectance = clamp(dot(color, LUMINANCE) * REFLECTANCE_PER_LUMINANCE, 0.0, 1.0);
+    let lightness = to_srgb(vec3<f32>(dot(color, LUMINANCE))).x;
+    let reflectance = clamp(lightness * REFLECTANCE_PER_LUMINANCE, 0.0, 1.0);
     let alignment = max(dot(normal, normalize(key_light + eye)), 0.0);
     let highlight = ENHANCED_SPECULAR * pow(alignment, ENHANCED_SHININESS)
         + SHEEN * pow(alignment, SHEEN_SHININESS);
@@ -381,10 +576,11 @@ fn enhanced_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f
 fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
     let eye = toward_eye(in.relative);
     let normal = facing_normal(in, eye);
+    let color = to_linear(in.color.rgb);
     if uses_enhanced_shading() {
-        return vec4<f32>(enhanced_shade(in.color.rgb, normal, eye), in.color.a);
+        return vec4<f32>(to_srgb(enhanced_shade(color, normal, eye)), in.color.a);
     }
-    return vec4<f32>(standard_shade(in.color.rgb, normal, eye), in.color.a);
+    return vec4<f32>(to_srgb(standard_shade(color, normal, eye)), in.color.a);
 }
 
 const TAU: f32 = 6.2831853;

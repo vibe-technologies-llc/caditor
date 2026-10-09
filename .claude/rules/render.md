@@ -69,7 +69,7 @@ paths:
   upload once per `Arc` and drop when the mesh leaves the scene; a mesh past `max_buffer_size` is
   split into parts that each fit.
 - New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
-  shared by the five mesh caches): each frame packs and writes the next whole vertices and indices
+  shared by the five mesh caches and the silhouette cache): each frame packs and writes the next whole vertices and indices
   into buffers made at the start, so the frame that first shows a large body never stalls (about
   2 ms at worst instead of 8 to 11 ms for 39 MB in a release build). A mesh is drawn only once it
   is complete, never half; while any mesh of a cache is still uploading, the meshes the cache drew
@@ -78,7 +78,7 @@ paths:
   they hide what is behind them in the pick pass but pick nothing. `Renderer::is_uploading` says
   whether frames must follow (`app.md`); image export uploads whatever is left at once.
 - The ignored `frame_costs_of_drawing_a_large_scene` test times the UI thread's share of a frame
-  for a scene of lines, markers, fills and four 245,000-triangle meshes: idle, with the camera
+  for a scene of lines, markers, fills and four 245,000-triangle meshes with their silhouettes: idle, with the camera
   moving, hovering with a pick and a face restyled every frame, with the batch replaced every
   frame, and with new meshes shown every 20 frames, uploaded whole and under the budget.
 - A `MeshInstance` may carry a `placement` (a `RigidTransform`) drawing the mesh moved and turned
@@ -99,12 +99,33 @@ paths:
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
   picking alike (everything but `Layer::Front`). A face without a pick id writes id 0 with its
   depth in the pick pass, not discarded. Enhanced shading scales highlight and rim with the face
-  colour's luminance so dimmed and tinted bodies stay dark and keep their hue (offscreen test).
+  colour's lightness so dimmed and tinted bodies stay dark and keep their hue (offscreen test).
+
+## Colour and light
+
+- Colours are sRGB-encoded everywhere (palettes, styles, `BACKGROUND`) and every pass draws on
+  the plain 8-bit view, so blending stays in the space the palettes' contrast tests model
+  (`scene_palette.rs`). Only `fs_mesh` works in linear light: it decodes the face colour
+  (`to_linear`), lights it and encodes the result (`to_srgb`), the light constants tuned so a
+  face lit by ambient alone or fully lit reads about as it did when lighting was in gamma space, the
+  tones between a little lighter. Zebra and chrome keep their sRGB-space look.
+- The multisample resolve averages in linear light where views allow it: the surface is
+  configured with its sRGB twin in `view_formats` when the adapter has both
+  `SURFACE_VIEW_FORMATS` and `VIEW_FORMATS` (else, when that configuration is refused, or once
+  the surface is configured conservatively, without it), `Frame` hands the viewport that view as `SurfaceTarget::linear_view`, and a renderer told
+  so (`set_linear_resolve`, from `gpu::resolves_linearly`) gives its multisampled colour target
+  an sRGB view, stores the scene pass instead of resolving it and resolves in an empty pass
+  through the two sRGB views (`ColorAttachment`), so a half-covered edge pixel is the linear mean
+  of its samples (offscreen test). Image tiles on the viewport background do the same; a
+  transparent image resolves in gamma, since its bands straighten premultiplied colour there.
+  GL and other devices without view formats resolve in gamma as before. The extra pass costs a
+  few microseconds a frame in the frame-cost benchmark (release, 1600 by 1000 at 4x).
 
 ## Depth, buffers and layers
 
-- Reverse-Z, infinite far plane, `Depth32Float`, multisampled at the level in use (resolved into
-  the surface, never stored). The UI is drawn on the resolved surface after the 3D pass.
+- Reverse-Z, infinite far plane, `Depth32Float`, multisampled at the level in use (never stored;
+  colour is resolved into the surface, through the linear resolve pass where views allow it). The
+  UI is drawn on the resolved surface after the 3D pass.
 - Each batch has a `GpuBatch` slot of `GrowableBuffer`s. A slot uploads only when its `Arc`
   differs or the anchor moved, so an idle frame or a camera move writes no vertices. A batch past
   `max_buffer_size` draws only its first whole primitives (logged once).
@@ -138,6 +159,23 @@ paths:
   horizon, ground and one light panel, tinted halfway to the face colour's hue, so hover and
   selection still show). The reflection rides in the view uniform's last two vectors (the stripe
   axes' orthonormal pair, the stripe count and a zebra flag).
+- `Scene::silhouettes` (`silhouette.rs`) draw the outline of curved faces as seen from the
+  current view, after every mesh and before the batches' lines, with the line pipeline's depth
+  test and `fs_line`, never in the pick pass (the face beneath picks). A `Silhouette` names a mesh,
+  a colour, a width, a dash flag and a placement, with no faces drawn needed, so wireframe shows
+  it too. On upload (under the same per-frame byte budget as meshes, in chunks that fit a
+  buffer) every triangle whose corner normals differ (`ShadedMesh::curved_triangles`, so flat
+  faces cost nothing) becomes a `SILHOUETTE_STRIDE` instance of three positions and three
+  `Snorm16x4` normals; `vs_silhouette` finds where the facing of the interpolated normals toward
+  the eye changes sign across the triangle and strokes that segment like a line, so the outline
+  follows every orbit without re-meshing and with no CPU work per frame. A dashed silhouette
+  dashes along its dominant screen axis, since contour segments carry no distance along a curve.
+  `ShadedMesh` counts its curved triangles when built, so starting an upload costs nothing. The
+  frame-cost benchmark gives its four meshes waving normals and silhouettes, so every triangle is
+  a candidate (about 14.6 MB each against 9.8 MB of mesh): steady frames stay within noise (about
+  45 µs idle, 55 µs orbiting, release build), an upload frame under the budget stays near 2 ms
+  at worst but new meshes take about 2.5 times as many frames, and an unbudgeted upload of all
+  four takes about 19 ms instead of 7.
 - `Scene::overlay_meshes` draw right after the translucent ones, blended, with no depth test or
   write and never in the pick pass, so they show through whatever covers them (the cut preview).
 - `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and
@@ -149,6 +187,14 @@ paths:
 
 - Sizes are logical points: `ViewportFrame::pixels_per_point` goes into the view uniform and
   shaders scale line widths, marker diameters and the grid by it.
+- Lines and silhouettes are finished in the colour pass (`Strokes::Finished` in the view uniform's
+  `fill_light.w`): each quad reaches `STROKE_FRINGE_PIXELS` beyond its edges and `fs_line` turns the
+  distance from the segment, carried in screen space (the `stroke` varying times `w`, divided
+  back per fragment), into coverage, so lines are smooth at every multisampling level, Off
+  included, at the same width. An opaque line also reaches half its width past each end and
+  rounds it, which closes the notches where a polyline's segments meet; a translucent one keeps
+  square ends, since overlapping caps would blend twice at every joint. The pick pass
+  (`Strokes::Bare`) draws the bare quads as before, so pick reach is unchanged.
 - `Stroke::Dashed` carries the distance along the curve at its start, so dashes
   (`DASH_PERIOD_POINTS`) run on across a polyline's segments at any zoom and interface size. The
   pick pass draws dashed lines whole, so a gap still picks its curve.

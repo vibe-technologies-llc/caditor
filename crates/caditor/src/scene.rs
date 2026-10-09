@@ -12,7 +12,7 @@ use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{RegionKey, RegionMesh, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
-    PickResult, Reflection, Scene, Stroke,
+    PickResult, Reflection, Scene, ShadedMesh, Silhouette, Stroke,
 };
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Faceting, Reference, Sketch,
@@ -477,6 +477,7 @@ pub fn build(
         overlay_meshes: Vec::new(),
         flat_meshes: Vec::new(),
         reflective_meshes: Vec::new(),
+        silhouettes: Vec::new(),
         picks: PickTable::default(),
         highlight,
         style,
@@ -645,6 +646,7 @@ pub fn build(
             overlay_meshes: builder.overlay_meshes,
             flat_meshes: builder.flat_meshes,
             reflective_meshes: builder.reflective_meshes,
+            silhouettes: builder.silhouettes,
             reflection: aids.reflection.unwrap_or_default(),
             batches: vec![Arc::new(builder.scene)],
             grid: Some(Grid {
@@ -827,6 +829,7 @@ struct Builder<'a> {
     overlay_meshes: Vec<MeshInstance>,
     flat_meshes: Vec<MeshInstance>,
     reflective_meshes: Vec<MeshInstance>,
+    silhouettes: Vec<Silhouette>,
     picks: PickTable,
     highlight: &'a Highlight<'a>,
     style: DisplayStyle,
@@ -1157,6 +1160,13 @@ impl Builder<'_> {
         let edge_width = self.palette.body_edge_width;
         let pickable_edges = pickable;
         let shows_hidden_edges = style.shows_hidden_edges() && color.is_some();
+        if style.shows_edges() {
+            let silhouette_color = match color {
+                Some(_) => self.palette.body_edge,
+                None => self.palette.background_body_edge,
+            };
+            self.silhouette(&mesh.mesh, silhouette_color, dashed, placement);
+        }
         for edge in &mesh.edges {
             let pickable = Pickable::Edge {
                 body,
@@ -1221,6 +1231,22 @@ impl Builder<'_> {
                 pick: self.picks.register(pickable, PickPriority::Point),
             });
         }
+    }
+
+    fn silhouette(
+        &mut self,
+        mesh: &Arc<ShadedMesh>,
+        color: Color,
+        dashed: bool,
+        placement: Option<RigidTransform>,
+    ) {
+        self.silhouettes.push(Silhouette {
+            mesh: Arc::clone(mesh),
+            color,
+            width: self.palette.body_edge_width,
+            dashed,
+            placement,
+        });
     }
 
     fn analysed(&self, mesh: &BodyMesh) -> Option<Arc<Analysed>> {
@@ -1363,6 +1389,7 @@ impl Builder<'_> {
             faces,
             placement: None,
         });
+        self.silhouette(&mesh.mesh, self.palette.body_edge, false, None);
         for edge in &mesh.edges {
             self.scene
                 .lines
@@ -1463,6 +1490,7 @@ impl Builder<'_> {
                 faces,
                 placement: None,
             });
+            self.silhouette(&open.before.mesh, self.palette.body_edge, false, None);
         }
         for edge in &open.before.edges {
             let (color, width, pick) = match &chosen {

@@ -27,6 +27,7 @@ impl OffscreenRenderer {
             graphics.msaa.closest(&offered).samples(),
         );
         viewport.set_shading(graphics.shading);
+        viewport.set_linear_resolve(gpu::resolves_linearly(&opened.adapter));
         Ok(Self {
             device: opened.device,
             queue: opened.queue,

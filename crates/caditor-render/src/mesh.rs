@@ -17,6 +17,7 @@ const PLACEMENT_BINDING: u32 = 2;
 const PLACEMENT_BYTES: u64 = 80;
 const STYLE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg32Uint;
 const STYLE_TEXEL_BYTES: u32 = 8;
+const FLAT_NORMALS: f32 = 1e-6;
 const UNSTYLED_FACE: FaceStyle = FaceStyle {
     color: Color::from_rgb8(160, 164, 172),
     pick: None,
@@ -48,6 +49,7 @@ pub struct ShadedMesh {
     vertices: Vec<GpuVertex>,
     indices: Vec<u32>,
     face_count: usize,
+    curved: usize,
 }
 
 impl ShadedMesh {
@@ -78,12 +80,14 @@ impl ShadedMesh {
                 }
             }
         }
+        let curved = curved_in(&vertices, &indices, 0).count();
         Self {
             origin,
             bounds,
             vertices,
             indices,
             face_count: faces.len(),
+            curved,
         }
     }
 
@@ -122,6 +126,17 @@ impl ShadedMesh {
                     [world(first), world(second), world(third)],
                 ))
             })
+    }
+
+    pub(crate) fn curved_triangles(
+        &self,
+        from: usize,
+    ) -> impl Iterator<Item = (usize, [Corner; 3])> + '_ {
+        curved_in(&self.vertices, &self.indices, from)
+    }
+
+    pub(crate) fn curved_triangle_count(&self) -> usize {
+        self.curved
     }
 
     pub fn divide(&self, classify: impl Fn([Corner; 3]) -> u8) -> Division {
@@ -187,10 +202,38 @@ impl ShadedMesh {
                 vertices,
                 indices,
                 face_count: pieces.len(),
+                curved: self.curved,
             },
             pieces,
         }
     }
+}
+
+fn curved_in<'a>(
+    vertices: &'a [GpuVertex],
+    indices: &'a [u32],
+    from: usize,
+) -> impl Iterator<Item = (usize, [Corner; 3])> + 'a {
+    indices
+        .as_chunks::<3>()
+        .0
+        .get(from..)
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+        .filter_map(move |(offset, corners)| {
+            let [first, second, third] = corners.map(|index| vertices.get(index as usize));
+            let corners = [first?, second?, third?].map(|vertex| Corner {
+                position: vertex.position,
+                normal: vertex.normal,
+            });
+            is_curved(&corners).then_some((from + offset, corners))
+        })
+}
+
+fn is_curved([first, second, third]: &[Corner; 3]) -> bool {
+    let differs = |other: &Corner| first.normal.distance_squared(other.normal) > FLAT_NORMALS;
+    differs(second) || differs(third)
 }
 
 fn triangle_area(a: Vec3, b: Vec3, c: Vec3) -> f64 {
@@ -310,7 +353,7 @@ impl UploadBudget {
         Self(bytes)
     }
 
-    fn grant(&mut self, wanted: usize, stride: u64) -> usize {
+    pub(crate) fn grant(&mut self, wanted: usize, stride: u64) -> usize {
         let affordable = usize::try_from(self.0 / stride).unwrap_or(usize::MAX);
         let granted = wanted.min(affordable);
         self.0 = self.0.saturating_sub(granted as u64 * stride);
@@ -498,10 +541,26 @@ struct GpuMesh {
     bind_group: wgpu::BindGroup,
 }
 
+pub(crate) struct Placed {
+    pub offset: Vec3,
+    pub turn: [Vec3; 3],
+}
+
+impl Placed {
+    pub(crate) fn of(origin: Point3, placement: Option<RigidTransform>, eye: Point3) -> Self {
+        let placement = placement.unwrap_or(RigidTransform::IDENTITY);
+        let turn = |axis: Vector3| placement.apply_vector(axis).as_vec3();
+        Self {
+            offset: relative_to_eye(placement.apply_point(origin), eye),
+            turn: [turn(Vector3::X), turn(Vector3::Y), turn(Vector3::Z)],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct PlacedAt {
-    placement: Option<RigidTransform>,
-    eye: Point3,
+pub(crate) struct PlacedAt {
+    pub placement: Option<RigidTransform>,
+    pub eye: Point3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -655,21 +714,18 @@ impl GpuMesh {
             .mesh
             .bounds
             .map(|bounds| placed_corners(bounds, placement));
-        let placement = placement.unwrap_or(RigidTransform::IDENTITY);
-        let turn = |axis: Vector3| placement.apply_vector(axis).as_vec3();
+        let placed = Placed::of(self.mesh.origin, placement, eye);
+        let [turn_x, turn_y, turn_z] = placed.turn;
         bytes.clear();
         bytes
-            .vec4(
-                relative_to_eye(placement.apply_point(self.mesh.origin), eye),
-                0.0,
-            )
+            .vec4(placed.offset, 0.0)
             .u32(self.layout.faces)
             .u32(self.layout.columns)
             .u32(0)
             .u32(0)
-            .vec4(turn(Vector3::X), 0.0)
-            .vec4(turn(Vector3::Y), 0.0)
-            .vec4(turn(Vector3::Z), 0.0);
+            .vec4(turn_x, 0.0)
+            .vec4(turn_y, 0.0)
+            .vec4(turn_z, 0.0);
         queue.write_buffer(&self.placement, 0, bytes.as_slice());
     }
 
@@ -700,7 +756,7 @@ enum Prepared {
     Uploading(MeshUpload),
 }
 
-fn take_of<T>(
+pub(crate) fn take_of<T>(
     items: &mut Vec<T>,
     mesh: &Arc<ShadedMesh>,
     of: impl Fn(&T) -> &Arc<ShadedMesh>,

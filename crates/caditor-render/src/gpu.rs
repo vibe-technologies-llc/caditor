@@ -258,6 +258,11 @@ impl Bytes {
         self
     }
 
+    pub fn extend(&mut self, bytes: &[u8]) -> &mut Self {
+        self.0.extend_from_slice(bytes);
+        self
+    }
+
     pub fn floats(&mut self, values: &[f32]) -> &mut Self {
         for value in values {
             self.f32(*value);
@@ -276,6 +281,13 @@ impl Bytes {
     pub fn mat4(&mut self, value: Mat4) -> &mut Self {
         self.floats(&value.to_cols_array())
     }
+}
+
+pub fn resolves_linearly(adapter: &wgpu::Adapter) -> bool {
+    adapter
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::VIEW_FORMATS)
 }
 
 pub fn buffer_limit(device: &wgpu::Device) -> u64 {
