@@ -39,11 +39,46 @@ impl BlendKind {
             Self::Chamfer => "distance",
         }
     }
+}
 
-    fn shape(self, size: f64) -> BlendShape {
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum ChamferForm {
+    #[default]
+    Equal,
+    TwoDistances {
+        second: Expression,
+    },
+    DistanceAngle {
+        angle: Expression,
+    },
+}
+
+impl ChamferForm {
+    pub fn title(&self) -> &'static str {
         match self {
-            Self::Fillet => BlendShape::Fillet { radius: size },
-            Self::Chamfer => BlendShape::Chamfer { distance: size },
+            Self::Equal => "Equal",
+            Self::TwoDistances { .. } => "Two distances",
+            Self::DistanceAngle { .. } => "Distance and angle",
+        }
+    }
+
+    pub fn is_equal(&self) -> bool {
+        matches!(self, Self::Equal)
+    }
+
+    fn expression(&self) -> Option<&Expression> {
+        match self {
+            Self::Equal => None,
+            Self::TwoDistances { second } => Some(second),
+            Self::DistanceAngle { angle } => Some(angle),
+        }
+    }
+
+    pub fn expression_mut(&mut self) -> Option<&mut Expression> {
+        match self {
+            Self::Equal => None,
+            Self::TwoDistances { second } => Some(second),
+            Self::DistanceAngle { angle } => Some(angle),
         }
     }
 }
@@ -54,15 +89,45 @@ pub struct Blend {
     pub body: FeatureId,
     pub edges: Vec<EdgeReference>,
     pub size: Expression,
+    pub form: ChamferForm,
+    pub flipped: bool,
 }
 
 impl Blend {
+    pub fn chamfer_form(&self) -> &ChamferForm {
+        match self.kind {
+            BlendKind::Fillet => &ChamferForm::Equal,
+            BlendKind::Chamfer => &self.form,
+        }
+    }
+
+    pub fn expressions(&self) -> impl Iterator<Item = &Expression> {
+        std::iter::once(&self.size).chain(self.chamfer_form().expression())
+    }
+
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        let form = match self.kind {
+            BlendKind::Fillet => None,
+            BlendKind::Chamfer => self.form.expression_mut(),
+        };
+        std::iter::once(&mut self.size).chain(form).collect()
+    }
+
+    pub fn heap_size(&self) -> usize {
+        size_of_val(self.edges.as_slice())
+            + self.size.heap_size()
+            + self.form.expression().map_or(0, Expression::heap_size)
+    }
+
     pub fn parameters(&self) -> BTreeSet<ParameterId> {
-        self.size.parameters().into_iter().collect()
+        self.expressions()
+            .flat_map(Expression::parameters)
+            .collect()
     }
 
     pub fn uses_parameter(&self, parameter: ParameterId) -> bool {
-        self.size.uses(parameter)
+        self.expressions()
+            .any(|expression| expression.uses(parameter))
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
@@ -108,12 +173,19 @@ impl Context<'_> {
         }))
     }
 
-    fn size(&self) -> Result<f64, Failure> {
-        let what = self.definition.kind.size_name();
-        let value = self
-            .definition
-            .size
-            .evaluate_as(Dimension::LENGTH, &|id| self.inputs.parameters.value(id))
+    fn value(
+        &self,
+        expression: &Expression,
+        dimension: Dimension,
+        what: &str,
+    ) -> Result<f64, Failure> {
+        let example = if dimension == Dimension::ANGLE {
+            "an angle, such as 45 deg"
+        } else {
+            "a length, such as 2 mm"
+        };
+        let value = expression
+            .evaluate_as(dimension, &|id| self.inputs.parameters.value(id))
             .map_err(|error| {
                 let (remedy, fix) = match &error {
                     EvalError::ParameterFailed { id, name } => (
@@ -121,7 +193,7 @@ impl Context<'_> {
                         FixTarget::Parameter(*id),
                     ),
                     EvalError::WrongKind { .. } => (
-                        format!("Edit the {what} so it gives a length, such as 2 mm."),
+                        format!("Edit the {what} so it gives {example}."),
                         FixTarget::Feature(self.feature.id()),
                     ),
                     _ => (
@@ -147,6 +219,41 @@ impl Context<'_> {
         }
     }
 
+    fn shape(&self) -> Result<BlendShape, Failure> {
+        let definition = self.definition;
+        let size = self.value(
+            &definition.size,
+            Dimension::LENGTH,
+            definition.kind.size_name(),
+        )?;
+        let flipped = definition.flipped;
+        Ok(match (definition.kind, definition.chamfer_form()) {
+            (BlendKind::Fillet, _) => BlendShape::Fillet { radius: size },
+            (BlendKind::Chamfer, ChamferForm::Equal) => BlendShape::Chamfer { distance: size },
+            (BlendKind::Chamfer, ChamferForm::TwoDistances { second }) => {
+                BlendShape::TwoDistanceChamfer {
+                    first: size,
+                    second: self.value(second, Dimension::LENGTH, "second distance")?,
+                    flipped,
+                }
+            }
+            (BlendKind::Chamfer, ChamferForm::DistanceAngle { angle }) => {
+                let degrees = self.value(angle, Dimension::ANGLE, "angle")?;
+                if degrees >= 180.0 {
+                    return Err(self.error(
+                        "The angle must be less than 180 degrees.".to_owned(),
+                        "Enter an angle between 0 and 180 degrees, such as 45 deg.".to_owned(),
+                    ));
+                }
+                BlendShape::AngledChamfer {
+                    distance: size,
+                    angle: degrees.to_radians(),
+                    flipped,
+                }
+            }
+        })
+    }
+
     fn failure(&self, solid: &Solid, error: &BlendError) -> Failure {
         let kind = self.definition.kind;
         let noun = kind.noun();
@@ -160,6 +267,16 @@ impl Context<'_> {
             BlendError::InvalidSize => self.error(
                 format!("The {what} must be more than 0.000001 mm."),
                 format!("Enter a larger {what}."),
+            ),
+            BlendError::InvalidAngle => self.error(
+                "The angle must be between 0 and 180 degrees.".to_owned(),
+                "Enter an angle between 0 and 180 degrees, such as 45 deg.".to_owned(),
+            ),
+            BlendError::AngleMisses(_) => self.error(
+                format!("At this angle the cut never meets the other face next to {edge}."),
+                "Enter a smaller angle, flip the chamfer to measure from the other face, or \
+                 leave this edge out."
+                    .to_owned(),
             ),
             BlendError::NoEdges => self.error(
                 "No edge is chosen.".to_owned(),
@@ -259,7 +376,7 @@ pub(crate) fn evaluate(
         inputs,
         body_name,
     };
-    let size = context.size()?;
+    let shape = context.shape()?;
     let Some(solid) = inputs.body(definition.body) else {
         return Err(inputs.missing_body(definition.body));
     };
@@ -287,13 +404,8 @@ pub(crate) fn evaluate(
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
-    let result = blend(
-        solid,
-        &edges,
-        definition.kind.shape(size),
-        feature.id().raw(),
-    )
-    .map_err(|error| context.failure(solid, &error))?;
+    let result = blend(solid, &edges, shape, feature.id().raw())
+        .map_err(|error| context.failure(solid, &error))?;
     Ok(FeatureResult::Solid(SolidResult::new(
         definition.body,
         result,

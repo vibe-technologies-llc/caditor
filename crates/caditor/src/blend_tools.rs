@@ -1,8 +1,10 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{
-    Blend, BlendKind, Document, Edit, Evaluation, FeatureId, FeatureKind, Transaction,
+    Blend, BlendKind, ChamferForm, Document, Edit, Evaluation, Feature, FeatureId, FeatureKind,
+    Transaction,
 };
+use caditor_expression::{Expression, Unit};
 use caditor_kernel::{EdgeId, EdgeName, EdgeNaming, EdgeReference, Solid, blend_chain};
 
 use crate::{
@@ -82,6 +84,8 @@ pub fn create(
             body: source.body,
             edges,
             size: unit.default_length(DEFAULT_SIZE),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     Ok((transaction.finish(), feature))
@@ -126,6 +130,127 @@ pub fn edit(document: &Document, feature: FeatureId, blend: Blend) -> Option<Tra
             kind: FeatureKind::Blend(blend),
         },
     ))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormChoice {
+    Equal,
+    TwoDistances,
+    DistanceAngle,
+}
+
+pub const FORMS: [FormChoice; 3] = [
+    FormChoice::Equal,
+    FormChoice::TwoDistances,
+    FormChoice::DistanceAngle,
+];
+
+const DEFAULT_ANGLE_DEGREES: f64 = 45.0;
+const NOT_A_CHAMFER: &str = "The feature is not a chamfer";
+const NOTHING_TO_FLIP: &str =
+    "A chamfer by one distance is the same on both faces; choose two distances or an angle first";
+
+impl FormChoice {
+    pub fn of(form: &ChamferForm) -> Self {
+        match form {
+            ChamferForm::Equal => Self::Equal,
+            ChamferForm::TwoDistances { .. } => Self::TwoDistances,
+            ChamferForm::DistanceAngle { .. } => Self::DistanceAngle,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Equal => "Equal",
+            Self::TwoDistances => "Two distances",
+            Self::DistanceAngle => "Distance and angle",
+        }
+    }
+
+    pub fn short(self) -> &'static str {
+        match self {
+            Self::Equal => "Equal",
+            Self::TwoDistances => "Two",
+            Self::DistanceAngle => "Angle",
+        }
+    }
+
+    pub fn hover(self) -> &'static str {
+        match self {
+            Self::Equal => "Bevel both faces by the same distance",
+            Self::TwoDistances => "Bevel each face by its own distance",
+            Self::DistanceAngle => {
+                "Bevel one face by a distance, the cut turned by an angle from it"
+            }
+        }
+    }
+
+    pub fn applied_to(self, blend: &Blend) -> Blend {
+        let form = match (self, &blend.form) {
+            (Self::Equal, _) => ChamferForm::Equal,
+            (Self::TwoDistances, ChamferForm::TwoDistances { second }) => {
+                ChamferForm::TwoDistances {
+                    second: second.clone(),
+                }
+            }
+            (Self::TwoDistances, _) => ChamferForm::TwoDistances {
+                second: blend.size.clone(),
+            },
+            (Self::DistanceAngle, ChamferForm::DistanceAngle { angle }) => {
+                ChamferForm::DistanceAngle {
+                    angle: angle.clone(),
+                }
+            }
+            (Self::DistanceAngle, _) => ChamferForm::DistanceAngle {
+                angle: Expression::measure(DEFAULT_ANGLE_DEGREES, Unit::Degree),
+            },
+        };
+        Blend {
+            kind: BlendKind::Chamfer,
+            form,
+            ..blend.clone()
+        }
+    }
+}
+
+fn chamfer_of(feature: &Feature) -> Result<&Blend, String> {
+    feature
+        .kind
+        .blend()
+        .filter(|blend| blend.kind == BlendKind::Chamfer)
+        .ok_or_else(|| NOT_A_CHAMFER.to_owned())
+}
+
+pub fn form_change(
+    document: &Document,
+    feature: &Feature,
+    choice: FormChoice,
+) -> Result<Transaction, String> {
+    let blend = chamfer_of(feature)?;
+    if FormChoice::of(&blend.form) == choice {
+        return Err(format!(
+            "{} is already {}",
+            feature.name,
+            choice.label().to_lowercase()
+        ));
+    }
+    edit(document, feature.id(), choice.applied_to(blend)).ok_or_else(|| NOT_A_CHAMFER.to_owned())
+}
+
+pub fn flip_change(document: &Document, feature: &Feature) -> Result<Transaction, String> {
+    let blend = chamfer_of(feature)?;
+    if blend.form.is_equal() {
+        return Err(NOTHING_TO_FLIP.to_owned());
+    }
+    edit(
+        document,
+        feature.id(),
+        Blend {
+            flipped: !blend.flipped,
+            ..blend.clone()
+        },
+    )
+    .ok_or_else(|| NOT_A_CHAMFER.to_owned())
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

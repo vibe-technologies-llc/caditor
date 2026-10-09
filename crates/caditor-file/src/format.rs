@@ -6,11 +6,11 @@ use std::{
 
 use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
-    BodyPlacement, CircularPattern, Combine, CombineOperation, CurveStation, Datum, DatumAxis,
-    DatumFrame, DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent,
-    FaceAttachment, FaceColour, FaceMate, FaceTangent, Feature, FeatureId, FeatureKind,
-    HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
-    HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
+    BodyPlacement, ChamferForm, CircularPattern, Combine, CombineOperation, CurveStation, Datum,
+    DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd,
+    ExtrudeExtent, FaceAttachment, FaceColour, FaceMate, FaceTangent, Feature, FeatureId,
+    FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing,
+    HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS,
     MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS,
     MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MetricSize, Mirror, ModelProperties,
     ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter,
@@ -239,6 +239,22 @@ pub(crate) enum FeatureKindRecord {
     ScaleInFrame(Box<MoveInFrameRecord>),
     ImportInFrame(Box<MoveInFrameRecord>),
     ScaledImport(Box<ScaledImportRecord>),
+    ShapedChamfer(Box<ShapedChamferRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ShapedChamferRecord {
+    pub feature: FeatureKindRecord,
+    pub form: ChamferFormRecord,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flipped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ChamferFormRecord {
+    TwoDistances { second: String },
+    DistanceAngle { angle: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -485,7 +501,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 55] = [
+pub(crate) const FEATURE_KINDS: [&str; 56] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -541,6 +557,7 @@ pub(crate) const FEATURE_KINDS: [&str; 55] = [
     "scale_in_frame",
     "import_in_frame",
     "scaled_import",
+    "shaped_chamfer",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1889,9 +1906,26 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     .map(|edge| Lenient::Read(edge_record(edge)))
                     .collect(),
             };
-            match blend.kind {
+            let feature = match blend.kind {
                 BlendKind::Fillet => FeatureKindRecord::Fillet(record),
                 BlendKind::Chamfer => FeatureKindRecord::Chamfer(record),
+            };
+            let form = match blend.chamfer_form() {
+                ChamferForm::Equal => None,
+                ChamferForm::TwoDistances { second } => Some(ChamferFormRecord::TwoDistances {
+                    second: second.to_stored_text(),
+                }),
+                ChamferForm::DistanceAngle { angle } => Some(ChamferFormRecord::DistanceAngle {
+                    angle: angle.to_stored_text(),
+                }),
+            };
+            match form {
+                Some(form) => FeatureKindRecord::ShapedChamfer(Box::new(ShapedChamferRecord {
+                    feature,
+                    form,
+                    flipped: blend.flipped,
+                })),
+                None => feature,
             }
         }
         FeatureKind::Datum(Datum::Plane(plane)) => {
@@ -3878,6 +3912,27 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::ShapedChamfer(shaped) => {
+            let mut kind = restore_kind(&shaped.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Blend(blend) if blend.kind == BlendKind::Chamfer => {
+                    blend.form = match &shaped.form {
+                        ChamferFormRecord::TwoDistances { second } => ChamferForm::TwoDistances {
+                            second: restore_value(second, "second distance", "1 mm", name, issues),
+                        },
+                        ChamferFormRecord::DistanceAngle { angle } => ChamferForm::DistanceAngle {
+                            angle: restore_value(angle, "angle", "45 deg", name, issues),
+                        },
+                    };
+                    blend.flipped = shaped.flipped;
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed a second distance or an angle of a chamfer, but it is not a \
+                     chamfer, so they were left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::SteppedHole(stepped) => {
             let mut kind = restore_kind(&stepped.feature, name, texts, issues);
             match &mut kind {
@@ -5696,6 +5751,8 @@ fn restore_blend(
         body: FeatureId::from_raw(record.body),
         edges,
         size,
+        form: ChamferForm::Equal,
+        flipped: false,
     }
 }
 

@@ -228,6 +228,10 @@ pub enum Command {
     PatternUseSelected,
     PatternSecondUseSelected,
     MoveTurnAboutSelected,
+    ChamferEqual,
+    ChamferTwoDistances,
+    ChamferDistanceAngle,
+    FlipChamfer,
     FilterFeatures,
     AddParameter,
     DeleteParameter,
@@ -652,6 +656,10 @@ plain_commands! {
     PatternUseSelected,
     PatternSecondUseSelected,
     MoveTurnAboutSelected,
+    ChamferEqual,
+    ChamferTwoDistances,
+    ChamferDistanceAngle,
+    FlipChamfer,
     FilterFeatures,
     AddParameter,
     DeleteParameter,
@@ -915,6 +923,10 @@ impl Command {
             Self::PatternUseSelected => "model.pattern_use_selected",
             Self::PatternSecondUseSelected => "model.pattern_second_direction",
             Self::MoveTurnAboutSelected => "model.move_turn_about_selected",
+            Self::ChamferEqual => "model.chamfer_equal",
+            Self::ChamferTwoDistances => "model.chamfer_two_distances",
+            Self::ChamferDistanceAngle => "model.chamfer_distance_angle",
+            Self::FlipChamfer => "model.flip_chamfer",
             Self::FilterFeatures => "model.filter_features",
             Self::AddParameter => "model.add_parameter",
             Self::DeleteParameter => "model.delete_parameter",
@@ -1122,6 +1134,10 @@ impl Command {
             Self::PatternUseSelected => "Pattern along or about selected axis",
             Self::PatternSecondUseSelected => "Pattern also along selected direction",
             Self::MoveTurnAboutSelected => "Turn moved body about selected axis",
+            Self::ChamferEqual => "Chamfer by one distance on both faces",
+            Self::ChamferTwoDistances => "Chamfer by two distances",
+            Self::ChamferDistanceAngle => "Chamfer by a distance and an angle",
+            Self::FlipChamfer => "Flip the chamfer's faces",
             Self::FilterFeatures => "Filter the feature tree",
             Self::AddParameter => "Add parameter",
             Self::DeleteParameter => "Delete parameter",
@@ -1294,6 +1310,10 @@ impl Command {
             | Self::PatternUseSelected
             | Self::PatternSecondUseSelected
             | Self::MoveTurnAboutSelected
+            | Self::ChamferEqual
+            | Self::ChamferTwoDistances
+            | Self::ChamferDistanceAngle
+            | Self::FlipChamfer
             | Self::FilterFeatures
             | Self::AddParameter
             | Self::DeleteParameter
@@ -1536,6 +1556,10 @@ impl Command {
             | Self::PatternUseSelected
             | Self::PatternSecondUseSelected
             | Self::MoveTurnAboutSelected
+            | Self::ChamferEqual
+            | Self::ChamferTwoDistances
+            | Self::ChamferDistanceAngle
+            | Self::FlipChamfer
             | Self::AddParameter
             | Self::DeleteParameter
             | Self::MoveParameterUp

@@ -3084,7 +3084,7 @@ fn a_placement_change_round_trips_through_the_journal() {
 }
 
 fn blended_model() -> (Document, FeatureId, FeatureId) {
-    use caditor_document::{Blend, BlendKind, FaceAttachment, SketchFeature};
+    use caditor_document::{Blend, BlendKind, ChamferForm, FaceAttachment, SketchFeature};
     use caditor_kernel::{
         EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference, VertexName,
     };
@@ -3102,6 +3102,8 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
             body: base,
             edges: vec![edge],
             size: transaction.parse("depth / 3").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     transaction.add_feature(
@@ -3126,6 +3128,8 @@ fn blended_model() -> (Document, FeatureId, FeatureId) {
                 ]),
             ],
             size: transaction.parse("0.5 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     let top = Plane::from_frame(Point3::new(0.0, 0.0, 3.0), Vector3::Z, Vector3::X).unwrap();
@@ -5630,8 +5634,8 @@ fn a_session_log_stops_at_its_size_limit_and_old_logs_are_pruned() {
 
 fn fillet_saved_before_origins() -> (Document, FeatureId) {
     use caditor_document::{
-        Blend, BlendKind, BodyOperation, CancelToken, Extrude, ExtrudeExtent, ModelEvaluator,
-        Recompute, RegionChoice, SolidFeature,
+        Blend, BlendKind, BodyOperation, CancelToken, ChamferForm, Extrude, ExtrudeExtent,
+        ModelEvaluator, Recompute, RegionChoice, SolidFeature,
     };
     use caditor_kernel::{EdgeReference, FaceOrigin};
     let mut document = Document::default();
@@ -5684,6 +5688,8 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
             body: base,
             edges: vec![saved],
             size: transaction.parse("1 mm").unwrap(),
+            form: ChamferForm::Equal,
+            flipped: false,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -7610,4 +7616,72 @@ fn a_coordinate_system_origin_a_scale_centre_and_an_import_in_one_are_kinds_olde
         "{:?}",
         older.issues
     );
+}
+
+#[test]
+fn a_chamfer_by_two_distances_or_an_angle_is_a_kind_older_readers_report() {
+    use caditor_document::{BlendKind, ChamferForm};
+    let (mut document, blend) = fillet_saved_before_origins();
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let reshaped = |form: ChamferForm, flipped: bool| {
+        let mut kind = document.feature(blend).unwrap().kind.clone();
+        if let FeatureKind::Blend(definition) = &mut kind {
+            definition.kind = BlendKind::Chamfer;
+            definition.form = form;
+            definition.flipped = flipped;
+        }
+        Transaction::single("Reshape", Edit::SetFeatureKind { id: blend, kind })
+    };
+    let two = reshaped(
+        ChamferForm::TwoDistances {
+            second: parse("2 mm"),
+        },
+        true,
+    );
+    let angled = reshaped(
+        ChamferForm::DistanceAngle {
+            angle: parse("30 deg"),
+        },
+        false,
+    );
+    let equal = reshaped(ChamferForm::Equal, false);
+
+    document.apply(two.clone()).unwrap();
+    let text = encode(&document).unwrap();
+    let kind_of = |document: &Document| document.feature(blend).map(|feature| feature.kind.clone());
+    let two_saved = kind_of(&document);
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("shaped_chamfer", "bevel_of_a_later_version"));
+    let damaged = decode_text(&text.replacen("\"second\":\"2 mm\"", "\"second\":\"((\"", 1));
+    let journaled = serde_json::to_string(&format::transaction_record(&two)).unwrap();
+    document.apply(angled).unwrap();
+    let angled_text = encode(&document).unwrap();
+    let angled_saved = kind_of(&document);
+    let angled_loaded = decode_text(&angled_text);
+    document.apply(equal).unwrap();
+    let equal_text = encode(&document).unwrap();
+
+    assert!(text.contains("\"shaped_chamfer\":{\"feature\":{\"chamfer\":"));
+    assert!(text.contains("\"form\":{\"two_distances\":{\"second\":\"2 mm\"}}"));
+    assert!(text.contains("\"flipped\":true"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(kind_of(&loaded.document), two_saved);
+    assert!(older.document.feature(blend).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    assert!(
+        damaged.issues[0].contains("second distance"),
+        "{:?}",
+        damaged.issues
+    );
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(two)
+    );
+    assert!(angled_text.contains("\"form\":{\"distance_angle\":{\"angle\":\"30 deg\"}}"));
+    assert!(!angled_text.contains("\"flipped\""));
+    assert_eq!(angled_loaded.issues, Vec::<String>::new());
+    assert_eq!(kind_of(&angled_loaded.document), angled_saved);
+    assert!(!equal_text.contains("shaped_chamfer"));
+    assert!(equal_text.contains("\"chamfer\":{"));
 }

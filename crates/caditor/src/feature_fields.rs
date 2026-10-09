@@ -33,6 +33,7 @@ pub const USE_SELECTED: &str = "Use selected";
 pub const CHOOSE_IN_VIEW: &str = "Choose in the view";
 pub const STOP_CHOOSING: &str = "Stop choosing";
 const FULL_TURN_DEGREES: f64 = 360.0;
+const HALF_TURN_DEGREES: f64 = 180.0;
 const WHOLE_TOLERANCE: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,6 +47,7 @@ pub enum Rule {
     Count,
     Sides,
     ConeAngle,
+    ChamferAngle,
     Taper,
 }
 
@@ -83,6 +85,12 @@ impl Rule {
                 ));
             }
             Self::ConeAngle => None,
+            Self::ChamferAngle if value <= 0.0 || value >= HALF_TURN_DEGREES => {
+                return Err(format!(
+                    "Enter an angle above 0° and below {HALF_TURN_DEGREES}°"
+                ));
+            }
+            Self::ChamferAngle => None,
             Self::Taper if value.abs() >= MAX_TAPER_DEGREES => {
                 return Err(format!(
                     "Enter an angle between -{MAX_TAPER_DEGREES}° and {MAX_TAPER_DEGREES}°; a \

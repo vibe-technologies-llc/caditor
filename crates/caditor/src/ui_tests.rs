@@ -9706,6 +9706,66 @@ fn a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_vi
 }
 
 #[test]
+fn a_chamfer_takes_two_distances_or_an_angle_and_flips_from_its_panel_or_the_palette() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let front = top_edge_along_x(&harness, plate, 0.0);
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click("Chamfer");
+    harness.settle();
+    let chamfer = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the chamfer is open");
+    let value = Id::new(("blend-form", chamfer));
+    let form =
+        |harness: &Harness| crate::blend_tools::FormChoice::of(&blend_of(harness, chamfer).form);
+    let tangent = 30f64.to_radians().tan();
+
+    harness.click("Two");
+    harness.settle();
+    assert_eq!(form(&harness), crate::blend_tools::FormChoice::TwoDistances);
+    assert!(harness.shows("First distance"));
+    assert!(harness.shows("Second distance"));
+    assert!(removed_about(&harness, plate, 40.0 * 0.5));
+    harness.type_into_field(value, "3 mm");
+    harness.settle();
+    assert!(removed_about(&harness, plate, 40.0 * 1.5));
+    harness.click("Measure from the other face");
+    harness.settle();
+    assert!(blend_of(&harness, chamfer).flipped);
+    assert!(removed_about(&harness, plate, 40.0 * 1.5));
+
+    run_from_palette(&mut harness, "Chamfer by a distance and an angle");
+    harness.settle();
+    assert_eq!(
+        form(&harness),
+        crate::blend_tools::FormChoice::DistanceAngle
+    );
+    assert!(harness.shows("Angle"));
+    assert!(removed_about(&harness, plate, 40.0 * 0.5));
+    harness.type_into_field(value, "30 deg");
+    harness.settle();
+    assert!(removed_about(&harness, plate, 40.0 * 0.5 * tangent));
+    run_from_palette(&mut harness, "Flip the chamfer");
+    harness.settle();
+    assert!(!blend_of(&harness, chamfer).flipped);
+    assert_eq!(harness.model.undo_label(), Some("Edit Chamfer 1"));
+    harness.type_into_field(value, "180 deg");
+    assert!(harness.shows("Enter an angle above 0° and below 180°"));
+
+    run_from_palette(&mut harness, "Chamfer by one distance");
+    harness.settle();
+    assert_eq!(form(&harness), crate::blend_tools::FormChoice::Equal);
+    assert!(!harness.shows("Measure from the other face"));
+    assert!(removed_about(&harness, plate, 40.0 * 0.5));
+}
+
+#[test]
 fn enter_confirms_a_fillet_whose_row_then_closes_and_choosing_in_the_view_keeps_the_selection() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);

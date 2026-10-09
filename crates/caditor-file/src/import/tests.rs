@@ -1087,7 +1087,8 @@ mod step {
     use std::time::SystemTime;
 
     use caditor_document::{
-        Blend, BlendKind, CancelToken, Document, FeatureKind, ModelEvaluator, Recompute, Rgb,
+        Blend, BlendKind, CancelToken, ChamferForm, Document, FeatureKind, ModelEvaluator,
+        Recompute, Rgb,
     };
     use caditor_expression::Expression;
     use caditor_geometry::{Plane, Point2, Point3};
@@ -1383,6 +1384,8 @@ mod step {
                 body,
                 edges: vec![EdgeReference::capture(solid, top_edge).unwrap()],
                 size: Expression::parse_stored("1 mm").unwrap(),
+                form: ChamferForm::Equal,
+                flipped: false,
             }),
         );
         document.apply(transaction.finish()).unwrap();

@@ -8,6 +8,7 @@ use caditor_sketch::{Constraint, Entity};
 
 use crate::{
     attachment::SketchFeature,
+    blend::ChamferForm,
     datum::{
         AxisReference, Datum, PlaneReference, PlaneThrough, PointBy, PointReference, PrincipalAxis,
         PrincipalPlane,
@@ -450,7 +451,12 @@ impl Rescaler {
                     self.length(&mut wall.thickness, name)?;
                 }
             }
-            FeatureKind::Blend(blend) => self.length(&mut blend.size, name)?,
+            FeatureKind::Blend(blend) => {
+                self.length(&mut blend.size, name)?;
+                if let ChamferForm::TwoDistances { second } = &mut blend.form {
+                    self.length(second, name)?;
+                }
+            }
             FeatureKind::Shell(shell) => self.length(&mut shell.thickness, name)?,
             FeatureKind::OffsetFace(offset) => self.length(&mut offset.distance, name)?,
             FeatureKind::Mate(mate) => {
