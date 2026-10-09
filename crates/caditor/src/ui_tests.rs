@@ -104,6 +104,7 @@ mod svg_import;
 mod templates;
 mod typed_values;
 mod user_guide;
+mod view_menu;
 mod view_navigation;
 
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));

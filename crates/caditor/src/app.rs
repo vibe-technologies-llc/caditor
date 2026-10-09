@@ -51,7 +51,7 @@ use crate::{
     logo,
     measure::MeasureTool,
     measure_panel::{self, MeasureContext},
-    menu_bar::{self, MenuContext},
+    menu_bar::{self, MenuContext, MenuEntries},
     messages,
     model::{Action, Model, Notice, WakerFactory},
     model_properties::{self, PropertiesDraft},
@@ -856,6 +856,9 @@ pub fn show(
         *awaiting_paste = Some(command);
     }
     let (offers, refused) = commands.finish();
+    let menu_toggles = ToggleStates::of(viewport, section.open);
+    let entries = MenuEntries::new(&offers, menu_toggles, &preferences.keymap);
+    deferred_commands.extend(viewport.show_menu(ui.ctx(), model, editing, entries, blocked));
     for (command, reason) in refused {
         actions.push(Action::Inform(Notice::warning(format!(
             "{}: {reason}",

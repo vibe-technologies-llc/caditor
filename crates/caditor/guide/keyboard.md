@@ -32,6 +32,8 @@ cannot be bound. Shortcuts shown in this guide are your current ones.
 - {command:view.highlight_next} and {command:view.highlight_previous} step through what is in the
   view; {command:view.activate_highlighted} selects it, as a click would, and Enter opens it as a
   double-click would.
+- {command:view.context_menu} opens the view's right-click menu at the highlighted item, else at
+  the selection; the arrows move through it and Enter runs an entry.
 - In a sketch, the highlight also reaches constraints and dimensions, and Enter on a dimension
   edits its value.
 - With a drawing tool active, type a number, or `=` before a parameter's name, to place a point

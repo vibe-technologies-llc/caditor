@@ -9,6 +9,7 @@ paths:
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
   - "crates/caditor/src/pick_list.rs"
+  - "crates/caditor/src/view_menu.rs"
   - "crates/caditor/src/saved_views.rs"
   - "crates/caditor/src/selection_sets.rs"
   - "crates/caditor/src/paint_selection.rs"
@@ -229,6 +230,34 @@ paths:
   Activate does (`ViewportState::choose`) but replaces the selection, adding to it with Shift or
   Ctrl; Escape, a press outside it or a document change closes it. The press that opened it
   never counts as a click, and with nothing under the pointer an info notice says so.
+- The 3D view's context menu (`view_menu.rs`, `ViewportState::context_menu`) opens on a secondary
+  click there: egui's `secondary_clicked`, released within the click distance and time, so a
+  right-drag that orbits or pans in any input mode never opens it and the primary press-and-hold
+  of the pick list and the Laptop gestures are untouched. Where a click would select (no drawing,
+  modify or dimension tool, plane choice or reference pick; `ViewportState::menu_selects`) it
+  waits for a pick for the current cursor and view like a primary click
+  (`menu_waits_for_pick`), then an unselected item under the pointer replaces the selection
+  (`whole_body_of`, so the Bodies filter takes the body), a selected one or empty space keeps
+  it. Show the context menu (`Command::ContextMenu`, Shift+F10, palette; egui has no Menu key)
+  opens it at the keyboard highlight, else the selection's middle on screen
+  (`screen_centre_of`, `BuiltScene::bounds_of`), else the view's centre, applying the same rule
+  to the highlight. What it lists is a `view_menu::Place` fixed when it opens: the model (an
+  item, or empty space: fit, previous view, standard views, show all, paste features, selection
+  filter), the edited sketch (the selection's constraint offers inline up to
+  `MOST_INLINE_CONSTRAINTS`, else under Constrain, then construction, split, break, delete, move,
+  rotate or scale, cut, copy, paste, select, Smart dimension, Finish sketch), or a shape being
+  drawn (Take back the last point, Reverse the arc, Finish the shape, Cancel the shape, Type an
+  exact value; `Command::TakeBackPoint`, `FinishShape`, `CancelShape`, as Backspace, Enter and
+  Escape do mid-shape), with the open feature's Reverse, Cancel and Finish editing on top. Every
+  entry is a `Command` drawn by `menu_bar::MenuEntries` from this frame's offers and keymap, as
+  the menu bar's are, so a disabled entry says why on hover and shows its keys; entries that only
+  apply sometimes (Look at face, the selection growers, split, break, Reverse) are left out
+  rather than disabled. It is drawn after the frame's commands finish (`ViewportState::show_menu`),
+  first one frame later so the offers follow a selection the click changed, then with its first
+  available entry focused so arrows move and Enter runs it; a chosen command runs next frame
+  through `Workspace::deferred_commands` (List everything under the pointer at the menu's spot,
+  `list_at`). Escape, a click outside it (which does not also act in the view), a dialog, a
+  document change or leaving its kind of place closes it.
 - The selection filter (`SelectionFilter`, commands `select.*`, View › Selection filter) makes
   `PickTable::best_hit` and the highlight keys skip every pickable but one kind (whole bodies,
   faces, edges, vertices or sketch geometry), reference geometry included. Bodies picks faces

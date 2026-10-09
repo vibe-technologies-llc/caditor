@@ -56,6 +56,9 @@ const HEADING_KEYS: &str = "Type a length for an exact one   Esc: let go of the 
 const TOO_FEW_SIDES: &str = "A polygon needs at least three sides";
 const TOO_MANY_SIDES: &str = "A polygon has at most 64 sides";
 const NOT_A_POLYGON: &str = "Choose the Polygon tool first";
+pub const NO_SHAPE_STARTED: &str = "Start a shape first: click where it begins";
+const ONLY_CHAINS_FINISH: &str =
+    "Only a line chain, a tangent arc chain or a spline ends early; place the shape's last point";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
@@ -1887,6 +1890,22 @@ impl Drawing {
             &shapes::polygon_name(self.sides.0),
             self.construction,
         )
+    }
+
+    pub fn started(&self) -> Result<(), &'static str> {
+        if self.in_progress() {
+            Ok(())
+        } else {
+            Err(NO_SHAPE_STARTED)
+        }
+    }
+
+    pub fn finishable(&self) -> Result<(), &'static str> {
+        self.started()?;
+        match self.context.map(|(_, shape)| shape) {
+            Some(Shape::Line | Shape::TangentArc | Shape::Spline(_)) => Ok(()),
+            _ => Err(ONLY_CHAINS_FINISH),
+        }
     }
 
     pub fn finish(&mut self, model: &Model) -> Option<Ended> {

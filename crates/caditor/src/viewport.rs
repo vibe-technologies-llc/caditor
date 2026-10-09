@@ -12,8 +12,8 @@ use caditor_render::{
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
-    Align, Align2, Id, Key, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke, Ui,
-    UiBuilder, Vec2, WidgetInfo, WidgetType, accesskit::Live, pos2, vec2,
+    Align, Align2, Id, Key, Modifiers, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
+    Ui, UiBuilder, Vec2, WidgetInfo, WidgetType, accesskit::Live, pos2, vec2,
 };
 
 use crate::{
@@ -38,6 +38,7 @@ use crate::{
     isocurves::IsocurveDrawing,
     manipulator::{Manipulating, Manipulator},
     measure::MeasuredLine,
+    menu_bar::MenuEntries,
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome},
     move_manipulator::Handle,
@@ -68,6 +69,7 @@ use crate::{
     view_aids::ViewAids,
     view_cube::{self, CubeAction, CubeTexts},
     view_history::{Gesture, ViewHistory},
+    view_menu::{self, Place, ViewMenu},
     visibility,
 };
 
@@ -151,6 +153,7 @@ const MIN_PLACE_REACH: f64 = 1.0;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
 const LIST_NOT_WITH_TOOL: &str =
     "This tool picks its own targets: press Esc to go back to Select first";
+const NO_VIEW_YET: &str = "The 3D view is not shown yet";
 const NO_TARGET_HIGHLIGHTED: &str =
     "Highlight a piece or an end first, with Highlight the next item in the view";
 
@@ -301,6 +304,10 @@ pub struct ViewportState {
     pick_list: Option<PickList>,
     list_hold: bool,
     last_cursor: Option<Vector2>,
+    context_menu: Option<ViewMenu>,
+    menu_waits_for_pick: bool,
+    menus_opened: u64,
+    list_at: Option<Vector2>,
     typed_point: TypedPoint,
     typed_owner: Option<(FeatureId, Tool)>,
     moving: Option<Moving>,
@@ -479,6 +486,10 @@ impl ViewportState {
             pick_list: None,
             list_hold: false,
             last_cursor: None,
+            context_menu: None,
+            menu_waits_for_pick: false,
+            menus_opened: 0,
+            list_at: None,
             typed_point: TypedPoint::default(),
             typed_owner: None,
             moving: None,
@@ -766,6 +777,9 @@ impl ViewportState {
         self.pick_list = None;
         self.list_hold = false;
         self.last_cursor = None;
+        self.context_menu = None;
+        self.menu_waits_for_pick = false;
+        self.list_at = None;
         self.scenes = SceneCache::default();
         self.description.forget();
         self.drawing = Drawing::default();
@@ -896,8 +910,14 @@ impl ViewportState {
             self.navigate(ui, &response, rect);
             self.drag_primary(ui, &response, model, editing, actions);
             self.click(ui, &response, model, editing, actions);
+            self.context_click(&response, model, editing);
             self.hold_to_list(ui, &response, model, editing, actions);
             self.show_pick_list(ui, model, editing, actions);
+            if self.context_menu.is_some()
+                && ui.input_mut(|input| input.consume_key(Modifiers::NONE, Key::Escape))
+            {
+                self.context_menu = None;
+            }
             if keys_free {
                 self.handle_keys(ui, model, editing, actions);
             }
@@ -1001,19 +1021,17 @@ impl ViewportState {
         };
         let chosen_rows = self.rows_to_highlight(context);
         let view = self.view();
-        let sources = Sources {
-            document,
-            evaluation,
-            bodies: &self.bodies,
-            sketches: &display.sketches,
-            style: self.style,
-            aids: self.aids,
-            analyses: &self.analyses,
-            contrast: self.contrast,
-            draft: context
-                .solid
-                .and_then(|feature| model.draft_evaluation_of(feature)),
-        };
+        let sources = scene_sources(
+            model,
+            SourceParts {
+                bodies: &self.bodies,
+                style: self.style,
+                aids: self.aids,
+                analyses: &self.analyses,
+                contrast: self.contrast,
+            },
+            context.solid,
+        );
         self.scenes.update(&SceneInputs {
             sources: &sources,
             revisions: Revisions {
@@ -1370,6 +1388,7 @@ impl ViewportState {
             self.hovered = None;
             self.hover_source = None;
             self.pending_click = None;
+            self.menu_waits_for_pick = false;
             self.pointer_hit = None;
             self.last_pick = None;
         }
@@ -2087,7 +2106,10 @@ impl ViewportState {
             primary: response.clicked_by(PointerButton::Primary) || placed_by_dragging,
             toggle: ui.input(|input| input.modifiers.shift || input.modifiers.command),
         };
-        if (!click.double && !click.primary) || self.manipulator_hover.is_some() {
+        if (!click.double && !click.primary)
+            || self.manipulator_hover.is_some()
+            || self.context_menu.is_some()
+        {
             return;
         }
         if drawing || self.hover_is_current() {
@@ -2510,11 +2532,16 @@ impl ViewportState {
             }
         }
         let listing = self.list_availability();
+        let list_at = self.list_at.take();
         if commands.invoke(Command::ListUnderPointer, &listing) && listing.is_ok() {
             let centre = self.view().map(|view| view.size() / 2.0);
-            if let Some(cursor) = self.cursor.or(self.last_cursor).or(centre) {
+            if let Some(cursor) = list_at.or(self.cursor).or(self.last_cursor).or(centre) {
                 self.open_pick_list(model, editing, cursor, actions);
             }
+        }
+        let menu = self.view().map(|_| ()).ok_or(NO_VIEW_YET);
+        if commands.invoke(Command::ContextMenu, &menu) && menu.is_ok() {
+            self.open_menu_from_keys(model, editing);
         }
         if let Some(active) = editing.active() {
             let typable = active.tool.draws()
@@ -2533,6 +2560,7 @@ impl ViewportState {
             if commands.invoke(Command::ReverseArc, &reversible) {
                 self.drawing.reverse_arc();
             }
+            self.shape_commands(model, commands, actions);
             let sides = [
                 (Command::MoreSides, self.drawing.more_sides(), 1),
                 (Command::FewerSides, self.drawing.fewer_sides(), -1),
@@ -3570,13 +3598,7 @@ impl ViewportState {
                 };
                 self.modify(editing, outcome, actions);
             } else if let Some(ended) = self.drawing.finish(model) {
-                match ended {
-                    Ended::Drawn(transaction) => actions.push(Action::Apply(transaction)),
-                    Ended::Stopped => {}
-                    Ended::Refused(refusal) => {
-                        actions.push(Action::Inform(Notice::warning(refusal.reason())));
-                    }
-                }
+                actions.extend(ended_action(ended));
             } else if let Some((feature, picks)) = self.picked_dimension(model) {
                 match dimensioning::dimension(model, feature, &picks, None) {
                     Ok(added) => self.dimension_added(feature, added, actions),
@@ -3607,9 +3629,198 @@ impl ViewportState {
                 actions.push(Action::Editing(EditingCommand::CloseSolid));
             }
         }
-        if back && self.drawing.in_progress() && self.drawing.remove_last(model.undo_label()) {
+        if back && self.drawing.in_progress() {
+            self.take_back_point(model, actions);
+        }
+    }
+
+    fn take_back_point(&mut self, model: &Model, actions: &mut Vec<Action>) {
+        if self.drawing.remove_last(model.undo_label()) {
             actions.push(Action::Undo);
         }
+    }
+
+    fn shape_commands(
+        &mut self,
+        model: &Model,
+        commands: &mut CommandFrame<'_>,
+        actions: &mut Vec<Action>,
+    ) {
+        let started = self.drawing.started();
+        if commands.invoke(Command::TakeBackPoint, &started) {
+            self.take_back_point(model, actions);
+        }
+        if commands.invoke(Command::FinishShape, &self.drawing.finishable())
+            && let Some(ended) = self.drawing.finish(model)
+        {
+            actions.extend(ended_action(ended));
+        }
+        if commands.invoke(Command::CancelShape, &started) {
+            self.drawing.cancel();
+        }
+    }
+
+    fn context_click(&mut self, response: &Response, model: &Model, editing: &SketchEditing) {
+        if self.menu_waits_for_pick && self.hover_is_current() {
+            self.menu_waits_for_pick = false;
+            if let Some(cursor) = self.cursor {
+                self.open_menu(cursor, self.hovered, self.hovered.is_some(), model, editing);
+            }
+        }
+        if !response.secondary_clicked() {
+            return;
+        }
+        let Some(cursor) = self.cursor else {
+            return;
+        };
+        if self.menu_selects(editing) && !self.hover_is_current() {
+            self.menu_waits_for_pick = true;
+            self.context_menu = None;
+        } else {
+            self.open_menu(cursor, self.hovered, self.hovered.is_some(), model, editing);
+        }
+    }
+
+    fn menu_selects(&self, editing: &SketchEditing) -> bool {
+        !editing.is_choosing_plane()
+            && editing.picking().is_none()
+            && editing
+                .active()
+                .is_none_or(|active| active.tool == Tool::Select)
+            && self.dimensioning.is_none()
+    }
+
+    fn menu_place(&self, editing: &SketchEditing, on_item: bool) -> Place {
+        if editing.active().is_none() {
+            Place::Model {
+                on_item,
+                feature_open: editing.solid().is_some(),
+                selected: !self.selection.is_empty(),
+            }
+        } else if self.drawing.in_progress() {
+            Place::Shape
+        } else {
+            Place::Sketch {
+                on_item: on_item || !self.selection.is_empty(),
+            }
+        }
+    }
+
+    fn open_menu(
+        &mut self,
+        cursor: Vector2,
+        target: Option<Pickable>,
+        on_item: bool,
+        model: &Model,
+        editing: &SketchEditing,
+    ) {
+        let Some(rect) = self.rect else {
+            return;
+        };
+        if self.menu_selects(editing)
+            && let Some(pickable) = target
+            && !self.selection.contains(pickable)
+        {
+            let chosen = self.whole_body_of(model, pickable);
+            self.selection.replace_with_all(chosen);
+        }
+        let at = cursor / f64::from(self.pixels_per_point);
+        let anchor = rect.min + vec2(at.x as f32, at.y as f32);
+        let place = self.menu_place(editing, on_item);
+        self.pick_list = None;
+        self.menus_opened += 1;
+        self.context_menu = Some(ViewMenu::new(
+            anchor,
+            cursor,
+            place,
+            model.revision(),
+            self.menus_opened,
+        ));
+    }
+
+    fn open_menu_from_keys(&mut self, model: &Model, editing: &SketchEditing) {
+        let target = self.keyboard_highlight;
+        let centre = self.view().map(|view| view.size() / 2.0);
+        let selected: Vec<Pickable> = self.selection.iter().collect();
+        let cursor = target
+            .and_then(|highlight| self.screen_centre_of(model, editing, vec![highlight]))
+            .or_else(|| self.screen_centre_of(model, editing, selected))
+            .or(centre);
+        let on_item = target.is_some() || !self.selection.is_empty();
+        if let Some(cursor) = cursor {
+            self.open_menu(cursor, target, on_item, model, editing);
+        }
+    }
+
+    fn screen_centre_of(
+        &self,
+        model: &Model,
+        editing: &SketchEditing,
+        pickables: Vec<Pickable>,
+    ) -> Option<Vector2> {
+        let built = self.scenes.built()?;
+        let view = self.view()?;
+        let sources = scene_sources(
+            model,
+            SourceParts {
+                bodies: &self.bodies,
+                style: self.style,
+                aids: self.aids,
+                analyses: &self.analyses,
+                contrast: self.contrast,
+            },
+            editing.context().solid,
+        );
+        let centre = built.bounds_of(&sources, pickables)?.center();
+        let size = view.size();
+        view.project(centre)
+            .filter(|pixel| (0.0..=size.x).contains(&pixel.x) && (0.0..=size.y).contains(&pixel.y))
+    }
+
+    pub fn show_menu(
+        &mut self,
+        ctx: &egui::Context,
+        model: &Model,
+        editing: &SketchEditing,
+        entries: MenuEntries<'_>,
+        blocked: bool,
+    ) -> Vec<Command> {
+        let Some(menu) = self.context_menu.as_ref() else {
+            return Vec::new();
+        };
+        let still = menu.opened() == model.revision()
+            && menu.place().is_like(self.menu_place(editing, false));
+        if blocked || !still {
+            self.context_menu = None;
+            return Vec::new();
+        }
+        let Some(menu) = self.context_menu.as_mut() else {
+            return Vec::new();
+        };
+        match menu.show(ctx, entries) {
+            view_menu::Outcome::Open => Vec::new(),
+            view_menu::Outcome::Closed => {
+                self.context_menu = None;
+                Vec::new()
+            }
+            view_menu::Outcome::Chosen(chosen) => {
+                if chosen.contains(&Command::ListUnderPointer) {
+                    self.list_at = Some(menu.cursor());
+                }
+                self.context_menu = None;
+                chosen
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn context_menu(&self) -> Option<Place> {
+        self.context_menu.as_ref().map(ViewMenu::place)
+    }
+
+    #[cfg(test)]
+    pub fn context_menu_anchor(&self) -> Option<Pos2> {
+        self.context_menu.as_ref().map(ViewMenu::anchor)
     }
 
     fn escape(&mut self, editing: &SketchEditing, actions: &mut Vec<Action>) {
@@ -4325,6 +4536,40 @@ fn zoom_factor(navigation: &Navigation, zooming_in: f64) -> f64 {
 fn edited_sketch<'a>(model: &'a Model, editing: &SketchEditing) -> Option<Displayed<'a>> {
     let feature = model.document().feature(editing.feature()?)?;
     model.displayed_sketch(feature)
+}
+
+struct SourceParts<'a> {
+    bodies: &'a BodyMeshes,
+    style: DisplayStyle,
+    aids: ViewAids,
+    analyses: &'a Analyses,
+    contrast: Contrast,
+}
+
+fn scene_sources<'a>(
+    model: &'a Model,
+    parts: SourceParts<'a>,
+    solid: Option<FeatureId>,
+) -> Sources<'a> {
+    Sources {
+        document: model.document(),
+        evaluation: model.evaluation(),
+        bodies: parts.bodies,
+        sketches: &model.display().sketches,
+        style: parts.style,
+        aids: parts.aids,
+        analyses: parts.analyses,
+        contrast: parts.contrast,
+        draft: solid.and_then(|feature| model.draft_evaluation_of(feature)),
+    }
+}
+
+fn ended_action(ended: Ended) -> Option<Action> {
+    match ended {
+        Ended::Drawn(transaction) => Some(Action::Apply(transaction)),
+        Ended::Stopped => None,
+        Ended::Refused(refusal) => Some(Action::Inform(Notice::warning(refusal.reason()))),
+    }
 }
 
 fn outcome_action(outcome: Result<Option<Transaction>, String>) -> Option<Action> {
