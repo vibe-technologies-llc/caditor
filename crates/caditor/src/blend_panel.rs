@@ -90,6 +90,7 @@ fn size_row(
         )
     });
     actions.extend(drafting.into_actions(feature));
+    feature_fields::draft_failure_row(ui, model, feature);
 }
 
 const NO_SHAPE_YET: &str = "An edge of a body that has no shape yet";

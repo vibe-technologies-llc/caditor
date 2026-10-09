@@ -486,6 +486,20 @@ pub fn reference_row(
     removed
 }
 
+pub fn draft_failure_row(ui: &mut Ui, model: &Model, feature: FeatureId) {
+    let Some(error) = model.draft_failure(feature) else {
+        return;
+    };
+    ui.label("");
+    widgets::callout(ui, Tone::Error, |ui| {
+        ui.add(Label::new(format!("{DRAFT_FAILS} {}", error.reason)).wrap());
+        ui.add(Label::new(widgets::muted(&error.remedy, ui)).wrap());
+    });
+    ui.end_row();
+}
+
+pub const DRAFT_FAILS: &str = "With the value being typed:";
+
 pub fn info_callout(ui: &mut Ui, text: &str) {
     widgets::callout(ui, Tone::Info, |ui| {
         ui.add(Label::new(text).wrap());

@@ -225,8 +225,8 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Shell: no spline, extrusion or revolution faces, only flat faces open, one
   thickness for the whole body and always inward: no thickness per face, and no wall growing
   outward or to both sides of the faces.
-- [medium · hard] No live preview of a shell while its panel is open (it shows the body before it
-  for choosing faces), and no viewport handles for extents.
+- [medium · hard] No viewport handles for extents: an extrusion's or revolve's ends are changed
+  only by typing, never by dragging an arrow in the view as a move's are.
 - [medium · hard] No configurations: a model holds one set of parameter values, so sizes of one part
   (a bracket in M4, M6 and M8) are separate copies of the file. Named parameter sets, chosen as a
   whole and kept in the model like versions, with export of each. A configuration could also

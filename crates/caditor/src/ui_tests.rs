@@ -10551,14 +10551,14 @@ fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
     assert!(harness.shows("Click flat faces to open them or close them again"));
     assert!(harness.shows("Thickness"));
 
-    let built = harness.built_with_meshes(1);
+    let built = harness.built_with_meshes(2);
     assert_eq!(built.scene.meshes.len(), 1);
     let shell_faces = built
         .picks
         .pickables()
         .filter(|pickable| matches!(pickable, Pickable::ShellFace { .. }))
         .count();
-    assert_eq!(shell_faces, 6);
+    assert_eq!(shell_faces, 7);
 
     let bottom = pickable_described(
         &mut harness,
@@ -10601,6 +10601,66 @@ fn a_shell_opens_the_selected_face_and_takes_more_faces_clicked_in_the_view() {
     assert_eq!(harness.workspace.editing.solid(), None);
     let inner = pickable_described(&mut harness, "Extrude 1 › Shell 1 inner face");
     assert!(matches!(inner, Pickable::Face { .. }));
+}
+
+#[test]
+fn an_open_shell_draws_its_hollow_and_previews_a_typed_thickness() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let Pickable::Face { face: top_key, .. } = top else {
+        panic!("the top is a face");
+    };
+    harness.select([top]);
+    harness.click("Shell");
+    harness.settle();
+    let shell = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the shell is open");
+    let field = Id::new(("shell-thickness", shell));
+
+    let built = harness.built_with_meshes(2);
+    let hollow = built.scene.meshes.first().expect("the shell is drawn");
+    let opened = built
+        .scene
+        .translucent_meshes
+        .first()
+        .expect("the opened face is drawn over it");
+    let opened_picks = opened
+        .faces
+        .iter()
+        .filter(|face| face.pick.is_some())
+        .count();
+    let wall_picks = hollow
+        .faces
+        .iter()
+        .filter(|face| face.pick.is_some())
+        .count();
+    assert_eq!(hollow.mesh.face_count(), 11);
+    assert_eq!(wall_picks, 6);
+    assert_eq!(opened_picks, 1);
+    assert!(built.picks.pickables().any(|pickable| pickable
+        == Pickable::ShellFace {
+            feature: shell,
+            face: top_key,
+        }));
+
+    harness.draft_into_field(field, "3 mm");
+    harness.wait_until("the typed thickness is previewed", |harness| {
+        draft_volume(harness, plate).is_some()
+    });
+    let removed = 16000.0 - draft_volume(&harness, plate).unwrap();
+    assert!((removed - 34.0 * 34.0 * 7.0).abs() < 0.1 * 34.0 * 34.0 * 7.0);
+    assert_eq!(harness.model.undo_label(), Some("Create Shell 1"));
+
+    harness.draft_into_field(field, "30 mm");
+    harness.wait_until("the typed thickness fails in the preview", |harness| {
+        harness.model.draft_failure(shell).is_some()
+    });
+    harness.frame();
+    assert!(harness.shows_containing(crate::feature_fields::DRAFT_FAILS));
+    assert_eq!(harness.model.undo_label(), Some("Create Shell 1"));
 }
 
 #[test]

@@ -37,17 +37,19 @@ fn thickness_row(
         dimension: Dimension::LENGTH,
         rule: Rule::AboveZero,
     };
-    let committed = feature_fields::expression_row(ui, model, "Thickness", quantity, |thickness| {
-        change(
-            model,
-            feature,
-            Shell {
-                thickness,
-                ..shell.clone()
-            },
-        )
-    });
-    actions.extend(committed.map(Action::Apply));
+    let drafting =
+        feature_fields::expression_row_drafting(ui, model, "Thickness", quantity, |thickness| {
+            change(
+                model,
+                feature,
+                Shell {
+                    thickness,
+                    ..shell.clone()
+                },
+            )
+        });
+    actions.extend(drafting.into_actions(feature));
+    feature_fields::draft_failure_row(ui, model, feature);
 }
 
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
@@ -127,7 +129,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             ui,
             feature_fields::choosing_list(ui, opened),
             "Click flat faces in the view to open them or close them again.",
-            "Show the body as it was before this feature so you can click faces",
+            "Show the hollowed body so you can click faces to open them or close them again",
         ) {
             actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
         }

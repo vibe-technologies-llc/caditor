@@ -393,11 +393,7 @@ impl OpenView {
         };
         match open.choice {
             OpenChoice::Nothing => Self::Ghost,
-            OpenChoice::Edges { .. } if computed => Self::Result,
-            OpenChoice::Faces {
-                choice: FaceChoice::Moving { .. },
-                ..
-            } if computed => Self::Result,
+            OpenChoice::Edges { .. } | OpenChoice::Faces { .. } if computed => Self::Result,
             OpenChoice::Edges { .. } | OpenChoice::Faces { .. } => Self::Before,
         }
     }
@@ -1399,19 +1395,29 @@ impl Builder<'_> {
         mesh: &BodyMesh,
     ) {
         let color = body_color(self.palette, document, evaluation, open.body);
-        let moving = match &open.choice {
+        let faces = match &open.choice {
             OpenChoice::Faces {
                 opened,
-                choice: choice @ FaceChoice::Moving { .. },
+                choice: FaceChoice::Moving { .. },
                 ..
-            } => Some((opened, *choice)),
-            OpenChoice::Faces { .. } | OpenChoice::Edges { .. } | OpenChoice::Nothing => None,
-        };
-        let faces = match moving {
-            Some((opened, choice)) => {
-                self.choosable_faces(open.feature, &mesh.faces, opened, choice, color)
+            } => self.choosable_faces(open.feature, &mesh.faces, opened, color, |_| true),
+            OpenChoice::Faces {
+                opened,
+                choice: FaceChoice::Opening,
+                ..
+            } => {
+                let flat_before: BTreeSet<FaceKey> = open
+                    .before
+                    .faces
+                    .iter()
+                    .filter(|face| face.flat)
+                    .map(|face| face.key)
+                    .collect();
+                self.choosable_faces(open.feature, &mesh.faces, opened, color, |face| {
+                    flat_before.contains(&face.key)
+                })
             }
-            None => mesh
+            OpenChoice::Edges { .. } | OpenChoice::Nothing => mesh
                 .faces
                 .iter()
                 .map(|_| FaceStyle { color, pick: None })
@@ -1439,7 +1445,50 @@ impl Builder<'_> {
                     _ => None,
                 }));
         }
+        if let OpenChoice::Faces {
+            opened,
+            choice: FaceChoice::Opening,
+            ..
+        } = &open.choice
+        {
+            self.opened_faces(open, opened);
+        }
         self.open_before(document, evaluation, open, false);
+    }
+
+    fn opened_faces(&mut self, open: &BodyBefore, opened: &BTreeSet<FaceKey>) {
+        let left = FaceStyle {
+            color: self.palette.faces.selected.with_alpha(0.0),
+            pick: None,
+        };
+        let faces = open
+            .before
+            .faces
+            .iter()
+            .map(|face| {
+                if !opened.contains(&face.key) {
+                    return left;
+                }
+                let pickable = Pickable::ShellFace {
+                    feature: open.feature,
+                    face: face.key,
+                };
+                let color = if self.highlight.is_hovered(pickable) {
+                    self.palette.faces.hovered
+                } else {
+                    self.palette.faces.selected
+                };
+                FaceStyle {
+                    color: color.with_alpha(PREVIEW_ALPHA),
+                    pick: self.picks.register(pickable, PickPriority::Surface),
+                }
+            })
+            .collect();
+        self.translucent_meshes.push(MeshInstance {
+            mesh: Arc::clone(&open.before.mesh),
+            faces,
+            placement: None,
+        });
     }
 
     fn ghost(&mut self, document: &Document, evaluation: &Evaluation, open: &BodyBefore) {
@@ -1462,13 +1511,13 @@ impl Builder<'_> {
         feature: FeatureId,
         faces: &[BodyFace],
         chosen: &BTreeSet<FaceKey>,
-        choice: FaceChoice,
         color: Color,
+        choosable: impl Fn(&BodyFace) -> bool,
     ) -> Vec<FaceStyle> {
         faces
             .iter()
             .map(|face| {
-                if !face.flat && choice == FaceChoice::Opening {
+                if !choosable(face) {
                     return FaceStyle { color, pick: None };
                 }
                 let pickable = Pickable::ShellFace {
@@ -1505,19 +1554,21 @@ impl Builder<'_> {
             OpenChoice::Faces { opened, choice, .. } => (None, Some((opened, *choice))),
             OpenChoice::Nothing => (None, None),
         };
-        let color = body_color(self.palette, document, evaluation, open.body);
-        let faces = match opened {
-            Some((opened, choice)) => {
-                self.choosable_faces(open.feature, &open.before.faces, opened, choice, color)
-            }
-            None => open
-                .before
-                .faces
-                .iter()
-                .map(|_| FaceStyle { color, pick: None })
-                .collect(),
-        };
         if with_faces {
+            let color = body_color(self.palette, document, evaluation, open.body);
+            let faces = match opened {
+                Some((opened, choice)) => {
+                    self.choosable_faces(open.feature, &open.before.faces, opened, color, |face| {
+                        face.flat || choice != FaceChoice::Opening
+                    })
+                }
+                None => open
+                    .before
+                    .faces
+                    .iter()
+                    .map(|_| FaceStyle { color, pick: None })
+                    .collect(),
+            };
             self.meshes.push(MeshInstance {
                 mesh: Arc::clone(&open.before.mesh),
                 faces,

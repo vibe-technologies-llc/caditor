@@ -52,10 +52,15 @@ paths:
   with unpicked faces and edges, and over it the edges of the body before it, still
   `Pickable::BlendEdge` (`OpenView::Result`, `Builder::open_result`): the chosen ones stand just
   outside the rounded surface, and hidden ones stay hidden since unpicked faces still write depth
-  in the pick pass. A failed or pending blend and a shell show the body before them instead
+  in the pick pass. An open shell that computed draws its hollow result the same way, its faces
+  carried from the body before (the rim of an opened face included) `Pickable::ShellFace`, the
+  opened ones in the selected colour, and over the opening the opened faces of the body before
+  see-through in the selected colour and still picked (`Builder::opened_faces`), so a click on the
+  opening closes it again. A failed or pending blend or shell shows the body before it instead
   (`OpenView::Before`).
-- Typing in an open fillet's or chamfer's size field, an offset face's distance, a primitive's
-  sizes and position or a move's fields previews the value before it is entered: `commit_field` reports the text as edited (`FieldResponse::edited`) and
+- Typing in an open fillet's or chamfer's size field, a shell's thickness, an offset face's
+  distance, a primitive's sizes and position or a move's fields previews the value before it is
+  entered: `commit_field` reports the text as edited (`FieldResponse::edited`) and
   `feature_fields::expression_row_drafting` turns valid text into `Action::Preview` with the
   transaction it would commit, never applied. `Model` applies it to a copy of the document
   (`DraftPreview`, dropped when the feature closes, the text turns invalid, Escape or leaving the
@@ -68,7 +73,9 @@ paths:
   recomputed: `Model::draft_placement` (the draft's `Move::placement` after undoing the one shown)
   places the drawn body (`MeshInstance::placement`, its edges and vertices moved on the CPU).
   Entering the value commits as before, and the draft stays shown (held) until the model has
-  recomputed and meshed, so the body never jumps back.
+  recomputed and meshed, so the body never jumps back. A draft whose feature fails shows the body
+  before it, and the fillet, chamfer, shell and offset face panels put the failure under the field
+  as an error callout (`feature_fields::draft_failure_row`, `Model::draft_failure`).
 - A feature that removes material (an extrusion or revolve removing from a body, a hole) shows
   instead the body solid as cut and only its tools (`Evaluation::cuts`, the swept profile or each
   drill) in `CUT_PREVIEW` over everything (`Scene::overlay_meshes`, edges on the front layer),

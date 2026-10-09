@@ -6,9 +6,10 @@ use std::{
 };
 
 use caditor_document::{
-    Base, Document, Editor, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult,
-    FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Pivot, Prepared, Progress,
-    Recomputer, SketchResult, Stale, Transaction, TurnCentre, displayed_axis, displayed_frame,
+    Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
+    FeatureResult, FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Pivot, Prepared,
+    Progress, Recomputer, SketchResult, Stale, Transaction, TurnCentre, displayed_axis,
+    displayed_frame,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, JournalEntry, JournalFailure, KeepRequest, Recovered, Report,
@@ -702,6 +703,19 @@ impl Model {
         let body = self.document().feature(draft.feature)?.body()?;
         let result = draft.evaluation.as_ref()?.body_result(body)?;
         Some((body, Arc::clone(result)))
+    }
+
+    pub fn draft_failure(&self, feature: FeatureId) -> Option<&FeatureError> {
+        let draft = self
+            .draft
+            .as_ref()
+            .filter(|draft| draft.feature == feature)?;
+        let status = draft.evaluation.as_ref()?.feature(feature)?;
+        if let FeatureState::Failed(error) = &status.state {
+            Some(error)
+        } else {
+            None
+        }
     }
 
     pub fn draft_cuts(&self) -> Option<&[Arc<FeatureResult>]> {
