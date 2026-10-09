@@ -1597,6 +1597,7 @@ fn silhouetted(mesh: &Arc<ShadedMesh>, with_faces: bool) -> Scene {
             color: SILHOUETTE_COLOR,
             width: 2.0,
             dashed: false,
+            dashed_where_hidden: false,
             placement: None,
         }],
         ..Scene::default()
@@ -1674,6 +1675,80 @@ fn a_cylinder_seen_side_on_shows_its_silhouette_wherever_the_view_turns() {
     assert_eq!(turned.len(), 2, "{turned:?}");
     assert_eq!(wireframe.len(), 2, "{wireframe:?}");
     assert_eq!(shaded.pick.hits[0].id, PickId::from_index(0).unwrap());
+}
+
+fn red_run_count(rendered: &Rendered, pixels: impl Iterator<Item = DVec2>) -> usize {
+    let mut previous = false;
+    let mut runs = 0;
+    for at in pixels {
+        let [red, green, _, _] = pixel(rendered, at);
+        let lit = i32::from(red) - i32::from(green) > 100;
+        if lit && !previous {
+            runs += 1;
+        }
+        previous = lit;
+    }
+    runs
+}
+
+#[test]
+fn a_silhouette_dashed_where_hidden_shows_dashes_only_where_a_face_covers_it_and_never_picks() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let cylinder = Arc::new(cylinder(15.0, 60.0, 48));
+    let covering = MeshInstance {
+        mesh: Arc::new(box_mesh(20.0)),
+        faces: vec![
+            FaceStyle {
+                color: Color::from_rgb8(90, 90, 90),
+                pick: PickId::from_index(1),
+            };
+            6
+        ],
+        placement: None,
+    };
+    let scene = |dashed_where_hidden: bool| {
+        let mut scene = silhouetted(&cylinder, true);
+        scene.meshes.push(covering.clone());
+        if let Some(silhouette) = scene.silhouettes.first_mut() {
+            silhouette.dashed_where_hidden = dashed_where_hidden;
+        }
+        scene
+    };
+    let view = looking_down(120.0, f64::from(SIZE), f64::from(SIZE));
+    let under_face = view.project(Point3::new(0.0, 15.0, 0.0)).unwrap().floor();
+    let in_the_open = view.project(Point3::new(25.0, 15.0, 0.0)).unwrap().floor();
+    let box_side = view.project(Point3::new(18.0, 15.0, 0.0)).unwrap().x;
+    let open_end = view.project(Point3::new(29.0, 15.0, 0.0)).unwrap().x;
+    let open_start = view.project(Point3::new(22.0, 15.0, 0.0)).unwrap().x;
+    let covered_row = |rendered: &Rendered| {
+        let half = box_side - under_face.x;
+        red_run_count(rendered, row(under_face.y, under_face.x, half))
+    };
+    let open_row = |rendered: &Rendered| {
+        let middle = (open_start + open_end) / 2.0;
+        red_run_count(
+            rendered,
+            row(in_the_open.y, middle, (open_end - open_start) / 2.0),
+        )
+    };
+
+    let dashed = render(&device, &queue, &view, &scene(true), under_face);
+    let plain = render(&device, &queue, &view, &scene(false), under_face);
+
+    assert!(covered_row(&dashed) >= 3, "{}", covered_row(&dashed));
+    assert_eq!(covered_row(&plain), 0);
+    assert_eq!(open_row(&dashed), 1);
+    assert_eq!(open_row(&plain), 1);
+    assert!(!dashed.pick.hits.is_empty());
+    assert!(
+        dashed
+            .pick
+            .hits
+            .iter()
+            .all(|hit| hit.id == PickId::from_index(1).unwrap())
+    );
 }
 
 #[test]
@@ -3089,6 +3164,7 @@ fn silhouettes_of(meshes: &[MeshInstance]) -> Vec<Silhouette> {
             color: SILHOUETTE_COLOR,
             width: 1.5,
             dashed: false,
+            dashed_where_hidden: false,
             placement: None,
         })
         .collect()

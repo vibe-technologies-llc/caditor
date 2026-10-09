@@ -8422,12 +8422,23 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces
             .cloned()
             .collect::<Vec<_>>()
     };
+    let silhouettes_dashed_where_hidden = |harness: &mut Harness| {
+        harness
+            .built()
+            .scene
+            .silhouettes
+            .iter()
+            .map(|silhouette| silhouette.dashed_where_hidden)
+            .collect::<Vec<_>>()
+    };
     let before = hidden_lines(&mut harness).len();
+    let silhouettes_before = silhouettes_dashed_where_hidden(&mut harness);
 
     run_from_palette(&mut harness, "shaded with hidden edges dashed");
     harness.frame();
     let style = harness.workspace.viewport.style();
     let lines = hidden_lines(&mut harness);
+    let silhouettes = silhouettes_dashed_where_hidden(&mut harness);
     let faces = harness.built().scene.meshes.len();
     let edges_pickable = harness
         .built()
@@ -8439,9 +8450,13 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces
     run_from_palette(&mut harness, "shaded with edges");
     harness.frame();
     let after = hidden_lines(&mut harness).len();
+    let silhouettes_after = silhouettes_dashed_where_hidden(&mut harness);
 
     assert_eq!(style, DisplayStyle::ShadedWithHiddenEdges);
     assert_eq!(before, 0);
+    assert_eq!(silhouettes_before, vec![false]);
+    assert_eq!(silhouettes, vec![true]);
+    assert_eq!(silhouettes_after, vec![false]);
     assert!(!lines.is_empty());
     assert!(
         lines.iter().all(|line| line.pick.is_none()

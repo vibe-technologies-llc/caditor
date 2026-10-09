@@ -24,6 +24,7 @@ pub struct Silhouette {
     pub color: Color,
     pub width: f32,
     pub dashed: bool,
+    pub dashed_where_hidden: bool,
     pub placement: Option<RigidTransform>,
 }
 
@@ -33,6 +34,7 @@ impl PartialEq for Silhouette {
             && self.color == other.color
             && self.width == other.width
             && self.dashed == other.dashed
+            && self.dashed_where_hidden == other.dashed_where_hidden
             && self.placement == other.placement
     }
 }
@@ -43,6 +45,7 @@ struct Written {
     color: Color,
     width: f32,
     dashed: bool,
+    dashed_where_hidden: bool,
 }
 
 struct Chunk {
@@ -234,6 +237,7 @@ impl GpuSilhouette {
             color: silhouette.color,
             width: silhouette.width,
             dashed: silhouette.dashed,
+            dashed_where_hidden: silhouette.dashed_where_hidden,
         };
         if self.written == Some(written) {
             return;
@@ -392,6 +396,7 @@ impl SilhouetteCache {
                         color: written.color,
                         width: written.width,
                         dashed: written.dashed,
+                        dashed_where_hidden: written.dashed_where_hidden,
                         placement: written.placed.placement,
                     };
                     silhouette.write(queue, staging, &kept, eye);
@@ -413,10 +418,32 @@ impl SilhouetteCache {
         pipeline: &wgpu::RenderPipeline,
         window: &ClipWindow,
     ) {
+        self.draw_chosen(pass, pipeline, window, |_| true);
+    }
+
+    pub fn draw_hidden(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        window: &ClipWindow,
+    ) {
+        self.draw_chosen(pass, pipeline, window, |written| {
+            written.dashed_where_hidden
+        });
+    }
+
+    fn draw_chosen(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        window: &ClipWindow,
+        chosen: impl Fn(&Written) -> bool,
+    ) {
         let mut seen = self
             .silhouettes
             .iter()
             .filter(|silhouette| !silhouette.chunks.is_empty())
+            .filter(|silhouette| silhouette.written.as_ref().is_some_and(&chosen))
             .filter(|silhouette| {
                 silhouette
                     .corners

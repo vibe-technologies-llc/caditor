@@ -161,9 +161,16 @@ paths:
   axes' orthonormal pair, the stripe count and a zebra flag).
 - `Scene::silhouettes` (`silhouette.rs`) draw the outline of curved faces as seen from the
   current view, after every mesh and before the batches' lines, with the line pipeline's depth
-  test and `fs_line`, never in the pick pass (the face beneath picks). A `Silhouette` names a mesh,
-  a colour, a width, a dash flag and a placement, with no faces drawn needed, so wireframe shows
-  it too. On upload (under the same per-frame byte budget as meshes, in chunks that fit a
+  test and `fs_line`. A `Silhouette` names a mesh, a colour, a width, a dash flag, a
+  `dashed_where_hidden` flag and a placement, with no faces drawn needed, so wireframe shows it
+  too. One `dashed_where_hidden` is drawn again after the `Layer::Hidden` lines like them
+  (`hidden_silhouettes` pipeline: `vs_hidden_silhouette`, always dashed, depth `Less`, no depth
+  write), so its hidden part shows dashed where a nearer face covers it (offscreen test).
+- Silhouettes never draw in the pick pass, visible or hidden: an outline is not topology, has no
+  stable name and slides over its face as the view turns, so the selection model (named faces,
+  edges and vertices) has nothing to give it but its face, which the pixels inside the outline
+  already pick; in wireframe, where no face picks, it picking its face would make curved faces
+  selectable there and flat ones not. On upload (under the same per-frame byte budget as meshes, in chunks that fit a
   buffer) every triangle whose corner normals differ (`ShadedMesh::curved_triangles`, so flat
   faces cost nothing) becomes a `SILHOUETTE_STRIDE` instance of three positions and three
   `Snorm16x4` normals; `vs_silhouette` finds where the facing of the interpolated normals toward

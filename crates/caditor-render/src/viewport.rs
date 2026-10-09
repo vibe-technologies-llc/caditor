@@ -209,6 +209,7 @@ struct Pipelines {
     silhouettes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     hidden_lines: wgpu::RenderPipeline,
+    hidden_silhouettes: wgpu::RenderPipeline,
     markers: wgpu::RenderPipeline,
     fills: wgpu::RenderPipeline,
     reference_fills: wgpu::RenderPipeline,
@@ -1174,6 +1175,8 @@ impl ViewportRenderer {
         for batch in &self.batches {
             batch.draw_hidden_lines(pass, &self.pipelines.hidden_lines);
         }
+        self.silhouettes
+            .draw_hidden(pass, &self.pipelines.hidden_silhouettes, window);
         for batch in &self.batches {
             batch.draw_markers(pass, &self.pipelines.markers, batch.shown_markers);
         }
@@ -1664,6 +1667,24 @@ impl Pipelines {
                 },
             )
         };
+        let hidden = |label, layout, vertex, buffers| {
+            build_pipeline(
+                device,
+                &PipelineSpec {
+                    label,
+                    layout,
+                    module: &module,
+                    vertex,
+                    buffers,
+                    fragment: "fs_line",
+                    targets: &color_target,
+                    depth_write: false,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    bias: wgpu::DepthBiasState::default(),
+                    sample_count,
+                },
+            )
+        };
         let pick_pipeline = |label, layout, vertex, buffers, fragment, depth_write| {
             build_pipeline(
                 device,
@@ -1741,21 +1762,12 @@ impl Pipelines {
                 true,
             ),
             lines: color("lines", &scene_layout, "vs_line", &lines, "fs_line", true),
-            hidden_lines: build_pipeline(
-                device,
-                &PipelineSpec {
-                    label: "hidden lines",
-                    layout: &scene_layout,
-                    module: &module,
-                    vertex: "vs_line",
-                    buffers: &lines,
-                    fragment: "fs_line",
-                    targets: &color_target,
-                    depth_write: false,
-                    depth_compare: wgpu::CompareFunction::Less,
-                    bias: wgpu::DepthBiasState::default(),
-                    sample_count,
-                },
+            hidden_lines: hidden("hidden lines", &scene_layout, "vs_line", &lines),
+            hidden_silhouettes: hidden(
+                "hidden silhouettes",
+                &silhouette_pipeline_layout,
+                "vs_hidden_silhouette",
+                &silhouettes,
             ),
             markers: color(
                 "markers",

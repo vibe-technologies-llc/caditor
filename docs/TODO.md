@@ -353,8 +353,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
   distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
   at once, which only looks into the model and changes nothing. Measure works on what it shows.
-- [low · easy] Silhouettes of curved faces are not drawn again dashed where a face hides them in
-  shaded with hidden edges dashed, and never pick (the face beneath does).
 - [low · medium] Translucent lines keep square ends, so a translucent polyline still notches where
   its segments meet at an angle; joining them without blending twice needs mitred joins built
   from the neighbouring segments, which instances do not know.
