@@ -4733,7 +4733,7 @@ pub mod timing {
             mut change: impl FnMut(&mut ViewportState, u32),
         ) {
             let context = egui::Context::default();
-            context.set_fonts(crate::fonts::definitions());
+            context.set_fonts(crate::fonts::definitions_with(&[]));
             let mut state = placed_state();
             state.camera = Camera::new(viewpoint);
             let rect = state.rect.unwrap();

@@ -1487,7 +1487,7 @@ mod tests {
     #[test]
     fn a_long_removable_row_wraps_to_keep_its_button_in_the_panel() {
         let context = Context::default();
-        context.set_fonts(fonts::definitions());
+        context.set_fonts(fonts::definitions_with(&[]));
         let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(220.0, 400.0));
         let description = "Edge between Extrude 1 side from Line 3 and Extrude 1 end cap".repeat(3);
         let mut measured = None;

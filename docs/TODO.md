@@ -400,8 +400,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the current tool or panel.
 - [medium · hard] No clipboard for features, and sketch geometry copies only within one caditor
   (the system clipboard gets a line of text, not the geometry); no parameter import or export.
-- [low · medium] Text outside Latin, Greek and Cyrillic shows as missing glyphs in feature and file
-  names, since only Inter and egui's defaults are loaded.
 - [low · hard] Themes are four fixed `Tokens` sets in `appearance.rs` (dark, light and their
   high-contrast variants) and the 3D view is dark in all of them. Add themes as data: a few shipped
   ones beyond dark and light, a choice of accent colour, a light 3D view (background, grid, edges

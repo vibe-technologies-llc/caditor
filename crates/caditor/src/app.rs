@@ -33,6 +33,7 @@ use crate::{
     editing::SketchEditing,
     feature_tree,
     files::{self, FileCommand, Files},
+    font_fallbacks::FallbackFonts,
     fonts,
     graphics::{FramePacer, Hardware},
     image_export::{ReadPixels, RenderedRows},
@@ -144,6 +145,7 @@ pub struct Workspace {
     pub analysis: AnalysisTool,
     pub comb: CombTool,
     pub(crate) frame_failures: FrameFailures,
+    fallback_fonts: FallbackFonts,
     applied_appearance: Option<Appearance>,
     applied_title_bar: Option<TitleBar>,
     keyboard_was_taken: bool,
@@ -189,6 +191,7 @@ impl Workspace {
             analysis: AnalysisTool::default(),
             comb: CombTool::default(),
             frame_failures: FrameFailures::default(),
+            fallback_fonts: FallbackFonts::Off,
             applied_appearance: None,
             applied_title_bar: None,
             keyboard_was_taken: false,
@@ -861,18 +864,23 @@ enum Applied {
 }
 
 fn apply_appearance(ctx: &egui::Context, workspace: &mut Workspace) -> Applied {
-    let wanted = workspace.preferences.appearance;
-    if workspace.applied_appearance == Some(wanted) {
-        return Applied::Unchanged;
-    }
+    let scripts_arrived = workspace.fallback_fonts.arrived();
     if !fonts::installed(ctx) {
         ctx.options_mut(|options| {
             options.zoom_with_keyboard = false;
             options.quit_shortcuts.clear();
         });
-        ctx.set_fonts(fonts::definitions());
+        ctx.set_fonts(fonts::definitions_with(workspace.fallback_fonts.found()));
         ctx.request_repaint();
         return Applied::FontsPending;
+    }
+    if scripts_arrived {
+        ctx.set_fonts(fonts::definitions_with(workspace.fallback_fonts.found()));
+        ctx.request_repaint();
+    }
+    let wanted = workspace.preferences.appearance;
+    if workspace.applied_appearance == Some(wanted) {
+        return Applied::Unchanged;
     }
     for (theme, dark) in [(egui::Theme::Dark, true), (egui::Theme::Light, false)] {
         ctx.set_style_of(theme, appearance::style(dark, wanted.high_contrast));
@@ -1337,6 +1345,7 @@ impl Session {
         preferences: Preferences,
         proxy: EventLoopProxy<AppEvent>,
     ) -> Result<Self> {
+        let fallback_fonts = FallbackFonts::search(waker_factory(proxy.clone())());
         let placement = preferences.window.fitted(&monitor_areas(event_loop));
         let window = Arc::new(
             event_loop
@@ -1356,6 +1365,7 @@ impl Session {
         own_the_window(&window);
         window.set_visible(true);
         let mut workspace = Workspace::with_preferences(preferences);
+        workspace.fallback_fonts = fallback_fonts;
         workspace.hardware = Hardware {
             adapter: Some(renderer.graphics_info().clone()),
             refresh_rate: refresh_rate(&window),

@@ -1471,7 +1471,7 @@ mod tests {
     #[test]
     fn every_glyph_letter_and_label_prefix_renders_with_the_app_fonts() {
         let context = egui::Context::default();
-        context.set_fonts(crate::fonts::definitions());
+        context.set_fonts(crate::fonts::definitions_with(&[]));
         let mut output = context.run_ui(RawInput::default(), |_| {});
         output.textures_delta.clear();
         let kinds = [

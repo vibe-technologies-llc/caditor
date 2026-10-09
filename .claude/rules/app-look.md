@@ -1,6 +1,7 @@
 ---
 paths:
   - "crates/caditor/src/fonts.rs"
+  - "crates/caditor/src/font_fallbacks.rs"
   - "crates/caditor/src/appearance.rs"
   - "crates/caditor/src/icons.rs"
   - "crates/caditor/src/icon_font.rs"
@@ -38,6 +39,20 @@ paths:
   `icons` family, since Inter's private-use glyphs would shadow them; `icons.rs` holds one icon
   per command, tool, constraint and feature kind. Fonts install on the first frame, which draws
   nothing.
+- Text in other scripts (feature, body, parameter and file names) falls back to fonts installed
+  on the system, never bundled ones, which would add tens of megabytes for scripts most people
+  never type. `font_fallbacks.rs` looks for them on a thread started when the window opens
+  (`FallbackFonts::search`), so startup never waits on it: one file per script from a fixed list
+  (`SCRIPTS`: Noto Sans for each script, Noto Sans CJK and its common substitutes, then DejaVu Sans,
+  on Linux under the XDG data directories and `~/.fonts`; Segoe UI, Microsoft YaHei, Malgun Gothic,
+  Nirmala UI and the like in the Windows and per-user font folders), a `-Regular` name also
+  matching its variable font (`Name[wght].ttf`). Each file is read whole, at most `MAX_FONT_BYTES`,
+  and kept only when its header is one egui parses (`is_loadable` repeats the checks that would
+  otherwise panic inside egui). The fonts found are appended after Inter and egui's own fallbacks
+  in every text family (`fonts::definitions_with`) and installed when they arrive; line heights
+  stay Inter's, since egui takes metrics from the first font. Finding none, or failing to look,
+  leaves the interface as it was. The headless UI tests never search, so they render the same on
+  every machine.
 - caditor's own icons (fillet, which the sketch fillet shares, chamfer, shell, extrude, revolve and
   both patterns) are glyphs of a font `icon_font.rs` builds in memory at startup from a small
   vector description: strokes, loops, arcs, dots and rings on Phosphor's 256 grid with its 16-unit

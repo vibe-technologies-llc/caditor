@@ -45,6 +45,7 @@ mod feature_tree;
 mod field;
 mod files;
 mod filleting;
+mod font_fallbacks;
 mod fonts;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
