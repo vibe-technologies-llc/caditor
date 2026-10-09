@@ -29,6 +29,8 @@ paths:
   - "crates/caditor/src/interference_panel.rs"
   - "crates/caditor/src/comb.rs"
   - "crates/caditor/src/comb_panel.rs"
+  - "crates/caditor/src/section.rs"
+  - "crates/caditor/src/section_panel.rs"
   - "crates/caditor/src/analysis.rs"
   - "crates/caditor/src/analysis_panel.rs"
   - "crates/caditor/src/reach.rs"
@@ -352,6 +354,36 @@ paths:
   teeth and the envelope in `ScenePalette::comb` over it, so the comb holds 3:1 over bodies and the
   canvas in both palettes.
 
+## Section view
+
+- Show or hide the section view (`SectionCommand::Toggle`, View menu, palette, no default key)
+  toggles `SectionTool` in the `Workspace`; while open, `section_panel.rs` draws a right-hand panel
+  beside any other and the model is cut. It never changes the document. The planes are a view
+  state kept for the session, not saved with the model or in the preferences: they only look into
+  the model, a saved one would mean a format change and an undo entry for what is not an edit, and
+  sections set up for one look are rarely wanted when the file is opened again. A new session
+  forgets the planes, which may refer to its IDs (`SectionTool::forget`).
+- A plane (`Cut`) starts from a base: a principal plane (the XY, XZ and YZ buttons), a datum plane,
+  a coordinate system's plane, a flat face (its outward normal, by `FaceKey`) or a sketch's plane,
+  taken with Use selected (`SectionCommand::UseSelected`, `section::base_from`) and resolved again
+  each frame (`section::base_plane`), so it follows edits; a base that is gone shows a warning
+  callout and that plane cuts nothing. Its Offset moves it along the base normal into the side it
+  keeps, Tilt and Turn turn it about the base's own x and then y axis (length and angle expressions
+  of named parameters), Cut away the other side (`SectionCommand::Flip`) flips the side in place,
+  and Cut faces chooses hatched or filled (`caditor_render::CutFace`). The cut side is the base
+  normal's: above the XY plane, in front of the XZ plane, right of the YZ plane, outside a face.
+- Opening the view with no plane, and Add a plane (`SectionCommand::Add`), adds one through the
+  centre of the model's bounds (offset rounded to 0.1 mm) on the first principal plane not in use
+  (XZ, YZ, XY), up to `MAX_SECTION_PLANES`; Remove (`SectionCommand::Remove`, or the card's bin)
+  drops one. The commands act on the current plane, the one added or edited last, marked Current.
+- `SectionTool::planes` resolves the planes each frame into `ViewportState::set_section`;
+  `ViewportState::shown_section` adds the sketch slice (`app-sketching.md`) and hands them to
+  `SceneCache::set_section`, which sets `Scene::section` on the cached scene without rebuilding it
+  and bumps its generation, so a moved plane costs a uniform write (`render.md`) and the hover is
+  picked again. Picking, the pick list, paint selection and box selection (the `seen` closure of
+  `select_in_model` treats a cut point as unseen) reach only what is shown, so Measure does too.
+  An exported image keeps the section shown (`ViewportState::image`); thumbnails and the
+  headless PNG have none.
 
 - `samples.rs` builds parametric models through the document API (so always the current format),
   fully constrained with dimensions naming parameters; a test recomputes each and checks its

@@ -162,8 +162,8 @@ paths:
 
 - Choices (size, scale, background) are kept for the session, not saved. A side beyond
   `MAX_IMAGE_SIDE` disables Export with the reason on hover.
-- The image is the scene drawn again at the image's size (`ViewportState::image`) with the camera
-  and graphics settings in use, without hover, selection, keyboard highlights, grid or drawing
+- The image is the scene drawn again at the image's size (`ViewportState::image`) with the camera,
+  graphics settings and section planes in use (`app.md`), without hover, selection, keyboard highlights, grid or drawing
   preview; egui overlays (labels, annotations, view cube) are never in it. A wider image shows
   more at the sides, and sketch curves are faceted for the image's size (`app.md`).
 - After the save dialog the job waits in `Files` (`image_job`); the session starts it with

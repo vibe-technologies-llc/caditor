@@ -116,6 +116,8 @@ mod scene;
 mod scene_cache;
 mod scene_description;
 mod scene_palette;
+mod section;
+mod section_panel;
 mod selection;
 mod selection_sets;
 mod shape_modes;

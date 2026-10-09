@@ -3,8 +3,8 @@ use std::{sync::Arc, time::Duration};
 use caditor_document::{FeatureId, FeatureKind, SavedView, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
 use caditor_render::{
-    Camera, PickResult, ProjectionMode, Reflection, Scene, SurfaceSize, View, Viewpoint,
-    ViewportRect, grid_minor_spacing,
+    Camera, MAX_SECTION_PLANES, PickResult, ProjectionMode, Reflection, Scene, SectionPlane,
+    SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing, is_cut_away, section_slack,
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
@@ -48,6 +48,7 @@ use crate::{
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
     scene_palette::Contrast,
+    section::{self, SectionCommand},
     selection::{Pickable, Selection, SelectionFilter},
     selection_sets,
     shape_modes::ShapeMode,
@@ -305,6 +306,8 @@ pub struct ViewportState {
     first_dimension_scales: bool,
     glyphs_shown: bool,
     aids: ViewAids,
+    section: Vec<SectionPlane>,
+    sketch_slice: bool,
     analyses: Analyses,
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
@@ -442,6 +445,8 @@ impl ViewportState {
             first_dimension_scales: false,
             glyphs_shown: true,
             aids: ViewAids::default(),
+            section: Vec::new(),
+            sketch_slice: false,
             analyses: Analyses::default(),
             manipulator: None,
             manipulator_hover: None,
@@ -485,6 +490,18 @@ impl ViewportState {
 
     pub fn aids(&self) -> ViewAids {
         self.aids
+    }
+
+    pub fn set_section(&mut self, section: Vec<SectionPlane>) {
+        self.section = section;
+    }
+
+    pub fn model_centre(&self) -> Option<Point3> {
+        Some(self.scenes.built()?.model?.center())
+    }
+
+    pub fn sketch_slice(&self) -> bool {
+        self.sketch_slice
     }
 
     #[cfg(test)]
@@ -608,6 +625,17 @@ impl ViewportState {
             true => self.chosen_rows.clone(),
             false => Vec::new(),
         }
+    }
+
+    fn shown_section(&self, edited: Option<Plane>) -> Vec<SectionPlane> {
+        let slice = edited
+            .filter(|_| self.sketch_slice)
+            .map(section::sketch_slice);
+        slice
+            .into_iter()
+            .chain(self.section.iter().copied())
+            .take(MAX_SECTION_PLANES)
+            .collect()
     }
 
     pub fn forget_document(&mut self) {
@@ -885,6 +913,7 @@ impl ViewportState {
         });
         let faceting = self.scenes.faceting();
         let plane = self.scenes.edited_plane();
+        self.scenes.set_section(self.shown_section(plane));
         self.problems = problems(model);
         self.scenes.show(Overlay {
             contrast: self.contrast,
@@ -1041,6 +1070,7 @@ impl ViewportState {
             &mut SketchShapes::new(scene::drawn_faceting(&sources, context, level.faceting())),
         );
         built.scene.grid = None;
+        built.scene.section = self.scenes.section().to_vec();
         let view = view.reaching(built.everything);
         let shown_height = self.view_pixels().map_or(size.height, |shown| shown.height);
         ImageView {
@@ -1697,7 +1727,12 @@ impl ViewportState {
                 })
                 .collect(),
             catch => {
+                let section = self.scenes.section();
+                let slack = section_slack(view.viewpoint().distance);
                 let seen = |point: Point3| {
+                    if is_cut_away(section, point, slack) {
+                        return None;
+                    }
                     let at = view.project(point)? / scale;
                     let depth = view.view_depth(point);
                     Some(box_selection::Seen {
@@ -2215,6 +2250,9 @@ impl ViewportState {
         }
         if commands.available(Command::ToggleTypedDimensions) {
             self.typed_dimensions = !self.typed_dimensions;
+        }
+        if commands.available(Command::Section(SectionCommand::SliceSketch)) {
+            self.sketch_slice = !self.sketch_slice;
         }
         if commands.available(Command::ToggleFirstDimensionScales) {
             self.first_dimension_scales = !self.first_dimension_scales;

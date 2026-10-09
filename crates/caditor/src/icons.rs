@@ -9,6 +9,7 @@ use crate::{
     commands::{CameraMove, Command},
     editing::Tool,
     icon_font,
+    section::SectionCommand,
     selection::Pickable,
     shape_modes::{BlendMode, CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode},
     sketch_tools::ConstraintTool,
@@ -80,6 +81,10 @@ pub const GRAPHICS: &str = phosphor::MONITOR;
 pub const MEASURE: &str = phosphor::RULER;
 pub const INTERFERENCE: &str = phosphor::INTERSECT_SQUARE;
 pub const ANALYSIS: &str = phosphor::GAUGE;
+pub const SECTION: &str = phosphor::KNIFE;
+pub const ADD_SECTION_PLANE: &str = phosphor::STACK_PLUS;
+pub const FLIP_SECTION: &str = phosphor::FLIP_VERTICAL;
+pub const SLICE: &str = phosphor::SCISSORS;
 pub const CURVATURE_COMB: &str = phosphor::CHART_LINE;
 pub const COPY: &str = phosphor::COPY_SIMPLE;
 pub const TEMPLATE: &str = phosphor::STAMP;
@@ -182,6 +187,12 @@ pub fn command(command: Command) -> &'static str {
         Command::Interference => INTERFERENCE,
         Command::Analysis(AnalysisCommand::Comb) => CURVATURE_COMB,
         Command::Analysis(_) => ANALYSIS,
+        Command::Section(SectionCommand::Toggle) => SECTION,
+        Command::Section(SectionCommand::Add) => ADD_SECTION_PLANE,
+        Command::Section(SectionCommand::UseSelected) => USE_SELECTED,
+        Command::Section(SectionCommand::Flip) => FLIP_SECTION,
+        Command::Section(SectionCommand::Remove) => DELETE,
+        Command::Section(SectionCommand::SliceSketch) => SLICE,
         Command::ToggleProjection => phosphor::PERSPECTIVE,
         Command::AutomaticProjection => phosphor::PERSPECTIVE,
         Command::ToggleSnapping => phosphor::MAGNET,

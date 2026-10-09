@@ -15,6 +15,7 @@ use crate::{
     icons, logo,
     model::{Action, Model},
     preferences::PreferencesCommand,
+    section::SectionCommand,
     selection::SelectionFilter,
     shape_modes::ShapeMode,
     sketch_tools::ConstraintTool,
@@ -122,6 +123,8 @@ pub struct MenuContext<'a> {
     pub first_dimension_scales: bool,
     pub glyphs: bool,
     pub aids: ViewAids,
+    pub sectioning: bool,
+    pub sketch_slice: bool,
 }
 
 pub fn show(
@@ -170,6 +173,8 @@ pub fn show(
                     first_dimension_scales: context.first_dimension_scales,
                     glyphs: context.glyphs,
                     aids: context.aids,
+                    sectioning: context.sectioning,
+                    sketch_slice: context.sketch_slice,
                     commands,
                     chosen: Vec::new(),
                 };
@@ -412,6 +417,8 @@ struct Menus<'a, 'b> {
     first_dimension_scales: bool,
     glyphs: bool,
     aids: ViewAids,
+    sectioning: bool,
+    sketch_slice: bool,
     commands: &'a CommandFrame<'b>,
     chosen: Vec<Command>,
 }
@@ -601,6 +608,12 @@ impl Menus<'_, '_> {
             self.item(ui, Command::Analysis(AnalysisCommand::Zebra));
             self.item(ui, Command::Analysis(AnalysisCommand::Chrome));
             self.item(ui, Command::Analysis(AnalysisCommand::Comb));
+            self.choice(
+                ui,
+                Command::Section(SectionCommand::Toggle),
+                self.sectioning,
+            );
+            self.item(ui, Command::Section(SectionCommand::Add));
             ui.separator();
             self.items(
                 ui,
@@ -712,6 +725,11 @@ impl Menus<'_, '_> {
                 [Command::ReverseArc, Command::MoreSides, Command::FewerSides],
             );
             self.choice(ui, Command::ToggleTypedDimensions, self.typed_dimensions);
+            self.choice(
+                ui,
+                Command::Section(SectionCommand::SliceSketch),
+                self.sketch_slice,
+            );
             self.choice(
                 ui,
                 Command::ToggleFirstDimensionScales,

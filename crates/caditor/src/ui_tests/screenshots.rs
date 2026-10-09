@@ -10,14 +10,14 @@ use caditor_document::{
 };
 use caditor_file::{JournalEntry, Start, Storage, StorageConfig};
 use caditor_geometry::{Plane, Point2};
-use caditor_render::{SurfaceTarget, ViewportFrame, ViewportRenderer};
+use caditor_render::{CutFace, SurfaceTarget, ViewportFrame, ViewportRenderer};
 use caditor_sketch::{Constraint, Sketch};
 use egui::{Event, Key, Modifiers};
 use tempfile::TempDir;
 
 use super::{
     CAMERA_SETTLE, Harness, Painted, add_block, add_peg, combine_nearly_touching_blocks,
-    extruded_plate,
+    extruded_plate, run_from_palette,
 };
 use crate::{
     app::Workspace,
@@ -38,6 +38,7 @@ use crate::{
     reference_picking::{Picking, Slot},
     samples::Sample,
     scale_tools,
+    section::SectionTool,
     selection::{Pickable, Selection},
     shell_tools, view_cube,
 };
@@ -420,6 +421,20 @@ fn screenshots() {
             model.frame();
         }
 
+        run_from_palette(&mut model, "show or hide the section view");
+        model.frame();
+        model.frame();
+        shoot(&mut model, &gpu, &out, "section", look);
+        run_from_palette(&mut model, "add a section plane");
+        for cut in &mut model.workspace.section.cuts {
+            cut.cut_face = CutFace::Filled;
+        }
+        model.frame();
+        model.frame();
+        shoot(&mut model, &gpu, &out, "section-filled", look);
+        model.workspace.section = SectionTool::default();
+        model.frame();
+
         let sketch = model
             .document()
             .features()
@@ -428,6 +443,17 @@ fn screenshots() {
         if let Some(sketch) = sketch {
             model.edit(sketch);
             shoot(&mut model, &gpu, &out, "sketch", look);
+            run_from_palette(&mut model, "slice the bodies at the sketch plane");
+            model.frame();
+            model.frame();
+            shoot(&mut model, &gpu, &out, "sketch-slice", look);
+            model.key(Key::Num0, Modifiers::ALT);
+            model.workspace.viewport.advance(CAMERA_SETTLE);
+            model.frame();
+            model.frame();
+            shoot(&mut model, &gpu, &out, "sketch-slice-turned", look);
+            run_from_palette(&mut model, "slice the bodies at the sketch plane");
+            model.frame();
             model.key(Key::Escape, Modifiers::NONE);
             model.key(Key::Escape, Modifiers::NONE);
             model.frame();

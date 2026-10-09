@@ -6,8 +6,8 @@ use egui::{Event, Key, KeyboardShortcut, Modifiers};
 
 use crate::{
     analysis::AnalysisCommand, display_style::DisplayStyle, editing::Tool, samples::Sample,
-    selection::SelectionFilter, shape_modes::ShapeMode, sketch_tools::ConstraintTool,
-    variants::all_variants,
+    section::SectionCommand, selection::SelectionFilter, shape_modes::ShapeMode,
+    sketch_tools::ConstraintTool, variants::all_variants,
 };
 
 const SETTINGS_PREFIX: &str = "keys.";
@@ -144,6 +144,7 @@ pub enum Command {
     Filter(SelectionFilter),
     Style(DisplayStyle),
     Analysis(AnalysisCommand),
+    Section(SectionCommand),
     HighlightNext,
     HighlightPrevious,
     ActivateHighlighted,
@@ -476,6 +477,7 @@ macro_rules! plain_commands {
             | Command::Filter(_)
             | Command::Style(_)
             | Command::Analysis(_)
+            | Command::Section(_)
             | Command::OpenSample(_)
             | Command::OpenRecent(_) => {}
         };
@@ -667,6 +669,7 @@ impl Command {
             .chain(SelectionFilter::ALL.into_iter().map(Self::Filter))
             .chain(DisplayStyle::ALL.into_iter().map(Self::Style))
             .chain(AnalysisCommand::ALL.into_iter().map(Self::Analysis))
+            .chain(SectionCommand::ALL.into_iter().map(Self::Section))
             .chain(Sample::ALL.into_iter().map(Self::OpenSample))
             .chain(RecentSlot::ALL.into_iter().map(Self::OpenRecent))
     }
@@ -744,6 +747,7 @@ impl Command {
             Self::Filter(filter) => filter.id(),
             Self::Style(style) => style.id(),
             Self::Analysis(analysis) => analysis.id(),
+            Self::Section(section) => section.id(),
             Self::Constraint(tool) => match tool {
                 ConstraintTool::Coincident => "constraint.coincident",
                 ConstraintTool::Midpoint => "constraint.midpoint",
@@ -1017,6 +1021,7 @@ impl Command {
             Self::Filter(filter) => filter.title(),
             Self::Style(style) => style.title(),
             Self::Analysis(analysis) => analysis.title(),
+            Self::Section(section) => section.title(),
             Self::HighlightNext => "Highlight the next item in the view",
             Self::HighlightPrevious => "Highlight the previous item in the view",
             Self::ActivateHighlighted => "Select the highlighted item",
@@ -1169,6 +1174,13 @@ impl Command {
             | Self::Filter(_)
             | Self::Style(_)
             | Self::Analysis(_)
+            | Self::Section(
+                SectionCommand::Toggle
+                | SectionCommand::Add
+                | SectionCommand::UseSelected
+                | SectionCommand::Flip
+                | SectionCommand::Remove,
+            )
             | Self::HighlightNext
             | Self::HighlightPrevious
             | Self::ActivateHighlighted
@@ -1291,6 +1303,7 @@ impl Command {
             | Self::CutGeometry
             | Self::PasteGeometry
             | Self::IntersectBody
+            | Self::Section(SectionCommand::SliceSketch)
             | Self::SketchTool(_)
             | Self::ShapeMode(_) => Category::Sketch,
             Self::Constraint(_) => Category::Constraint,
@@ -1318,6 +1331,7 @@ impl Command {
             | Self::CutGeometry
             | Self::PasteGeometry
             | Self::IntersectBody
+            | Self::Section(SectionCommand::SliceSketch)
             | Self::SketchTool(_)
             | Self::ShapeMode(_)
             | Self::Constraint(_) => Scope::Sketch,
@@ -1446,6 +1460,7 @@ impl Command {
             | Self::Filter(_)
             | Self::Style(_)
             | Self::Analysis(_)
+            | Self::Section(_)
             | Self::NewFromTemplate
             | Self::SaveAsTemplate
             | Self::OpenSample(_)
