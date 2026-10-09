@@ -1,5 +1,6 @@
 mod banded;
 mod beyond;
+mod blend;
 mod breaking;
 mod clip;
 mod constraint;
@@ -22,6 +23,7 @@ mod trim;
 
 pub use crate::{
     beyond::PointBeyond,
+    blend::{BlendCurve, BlendEnd, BlendError, Continuity},
     breaking::{BreakError, Broken},
     clip::{ClipError, SketchClip},
     constraint::{Constraint, DimensionError, MAX_LENGTH},

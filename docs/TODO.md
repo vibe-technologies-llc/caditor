@@ -169,12 +169,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   imported outline at the wrong size is scaled by hand first. An option to scale the whole sketch
   about its origin when its first dimension is set, while it has no other, would size it in one
   step.
-- [low · medium] No blend curve: a curve joining the ends of two sketch curves or edges, tangent
-  (G1) or curvature-continuous (G2), as a spline held by `Tangent` and `Curvature` constraints so
-  it follows when either end moves, for a transition where a fillet's circular arc is not smooth
-  enough.
-- [low · medium] Dimension labels cannot be dragged; only linear dimensions sharing a line stack
-  clear of each other.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
   points (or calibrated by a known distance), given an opacity, locked and traced, as a part
   copied from an existing object or a drawing needs.

@@ -1,3 +1,5 @@
+use caditor_sketch::Continuity;
+
 use crate::editing::Tool;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -32,16 +34,33 @@ pub enum SlotMode {
     Arc,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BlendMode {
+    #[default]
+    Tangent,
+    Curvature,
+}
+
+impl BlendMode {
+    pub fn continuity(self) -> Continuity {
+        match self {
+            Self::Tangent => Continuity::Tangent,
+            Self::Curvature => Continuity::Curvature,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ShapeMode {
     Rectangle(RectangleMode),
     Circle(CircleMode),
     Polygon(PolygonMode),
     Slot(SlotMode),
+    Blend(BlendMode),
 }
 
 impl ShapeMode {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::Rectangle(RectangleMode::Corners),
         Self::Rectangle(RectangleMode::Center),
         Self::Rectangle(RectangleMode::ThreePoints),
@@ -54,6 +73,8 @@ impl ShapeMode {
         Self::Slot(SlotMode::Ends),
         Self::Slot(SlotMode::Center),
         Self::Slot(SlotMode::Arc),
+        Self::Blend(BlendMode::Tangent),
+        Self::Blend(BlendMode::Curvature),
     ];
 
     pub fn of_tool(tool: Tool) -> impl Iterator<Item = Self> {
@@ -68,6 +89,7 @@ impl ShapeMode {
             Self::Circle(_) => Tool::Circle,
             Self::Polygon(_) => Tool::Polygon,
             Self::Slot(_) => Tool::Slot,
+            Self::Blend(_) => Tool::BlendCurve,
         }
     }
 
@@ -93,6 +115,10 @@ impl ShapeMode {
                 SlotMode::Center => SlotMode::Arc,
                 SlotMode::Arc => SlotMode::Ends,
             }),
+            Self::Blend(mode) => Self::Blend(match mode {
+                BlendMode::Tangent => BlendMode::Curvature,
+                BlendMode::Curvature => BlendMode::Tangent,
+            }),
         }
     }
 
@@ -110,19 +136,28 @@ impl ShapeMode {
             Self::Slot(SlotMode::Ends) => "From the centres of its ends",
             Self::Slot(SlotMode::Center) => "From its centre",
             Self::Slot(SlotMode::Arc) => "Along an arc",
+            Self::Blend(BlendMode::Tangent) => "Tangent (G1)",
+            Self::Blend(BlendMode::Curvature) => "Curvature-continuous (G2)",
         }
     }
 
     pub fn title(self) -> String {
-        format!(
-            "Draw {} {}",
-            self.tool().label().to_lowercase(),
-            self.label().to_lowercase()
-        )
+        match self {
+            Self::Blend(_) => format!(
+                "Draw a {} {}",
+                decapitalized(self.label()),
+                self.tool().label().to_lowercase()
+            ),
+            _ => format!(
+                "Draw {} {}",
+                self.tool().label().to_lowercase(),
+                decapitalized(self.label())
+            ),
+        }
     }
 
     pub fn named(self) -> String {
-        format!("{} {}", self.tool().label(), self.label().to_lowercase())
+        format!("{} {}", self.tool().label(), decapitalized(self.label()))
     }
 
     pub fn description(self) -> &'static str {
@@ -160,6 +195,13 @@ impl ShapeMode {
                 "Draw a curved slot along an arc from the arc's centre, the centres of its ends \
                  and its width"
             }
+            Self::Blend(BlendMode::Tangent) => {
+                "Join the ends of two curves with a spline leaving each along its direction (G1)"
+            }
+            Self::Blend(BlendMode::Curvature) => {
+                "Join the ends of two curves with a spline leaving each along its direction and \
+                 bending as tightly as it does there (G2)"
+            }
         }
     }
 
@@ -177,13 +219,15 @@ impl ShapeMode {
             Self::Slot(SlotMode::Ends) => "sketch.slot.ends",
             Self::Slot(SlotMode::Center) => "sketch.slot.center",
             Self::Slot(SlotMode::Arc) => "sketch.slot.arc",
+            Self::Blend(BlendMode::Tangent) => "sketch.blend_curve.tangent",
+            Self::Blend(BlendMode::Curvature) => "sketch.blend_curve.curvature",
         }
     }
 
     pub fn hint(self, keys: Option<&str>) -> String {
         let named = self.named();
         match keys {
-            Some(keys) => format!("{named}   {keys}: {}", self.next().label().to_lowercase()),
+            Some(keys) => format!("{named}   {keys}: {}", decapitalized(self.next().label())),
             None => named,
         }
     }
@@ -195,6 +239,7 @@ pub struct ShapeModes {
     circle: CircleMode,
     polygon: PolygonMode,
     slot: SlotMode,
+    blend: BlendMode,
 }
 
 impl ShapeModes {
@@ -204,6 +249,7 @@ impl ShapeModes {
             Tool::Circle => Some(ShapeMode::Circle(self.circle)),
             Tool::Polygon => Some(ShapeMode::Polygon(self.polygon)),
             Tool::Slot => Some(ShapeMode::Slot(self.slot)),
+            Tool::BlendCurve => Some(ShapeMode::Blend(self.blend)),
             Tool::Select
             | Tool::Point
             | Tool::Line
@@ -226,13 +272,26 @@ impl ShapeModes {
         }
     }
 
+    pub fn blend(&self) -> Continuity {
+        self.blend.continuity()
+    }
+
     pub fn set(&mut self, mode: ShapeMode) {
         match mode {
             ShapeMode::Rectangle(mode) => self.rectangle = mode,
             ShapeMode::Circle(mode) => self.circle = mode,
             ShapeMode::Polygon(mode) => self.polygon = mode,
             ShapeMode::Slot(mode) => self.slot = mode,
+            ShapeMode::Blend(mode) => self.blend = mode,
         }
+    }
+}
+
+fn decapitalized(text: &str) -> String {
+    let mut characters = text.chars();
+    match characters.next() {
+        Some(first) => first.to_lowercase().chain(characters).collect(),
+        None => String::new(),
     }
 }
 
@@ -245,6 +304,7 @@ mod tests {
     all_variants!(CircleMode: Center, TwoPoints, ThreePoints);
     all_variants!(PolygonMode: Corner, SideMiddle, Side);
     all_variants!(SlotMode: Ends, Center, Arc);
+    all_variants!(BlendMode: Tangent, Curvature);
 
     #[test]
     fn every_way_of_drawing_a_shape_is_listed() {
@@ -254,6 +314,7 @@ mod tests {
             .chain(CircleMode::ALL.into_iter().map(ShapeMode::Circle))
             .chain(PolygonMode::ALL.into_iter().map(ShapeMode::Polygon))
             .chain(SlotMode::ALL.into_iter().map(ShapeMode::Slot))
+            .chain(BlendMode::ALL.into_iter().map(ShapeMode::Blend))
             .collect();
 
         assert_eq!(listed, ShapeMode::ALL);
@@ -305,5 +366,23 @@ mod tests {
             "Rectangle from its centre   R: from three points"
         );
         assert_eq!(centre.hint(None), "Rectangle from its centre");
+    }
+
+    #[test]
+    fn a_blend_switches_between_tangent_and_curvature_continuous() {
+        let tangent = ShapeModes::default().of(Tool::BlendCurve).unwrap();
+
+        assert_eq!(tangent, ShapeMode::Blend(BlendMode::Tangent));
+        assert_eq!(tangent.next().next(), tangent);
+        assert_eq!(tangent.title(), "Draw a tangent (G1) blend curve");
+        assert_eq!(
+            tangent.hint(Some("Alt+Shift+B")),
+            "Blend curve tangent (G1)   Alt+Shift+B: curvature-continuous (G2)"
+        );
+
+        let mut modes = ShapeModes::default();
+        modes.set(tangent.next());
+
+        assert_eq!(modes.blend(), Continuity::Curvature);
     }
 }

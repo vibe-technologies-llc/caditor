@@ -65,11 +65,13 @@ use crate::{
     view_cube, widgets, window_frame,
 };
 
+mod dimension_labels;
 mod feature_panels;
 mod import_jobs;
 mod pick_list;
 mod screenshots;
 mod selection_targets;
+mod sketch_blend_curves;
 mod sketch_breaks;
 mod sketch_chamfers;
 mod sketch_patterns;

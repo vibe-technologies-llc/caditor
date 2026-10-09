@@ -701,6 +701,7 @@ impl Command {
                 Tool::Project => "sketch.project",
                 Tool::Intersect => "sketch.intersect",
                 Tool::Dimension => "sketch.dimension",
+                Tool::BlendCurve => "sketch.blend_curve",
             },
             Self::ShapeMode(mode) => mode.id(),
             Self::Filter(filter) => filter.id(),
@@ -1446,6 +1447,10 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::Project => Some(KeyboardShortcut::new(Modifiers::ALT, Key::P)),
         Tool::Intersect => Some(KeyboardShortcut::new(Modifiers::ALT, Key::I)),
         Tool::Dimension => plain(Key::D),
+        Tool::BlendCurve => Some(KeyboardShortcut::new(
+            Modifiers::ALT | Modifiers::SHIFT,
+            Key::B,
+        )),
     }
 }
 

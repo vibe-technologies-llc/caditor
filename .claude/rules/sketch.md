@@ -20,6 +20,11 @@ paths:
   conflicts or counts as redundant, and a new one is not refused for restating it. A dimension
   left inactive is a reference: its displayed value is `Sketch::measured` of the solved geometry.
   Removing a constraint forgets the flag; trim keeps it on the constraints it rebuilds.
+- A dimension can carry a label offset (`Sketch::set_label_offset`, a map beside the constraints,
+  part of `same_content` so moving a label is an undoable change): where its label was placed, in
+  millimetres along and across a frame the app derives from the measured geometry
+  (`annotation_layout::label_frame`), so the label follows the geometry. Only dimensions take one
+  (`NotADimension`), finite only; removing the constraint forgets it.
 - Projected geometry (`Sketch::set_projected`, a set beside the entities, part of
   `same_geometry`) is a curve and its points, or a lone point, whose position the document
   supplies. The solver holds it fixed like the origin: its points are `PointHandle::Fixed` and a
@@ -232,6 +237,27 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   curve within a tolerance relative to their reach.
 - Circles tangent to curves whose offsets coincide (two parallel lines at twice the radius, three
   parallel lines) have no discrete solution and are refused as no circle.
+
+## Blend curves (`blend.rs`)
+
+- `blend` joins two curve ends (`BlendEnd`: a line, arc or spline and one of its end points,
+  `Sketch::ends_of_curve`) with a new spline held by `Coincident` from each of its ends to the
+  picked point, `Tangent` to each curve and, for `Continuity::Curvature`, `Curvature` to each, so
+  it follows when either curve moves. It is ordinary geometry; projected curves can be blended.
+- `blend_curve` gives the control points without touching the sketch, for the preview, and `blend`
+  starts the spline from exactly them, so the constraints already hold and the first solve moves
+  nothing. A tangent blend is a cubic of four points, its inner ones a third of the gap along
+  each curve's direction leaving its end. A curvature blend has six: the second point a fifth of
+  the gap along that direction (shorter where the curve bends tightly, so the third stays within a
+  leg of the tangent), the third offset square to it so the spline bends as the curve does there
+  (an arc's `1/r` with the side it turns to, a line's zero, a spline's own end curvature), the
+  offset scaled from the spline's curvature per unit offset at its end (`unit_bend`).
+- Refused in words (`BlendError`): a curve with no ends (a circle, a point), a point that is not an
+  end of its curve, both ends on one curve, ends already at one place, an end with no direction,
+  control points past `MAX_LENGTH`, and curves already joined so that the solver would read the
+  spline's other end as the joint (checked after the `Coincident`s through `joined_ends`, the same
+  joint search `Tangent` and `Curvature` use). A curvature blend to a two-point spline is refused
+  by `Curvature` itself (`Edit`).
 
 ## Faceting and splines (`curve.rs`, `fit.rs`)
 

@@ -25,7 +25,7 @@ use caditor_geometry::Point2;
 
 pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
 pub(crate) use crate::solve::{
-    spline::{joined_at_end, not_joined, spline_gap, straight_spline},
+    spline::{joined_at_end, joined_ends, not_joined, spline_gap, straight_spline},
     system::arc_joint,
 };
 use crate::{

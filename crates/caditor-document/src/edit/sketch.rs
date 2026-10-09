@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::Expression;
-use caditor_geometry::Plane;
+use caditor_geometry::{Plane, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError};
 
 use crate::{
@@ -43,8 +43,23 @@ impl TransactionBuilder<'_> {
             id,
             constraint,
             inactive: false,
+            label: None,
         });
         id
+    }
+
+    pub fn set_sketch_label(
+        &mut self,
+        feature: FeatureId,
+        id: ConstraintId,
+        offset: Option<Vector2>,
+    ) -> &mut Self {
+        self.edits.push(Edit::SetSketchLabel {
+            feature,
+            id,
+            offset,
+        });
+        self
     }
 
     pub fn set_sketch_constraint_active(
@@ -267,8 +282,9 @@ struct Reshape {
     added_entities: Vec<(EntityId, Entity, bool)>,
     changed_entities: Vec<(EntityId, Entity)>,
     construction: Vec<(EntityId, bool)>,
-    added_constraints: Vec<(ConstraintId, Constraint, bool)>,
+    added_constraints: Vec<(ConstraintId, Constraint, bool, Option<Vector2>)>,
     activity: Vec<(ConstraintId, bool)>,
+    labels: Vec<(ConstraintId, Option<Vector2>)>,
 }
 
 impl Reshape {
@@ -350,7 +366,14 @@ impl Reshape {
             .filter(|(id, constraint)| {
                 before.constraint(*id) != Some(*constraint) || renewed(constraint)
             })
-            .map(|(id, constraint)| (id, constraint.clone(), !after.is_active(id)))
+            .map(|(id, constraint)| {
+                (
+                    id,
+                    constraint.clone(),
+                    !after.is_active(id),
+                    after.label_offset(id),
+                )
+            })
             .collect();
         let activity = after
             .constraints()
@@ -361,6 +384,15 @@ impl Reshape {
             })
             .map(|(id, _)| (id, after.is_active(id)))
             .collect();
+        let labels = after
+            .constraints()
+            .filter(|(id, constraint)| {
+                before.constraint(*id) == Some(*constraint)
+                    && !renewed(constraint)
+                    && before.label_offset(*id) != after.label_offset(*id)
+            })
+            .map(|(id, _)| (id, after.label_offset(id)))
+            .collect();
         Self {
             removed_constraints,
             removed_entities: removed_curves.into_iter().chain(removed_points).collect(),
@@ -369,6 +401,7 @@ impl Reshape {
             construction,
             added_constraints,
             activity,
+            labels,
         }
     }
 
@@ -409,12 +442,15 @@ impl Reshape {
         let added_constraints =
             self.added_constraints
                 .into_iter()
-                .map(|(id, constraint, inactive)| Edit::AddSketchConstraint {
-                    feature,
-                    id,
-                    constraint,
-                    inactive,
-                });
+                .map(
+                    |(id, constraint, inactive, label)| Edit::AddSketchConstraint {
+                        feature,
+                        id,
+                        constraint,
+                        inactive,
+                        label,
+                    },
+                );
         let activity =
             self.activity
                 .into_iter()
@@ -423,6 +459,14 @@ impl Reshape {
                     id,
                     active,
                 });
+        let labels = self
+            .labels
+            .into_iter()
+            .map(|(id, offset)| Edit::SetSketchLabel {
+                feature,
+                id,
+                offset,
+            });
         removed_constraints
             .chain(removed_entities)
             .chain(added_entities)
@@ -430,6 +474,7 @@ impl Reshape {
             .chain(construction)
             .chain(added_constraints)
             .chain(activity)
+            .chain(labels)
             .collect()
     }
 }
@@ -605,6 +650,7 @@ impl Document {
         id: ConstraintId,
         constraint: Constraint,
         inactive: bool,
+        label: Option<Vector2>,
     ) -> Result<Edit, EditError> {
         if let Some(value) = constraint.dimension() {
             self.check_references(value)?;
@@ -615,6 +661,12 @@ impl Document {
             .and_then(|()| {
                 inactive
                     .then(|| sketch.set_active(id, false).map(|_| ()))
+                    .transpose()
+                    .map(|_| ())
+            })
+            .and_then(|()| {
+                label
+                    .map(|offset| sketch.set_label_offset(id, Some(offset)).map(|_| ()))
                     .transpose()
                     .map(|_| ())
             })
@@ -639,6 +691,23 @@ impl Document {
         })
     }
 
+    pub(super) fn set_sketch_label(
+        &mut self,
+        feature: FeatureId,
+        id: ConstraintId,
+        offset: Option<Vector2>,
+    ) -> Result<Edit, EditError> {
+        let (name, sketch) = self.sketch_mut(feature)?;
+        let previous = sketch
+            .set_label_offset(id, offset)
+            .map_err(|error| EditError::Sketch { name, error })?;
+        Ok(Edit::SetSketchLabel {
+            feature,
+            id,
+            offset: previous,
+        })
+    }
+
     pub(super) fn remove_sketch_constraint(
         &mut self,
         feature: FeatureId,
@@ -646,6 +715,7 @@ impl Document {
     ) -> Result<Edit, EditError> {
         let (name, sketch) = self.sketch_mut(feature)?;
         let inactive = !sketch.is_active(id);
+        let label = sketch.label_offset(id);
         let constraint = sketch
             .remove_constraint(id)
             .map_err(|error| EditError::Sketch { name, error })?;
@@ -654,6 +724,7 @@ impl Document {
             id,
             constraint,
             inactive,
+            label,
         })
     }
 

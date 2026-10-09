@@ -22,7 +22,7 @@ use caditor_document::{
     TurnCentre, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
-use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
     RegionKey, RegionReference, Side, Solid, VertexName,
@@ -1025,6 +1025,8 @@ pub(crate) struct ConstraintRecord {
     pub id: u64,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub inactive: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<[f64; 2]>,
     #[serde(flatten)]
     pub kind: ConstraintKindRecord,
 }
@@ -1267,6 +1269,12 @@ pub(crate) enum EditRecord {
         feature: u64,
         id: u64,
         active: bool,
+    },
+    SetSketchLabel {
+        feature: u64,
+        id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset: Option<[f64; 2]>,
     },
 }
 
@@ -2598,7 +2606,12 @@ fn sketch_record(feature: &SketchFeature) -> SketchRecord {
         constraints: sketch
             .constraints()
             .map(|(id, constraint)| {
-                Lenient::Read(constraint_record(id, constraint, !sketch.is_active(id)))
+                Lenient::Read(constraint_record(
+                    id,
+                    constraint,
+                    !sketch.is_active(id),
+                    sketch.label_offset(id),
+                ))
             })
             .collect(),
         projections: feature
@@ -2718,10 +2731,12 @@ fn constraint_record(
     id: ConstraintId,
     constraint: &Constraint,
     inactive: bool,
+    label: Option<Vector2>,
 ) -> ConstraintRecord {
     ConstraintRecord {
         id: id.raw(),
         inactive,
+        label: label.map(|offset| offset.to_array()),
         kind: constraint_kind_record(constraint),
     }
 }
@@ -3003,9 +3018,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
             id,
             constraint,
             inactive,
+            label,
         } => EditRecord::AddSketchConstraint {
             feature: feature.raw(),
-            constraint: constraint_record(*id, constraint, *inactive),
+            constraint: constraint_record(*id, constraint, *inactive, *label),
         },
         Edit::SetSketchConstraintActive {
             feature,
@@ -3015,6 +3031,15 @@ fn edit_record(edit: &Edit) -> EditRecord {
             feature: feature.raw(),
             id: id.raw(),
             active: *active,
+        },
+        Edit::SetSketchLabel {
+            feature,
+            id,
+            offset,
+        } => EditRecord::SetSketchLabel {
+            feature: feature.raw(),
+            id: id.raw(),
+            offset: offset.map(|offset| offset.to_array()),
         },
         Edit::RemoveSketchConstraint { feature, id } => EditRecord::RemoveSketchConstraint {
             feature: feature.raw(),
@@ -3216,6 +3241,7 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             id: ConstraintId::from_raw(constraint.id),
             constraint: constraint_from_record(&constraint.kind, |text, _| parse(text))?,
             inactive: constraint.inactive,
+            label: constraint.label.map(Vector2::from_array),
         },
         EditRecord::SetSketchConstraintActive {
             feature,
@@ -3225,6 +3251,15 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             feature: FeatureId::from_raw(feature),
             id: ConstraintId::from_raw(id),
             active,
+        },
+        EditRecord::SetSketchLabel {
+            feature,
+            id,
+            offset,
+        } => Edit::SetSketchLabel {
+            feature: FeatureId::from_raw(feature),
+            id: ConstraintId::from_raw(id),
+            offset: offset.map(Vector2::from_array),
         },
         EditRecord::RemoveSketchConstraint { feature, id } => Edit::RemoveSketchConstraint {
             feature: FeatureId::from_raw(feature),
@@ -4974,12 +5009,21 @@ fn restore_constraint(
         issues.push(format!(
             "In “{feature}”, a constraint was left out because {error}."
         ));
-    } else if record.inactive
-        && let Err(error) = sketch.set_active(id, false)
-    {
-        issues.push(format!(
-            "In “{feature}”, a constraint was kept active because {error}."
-        ));
+    } else {
+        if record.inactive
+            && let Err(error) = sketch.set_active(id, false)
+        {
+            issues.push(format!(
+                "In “{feature}”, a constraint was kept active because {error}."
+            ));
+        }
+        if let Some(label) = record.label
+            && let Err(error) = sketch.set_label_offset(id, Some(Vector2::from_array(label)))
+        {
+            issues.push(format!(
+                "In “{feature}”, a dimension's label went back to its usual place because {error}."
+            ));
+        }
     }
 }
 

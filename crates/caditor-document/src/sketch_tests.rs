@@ -1,5 +1,5 @@
 use caditor_expression::{Expression, ParameterId};
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchError};
 
 use crate::{
@@ -511,6 +511,7 @@ fn constraints_are_checked_by_the_sketch_and_the_document() {
                 id: ConstraintId::from_raw(u64::MAX),
                 constraint: Constraint::Horizontal(shape.sides[0]),
                 inactive: false,
+                label: None,
             },
         )),
         Err(EditError::Sketch {
@@ -800,6 +801,49 @@ fn a_reshape_keeps_which_constraints_are_inactive_and_changes_them_when_asked() 
     assert_eq!(sketch.inactive().collect::<Vec<_>>(), vec![first, width]);
     editor.undo().unwrap();
     assert_eq!(sketch_of(editor.document(), feature).inactive().count(), 0);
+}
+
+#[test]
+fn moving_a_dimension_label_is_undoable_and_survives_deleting_and_restoring_the_dimension() {
+    let shape = rectangle();
+    let feature = shape.feature;
+    let width = shape.constraints[5];
+    let mut editor = Editor::new(shape.document.clone());
+    let placed = Vector2::new(3.0, 12.0);
+
+    let mut transaction = editor.document().transaction("Move dimension label");
+    transaction.set_sketch_label(feature, width, Some(placed));
+    editor.apply(transaction.finish()).unwrap();
+    assert_eq!(
+        sketch_of(editor.document(), feature).label_offset(width),
+        Some(placed)
+    );
+
+    let mut transaction = editor.document().transaction("Delete constraint");
+    transaction.remove_sketch_items(feature, [], [width]);
+    editor.apply(transaction.finish()).unwrap();
+    editor.undo().unwrap();
+    assert_eq!(
+        sketch_of(editor.document(), feature).label_offset(width),
+        Some(placed)
+    );
+
+    editor.undo().unwrap();
+    assert_eq!(
+        sketch_of(editor.document(), feature).label_offset(width),
+        None
+    );
+
+    let before = sketch_of(editor.document(), feature).clone();
+    let mut after = before.clone();
+    after.set_label_offset(width, Some(placed)).unwrap();
+    let mut transaction = editor.document().transaction("Reshape");
+    transaction.reshape_sketch(feature, &before, &after);
+    editor.apply(transaction.finish()).unwrap();
+    assert_eq!(
+        sketch_of(editor.document(), feature).label_offset(width),
+        Some(placed)
+    );
 }
 
 #[test]

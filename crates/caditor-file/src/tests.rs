@@ -10,7 +10,7 @@ use caditor_document::{
     PrincipalPlane, RollbackBar, SketchAttachment, Transaction,
 };
 use caditor_expression::{Expression, Unit};
-use caditor_geometry::{Plane, Point2, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use tempfile::TempDir;
 
@@ -5411,6 +5411,7 @@ fn inactive_constraints_stay_inactive_through_saving_and_the_journal() {
         id: ConstraintId::from_raw(90),
         constraint: Constraint::Vertical(line),
         inactive: true,
+        label: None,
     });
     let transaction = transaction.finish();
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
@@ -5419,6 +5420,67 @@ fn inactive_constraints_stay_inactive_through_saving_and_the_journal() {
         feature.raw(),
         measured.raw()
     )));
+    let record: format::TransactionRecord = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn a_dragged_dimension_label_is_saved_with_its_dimension_and_older_files_have_none() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let (start, end) = match sketch.entity(line) {
+        Some(Entity::Line { start, end }) => (*start, *end),
+        other => panic!("expected a line, found {other:?}"),
+    };
+    let measured = sketch
+        .add_constraint(Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(40.0, Unit::Millimetre),
+        })
+        .unwrap();
+    let plain = sketch.clone();
+    sketch
+        .set_label_offset(measured, Some(Vector2::new(5.0, -12.5)))
+        .unwrap();
+    let mut document = Document::default();
+    let mut transaction = document.transaction("New sketch");
+    let feature = transaction.add_feature("Profile", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace(",\"label\":[5.0,-12.5]", ""));
+    let older_sketch = older
+        .document
+        .feature(feature)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
+
+    assert!(text.contains(&format!("\"id\":{},\"label\":[5.0,-12.5]", measured.raw())));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(older.issues, Vec::<String>::new());
+    assert!(older_sketch.same_content(&plain));
+
+    let mut transaction = document.transaction("Move dimension label");
+    transaction.set_sketch_label(feature, measured, Some(Vector2::new(1.0, 2.0)));
+    transaction.edit(Edit::AddSketchConstraint {
+        feature,
+        id: ConstraintId::from_raw(90),
+        constraint: Constraint::Distance {
+            from: start,
+            to: end,
+            value: Expression::Measure(40.0, Unit::Millimetre),
+        },
+        inactive: true,
+        label: Some(Vector2::new(0.0, 9.0)),
+    });
+    let transaction = transaction.finish();
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert!(text.contains("\"set_sketch_label\""));
     let record: format::TransactionRecord = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }
@@ -5499,6 +5561,7 @@ fn diameters_across_an_axis_are_saved_as_flagged_radii_that_older_readers_hold_a
             value: Expression::Measure(25.0, Unit::Millimetre),
         },
         inactive: false,
+        label: None,
     });
     let transaction = transaction.finish();
     let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();

@@ -8,6 +8,7 @@ use egui::{
 };
 
 use crate::{
+    annotations,
     appearance::{self, CONTROL_HEIGHT, ICON_SIZE, SPACE_M, SPACE_S, Tokens, WIDGET_RADIUS},
     commands::{Command, CommandFrame},
     constraint_trial::ConstraintTrial,
@@ -32,12 +33,13 @@ pub const FINISH_LABEL: &str = "Finish sketch";
 pub const ARC_LABEL: &str = "Arc";
 pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
-pub const OFF_RIBBON: [Tool; 5] = [
+pub const OFF_RIBBON: [Tool; 6] = [
     Tool::Chamfer,
     Tool::Intersect,
     Tool::RectangularPattern,
     Tool::CircularPattern,
     Tool::TangentCircle,
+    Tool::BlendCurve,
 ];
 pub const OFF_RIBBON_CONSTRAINTS: [ConstraintTool; 1] = [ConstraintTool::Curvature];
 pub const DELETE_LABEL: &str = "Delete";
@@ -182,7 +184,18 @@ pub fn show(
         definition,
         &sketch_tools::selected_constraints(selection, feature.id()),
     );
-    let moving = Moving::offered(&shown, feature.id(), &selected, active.tool.draws()).map(|_| ());
+    let moving = Moving::offered(&shown, feature.id(), &selected, active.tool.draws())
+        .map(|_| ())
+        .or_else(|reason| {
+            annotations::label_to_move(
+                definition,
+                &selected,
+                &sketch_tools::selected_constraints(selection, feature.id()),
+                active.tool.draws(),
+            )
+            .map(|_| ())
+            .map_err(|_| reason)
+        });
     let select_all = sketch_drag::can_select_all(&shown).map_err(str::to_owned);
 
     let tokens = appearance::tokens(ui);
@@ -552,6 +565,21 @@ impl Bar<'_, '_> {
         response
     }
 
+    fn off_ribbon_tool(&mut self, tool: Tool) {
+        let invoked = self.commands.available(Command::SketchTool(tool));
+        for mode in ShapeMode::of_tool(tool) {
+            if self.commands.available(Command::ShapeMode(mode)) {
+                self.request.mode = Some(mode);
+            }
+        }
+        let active = self.active.tool == tool;
+        match self.modes.of(tool).filter(|_| invoked && active) {
+            Some(mode) => self.request.mode = Some(mode.next()),
+            None if invoked => self.request.tool = Some(tool),
+            None => {}
+        }
+    }
+
     fn mode_menu(&mut self, ui: &mut Ui, current: ShapeMode, button: Rect) {
         let tool = current.tool();
         for mode in ShapeMode::of_tool(tool) {
@@ -667,12 +695,7 @@ impl Bar<'_, '_> {
             self.request.breaking = true;
         }
         for tool in OFF_RIBBON {
-            if self
-                .commands
-                .invoke(Command::SketchTool(tool), &Ok::<(), String>(()))
-            {
-                self.request.tool = Some(tool);
-            }
+            self.off_ribbon_tool(tool);
         }
         let first = ui.horizontal_top(|ui| {
             self.construction_button(ui);

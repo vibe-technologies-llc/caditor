@@ -23,6 +23,7 @@ paths:
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
   - "crates/caditor/src/dimensioning.rs"
+  - "crates/caditor/src/blend_curving.rs"
 ---
 
 # Sketch editing in the app
@@ -165,8 +166,12 @@ paths:
   (`ShapeMode`), a switch within the tool rather than a tool and key per way, so the ribbon and
   keymap stay small and a shape is always found under its one key. Arcs stay separate tools,
   grouped on the ribbon under one Arc button (`app-look.md`).
+- Blend curve keeps its two ways the same way: tangent (G1) and curvature-continuous (G2)
+  (`ShapeMode::Blend`, `ShapeModes::blend`), listed with the shapes under Sketch › Ways to draw
+  shapes; the modify tool reads the way each frame and its prompt leads with it.
 - Running the tool's command while it is active steps to its next way, round to the first;
-  clicking its ribbon button only chooses the tool. Every way is also its own command
+  clicking its ribbon button only chooses the tool. Off-ribbon tools with ways (Blend curve) step
+  the same way from their command (`sketch_toolbar::off_ribbon_tool`). Every way is also its own command
   (`Command::ShapeMode`, id `sketch.<shape>.<way>`, no default key), offered in the palette, the
   button's corner menu and Sketch › Ways to draw shapes.
 - `SketchEditing` remembers the last way per shape (`ShapeModes`) while caditor runs, across
@@ -263,6 +268,15 @@ paths:
   excircle. With two chosen the typed-point field ("Radius", opens on a digit) draws the circle
   of that radius nearest the pointer instead, previewed while the text parses and kept as typed
   with parameters. Each draw is one undoable "Draw tangent circle" transaction.
+- Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Sketch menu and palette, not on the
+  sketch bar, `sketch_toolbar::OFF_RIBBON`) joins two curve ends with a spline (`sketch.md`, Blend
+  curves). It takes the end of a line, arc or spline (projected ones included) nearest the
+  pointer on the curve under it, or a point selected when it starts that ends exactly one curve;
+  the highlight commands step through every such end and Space or Enter chooses. Clicking the
+  chosen end again lets it go, Escape lets go of the highlight and then the chosen end. With one
+  end chosen the second under the pointer or highlighted previews the spline and its control
+  points live and says in words what it would draw or why not; a click or Activate draws it in one
+  undoable "Draw blend curve" transaction, refused in a notice otherwise.
 - Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes a corner (a
   selected one, else the curve end under the pointer, `Sketch::corner_at`, refused in words when
   it is no corner); then the pointer sets the radius (`radius_through`). The chosen corner is
@@ -490,11 +504,22 @@ paths:
 ## Annotations
 
 - Drawn with the egui painter (`annotations.rs`, placement in `annotation_layout.rs`) from the
-  displayed geometry through the current view, with offsets and sizes in screen points and no
-  stored positions. Dimensions sit away from the sketch's centre, and linear ones measured along
-  one line on one side whose spans overlap stack into lanes (`annotation_layout::lanes`, shortest
-  nearest, `LANE_SPACING` apart), so an overall dimension clears the chain beneath it; other constraints are glyphs
-  stacked beside each constrained entity on the opposite side.
+  displayed geometry through the current view, with offsets and sizes in screen points. Unplaced
+  dimensions sit away from the sketch's centre, and linear ones measured along one line on one
+  side whose spans overlap stack into lanes (`annotation_layout::lanes`, shortest nearest,
+  `LANE_SPACING` apart), so an overall dimension clears the chain beneath it; other constraints
+  are glyphs stacked beside each constrained entity on the opposite side.
+- Dragging a dimension's label places it: the offset is stored with the dimension (`sketch.md`)
+  in the dimension's `LabelFrame` (the middle of a distance along it, a circle's centre, an
+  angle's vertex along its first ray, an arc's centre along its start), so the label keeps its
+  place relative to the geometry as it moves or turns, and the drop is one undoable "Move
+  dimension label" transaction. A placed distance runs its dimension line through the label
+  (extension lines to it, the line extended when the label is past an end); a placed radius or
+  diameter points its leader at the label; a placed angle, arc length or sweep takes the label's
+  distance as its arc's radius and extends the arc round to it; the others draw a leader from
+  their usual label place. Placed dimensions take no lane. From the keyboard, Move selected
+  geometry with one dimension alone selected (`annotations::label_to_move`) opens the same "Move
+  to" field at the label (`@` for an offset) and moves it there.
 - Glyphs keep clear of dimension labels and of each other (`annotation_layout::place_glyphs` over
   `Obstacles`); when nothing is free the least covered place wins. An entity's anchor is clipped to
   the view first (`within_view`; off-screen entities get no glyphs, a line is anchored at the middle

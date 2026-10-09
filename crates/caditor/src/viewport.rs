@@ -14,7 +14,7 @@ use egui::{
 
 use crate::{
     analysis::{Analyses, FaceAnalysis},
-    annotations::{Annotations, Surface},
+    annotations::{self, Annotations, LabelMoving, Surface},
     blend_tools,
     bodies::{self, BodyMeshes, OpenDraft},
     body_selection,
@@ -147,6 +147,12 @@ impl Screen for SketchScreen {
             .project(self.plane.to_world(point))
             .map(|pixel| pixel / self.pixels_per_point)
     }
+
+    fn to_sketch(&self, point: Vector2) -> Option<Point2> {
+        let ray = self.view.ray_through(point * self.pixels_per_point)?;
+        let distance = ray.intersect_plane(&self.plane)?;
+        within_reach(self.plane.to_local(ray.at(distance)))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,6 +262,7 @@ pub struct ViewportState {
     typed_point: TypedPoint,
     moving: Option<Moving>,
     transforming: Option<Transforming>,
+    moving_label: Option<LabelMoving>,
     press: Option<Press>,
     draw_press: Option<Vector2>,
     placing_freely: bool,
@@ -390,6 +397,7 @@ impl ViewportState {
             typed_point: TypedPoint::default(),
             moving: None,
             transforming: None,
+            moving_label: None,
             press: None,
             draw_press: None,
             placing_freely: false,
@@ -601,6 +609,7 @@ impl ViewportState {
         self.annotations = Annotations::default();
         self.typed_point = TypedPoint::default();
         self.moving = None;
+        self.moving_label = None;
         self.transforming = None;
         self.clipboard = None;
         self.press = None;
@@ -1532,7 +1541,8 @@ impl ViewportState {
             | Tool::TangentCircle
             | Tool::Project
             | Tool::Intersect
-            | Tool::Dimension => return None,
+            | Tool::Dimension
+            | Tool::BlendCurve => return None,
             _ => {}
         }
         let projected = |entity: EntityId| {
@@ -1709,8 +1719,12 @@ impl ViewportState {
             .feature()
             .map(|feature| sketch_tools::selected_entities(&self.selection, feature))
             .unwrap_or_default();
-        self.modifying
-            .sync(editing.active(), displayed.as_deref(), &selected);
+        self.modifying.sync(
+            editing.active(),
+            editing.modes(),
+            displayed.as_deref(),
+            &selected,
+        );
         let scale = f64::from(self.pixels_per_point);
         let pointer = self
             .cursor
@@ -2566,10 +2580,32 @@ impl ViewportState {
         };
         let selected = sketch_tools::selected_entities(&self.selection, feature);
         let moving = Moving::offered(&sketch, feature, &selected, drawing);
-        if commands.invoke(Command::MoveGeometry, &moving)
-            && let Ok(moving) = moving
-        {
-            self.moving = Some(moving);
+        let label = annotations::label_to_move(
+            &sketch,
+            &selected,
+            &sketch_tools::selected_constraints(&self.selection, feature),
+            drawing,
+        )
+        .ok()
+        .and_then(|constraint| {
+            Some(LabelMoving {
+                feature,
+                constraint,
+                place: self.annotations.label_place(feature, constraint)?,
+            })
+        });
+        let offer = match (&moving, label) {
+            (Err(reason), None) => Err(reason.clone()),
+            _ => Ok(()),
+        };
+        if commands.invoke(Command::MoveGeometry, &offer) {
+            match moving {
+                Ok(moving) => {
+                    self.moving = Some(moving);
+                    self.moving_label = None;
+                }
+                Err(_) => self.moving_label = label,
+            }
             self.transforming = None;
             self.typed_point.open();
         }
@@ -2584,6 +2620,7 @@ impl ViewportState {
             {
                 self.transforming = Some(transforming);
                 self.moving = None;
+                self.moving_label = None;
                 self.typed_point.open();
             }
         }
@@ -2766,6 +2803,14 @@ impl ViewportState {
             self.type_move(ui, rect, model, actions);
             return;
         }
+        self.moving_label = self
+            .moving_label
+            .take()
+            .filter(|moving| editing.feature() == Some(moving.feature));
+        if self.moving_label.is_some() {
+            self.type_label_move(ui, rect, model, actions);
+            return;
+        }
         self.transforming = self
             .transforming
             .take()
@@ -2921,6 +2966,45 @@ impl ViewportState {
             Err(error) => {
                 self.typed_point.open_with(typed.text, error);
                 self.moving = Some(moving);
+            }
+        }
+    }
+
+    fn type_label_move(
+        &mut self,
+        ui: &egui::Ui,
+        rect: Rect,
+        model: &Model,
+        actions: &mut Vec<Action>,
+    ) {
+        let hint = format!("Lengths in {}   {MOVE_HINT}", model.length_unit().symbol());
+        let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
+        let typed = self.typed_point.show(
+            ui.ctx(),
+            top_band(rect),
+            anchor,
+            typed_point::MOVE_LABEL,
+            &hint,
+            typed_point::POINT_PLACEHOLDER,
+        );
+        let Some(moving) = self.moving_label.take() else {
+            return;
+        };
+        let Some(typed) = typed else {
+            if self.typed_point.is_open() {
+                self.moving_label = Some(moving);
+            }
+            return;
+        };
+        let from = typed_point::From {
+            last: Some(moving.place.at),
+            toward: None,
+        };
+        match typed_point::parse(model, &typed.text, from) {
+            Ok(target) => actions.push(Action::Apply(moving.transaction(model, target))),
+            Err(error) => {
+                self.typed_point.open_with(typed.text, error);
+                self.moving_label = Some(moving);
             }
         }
     }
@@ -3395,6 +3479,10 @@ impl ViewportState {
                 let keys = match prompt.hint {
                     Hint::Targets => key_hints.targets.clone(),
                     Hint::Keys(keys) => keys.to_owned(),
+                };
+                let keys = match self.modifying.mode(editing.modes()) {
+                    Some(mode) => format!("{}   {keys}", key_hints.mode(mode)),
+                    None => keys,
                 };
                 (prompt.text.to_owned(), keys)
             })

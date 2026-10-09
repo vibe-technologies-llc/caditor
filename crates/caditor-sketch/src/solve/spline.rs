@@ -415,6 +415,23 @@ pub(crate) fn joined_at_end(sketch: &Sketch, a: EntityId, b: EntityId) -> bool {
     }
 }
 
+pub(crate) fn joined_ends(
+    sketch: &Sketch,
+    spline: EntityId,
+    other: EntityId,
+) -> Option<(EntityId, Option<EntityId>)> {
+    let joints = Joints::of(sketch);
+    match sketch.role(other)? {
+        Role::Spline => joints
+            .spline_joint(sketch, spline, other)
+            .map(|(own, theirs)| (own.end, Some(theirs.end))),
+        Role::Line | Role::Circular => joints
+            .spline_end_on(sketch, spline, other)
+            .map(|end| (end.end, None)),
+        Role::Point => None,
+    }
+}
+
 pub(crate) fn not_joined(
     sketch: &Sketch,
     constraint: &Constraint,
