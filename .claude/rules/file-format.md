@@ -356,6 +356,8 @@ paths:
   `closed_spline` (`control_points`), `fit_spline` and `closed_fit_spline` (`fit_points`) and
   `conic` (`start`, `apex`, `end`, `rho`). Older readers report each as a kind from a newer
   version and keep the points; a conic whose rho is out of range is refused like any bad entity.
+  A conic's rho dimension is a `rho` constraint record (`conic`, `value`), an unreadable value
+  falling back to the drawn rho as a plain number.
 - An ellipse is an `ellipse` entity record (`center`, `major`, `minor_radius`) and an elliptical
   arc an `elliptical_arc` one (the same plus `start` and `end`); their radii are `major_radius` and
   `minor_radius` constraint records (`ellipse`, `value`), an unreadable value falling back to the

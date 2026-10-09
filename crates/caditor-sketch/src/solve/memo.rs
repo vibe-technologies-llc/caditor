@@ -25,6 +25,7 @@ struct Key {
     entities: Vec<EntityId>,
     constraints: Vec<(ConstraintId, Option<u64>)>,
     start: Vec<(Variable, u64)>,
+    weights: Vec<(EntityId, Vec<u64>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -348,8 +349,19 @@ impl Key {
                 Some((name, value(&system.values, *index).to_bits()))
             })
             .collect::<Option<Vec<_>>>()?;
+        let weights = entities
+            .iter()
+            .filter_map(|entity| {
+                let weights = system.splines.get(entity)?.weights.as_ref()?;
+                Some((
+                    *entity,
+                    weights.iter().map(|weight| weight.to_bits()).collect(),
+                ))
+            })
+            .collect();
         Some(Self {
             scale: system.context_of(component).scale.to_bits(),
+            weights,
             entities,
             constraints: constraints
                 .into_iter()

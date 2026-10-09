@@ -1373,9 +1373,13 @@ pub(crate) enum ConstraintKindRecord {
         ellipse: u64,
         value: String,
     },
+    Rho {
+        conic: u64,
+        value: String,
+    },
 }
 
-const CONSTRAINT_KINDS: [&str; 25] = [
+const CONSTRAINT_KINDS: [&str; 26] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -1401,6 +1405,7 @@ const CONSTRAINT_KINDS: [&str; 25] = [
     "curvature",
     "major_radius",
     "minor_radius",
+    "rho",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -3397,6 +3402,10 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
         },
         Constraint::MinorRadius { ellipse, value } => ConstraintKindRecord::MinorRadius {
             ellipse: ellipse.raw(),
+            value: value.to_stored_text(),
+        },
+        Constraint::Rho { conic, value } => ConstraintKindRecord::Rho {
+            conic: conic.raw(),
             value: value.to_stored_text(),
         },
     }
@@ -6249,6 +6258,11 @@ fn constraint_from_record(
             let value = value(text, DrawnValue::MinorRadius(ellipse))?;
             Constraint::MinorRadius { ellipse, value }
         }
+        ConstraintKindRecord::Rho { conic, value: text } => {
+            let conic = entity(*conic);
+            let value = value(text, DrawnValue::Rho(conic))?;
+            Constraint::Rho { conic, value }
+        }
     })
 }
 
@@ -6308,6 +6322,7 @@ enum DrawnValue {
     Sweep(EntityId),
     MajorRadius(EntityId),
     MinorRadius(EntityId),
+    Rho(EntityId),
 }
 
 impl DrawnValue {
@@ -6323,6 +6338,7 @@ impl DrawnValue {
             Self::Sweep(_) => "a sweep",
             Self::MajorRadius(_) => "a major radius",
             Self::MinorRadius(_) => "a minor radius",
+            Self::Rho(_) => "a rho",
         }
     }
 
@@ -6338,6 +6354,7 @@ impl DrawnValue {
             Self::Sweep(_) => "drawn sweep",
             Self::MajorRadius(_) => "drawn major radius",
             Self::MinorRadius(_) => "drawn minor radius",
+            Self::Rho(_) => "drawn rho",
         }
     }
 
@@ -6361,10 +6378,12 @@ impl DrawnValue {
             Self::Sweep(arc) => Constraint::Sweep { arc, value },
             Self::MajorRadius(ellipse) => Constraint::MajorRadius { ellipse, value },
             Self::MinorRadius(ellipse) => Constraint::MinorRadius { ellipse, value },
+            Self::Rho(conic) => Constraint::Rho { conic, value },
         };
         let measured = sketch.measured(&constraint)?;
         let quantity = match self {
             Self::Angle { .. } | Self::Sweep(_) => Quantity::angle(measured),
+            Self::Rho(_) => Quantity::plain(measured),
             Self::Radius(_)
             | Self::Diameter(_)
             | Self::ArcLength(_)
@@ -6409,10 +6428,10 @@ fn restore_dimension(
          {drawn}.",
         kind.drawn_name()
     ));
-    let unit = if matches!(kind, DrawnValue::Angle { .. }) {
-        Unit::Degree
-    } else {
-        Unit::Millimetre
+    let unit = match kind {
+        DrawnValue::Rho(_) => return Some(Expression::Number(drawn.value)),
+        DrawnValue::Angle { .. } => Unit::Degree,
+        _ => Unit::Millimetre,
     };
     Some(Expression::Measure(drawn.value, unit))
 }

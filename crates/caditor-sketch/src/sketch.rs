@@ -415,7 +415,8 @@ impl Sketch {
             }
             | Constraint::MinorRadius {
                 ellipse: entity, ..
-            } => {
+            }
+            | Constraint::Rho { conic: entity, .. } => {
                 format!("{kind} of {}", label(entity))
             }
         }
@@ -452,6 +453,10 @@ impl Sketch {
             Constraint::Sweep { arc, .. } => self.arc(arc)?.sweep.to_degrees(),
             Constraint::MajorRadius { ellipse, .. } => self.ellipse(ellipse)?.major_radius(),
             Constraint::MinorRadius { ellipse, .. } => self.ellipse(ellipse)?.minor_radius,
+            Constraint::Rho { conic, .. } => match self.entity(conic)?.spline_kind()? {
+                SplineKind::Conic { rho } => rho,
+                SplineKind::Control { .. } | SplineKind::Fit { .. } => return None,
+            },
             Constraint::Coincident(..)
             | Constraint::Horizontal(_)
             | Constraint::Vertical(_)
@@ -1027,6 +1032,17 @@ impl Sketch {
                     }),
                 }
             }
+            Constraint::Rho { conic, .. } => match self.entity(conic) {
+                Some(Entity::Spline {
+                    kind: SplineKind::Conic { .. },
+                    ..
+                }) => self.check_not_only_reference(&entities),
+                _ => Err(SketchError::WrongKind {
+                    entity: conic,
+                    found: self.entity_label(conic),
+                    needed: "a conic",
+                }),
+            },
         }
     }
 
@@ -1199,6 +1215,16 @@ impl Sketch {
         ) = self.entities.get_mut(&id)
         {
             *radius = value;
+        }
+    }
+
+    pub(crate) fn set_rho(&mut self, id: EntityId, value: f64) {
+        if let Some(Entity::Spline {
+            kind: SplineKind::Conic { rho },
+            ..
+        }) = self.entities.get_mut(&id)
+        {
+            *rho = value;
         }
     }
 

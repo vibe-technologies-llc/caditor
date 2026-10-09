@@ -38,6 +38,7 @@ pub(crate) struct System {
     pub spans_at_variable: BTreeMap<usize, Vec<usize>>,
     pub splines: BTreeMap<EntityId, Arc<SplineHandle>>,
     pub hidden: BTreeMap<EntityId, Vec<usize>>,
+    pub rhos: BTreeMap<EntityId, f64>,
 }
 
 impl System {
@@ -97,6 +98,13 @@ impl System {
             spans_at_variable: BTreeMap::new(),
             splines: BTreeMap::new(),
             hidden: BTreeMap::new(),
+            rhos: sketch
+                .active_constraints()
+                .filter_map(|(id, constraint)| match *constraint {
+                    Constraint::Rho { conic, .. } => Some((conic, dimensions.dimension(id)?)),
+                    _ => None,
+                })
+                .collect(),
         };
         system.add_splines(sketch)?;
         system.entity_variables = sketch
@@ -735,6 +743,7 @@ impl System {
                     value: dimension()?,
                 }]
             }
+            Constraint::Rho { .. } => Vec::new(),
             Constraint::MinorRadius { ellipse, .. } => {
                 let ellipse = self.ellipse(sketch, ellipse)?;
                 vec![Form::Radius {

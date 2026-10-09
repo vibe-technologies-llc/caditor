@@ -128,6 +128,11 @@ paths:
   `Tangent` with a line only, and `MajorRadius`/`MinorRadius` (a dimension above zero; the major
   one restates a `Distance` between the centre and the axis point). Every other constraint,
   `Radius` and `Equal` included, refuses them.
+- `Rho { conic, value }` is a dimension of a conic's rho (`Dimension::NONE`, a plain number within
+  `MIN_RHO..=MAX_RHO`, `DimensionError::RhoOutOfRange`): it adds no equation and takes no degree
+  of freedom, since rho is not solved for; the solver shapes the conic with the evaluated value
+  (`System::rhos`) and writes it into the solved geometry, so a parameter drives the shape.
+  `Sketch::measured` gives the conic's rho. Projected conics refuse it (`OnlyReference`).
 - `Midpoint { point, curve }` takes a line or an arc, never a circle. On an arc it is two
   single-branch equations (`Form::OnBisector`, the point on the chord's perpendicular bisector, and
   `Form::ArcBulge`, its signed distance from the centre across the chord equal to the radius on the

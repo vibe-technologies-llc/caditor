@@ -327,6 +327,9 @@ impl Sketch {
         for (circle, radius) in &system.radii {
             geometry.set_radius(*circle, value(values, *radius));
         }
+        for (conic, rho) in &system.rhos {
+            geometry.set_rho(*conic, *rho);
+        }
         geometry
     }
 }

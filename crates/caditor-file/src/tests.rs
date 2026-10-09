@@ -1481,8 +1481,14 @@ fn closed_fit_point_and_conic_splines_round_trip_and_older_readers_report_them()
     sketch.add_spline_of(&through, SplineKind::Control { closed: true });
     sketch.add_spline_of(&through, SplineKind::Fit { closed: false });
     sketch.add_spline_of(&through, SplineKind::Fit { closed: true });
-    sketch.add_spline_of(&through, SplineKind::Conic { rho: 0.3 });
+    let conic = sketch.add_spline_of(&through, SplineKind::Conic { rho: 0.3 });
     sketch.add_spline(&through);
+    sketch
+        .add_constraint(Constraint::Rho {
+            conic,
+            value: Expression::Number(0.3),
+        })
+        .unwrap();
     transaction.add_feature("Curves", FeatureKind::from(sketch));
     document.apply(transaction.finish()).unwrap();
 

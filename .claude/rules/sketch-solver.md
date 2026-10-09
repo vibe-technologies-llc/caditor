@@ -71,6 +71,9 @@ paths:
   (`end_legs`), so a tangent or curvature at a fit-point spline's end uses its hidden control
   points and a conic's end curvature its weights (`end_factor` times `w_end w_after / w_next²`).
   Closed splines have no ends.
+- A conic's weights come from its active `Rho` dimension when it has one, else from its stored
+  rho, and a memo key holds every weighted spline's weights among its entities (`Key::weights`),
+  since rho is no variable and would not otherwise reach the key.
 
 ## Spline parameters (`solve/spline.rs`)
 

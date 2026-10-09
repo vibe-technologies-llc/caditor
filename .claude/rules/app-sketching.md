@@ -496,7 +496,10 @@ paths:
   radius. A lone ellipse or elliptical arc adds its major and minor radii (`MajorRadius`,
   `MinorRadius`, the one already held left out), as the Radius tool does with one selected; an
   ellipse picked with anything else is refused in words, its centre and axis points dimensioning
-  the rest. A point and a construction line also wait for placement (`dimensioning::about_axis`):
+  the rest. A lone conic takes its rho (`Constraint::Rho`, through the Radius candidates,
+  labelled `rho` and laid out from the middle of its chord to the point it passes there), never
+  added as a reference, since rho is no freedom the other constraints could take up
+  (`sketch_tools::determines`). A point and a construction line also wait for placement (`dimensioning::about_axis`):
   across the line the diameter (`Constraint::AxisDiameter`, drawn from the point to its mirror
   image across the line and labelled Ø), on the point's side the distance. Enter always adds the
   aligned distance, the length or the radius. The Diameter tool adds the same diameter for a point

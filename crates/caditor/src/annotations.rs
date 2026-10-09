@@ -50,6 +50,7 @@ const REQUEST_FRAMES: u8 = 30;
 const MAX_STACKED: usize = 4;
 const LISTED_BEYOND: usize = 6;
 const RADIUS_PREFIX: &str = "R ";
+const RHO_PREFIX: &str = "rho ";
 const DIAMETER_PREFIX: &str = "Ø ";
 const MIDPOINT_DOT: f32 = 1.8;
 const INNER_RING: f32 = 1.8;
@@ -643,6 +644,7 @@ fn label_text(
         .and_then(|value| {
             let quantity = match constraint.dimension_kind()? {
                 Dimension::ANGLE => Quantity::angle(value),
+                Dimension::NONE => Quantity::plain(value),
                 _ => Quantity::length(value),
             };
             Some(model.units().show(quantity))
@@ -661,6 +663,7 @@ fn label_text(
         Constraint::Radius { .. }
         | Constraint::MajorRadius { .. }
         | Constraint::MinorRadius { .. } => format!("{RADIUS_PREFIX}{text}"),
+        Constraint::Rho { .. } => format!("{RHO_PREFIX}{text}"),
         Constraint::Diameter { .. } | Constraint::AxisDiameter { .. } => {
             format!("{DIAMETER_PREFIX}{text}")
         }

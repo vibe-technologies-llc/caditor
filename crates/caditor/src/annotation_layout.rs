@@ -9,6 +9,7 @@ use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Reference, Sketc
 
 use crate::snap::Screen;
 
+const CONIC_SHOULDER: f64 = 0.5;
 const DIMENSION_OFFSET: f64 = 28.0;
 const LANE_SPACING: f64 = 22.0;
 const LANE_TOLERANCE: f64 = 1e-6;
@@ -221,6 +222,14 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
                 radius: shape.minor_radius,
                 toward: shape.axis().perp(),
             })
+        }
+        Constraint::Rho { conic, .. } => {
+            let (start, end) = sketch.entity(conic)?.spline_ends()?;
+            let middle = sketch.point(start)?.lerp(sketch.point(end)?, 0.5);
+            Some(Measured::Points(
+                middle,
+                sketch.spline(conic)?.point_at(CONIC_SHOULDER),
+            ))
         }
         Constraint::Coincident(..)
         | Constraint::Horizontal(_)
@@ -1256,7 +1265,8 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
         | Constraint::ArcLength { .. }
         | Constraint::Sweep { .. }
         | Constraint::MajorRadius { .. }
-        | Constraint::MinorRadius { .. } => Vec::new(),
+        | Constraint::MinorRadius { .. }
+        | Constraint::Rho { .. } => Vec::new(),
     }
 }
 

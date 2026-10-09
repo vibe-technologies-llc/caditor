@@ -1,7 +1,10 @@
 use caditor_expression::{Dimension, EvalError, Expression};
 use caditor_geometry::Point2;
 
-use crate::id::EntityId;
+use crate::{
+    entity::{MAX_RHO, MIN_RHO, SplineKind},
+    id::EntityId,
+};
 
 pub const MAX_LENGTH: f64 = 1e6;
 
@@ -84,6 +87,10 @@ pub enum Constraint {
         ellipse: EntityId,
         value: Expression,
     },
+    Rho {
+        conic: EntityId,
+        value: Expression,
+    },
 }
 
 impl Constraint {
@@ -117,6 +124,7 @@ impl Constraint {
             Self::Sweep { .. } => "Sweep",
             Self::MajorRadius { .. } => "Major radius",
             Self::MinorRadius { .. } => "Minor radius",
+            Self::Rho { .. } => "Rho",
         }
     }
 
@@ -134,7 +142,8 @@ impl Constraint {
             }
             | Self::MinorRadius {
                 ellipse: entity, ..
-            } => vec![entity],
+            }
+            | Self::Rho { conic: entity, .. } => vec![entity],
             Self::Coincident(a, b)
             | Self::HorizontalPoints(a, b)
             | Self::VerticalPoints(a, b)
@@ -173,7 +182,8 @@ impl Constraint {
             | Self::ArcLength { value, .. }
             | Self::Sweep { value, .. }
             | Self::MajorRadius { value, .. }
-            | Self::MinorRadius { value, .. } => Some(value),
+            | Self::MinorRadius { value, .. }
+            | Self::Rho { value, .. } => Some(value),
             Self::Coincident(..)
             | Self::Horizontal(_)
             | Self::Vertical(_)
@@ -195,6 +205,7 @@ impl Constraint {
     pub fn dimension_kind(&self) -> Option<Dimension> {
         match self {
             Self::Angle { .. } | Self::Sweep { .. } => Some(Dimension::ANGLE),
+            Self::Rho { .. } => Some(Dimension::NONE),
             _ if self.dimension().is_some() => Some(Dimension::LENGTH),
             _ => None,
         }
@@ -221,7 +232,10 @@ impl Constraint {
             Self::Sweep { .. } if value <= 0.0 || value >= FULL_TURN_DEGREES => {
                 Err(DimensionError::SweepOutsideTurn)
             }
-            Self::Angle { .. } | Self::Sweep { .. } => Ok(()),
+            Self::Rho { .. } if !SplineKind::rho_is_valid(value) => {
+                Err(DimensionError::RhoOutOfRange)
+            }
+            Self::Angle { .. } | Self::Sweep { .. } | Self::Rho { .. } => Ok(()),
             _ if self.dimension().is_some() && value > MAX_LENGTH => Err(DimensionError::TooLong),
             _ => Ok(()),
         }
@@ -239,7 +253,8 @@ impl Constraint {
             | Self::ArcLength { value, .. }
             | Self::Sweep { value, .. }
             | Self::MajorRadius { value, .. }
-            | Self::MinorRadius { value, .. } => Some(value),
+            | Self::MinorRadius { value, .. }
+            | Self::Rho { value, .. } => Some(value),
             Self::Coincident(..)
             | Self::Horizontal(_)
             | Self::Vertical(_)
@@ -281,7 +296,8 @@ impl Constraint {
             }
             | Self::MinorRadius {
                 ellipse: entity, ..
-            } => *entity = swap(*entity),
+            }
+            | Self::Rho { conic: entity, .. } => *entity = swap(*entity),
             Self::Coincident(a, b)
             | Self::HorizontalPoints(a, b)
             | Self::VerticalPoints(a, b)
@@ -335,4 +351,6 @@ pub enum DimensionError {
     NotFinite,
     #[error("a length cannot be more than {} m", MAX_LENGTH / 1_000.0)]
     TooLong,
+    #[error("a conic's rho must lie between {MIN_RHO} and {MAX_RHO}")]
+    RhoOutOfRange,
 }

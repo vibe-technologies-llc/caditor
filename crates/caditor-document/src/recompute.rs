@@ -1718,6 +1718,7 @@ fn dimension_error(
         .and_then(|definition| definition.dimension_kind())
     {
         Some(kind) if kind == Dimension::ANGLE => "an angle, such as 30 deg",
+        Some(kind) if kind == Dimension::NONE => "a plain number, such as 0.4",
         _ => "a length, such as 10 mm",
     };
     let (remedy, fix) = match reason {
@@ -1741,6 +1742,10 @@ fn dimension_error(
         ),
         DimensionError::SweepOutsideTurn => (
             "Edit the dimension so it gives an angle between 0 and 360 deg.".to_owned(),
+            dimension,
+        ),
+        DimensionError::RhoOutOfRange => (
+            "Edit the dimension so it gives a rho between 0.01 and 0.99.".to_owned(),
             dimension,
         ),
         DimensionError::TooLong => (

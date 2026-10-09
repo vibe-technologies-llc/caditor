@@ -65,6 +65,13 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
     match kinds.as_slice() {
         [Kind::Ellipse] => return Fit::Ready(ConstraintTool::Radius),
         _ if kinds.contains(&Kind::Ellipse) => return Fit::Refused(ELLIPSE_REFUSED),
+        [Kind::Spline]
+            if picks
+                .iter()
+                .all(|pick| sketch_tools::is_conic(sketch, *pick)) =>
+        {
+            return Fit::Ready(ConstraintTool::Radius);
+        }
         [Kind::Spline] => return Fit::Waiting,
         [
             Kind::Point | Kind::Line | Kind::Circle | Kind::Arc,
@@ -230,6 +237,9 @@ pub fn words(sketch: &Sketch, tool: ConstraintTool, picks: &[EntityId]) -> Strin
         },
         (ConstraintTool::Radius, [ellipse]) if kind(sketch, *ellipse) == Some(Kind::Ellipse) => {
             format!("the major and minor radii of {}", label(ellipse))
+        }
+        (ConstraintTool::Radius, [conic]) if sketch_tools::is_conic(sketch, *conic) => {
+            format!("the rho of {}", label(conic))
         }
         (ConstraintTool::Radius, [arc]) => format!("the radius of {}", label(arc)),
         (ConstraintTool::Angle, [first, second]) => {

@@ -227,3 +227,38 @@ fn a_conic_passes_its_shoulder_at_rho_of_the_way_to_its_apex() {
         Err(SketchError::TooFewClosedPoints)
     );
 }
+
+#[test]
+fn a_rho_dimension_drives_the_conic_without_taking_a_degree_of_freedom() {
+    let (start, apex, end) = (
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 10.0),
+        Point2::new(20.0, 0.0),
+    );
+    let mut sketch = Sketch::new(Plane::XY);
+    let conic = sketch.add_spline_of(&[start, apex, end], SplineKind::Conic { rho: 0.7 });
+    let rho = |value: f64| Constraint::Rho {
+        conic,
+        value: Expression::Number(value),
+    };
+
+    assert!(matches!(
+        sketch.add_constraint(rho(1.5)),
+        Err(SketchError::DimensionValue { .. })
+    ));
+    sketch.add_constraint(rho(0.3)).unwrap();
+    let solved = solve(&sketch).unwrap();
+    let shoulder = start.lerp(end, 0.5).lerp(apex, 0.3);
+
+    assert_eq!(solved.solution.degrees_of_freedom(), 6);
+    assert!(
+        solved
+            .geometry
+            .spline(conic)
+            .unwrap()
+            .point_at(0.5)
+            .distance(shoulder)
+            < EXACT
+    );
+    assert_eq!(solved.geometry.measured(&rho(0.3)), Some(0.3));
+}

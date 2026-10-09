@@ -363,7 +363,8 @@ impl System {
                 SplineKind::Control { closed: false } => clamped_handle(handles),
                 SplineKind::Control { closed: true } => periodic_handle(&handles),
                 SplineKind::Conic { rho } => {
-                    let weight = conic_weight(rho).ok_or(SketchError::InvalidRho)?;
+                    let driven = self.rhos.get(&id).copied().unwrap_or(rho);
+                    let weight = conic_weight(driven).ok_or(SketchError::InvalidRho)?;
                     SplineHandle {
                         points: handles,
                         degree: CONIC_DEGREE,
