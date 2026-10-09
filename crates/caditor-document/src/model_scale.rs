@@ -326,6 +326,28 @@ impl Rescaler {
                     center: *center,
                     radius: radius * self.factor,
                 },
+                Entity::Ellipse {
+                    center,
+                    major,
+                    minor_radius,
+                } => Entity::Ellipse {
+                    center: *center,
+                    major: *major,
+                    minor_radius: minor_radius * self.factor,
+                },
+                Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end,
+                } => Entity::EllipticalArc {
+                    center: *center,
+                    major: *major,
+                    minor_radius: minor_radius * self.factor,
+                    start: *start,
+                    end: *end,
+                },
                 Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => continue,
             };
             if scaled != *held {

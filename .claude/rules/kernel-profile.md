@@ -95,7 +95,8 @@ paths:
   chain: an open chain's outline closed by straight caps at its ends, a closed chain's ring. Pieces
   keep their entity with bounds that no arrangement makes, so every face is named stably whichever
   way the chain is drawn: the entity's own right side `(Start, End)`, its left `(End, Start)`, the
-  cap at its own start `(Start, Start)` and end `(End, End)`. Splines are `Spline`; a wall too thick
-  for a curve, corners that no longer meet, a turned-over loop or walls crossing each other
-  (`CrossesItself`) are refused. The regions extrude, taper and revolve like any other.
+  cap at its own start `(Start, Start)` and end `(End, End)`. Splines and ellipses are
+  `UnsupportedCurve`; a wall too thick for a curve, corners that no longer meet, a turned-over loop
+  or walls crossing each other (`CrossesItself`) are refused. The regions extrude, taper and
+  revolve like any other.
 

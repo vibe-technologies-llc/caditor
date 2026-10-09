@@ -83,7 +83,7 @@ impl Strand {
                     sweep,
                 })
             }
-            Curve2::BSpline(_) => None,
+            Curve2::BSpline(_) | Curve2::Ellipse(_) => None,
         }
     }
 

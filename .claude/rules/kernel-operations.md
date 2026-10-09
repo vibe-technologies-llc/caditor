@@ -47,10 +47,11 @@ paths:
   middle ring shared). Lines sweep planes, arcs and circles cones about their own centre; corners
   are re-met at each level (`profile::offset_strands`), straight where both pieces are lines or meet
   tangentially, else an `IntersectionCurve` through `JOINT_SAMPLES` levels on the two side
-  surfaces. Below `STRAIGHT_TAPER` it is `extrude`; splines are `TaperedSpline`, a slanted end
-  `TaperedTiltedEnd`, `MAX_TAPER_DEGREES` or steeper `TaperTooSteep`, and a piece used up, an arc
-  shrunk to nothing, corners that no longer meet, a loop turned over or loops crossing at a cap
-  `TaperCloses` (naming the pieces' entities when known).
+  surfaces. Below `STRAIGHT_TAPER` it is `extrude`; splines and ellipses are
+  `TaperedUnsupportedCurve`, a slanted end `TaperedTiltedEnd`, `MAX_TAPER_DEGREES` or steeper
+  `TaperTooSteep`, and a piece used up, an arc shrunk to nothing, corners that no longer meet, a
+  loop turned over or loops crossing at a cap `TaperCloses` (naming the pieces' entities when
+  known).
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, which the document uses to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids

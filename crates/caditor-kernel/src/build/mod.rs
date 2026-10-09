@@ -89,7 +89,7 @@ pub enum SweepError {
     #[error("a taper must stay below {MAX_TAPER_DEGREES}°")]
     TaperTooSteep,
     #[error("{} cannot be tapered; only lines, arcs and circles can", curves(.entities))]
-    TaperedSpline { entities: Vec<u64> },
+    TaperedUnsupportedCurve { entities: Vec<u64> },
     #[error("a tapered extrusion needs both ends parallel to the sketch")]
     TaperedTiltedEnd,
     #[error("the taper closes the profile before the end of the extrusion")]
@@ -124,7 +124,7 @@ impl SweepError {
         match self {
             Self::CrossesAxis { entities }
             | Self::Invalid { entities, .. }
-            | Self::TaperedSpline { entities }
+            | Self::TaperedUnsupportedCurve { entities }
             | Self::TaperCloses { entities } => entities.clone(),
             Self::BothSidesOfAxis { left, right } => left.iter().chain(right).copied().collect(),
             Self::NoRegions

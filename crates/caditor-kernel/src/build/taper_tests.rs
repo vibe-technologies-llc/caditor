@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, f64::consts::PI};
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 
 use super::*;
 use crate::{
@@ -248,7 +248,18 @@ fn a_taper_refuses_splines_tilted_ends_and_steep_angles() {
     let extent = LinearExtent::one_side(2.0).unwrap();
     assert_eq!(
         extrude_tapered(&Plane::XY, &blob, extent, 0.1, FEATURE),
-        Err(SweepError::TaperedSpline { entities: vec![3] })
+        Err(SweepError::TaperedUnsupportedCurve { entities: vec![3] })
+    );
+
+    let oval = regions(&[ProfileCurve::ellipse(
+        4,
+        Point2::ZERO,
+        Vector2::new(4.0, 0.0),
+        2.0,
+    )]);
+    assert_eq!(
+        extrude_tapered(&Plane::XY, &oval, extent, 0.1, FEATURE),
+        Err(SweepError::TaperedUnsupportedCurve { entities: vec![4] })
     );
 
     let square = regions(&rectangle(1, (0.0, 0.0), (4.0, 4.0)));

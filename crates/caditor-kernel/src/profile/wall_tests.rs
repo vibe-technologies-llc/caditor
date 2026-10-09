@@ -194,7 +194,20 @@ fn walls_that_cannot_be_built_say_why() {
             1.0,
             WallSide::Centred
         ),
-        Err(WallError::Spline { entities: vec![4] })
+        Err(WallError::UnsupportedCurve { entities: vec![4] })
+    );
+    assert_eq!(
+        wall_regions(
+            &[ProfileCurve::ellipse(
+                6,
+                Point2::ZERO,
+                Vector2::new(4.0, 0.0),
+                2.0
+            )],
+            0.5,
+            WallSide::Inside
+        ),
+        Err(WallError::UnsupportedCurve { entities: vec![6] })
     );
     assert_eq!(
         wall_regions(&[circle(5, (0.0, 0.0), 1.0)], 2.0, WallSide::Inside),

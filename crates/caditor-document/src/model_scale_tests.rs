@@ -352,6 +352,52 @@ fn a_thin_wall_thickens_with_the_model() {
 }
 
 #[test]
+fn ellipses_keep_their_shape_as_the_model_grows() {
+    let mut document = Document::default();
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(1.0, 2.0), Point2::new(5.0, 2.0), 2.0);
+    let arc = sketch.add_elliptical_arc(
+        Point2::ZERO,
+        Point2::new(3.0, 0.0),
+        1.0,
+        Point2::new(3.0, 0.0),
+        Point2::new(0.0, 1.0),
+    );
+    let mut transaction = document.transaction("Ovals");
+    let feature = transaction.add_feature("Ovals", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let scaled = document
+        .scaled(&scale(2.0, Point3::ZERO, ScaledValues::Plain))
+        .unwrap();
+    document.apply(scaled.transaction).unwrap();
+
+    let sketch = document
+        .feature(feature)
+        .and_then(|feature| feature.kind.sketch())
+        .unwrap();
+    let Some(Entity::Ellipse {
+        center,
+        major,
+        minor_radius,
+    }) = sketch.entity(ellipse).cloned()
+    else {
+        panic!("the ellipse is kept");
+    };
+    let Some(Entity::EllipticalArc {
+        minor_radius: arc_minor,
+        ..
+    }) = sketch.entity(arc).cloned()
+    else {
+        panic!("the elliptical arc is kept");
+    };
+    assert_eq!(minor_radius, 4.0);
+    assert_eq!(arc_minor, 2.0);
+    assert_eq!(sketch.point(center), Some(Point2::new(2.0, 4.0)));
+    assert_eq!(sketch.point(major), Some(Point2::new(10.0, 4.0)));
+}
+
+#[test]
 fn scaling_about_a_point_keeps_that_point_in_place() {
     let mut model = model();
 

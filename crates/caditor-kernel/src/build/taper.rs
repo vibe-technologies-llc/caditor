@@ -142,7 +142,7 @@ impl TaperedLoop {
 }
 
 fn tapered_loops(regions: &[Region]) -> Result<Vec<Vec<TaperedLoop>>, SweepError> {
-    let mut splines = BTreeSet::new();
+    let mut unsupported = BTreeSet::new();
     let loops: Vec<Vec<TaperedLoop>> = regions
         .iter()
         .map(|region| {
@@ -155,7 +155,7 @@ fn tapered_loops(regions: &[Region]) -> Result<Vec<Vec<TaperedLoop>>, SweepError
                         .filter_map(|piece| {
                             let strand = Strand::of_piece(piece);
                             if strand.is_none() {
-                                splines.insert(piece.entity());
+                                unsupported.insert(piece.entity());
                             }
                             strand
                         })
@@ -168,11 +168,11 @@ fn tapered_loops(regions: &[Region]) -> Result<Vec<Vec<TaperedLoop>>, SweepError
                 .collect()
         })
         .collect();
-    if splines.is_empty() {
+    if unsupported.is_empty() {
         Ok(loops)
     } else {
-        Err(SweepError::TaperedSpline {
-            entities: splines.into_iter().collect(),
+        Err(SweepError::TaperedUnsupportedCurve {
+            entities: unsupported.into_iter().collect(),
         })
     }
 }

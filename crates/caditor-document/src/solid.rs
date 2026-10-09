@@ -1196,7 +1196,7 @@ fn wall_failure(context: &Context<'_>, error: &WallError) -> Failure {
             "Enter a thinner wall.".to_owned(),
             context.own(),
         ),
-        WallError::Spline { .. } => context.error(
+        WallError::UnsupportedCurve { .. } => context.error(
             format!(
                 "In {sketch}, {curves} cannot be given a wall; a thin wall follows only lines, \
                  arcs and circles."
@@ -1459,7 +1459,7 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
             )
         }
         SweepError::TaperTooSteep => steep_taper(context),
-        SweepError::TaperedSpline { entities } => context.error(
+        SweepError::TaperedUnsupportedCurve { entities } => context.error(
             format!(
                 "In {sketch}, {} cannot be tapered; a taper follows only lines, arcs and circles.",
                 context.curves(entities)

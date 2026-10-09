@@ -36,7 +36,7 @@ pub enum WallError {
     #[error("the wall is thicker than {MAX_SIZE} mm")]
     BeyondMaximum,
     #[error("{} cannot be given a wall; only lines, arcs and circles can", curves(.entities))]
-    Spline { entities: Vec<u64> },
+    UnsupportedCurve { entities: Vec<u64> },
     #[error("three or more curves meet at one point: {}", curves(.entities))]
     Branches { entities: Vec<u64> },
     #[error("the curves turn straight back where {} meet", curves(.entities))]
@@ -58,7 +58,7 @@ pub enum WallError {
 impl WallError {
     pub fn entities(&self) -> Vec<u64> {
         match self {
-            Self::Spline { entities }
+            Self::UnsupportedCurve { entities }
             | Self::Branches { entities }
             | Self::Folds { entities }
             | Self::TooThick { entities }
@@ -128,13 +128,15 @@ pub fn wall_regions(
         .iter()
         .map(Source::from_curve)
         .collect::<Result<_, _>>()?;
-    let splines: Vec<u64> = sources
+    let unsupported: Vec<u64> = sources
         .iter()
-        .filter(|source| matches!(source.curve, Curve2::BSpline(_)))
+        .filter(|source| matches!(source.curve, Curve2::BSpline(_) | Curve2::Ellipse(_)))
         .map(|source| source.entity)
         .collect();
-    if !splines.is_empty() {
-        return Err(WallError::Spline { entities: splines });
+    if !unsupported.is_empty() {
+        return Err(WallError::UnsupportedCurve {
+            entities: unsupported,
+        });
     }
     let elements: Vec<Element> = sources
         .iter()
