@@ -14,7 +14,7 @@ use caditor_geometry::{Point3, Vector3};
 use thiserror::Error;
 
 pub use self::mass::{MassProperties, SecondMoment};
-pub(crate) use self::mass::{Moments, triangles_contain};
+pub(crate) use self::mass::{Moments, TriangleIndex};
 use crate::{
     interrupt::{self, Interrupted},
     tolerance::{MeshQuality, SamplingTolerance},

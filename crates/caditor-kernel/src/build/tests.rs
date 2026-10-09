@@ -13,7 +13,7 @@ use crate::{
     interval::Interval,
     naming::{EdgeName, FaceName},
     numeric::integrate,
-    profile::{Profile, ProfileCurve, Region, Selection},
+    profile::{Profile, ProfileCurve, Region, RegionKey, Selection},
     surface::PlaneSurface,
     tessellation::Mesh,
     test_support::{
@@ -26,6 +26,7 @@ use crate::{
 const FEATURE: u64 = 7;
 const CHORD: f64 = 1e-3;
 const DENSE_SPLINE_TIME_LIMIT: Duration = Duration::from_secs(20);
+const NEARLY_TOUCHING_LUMPS_TIME_LIMIT: Duration = Duration::from_secs(30);
 
 fn regions(curves: &[ProfileCurve]) -> Vec<Region> {
     Profile::new(curves)
@@ -1530,4 +1531,60 @@ fn an_extrusion_along_a_slanted_direction_keeps_its_volume_and_shifts_its_end() 
     let expected = 10.0 * (50.0 + 12.5) / 0.75;
     assert!((volume - expected).abs() < 1e-6 * expected, "{volume}");
     assert_eq!(flat, Err(SweepError::DirectionAlongSketch));
+}
+
+#[test]
+fn two_nearly_touching_lumps_of_a_slanted_revolution_validate_in_bounded_time() {
+    let curves = vec![
+        circle(1, (6.0, 3.499_999), 3.0),
+        circle(2, (-2.5, 11.5), 6.000_1),
+        arc(
+            3,
+            (-8.5, -8.000_001),
+            (-4.749_935_048_282_216, -1.504_847_971_941_468_5),
+            (-6.558_857_161_731_094, -0.755_557_302_831_986_6),
+        ),
+        circle(4, (-8.500_001, -9.999_999), 1.500_1),
+        line(5, (-4.0, 0.5), (3.0, 0.5)),
+        line(6, (3.0, 0.5), (3.0, 8.5)),
+        line(7, (3.0, 8.5), (-4.0, 8.5)),
+        line(8, (-4.0, 8.5), (-4.0, 0.5)),
+        line(9, (-2.5, 6.500_1), (-11.999_999, -0.499_999)),
+    ];
+    let chosen = Selection::Regions(vec![
+        RegionKey::from_digest(96_685_686_626_783_132_505_241_604_872_028_554_191),
+        RegionKey::from_digest(217_915_268_302_919_612_151_948_420_403_395_607_601),
+    ]);
+    let profile = Profile::new(&curves).unwrap().select(&chosen).unwrap();
+    let plane = Plane::from_frame(
+        Point3::new(5.0, -5.5, -12.0),
+        Vector3::new(
+            4.472_135_950_527_444e-5,
+            -0.894_427_190_105_488_8,
+            0.447_213_595_052_744_4,
+        ),
+        Vector3::new(
+            4.472_223_599_884_365_6e-7,
+            -0.447_213_595_482_024_33,
+            -0.894_427_191_008_770_8,
+        ),
+    )
+    .unwrap();
+    let axis = Axis2::new(
+        Point2::new(-9.999_999, -9.000_001),
+        Vector2::new(0.948_683_234_804_903_7, 0.316_227_955_753_604_9),
+    )
+    .unwrap();
+    let clock = Instant::now();
+
+    let solid = revolve(&plane, &profile, axis, full(), FEATURE).unwrap();
+
+    assert_eq!(profile.len(), 2);
+    assert_eq!(solid.validate(), Ok(()));
+    assert_eq!(solid.shells().count(), 2);
+    assert!(
+        clock.elapsed() < NEARLY_TOUCHING_LUMPS_TIME_LIMIT,
+        "{:?}",
+        clock.elapsed()
+    );
 }

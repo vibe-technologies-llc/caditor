@@ -2,7 +2,10 @@ use std::f64::consts::{EULER_GAMMA, PI};
 
 use caditor_geometry::{Aabb, Point3, Vector3};
 
-use crate::{tessellation::Mesh, topology::FaceId};
+use crate::{
+    box_tree::BoxTree, intersect::line_window, tessellation::Mesh, tolerance::LINEAR_RESOLUTION,
+    topology::FaceId,
+};
 
 const RAY_DIRECTIONS: [Vector3; 3] = [
     Vector3::new(
@@ -165,10 +168,68 @@ impl Mesh {
     }
 }
 
-pub(crate) fn triangles_contain(triangles: &[[Point3; 3]], point: Point3) -> Option<bool> {
-    RAY_DIRECTIONS
-        .iter()
-        .find_map(|direction| parity(point, *direction, triangles.iter().copied()))
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TriangleIndex {
+    tree: BoxTree,
+    bounded: Vec<usize>,
+    unbounded: Vec<usize>,
+}
+
+impl TriangleIndex {
+    pub(crate) fn new(triangles: &[[Point3; 3]]) -> Self {
+        let (bounded, unbounded): (Vec<usize>, Vec<usize>) =
+            (0..triangles.len()).partition(|index| {
+                triangles
+                    .get(*index)
+                    .is_some_and(|triangle| triangle.iter().all(|corner| corner.is_finite()))
+            });
+        let tree = BoxTree::new(
+            bounded
+                .iter()
+                .filter_map(|index| triangles.get(*index))
+                .map(crossing_reach),
+        );
+        Self {
+            tree,
+            bounded,
+            unbounded,
+        }
+    }
+
+    pub(crate) fn possibly_nearest(&self, point: Point3) -> Vec<usize> {
+        self.with_unbounded(self.tree.possibly_nearest(point, 0.0))
+    }
+
+    pub(crate) fn contains(&self, triangles: &[[Point3; 3]], point: Point3) -> Option<bool> {
+        RAY_DIRECTIONS.iter().find_map(|direction| {
+            let passed = self
+                .tree
+                .matching(|bounds| line_window(point, *direction, bounds).is_some());
+            let crossed = self
+                .with_unbounded(passed)
+                .into_iter()
+                .filter_map(|index| triangles.get(index).copied());
+            parity(point, *direction, crossed)
+        })
+    }
+
+    fn with_unbounded(&self, found: Vec<usize>) -> Vec<usize> {
+        let mut indices: Vec<usize> = found
+            .into_iter()
+            .filter_map(|found| self.bounded.get(found).copied())
+            .chain(self.unbounded.iter().copied())
+            .collect();
+        indices.sort_unstable();
+        indices
+    }
+}
+
+fn crossing_reach(&[a, b, c]: &[Point3; 3]) -> Aabb {
+    let perimeter = a.distance(b) + b.distance(c) + c.distance(a);
+    Aabb::from_point(a)
+        .including(b)
+        .including(c)
+        .expanded(LINEAR_RESOLUTION + 4.0 * EDGE_MARGIN * perimeter)
 }
 
 fn parity(

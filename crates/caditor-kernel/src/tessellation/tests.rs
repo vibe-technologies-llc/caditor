@@ -8,7 +8,7 @@ use crate::{
     fixtures,
     interval::Interval,
     numeric::integrate,
-    test_support::{assert_cancelled_anywhere, assert_watertight},
+    test_support::{Random, assert_cancelled_anywhere, assert_watertight},
     topology::Solid,
 };
 
@@ -695,5 +695,34 @@ fn a_long_cylinder_and_a_small_bump_mesh_with_few_triangles_within_the_chord() {
             "{name} deviates {deviation} at a chord of {}",
             tolerance.chord()
         );
+    }
+}
+
+#[test]
+fn indexed_containment_agrees_with_testing_every_triangle() {
+    let mut random = Random::new(17);
+    for (name, solid) in fixtures::every_solid() {
+        let mesh = solid.tessellate(&solid.default_tolerance()).unwrap();
+        let triangles: Vec<[Point3; 3]> = mesh.face_triangles(|_| true).collect();
+        let index = TriangleIndex::new(&triangles);
+        let bounds = solid.bounding_box().unwrap().expanded(1.0);
+
+        let scattered = (0..64).map(|_| {
+            let [x, y, z] = [random.unit(), random.unit(), random.unit()];
+            bounds.min() + (bounds.max() - bounds.min()) * Vector3::new(x, y, z)
+        });
+        let on_mesh = triangles
+            .iter()
+            .step_by(triangles.len().div_ceil(64))
+            .flat_map(|[a, b, c]| [*a, (*a + *b + *c) / 3.0, (*a + *b) / 2.0]);
+        let probes: Vec<Point3> = scattered.chain(on_mesh).collect();
+
+        for probe in probes {
+            assert_eq!(
+                index.contains(&triangles, probe),
+                mesh.contains(probe, |_| true),
+                "{name} at {probe}"
+            );
+        }
     }
 }
