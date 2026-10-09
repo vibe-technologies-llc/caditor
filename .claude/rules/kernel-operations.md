@@ -146,8 +146,15 @@ paths:
 
 # Blends (`blend/`)
 
-- `blend(solid, edges, BlendShape, feature)` rounds (`Fillet`) or bevels (`Chamfer`) edges by
-  sweeping a tool per edge: valid or a `BlendError` naming the edge. A failing tool's `Profile`,
+- `blend(solid, edges, BlendShape, feature)` rounds (`Fillet`) or bevels edges by sweeping a tool
+  per edge: valid or a `BlendError` naming the edge. A bevel is `Chamfer` (one distance on both
+  faces), `TwoDistanceChamfer` (`first` on the measured face, `second` on the other) or
+  `AngledChamfer` (`distance` on the measured face, the cut turned `angle` radians from that face
+  inside the cut-off corner, met with the other face's section line or circle; a cut that never
+  meets it is `AngleMisses`, an angle outside (0, π) `InvalidAngle`). The measured face of each
+  edge is the one more of the pass's edges share (the top of a chosen rim), ties going to the
+  smaller `FaceName`; `flipped` swaps it for every edge. Concave and convex edges are separate
+  passes, each counting its own edges. A failing tool's `Profile`,
   `Sweep` or `Boolean` carries the edge it was built for, except when the failing step is the
   pairwise union of tools or a corner's, which name none.
 - `tangent_chain(solid, edges)` follows tangent-continuous edges sharing a face through their end

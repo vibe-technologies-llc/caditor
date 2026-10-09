@@ -29,6 +29,27 @@ pub(super) struct Section {
     pub convex: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Miss {
+    Short,
+    Angle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Side {
+    First,
+    Second,
+}
+
+impl Side {
+    pub fn other(self) -> Self {
+        match self {
+            Self::First => Self::Second,
+            Self::Second => Self::First,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Cut {
     Fillet { center: Point2, radius: f64 },
@@ -96,6 +117,30 @@ impl SectionSide {
                 };
                 Some(center + Vector2::from_angle(angle).rotate(from))
             }
+        }
+    }
+
+    fn toward_corner(&self, corner: Point2, foot: Point2) -> Option<Vector2> {
+        match self.curve {
+            SectionCurve::Line => Some(-self.inward),
+            SectionCurve::Circle { center, .. } => {
+                let tangent = (foot - center).perp().try_normalize()?;
+                Some(if tangent.dot(corner - foot) >= 0.0 {
+                    tangent
+                } else {
+                    -tangent
+                })
+            }
+        }
+    }
+
+    fn whole(&self, corner: Point2) -> Offset {
+        match self.curve {
+            SectionCurve::Line => Offset::Line {
+                origin: corner,
+                direction: self.inward,
+            },
+            SectionCurve::Circle { center, radius } => Offset::Circle { center, radius },
         }
     }
 
@@ -221,14 +266,57 @@ impl Section {
             })
     }
 
-    pub fn chamfer(&self, distance: f64) -> Option<Blend> {
+    pub fn chamfer(&self, distances: [f64; 2]) -> Option<Blend> {
         let [first, second] = &self.sides;
         let feet = [
-            first.along(self.corner, distance)?,
-            second.along(self.corner, distance)?,
+            first.along(self.corner, distances[0])?,
+            second.along(self.corner, distances[1])?,
         ];
         let reaches = first.reaches(self.corner, feet[0]) && second.reaches(self.corner, feet[1]);
         reaches.then_some(Blend {
+            feet,
+            cut: Cut::Chamfer,
+        })
+    }
+
+    pub fn angled_chamfer(
+        &self,
+        measured_on: Side,
+        distance: f64,
+        angle: f64,
+    ) -> Result<Blend, Miss> {
+        let [first, second] = &self.sides;
+        let (near, far) = match measured_on {
+            Side::First => (first, second),
+            Side::Second => (second, first),
+        };
+        let foot = near
+            .along(self.corner, distance)
+            .filter(|foot| near.reaches(self.corner, *foot))
+            .ok_or(Miss::Short)?;
+        let back = near.toward_corner(self.corner, foot).ok_or(Miss::Short)?;
+        let turn = if back.perp_dot(far.inward) >= 0.0 {
+            angle
+        } else {
+            -angle
+        };
+        let direction = Vector2::from_angle(turn).rotate(back);
+        let cut = Offset::Line {
+            origin: foot,
+            direction,
+        };
+        let other = intersections(cut, far.whole(self.corner))
+            .into_iter()
+            .filter(|point| {
+                (*point - foot).dot(direction) > SMALLEST_PIECE && far.reaches(self.corner, *point)
+            })
+            .min_by(|a, b| a.distance(self.corner).total_cmp(&b.distance(self.corner)))
+            .ok_or(Miss::Angle)?;
+        let feet = match measured_on {
+            Side::First => [foot, other],
+            Side::Second => [other, foot],
+        };
+        Ok(Blend {
             feet,
             cut: Cut::Chamfer,
         })

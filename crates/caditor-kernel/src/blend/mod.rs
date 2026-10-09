@@ -7,8 +7,9 @@ mod survey;
 mod tests;
 
 use std::{
+    cmp::Reverse,
     collections::{BTreeMap, BTreeSet},
-    f64::consts::TAU,
+    f64::consts::{PI, TAU},
 };
 
 use caditor_geometry::{Aabb, Plane, Point2, Point3, RigidTransform, Vector2, Vector3};
@@ -16,7 +17,9 @@ use thiserror::Error;
 
 use self::{
     corner::Corner,
-    section::{BLEND_CURVE, Blend, FIRST_SIDE, SECOND_SIDE, Section, SectionCurve, SectionSide},
+    section::{
+        BLEND_CURVE, Blend, FIRST_SIDE, Miss, SECOND_SIDE, Section, SectionCurve, SectionSide, Side,
+    },
 };
 use crate::{
     boolean::{BooleanError, BooleanOperation, boolean},
@@ -45,25 +48,94 @@ const CUTTER_SCALE: f64 = 4.0;
 const CLEARANCE: f64 = 0.25;
 const SMALLEST_RADIUS: f64 = 10.0 * LINEAR_RESOLUTION;
 const APART_TOOLS: f64 = 10.0 * LINEAR_RESOLUTION;
+const SMALLEST_ANGLE: f64 = 1e-6;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlendShape {
-    Fillet { radius: f64 },
-    Chamfer { distance: f64 },
+    Fillet {
+        radius: f64,
+    },
+    Chamfer {
+        distance: f64,
+    },
+    TwoDistanceChamfer {
+        first: f64,
+        second: f64,
+        flipped: bool,
+    },
+    AngledChamfer {
+        distance: f64,
+        angle: f64,
+        flipped: bool,
+    },
 }
 
 impl BlendShape {
-    fn size(self) -> f64 {
+    fn sizes(self) -> Vec<f64> {
         match self {
-            Self::Fillet { radius } => radius,
-            Self::Chamfer { distance } => distance,
+            Self::Fillet { radius } => vec![radius],
+            Self::Chamfer { distance } | Self::AngledChamfer { distance, .. } => vec![distance],
+            Self::TwoDistanceChamfer { first, second, .. } => vec![first, second],
+        }
+    }
+
+    fn check(self) -> Result<(), BlendError> {
+        if self
+            .sizes()
+            .iter()
+            .any(|size| !size.is_finite() || *size <= LINEAR_RESOLUTION)
+        {
+            return Err(BlendError::InvalidSize);
+        }
+        match self {
+            Self::AngledChamfer { angle, .. }
+                if !angle.is_finite()
+                    || angle <= SMALLEST_ANGLE
+                    || angle >= PI - SMALLEST_ANGLE =>
+            {
+                Err(BlendError::InvalidAngle)
+            }
+            _ => Ok(()),
         }
     }
 
     fn origin(self, feature: u64) -> FaceOrigin {
         match self {
             Self::Fillet { .. } => FaceOrigin::Fillet { feature },
-            Self::Chamfer { .. } => FaceOrigin::Chamfer { feature },
+            Self::Chamfer { .. } | Self::TwoDistanceChamfer { .. } | Self::AngledChamfer { .. } => {
+                FaceOrigin::Chamfer { feature }
+            }
+        }
+    }
+
+    fn cut(self, geometry: &EdgeGeometry, measured_on: Side) -> Result<Blend, BlendError> {
+        let section = &geometry.section;
+        let too_large = BlendError::TooLarge(geometry.edge);
+        match self {
+            Self::Fillet { radius } => section.fillet(radius).ok_or(too_large),
+            Self::Chamfer { distance } => section.chamfer([distance, distance]).ok_or(too_large),
+            Self::TwoDistanceChamfer { first, second, .. } => match measured_on {
+                Side::First => section.chamfer([first, second]),
+                Side::Second => section.chamfer([second, first]),
+            }
+            .ok_or(too_large),
+            Self::AngledChamfer {
+                distance, angle, ..
+            } => section
+                .angled_chamfer(measured_on, distance, angle)
+                .map_err(|miss| match miss {
+                    Miss::Short => too_large,
+                    Miss::Angle => BlendError::AngleMisses(geometry.edge),
+                }),
+        }
+    }
+
+    fn flipped(self) -> bool {
+        match self {
+            Self::TwoDistanceChamfer { flipped, .. } | Self::AngledChamfer { flipped, .. } => {
+                flipped
+            }
+            Self::Fillet { .. } | Self::Chamfer { .. } => false,
         }
     }
 }
@@ -72,6 +144,10 @@ impl BlendShape {
 pub enum BlendError {
     #[error("the size is not a finite number above 0.000001 mm")]
     InvalidSize,
+    #[error("the angle is not between 0 and 180 degrees")]
+    InvalidAngle,
+    #[error("the cut at the chosen angle never meets the second face next to edge {0:?}")]
+    AngleMisses(EdgeId),
     #[error("no edge is chosen")]
     NoEdges,
     #[error("edge {0:?} is not part of the solid")]
@@ -154,6 +230,7 @@ impl BlendError {
             Self::Unsupported(_) => Self::Unsupported(edge),
             Self::Smooth(_) => Self::Smooth(edge),
             Self::TooLarge(_) => Self::TooLarge(edge),
+            Self::AngleMisses(_) => Self::AngleMisses(edge),
             Self::WrapsAround(_) => Self::WrapsAround(edge),
             Self::UnsupportedEnd { .. } => Self::UnsupportedEnd { edge, vertex: None },
             Self::Profile { error, .. } => Self::Profile {
@@ -187,13 +264,18 @@ impl BlendError {
             | Self::Unsupported(edge)
             | Self::Smooth(edge)
             | Self::TooLarge(edge)
+            | Self::AngleMisses(edge)
             | Self::WrapsAround(edge)
             | Self::Lost(edge)
             | Self::UnsupportedEnd { edge, .. } => Some(*edge),
             Self::Profile { edge, .. } | Self::Sweep { edge, .. } | Self::Boolean { edge, .. } => {
                 *edge
             }
-            Self::InvalidSize | Self::AfterFill(_) | Self::NoEdges | Self::Cancelled(_) => None,
+            Self::InvalidSize
+            | Self::InvalidAngle
+            | Self::AfterFill(_)
+            | Self::NoEdges
+            | Self::Cancelled(_) => None,
         }
     }
 }
@@ -1139,10 +1221,7 @@ fn blend_edges(
     shape: BlendShape,
     feature: u64,
 ) -> Result<Solid, BlendError> {
-    let size = shape.size();
-    if !size.is_finite() || size <= LINEAR_RESOLUTION {
-        return Err(BlendError::InvalidSize);
-    }
+    shape.check()?;
     if edges.is_empty() {
         return Err(BlendError::NoEdges);
     }
@@ -1227,16 +1306,14 @@ fn apply_analysed(
     let chosen: Vec<EdgeId> = geometries.iter().map(|geometry| geometry.edge).collect();
     let chosen_set: BTreeSet<EdgeId> = chosen.iter().copied().collect();
     let classifier = solid.classifier();
+    let shared = shared_faces(geometries);
     let mut planned = Vec::with_capacity(chosen.len());
     for geometry in geometries {
         interrupt::check()?;
         let geometry = *geometry;
         let edge = geometry.edge;
-        let blend = match shape {
-            BlendShape::Fillet { radius } => geometry.section.fillet(radius),
-            BlendShape::Chamfer { distance } => geometry.section.chamfer(distance),
-        }
-        .ok_or(BlendError::TooLarge(edge))?;
+        let measured_on = measured_side(solid, &geometry, &shared, shape.flipped());
+        let blend = shape.cut(&geometry, measured_on)?;
         let past_ends = end_planes(solid, topology, &geometry);
         if !fits(&classifier, solid, &geometry, &blend, &past_ends) {
             return Err(BlendError::TooLarge(edge));
@@ -1270,7 +1347,9 @@ fn apply_analysed(
                 })
                 .collect()
         }
-        BlendShape::Chamfer { .. } => BTreeMap::new(),
+        BlendShape::Chamfer { .. }
+        | BlendShape::TwoDistanceChamfer { .. }
+        | BlendShape::AngledChamfer { .. } => BTreeMap::new(),
     };
     let around = Surroundings {
         solid,
@@ -1312,6 +1391,32 @@ fn apply_analysed(
         result = applied(&result, &solids, &edges, operation)?;
     }
     Ok(result)
+}
+
+fn shared_faces(geometries: &[EdgeGeometry]) -> BTreeMap<FaceId, usize> {
+    let mut shared = BTreeMap::new();
+    for face in geometries.iter().flat_map(|geometry| geometry.faces) {
+        *shared.entry(face).or_insert(0) += 1;
+    }
+    shared
+}
+
+fn measured_side(
+    solid: &Solid,
+    geometry: &EdgeGeometry,
+    shared: &BTreeMap<FaceId, usize>,
+    flipped: bool,
+) -> Side {
+    let [first, second] = geometry.faces.map(|face| {
+        let name = solid.face(face).map(|face| face.name()).unwrap_or_default();
+        (Reverse(shared.get(&face).copied().unwrap_or(0)), name)
+    });
+    let side = if second < first {
+        Side::Second
+    } else {
+        Side::First
+    };
+    if flipped { side.other() } else { side }
 }
 
 struct ToolGroup {

@@ -1019,3 +1019,135 @@ fn feet_meeting_exactly_across_a_fill_are_refused() {
     assert_eq!(walls_gone, Err(BlendError::Lost(rim)));
     assert!(blend(&pocketed, &pocket, chamfer(1.9), 50).is_ok());
 }
+
+fn has_edge_through(solid: &Solid, point: (f64, f64, f64)) -> bool {
+    let point = Point3::new(point.0, point.1, point.2);
+    solid.edges().any(|(_, edge)| {
+        let parameter = edge.curve().closest_parameter(point, edge.interval());
+        edge.curve().point(parameter).distance(point) < 1e-6
+    })
+}
+
+#[test]
+fn a_two_distance_chamfer_measures_the_first_on_the_face_its_edges_share() {
+    let solid = block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
+    let rim = edges_where(&solid, |middle| (middle.z - 10.0).abs() < 1e-9);
+    let edge = edge_through(&solid, (5.0, 0.0, 10.0));
+    let shape = |flipped| BlendShape::TwoDistanceChamfer {
+        first: 3.0,
+        second: 1.0,
+        flipped,
+    };
+
+    let top_first = run(&solid, &rim, shape(false));
+    let side_first = run(&solid, &rim, shape(true));
+    let one = run(&solid, &[edge], shape(false));
+    let other = run(&solid, &[edge], shape(true));
+
+    assert_eq!(rim.len(), 4);
+    assert_eq!(top_first.validate(), Ok(()));
+    assert!(has_edge_through(&top_first, (5.0, 3.0, 10.0)));
+    assert!(has_edge_through(&top_first, (7.0, 5.0, 10.0)));
+    assert!(has_edge_through(&top_first, (5.0, 0.0, 9.0)));
+    assert!(has_edge_through(&side_first, (5.0, 1.0, 10.0)));
+    assert!(has_edge_through(&side_first, (5.0, 0.0, 7.0)));
+    check("one edge", &one, 1000.0 - 15.0);
+    check("one edge flipped", &other, 1000.0 - 15.0);
+    assert_ne!(
+        has_edge_through(&one, (5.0, 3.0, 10.0)),
+        has_edge_through(&other, (5.0, 3.0, 10.0))
+    );
+    assert_eq!(
+        blend(
+            &solid,
+            &[edge],
+            BlendShape::TwoDistanceChamfer {
+                first: 2.0,
+                second: 0.0,
+                flipped: false
+            },
+            50
+        ),
+        Err(BlendError::InvalidSize)
+    );
+}
+
+#[test]
+fn a_distance_angle_chamfer_turns_its_cut_from_the_measured_face() {
+    let solid = block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
+    let rim = edges_where(&solid, |middle| (middle.z - 10.0).abs() < 1e-9);
+    let edge = edge_through(&solid, (5.0, 0.0, 10.0));
+    let angled = |angle: f64| BlendShape::AngledChamfer {
+        distance: 2.0,
+        angle: angle.to_radians(),
+        flipped: false,
+    };
+    let across = 2.0 * 30f64.to_radians().tan();
+    let l_shape = swept(
+        Plane::XY,
+        &polygon(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 4.0),
+            (4.0, 4.0),
+            (4.0, 10.0),
+            (0.0, 10.0),
+        ]),
+        5.0,
+    );
+    let inside = edge_through(&l_shape, (4.0, 4.0, 2.5));
+
+    let thirty = run(&solid, &rim, angled(30.0));
+    let filled = run(
+        &l_shape,
+        &[inside],
+        BlendShape::AngledChamfer {
+            distance: 1.0,
+            angle: 30f64.to_radians(),
+            flipped: false,
+        },
+    );
+
+    check(
+        "thirty",
+        &run(&solid, &[edge], angled(30.0)),
+        1000.0 - 10.0 * across,
+    );
+    check(
+        "forty-five",
+        &run(&solid, &[edge], angled(45.0)),
+        1000.0 - 20.0,
+    );
+    assert!(has_edge_through(&thirty, (5.0, 2.0, 10.0)));
+    assert!(has_edge_through(&thirty, (5.0, 0.0, 10.0 - across)));
+    check(
+        "inside",
+        &filled,
+        320.0 + 5.0 * 0.5 * 30f64.to_radians().tan(),
+    );
+    assert_eq!(
+        blend(&solid, &[edge], angled(90.0), 50),
+        Err(BlendError::AngleMisses(edge))
+    );
+    assert_eq!(
+        blend(&solid, &[edge], angled(0.0), 50),
+        Err(BlendError::InvalidAngle)
+    );
+    assert_eq!(
+        blend(&solid, &[edge], angled(180.0), 50),
+        Err(BlendError::InvalidAngle)
+    );
+    assert_eq!(
+        blend(
+            &solid,
+            &[edge],
+            BlendShape::AngledChamfer {
+                distance: 12.0,
+                angle: 0.5,
+                flipped: false
+            },
+            50
+        ),
+        Err(BlendError::TooLarge(edge))
+    );
+}
