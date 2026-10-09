@@ -32,6 +32,8 @@ mod scaling;
 mod shell;
 mod solid;
 mod split;
+mod thread;
+mod thread_standard;
 mod tolerance;
 mod tree;
 mod trouble;
@@ -101,6 +103,13 @@ pub use crate::{
         body_part, body_parts, profile_curve, sketch_regions,
     },
     split::Split,
+    thread::{
+        Bore, BoreError, PlacedThread, Thread, ThreadLength, ThreadPlacement, ThreadResult,
+        hole_thread, placed_threads,
+    },
+    thread_standard::{
+        ThreadClass, ThreadDesignation, ThreadFamily, ThreadHand, ThreadSide, ThreadSize,
+    },
     values::{ParameterError, ParameterValues},
     views::{
         HOME_VIEW_NAME, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, NamedView, SavedView, SavedViews,
@@ -163,6 +172,8 @@ mod solid_tests;
 mod split_tests;
 #[cfg(test)]
 mod start_tests;
+#[cfg(test)]
+mod thread_tests;
 #[cfg(test)]
 mod tree_tests;
 #[cfg(test)]

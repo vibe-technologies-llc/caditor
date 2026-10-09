@@ -12,6 +12,7 @@ use crate::{
     shell_tools::{self, FaceSource},
     sketch_placement::{self, SketchTarget},
     split_tools::{self, SplitSource},
+    thread_tools::{self, ThreadSource},
     units::LengthUnit,
 };
 
@@ -45,6 +46,7 @@ pub struct Offers {
     pub split: Result<SplitSource, &'static str>,
     pub scale: Result<FeatureId, &'static str>,
     pub pattern: Result<PatternSource, &'static str>,
+    pub thread: Result<ThreadSource, &'static str>,
     pub described: Vec<String>,
     pub selected: usize,
     pub size: Option<String>,
@@ -84,6 +86,7 @@ impl Offers {
             mirror: mirror_tools::source(model, selection, (tree, rows)),
             split: split_tools::source(model, selection, tree),
             scale: scale_tools::selected_body(model, selection, tree),
+            thread: thread_tools::selected_face(model, selection),
             described: selection
                 .iter()
                 .take(MAX_DESCRIBED)

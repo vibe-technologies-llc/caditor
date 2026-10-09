@@ -23,7 +23,9 @@ use caditor_document::{CancelToken, ModelProperties, ModelProperty, Rgb};
 use caditor_geometry::{Aabb, Point3, Vector2, Vector3};
 use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
-use caditor_step::{StepBody, StepDetails, StepWritten, WriteError, write_step_detailed};
+use caditor_step::{
+    StepBody, StepDetails, StepThread, StepWritten, WriteError, write_step_detailed,
+};
 
 use self::figure::Figure;
 pub use self::{
@@ -315,6 +317,15 @@ pub struct ExportBody<'a> {
     pub solid: &'a Solid,
     pub look: Option<Look<'a>>,
     pub group: Option<&'a str>,
+    pub threads: &'a [ExportThread],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportThread {
+    pub designation: String,
+    pub start: Point3,
+    pub direction: Vector3,
+    pub length: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -514,9 +525,24 @@ fn export_step(
     properties: &ModelProperties,
     cancel: &CancelToken,
 ) -> Result<Exported, ExportError> {
+    let step_threads: Vec<Vec<StepThread<'_>>> = bodies
+        .iter()
+        .map(|body| {
+            body.threads
+                .iter()
+                .map(|thread| StepThread {
+                    designation: &thread.designation,
+                    start: thread.start,
+                    direction: thread.direction,
+                    length: thread.length,
+                })
+                .collect()
+        })
+        .collect();
     let step_bodies: Vec<StepBody<'_>> = bodies
         .iter()
-        .map(|body| StepBody {
+        .zip(&step_threads)
+        .map(|(body, threads)| StepBody {
             name: body.name,
             solid: body.solid,
             colour: body
@@ -524,6 +550,7 @@ fn export_step(
                 .map(|look| [look.colour.red, look.colour.green, look.colour.blue]),
             opacity: body.look.and_then(|look| look.opacity),
             layer: body.group,
+            threads,
         })
         .collect();
     let model_name = path
@@ -587,6 +614,7 @@ fn encode(
 struct MeshBody<'a> {
     name: &'a str,
     look: Option<Look<'a>>,
+    threads: &'a [ExportThread],
     positions: Vec<Point3>,
     triangles: Vec<[u32; 3]>,
 }
@@ -605,6 +633,7 @@ impl<'a> MeshBody<'a> {
             Ok(Ok(mesh)) => Self::compact(body.name, &mesh)
                 .map(|compacted| Self {
                     look: body.look,
+                    threads: body.threads,
                     ..compacted
                 })
                 .ok_or(meshing),
@@ -648,6 +677,7 @@ impl<'a> MeshBody<'a> {
         Some(Self {
             name,
             look: None,
+            threads: &[],
             positions,
             triangles,
         })

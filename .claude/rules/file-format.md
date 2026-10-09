@@ -264,6 +264,14 @@ paths:
 - An `offset_face` feature record holds `body`, `distance` (stored text; unreadable: 1 mm,
   reported), `faces` (face records; an unreadable one is left out, reported as left where it is)
   and `tangent` only when set.
+- A `thread` feature record holds `body`, `face` (a face record; unreadable digests load as a
+  reference to no face, so the thread fails until the face is chosen again, reported),
+  `standard` (`metric_coarse`, `metric_fine`, `iso_228`, `iso_7`, `trapezoidal`; unknown loads as
+  metric coarse), `size` (`M8`, `M8x1`, `1/2`, `Tr 20x4`; unknown loads as the size nearest 8 mm),
+  `class` (absent for the one internal class of ISO 228; unknown loads as the standard's first
+  internal class), `left_handed` and `reversed` only when set and `depth` (stored text; absent
+  for the whole face, unreadable 10 mm), each fallback reported. A tapped hole's thread is not
+  stored: it comes from the hole's `standard`.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
   One with more tool bodies or keeping its tool is a `combine_tools` record: `feature`, the
   `combine` record it would be with the first tool alone, `more_tools` (ids, only when there are

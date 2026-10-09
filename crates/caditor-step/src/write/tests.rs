@@ -6,7 +6,7 @@ use caditor_kernel::ProfileCurve;
 use crate::{
     fixtures, read_step,
     write::{
-        Data, StepBody, StepDetails, WriteError, real, text, timestamp, write_step,
+        Data, StepBody, StepDetails, StepThread, WriteError, real, text, timestamp, write_step,
         write_step_detailed,
     },
 };
@@ -19,6 +19,7 @@ fn written(name: &str, solid: &caditor_kernel::Solid) -> String {
             colour: None,
             opacity: None,
             layer: None,
+            threads: &[],
         }],
         "part",
         SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_000_000),
@@ -134,6 +135,7 @@ fn model_details_fill_the_header_product_and_revision() {
             colour: None,
             opacity: None,
             layer: None,
+            threads: &[],
         }],
         "bracket",
         &details,
@@ -162,6 +164,7 @@ fn several_bodies_are_written_as_parts_of_an_assembly_and_read_back_in_place() {
                 colour: None,
                 opacity: None,
                 layer: None,
+                threads: &[],
             },
             StepBody {
                 name: "Turned",
@@ -169,6 +172,7 @@ fn several_bodies_are_written_as_parts_of_an_assembly_and_read_back_in_place() {
                 colour: None,
                 opacity: None,
                 layer: None,
+                threads: &[],
             },
         ],
         "model",
@@ -216,6 +220,7 @@ fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
                 colour: Some([255, 0, 51]),
                 opacity: None,
                 layer: None,
+                threads: &[],
             },
             StepBody {
                 name: "Turned",
@@ -223,6 +228,7 @@ fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
                 colour: None,
                 opacity: None,
                 layer: None,
+                threads: &[],
             },
             StepBody {
                 name: "Other",
@@ -230,6 +236,7 @@ fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
                 colour: Some([255, 0, 51]),
                 opacity: None,
                 layer: None,
+                threads: &[],
             },
         ],
         "model",
@@ -335,6 +342,45 @@ fn rolling_back_forgets_what_a_failed_body_wrote_and_what_it_shared() {
     assert_eq!(data.point(Point3::new(4.0, 5.0, 6.0)), dropped);
     assert_eq!(data.entities, 2);
     assert_eq!(data.text.lines().count(), 2);
+}
+
+#[test]
+fn a_thread_is_a_property_of_its_part_holding_its_designation_start_and_length() {
+    let plate = fixtures::plate_with_hole();
+    let threads = [StepThread {
+        designation: "M6-6H",
+        start: Point3::new(5.0, 5.0, 4.0),
+        direction: -Vector3::Z,
+        length: 3.0,
+    }];
+    let body = |name, threads| StepBody {
+        name,
+        solid: &plate,
+        colour: None,
+        opacity: None,
+        layer: None,
+        threads,
+    };
+    let moment = SystemTime::UNIX_EPOCH;
+
+    let single = write_step(&[body("Plate", &threads[..])], "part", moment).unwrap();
+    let assembly = write_step(
+        &[body("Plate", &threads[..]), body("Cover", &[])],
+        "model",
+        moment,
+    )
+    .unwrap();
+
+    for step in [&single, &assembly] {
+        assert_eq!(count(step, "PROPERTY_DEFINITION"), 1);
+        assert!(step.contains("=PROPERTY_DEFINITION('thread','M6-6H',"));
+        assert!(step.contains("=DESCRIPTIVE_REPRESENTATION_ITEM('designation','M6-6H');"));
+        assert!(step.contains("=MEASURE_REPRESENTATION_ITEM('length',LENGTH_MEASURE(3.0),"));
+        assert_eq!(count(step, "PROPERTY_DEFINITION_REPRESENTATION"), 1);
+    }
+    let read = read_step(&single).unwrap();
+    assert_eq!(read.solids.len(), 1);
+    assert_eq!(read_step(&assembly).unwrap().solids.len(), 2);
 }
 
 #[test]

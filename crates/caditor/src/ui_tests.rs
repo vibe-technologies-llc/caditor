@@ -10409,6 +10409,114 @@ fn the_offset_face_command_needs_faces_of_a_body_and_takes_every_selected_one() 
     assert!(harness.body_volume(plate) > 16000.0);
 }
 
+fn extruded_shaft(harness: &mut Harness) -> Pickable {
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_circle(Point2::new(20.0, 20.0), 4.0);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            matches!(pickable, Pickable::Face { .. })
+                && pickable
+                    .describe(harness.document(), harness.model.evaluation())
+                    .contains(" side ")
+        })
+        .expect("the round side is pickable")
+}
+
+fn thread_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Thread {
+    harness
+        .document()
+        .feature(feature)
+        .and_then(|feature| feature.kind.thread())
+        .unwrap()
+}
+
+fn thread_lines(harness: &mut Harness, layer: caditor_render::Layer) -> usize {
+    let thread = crate::scene_palette::STANDARD.thread;
+    harness
+        .built()
+        .scene
+        .batches
+        .iter()
+        .flat_map(|batch| batch.lines.iter())
+        .filter(|line| line.layer == layer && line.color == thread)
+        .count()
+}
+
+#[test]
+fn a_thread_on_a_shaft_names_its_designation_draws_its_lines_and_takes_the_hand() {
+    let mut harness = Harness::new();
+    let side = extruded_shaft(&mut harness);
+    assert_eq!(thread_lines(&mut harness, caditor_render::Layer::Hidden), 0);
+
+    harness.select([side]);
+    harness.use_tool_with(Key::O, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let thread = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the thread is open");
+    assert!(
+        harness
+            .model
+            .undo_label()
+            .is_some_and(|label| label.starts_with("Create Thread on Extrude 1 side"))
+    );
+    assert!(harness.shows("M8-6g"));
+    assert!(harness.shows("External, on a shaft or boss"));
+    assert!(harness.shows(crate::thread_panel::DESCRIPTION));
+
+    harness.click("Left");
+    harness.settle();
+    assert_eq!(
+        thread_of(&harness, thread).hand,
+        caditor_document::ThreadHand::Left
+    );
+    assert!(harness.shows("M8-6g-LH"));
+
+    for _ in 0..2 {
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.frame();
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert!(thread_lines(&mut harness, caditor_render::Layer::Model) > 0);
+    assert!(thread_lines(&mut harness, caditor_render::Layer::Hidden) > 0);
+}
+
+#[test]
+fn the_thread_command_refuses_a_flat_face_and_several_faces() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    let no_thread = |harness: &Harness| {
+        harness
+            .document()
+            .features()
+            .all(|feature| feature.kind.thread().is_none())
+    };
+
+    harness.select([top]);
+    harness.use_tool_with(Key::O, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    assert!(no_thread(&harness));
+    assert_eq!(harness.workspace.editing.solid(), None);
+
+    harness.select([]);
+    harness.use_tool_with(Key::O, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    assert!(no_thread(&harness));
+}
+
 fn pattern_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Pattern {
     harness
         .document()

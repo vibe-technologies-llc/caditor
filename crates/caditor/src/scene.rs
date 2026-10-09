@@ -6,7 +6,7 @@ use std::{
 use caditor_document::{
     DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
     PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, SolidResult,
-    body_parts, displayed_axis,
+    body_parts, displayed_axis, placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{RegionKey, RegionMesh, RegionReference, resolve_regions};
@@ -75,6 +75,8 @@ const CUT_PREVIEW_ALPHA: f32 = 0.35;
 const REVOLVE_AXIS_WIDTH: f32 = 2.5;
 const CHOSEN_EDGE_EXTRA_WIDTH: f32 = 1.5;
 const AXIS_WIDTH: f32 = 2.0;
+const THREAD_WIDTH: f32 = 1.5;
+const THREAD_SEGMENTS: usize = 48;
 const DATUM_POINT_DIAMETER: f32 = 9.0;
 const OPENED_DATUM_POINT_EXTRA: f32 = 3.0;
 const SKETCH_AXIS_WIDTH: f32 = 1.5;
@@ -556,6 +558,9 @@ pub fn build(
         if aids.centres_of_mass && editing.is_none() {
             builder.centre_of_mass(body, &mesh.mass, placement);
         }
+    }
+    if editing.is_none() {
+        builder.threads(document, evaluation, context.solid);
     }
     match open_view {
         Some((open, OpenView::Before)) => builder.open_before(document, evaluation, open, true),
@@ -1530,6 +1535,59 @@ impl Builder<'_> {
                 layer,
                 pick,
             });
+        }
+    }
+
+    fn threads(&mut self, document: &Document, evaluation: &Evaluation, open: Option<FeatureId>) {
+        for thread in placed_threads(document, evaluation) {
+            let opened = open == Some(thread.feature);
+            let hidden = document
+                .feature(thread.feature)
+                .is_some_and(|feature| feature.hidden && feature.kind.thread().is_some());
+            if !visibility::is_shown(document, thread.body) || (hidden && !opened) {
+                continue;
+            }
+            let (color, width) = if opened {
+                (
+                    self.palette.lines.selected,
+                    THREAD_WIDTH + self.palette.selection_widening * HIGHLIGHT_EXTRA_WIDTH,
+                )
+            } else {
+                (self.palette.thread, THREAD_WIDTH)
+            };
+            let placement = thread.placement;
+            let direction = placement.direction;
+            let across = direction.any_orthonormal_vector();
+            let beside = direction.cross(across);
+            let radius = placement.thread_radius;
+            let circle = |centre: Point3| -> Vec<Point3> {
+                (0..=THREAD_SEGMENTS)
+                    .map(|step| {
+                        let angle = std::f64::consts::TAU * step as f64 / THREAD_SEGMENTS as f64;
+                        centre + (across * angle.cos() + beside * angle.sin()) * radius
+                    })
+                    .collect()
+            };
+            let end = placement.end();
+            let sides = [across, -across, beside, -beside]
+                .map(|offset| vec![placement.start + offset * radius, end + offset * radius]);
+            let drawn = std::iter::once((circle(placement.start), false))
+                .chain(std::iter::once((circle(end), true)))
+                .chain(sides.into_iter().map(|side| (side, true)));
+            for (points, dashed) in drawn {
+                for layer in [Layer::Model, Layer::Hidden] {
+                    let stroke = EdgeStroke {
+                        color,
+                        width,
+                        layer,
+                        pick: None,
+                        dashed: dashed || layer == Layer::Hidden,
+                    };
+                    self.scene
+                        .lines
+                        .extend(edge_lines(&points, &|point| point, stroke));
+                }
+            }
         }
     }
 

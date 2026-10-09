@@ -86,6 +86,9 @@ fn write_objects(
         .filter(|(_, body)| !body.triangles.is_empty())
     {
         writeln!(text, "o {}", Name(body.name))?;
+        for thread in body.threads {
+            writeln!(text, "# Thread: {}", thread.designation)?;
+        }
         for position in &body.positions {
             writeln!(
                 text,

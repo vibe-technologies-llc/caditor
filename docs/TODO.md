@@ -200,14 +200,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] Mirror reflects a whole body or chosen features (extrusions, revolves, holes), but
   not chosen faces: reflecting a set of faces (a pocket's walls and floor of an imported body
   with no features) across a plane, kept linked to the faces it copies, is missing.
-- [medium · medium] No thread feature: a tapped hole names its ISO thread only in its panel, and a
-  shaft or boss takes none. A cosmetic thread on a cylindrical face (a bore, a shaft, a boss),
-  chosen by designation (ISO metric coarse and fine, M3 to M64, internal or external, with the
-  tolerance class and a length that may run to the end or a depth), is a feature of its own named
-  from the face it threads and referring to it by name. It draws as the minor or major circle and a
-  dashed thread line in the view, carries its designation into the exports that can hold it, and the hole feature creates one for a tapped hole. It is right- or left-handed, and beyond
-  the metric series it offers the SI pipe and trapezoidal threads (ISO 228 and ISO 7 pipe, ISO 2901
-  trapezoidal). Modelled threads are the item below.
+- [low · medium] A tapped hole's cosmetic thread always runs its whole bore, class 6H and
+  right-handed, and a pattern's copies of a tapped hole are not threaded: choosing the class,
+  hand and depth in the Hole panel and threading the copies are missing. 3MF exports carry no
+  thread, since naming one needs object metadata in a namespace of caditor's own.
 - [medium · hard] The whole model cannot be scaled: no command or feature resizes every body, sketch
   and datum by a factor (uniform, about the origin or a chosen point) as one undoable change.
   Scaling must keep references and names stable, and say what happens to dimensions and parameters
@@ -269,7 +265,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   surfaces do not have).
 - [medium · hard · blocked by: the sweep feature] No helix or spiral curve and no modelled threads:
   springs, coils and threaded holes and shafts cannot be modelled with real thread geometry (the
-  cosmetic thread feature above covers drawing and exchange). The sweep feature (same list) needs
+  cosmetic Thread feature covers drawing and exchange). The sweep feature (same list) needs
   the helix, and the thread feature then offers a modelled form beside the cosmetic one. A coil
   feature would be the ready tool for springs: revolutions or height and pitch, a round or square
   section, inside or outside the axis, and a taper angle.

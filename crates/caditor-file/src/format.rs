@@ -17,7 +17,8 @@ use caditor_document::{
     PlaneRotation, PlaneThrough, PointBy, PointReference, PrincipalAxis, PrincipalGeometry,
     PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
     Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
-    SolidFeature, SolidStart, Split, Transaction, TurnCentre, group_name, material_name, view_name,
+    SolidFeature, SolidStart, Split, Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide,
+    ThreadSize, Transaction, TurnCentre, group_name, material_name, view_name,
 };
 use caditor_expression::{Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector3};
@@ -195,6 +196,23 @@ pub(crate) enum FeatureKindRecord {
     PointConstruction(Box<PointConstructionRecord>),
     OffsetFace(Box<OffsetFaceRecord>),
     FeatureMirror(Box<FeatureMirrorRecord>),
+    Thread(Box<ThreadRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ThreadRecord {
+    pub body: u64,
+    pub face: FaceRecord,
+    pub standard: String,
+    pub size: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub class: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub left_handed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reversed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -278,7 +296,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 42] = [
+pub(crate) const FEATURE_KINDS: [&str; 43] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -321,6 +339,7 @@ pub(crate) const FEATURE_KINDS: [&str; 42] = [
     "point_construction",
     "offset_face",
     "feature_mirror",
+    "thread",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -931,6 +950,8 @@ pub(crate) enum EntityKindRecord {
     Arc { center: u64, start: u64, end: u64 },
     Spline { control_points: Vec<u64> },
 }
+
+const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 
 const ENTITY_KINDS: [&str; 5] = ["point", "line", "circle", "arc", "spline"];
 
@@ -1571,6 +1592,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         FeatureKind::Remove(remove) => FeatureKindRecord::Remove(RemoveRecord {
             body: remove.body.raw(),
         }),
+        FeatureKind::Thread(thread) => FeatureKindRecord::Thread(Box::new(thread_record(thread))),
         FeatureKind::Combine(combine) => FeatureKindRecord::Combine(CombineRecord {
             body: combine.body.raw(),
             tool: combine.tool.raw(),
@@ -3485,6 +3507,9 @@ fn restore_kind(
         FeatureKindRecord::OffsetFace(record) => {
             FeatureKind::OffsetFace(restore_offset_face(record, name, issues))
         }
+        FeatureKindRecord::Thread(record) => {
+            FeatureKind::Thread(restore_thread(record, name, issues))
+        }
         FeatureKindRecord::Remove(record) => FeatureKind::Remove(Remove {
             body: FeatureId::from_raw(record.body),
         }),
@@ -4326,6 +4351,83 @@ fn restore_offset_face(
         faces,
         distance,
         tangent: record.tangent,
+    }
+}
+
+fn thread_record(thread: &Thread) -> ThreadRecord {
+    ThreadRecord {
+        body: thread.body.raw(),
+        face: face_record(&thread.face),
+        standard: thread.size.family().id().to_owned(),
+        size: thread.size.id(),
+        class: thread.class.id().to_owned(),
+        left_handed: thread.hand == ThreadHand::Left,
+        depth: match &thread.length {
+            ThreadLength::Full => None,
+            ThreadLength::Depth(depth) => Some(depth.to_stored_text()),
+        },
+        reversed: thread.reversed,
+    }
+}
+
+fn restore_thread(record: &ThreadRecord, feature: &str, issues: &mut Vec<String>) -> Thread {
+    let face = restore_face(
+        &record.face.face,
+        record.face.origin,
+        record.face.copy,
+        &record.face.neighbours,
+    )
+    .unwrap_or_else(|| {
+        issues.push(format!(
+            "The face threaded by “{feature}” could not be read; choose it again."
+        ));
+        FaceReference::new(FaceName::from_digest(0), None, [])
+    });
+    let family = ThreadFamily::from_id(&record.standard).unwrap_or_else(|| {
+        issues.push(format!(
+            "The thread standard of “{feature}” could not be read, so it was set to ISO metric \
+             coarse."
+        ));
+        ThreadFamily::MetricCoarse
+    });
+    let size = ThreadSize::from_id(family, &record.size).unwrap_or_else(|| {
+        let fallback = family.nearest(DEFAULT_THREAD_DIAMETER, ThreadSide::External);
+        issues.push(format!(
+            "The thread size of “{feature}” could not be read, so it was set to {}.",
+            fallback.label()
+        ));
+        fallback
+    });
+    let class = family.class_from_id(&record.class).unwrap_or_else(|| {
+        let fallback = family.default_class(ThreadSide::Internal);
+        issues.push(format!(
+            "The thread class of “{feature}” could not be read, so it was set to {}.",
+            fallback.label()
+        ));
+        fallback
+    });
+    let length = match &record.depth {
+        None => ThreadLength::Full,
+        Some(depth) => ThreadLength::Depth(restore_value(
+            depth,
+            "thread depth",
+            "10 mm",
+            feature,
+            issues,
+        )),
+    };
+    Thread {
+        body: FeatureId::from_raw(record.body),
+        face,
+        size,
+        class,
+        hand: if record.left_handed {
+            ThreadHand::Left
+        } else {
+            ThreadHand::Right
+        },
+        length,
+        reversed: record.reversed,
     }
 }
 

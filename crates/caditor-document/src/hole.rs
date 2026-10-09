@@ -188,6 +188,10 @@ impl Hole {
                 .sum::<usize>()
     }
 
+    pub(crate) fn is_wall(entity: u64) -> bool {
+        entity >> STEP_SHIFT == 0 && entity % PARTS == HolePart::Wall as u64
+    }
+
     pub fn part_name(entity: u64) -> String {
         let step = entity >> STEP_SHIFT;
         let part = HolePart::ALL

@@ -101,7 +101,8 @@ fn may_hold_references(kind: &FeatureKind) -> bool {
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
         | FeatureKind::Pattern(_)
-        | FeatureKind::Datum(_) => true,
+        | FeatureKind::Datum(_)
+        | FeatureKind::Thread(_) => true,
     }
 }
 

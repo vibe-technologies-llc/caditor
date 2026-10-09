@@ -3061,6 +3061,80 @@ fn an_unreadable_moved_face_is_left_where_it_is_and_reported() {
     assert!(restored.kind.offset_face().unwrap().faces.is_empty());
 }
 
+fn threaded_model() -> (Document, FeatureId) {
+    use caditor_document::{Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSize};
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let side = FaceReference::new(
+        FaceName::from_digest(0xfeed),
+        Some(FaceOrigin::Side {
+            feature: 1,
+            entity: 3,
+        }),
+        [FaceName::from_digest(2)],
+    );
+    let family = ThreadFamily::Trapezoidal;
+    let mut transaction = document.transaction("Thread");
+    let thread = transaction.add_feature(
+        "Thread 1",
+        FeatureKind::Thread(Thread {
+            body: base,
+            face: side,
+            size: ThreadSize::from_id(family, "Tr 20x4").unwrap(),
+            class: family.class_from_id("7e").unwrap(),
+            hand: ThreadHand::Left,
+            length: ThreadLength::Depth(transaction.parse("depth * 2").unwrap()),
+            reversed: true,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, thread)
+}
+
+#[test]
+fn a_thread_is_saved_and_loaded_as_a_record_of_its_own() {
+    let (document, thread) = threaded_model();
+    let text = encode(&document).unwrap();
+    assert!(text.contains(
+        "\"thread\":{\"body\":1,\"class\":\"7e\",\"depth\":\"$0 * 2\",\"face\":{\"face\":\
+         \"0000000000000000000000000000feed\",\"neighbours\":[\"00000000000000000000000000000002\"],\
+         \"origin\":{\"side\":{\"entity\":3,\"feature\":1}}},\"left_handed\":true,\
+         \"reversed\":true,\"size\":\"Tr 20x4\",\"standard\":\"trapezoidal\"}"
+    ));
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(thread).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: thread, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_thread_size_or_class_takes_a_default_and_is_reported() {
+    use caditor_document::ThreadSize;
+    let (document, thread) = threaded_model();
+    let text = encode(&document)
+        .unwrap()
+        .replacen("Tr 20x4", "Tr 999x1", 1)
+        .replacen("\"7e\"", "\"9z\"", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        [
+            "The thread size of “Thread 1” could not be read, so it was set to Tr 8x1.5.",
+            "The thread class of “Thread 1” could not be read, so it was set to 7H."
+        ]
+    );
+    let restored = loaded.document.feature(thread).unwrap();
+    let restored = restored.kind.thread().unwrap();
+    assert_eq!(restored.size.id(), "Tr 8x1.5");
+    assert_eq!(restored.class.id(), "7H");
+    assert_ne!(restored.size, ThreadSize::M8);
+}
+
 fn patterned_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{
         AxisReference, CircularPattern, LinearDirection, LinearSpacing, Pattern, PatternKind,

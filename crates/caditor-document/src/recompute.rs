@@ -25,6 +25,7 @@ use crate::{
     projection, removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
     split,
+    thread::{self, ThreadResult},
     values::ParameterValues,
 };
 
@@ -190,6 +191,7 @@ pub enum FeatureResult {
     Sketch(SketchResult),
     Solid(SolidResult),
     Datum(DatumResult),
+    Thread(ThreadResult),
 }
 
 impl FeatureResult {
@@ -200,6 +202,7 @@ impl FeatureResult {
             }
             (Self::Datum(own), Self::Datum(theirs)) => own == theirs,
             (Self::Solid(own), Self::Solid(theirs)) => own.same_shapes(theirs),
+            (Self::Thread(own), Self::Thread(theirs)) => own == theirs,
             _ => false,
         }
     }
@@ -207,21 +210,28 @@ impl FeatureResult {
     pub fn sketch(&self) -> Option<&SketchResult> {
         match self {
             Self::Sketch(sketch) => Some(sketch),
-            Self::Solid(_) | Self::Datum(_) => None,
+            Self::Solid(_) | Self::Datum(_) | Self::Thread(_) => None,
         }
     }
 
     pub fn solid(&self) -> Option<&SolidResult> {
         match self {
             Self::Solid(solid) => Some(solid),
-            Self::Sketch(_) | Self::Datum(_) => None,
+            Self::Sketch(_) | Self::Datum(_) | Self::Thread(_) => None,
         }
     }
 
     pub fn datum(&self) -> Option<&DatumResult> {
         match self {
             Self::Datum(datum) => Some(datum),
-            Self::Sketch(_) | Self::Solid(_) => None,
+            Self::Sketch(_) | Self::Solid(_) | Self::Thread(_) => None,
+        }
+    }
+
+    pub fn thread(&self) -> Option<&ThreadResult> {
+        match self {
+            Self::Thread(thread) => Some(thread),
+            Self::Sketch(_) | Self::Solid(_) | Self::Datum(_) => None,
         }
     }
 }
@@ -1285,6 +1295,9 @@ impl Evaluator for ModelEvaluator {
                 offset_face::evaluate(feature, definition, inputs, cancel)
             }
             FeatureKind::Hole(definition) => hole::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Thread(definition) => {
+                thread::evaluate(feature, definition, inputs, cancel)
+            }
             FeatureKind::Move(definition) => {
                 movement::evaluate(feature, definition, inputs, cancel)
             }

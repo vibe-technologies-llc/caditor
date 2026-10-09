@@ -25,6 +25,15 @@ pub struct StepBody<'a> {
     pub colour: Option<[u8; 3]>,
     pub opacity: Option<u8>,
     pub layer: Option<&'a str>,
+    pub threads: &'a [StepThread<'a>],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StepThread<'a> {
+    pub designation: &'a str,
+    pub start: Point3,
+    pub direction: Vector3,
+    pub length: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -295,6 +304,7 @@ pub fn write_step_detailed(
     let mut left_out = Vec::new();
     let mut coloured = Vec::new();
     let mut layered: BTreeMap<&str, Vec<Ref>> = BTreeMap::new();
+    let mut threaded: Vec<(Ref, &StepThread<'_>)> = Vec::new();
     for (index, body) in bodies.iter().enumerate() {
         let checkpoint = shapes.data().checkpoint();
         let solids = shapes.body(body.solid, body.name);
@@ -319,11 +329,16 @@ pub fn write_step_detailed(
                         .or_default()
                         .extend(solids.iter().copied());
                 }
-                if assembly {
-                    parts.push(part(shapes.data(), &contexts, body.name, origin, &solids));
+                let definition = if assembly {
+                    let part = part(shapes.data(), &contexts, body.name, origin, &solids);
+                    let definition = part.product.definition;
+                    parts.push(part);
+                    definition
                 } else {
                     items.extend(solids);
-                }
+                    root.definition
+                };
+                threaded.extend(body.threads.iter().map(|thread| (definition, thread)));
             }
             Err(error) => {
                 shapes.data().roll_back(checkpoint);
@@ -334,7 +349,7 @@ pub fn write_step_detailed(
     if left_out.len() == bodies.len() {
         return Err(left_out.remove(0).1);
     }
-    let context = contexts.representation;
+    let context = contexts.representation.context;
     if assembly {
         let representation = data.add(format!(
             "SHAPE_REPRESENTATION('',{},{context})",
@@ -359,6 +374,9 @@ pub fn write_step_detailed(
     }
     styles(&mut data, &coloured, context);
     layers(&mut data, &layered);
+    for (definition, thread) in threaded {
+        thread_property(&mut data, definition, thread, contexts.representation);
+    }
     Ok(StepWritten {
         text: data.finish(),
         left_out,
@@ -368,7 +386,13 @@ pub fn write_step_detailed(
 struct Contexts {
     product: Ref,
     definition: Ref,
-    representation: Ref,
+    representation: RepresentationContext,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RepresentationContext {
+    context: Ref,
+    length: Ref,
 }
 
 struct ProductText<'a> {
@@ -427,7 +451,7 @@ fn part(data: &mut Data, contexts: &Contexts, name: &str, origin: Ref, solids: &
         "ADVANCED_BREP_SHAPE_REPRESENTATION({},{},{})",
         text(name),
         list(std::iter::once(origin).chain(solids.iter().copied())),
-        contexts.representation
+        contexts.representation.context
     ));
     data.add(format!(
         "SHAPE_DEFINITION_REPRESENTATION({},{representation})",
@@ -498,6 +522,39 @@ fn layers(data: &mut Data, layered: &BTreeMap<&str, Vec<Ref>>) {
     }
 }
 
+fn thread_property(
+    data: &mut Data,
+    definition: Ref,
+    thread: &StepThread<'_>,
+    context: RepresentationContext,
+) {
+    let designation = data.add(format!(
+        "DESCRIPTIVE_REPRESENTATION_ITEM('designation',{})",
+        text(thread.designation)
+    ));
+    let start = data.placement(
+        thread.start,
+        thread.direction,
+        thread.direction.any_orthonormal_vector(),
+    );
+    let length = data.real(thread.length);
+    let measured = data.add(format!(
+        "MEASURE_REPRESENTATION_ITEM('length',LENGTH_MEASURE({length}),{})",
+        context.length
+    ));
+    let property = data.add(format!(
+        "PROPERTY_DEFINITION('thread',{},{definition})",
+        text(thread.designation)
+    ));
+    let representation = data.add(format!(
+        "REPRESENTATION('thread',({designation},{start},{measured}),{})",
+        context.context
+    ));
+    data.add(format!(
+        "PROPERTY_DEFINITION_REPRESENTATION({property},{representation})"
+    ));
+}
+
 fn style_assignment(data: &mut Data, Style { colour, opacity }: Style) -> Ref {
     let [red, green, blue] = colour;
     let channel = |value: u8| real(f64::from(value) / 255.0);
@@ -528,7 +585,7 @@ fn style_assignment(data: &mut Data, Style { colour, opacity }: Style) -> Ref {
     data.add(format!("PRESENTATION_STYLE_ASSIGNMENT(({usage}))"))
 }
 
-fn representation_context(data: &mut Data) -> Ref {
+fn representation_context(data: &mut Data) -> RepresentationContext {
     let length = data.add("(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.))");
     let angle = data.add("(NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.))");
     let solid_angle = data.add("(NAMED_UNIT(*) SI_UNIT($,.STERADIAN.) SOLID_ANGLE_UNIT())");
@@ -536,9 +593,10 @@ fn representation_context(data: &mut Data) -> Ref {
         "UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE({}),{length},'distance_accuracy_value','confusion accuracy')",
         real(caditor_kernel::LINEAR_RESOLUTION)
     ));
-    data.add(format!(
+    let context = data.add(format!(
         "(GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT(({uncertainty})) GLOBAL_UNIT_ASSIGNED_CONTEXT(({length},{angle},{solid_angle})) REPRESENTATION_CONTEXT('3D','3D context with units and uncertainty'))"
-    ))
+    ));
+    RepresentationContext { context, length }
 }
 
 fn header(model_name: &str, details: &StepDetails<'_>, written: SystemTime) -> String {

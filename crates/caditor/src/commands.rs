@@ -101,6 +101,7 @@ pub enum Command {
     Extrude,
     Revolve,
     Hole,
+    Thread,
     Fillet,
     Chamfer,
     Shell,
@@ -525,6 +526,7 @@ plain_commands! {
     Extrude,
     Revolve,
     Hole,
+    Thread,
     Fillet,
     Chamfer,
     Shell,
@@ -715,6 +717,7 @@ impl Command {
             Self::Extrude => "model.extrude",
             Self::Revolve => "model.revolve",
             Self::Hole => "model.hole",
+            Self::Thread => "model.thread",
             Self::Fillet => "model.fillet",
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
@@ -897,6 +900,7 @@ impl Command {
             Self::Extrude => "Extrude",
             Self::Revolve => "Revolve",
             Self::Hole => "Hole",
+            Self::Thread => "Thread",
             Self::Fillet => "Fillet",
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
@@ -1096,6 +1100,7 @@ impl Command {
             | Self::Extrude
             | Self::Revolve
             | Self::Hole
+            | Self::Thread
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
@@ -1269,6 +1274,7 @@ impl Command {
             Self::Extrude => vec![alt(Key::E)],
             Self::Revolve => vec![alt(Key::R)],
             Self::Hole => vec![alt(Key::O)],
+            Self::Thread => vec![alt_shift(Key::O)],
             Self::Fillet => vec![alt(Key::F)],
             Self::Chamfer => vec![alt(Key::C)],
             Self::Shell => vec![alt(Key::S)],

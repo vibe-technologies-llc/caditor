@@ -12,11 +12,11 @@ use std::{
 
 use caditor_document::{
     BodyAppearance, CancelToken, Document, Evaluation, FeatureId, FeatureResult, ModelProperties,
-    Rgb,
+    Rgb, placed_threads,
 };
 use caditor_file::{
-    ExportBody, ExportError, ExportFormat, Exported, Look, MeshOptions, MeshResolution, RgbaImage,
-    StlEncoding,
+    ExportBody, ExportError, ExportFormat, ExportThread, Exported, Look, MeshOptions,
+    MeshResolution, RgbaImage, StlEncoding,
 };
 use caditor_geometry::Vector3;
 use caditor_render::{ImageError, SurfaceSize};
@@ -145,6 +145,7 @@ pub struct ExportSource {
     pub result: Arc<FeatureResult>,
     pub look: Option<OwnedLook>,
     pub group: Option<String>,
+    pub threads: Vec<ExportThread>,
 }
 
 impl ExportSource {
@@ -159,6 +160,16 @@ impl ExportSource {
             result: Arc::clone(result),
             look: feature.and_then(|feature| OwnedLook::of(&feature.appearance)),
             group: feature.and_then(|feature| feature.group.clone()),
+            threads: placed_threads(document, evaluation)
+                .into_iter()
+                .filter(|thread| thread.body == body)
+                .map(|thread| ExportThread {
+                    designation: thread.designation,
+                    start: thread.placement.start,
+                    direction: thread.placement.direction,
+                    length: thread.placement.length,
+                })
+                .collect(),
         })
     }
 
@@ -168,6 +179,7 @@ impl ExportSource {
             solid: &self.result.solid()?.solid,
             look: self.look.as_ref().map(OwnedLook::borrowed),
             group: self.group.as_deref(),
+            threads: &self.threads,
         })
     }
 }

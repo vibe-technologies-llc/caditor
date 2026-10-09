@@ -147,6 +147,7 @@ pub struct ScenePalette {
     pub revolve_axis: Color,
     pub followed_edge: Color,
     pub centre_of_mass: Color,
+    pub thread: Color,
     pub bands: Bands,
     pub datum_edge: Color,
     pub datum_fill: Color,
@@ -268,6 +269,7 @@ pub const STANDARD: ScenePalette = ScenePalette {
     revolve_axis: Color::from_rgb8(255, 150, 60),
     followed_edge: Color::from_rgb8(150, 200, 250),
     centre_of_mass: Color::from_rgb8(255, 196, 64),
+    thread: Color::from_rgb8(28, 84, 150),
     bands: Bands {
         drafted: Color::from_rgb8(72, 168, 96),
         too_little_draft: Color::from_rgb8(236, 190, 52),
@@ -358,6 +360,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     revolve_axis: Color::from_rgb8(255, 160, 70),
     followed_edge: Color::from_rgb8(150, 200, 250),
     centre_of_mass: Color::from_rgb8(255, 208, 90),
+    thread: Color::from_rgb8(0, 50, 130),
     bands: Bands {
         drafted: Color::from_rgb8(96, 214, 128),
         too_little_draft: Color::from_rgb8(255, 224, 70),
@@ -479,6 +482,7 @@ mod tests {
         );
         for (what, color) in [
             ("edge", palette.body_edge),
+            ("thread", palette.thread),
             ("hovered face", palette.faces.hovered),
             ("selected face", palette.faces.selected),
             ("hovered and selected face", palette.faces.hovered_selected),

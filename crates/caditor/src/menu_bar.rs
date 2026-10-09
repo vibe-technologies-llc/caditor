@@ -582,6 +582,7 @@ impl Menus<'_, '_> {
                     Command::Extrude,
                     Command::Revolve,
                     Command::Hole,
+                    Command::Thread,
                 ],
             );
             ui.separator();

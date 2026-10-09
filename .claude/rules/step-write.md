@@ -33,6 +33,13 @@ paths:
   readers take for a see-through body; the reader reads it back.
 - A `StepBody` with a `layer` (the body's folder) is listed in one `PRESENTATION_LAYER_ASSIGNMENT`
   per distinct layer name, holding its solids; a blank name writes none.
+- A `StepBody` with `threads` (`StepThread`: designation, start, direction, length) gets one
+  `PROPERTY_DEFINITION('thread',<designation>,<product definition>)` per thread on its part (the
+  root product when it is the only body), represented by a `REPRESENTATION('thread', …)` holding a
+  `DESCRIPTIVE_REPRESENTATION_ITEM('designation',…)`, an `AXIS2_PLACEMENT_3D` at the thread's start
+  along its direction and a `MEASURE_REPRESENTATION_ITEM('length',LENGTH_MEASURE(…),<mm>)`, joined
+  by a `PROPERTY_DEFINITION_REPRESENTATION`; written after styles and layers, only for bodies
+  written. The reader ignores them.
 - `write_step_keeping_what_can_be` writes every body it can, rolls a failed one back out and lists
   it in `left_out`; `write_step` fails on the first such error. Only when no body is writable is
   it an error.

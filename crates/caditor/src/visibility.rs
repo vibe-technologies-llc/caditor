@@ -16,7 +16,7 @@ const PRINCIPAL_GROUP: &str = "principal planes, axes and origin";
 
 pub fn can_hide(feature: &Feature) -> bool {
     match &feature.kind {
-        FeatureKind::Sketch(_) | FeatureKind::Datum(_) => true,
+        FeatureKind::Sketch(_) | FeatureKind::Datum(_) | FeatureKind::Thread(_) => true,
         FeatureKind::Solid(_)
         | FeatureKind::Import(_)
         | FeatureKind::Blend(_)
