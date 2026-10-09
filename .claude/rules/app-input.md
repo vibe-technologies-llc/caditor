@@ -144,8 +144,8 @@ paths:
 - Every command is in the palette, including those with no button: recompute and its cancel,
   going to the next or previous failed feature after the tree's primary row, wrapping (selects its
   row), adding a parameter and deleting the one
-  whose field last had focus (`PanelState::parameter`), each recent model (an `Offer`'s detail
-  carries the file name), recovering unsaved work, cancelling an export, dismissing the notice and
+  whose field last had focus (`PanelState::parameter`), opening or removing each recent model (an `Offer`'s
+  detail carries the file name), recovering unsaved work, cancelling an export, dismissing the notice and
   dismissing or hiding the current tip (offered while the palette covers it).
 - A feature row's and panel's actions are commands on the tree's current feature
   (`feature_tree::current_feature`, the offer's detail; `feature_tree::commands`), sharing the

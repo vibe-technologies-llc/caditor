@@ -163,6 +163,10 @@ impl PanelState {
         self.layout
     }
 
+    pub fn set_right_width(&mut self, width: Option<f32>) {
+        self.layout.right_width = width;
+    }
+
     pub fn forget_document(&mut self) {
         *self = Self {
             layout: self.layout,
@@ -186,6 +190,7 @@ impl PanelState {
             } else {
                 layout::side_width(width)
             },
+            right_width: self.layout.right_width,
             features_open: widgets::is_section_open(ctx, FEATURES_SECTION),
             parameters_open: widgets::is_section_open(ctx, PARAMETERS_SECTION),
         };

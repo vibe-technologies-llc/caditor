@@ -11,6 +11,17 @@ the disk and only then puts it in place, so a crash or a full disk during a save
 whole. If another program changed the file since you opened it, the save asks whether to save a
 copy or replace it; replacing keeps the other contents as a [version](version-history).
 
+{command:file.revert} throws away the changes since the last save in one step; Undo brings them
+back.
+
+## Opening
+
+{command:file.open} starts in the folder a model was last opened from. File › Open recent lists the
+models opened or saved lately. One that cannot be found any more is shown greyed out with "(not
+found)"; opening it anyway says why and takes it off the list. Hover an entry for its remove button
+to take it off the list alone, or use {command:file.forget_recent_1} and its numbered neighbours;
+the file itself is never touched.
+
 ## The recovery journal
 
 From the first change, every change is also written to a hidden journal beside the file (for an

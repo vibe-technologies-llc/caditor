@@ -1,5 +1,5 @@
 use caditor_document::{Document, Transaction};
-use egui::{Align, Layout, ScrollArea};
+use egui::{Align, Label, Layout, ScrollArea};
 
 use crate::{
     appearance::SPACE_M,
@@ -12,6 +12,9 @@ pub const TITLE: &str = "Undo history";
 pub const NOTHING_YET: &str = "Nothing has been changed yet.";
 pub const NOW: &str = "Now";
 pub const UNDONE: &str = "Undone, Redo brings them back";
+pub const BEFORE: &str = "Before these changes";
+const BEFORE_HOVER: &str = "Go back to the model as it was before every change listed here";
+const CURRENT_HOVER: &str = "The model is as it was just after this change";
 const LIST_HEIGHT: f32 = 360.0;
 const NAMED: usize = 4;
 
@@ -46,13 +49,19 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> Option<Jump> {
                     }
                 }
                 ui.separator();
-                ui.label(NOW);
+                current_marker(ui, document, done.first().copied());
                 if done.is_empty() && undone.is_empty() {
                     ui.label(widgets::muted(NOTHING_YET, ui));
                 }
-                for (index, step) in done.iter().enumerate() {
-                    if step_button(ui, document, step).clicked() && index > 0 {
+                for (index, step) in done.iter().enumerate().skip(1) {
+                    if step_button(ui, document, step).clicked() {
                         jump = Some(Jump::Undo(index));
+                    }
+                }
+                if !done.is_empty() {
+                    let before = ui.add(widgets::button(BEFORE)).on_hover_text(BEFORE_HOVER);
+                    if before.clicked() {
+                        jump = Some(Jump::Undo(done.len()));
                     }
                 }
             });
@@ -76,6 +85,22 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> Option<Jump> {
     response
         .inner
         .or(response.should_close().then_some(Jump::Close))
+}
+
+fn current_marker(ui: &mut egui::Ui, document: &Document, current: Option<&Transaction>) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(widgets::strong(NOW));
+        let Some(step) = current else {
+            return;
+        };
+        let summary = summary(document, step);
+        let hover = if summary.is_empty() {
+            CURRENT_HOVER.to_owned()
+        } else {
+            format!("{CURRENT_HOVER}\n{summary}")
+        };
+        ui.add(Label::new(step.label()).wrap()).on_hover_text(hover);
+    });
 }
 
 fn step_button(ui: &mut egui::Ui, document: &Document, step: &Transaction) -> egui::Response {

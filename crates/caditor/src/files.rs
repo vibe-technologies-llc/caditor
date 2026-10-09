@@ -1,7 +1,7 @@
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     ffi::OsString,
-    io,
+    fs, io,
     panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
@@ -10,7 +10,7 @@ use std::{
         mpsc::{self, Receiver, Sender},
     },
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use caditor_document::{CancelToken, Document, FeatureId, FeatureResult, ImportedParameter};
@@ -42,7 +42,7 @@ use crate::{
         SKETCH_HINT,
     },
     editing::{self, SketchEditing},
-    export::{self, ExportCommand, ExportReport, Exporter, ThumbnailJob},
+    export::{self, ExportChoices, ExportCommand, ExportReport, Exporter, ThumbnailJob},
     history::{self, HistoryCommand, VersionHistory},
     icons,
     image_export::{
@@ -50,13 +50,13 @@ use crate::{
     },
     import::{self, DrawingPlan, IMPORT_HINT, Placement},
     import_options::{self, Arrangement, Arranging, ImportOptionsCommand},
-    model::{Action, FileEvent, Model, Notice, WakerFactory, display_name},
+    model::{Action, FileEvent, Model, Notice, RecomputeStatus, WakerFactory, display_name},
     onboarding,
     portal::{self, DialogError, FileRequest, Filter, Mode},
     preferences::PreferencesCommand,
     samples::Sample,
     sketch_placement::FaceChoice,
-    widgets::{self, DialogWidth, Tone},
+    widgets::{self, DialogWidth, MenuEntry, Tone},
 };
 
 pub mod parameters;
@@ -69,6 +69,17 @@ pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geom
 const OPEN_SAMPLE: &str = "Open sample";
 const NOT_IMPORTING: &str = "No import is running";
 const NO_RECENT: &str = "No model has been opened or saved yet";
+const NOT_FOUND: &str = "(not found)";
+const NOTHING_EXPORTED: &str = "Nothing has been exported from this model yet. Export it once and \
+                                Export again repeats that export";
+const EXPORT_RUNNING: &str = "An export is already running";
+const WAITING_FOR_RECOMPUTE: &str = "Waiting for the model to finish recomputing";
+const WOULD_REPLACE_MODEL: &str = "Export again never replaces the model's own file. Export to \
+                                   another file";
+pub const EXPORT_AGAIN_HINT: &str = "Export the model again to the file it was last exported to, \
+                                     with the same format and choices, without asking for a file";
+const REVERT_HINT: &str = "Undo every change made since the model was last saved, as one step \
+                           that Undo takes back";
 const QUIT_ANYWAY_AFTER: Duration = Duration::from_secs(5);
 const INTERNAL_ERROR: &str = "caditor ran into an internal error while reading it";
 const REPORT_HEIGHT: f32 = 280.0;
@@ -148,6 +159,10 @@ pub enum FileCommand {
     },
     OpenSample(Sample),
     ClearRecent,
+    ForgetRecent(PathBuf),
+    CheckRecent,
+    RevertToSaved,
+    ExportAgain,
     CancelOpen,
     CancelImport,
     CancelPick,
@@ -367,6 +382,38 @@ pub struct FilesConfig {
     pub config_dir: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Folder {
+    Open,
+    Import,
+    Export,
+    Drawing,
+    Parameters,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    length: u64,
+    modified: Option<SystemTime>,
+}
+
+impl Stamp {
+    fn of(path: &Path) -> Option<Self> {
+        fs::metadata(path).ok().map(|metadata| Self {
+            length: metadata.len(),
+            modified: metadata.modified().ok(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LastExport {
+    path: PathBuf,
+    choices: ExportChoices,
+    session: u64,
+    written: Option<Stamp>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Purpose {
     Open,
@@ -379,6 +426,19 @@ enum Purpose {
     Import,
     ExportParameters,
     ImportParameters,
+}
+
+impl Purpose {
+    fn folder(self) -> Option<Folder> {
+        match self {
+            Self::Open => Some(Folder::Open),
+            Self::Import => Some(Folder::Import),
+            Self::Export(_) => Some(Folder::Export),
+            Self::Drawing => Some(Folder::Drawing),
+            Self::ExportParameters | Self::ImportParameters => Some(Folder::Parameters),
+            Self::SaveAs | Self::Template | Self::SaveTemplate | Self::Image => None,
+        }
+    }
 }
 
 enum OpenOutcome {
@@ -539,6 +599,10 @@ enum Event {
     Exported {
         path: PathBuf,
         report: ExportReport,
+        written: Option<Stamp>,
+    },
+    RecentChecked {
+        missing: Vec<PathBuf>,
     },
     ImageExported {
         path: PathBuf,
@@ -720,6 +784,9 @@ pub struct Files {
     parameter_import: Option<ParameterImportDraft>,
     quit: bool,
     saved_folder: Option<PathBuf>,
+    folders: BTreeMap<Folder, PathBuf>,
+    last_export: Option<LastExport>,
+    missing_recent: BTreeSet<PathBuf>,
 }
 
 impl Files {
@@ -764,6 +831,9 @@ impl Files {
             parameter_import: None,
             quit: false,
             saved_folder: None,
+            folders: BTreeMap::new(),
+            last_export: None,
+            missing_recent: BTreeSet::new(),
         }
     }
 
@@ -835,6 +905,33 @@ impl Files {
 
     pub fn recent(&self) -> &[PathBuf] {
         self.recent.paths()
+    }
+
+    pub fn is_missing(&self, path: &Path) -> bool {
+        self.missing_recent.contains(path)
+    }
+
+    fn export_again_target(&self, model: &Model) -> Result<&LastExport, &'static str> {
+        let last = self
+            .last_export
+            .as_ref()
+            .filter(|last| last.session == model.session())
+            .ok_or(NOTHING_EXPORTED)?;
+        if self.exporter.is_running() {
+            return Err(EXPORT_RUNNING);
+        }
+        if matches!(model.status(), RecomputeStatus::Running { .. }) {
+            return Err(WAITING_FOR_RECOMPUTE);
+        }
+        if model.path() == Some(last.path.as_path()) {
+            return Err(WOULD_REPLACE_MODEL);
+        }
+        Ok(last)
+    }
+
+    pub fn export_again_name(&self, model: &Model) -> Result<String, &'static str> {
+        self.export_again_target(model)
+            .map(|last| display_name(Some(&last.path)))
     }
 
     pub fn keeps_drawing_construction(&self) -> bool {
@@ -1028,7 +1125,14 @@ impl Files {
                 }
             }
             FileCommand::Drop { paths, into } => self.dropped(paths, into, model),
-            FileCommand::ClearRecent => self.change_recent(RecentChange::Cleared),
+            FileCommand::ClearRecent => {
+                self.missing_recent.clear();
+                self.change_recent(RecentChange::Cleared);
+            }
+            FileCommand::ForgetRecent(path) => self.forget_on_request(&path, model),
+            FileCommand::CheckRecent => self.check_recent(),
+            FileCommand::RevertToSaved => revert_to_saved(model),
+            FileCommand::ExportAgain => self.export_again(model),
             FileCommand::KeepDrawingConstruction(keep) => {
                 self.drawing_construction = if keep {
                     Construction::OnLayer
@@ -1331,6 +1435,7 @@ impl Files {
                 for path in added_meanwhile.paths().iter().rev() {
                     self.recent.add(path.clone());
                 }
+                self.check_recent();
                 for recovered in recovered {
                     self.offer(recovered, false);
                 }
@@ -1388,9 +1493,19 @@ impl Files {
                     (None, _) => {}
                 }
             }
-            Event::Exported { path, report } => {
+            Event::Exported {
+                path,
+                report,
+                written,
+            } => {
+                if let Some(last) = self.last_export.as_mut().filter(|last| last.path == path) {
+                    last.written = written;
+                }
                 let notice = self.exporter.reported(&path, report);
                 model.set_notice(notice);
+            }
+            Event::RecentChecked { missing } => {
+                self.missing_recent = missing.into_iter().collect();
             }
             Event::ImageExported { path, result } => {
                 let notice = self.image.finished(&path, result);
@@ -1861,6 +1976,15 @@ impl Files {
             model.set_notice(Notice::info("An export is already running."));
             return;
         }
+        self.last_export = Some(LastExport {
+            path: path.clone(),
+            choices: ExportChoices {
+                format,
+                ..self.exporter.choices()
+            },
+            session: model.session(),
+            written: None,
+        });
         let events = self.events.clone();
         let wake = (self.make_waker)();
         self.exporter.start(
@@ -1868,7 +1992,13 @@ impl Files {
             format,
             model,
             Box::new(move |path, report| {
-                if events.send(Event::Exported { path, report }).is_ok() {
+                let written = report.succeeded().then(|| Stamp::of(&path)).flatten();
+                let exported = Event::Exported {
+                    path,
+                    report,
+                    written,
+                };
+                if events.send(exported).is_ok() {
                     wake();
                 }
             }),
@@ -1900,11 +2030,17 @@ impl Files {
                 "“{name}” is already open in another caditor window."
             ))),
             OpenOutcome::Failed { error, missing } => {
+                let listed = missing && self.recent.paths().contains(&path);
                 if missing {
                     self.forget(&path);
                 }
+                let removed = if listed {
+                    " It was removed from the recent models."
+                } else {
+                    ""
+                };
                 model.set_notice(Notice::failure(format!(
-                    "Could not open “{name}”: {error}."
+                    "Could not open “{name}”: {error}.{removed}"
                 )));
             }
         }
@@ -2002,6 +2138,10 @@ impl Files {
     }
 
     fn picked(&mut self, purpose: Purpose, path: Option<PathBuf>, model: &mut Model) {
+        if let Some((folder, parent)) = purpose.folder().zip(path.as_deref().and_then(Path::parent))
+        {
+            self.folders.insert(folder, parent.to_path_buf());
+        }
         match (purpose, path) {
             (Purpose::Open, Some(path)) => self.open(path, model),
             (Purpose::SaveAs, Some(path)) => self.save_as(path, model),
@@ -2064,10 +2204,10 @@ impl Files {
                 wake();
             }
         });
-        let directory = model
-            .path()
-            .and_then(Path::parent)
-            .map(Path::to_path_buf)
+        let directory = purpose
+            .folder()
+            .and_then(|folder| self.folders.get(&folder).cloned())
+            .or_else(|| model.path().and_then(Path::parent).map(Path::to_path_buf))
             .or_else(|| {
                 self.recent
                     .paths()
@@ -2253,11 +2393,69 @@ impl Files {
     }
 
     fn remember(&mut self, path: PathBuf) {
+        self.missing_recent.remove(&path);
         self.change_recent(RecentChange::Opened(path));
     }
 
     fn forget(&mut self, path: &Path) {
+        self.missing_recent.remove(path);
         self.change_recent(RecentChange::Forgotten(path.to_path_buf()));
+    }
+
+    fn forget_on_request(&mut self, path: &Path, model: &mut Model) {
+        if !self.recent.paths().iter().any(|recent| recent == path) {
+            return;
+        }
+        self.forget(path);
+        model.set_notice(Notice::info(format!(
+            "Removed “{}” from the recent models. The file itself is untouched.",
+            display_name(Some(path))
+        )));
+    }
+
+    fn check_recent(&mut self) {
+        let paths = self.recent.paths().to_vec();
+        if paths.is_empty() {
+            self.missing_recent.clear();
+            return;
+        }
+        self.spawn(
+            move || Event::RecentChecked {
+                missing: paths.into_iter().filter(|path| is_gone(path)).collect(),
+            },
+            || Event::RecentChecked {
+                missing: Vec::new(),
+            },
+        );
+    }
+
+    fn export_again(&mut self, model: &mut Model) {
+        if self.picking.is_some() {
+            return;
+        }
+        let (path, choices, written) = match self.export_again_target(model) {
+            Ok(last) => (last.path.clone(), last.choices, last.written),
+            Err(reason) => {
+                model.set_notice(Notice::info(format!("{reason}.")));
+                return;
+            }
+        };
+        self.exporter.restore(choices);
+        let output = Output::Export {
+            path: path.clone(),
+            format: choices.format,
+        };
+        let failed = output.clone();
+        self.spawn(
+            move || Event::OutputChecked {
+                replaces: Stamp::of(&path).is_some_and(|now| Some(now) != written),
+                output,
+            },
+            move || Event::OutputChecked {
+                output: failed,
+                replaces: true,
+            },
+        );
     }
 
     pub fn settings_loaded(&mut self, settings: Settings) {
@@ -2345,6 +2543,31 @@ impl Files {
             run_contained(job);
         }
     }
+}
+
+fn is_gone(path: &Path) -> bool {
+    matches!(fs::metadata(path), Err(error) if error.kind() == io::ErrorKind::NotFound)
+}
+
+fn revert_to_saved(model: &mut Model) {
+    let transaction = match model.saved_version() {
+        Ok(saved) => model
+            .document()
+            .transaction_to(saved, Command::RevertToSaved.title()),
+        Err(reason) => {
+            model.set_notice(Notice::info(format!("{reason}.")));
+            return;
+        }
+    };
+    let revision = model.revision();
+    model.perform(Action::Apply(transaction));
+    if model.revision() == revision {
+        return;
+    }
+    model.set_notice(Notice::info(format!(
+        "Went back to “{}” as it was last saved. Undo brings your changes back.",
+        model.display_name()
+    )));
 }
 
 fn open_file(
@@ -2553,6 +2776,8 @@ pub fn menu(
     } else {
         Ok(())
     };
+    let again = files.export_again_name(model);
+    let revertible = model.saved_version().map(|_| ());
     let mut chosen = Vec::new();
     let file_menu = ui.menu_button("File", |ui| {
         widgets::fitted_menu(ui, |ui| {
@@ -2568,8 +2793,12 @@ pub fn menu(
                 let recent = ui.menu_button(submenu_label(ui, icons::RECENT, OPEN_RECENT), |ui| {
                     widgets::fitted_menu(ui, |ui| {
                         for path in files.recent() {
-                            if recent_item(ui, path).clicked() {
+                            let row = recent_item(ui, path, files.is_missing(path));
+                            if row.chosen {
                                 actions.push(Action::File(FileCommand::OpenPath(path.clone())));
+                            }
+                            if row.removed {
+                                actions.push(Action::File(FileCommand::ForgetRecent(path.clone())));
                             }
                         }
                         ui.separator();
@@ -2596,6 +2825,18 @@ pub fn menu(
             ui.separator();
             item(ui, &mut chosen, Command::Save);
             item(ui, &mut chosen, Command::SaveAs);
+            let revert = ui
+                .add_enabled_ui(revertible.is_ok(), |ui| {
+                    menu_item(ui, commands, Command::RevertToSaved)
+                })
+                .inner;
+            let revert = match revertible {
+                Ok(()) => revert.on_hover_text(REVERT_HINT),
+                Err(reason) => revert.on_disabled_hover_text(reason),
+            };
+            if revert.clicked() {
+                chosen.push(Command::RevertToSaved);
+            }
             ui.add_enabled_ui(history.is_ok(), |ui| {
                 item(ui, &mut chosen, Command::VersionHistory);
             })
@@ -2606,6 +2847,7 @@ pub fn menu(
             let hints = [
                 (Command::Import, Some(IMPORT_HINT)),
                 (Command::Export, None),
+                (Command::ExportAgain, Some(EXPORT_AGAIN_HINT)),
                 (Command::ExportImage, Some(IMAGE_HINT)),
                 (Command::ExportSketch, Some(SKETCH_HINT)),
                 (Command::ExportFace, Some(FACE_HINT)),
@@ -2619,22 +2861,30 @@ pub fn menu(
                     Command::ExportParameters => Some(parameters::NO_PARAMETERS),
                     _ => None,
                 };
-                let availability = match unavailable {
-                    Some(reason) => offers
+                let availability = match (command, unavailable) {
+                    (Command::ExportAgain, _) => again.clone().map(|_| ()).map_err(str::to_owned),
+                    (_, Some(reason)) => offers
                         .iter()
                         .find(|offer| offer.command == command)
                         .map_or_else(
                             || Err(reason.to_owned()),
                             |offer| offer.availability.clone(),
                         ),
-                    None => Ok(()),
+                    (_, None) => Ok(()),
+                };
+                let title = match (command, &again) {
+                    (Command::ExportAgain, Ok(name)) => command.title_with(name),
+                    _ => command.title(),
                 };
                 let response = ui
-                    .add_enabled_ui(availability.is_ok(), |ui| menu_item(ui, commands, command))
+                    .add_enabled_ui(availability.is_ok(), |ui| {
+                        titled_menu_item(ui, commands, command, &title)
+                    })
                     .inner;
-                let response = match hint {
-                    Some(hint) => response.on_hover_text(hint),
-                    None => response,
+                let response = match (hint, &availability) {
+                    (_, Err(reason)) => response.on_disabled_hover_text(reason),
+                    (Some(hint), Ok(())) => response.on_hover_text(hint),
+                    (None, Ok(())) => response,
                 };
                 if response.clicked() {
                     chosen.push(command);
@@ -2664,6 +2914,17 @@ pub fn menu(
     });
     if file_menu.response.clicked() {
         actions.push(Action::File(FileCommand::ListTemplates));
+        actions.push(Action::File(FileCommand::CheckRecent));
+    }
+    if commands.invoke_detailed(Command::ExportAgain, again.clone().ok(), &again)
+        || chosen.contains(&Command::ExportAgain)
+    {
+        actions.push(Action::File(FileCommand::ExportAgain));
+    }
+    if commands.invoke(Command::RevertToSaved, &revertible)
+        || chosen.contains(&Command::RevertToSaved)
+    {
+        actions.push(Action::File(FileCommand::RevertToSaved));
     }
     if commands.invoke(Command::KeepDrawingConstruction, &Ok::<(), String>(()))
         || chosen.contains(&Command::KeepDrawingConstruction)
@@ -2692,20 +2953,25 @@ pub fn menu(
         actions.push(Action::File(FileCommand::ClearRecent));
     }
     for slot in RecentSlot::ALL {
-        let command = Command::OpenRecent(slot);
-        match files.recent().get(slot.index()) {
-            Some(path) => {
-                let detail = Some(display_name(Some(path)));
-                if commands.invoke_detailed(command, detail, &Ok::<(), String>(())) {
-                    actions.push(Action::File(FileCommand::OpenPath(path.clone())));
+        for command in [Command::OpenRecent(slot), Command::ForgetRecent(slot)] {
+            match files.recent().get(slot.index()) {
+                Some(path) => {
+                    let detail = Some(display_name(Some(path)));
+                    if commands.invoke_detailed(command, detail, &Ok::<(), String>(())) {
+                        let file_command = match command {
+                            Command::ForgetRecent(_) => FileCommand::ForgetRecent(path.clone()),
+                            _ => FileCommand::OpenPath(path.clone()),
+                        };
+                        actions.push(Action::File(file_command));
+                    }
                 }
-            }
-            None => {
-                if commands.take(command) {
-                    actions.push(Action::Inform(Notice::info(format!(
-                        "{}: there are not that many recent models",
-                        command.title()
-                    ))));
+                None => {
+                    if commands.take(command) {
+                        actions.push(Action::Inform(Notice::info(format!(
+                            "{}: there are not that many recent models",
+                            command.title()
+                        ))));
+                    }
                 }
             }
         }
@@ -2849,19 +3115,43 @@ pub fn is_model_file(path: &Path) -> bool {
 }
 
 fn menu_item(ui: &mut Ui, commands: &CommandFrame<'_>, command: Command) -> egui::Response {
-    widgets::menu_item(
-        ui,
-        icons::command(command),
-        &command.title(),
-        commands.keys(command),
-    )
+    titled_menu_item(ui, commands, command, &command.title())
 }
 
-fn recent_item(ui: &mut Ui, path: &Path) -> egui::Response {
+fn titled_menu_item(
+    ui: &mut Ui,
+    commands: &CommandFrame<'_>,
+    command: Command,
+    title: &str,
+) -> egui::Response {
+    widgets::menu_item(ui, icons::command(command), title, commands.keys(command))
+}
+
+fn recent_item(ui: &mut Ui, path: &Path, missing: bool) -> widgets::RemovableItem {
     let name = display_name(Some(path));
-    let folder = onboarding::folder_name(path);
-    widgets::menu_item_with_detail(ui, icons::FILE, &name, &folder)
-        .on_hover_text(path.display().to_string())
+    let folder = if missing {
+        NOT_FOUND.to_owned()
+    } else {
+        onboarding::folder_name(path)
+    };
+    let location = path.display().to_string();
+    let hover = if missing {
+        format!("{location}\ncaditor cannot find this file now. Opening it says why.")
+    } else {
+        location
+    };
+    let remove = format!("Remove {name} from the recent models");
+    widgets::removable_menu_item(
+        ui,
+        &MenuEntry {
+            glyph: icons::FILE,
+            title: &name,
+            detail: &folder,
+            muted: missing,
+            hover: &hover,
+            remove: &remove,
+        },
+    )
 }
 
 fn submenu_label(ui: &Ui, glyph: &str, title: &str) -> (egui::RichText, String) {

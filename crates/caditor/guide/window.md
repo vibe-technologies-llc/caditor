@@ -26,7 +26,8 @@ the bottom while you learn; [Preferences](preferences) brings dismissed ones bac
 
 Measure, Check interference, the face analyses, the curvature comb, isocurves, Constrain
 automatically and this guide open as panels on the right. Together they never take more than 60%
-of the window, so the view keeps its room.
+of the window, so the view keeps its room. Drag a panel's edge to widen it; the panels on the right
+open at that width from then on, also the next time caditor starts.
 
 ## The status bar
 

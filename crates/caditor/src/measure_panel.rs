@@ -11,7 +11,8 @@ use crate::{
     bodies::{BodyMass, BodyMeshes, MassAccuracy},
     datum_tools, field,
     guide::Page,
-    guide_panel, icons, layout,
+    guide_panel, icons,
+    layout::RightPanel,
     measure::{APPROXIMATELY, Freshness, MeasureTool, MeasuredLine, Readout, Relative, Value},
     model::Model,
     selection::{Pickable, Selection},
@@ -28,8 +29,11 @@ pub const MASS_TITLE: &str = "Mass properties";
 pub const EMPTY_HINT: &str = "Select a vertex, edge, face or sketch point to measure it, or two of \
                               them to measure between them, or sketch regions for their area and \
                               section properties. Shift or Ctrl adds to the selection.";
-const PANEL_WIDTH: f32 = 300.0;
-const MIN_PANEL_WIDTH: f32 = 220.0;
+const PANEL: RightPanel = RightPanel {
+    id: "measure",
+    width: 300.0,
+    least: 220.0,
+};
 const MAX_MASS_CARDS: usize = 50;
 const MASS_SECTION: &str = "measure-mass";
 const STALE_OPACITY: f32 = 0.5;
@@ -586,55 +590,51 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
     let masses = mass_cards(context);
     let mut close = false;
     let mut relative_to = tool.relative_to;
-    egui::Panel::right("measure")
-        .resizable(true)
-        .default_size(PANEL_WIDTH)
-        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
-        .show(ui, |ui| {
-            ui.add_space(SPACE_S);
-            widgets::panel_header(ui, icons::MEASURE, TITLE, |ui| {
-                close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-                guide_panel::help_button(ui, Page::Measure);
-                let everything_text = cards
-                    .iter()
-                    .flat_map(|(_, cards, _)| cards)
-                    .chain(&masses.cards)
-                    .map(Card::text)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
-                if ui
-                    .add(copy)
-                    .on_hover_text("Copy every reading in the panel as text")
-                    .clicked()
-                {
-                    ui.ctx().copy_text(everything_text);
-                }
-                if measuring && !context.selection.is_empty() {
-                    ui.label(widgets::muted(MEASURING, ui));
-                }
-            });
-            ui.add_space(SPACE_S);
-            relative_row(ui, context.model, &mut relative_to);
-            if let Err(problem) = &relative {
-                widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
-                ui.add_space(SPACE_M);
+    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+        ui.add_space(SPACE_S);
+        widgets::panel_header(ui, icons::MEASURE, TITLE, |ui| {
+            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+            guide_panel::help_button(ui, Page::Measure);
+            let everything_text = cards
+                .iter()
+                .flat_map(|(_, cards, _)| cards)
+                .chain(&masses.cards)
+                .map(Card::text)
+                .collect::<Vec<_>>()
+                .join("\n");
+            let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
+            if ui
+                .add(copy)
+                .on_hover_text("Copy every reading in the panel as text")
+                .clicked()
+            {
+                ui.ctx().copy_text(everything_text);
             }
-            ScrollArea::vertical().show(ui, |ui| {
-                if context.selection.is_empty() {
-                    widgets::callout(ui, Tone::Info, |ui| ui.label(EMPTY_HINT));
-                    ui.add_space(SPACE_M);
-                } else if let Some((readout, cards, freshness)) = &cards {
-                    ui.scope(|ui| {
-                        if *freshness == Freshness::Stale {
-                            ui.multiply_opacity(STALE_OPACITY);
-                        }
-                        readings(ui, readout, cards);
-                    });
-                }
-                mass_section(ui, &masses);
-            });
+            if measuring && !context.selection.is_empty() {
+                ui.label(widgets::muted(MEASURING, ui));
+            }
         });
+        ui.add_space(SPACE_S);
+        relative_row(ui, context.model, &mut relative_to);
+        if let Err(problem) = &relative {
+            widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
+            ui.add_space(SPACE_M);
+        }
+        ScrollArea::vertical().show(ui, |ui| {
+            if context.selection.is_empty() {
+                widgets::callout(ui, Tone::Info, |ui| ui.label(EMPTY_HINT));
+                ui.add_space(SPACE_M);
+            } else if let Some((readout, cards, freshness)) = &cards {
+                ui.scope(|ui| {
+                    if *freshness == Freshness::Stale {
+                        ui.multiply_opacity(STALE_OPACITY);
+                    }
+                    readings(ui, readout, cards);
+                });
+            }
+            mass_section(ui, &masses);
+        });
+    });
     tool.relative_to = relative_to;
     if close {
         tool.toggle();

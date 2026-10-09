@@ -66,11 +66,13 @@ pub enum Command {
     Save,
     SaveAs,
     SaveAsTemplate,
+    RevertToSaved,
     VersionHistory,
     ModelProperties,
     Import,
     Export,
     ExportImage,
+    ExportAgain,
     ImportParameters,
     ExportParameters,
     ExportSketch,
@@ -196,6 +198,7 @@ pub enum Command {
     FullScreen,
     OpenSample(Sample),
     OpenRecent(RecentSlot),
+    ForgetRecent(RecentSlot),
     ClearRecent,
     RecoverUnsaved,
     CancelExport,
@@ -288,6 +291,19 @@ const RECENT_IDS: [&str; 10] = [
     "file.recent_10",
 ];
 
+const FORGET_RECENT_IDS: [&str; 10] = [
+    "file.forget_recent_1",
+    "file.forget_recent_2",
+    "file.forget_recent_3",
+    "file.forget_recent_4",
+    "file.forget_recent_5",
+    "file.forget_recent_6",
+    "file.forget_recent_7",
+    "file.forget_recent_8",
+    "file.forget_recent_9",
+    "file.forget_recent_10",
+];
+
 impl RecentSlot {
     pub const ALL: [Self; 10] = [
         Self(0),
@@ -314,6 +330,20 @@ impl RecentSlot {
         match self.0 {
             0 => "Open the most recent model".to_owned(),
             index => format!("Open recent model {}", index + 1),
+        }
+    }
+
+    fn forget_id(self) -> &'static str {
+        FORGET_RECENT_IDS
+            .get(self.0)
+            .copied()
+            .unwrap_or("file.forget_recent")
+    }
+
+    fn forget_title(self) -> String {
+        match self.0 {
+            0 => "Remove the most recent model from the list".to_owned(),
+            index => format!("Remove recent model {} from the list", index + 1),
         }
     }
 }
@@ -495,7 +525,8 @@ macro_rules! plain_commands {
             | Command::Analysis(_)
             | Command::Section(_)
             | Command::OpenSample(_)
-            | Command::OpenRecent(_) => {}
+            | Command::OpenRecent(_)
+            | Command::ForgetRecent(_) => {}
         };
     };
 }
@@ -508,11 +539,13 @@ plain_commands! {
     Save,
     SaveAs,
     SaveAsTemplate,
+    RevertToSaved,
     VersionHistory,
     ModelProperties,
     Import,
     Export,
     ExportImage,
+    ExportAgain,
     ImportParameters,
     ExportParameters,
     ExportSketch,
@@ -704,6 +737,7 @@ impl Command {
             .chain(SectionCommand::ALL.into_iter().map(Self::Section))
             .chain(Sample::ALL.into_iter().map(Self::OpenSample))
             .chain(RecentSlot::ALL.into_iter().map(Self::OpenRecent))
+            .chain(RecentSlot::ALL.into_iter().map(Self::ForgetRecent))
     }
 
     pub fn id(self) -> &'static str {
@@ -712,6 +746,8 @@ impl Command {
             Self::New => "file.new",
             Self::NewFromTemplate => "file.new_from_template",
             Self::SaveAsTemplate => "file.save_as_template",
+            Self::RevertToSaved => "file.revert",
+            Self::ExportAgain => "file.export_again",
             Self::Open => "file.open",
             Self::Save => "file.save",
             Self::SaveAs => "file.save_as",
@@ -905,6 +941,7 @@ impl Command {
                 Sample::Bracket => "file.sample.bracket",
             },
             Self::OpenRecent(slot) => slot.id(),
+            Self::ForgetRecent(slot) => slot.forget_id(),
             Self::ClearRecent => "file.clear_recent",
             Self::RecoverUnsaved => "file.recover",
             Self::CancelExport => "file.cancel_export",
@@ -973,6 +1010,8 @@ impl Command {
             Self::New => "New model",
             Self::NewFromTemplate => "New from template…",
             Self::SaveAsTemplate => "Save as template…",
+            Self::RevertToSaved => "Revert to the saved version",
+            Self::ExportAgain => "Export again",
             Self::Open => "Open…",
             Self::Save => "Save",
             Self::SaveAs => "Save as…",
@@ -1122,6 +1161,7 @@ impl Command {
             Self::FullScreen => "Enter or leave full screen",
             Self::OpenSample(sample) => return format!("Open the {} sample", sample.title()),
             Self::OpenRecent(slot) => return slot.title(),
+            Self::ForgetRecent(slot) => return slot.forget_title(),
             Self::ClearRecent => "Clear recent files",
             Self::RecoverUnsaved => "Recover unsaved work…",
             Self::CancelExport => "Cancel the export",
@@ -1208,6 +1248,9 @@ impl Command {
             | Self::Quit
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
+            | Self::ForgetRecent(_)
+            | Self::RevertToSaved
+            | Self::ExportAgain
             | Self::ClearRecent
             | Self::RecoverUnsaved
             | Self::CancelExport
@@ -1561,6 +1604,9 @@ impl Command {
             | Self::ExportParameters
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
+            | Self::ForgetRecent(_)
+            | Self::RevertToSaved
+            | Self::ExportAgain
             | Self::ClearRecent
             | Self::RecoverUnsaved
             | Self::CancelExport
@@ -1634,6 +1680,13 @@ impl Command {
             | Self::NewCone
             | Self::NewWedge
             | Self::NewPrism => Vec::new(),
+        }
+    }
+
+    pub fn title_with(self, detail: &str) -> String {
+        match self {
+            Self::ExportAgain => format!("Export again to {detail}"),
+            _ => format!("{}: {detail}", self.title()),
         }
     }
 
@@ -2063,7 +2116,7 @@ pub struct Offer {
 impl Offer {
     pub fn title(&self) -> String {
         match &self.detail {
-            Some(detail) => format!("{}: {detail}", self.command.title()),
+            Some(detail) => self.command.title_with(detail),
             None => self.command.title(),
         }
     }

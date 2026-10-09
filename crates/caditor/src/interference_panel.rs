@@ -10,7 +10,7 @@ use crate::{
     guide::Page,
     guide_panel, icons,
     interference::{Bodies, Finding, InterferenceTool, Pair, Report, Scope},
-    layout,
+    layout::RightPanel,
     measure_panel::{self, Card, Row},
     model::Model,
     selection::Selection,
@@ -33,8 +33,11 @@ pub const EVERYTHING: &str = "Every body shown, pair by pair. Select faces, edge
 pub const CHOSEN: &str = "The selected bodies, pair by pair.";
 pub const MAX_LISTED: usize = 50;
 const UNMESHED: &str = "The shared volume could not be meshed, so its size is not known.";
-const PANEL_WIDTH: f32 = 300.0;
-const MIN_PANEL_WIDTH: f32 = 220.0;
+const PANEL: RightPanel = RightPanel {
+    id: "interference",
+    width: 300.0,
+    least: 220.0,
+};
 const APPROXIMATELY: &str = "≈ ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -304,62 +307,56 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) 
     let scope = scope_text(document, &report.bodies);
     let mut close = false;
     let mut shown = None;
-    egui::Panel::right("interference")
-        .resizable(true)
-        .default_size(PANEL_WIDTH)
-        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
-        .show(ui, |ui| {
-            ui.add_space(SPACE_S);
-            widgets::panel_header(ui, icons::INTERFERENCE, TITLE, |ui| {
-                close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-                guide_panel::help_button(ui, Page::Interference);
-                let everything = summary
-                    .iter()
-                    .map(|(_, text)| text.clone())
-                    .chain(cards.iter().map(|(card, _)| card.text()))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
-                if ui
-                    .add(copy)
-                    .on_hover_text("Copy every finding in the panel as text")
-                    .clicked()
-                {
-                    ui.ctx().copy_text(everything);
-                }
-                if let Some(progress) = &progress {
-                    ui.label(widgets::muted(progress, ui));
-                }
-            });
-            ui.add_space(SPACE_S);
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.label(widgets::muted(&scope, ui));
-                ui.add_space(SPACE_S);
-                if let Some((tone, text)) = &summary {
-                    let response = widgets::callout(ui, *tone, |ui| ui.label(text));
-                    widgets::announced(ui, &response, *tone == Tone::Error);
-                    ui.add_space(SPACE_M);
-                }
-                for (index, (card, place)) in cards.iter().enumerate() {
-                    measure_panel::show_card(ui, ("interference", index), card);
-                    if let Some(place) = place {
-                        let button = widgets::small_button(ui, icons::SHOW_PLACE, SHOW_PLACE);
-                        if ui.add(button).clicked() {
-                            shown = Some(*place);
-                        }
-                    }
-                    ui.add_space(SPACE_M);
-                }
-                if unlisted > 0 {
-                    ui.label(widgets::muted(
-                        format!(
-                            "{unlisted} more not listed. Select bodies to check fewer at a time."
-                        ),
-                        ui,
-                    ));
-                }
-            });
+    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+        ui.add_space(SPACE_S);
+        widgets::panel_header(ui, icons::INTERFERENCE, TITLE, |ui| {
+            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+            guide_panel::help_button(ui, Page::Interference);
+            let everything = summary
+                .iter()
+                .map(|(_, text)| text.clone())
+                .chain(cards.iter().map(|(card, _)| card.text()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let copy = widgets::small_button(ui, icons::COPY, COPY_ALL);
+            if ui
+                .add(copy)
+                .on_hover_text("Copy every finding in the panel as text")
+                .clicked()
+            {
+                ui.ctx().copy_text(everything);
+            }
+            if let Some(progress) = &progress {
+                ui.label(widgets::muted(progress, ui));
+            }
         });
+        ui.add_space(SPACE_S);
+        ScrollArea::vertical().show(ui, |ui| {
+            ui.label(widgets::muted(&scope, ui));
+            ui.add_space(SPACE_S);
+            if let Some((tone, text)) = &summary {
+                let response = widgets::callout(ui, *tone, |ui| ui.label(text));
+                widgets::announced(ui, &response, *tone == Tone::Error);
+                ui.add_space(SPACE_M);
+            }
+            for (index, (card, place)) in cards.iter().enumerate() {
+                measure_panel::show_card(ui, ("interference", index), card);
+                if let Some(place) = place {
+                    let button = widgets::small_button(ui, icons::SHOW_PLACE, SHOW_PLACE);
+                    if ui.add(button).clicked() {
+                        shown = Some(*place);
+                    }
+                }
+                ui.add_space(SPACE_M);
+            }
+            if unlisted > 0 {
+                ui.label(widgets::muted(
+                    format!("{unlisted} more not listed. Select bodies to check fewer at a time."),
+                    ui,
+                ));
+            }
+        });
+    });
     if close {
         tool.toggle();
     }

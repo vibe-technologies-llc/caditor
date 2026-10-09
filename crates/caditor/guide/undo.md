@@ -3,9 +3,13 @@
 Every change to the model can be undone: sketch edits, feature values, parameters, reordering,
 hiding and restoring an older version alike.
 
-- {command:edit.undo} takes back the last change and {command:edit.redo} brings it back.
-- {command:edit.undo_history} lists the steps Undo and Redo hold. Hover one to see what it changed;
-  click it to go back or forward to that point in one go.
+- {command:edit.undo} takes back the last change and {command:edit.redo} brings it back. The Edit
+  menu names the step each would take, such as Undo Extrude 1 distance.
+- {command:edit.undo_history} lists the steps Undo and Redo hold, with Now beside the change the
+  model is at. Hover one to see what it changed; click it to go back or forward to that point in
+  one go, or click Before these changes to go back to before every change listed.
+- {command:file.revert} goes back to the model as it was last saved, in one step that Undo takes
+  back.
 
 Undo history survives a crash: the [recovery journal](saving) records undo and redo too, so a
 restored session can still undo.

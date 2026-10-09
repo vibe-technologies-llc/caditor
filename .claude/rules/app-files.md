@@ -60,6 +60,22 @@ paths:
   version. A save started from the unsaved-changes prompt continues after Replace or Save a copy
   and is dropped on Cancel.
 - A load or import report is one card listing each issue.
+- Each dialog purpose remembers the folder last picked in it for the app session (`Folder`:
+  open, import, export, drawing, parameter files; the image export keeps its own), and starts
+  there, else in the model's folder, else the most recent file's. Save as and templates keep their
+  own starting folders.
+- Revert to the saved version (`Command::RevertToSaved`, File menu, palette, no default keys)
+  applies `Document::transaction_to` the last saved document (`Model::saved_version`) as one
+  undoable change and says Undo brings the changes back. It is unavailable with the reason while
+  the model was never saved, has no changes, or its saved document is unknown after a recovery.
+- File › Open recent lists the recent models, each a `widgets::removable_menu_item` whose remove
+  button shows on hover or focus and takes that entry alone off the list
+  (`FileCommand::ForgetRecent`, also the palette's `Command::ForgetRecent` per slot, its detail the
+  file name); the file is never touched. Which entries are gone is checked on the files worker
+  (`FileCommand::CheckRecent`, not found only, so a permission error does not count) once recent
+  files are read at startup and each time the File menu opens; a missing one is drawn muted with
+  "(not found)" and can still be opened. Opening a recent model that no longer exists forgets it
+  and the notice says it was removed from the recent models.
 - Files dragged over the window (`drop_target.rs`, from egui's `hovered_files`, so only where the
   platform reports them: X11 and Windows) outline the view and say in a card what dropping them
   does, mirroring `Files::dropped`: open one model, import drawings and STEP files (into the sketch
@@ -136,6 +152,15 @@ paths:
 - A path lacking the format's extension gets it appended, so an export never replaces a model
   file; when the appended name exists, `files.rs` asks "Replace …?" as Save As does, and Cancel
   returns to the export dialog.
+- Every model export started records a `LastExport` in `Files` (path, `ExportChoices`, the model
+  session) and, once it succeeds, the file's size and modification time as the export thread
+  leaves it (`Stamp`). Export again (`Command::ExportAgain`, File menu under Export, palette, no
+  default keys; titled "Export again to <file>" through `Command::title_with`) restores those
+  choices and repeats the export through the export thread without a dialog. The target is
+  checked on the files worker: a file whose stamp differs from the one this export left (changed
+  elsewhere, or never written by it) is asked about with the "Replace …?" confirmation, Cancel
+  writing nothing. It is unavailable with the reason before an export in this model session,
+  while an export runs or the model recomputes, and for the model's own file.
 
 ## Drawing export
 
