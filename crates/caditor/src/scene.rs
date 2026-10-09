@@ -12,7 +12,7 @@ use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{RegionKey, RegionMesh, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
-    PickResult, Scene, Stroke,
+    PickResult, Reflection, Scene, Stroke,
 };
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Faceting, Reference, Sketch,
@@ -470,11 +470,13 @@ pub fn build(
         translucent_meshes: Vec::new(),
         overlay_meshes: Vec::new(),
         flat_meshes: Vec::new(),
+        reflective_meshes: Vec::new(),
         picks: PickTable::default(),
         highlight,
         style,
         palette,
         analysis: aids.analysis.map(|analysis| (analyses, analysis)),
+        reflection: aids.reflection,
     };
 
     match &edited {
@@ -612,6 +614,8 @@ pub fn build(
             translucent_meshes: builder.translucent_meshes,
             overlay_meshes: builder.overlay_meshes,
             flat_meshes: builder.flat_meshes,
+            reflective_meshes: builder.reflective_meshes,
+            reflection: aids.reflection.unwrap_or_default(),
             batches: vec![Arc::new(builder.scene)],
             grid: Some(Grid {
                 plane: grid_plane,
@@ -792,11 +796,13 @@ struct Builder<'a> {
     translucent_meshes: Vec<MeshInstance>,
     overlay_meshes: Vec<MeshInstance>,
     flat_meshes: Vec<MeshInstance>,
+    reflective_meshes: Vec<MeshInstance>,
     picks: PickTable,
     highlight: &'a Highlight<'a>,
     style: DisplayStyle,
     palette: &'static ScenePalette,
     analysis: Option<(&'a Analyses, FaceAnalysis)>,
+    reflection: Option<Reflection>,
 }
 
 impl Builder<'_> {
@@ -1024,7 +1030,9 @@ impl Builder<'_> {
                 faces,
                 placement,
             };
-            if style.is_drawing() {
+            if self.reflection.is_some() && color.is_some() && placement.is_none() {
+                self.reflective_meshes.push(instance);
+            } else if style.is_drawing() {
                 self.flat_meshes.push(instance);
             } else {
                 self.meshes.push(instance);

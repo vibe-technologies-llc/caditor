@@ -233,12 +233,14 @@ paths:
 
 ## Face analysis
 
-- Analyse draft, Analyse minimum radius and Analyse tool reach (`AnalysisCommand::Draft`, `Radius`,
-  `Reach`, View menu, palette) toggle `AnalysisTool` in the `Workspace` (`Kind` is its Draft,
-  Minimum radius or Reach switch, which the panel's segmented control changes too); while open, `analysis_panel.rs` draws a right-hand panel
+- Analyse draft, Analyse minimum radius, Analyse tool reach, Analyse curvature, Show zebra stripes
+  and Show a chrome reflection (`AnalysisCommand::Draft`, `Radius`, `Reach`, `Curvature`, `Zebra`,
+  `Chrome`, View menu, palette) toggle `AnalysisTool` in the `Workspace` (`Kind` is which one, which
+  the panel's segmented control, a menu once it is too wide, changes too); while open, `analysis_panel.rs` draws a right-hand panel
   beside any other. Like
-  centres of mass it is a view aid: `ViewAids::analysis` (a `FaceAnalysis`, worked out each frame
-  from the tool by `AnalysisTool::analysis` and handed over with `ViewportState::set_analysis`)
+  centres of mass it is a view aid: `ViewAids::analysis` (a `FaceAnalysis`) or
+  `ViewAids::reflection` (a `caditor_render::Reflection`), worked out each frame from the tool by
+  `AnalysisTool::analysis` as an `Analysis` and handed over with `ViewportState::set_analysis`,
   reaches the scene through `Sources::aids` and `Revisions::aids`. It never changes the document and
   is kept for the session. A limit that cannot be read or a pull that is gone shows a warning
   callout (`Problem`) and nothing is coloured.
@@ -264,6 +266,19 @@ paths:
   generation into `FaceAnalysis::Reach`, so a change of bodies, visibility or direction is a new
   analysis; the grid is built once on first use, on the analysis thread when the mesh and the
   occluders together pass `INLINE_TRIANGLES`. Any other analysis, or none, drops the occluders.
+- Curvature colours each triangle by a curvature of the display mesh against a Reference radius R
+  (a length expression, 10 mm at first, above zero): `ShapeOperator::of` fits the 2×2 shape
+  operator to how the corners' normals turn along the three edges (least squares in the triangle's
+  plane, positive where the face bulges out of its outward side), giving the Gaussian curvature
+  and the largest and smallest principal curvatures (`Measure`). Five steps each, from
+  `Measure::bands`: beyond −1 (scaled by R, or R² for Gaussian), below −`FLAT_SHARE`, within
+  ±`FLAT_SHARE` (flat for the principal ones, flat or bent one way, so developable, for Gaussian),
+  above, beyond +1; their colours are `ScenePalette::bands.curvature`, a diverging scale.
+- Zebra and Chrome change no colours: the scene puts every coloured, unmoved body mesh into
+  `Scene::reflective_meshes` with its usual face styles (so hover, selection and picking read as
+  before) and sets `Scene::reflection` (`render.md`). Zebra's stripes run along the X, Y or Z axis
+  (Stripes along) with `MIN_STRIPES` to `MAX_STRIPES` stripes per turn (12 at first); the panel
+  explains how stripes and reflections show G0, G1 and G2 joints instead of a legend of areas.
 - Minimum radius colours `Band::TooTight` the concave triangles whose surface curves tighter than
   the Smallest radius (a length expression, 2 mm at first, above zero), where a cutter or a nozzle
   of that radius cannot reach. The curvature is read from the display mesh along each triangle edge,

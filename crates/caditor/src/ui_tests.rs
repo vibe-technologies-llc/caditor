@@ -15621,6 +15621,63 @@ fn reach_analysis_colours_what_a_tool_from_above_gets_to_and_reverses_to_the_oth
 }
 
 #[test]
+fn curvature_zebra_and_chrome_show_on_the_bodies_and_leave_the_model_alone() {
+    use caditor_render::Reflection;
+
+    use crate::{analysis::Band, scene_palette::Contrast};
+
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    let revision = harness.model.revision();
+    let palette = Contrast::Standard.palette();
+
+    run_from_palette(&mut harness, "analyse curvature");
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows("Reference radius"));
+    assert!(harness.shows_containing("Flat or bent one way"));
+    assert_eq!(
+        painted_faces(&mut harness, Band::Developable.colour(palette)),
+        6
+    );
+
+    run_from_palette(&mut harness, "show zebra stripes");
+    harness.frame();
+    harness.frame();
+    let striped = harness.built().scene;
+
+    assert!(harness.shows(crate::analysis_panel::STRIPES));
+    assert_eq!(striped.reflective_meshes.len(), 1);
+    assert!(striped.meshes.is_empty());
+    assert!(matches!(
+        striped.reflection,
+        Reflection::Zebra {
+            stripes: crate::analysis::DEFAULT_STRIPES,
+            ..
+        }
+    ));
+
+    run_from_palette(&mut harness, "show a chrome reflection");
+    harness.frame();
+    harness.frame();
+    let chrome = harness.built().scene;
+
+    assert_eq!(chrome.reflective_meshes.len(), 1);
+    assert_eq!(chrome.reflection, Reflection::Chrome);
+
+    run_from_palette(&mut harness, "show a chrome reflection");
+    harness.frame();
+    harness.frame();
+    let plain = harness.built().scene;
+
+    assert!(!harness.workspace.analysis.open);
+    assert!(plain.reflective_meshes.is_empty());
+    assert_eq!(plain.meshes.len(), 1);
+    assert_eq!(harness.model.revision(), revision);
+}
+
+#[test]
 fn the_pull_direction_follows_the_selected_face_and_reverses_from_the_palette() {
     use crate::{
         analysis::{AnalysisCommand, Pull, Refusal},

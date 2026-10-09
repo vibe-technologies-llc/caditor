@@ -3,8 +3,8 @@ use std::{sync::Arc, time::Duration};
 use caditor_document::{FeatureId, FeatureKind, SavedView, Transaction};
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_render::{
-    Camera, PickResult, ProjectionMode, Scene, SurfaceSize, View, Viewpoint, ViewportRect,
-    grid_minor_spacing,
+    Camera, PickResult, ProjectionMode, Reflection, Scene, SurfaceSize, View, Viewpoint,
+    ViewportRect, grid_minor_spacing,
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
@@ -457,8 +457,9 @@ impl ViewportState {
         self.aids.centres_of_mass = !self.aids.centres_of_mass;
     }
 
-    pub fn set_analysis(&mut self, analysis: Option<FaceAnalysis>) {
+    pub fn set_analysis(&mut self, analysis: Option<FaceAnalysis>, reflection: Option<Reflection>) {
         self.aids.analysis = analysis;
+        self.aids.reflection = reflection;
     }
 
     pub fn analyses(&self) -> &Analyses {

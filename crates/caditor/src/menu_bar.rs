@@ -542,6 +542,9 @@ impl Menus<'_, '_> {
             self.item(ui, Command::Analysis(AnalysisCommand::Draft));
             self.item(ui, Command::Analysis(AnalysisCommand::Radius));
             self.item(ui, Command::Analysis(AnalysisCommand::Reach));
+            self.item(ui, Command::Analysis(AnalysisCommand::Curvature));
+            self.item(ui, Command::Analysis(AnalysisCommand::Zebra));
+            self.item(ui, Command::Analysis(AnalysisCommand::Chrome));
             self.item(ui, Command::Analysis(AnalysisCommand::Comb));
             ui.separator();
             self.items(

@@ -83,6 +83,7 @@ impl Scene {
             .meshes
             .iter()
             .chain(&self.flat_meshes)
+            .chain(&self.reflective_meshes)
             .chain(&self.translucent_meshes)
         {
             probe.mesh(instance);

@@ -117,6 +117,14 @@ paths:
 
 - `Scene::flat_meshes` draw right after the opaque meshes with the same depth writes and pick pass
   but `fs_color`, so each face shows its style's colour exactly, unlit (the hidden-line style).
+- `Scene::reflective_meshes` draw right after the flat ones with the opaque depth writes and pick
+  pass but `fs_reflective`, which reflects the eye ray about the normal in world space and shades
+  by `Scene::reflection`: `Zebra` (a ring of `stripes` light and dark bands per turn around an axis,
+  antialiased with the narrower `fwidth` of two angles whose seams differ, the light band the face
+  colour brightened and the dark one nearly black) or `Chrome` (a procedural world-Z-up sky,
+  horizon, ground and one light panel, tinted halfway to the face colour's hue, so hover and
+  selection still show). The reflection rides in the view uniform's last two vectors (the stripe
+  axes' orthonormal pair, the stripe count and a zebra flag).
 - `Scene::overlay_meshes` draw right after the translucent ones, blended, with no depth test or
   write and never in the pick pass, so they show through whatever covers them (the cut preview).
 - `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and

@@ -11,7 +11,9 @@ use crate::{
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     mesh::{MESH_VERTEX_STRIDE, MeshCache},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
-    scene::{Batch, Color, Fill, Grid, Layer, Line, PickId, Primitive, Scene, ViewportRect},
+    scene::{
+        Batch, Color, Fill, Grid, Layer, Line, PickId, Primitive, Reflection, Scene, ViewportRect,
+    },
     settings::Shading,
 };
 
@@ -38,7 +40,7 @@ const LINE_STRIDE: u64 = 60;
 const MARKER_STRIDE: u64 = 44;
 const FILL_VERTEX_STRIDE: u64 = 40;
 const FILL_TRIANGLE_STRIDE: u64 = FILL_VERTEX_STRIDE * 3;
-const VIEW_UNIFORM_SIZE: u64 = 160;
+const VIEW_UNIFORM_SIZE: u64 = 192;
 const REANCHOR_DISTANCES: f64 = 4.0;
 const ANCHOR_ERROR_PIXELS: f64 = 0.02;
 const F32_ROUNDING: f64 = f32::EPSILON as f64 / 2.0;
@@ -102,6 +104,7 @@ struct Pipelines {
     translucent_meshes: wgpu::RenderPipeline,
     overlay_meshes: wgpu::RenderPipeline,
     flat_meshes: wgpu::RenderPipeline,
+    reflective_meshes: wgpu::RenderPipeline,
     lines: wgpu::RenderPipeline,
     hidden_lines: wgpu::RenderPipeline,
     markers: wgpu::RenderPipeline,
@@ -129,6 +132,7 @@ pub struct ImagePlan {
     pixels_per_point: f32,
     clear: wgpu::Color,
     grid: bool,
+    reflection: Reflection,
     targets: ImageTargets,
 }
 
@@ -636,6 +640,7 @@ pub struct ViewportRenderer {
     translucent: MeshCache,
     overlay: MeshCache,
     flat: MeshCache,
+    reflective: MeshCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
     targets_refused: Option<(u32, u32)>,
@@ -690,6 +695,7 @@ impl ViewportRenderer {
             translucent: MeshCache::new(device),
             overlay: MeshCache::new(device),
             flat: MeshCache::new(device),
+            reflective: MeshCache::new(device),
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -859,6 +865,7 @@ impl ViewportRenderer {
             translucent: self.translucent.sibling(device),
             overlay: self.overlay.sibling(device),
             flat: self.flat.sibling(device),
+            reflective: self.reflective.sibling(device),
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -913,6 +920,7 @@ impl ViewportRenderer {
                 Background::Transparent => wgpu::Color::TRANSPARENT,
             },
             grid: request.scene.grid.is_some(),
+            reflection: request.scene.reflection,
             targets,
         })
     }
@@ -933,7 +941,7 @@ impl ViewportRenderer {
                 anchor: plan.anchor,
             },
             plan.pixels_per_point,
-            self.shading,
+            (self.shading, plan.reflection),
             transform,
         );
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
@@ -973,6 +981,8 @@ impl ViewportRenderer {
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
         self.meshes.draw(pass, &self.pipelines.meshes, window);
         self.flat.draw(pass, &self.pipelines.flat_meshes, window);
+        self.reflective
+            .draw(pass, &self.pipelines.reflective_meshes, window);
         self.translucent
             .draw(pass, &self.pipelines.translucent_meshes, window);
         self.overlay
@@ -1036,6 +1046,8 @@ impl ViewportRenderer {
         self.meshes
             .draw(&mut pass, &self.pipelines.pick.meshes, &window);
         self.flat
+            .draw(&mut pass, &self.pipelines.pick.meshes, &window);
+        self.reflective
             .draw(&mut pass, &self.pipelines.pick.meshes, &window);
         self.translucent
             .draw(&mut pass, &self.pipelines.pick.translucent_meshes, &window);
@@ -1104,7 +1116,7 @@ impl ViewportRenderer {
             &mut self.staging,
             &anchored,
             pixels_per_point,
-            self.shading,
+            (self.shading, scene.reflection),
             WHOLE_VIEW,
         );
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
@@ -1126,7 +1138,7 @@ impl ViewportRenderer {
                 &mut self.staging,
                 &anchored,
                 pixels_per_point,
-                self.shading,
+                (self.shading, scene.reflection),
                 transform,
             );
             queue.write_buffer(&self.pick_view_uniform.buffer, 0, self.staging.as_slice());
@@ -1152,7 +1164,13 @@ impl ViewportRenderer {
             .saturating_add(
                 self.flat
                     .prepare(device, queue, &scene.flat_meshes, view.eye()),
-            );
+            )
+            .saturating_add(self.reflective.prepare(
+                device,
+                queue,
+                &scene.reflective_meshes,
+                view.eye(),
+            ));
         let (changed, refused_batches) =
             self.upload_batches(device, queue, &scene.batches, anchored.anchor);
         faults.batches = refused_batches;
@@ -1495,6 +1513,14 @@ impl Pipelines {
                 "fs_color",
                 true,
             ),
+            reflective_meshes: color(
+                "reflective meshes",
+                &mesh_pipeline_layout,
+                "vs_mesh",
+                &meshes,
+                "fs_reflective",
+                true,
+            ),
             lines: color("lines", &scene_layout, "vs_line", &lines, "fs_line", true),
             hidden_lines: build_pipeline(
                 device,
@@ -1681,9 +1707,10 @@ fn view_uniform(
     bytes: &mut Bytes,
     anchored: &AnchoredView<'_>,
     pixels_per_point: f32,
-    shading: Shading,
+    (shading, reflection): (Shading, Reflection),
     transform: [f32; 4],
 ) {
+    let [across, along] = reflection.uniform();
     let view = anchored.view;
     let size = view.size();
     bytes.clear();
@@ -1699,7 +1726,9 @@ fn view_uniform(
         .floats(&transform)
         .vec4(key_light(view).as_vec3(), shading.uniform_flag())
         .vec4(fill_light(view).as_vec3(), 0.0)
-        .vec4(relative_to_eye(anchored.anchor, view.eye()), 0.0);
+        .vec4(relative_to_eye(anchored.anchor, view.eye()), 0.0)
+        .floats(&across)
+        .floats(&along);
 }
 
 fn key_light(view: &View) -> Vector3 {

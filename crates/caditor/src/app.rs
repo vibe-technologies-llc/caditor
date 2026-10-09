@@ -22,7 +22,7 @@ use winit::{
 
 use crate::{
     about,
-    analysis::{self, AnalysisCommand, AnalysisTool, Kind},
+    analysis::{self, Analysis, AnalysisCommand, AnalysisTool, Kind},
     analysis_panel::{self, AnalysisContext},
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     body_selection, canvas,
@@ -576,13 +576,14 @@ pub fn show(
     } else {
         None
     };
-    let shown = if analysing.is_some() {
+    let faces = analysing.and_then(Analysis::faces);
+    let shown = if faces.is_some() {
         analysis::shown_meshes(model, viewport.bodies())
     } else {
         Vec::new()
     };
-    let analysing = viewport.analyses().prepare(analysing, &shown);
-    viewport.set_analysis(analysing);
+    let faces = viewport.analyses().prepare(faces, &shown);
+    viewport.set_analysis(faces, analysing.and_then(Analysis::reflection));
     let combing = if comb.open {
         comb.follow(model, viewport.selection());
         let combed = comb.comb(model);
@@ -1612,6 +1613,9 @@ fn analysis_commands(
         (AnalysisCommand::Draft, Kind::Draft),
         (AnalysisCommand::Radius, Kind::Radius),
         (AnalysisCommand::Reach, Kind::Reach),
+        (AnalysisCommand::Curvature, Kind::Curvature),
+        (AnalysisCommand::Zebra, Kind::Zebra),
+        (AnalysisCommand::Chrome, Kind::Chrome),
     ] {
         if commands.available(Command::Analysis(command)) {
             analysis.toggle(kind);

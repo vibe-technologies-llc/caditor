@@ -110,6 +110,7 @@ pub struct Bands {
     pub undercut: Color,
     pub too_tight: Color,
     pub blocked: Color,
+    pub curvature: [Color; 5],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -284,6 +285,13 @@ pub const STANDARD: ScenePalette = ScenePalette {
         undercut: Color::from_rgb8(214, 68, 62),
         too_tight: Color::from_rgb8(226, 72, 150),
         blocked: Color::from_rgb8(150, 120, 240),
+        curvature: [
+            Color::from_rgb8(70, 120, 235),
+            Color::from_rgb8(110, 190, 230),
+            Color::from_rgb8(130, 196, 140),
+            Color::from_rgb8(240, 180, 80),
+            Color::from_rgb8(225, 80, 70),
+        ],
     },
     comb: CombLook {
         teeth: Color::from_rgb8(96, 190, 230),
@@ -381,6 +389,13 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
         undercut: Color::from_rgb8(255, 96, 88),
         too_tight: Color::from_rgb8(255, 110, 190),
         blocked: Color::from_rgb8(180, 160, 255),
+        curvature: [
+            Color::from_rgb8(110, 150, 255),
+            Color::from_rgb8(140, 215, 255),
+            Color::from_rgb8(150, 225, 160),
+            Color::from_rgb8(255, 200, 100),
+            Color::from_rgb8(255, 110, 100),
+        ],
     },
     comb: CombLook {
         teeth: Color::from_rgb8(120, 210, 255),
@@ -558,6 +573,19 @@ mod tests {
             for (index, (what, color)) in all.iter().enumerate() {
                 for (other, against) in all.iter().skip(index + 1) {
                     assert_ne!(color, against, "{what} and {other}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_curvature_map_steps_stand_out_from_the_canvas_and_from_each_other() {
+        for palette in [&STANDARD, &HIGH_CONTRAST] {
+            let steps = palette.bands.curvature;
+            for (index, color) in steps.iter().enumerate() {
+                assert_visible("curvature step", *color, canvas());
+                for other in steps.iter().skip(index + 1) {
+                    assert_ne!(color, other);
                 }
             }
         }

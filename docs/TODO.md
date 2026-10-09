@@ -291,9 +291,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Inspection and analysis
 
-- [low · medium] No surface quality analyses: zebra stripes, a curvature map (Gaussian and the
-  principal curvatures), isocurves with combs, and a chrome reflection of the surroundings, all
-  shown on the bodies without changing the model.
+- [low · medium] No isocurves with combs: the u and v parameter lines of the selected faces drawn
+  on the bodies, each with a curvature comb (`comb.rs`), to judge a spline face's flow; the
+  curvature map, zebra stripes and chrome reflection are done (`app.md`, "Face analysis").
 
 ## STEP import and export
 

@@ -30,8 +30,8 @@ pub use crate::{
     offscreen::OffscreenRenderer,
     picking::PickPoll,
     scene::{
-        Batch, Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Scene, Stroke,
-        ViewportRect,
+        Batch, Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Reflection,
+        Scene, Stroke, ViewportRect,
     },
     settings::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading},
     viewport::{BACKGROUND, SurfaceTarget, ViewportFrame, ViewportRenderer, grid_minor_spacing},
