@@ -133,8 +133,10 @@ paths:
   and only once every one has solved geometry. Export face (`Command::ExportFace`,
   `drawing_export::face_commands`) is offered while one or more faces are selected, all flat (a
   curved one refuses in words). Export sketch also takes the flat faces selected in the view
-  (`DrawingSource::with_faces`, `DrawingSource::Both`, titled "Export sketches and faces"); the
-  dialog offers them as a checkbox, on each time it opens, and the files worker writes both into
+  (`DrawingSource::with_faces`, `DrawingSource::Both`, titled "Export sketches and faces"), and
+  Export face the sketches among the features chosen in the tree (`drawing_export::face_source`,
+  refusing as Export sketch does while one has no solved geometry); the dialog offers the faces as
+  a checkbox, on each time it opens, and the files worker writes both into
   one drawing (`caditor_file::export_drawing`) and announces it with `drawing_export::both_finished`.
 - Both send `FileCommand::ExportDrawing` with a `DrawingSource`, which opens the drawing export
   dialog (`drawing_export::dialog`, `DrawingExporter` in `Files`, `FileCommand::DrawingExport`):

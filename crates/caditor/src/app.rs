@@ -534,7 +534,13 @@ pub fn show(
         editing,
     };
     panels::commands(&context, panels, &mut commands, actions);
-    drawing_export::face_commands(model, viewport.selection(), &mut commands, actions);
+    drawing_export::face_commands(
+        model,
+        viewport.selection(),
+        &panels.chosen(),
+        &mut commands,
+        actions,
+    );
     route_dimension_focus(panels, editing, viewport);
     reference_picking::publish(ui.ctx(), editing.picking());
     let open_panels = 1

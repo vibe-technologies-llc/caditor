@@ -29,9 +29,10 @@ pub const SKETCH_HINT: &str = "Save the curves of one or more sketches as a DXF 
                                millimetres, side by side or nested on a sheet";
 pub const NOT_A_SKETCH: &str = "Choose a sketch in the feature tree, or edit one, to export it";
 pub const NOT_SOLVED: &str = "The sketch has not been solved, so there is nothing to export yet";
-pub const FACE_HINT: &str = "Save the outlines and holes of the selected flat faces as a DXF or SVG \
-                             drawing in millimetres, side by side or nested on a sheet, for laser \
-                             or CNC cutting";
+pub const FACE_HINT: &str = "Save the outlines and holes of the selected flat faces, with any \
+                             sketches chosen in the feature tree, as a DXF or SVG drawing in \
+                             millimetres, side by side or nested on a sheet, for laser or CNC \
+                             cutting";
 pub const NOT_A_FACE: &str = "Select one or more flat faces of bodies to export their outlines";
 const CURVED: &str = "A selected face is curved; only flat faces export as drawings";
 const DEFAULT_SHEET_WIDTH: f64 = 600.0;
@@ -280,24 +281,57 @@ pub fn faces_name(model: &Model, choices: &[FaceChoice]) -> Option<String> {
     }
 }
 
+fn chosen_sketches(model: &Model, chosen: &[FeatureId]) -> Result<Vec<FeatureId>, &'static str> {
+    let sketches: Vec<&Feature> = model
+        .document()
+        .features()
+        .filter(|feature| chosen.contains(&feature.id()) && feature.kind.sketch().is_some())
+        .collect();
+    if sketches.is_empty() {
+        return Ok(Vec::new());
+    }
+    exportable_sketches(model, &sketches)
+}
+
+fn face_source(
+    model: &Model,
+    selection: &Selection,
+    chosen: &[FeatureId],
+) -> Result<DrawingSource, &'static str> {
+    let faces = exportable_faces(model, selection)?;
+    let sketches = chosen_sketches(model, chosen)?;
+    Ok(if sketches.is_empty() {
+        DrawingSource::Faces(faces)
+    } else {
+        DrawingSource::Both { sketches, faces }
+    })
+}
+
+fn source_detail(model: &Model, source: &DrawingSource) -> Option<String> {
+    let faces = faces_name(model, source.faces())?;
+    Some(match source.sketches() {
+        [] => faces,
+        sketches => format!("{faces} and {}", sketches_name(model, sketches)),
+    })
+}
+
 pub fn face_commands(
     model: &Model,
     selection: &Selection,
+    chosen: &[FeatureId],
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let exportable = exportable_faces(model, selection);
+    let exportable = face_source(model, selection, chosen);
     let detail = exportable
         .as_ref()
         .ok()
-        .and_then(|choices| faces_name(model, choices));
+        .and_then(|source| source_detail(model, source));
     let available = exportable.as_ref().map(|_| ()).map_err(|reason| *reason);
     if commands.invoke_detailed(Command::ExportFace, detail, &available)
-        && let Ok(choices) = exportable
+        && let Ok(source) = exportable
     {
-        actions.push(Action::File(FileCommand::ExportDrawing(
-            DrawingSource::Faces(choices),
-        )));
+        actions.push(Action::File(FileCommand::ExportDrawing(source)));
     }
 }
 

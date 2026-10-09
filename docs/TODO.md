@@ -325,8 +325,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   without the canvas's lanes or obstacle avoidance, so crowded sketches overlap their labels. The
   canvas's layout lives in `caditor`'s `annotation_layout.rs`, which `caditor-file` cannot call
   without a dependency cycle; it would have to move to a crate both use (or the app hand the
-  exporter its placed labels). Combined drawings of sketches and faces are reached only through
-  Export sketch with faces selected; Export face does not yet take the sketches chosen in the tree.
+  exporter its placed labels).
 
 ## Mesh import and export
 

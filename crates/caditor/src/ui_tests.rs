@@ -2017,6 +2017,32 @@ fn a_chosen_sketch_and_a_selected_face_nest_into_one_drawing() {
     assert!(drawing.layers.contains(&"Outline".to_owned()));
 }
 
+#[test]
+fn export_face_takes_the_sketches_chosen_in_the_tree_too() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let (_, top) = extruded_plate(&mut harness);
+    let mut washer = Sketch::new(Plane::XY);
+    washer.add_circle(Point2::new(100.0, 0.0), 5.0);
+    let washer = harness.add_sketch(washer);
+    harness.settle();
+    harness.workspace.panels.choose_only(washer);
+    harness.select([top]);
+    harness.frame();
+    let written = dir.path().join("face and sketch.dxf");
+
+    harness.answer_dialog(Some(written.clone()));
+    run_from_palette(&mut harness, "export face");
+    let titled = harness.shows("Export sketches and faces");
+    harness.click("Export…");
+    harness.wait_until("the drawing is written", |_| written.exists());
+    let drawing =
+        caditor_file::read_dxf(&written, &caditor_document::CancelToken::never()).unwrap();
+
+    assert!(titled);
+    assert_eq!(drawing.curve_count(), 5);
+}
+
 fn png_size(path: &Path) -> (u32, u32, u8) {
     const RGBA: u8 = 6;
     let bytes = std::fs::read(path).unwrap();
