@@ -50,11 +50,11 @@ struct Written {
 }
 
 impl Written {
-    fn of(silhouette: &Silhouette, eye: Point3) -> Self {
+    fn of(silhouette: &Silhouette, anchor: Point3) -> Self {
         Self {
             placed: PlacedAt {
                 placement: silhouette.placement,
-                eye,
+                anchor,
             },
             color: silhouette.color,
             width: silhouette.width,
@@ -238,8 +238,8 @@ impl GpuSilhouette {
         )
     }
 
-    fn needs_writing(&self, silhouette: &Silhouette, eye: Point3) -> bool {
-        self.written != Some(Written::of(silhouette, eye))
+    fn needs_writing(&self, silhouette: &Silhouette, anchor: Point3) -> bool {
+        self.written != Some(Written::of(silhouette, anchor))
     }
 
     fn write(
@@ -247,9 +247,9 @@ impl GpuSilhouette {
         queue: &wgpu::Queue,
         bytes: &mut Bytes,
         silhouette: &Silhouette,
-        eye: Point3,
+        anchor: Point3,
     ) {
-        let written = Written::of(silhouette, eye);
+        let written = Written::of(silhouette, anchor);
         if self.written == Some(written) {
             return;
         }
@@ -258,7 +258,7 @@ impl GpuSilhouette {
             .mesh
             .bounds()
             .map(|bounds| placed_corners(bounds, silhouette.placement));
-        let placed = Placed::of(self.mesh.origin(), silhouette.placement, eye);
+        let placed = Placed::of(self.mesh.origin(), silhouette.placement, anchor);
         let [turn_x, turn_y, turn_z] = placed.turn;
         bytes.clear();
         bytes
@@ -356,7 +356,7 @@ impl SilhouetteCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         silhouettes: &[Silhouette],
-        eye: Point3,
+        anchor: Point3,
         budget: &mut UploadBudget,
     ) -> u32 {
         self.previous.refill(&mut self.silhouettes);
@@ -373,7 +373,7 @@ impl SilhouetteCache {
             }
             let reused = self.previous.take(&silhouette.mesh);
             if let Some(ready) = &reused
-                && !ready.needs_writing(silhouette, eye)
+                && !ready.needs_writing(silhouette, anchor)
             {
                 self.silhouettes.extend(reused);
                 continue;
@@ -394,7 +394,7 @@ impl SilhouetteCache {
                         upload.finish(device, layout)
                     }
                 };
-                ready.write(queue, staging, silhouette, eye);
+                ready.write(queue, staging, silhouette, anchor);
                 Prepared::Ready(Box::new(ready))
             });
             match (prepared, error) {
@@ -413,18 +413,18 @@ impl SilhouetteCache {
         self.started.clear();
         self.refused.clear();
         if self.is_uploading() {
-            self.keep_previous(device, queue, eye);
+            self.keep_previous(device, queue, anchor);
         }
         self.previous.clear();
         newly_rejected
     }
 
-    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, eye: Point3) {
+    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, anchor: Point3) {
         let mut previous: Vec<GpuSilhouette> = self.previous.rest().collect();
         if previous.iter().all(|silhouette| {
             silhouette
                 .written
-                .is_none_or(|written| written.placed.eye == eye)
+                .is_none_or(|written| written.placed.anchor == anchor)
         }) {
             self.silhouettes.append(&mut previous);
             return;
@@ -441,7 +441,7 @@ impl SilhouetteCache {
                         dashed_where_hidden: written.dashed_where_hidden,
                         placement: written.placed.placement,
                     };
-                    silhouette.write(queue, staging, &kept, eye);
+                    silhouette.write(queue, staging, &kept, anchor);
                 }
             }
         });

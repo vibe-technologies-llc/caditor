@@ -1362,7 +1362,7 @@ impl ViewportRenderer {
             queue.write_buffer(&self.grid_uniform.buffer, 0, self.staging.as_slice());
         }
 
-        let eye = view.eye();
+        let anchor = anchored.anchor;
         faults.meshes = [
             (&mut self.meshes, &scene.meshes),
             (&mut self.translucent, &scene.translucent_meshes),
@@ -1372,17 +1372,16 @@ impl ViewportRenderer {
         ]
         .into_iter()
         .fold(0, |refused: u32, (cache, instances)| {
-            refused.saturating_add(cache.prepare(device, queue, instances, eye, &mut budget))
+            refused.saturating_add(cache.prepare(device, queue, instances, anchor, &mut budget))
         })
         .saturating_add(self.silhouettes.prepare(
             device,
             queue,
             &scene.silhouettes,
-            eye,
+            anchor,
             &mut budget,
         ));
-        let (changed, refused_batches) =
-            self.upload_batches(device, queue, &scene.batches, anchored.anchor);
+        let (changed, refused_batches) = self.upload_batches(device, queue, &scene.batches, anchor);
         faults.batches = refused_batches;
         self.order_fills(Facing::of(view), changed);
         faults

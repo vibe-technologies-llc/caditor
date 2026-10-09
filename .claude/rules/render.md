@@ -56,12 +56,16 @@ paths:
 
 - Model positions are converted relative to a nearby point in f64 before the f32 cast and the view
   matrix is rotation only, so geometry far from the origin stays exact.
-- A `ShadedMesh` stores positions relative to its own centre, with the eye offset computed in f64
-  each frame. Batches store positions relative to an anchor (the eye when uploaded), whose offset
-  the view uniform carries; it stays while the eye is within `reanchor_reach`, the larger of `REANCHOR_DISTANCES` view
-  distances and the distance at which f32 rounding of an offset stays under `ANCHOR_ERROR_PIXELS`
-  of a pixel at the current zoom; beyond that the next frame re-anchors and uploads every batch
-  again.
+- Batches store positions relative to an anchor (the eye when uploaded), whose offset from the
+  eye the view uniform carries; it stays while the eye is within `reanchor_reach`, the larger of
+  `REANCHOR_DISTANCES` view distances and the distance at which f32 rounding of an offset stays
+  under `ANCHOR_ERROR_PIXELS` of a pixel at the current zoom; beyond that the next frame
+  re-anchors and uploads every batch again.
+- A `ShadedMesh` stores positions relative to its own centre; its placement uniform (and a
+  silhouette's) holds the placed centre relative to the same anchor, worked out in f64, and the
+  shader adds the view uniform's anchor offset to it before the mesh-local position, so a camera
+  move writes no mesh or silhouette uniform until the anchor moves (offscreen test with a mesh
+  4,000 km out).
 
 ## Meshes
 
@@ -86,8 +90,8 @@ paths:
   for the GPU apart from the UI thread's; `CADITOR_BENCH_CASE` runs only the cases whose name
   contains it.
 - A `MeshInstance` may carry a `placement` (a `RigidTransform`) drawing the mesh moved and turned
-  without a new upload: the placement uniform, rewritten only when the placement or the eye moved,
-  holds the turned axes and the placed centre relative to the eye (worked out in f64), and
+  without a new upload: the placement uniform, rewritten only when the placement or the anchor
+  moved, holds the turned axes and the placed centre relative to the anchor (worked out in f64), and
   `vs_mesh` turns positions and normals by them. An `Arc` appears at most once in a scene, since
   buffers, styles and placement are kept per mesh.
 - A mesh whose placed bounds lie wholly beyond one side of the clip volume is not drawn

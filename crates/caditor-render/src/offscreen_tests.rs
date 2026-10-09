@@ -4118,3 +4118,60 @@ fn a_placed_mesh_draws_and_picks_where_its_placement_puts_it() {
             .any(|hit| Some(hit.id) == PickId::from_index(0) && hit.offset_points < 1.0)
     );
 }
+
+#[test]
+fn a_far_placed_mesh_and_silhouette_draw_as_fresh_ones_once_the_eye_moves_within_reach() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let far = Point3::new(4.0e6, -3.0e6, 2.0e5);
+    let mesh = Arc::new(cylinder(10.0, 40.0, 24));
+    let placement = RigidTransform::translation(far - Point3::ZERO);
+    let scene = Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::clone(&mesh),
+            faces: vec![FaceStyle {
+                color: Color::from_rgb8(120, 120, 120),
+                pick: PickId::from_index(0),
+            }],
+            placement,
+        }],
+        silhouettes: vec![Silhouette {
+            placement,
+            ..silhouetted(&mesh, false).silhouettes[0].clone()
+        }],
+        ..Scene::default()
+    };
+    let view_at = |target: Point3| {
+        View::new(
+            Viewpoint::looking_from(Vector3::new(0.0, -0.3, 1.0), target, 120.0).unwrap(),
+            f64::from(SIZE),
+            f64::from(SIZE),
+        )
+    };
+    let start = view_at(far);
+    let moved = view_at(far + Vector3::new(7.25, 3.5, 0.0));
+    let on_mesh = moved.project(far).unwrap();
+    let mut renderer = viewport_renderer(&device, 4);
+
+    render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&start, &scene, on_mesh),
+    );
+    let anchor = renderer.anchor();
+    let cached = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&moved, &scene, on_mesh),
+    );
+    let fresh = render(&device, &queue, &moved, &scene, on_mesh);
+
+    assert_eq!(renderer.anchor(), anchor);
+    assert_ne!(anchor, Some(moved.eye()));
+    assert!(differing_pixels(&cached, &fresh) <= 2);
+    assert_eq!(cached.pick, fresh.pick);
+    assert_eq!(cached.pick.hits[0].id, PickId::from_index(0).unwrap());
+}

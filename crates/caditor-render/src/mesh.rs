@@ -548,11 +548,11 @@ pub(crate) struct Placed {
 }
 
 impl Placed {
-    pub(crate) fn of(origin: Point3, placement: Option<RigidTransform>, eye: Point3) -> Self {
+    pub(crate) fn of(origin: Point3, placement: Option<RigidTransform>, anchor: Point3) -> Self {
         let placement = placement.unwrap_or(RigidTransform::IDENTITY);
         let turn = |axis: Vector3| placement.apply_vector(axis).as_vec3();
         Self {
-            offset: relative_to_eye(placement.apply_point(origin), eye),
+            offset: relative_to_eye(placement.apply_point(origin), anchor),
             turn: [turn(Vector3::X), turn(Vector3::Y), turn(Vector3::Z)],
         }
     }
@@ -561,7 +561,7 @@ impl Placed {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PlacedAt {
     pub placement: Option<RigidTransform>,
-    pub eye: Point3,
+    pub anchor: Point3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -665,16 +665,16 @@ impl GpuMesh {
         }
     }
 
-    fn needs_writing(&self, instance: &MeshInstance, eye: Point3) -> bool {
+    fn needs_writing(&self, instance: &MeshInstance, anchor: Point3) -> bool {
         let placed = PlacedAt {
             placement: instance.placement,
-            eye,
+            anchor,
         };
         self.placed != Some(placed) || self.written.as_deref() != Some(instance.faces.as_slice())
     }
 
-    fn needs_unpicking(&self, eye: Point3) -> bool {
-        self.placed.is_none_or(|placed| placed.eye != eye)
+    fn needs_unpicking(&self, anchor: Point3) -> bool {
+        self.placed.is_none_or(|placed| placed.anchor != anchor)
             || self
                 .written
                 .as_ref()
@@ -686,17 +686,17 @@ impl GpuMesh {
         queue: &wgpu::Queue,
         bytes: &mut Bytes,
         instance: &MeshInstance,
-        eye: Point3,
+        anchor: Point3,
     ) {
-        self.write_placement(queue, bytes, instance.placement, eye);
+        self.write_placement(queue, bytes, instance.placement, anchor);
         if self.written.as_deref() != Some(instance.faces.as_slice()) {
             self.write_face_styles(queue, bytes, &instance.faces);
         }
     }
 
-    fn keep_showing_unpicked(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, eye: Point3) {
+    fn keep_showing_unpicked(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, anchor: Point3) {
         let placement = self.placed.and_then(|placed| placed.placement);
-        self.write_placement(queue, bytes, placement, eye);
+        self.write_placement(queue, bytes, placement, anchor);
         let unpicked: Option<Vec<FaceStyle>> = self
             .written
             .as_ref()
@@ -720,9 +720,9 @@ impl GpuMesh {
         queue: &wgpu::Queue,
         bytes: &mut Bytes,
         placement: Option<RigidTransform>,
-        eye: Point3,
+        anchor: Point3,
     ) {
-        let placed = PlacedAt { placement, eye };
+        let placed = PlacedAt { placement, anchor };
         if self.placed == Some(placed) {
             return;
         }
@@ -731,7 +731,7 @@ impl GpuMesh {
             .mesh
             .bounds
             .map(|bounds| placed_corners(bounds, placement));
-        let placed = Placed::of(self.mesh.origin, placement, eye);
+        let placed = Placed::of(self.mesh.origin, placement, anchor);
         let [turn_x, turn_y, turn_z] = placed.turn;
         bytes.clear();
         bytes
@@ -865,7 +865,7 @@ impl MeshCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         instances: &[MeshInstance],
-        eye: Point3,
+        anchor: Point3,
         budget: &mut UploadBudget,
     ) -> u32 {
         self.previous.refill(&mut self.meshes);
@@ -882,7 +882,7 @@ impl MeshCache {
             }
             let reused = self.previous.take(&instance.mesh);
             if let Some(ready) = &reused
-                && !ready.needs_writing(instance, eye)
+                && !ready.needs_writing(instance, anchor)
             {
                 self.meshes.extend(reused);
                 continue;
@@ -903,7 +903,7 @@ impl MeshCache {
                         upload.finish(device, layout)
                     }
                 };
-                ready.write_styles(queue, staging, instance, eye);
+                ready.write_styles(queue, staging, instance, anchor);
                 Prepared::Ready(Box::new(ready))
             });
             match (prepared, error) {
@@ -922,22 +922,22 @@ impl MeshCache {
         self.started.clear();
         self.refused.clear();
         if self.is_uploading() {
-            self.keep_previous(device, queue, eye);
+            self.keep_previous(device, queue, anchor);
         }
         self.previous.clear();
         newly_rejected
     }
 
-    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, eye: Point3) {
+    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, anchor: Point3) {
         let mut previous: Vec<GpuMesh> = self.previous.rest().collect();
-        if !previous.iter().any(|mesh| mesh.needs_unpicking(eye)) {
+        if !previous.iter().any(|mesh| mesh.needs_unpicking(anchor)) {
             self.meshes.append(&mut previous);
             return;
         }
         let staging = &mut self.staging;
         let ((), error) = gpu::scoped(device, || {
             for mesh in &mut previous {
-                mesh.keep_showing_unpicked(queue, staging, eye);
+                mesh.keep_showing_unpicked(queue, staging, anchor);
             }
         });
         match error {

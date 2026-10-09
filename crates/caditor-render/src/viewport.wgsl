@@ -404,7 +404,7 @@ fn turned(vector: vec3<f32>) -> vec3<f32> {
 
 @vertex
 fn vs_mesh(vertex: MeshVertex) -> Varyings {
-    let relative = turned(vertex.position) + mesh.offset.xyz;
+    let relative = turned(vertex.position) + from_anchor(mesh.offset.xyz);
     let face = min(vertex.face, max(mesh.faces_columns.x, 1u) - 1u);
     let columns = max(mesh.faces_columns.y, 1u);
     let style = textureLoad(face_styles, vec2<u32>(face % columns, face / columns), 0);
@@ -444,7 +444,7 @@ fn silhouette_turned(vector: vec3<f32>) -> vec3<f32> {
 }
 
 fn silhouette_placed(position: vec3<f32>) -> vec3<f32> {
-    return silhouette_turned(position) + silhouette.offset_width.xyz;
+    return silhouette_turned(position) + from_anchor(silhouette.offset_width.xyz);
 }
 
 fn facing(position: vec3<f32>, normal: vec4<f32>) -> f32 {
