@@ -22,6 +22,9 @@ paths:
 - A unit binds to the primary before it (`Expression::WithUnit`); `mm²` and `mm³` name areas and
   volumes. Names that read as units are refused as parameter names (`check_name`).
 - Typed text accepts SI units only; `in` and `ft` stay readable in stored text (`parse_stored`).
+- `Naming::split` reads `name = expression` typed in a value field: a single `=` (not part of
+  `==`, `<=`, `>=` or `!=`) after nothing but a name's characters. Anything else is an ordinary
+  expression, so a slip like `if(a = b, …)` still gets the parser's message.
 
 ## Evaluation
 

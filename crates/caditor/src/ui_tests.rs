@@ -12664,6 +12664,96 @@ fn parameters_are_reordered_and_noted_from_the_keyboard() {
 }
 
 #[test]
+fn values_named_in_their_fields_are_listed_as_model_parameters_and_used_by_name() {
+    let mut harness = Harness::new();
+    let base = harness.document().features().next().unwrap().id();
+    let (constraint, _) = harness
+        .sketch(base)
+        .constraints()
+        .find(|(_, constraint)| constraint.dimension().is_some())
+        .map(|(id, constraint)| (id, constraint.clone()))
+        .unwrap();
+    let dimension = Focus::Dimension {
+        feature: base,
+        constraint,
+    };
+    let (extrude, _) = extruded_plate(&mut harness);
+    let distance = Id::new(("solid-field", "distance", extrude));
+    let held = |harness: &Harness| match &harness.solid(extrude) {
+        SolidFeature::Extrude(caditor_document::Extrude {
+            extent:
+                caditor_document::ExtrudeExtent::OneSide {
+                    end: caditor_document::ExtrudeEnd::Distance(distance),
+                    ..
+                },
+            ..
+        }) => harness.document().expression_text(distance),
+        _ => String::new(),
+    };
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
+    harness.type_into_field(distance, "depth = 12 mm");
+    harness.settle();
+    let depth = harness.parameter("depth");
+    let named_label = harness.model.undo_label().map(str::to_owned);
+    let shown_in_field = harness.shows("depth = 12 mm");
+    harness.type_into(dimension, "length = depth * 2");
+    harness.settle();
+    let length = harness.parameter("length");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.focus(Focus::ParameterName(length));
+    harness.frame();
+    let listed = harness.shows(crate::parameter_table::MODEL_PARAMETERS)
+        && harness.shows("Extrude 1 · Distance")
+        && harness.shows("Base sketch · Distance");
+
+    assert_eq!(named_label.as_deref(), Some("Name depth"));
+    assert!(shown_in_field);
+    assert_eq!(held(&harness), "depth");
+    assert!(listed);
+    assert!(harness.shows("length = depth * 2"));
+    assert_eq!(harness.expression_text("length"), "depth * 2");
+
+    harness.type_into(Focus::ParameterName(depth), "deep");
+    harness.settle();
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(extrude)));
+    harness.type_into_field(distance, "deep = 15 mm");
+    harness.settle();
+
+    assert_eq!(harness.expression_text("length"), "deep * 2");
+    assert_eq!(held(&harness), "deep");
+    assert_eq!(harness.expression_text("deep"), "15 mm");
+    assert_eq!(harness.model.undo_label(), Some("Edit deep"));
+
+    harness.type_into_field(distance, "deep = length");
+    harness.settle();
+
+    assert!(harness.shows("This would make deep depend on itself (deep → length → deep)"));
+    assert_eq!(harness.expression_text("deep"), "15 mm");
+
+    harness.type_into_field(distance, "20 mm");
+    harness.settle();
+    let deep = harness.document().parameter_named("deep").unwrap();
+
+    assert_eq!(held(&harness), "20 mm");
+    assert_eq!(deep.owner, None);
+    assert_eq!(harness.expression_text("length"), "deep * 2");
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(held(&harness), "deep");
+    assert!(
+        harness
+            .document()
+            .parameter_named("deep")
+            .unwrap()
+            .is_model_parameter()
+    );
+}
+
+#[test]
 fn model_properties_are_edited_in_a_dialog_as_one_undoable_change() {
     use caditor_document::ModelProperty;
 

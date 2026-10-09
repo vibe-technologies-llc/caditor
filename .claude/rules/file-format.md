@@ -79,6 +79,17 @@ paths:
 - A parameter record's `note` is written only when not empty, like a feature's `hidden`; an older
   reader drops it. A note too long for this version is cut at `MAX_PARAMETER_NOTE_CHARS`,
   reported.
+- Which dimension or feature value a model parameter names is a `named_values` record, written
+  only when some parameter has an owner: `values`, each the `parameter`'s id and its `owner`
+  (`feature` with `feature` and `value`, or `dimension` with `sketch` and `constraint`). The
+  parameter itself stays an ordinary `parameter` record, so an older reader keeps every value and
+  every expression using it, lists it with the other parameters and reports the unknown record,
+  keeping the `.damaged` copy. Loading applies the owners after the features: an unreadable entry
+  is reported and its parameter listed with the others, a description past
+  `MAX_VALUE_LABEL_CHARS` is cut, reported, and an entry for an absent parameter is dropped
+  silently. The journal snapshot carries the same record as `named_values`, the journal's
+  `insert_parameter` carries `owner` when there is one, and `set_parameter_owner` is its own
+  record.
 - Records carry stable IDs. Expressions are canonical text with parameters as `$<id>`
   (`to_stored_text`, `parse_stored`); region keys and topology names are 32-digit hex; numbers
   exact f64.

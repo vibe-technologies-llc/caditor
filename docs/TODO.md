@@ -252,9 +252,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   fillet's does (the draft preview draws only a body that stood before the feature), and a pattern
   cannot repeat a primitive adding to or cutting a body as it repeats an extrusion's tool
   (`repeatable_on`).
-- [low · medium] Expressions cannot refer to measured values or sketch dimensions, and a dimension
-  or a feature's value cannot be named and listed with the parameters (Fusion's model parameters)
-  for other expressions to use.
+- [low · medium] Expressions cannot read a measured value (a distance or angle taken from the
+  geometry): parameters evaluate before and apart from recompute, so a measured one would need
+  recompute to evaluate parameters in tree order beside the features, the measured reference
+  healed like any other and a cycle through the feature it drives refused.
 - [low · medium] No user coordinate system: Measure, Move and the patterns read from the origin and
   the principal axes. A coordinate system placed at a point, its axes taken from edges or faces,
   would be a second origin to measure and place from.

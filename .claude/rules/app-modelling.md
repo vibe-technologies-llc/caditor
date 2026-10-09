@@ -56,7 +56,8 @@ paths:
   `feature_fields::expression_row_drafting` turns valid text into `Action::Preview` with the
   transaction it would commit, never applied. `Model` applies it to a copy of the document
   (`DraftPreview`, dropped when the feature closes, the text turns invalid, Escape or leaving the
-  field without a change). A blend's copy is computed as a draft (`document-recompute.md`) and its
+  field without a change; a new one whenever the feature's kind or the transaction differs, since
+  editing a named value changes only its parameter). A blend's copy is computed as a draft (`document-recompute.md`) and its
   body drawn in the result's place once meshed (`BodyMeshes::draft`, `OpenDraft`); a move is not
   recomputed: `Model::draft_placement` (the draft's `Move::placement` after undoing the one shown)
   places the drawn body (`MeshInstance::placement`, its edges and vertices moved on the CPU).
@@ -109,6 +110,18 @@ paths:
 - Every panel runs in one order: its shape switch (Extent, Shape) or, for a shell or datum, a
   muted description; then references, values and options; then Body. Small exclusive choices are
   `segmented`; longer lists stay combo boxes.
+- Every value row (`feature_fields::Quantity` carries the feature) and sketch dimension is a
+  `field::NamedField`: typing `name = expression` names the value (`document.md`, Model
+  parameters). A new name is one transaction inserting a parameter owned by the field
+  (`ParameterOwner::Feature` with the row's caption, or `Dimension`) holding what was typed, a
+  plain number taking the field's unit, with the field set to it: the panel's own change is built
+  with a marker (the value negated twice, which evaluates and checks like it) and
+  `Transaction::substituting` puts the reference where the marker went, so no panel knows about
+  naming; a change that drops the marker refuses as `NOT_NAMEABLE`. A field holding its own named
+  value shows `name = expression` and previews that expression's value; `name = …` typed there
+  renames or edits the parameter (one "Edit <name>" change, skipping the panel's change), a plain
+  expression unnames it (`Document::releasing`). Refusals are the parameter edits' (a name taken,
+  not a name, a cycle).
 - `feature_fields.rs` holds the shared rows and the `Rule` wordings; panels use them rather than
   their own spacing or text. A reference that is not set reads None chosen; a body or sketch that
   no longer exists reads Missing in the warning colour with the warning icon; a refused change

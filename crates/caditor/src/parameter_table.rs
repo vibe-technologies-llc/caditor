@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{
-    Document, Edit, MAX_PARAMETER_NOTE_CHARS, Parameter, ParameterUser, Transaction,
+    Document, Edit, MAX_PARAMETER_NOTE_CHARS, Parameter, ParameterOwner, ParameterUser, Transaction,
 };
 use caditor_expression::ParameterId;
 use egui::{Grid, Id, Label, Rect, TextEdit, Ui, Vec2, vec2};
@@ -17,8 +17,14 @@ use crate::{
 };
 
 pub const ADD_LABEL: &str = "Add parameter";
-pub const EMPTY_PARAMETERS: &str =
-    "Parameters are named values that any dimension can use, such as width / 2.";
+pub const EMPTY_PARAMETERS: &str = "Parameters are named values that any dimension can use, such \
+                                    as width / 2. Type depth = 20 mm in a dimension or a \
+                                    feature's field to name that value too.";
+pub const MODEL_PARAMETERS: &str = "Model parameters";
+const MODEL_PARAMETERS_EXPLANATION: &str = "Dimensions and feature values given a name by typing \
+                                            name = value in their field. Other expressions use \
+                                            them by that name.";
+const OWNER_GONE: &str = "Its dimension or feature was deleted";
 const COLUMNS: usize = 4;
 const SPACING: Vec2 = vec2(SPACE_M, SPACE_S);
 const VALUE_WIDTH: f32 = 64.0;
@@ -56,7 +62,42 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         return;
     }
     let widths = FieldWidths::fitting(ui.available_width(), CONTROL_HEIGHT);
-    Grid::new("parameters")
+    let (named, own): (Vec<&Parameter>, Vec<&Parameter>) = document
+        .parameters()
+        .iter()
+        .partition(|parameter| parameter.is_model_parameter());
+    if !own.is_empty() {
+        table(ui, "parameters", model, state, actions, &own, widths);
+    }
+    if named.is_empty() {
+        return;
+    }
+    if !own.is_empty() {
+        ui.add_space(SPACE_M);
+    }
+    ui.label(widgets::strong(MODEL_PARAMETERS))
+        .on_hover_text(MODEL_PARAMETERS_EXPLANATION);
+    table(
+        ui,
+        "model-parameters",
+        model,
+        state,
+        actions,
+        &named,
+        widths,
+    );
+}
+
+fn table(
+    ui: &mut Ui,
+    id: &str,
+    model: &Model,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    parameters: &[&Parameter],
+    widths: FieldWidths,
+) {
+    Grid::new(id)
         .num_columns(COLUMNS)
         .striped(true)
         .spacing(SPACING)
@@ -65,14 +106,44 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
                 widgets::column_caption(ui, caption);
             }
             ui.end_row();
-            for parameter in document.parameters() {
+            for parameter in parameters {
                 let error = row(ui, model, state, actions, parameter, widths);
                 ui.end_row();
+                if let Some(owner) = &parameter.owner {
+                    owner_row(ui, model.document(), parameter, owner, widths);
+                }
                 if let Some(error) = error {
                     widgets::error_row(ui, &error);
                 }
             }
         });
+}
+
+fn owner_row(
+    ui: &mut Ui,
+    document: &Document,
+    parameter: &Parameter,
+    owner: &ParameterOwner,
+    widths: FieldWidths,
+) {
+    let shown = document.owner_text(owner);
+    let hover = match &shown {
+        Some(text) => format!(
+            "{} is the value of {text}. Edit it here, or in its field as {} = value.",
+            parameter.name, parameter.name
+        ),
+        None => format!(
+            "{}. {} is kept as a value of its own.",
+            OWNER_GONE, parameter.name
+        ),
+    };
+    let text = shown.unwrap_or_else(|| OWNER_GONE.to_owned());
+    ui.scope(|ui| {
+        ui.set_max_width(widths.name);
+        ui.add(Label::new(widgets::muted(text, ui)).truncate())
+            .on_hover_text(hover);
+    });
+    ui.end_row();
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -366,19 +437,30 @@ impl Direction {
         parameter: &Parameter,
     ) -> Result<Transaction, String> {
         let id = parameter.id();
-        let index = document
+        let group: Vec<usize> = document
             .parameters()
             .iter()
-            .position(|other| other.id() == id)
+            .enumerate()
+            .filter(|(_, other)| other.is_model_parameter() == parameter.is_model_parameter())
+            .map(|(index, _)| index)
+            .collect();
+        let place = group
+            .iter()
+            .position(|index| document.parameters().get(*index).map(Parameter::id) == Some(id))
             .ok_or_else(|| NO_PARAMETER_CHOSEN.to_owned())?;
-        let target = match self {
-            Self::Up => index
-                .checked_sub(1)
-                .ok_or_else(|| format!("{} is already the first parameter", parameter.name))?,
-            Self::Down => Some(index + 1)
-                .filter(|below| *below < document.parameters().len())
-                .ok_or_else(|| format!("{} is already the last parameter", parameter.name))?,
+        let kind = if parameter.is_model_parameter() {
+            "model parameter"
+        } else {
+            "parameter"
         };
+        let target = match self {
+            Self::Up => place.checked_sub(1).and_then(|above| group.get(above)),
+            Self::Down => group.get(place + 1),
+        };
+        let target = *target.ok_or_else(|| match self {
+            Self::Up => format!("{} is already the first {kind}", parameter.name),
+            Self::Down => format!("{} is already the last {kind}", parameter.name),
+        })?;
         let way = match self {
             Self::Up => "up",
             Self::Down => "down",

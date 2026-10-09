@@ -81,9 +81,50 @@ pub fn check_name(name: &str) -> Result<(), NameError> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Naming<'a> {
+    pub name: &'a str,
+    pub expression: &'a str,
+}
+
+impl<'a> Naming<'a> {
+    pub fn split(text: &'a str) -> Option<Self> {
+        let (left, right) = text.split_once('=')?;
+        let name = left.trim();
+        let comparison = right.starts_with('=')
+            || left.ends_with(['<', '>', '!'])
+            || name.is_empty()
+            || !name
+                .chars()
+                .all(|character| character.is_alphanumeric() || character == '_');
+        (!comparison).then(|| Self {
+            name,
+            expression: right.trim(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_before_a_single_equals_sign_names_the_value() {
+        let naming = |text| Naming::split(text).map(|naming| (naming.name, naming.expression));
+
+        assert_eq!(naming("depth = 20 mm"), Some(("depth", "20 mm")));
+        assert_eq!(naming(" d1=width / 2 "), Some(("d1", "width / 2")));
+        assert_eq!(
+            naming("gap = if(width == 2 mm, 1, 2)"),
+            Some(("gap", "if(width == 2 mm, 1, 2)"))
+        );
+        assert_eq!(naming("width == 2 mm"), None);
+        assert_eq!(naming("width <= 2 mm"), None);
+        assert_eq!(naming("width != 2 mm"), None);
+        assert_eq!(naming("if(a = b, 1, 2)"), None);
+        assert_eq!(naming("= 4 mm"), None);
+        assert_eq!(naming("20 mm"), None);
+    }
 
     const WIDTH: ParameterId = ParameterId::from_raw(0);
     const HEIGHT: ParameterId = ParameterId::from_raw(1);

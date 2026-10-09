@@ -17,9 +17,9 @@ use super::{
 };
 use crate::{
     format::{
-        FORMAT_VERSION, Lenient, Record, Unreadable, feature_records, next_ids_record,
-        parameter_record, principal_record, properties_record, rollback_record, suppressed_record,
-        views_record,
+        FORMAT_VERSION, Lenient, Record, Unreadable, feature_records, named_values_record,
+        next_ids_record, parameter_record, principal_record, properties_record, rollback_record,
+        suppressed_record, views_record,
     },
     load::{
         LoadError, Loaded, Parts, assemble, describe_unpack_failure, describe_unreadable_record,
@@ -487,6 +487,7 @@ fn document_records(document: &Document) -> impl Iterator<Item = Result<Vec<u8>,
         .chain(rollback_record(document).map(Record::Rollback))
         .chain(properties_record(document).map(Record::Properties))
         .chain(views_record(document).map(Record::Views))
+        .chain(named_values_record(document).map(Record::NamedValues))
         .chain(std::iter::once(Record::NextIds(next_ids_record(document))))
         .map(|record| value::to_bytes(&record))
 }

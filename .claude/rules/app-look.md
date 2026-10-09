@@ -207,6 +207,11 @@ paths:
   note is edited in a modal dialog (`parameter_table::note_dialog`, `PanelState::noting`). A value that cannot be evaluated is an error
   icon with the reason on hover, a refused edit an `error_row`. A row's delete button shows only
   while the row is hovered or the button has keyboard focus, and stays in the Tab order.
+- Model parameters (those with an owner) are a table of their own below the others, under
+  `MODEL_PARAMETERS` (its hover says how a value is named), each row followed by a muted line
+  naming its owner (`Document::owner_text`, else that it was deleted). Their rows edit, note,
+  move and delete like any other; Move up and down stay within the row's table. Deleting a used
+  one inlines it, which writes the value back into its field.
 - Tree rows (`tree_row.rs`, shared with `principal_tree.rs`) have fixed trailing slots that stay
   empty when a row has nothing for them, so icons line up in columns; callouts and cards under a
   row (`tree_row::indented`) keep the normal spacing.

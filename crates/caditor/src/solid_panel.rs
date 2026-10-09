@@ -148,6 +148,7 @@ impl Panel<'_> {
         let model = self.model;
         let id = self.id();
         let quantity = Quantity {
+            feature: id,
             id: Id::new(("solid-field", salt, id)),
             expression,
             dimension,

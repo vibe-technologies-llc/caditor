@@ -22,6 +22,7 @@ use crate::{
         list_names,
     },
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
+    model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner},
     projection::ProjectionSource,
     properties::{ModelProperties, ModelProperty},
     solid::BodyOperation,
@@ -54,6 +55,10 @@ pub enum Edit {
     SetParameterNote {
         id: ParameterId,
         note: String,
+    },
+    SetParameterOwner {
+        id: ParameterId,
+        owner: Option<ParameterOwner>,
     },
     InsertFeature {
         index: usize,
@@ -185,6 +190,10 @@ impl Transaction {
         self.edits.is_empty()
     }
 
+    pub fn into_parts(self) -> (String, Vec<Edit>) {
+        (self.label, self.edits)
+    }
+
     pub fn touched(&self) -> Touched {
         let mut touched = Touched::default();
         for edit in &self.edits {
@@ -199,7 +208,8 @@ impl Transaction {
                 | Edit::RenameParameter { id, .. }
                 | Edit::SetParameterExpression { id, .. }
                 | Edit::MoveParameter { id, .. }
-                | Edit::SetParameterNote { id, .. } => {
+                | Edit::SetParameterNote { id, .. }
+                | Edit::SetParameterOwner { id, .. } => {
                     touched.parameters.insert(*id);
                 }
                 Edit::InsertFeature { feature, .. } => {
@@ -258,7 +268,16 @@ impl Transaction {
                 Edit::SetBodyAppearance { appearance, .. } => appearance.heap_size(),
                 Edit::SetFeatureKind { kind, .. } => kind.approximate_size(),
                 Edit::InsertParameter { parameter, .. } => {
-                    parameter.name.len() + parameter.note.len() + parameter.expression.heap_size()
+                    parameter.name.len()
+                        + parameter.note.len()
+                        + parameter.expression.heap_size()
+                        + parameter
+                            .owner
+                            .as_ref()
+                            .map_or(0, ParameterOwner::heap_size)
+                }
+                Edit::SetParameterOwner { owner, .. } => {
+                    owner.as_ref().map_or(0, ParameterOwner::heap_size)
                 }
                 Edit::RenameParameter { name, .. } | Edit::RenameFeature { name, .. } => name.len(),
                 Edit::SetParameterNote { note, .. } => note.len(),
@@ -348,6 +367,10 @@ pub enum EditError {
     TooManyViews,
     #[error("The view '{0}' is not a view the camera can show, so it was not saved")]
     ViewNotUsable(String),
+    #[error(
+        "A named value's description may be at most {MAX_VALUE_LABEL_CHARS} characters long, and this one has {0}"
+    )]
+    ValueLabelTooLong(usize),
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
     #[error("The rollback bar sits right above {0}; move the bar before deleting it")]
@@ -523,6 +546,19 @@ impl TransactionBuilder<'_> {
         id
     }
 
+    pub fn add_owned_parameter(
+        &mut self,
+        name: impl Into<String>,
+        expression: Expression,
+        owner: ParameterOwner,
+    ) -> ParameterId {
+        let id = self.add_parameter(name, expression);
+        if let Some(Edit::InsertParameter { parameter, .. }) = self.edits.last_mut() {
+            parameter.owner = Some(owner);
+        }
+        id
+    }
+
     pub fn add_feature(&mut self, name: impl Into<String>, kind: FeatureKind) -> FeatureId {
         let id = FeatureId::from_raw(self.next_feature_id);
         self.next_feature_id = self.next_feature_id.saturating_add(1);
@@ -592,6 +628,7 @@ impl Document {
             }
             Edit::MoveParameter { id, index } => self.move_parameter(id, index),
             Edit::SetParameterNote { id, note } => self.set_parameter_note(id, note),
+            Edit::SetParameterOwner { id, owner } => self.set_parameter_owner(id, owner),
             Edit::InsertFeature { index, feature } => self.insert_feature(index, feature),
             Edit::RemoveFeature { id } => self.remove_feature(id),
             Edit::RenameFeature { id, name } => self.rename_feature(id, name),
@@ -872,9 +909,10 @@ impl Document {
     fn insert_parameter(
         &mut self,
         index: usize,
-        parameter: Parameter,
+        mut parameter: Parameter,
         graph: &mut ParameterGraph,
     ) -> Result<Edit, EditError> {
+        parameter.owner = parameter.owner.map(ParameterOwner::checked).transpose()?;
         if self.parameter(parameter.id()).is_some() {
             return Err(EditError::DuplicateId);
         }
@@ -935,6 +973,22 @@ impl Document {
             .set_note(id, note)
             .ok_or(EditError::MissingParameter)?;
         Ok(Edit::SetParameterNote { id, note: previous })
+    }
+
+    fn set_parameter_owner(
+        &mut self,
+        id: ParameterId,
+        owner: Option<ParameterOwner>,
+    ) -> Result<Edit, EditError> {
+        let owner = owner.map(ParameterOwner::checked).transpose()?;
+        let previous = self
+            .parameters
+            .set_owner(id, owner)
+            .ok_or(EditError::MissingParameter)?;
+        Ok(Edit::SetParameterOwner {
+            id,
+            owner: previous,
+        })
     }
 
     fn rename_parameter(&mut self, id: ParameterId, name: String) -> Result<Edit, EditError> {

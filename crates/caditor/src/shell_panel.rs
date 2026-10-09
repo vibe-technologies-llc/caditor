@@ -31,6 +31,7 @@ fn thickness_row(
     actions: &mut Vec<Action>,
 ) {
     let quantity = Quantity {
+        feature,
         id: Id::new(("shell-thickness", feature)),
         expression: &shell.thickness,
         dimension: Dimension::LENGTH,

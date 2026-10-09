@@ -47,8 +47,34 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   model computes exactly as before. An expression that would grow past what the stored text reads
   back refuses as `InliningTooLong`.
 - `Document::transaction_to` builds the transaction turning one document into another (bar to the
-  end, everything removed, the target's inserted with IDs and flags, its bar restored), never
+  end, everything removed, the target's inserted with IDs, flags, notes and owners, its bar
+  restored), never
   lowering a sketch's ID counter; it restores an earlier version as one undoable change.
+
+## Model parameters (`model_parameters.rs`)
+
+- A sketch dimension or a feature's value is named by making it a parameter: the parameter holds
+  the expression and the field holds `Expression::Parameter` of it. A named value is therefore
+  identified by its parameter's own stable `ParameterId`, never by the field's place in the
+  feature, and renaming, dependency order, cycle checks, inlining and deletion are those of
+  parameters. Measured values are not expressions: parameters evaluate before and apart from
+  recompute, so reading geometry into one would make them depend on the model they drive.
+- `Parameter::owner` (`ParameterOwner`) says which value it names: `Feature { feature, value }`,
+  `value` the field's caption, kept on one trimmed line, past `MAX_VALUE_LABEL_CHARS` refused as
+  `ValueLabelTooLong`; or `Dimension { sketch, constraint }`. It is content like a note: compared
+  by `same_content`, carried by `InsertParameter` and `transaction_to`, counted by `heap_size`,
+  ignored by evaluation and recompute, and never checked against the model (an owner that no
+  longer exists reads as deleted). `Edit::SetParameterOwner` sets or clears it.
+  `owned_parameter` tells whether a field's expression is the named value of an owner, and
+  `owner_text` words the owner ("Extrude 1 · Distance", "Sketch 1 · Radius").
+- `TransactionBuilder::add_owned_parameter` inserts one. `Transaction::substituting` replaces an
+  exact expression wherever a `SetFeatureKind` (through `inlining::expressions_mut`),
+  `SetDimension` or `SetParameterExpression` holds it, and counts the replacements.
+- `releasing(transaction, ids)` appends what the named values become once the transaction is
+  applied: each one nothing uses any more is removed (users before what they use), any other
+  loses its owner and stays an ordinary parameter. `deletion` releases the values owned by the
+  deleted features, `remove_sketch_items` those owned by the dimensions it removes; reshaping a
+  sketch keeps constraint IDs, so owners survive it.
 
 ## Hidden flags
 

@@ -88,7 +88,7 @@ that makes a rule false updates it in the same commit.
 | `sketch.md`, `sketch-solver.md` | Sketch entities, constraints and operations; the solver, DOF and conflict diagnosis. |
 | `kernel.md`, `kernel-tessellation.md`, `kernel-naming.md`, `kernel-profile.md`, `kernel-intersect.md`, `kernel-operations.md` | Kernel base (tolerances, curves, surfaces, topology); tessellation; topology names and references; profile regions; intersections; extrude, revolve, booleans, blends, shells, patterns. |
 | `step-write.md`, `step-read.md` | STEP writing; the Part 21 parser and `read_step`. |
-| `document.md`, `document-recompute.md` | Transactions, undo, every feature kind; recompute caching, failure containment, the worker. |
+| `document.md`, `document-recompute.md` | Transactions, undo, model parameters, every feature kind; recompute caching, failure containment, the worker. |
 | `file-format.md`, `file-journal.md`, `file-import-export.md` | Container, version history, atomic saving; recovery journal, storage worker, preferences; DXF, STEP, STL, 3MF and PNG. |
 | `render.md` | Frames, devices, graphics settings, precision, depth, picking, navigation. |
 | `app.md`, `app-look.md`, `app-modelling.md`, `app-files.md`, `app-input.md`, `app-sketching.md`, `app-tests.md` | App shell, `Model` and `Action`s; theme, widgets, panels, feature tree; modelling tools; file workflow and preferences; input, commands and keymap; sketch editing; the headless UI test harness. |
