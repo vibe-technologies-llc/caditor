@@ -71,6 +71,7 @@ mod dimension_labels;
 mod feature_panels;
 mod import_jobs;
 mod paint_selection;
+mod panel_fields;
 mod parameter_files;
 mod pick_list;
 mod primitives;

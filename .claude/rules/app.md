@@ -67,8 +67,9 @@ paths:
   built afresh each frame. The base scene (bodies, sketches, references, hover and selection
   colours, a `PickTable`) is rebuilt only when its content or highlight changes; an idle frame or a
   camera move reuses it whole. Content is everything that can change what is drawn (document
-  revision, evaluation, displayed sketches, body meshes, display style, `Contrast`, editing
-  `Context`, faceting level); anything new that affects the drawing must feed that key.
+  revision, evaluation, the open feature's draft, displayed sketches, body meshes, display style,
+  `Contrast`, editing `Context`, faceting level); anything new that affects the drawing must feed
+  that key.
 - Previews, the trim preview and the measured line form a second batch, rebuilt only when it
   differs; it has no pick ids, so it never asks for a pick.
 - A pick is asked for when the cursor, the view or the base's generation differs from the last

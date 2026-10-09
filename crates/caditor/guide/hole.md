@@ -17,5 +17,7 @@ The panel sets:
   axis) or Up to face (a face or plane you select), the last two with an offset past the face; a
   blind round hole can have a 118° drill point.
 
-Choosing a size fills in exact values; typing any size makes the hole Custom again. A tapped hole
+Choosing a size fills in exact values; typing any size makes the hole Custom again, and the
+drills are previewed as you type. {command:model.reverse_direction} drills the other way, like
+**Reverse direction**. A tapped hole
 shows its thread in the view like a [thread](thread).

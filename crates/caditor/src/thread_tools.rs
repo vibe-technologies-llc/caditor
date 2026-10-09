@@ -7,8 +7,10 @@ use caditor_kernel::{FaceReference, Surface};
 use crate::{
     bodies::{self, FaceKey},
     editing::EditingCommand,
+    field,
     model::{Action, Model, Notice},
     selection::{Pickable, Selection},
+    sketch_placement,
 };
 
 pub const TITLE: &str = "Thread";
@@ -17,6 +19,10 @@ const ONE_FACE: &str = "Select one round face only";
 const NOT_ROUND: &str = "Select a cylindrical face: a bore, a shaft or a boss";
 const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
 const GONE: &str = "The selected face is no longer part of the model";
+const SAME_FACE: &str = "The thread is already on the selected face";
+const GONE_FEATURE: &str = "The feature no longer exists";
+const MADE_LATER: &str =
+    "The selected face is made further down the tree, after the thread; choose one made before it";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ThreadSource {
@@ -108,6 +114,51 @@ pub fn edit(document: &Document, feature: FeatureId, thread: Thread) -> Option<T
             kind: FeatureKind::Thread(thread),
         },
     ))
+}
+
+pub fn face_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    thread: &Thread,
+) -> Result<Transaction, String> {
+    let source = selected_face(model, selection)?;
+    let document = model.document();
+    let index = document
+        .feature_index(feature)
+        .ok_or_else(|| GONE_FEATURE.to_owned())?;
+    let shown = bodies::shown(model.evaluation(), source.body).ok_or(NO_SHAPE)?;
+    let face = bodies::find_face(shown, source.face).ok_or(GONE)?;
+    let reference = FaceReference::capture(&shown.solid, face).ok_or(GONE)?;
+    let state = sketch_placement::body_state_before(model, source.body, index)
+        .map_err(|_| MADE_LATER.to_owned())?;
+    let found = reference
+        .resolve(state)
+        .map_err(|_| MADE_LATER.to_owned())?;
+    let bore = Bore::of(state, &[found]).map_err(|_| NOT_ROUND)?;
+    let family = thread.size.family();
+    let size = if thread.size.fits(bore.diameter, bore.side) {
+        thread.size
+    } else {
+        family.nearest(bore.diameter, bore.side)
+    };
+    let class = if family.classes(bore.side).contains(&thread.class) {
+        thread.class
+    } else {
+        family.default_class(bore.side)
+    };
+    let changed = Thread {
+        body: source.body,
+        face: reference,
+        size,
+        class,
+        ..thread.clone()
+    };
+    if changed == *thread {
+        return Err(SAME_FACE.to_owned());
+    }
+    let transaction = edit(document, feature, changed).ok_or_else(|| GONE_FEATURE.to_owned())?;
+    field::checked(document, transaction)
 }
 
 pub fn threaded_bore(evaluation: &Evaluation, feature: FeatureId, thread: &Thread) -> Option<Bore> {

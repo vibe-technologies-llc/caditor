@@ -76,14 +76,15 @@ impl Panel<'_> {
             dimension: Dimension::LENGTH,
             rule: Rule::Any,
         };
-        let committed = feature_fields::expression_row(ui, model, DISTANCE, quantity, |value| {
-            let mut changed = mate.clone();
-            if let MatePair::Faces(faces) = &mut changed.pair {
-                faces.distance = value;
-            }
-            mate_tools::change(model, id, changed)
-        });
-        self.actions.extend(committed.map(Action::Apply));
+        let drafting =
+            feature_fields::expression_row_drafting(ui, model, DISTANCE, quantity, |value| {
+                let mut changed = mate.clone();
+                if let MatePair::Faces(faces) = &mut changed.pair {
+                    faces.distance = value;
+                }
+                mate_tools::change(model, id, changed)
+            });
+        self.actions.extend(drafting.into_actions(id));
     }
 
     fn flip_row(&mut self, ui: &mut Ui, label: &str) {

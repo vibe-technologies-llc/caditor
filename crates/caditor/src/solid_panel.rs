@@ -111,6 +111,11 @@ impl EndKind {
     }
 }
 
+pub const DISTANCE: &str = "Distance";
+pub const TOTAL_DISTANCE: &str = "Total distance";
+pub const FORWARD_DISTANCE: &str = "Forward distance";
+pub const BACKWARD_DISTANCE: &str = "Backward distance";
+
 struct EndRows<'a> {
     end: &'a str,
     distance: &'a str,
@@ -174,10 +179,11 @@ impl Panel<'_> {
             dimension,
             rule,
         };
-        let committed = feature_fields::expression_row(ui, model, caption, quantity, |parsed| {
-            change(model, id, rebuild(parsed))
-        });
-        self.actions.extend(committed.map(Action::Apply));
+        let drafting =
+            feature_fields::expression_row_drafting(ui, model, caption, quantity, |parsed| {
+                change(model, id, rebuild(parsed))
+            });
+        self.actions.extend(drafting.into_actions(id));
     }
 
     fn sketch_row(&mut self, ui: &mut Ui) {
@@ -463,7 +469,7 @@ impl Panel<'_> {
                 let reversed = *reversed;
                 let rows = EndRows {
                     end: "End",
-                    distance: "Distance",
+                    distance: DISTANCE,
                     face: "Up to",
                     offset: END_OFFSET,
                     salt: "distance",
@@ -489,7 +495,7 @@ impl Panel<'_> {
             ExtrudeExtent::Symmetric { distance } => {
                 self.expression(
                     ui,
-                    "Total distance",
+                    TOTAL_DISTANCE,
                     "distance",
                     distance,
                     (Dimension::LENGTH, Rule::AboveZero),
@@ -504,7 +510,7 @@ impl Panel<'_> {
             ExtrudeExtent::TwoSides { forward, backward } => {
                 let forward_rows = EndRows {
                     end: "Forward end",
-                    distance: "Forward distance",
+                    distance: FORWARD_DISTANCE,
                     face: "Forward up to",
                     offset: FORWARD_END_OFFSET,
                     salt: "forward",
@@ -519,7 +525,7 @@ impl Panel<'_> {
                 });
                 let backward_rows = EndRows {
                     end: "Backward end",
-                    distance: "Backward distance",
+                    distance: BACKWARD_DISTANCE,
                     face: "Backward up to",
                     offset: BACKWARD_END_OFFSET,
                     salt: "backward",

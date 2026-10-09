@@ -15,6 +15,7 @@ command. **Make a copy** in the panel switches between the two.
 
 While a move is open, arrows and squares at the body's centre drag it along an axis or in a plane,
 and rings turn it. Drags go in round steps; hold Ctrl to drag freely. The values land in the
-panel's fields, where they stay editable.
+panel's fields, where they stay editable; a named value keeps its name, and one that follows other
+[parameters](parameters) does not drag.
 
 To put a face flush against another, see [Mate](mate).

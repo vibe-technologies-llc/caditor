@@ -38,6 +38,7 @@ paths:
   - "crates/caditor/src/reference_rows.rs"
   - "crates/caditor/src/principal_tree.rs"
   - "crates/caditor/src/feature_tree.rs"
+  - "crates/caditor/src/reversing.rs"
 ---
 
 # Modelling tools in the app
@@ -61,24 +62,29 @@ paths:
   see-through in the selected colour and still picked (`Builder::opened_faces`), so a click on the
   opening closes it again. A failed or pending blend or shell shows the body before it instead
   (`OpenView::Before`).
-- Typing in an open fillet's or chamfer's size field, a shell's thickness, an offset face's
-  distance, a primitive's sizes and position or a move's fields previews the value before it is
-  entered: `commit_field` reports the text as edited (`FieldResponse::edited`) and
-  `feature_fields::expression_row_drafting` turns valid text into `Action::Preview` with the
-  transaction it would commit, never applied. `Model` applies it to a copy of the document
+- Typing in any open feature's value field previews the value before it is entered: every
+  feature value row is `feature_fields::expression_row_drafting` (there is no row that does not
+  preview), `commit_field` reports the text as edited (`FieldResponse::edited`) and the row turns
+  valid text into `Action::Preview` with the transaction it would commit, never applied. `Model` applies it to a copy of the document
   (`DraftPreview`, dropped when the feature closes, the text turns invalid, Escape or leaving the
   field without a change; a new one whenever the feature's kind or the transaction differs, since
-  editing a named value changes only its parameter). Any other feature's copy is computed as a
+  editing a named value changes only its parameter). The draft keeps the parameter values of its
+  copy (`Model::shown_parameters`), so a value named or renamed while typed (`h = 30`) moves the
+  reach arrows and a move's preview too. Any other feature's copy is computed as a
   draft (`document-recompute.md`) and the draft's state of the body the feature makes or changes
   (`Feature::body`, `Model::draft_body_result`) is drawn in that body's place once meshed
   (`BodyMeshes::draft`, `OpenDraft`), a body made by the feature itself included; a removal's
-  tools are the draft's (`Model::draft_cuts`). A move is not
+  tools are the draft's (`Model::draft_cuts`). A feature that makes no body is drawn from the
+  draft's evaluation once it computed (`Model::draft_evaluation_of`, handed to the scene as
+  `Sources::draft` with `Revisions::draft`, `Model::draft_generation`, in its key): the open datum
+  (`scene::drafted`) and the open thread (`placed_threads` over the draft). A move is not
   recomputed: `Model::draft_placement` (the draft's `Move::placement` after undoing the one shown)
   places the drawn body (`MeshInstance::placement`, its edges and vertices moved on the CPU).
   Entering the value commits as before, and the draft stays shown (held) until the model has
   recomputed and meshed, so the body never jumps back. A draft whose feature fails shows the body
-  before it, and the fillet, chamfer, shell and offset face panels put the failure under the field
-  as an error callout (`feature_fields::draft_failure_row`, `Model::draft_failure`).
+  before it (a datum or thread its committed result), and the row being typed (the one with focus)
+  puts the failure under its field as an error callout (`feature_fields::draft_failure_row`,
+  `Model::draft_failure`).
 - A feature that removes material (an extrusion or revolve removing from a body, a hole) shows
   instead the body solid as cut and only its tools (`Evaluation::cuts`, the swept profile or each
   drill) in `CUT_PREVIEW` over everything (`Scene::overlay_meshes`, edges on the front layer),
@@ -223,8 +229,25 @@ paths:
   holds both kinds behind `Manipulator` and `Manipulating`): in steps (Ctrl drags freely),
   previewed with the distance beside the pointer, committed on release as one edit setting that
   distance to a measured value of at least one step. The arrows follow a typed distance's preview
-  (`Model::draft_kind`); an extrusion starting at a face or plane, or running along a direction,
-  has none.
+  (`Model::draft_kind`, `Model::shown_parameters`); an extrusion starting at a face or plane, or
+  running along a direction, has none.
+- A drag never drops a name a field holds (`manipulator::Held`, read from the field's caption as
+  its `ParameterOwner`, the captions shared with the panels: `solid_panel::DISTANCE` and the
+  others, `move_panel::distance_caption`, `turn_caption`, `ANGLE`). A plain number is replaced by
+  the measured value; the field's own named value (`h = 20`) keeps the reference and the drag
+  edits the parameter's expression instead (`Edit::SetParameterExpression`, in the same "Edit
+  <feature>" change, `manipulator::keeping_names`); a value using any other parameter, directly or
+  through its named value (`depth`, `h = depth * 2`), is driven: its arrow, square or ring does not
+  drag and its hover says what drives it ("Distance follows depth; change depth in Parameters",
+  `Manipulator::driven`, `words`). A ring that rewrites all three turns is driven when any of them
+  is.
+- Reverse the direction (`Command::ReverseDirection`, palette, no default key;
+  `reversing::reverse_change`, in `feature_tree::feature_commands`' changes) acts on the open
+  feature, else the tree's current one, doing what its panel's reverse control does: an
+  extrusion's one-sided end, a revolve's one-sided or up-to turn, a hole, a primitive (not one
+  centred on its place), a pattern's first direction, a mate's facing and a split's kept side, as
+  one "Reverse <feature>" change. An extrusion or revolve running both ways and a full turn are
+  refused saying which Extent to choose; any other kind is refused with `NOTHING_TO_REVERSE`.
 - A revolve can also take two angles, refusing a pair that turns more than a full turn, or turn
   Up to face (`solid_panel::TURN_UP_TO`): the selected flat face or plane, taken like an
   extrusion's end, else choosing one in the view (`Slot::RevolveTarget`), shown as Up to with
@@ -246,6 +269,10 @@ paths:
 - Choose in the view on a fillet or chamfer first adds the edges selected in the view of its
   body (`blend_tools::with_selected_edges`, one undoable change, edges already in a chosen chain
   skipped), then opens it, so those and the edges it held show chosen and a click leaves one out.
+  A shell's and an offset face's Choose in the view do the same with the selected faces of its
+  body (`shell_tools::with_selected_faces`, flat faces only, and
+  `offset_face_tools::with_selected_faces`; faces already chosen skipped), the panels taking the
+  selection through their `FacesRow`.
 - A chamfer's panel adds Distances (Equal, Two, Angle; `blend_tools::FormChoice`) after Shape:
   Two names the size First distance and adds Second distance (starting as the first), Angle adds
   an angle field (45 deg to start, refused at or past 180°, `Rule::ChamferAngle`), each previewed
@@ -342,7 +369,10 @@ paths:
   nearest the face and its first class for the side), Size, Class (the classes for the face's
   side; hidden when the standard has only the one), Hand (Right, Left), Length (Full face, Depth
   with its Depth field and Start from the other end) and Body. The face and side are read from
-  the body as the thread sees it (`thread_tools::threaded_bore`).
+  the body as the thread sees it (`thread_tools::threaded_bore`). The Face row takes another face
+  with Use selected or Choose in the view (`Slot::ThreadFace`, `thread_tools::face_change`): the
+  one round face `selected_face` accepts, which must exist where the thread sits, keeping the size
+  while it fits the new face (else the standard's nearest) and the class while the side offers it.
 - Threads are drawn on shown bodies (`scene::Builder::threads`, from `placed_threads`), outside
   sketch editing: the thread's circle (the major diameter for a bore, the minor for a shaft) solid
   at its start, the same circle dashed at its end and four dashed lines along it, each also drawn
@@ -354,9 +384,12 @@ paths:
 ## Combine
 
 - Combine (Alt+J) is offered when the selection touches faces, edges or vertices of exactly two
-  bodies shown now, or two bodies are chosen in the tree; the earlier body in the tree is the target and the later the tool. It creates a
-  Join and opens the panel, whose Operation switch (Join, Cut, Intersect) and Target and Tool
-  lists (`Document::bodies_before`, each leaving out the bodies the other rows hold) change it.
+  bodies shown now, or two bodies are chosen in the tree. Picked in the view, the body picked
+  first is the target and the other the tool (`Selection::in_pick_order` through
+  `body_selection::bodies_in`); chosen in the tree, the earlier body in the tree is the target. It
+  creates a Join and opens the panel, whose Operation switch (Join, Cut, Intersect) and Target and
+  Tool lists (`Document::bodies_before`, each leaving out the bodies the other rows hold) change
+  it, and Swap target and tool (`combine_panel::SWAP`, `swapped`) exchanges the two in one edit.
   Under the Tool list, Also with lists the further tool bodies, each with a button to drop it, and
   an Add another tool body list offers the standing bodies not yet used; Keep tool leaves the tool
   bodies standing instead of using them up. Nothing is chosen in the view while it is open.
@@ -389,7 +422,8 @@ paths:
   from where it was grabbed, in steps of 1, 2 or 5 of a power of ten about `STEP_POINTS` on screen
   (Ctrl drags freely). Each change is a preview of the move (`Action::Preview`, drawn as typing
   draws it) with a readout of the distances beside the pointer; release commits one edit setting
-  the dragged distances to measured values, Escape or leaving the feature drops it.
+  the dragged distances to measured values (a named one through its parameter, as for the reach
+  arrows), Escape or leaving the feature drops it.
 - A move turning about its body's centre stands its manipulator at that centre (as moved) and adds
   a ring about each axis (`Handle::Turn`, `RING_REACH` beyond the arrows, left out when seen
   edge-on). Dragging one turns the body by the angle swept round the centre in the ring's plane,
@@ -444,7 +478,13 @@ paths:
   Centre in combo (World, or a coordinate system above it, through the shared
   `feature_fields::frame_row`, shown once the model has one; a description says the centre is
   measured from its origin along its axes) and the centre's three coordinates, all expressions
-  (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
+  (key `scale-field`, `("factor", 0)` or `("center", axis index)`), then Centre at: Use selected or
+  Choose in the view (`Slot::ScaleCentre`, `scale_tools::centre_change`) writes the coordinates of
+  the one selected point (`datum_tools::point_reference`: a corner, round edge or sphere centre
+  placed on its body as it stands before the scale, `PointReference::on_body`, else a sketch or
+  datum point or the origin as shown, `measure::point_of`), and Body centre
+  (`scale_panel::BODY_CENTRE`, `body_centre_change`) the middle of the body's box before the scale;
+  both as measured values in the Centre in system.
 
 ## Scale model
 

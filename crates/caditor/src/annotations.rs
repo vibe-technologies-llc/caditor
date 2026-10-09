@@ -5,10 +5,7 @@ use caditor_expression::{Dimension, Expression, Quantity};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchSolution};
 use egui::{
-    Align2, Color32, Galley, Id, Key, Order, Pos2, Rect, Sense, Shape, Stroke, StrokeKind,
-    TextEdit, Ui,
-    text::{CCursor, CCursorRange},
-    vec2,
+    Align2, Color32, Galley, Id, Key, Order, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, vec2,
 };
 
 use crate::{
@@ -1186,7 +1183,7 @@ impl Annotations {
         if focused {
             open.focus_pending = false;
             if open.select_all_pending {
-                select_all(ui.ctx(), id, &stored);
+                field::select_all(ui.ctx(), id, &stored);
                 open.select_all_pending = false;
             }
         }
@@ -1197,15 +1194,6 @@ impl Annotations {
         }
         self.field = (!lost_focus || field.error.is_some()).then_some(open);
     }
-}
-
-fn select_all(context: &egui::Context, id: Id, text: &str) {
-    let mut state = TextEdit::load_state(context, id).unwrap_or_default();
-    state.cursor.set_char_range(Some(CCursorRange::two(
-        CCursor::new(0),
-        CCursor::new(text.chars().count()),
-    )));
-    TextEdit::store_state(context, id, state);
 }
 
 fn to_pos(rect: Rect, point: Vector2) -> Pos2 {

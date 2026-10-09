@@ -929,6 +929,9 @@ impl ViewportState {
             aids: self.aids,
             analyses: &self.analyses,
             contrast: self.contrast,
+            draft: context
+                .solid
+                .and_then(|feature| model.draft_evaluation_of(feature)),
         };
         self.scenes.update(&SceneInputs {
             sources: &sources,
@@ -941,6 +944,7 @@ impl ViewportState {
                 aids: self.aids,
                 analysed: self.analyses.finished(),
                 contrast: self.contrast,
+                draft: model.draft_generation(),
             },
             context,
             highlight: Highlight {
@@ -1092,6 +1096,7 @@ impl ViewportState {
             aids: ViewAids::default(),
             analyses: &Analyses::default(),
             contrast: Contrast::Standard,
+            draft: None,
         };
         let context = editing.context();
         let view = self
@@ -3810,7 +3815,10 @@ impl ViewportState {
         let projecting = editing.active().filter(|active| active.tool.projects());
         let description =
             if let Some(handle) = self.manipulator_hover.filter(|_| self.primary.is_none()) {
-                Some(handle.words())
+                Some(
+                    self.manipulator
+                        .map_or_else(|| handle.words(), |shown| shown.words(model, handle)),
+                )
             } else if let Some(active) = projecting {
                 hovered
                     .filter(|hovered| projecting::projectable(model, active, *hovered))

@@ -13,6 +13,7 @@ panel, {command:model.use_selected_axis} or Choose in the view changes it.
   own angle. Two angles together may not pass a full turn.
 - **Up to face** turns until the profile reaches a face or plane that contains the axis, forward or
   reversed.
+- {command:model.reverse_direction} turns a one-sided or Up to face revolve the other way.
 - **Profile**: Whole, or One side keeping only the regions on one side of the axis; Keep the other
   side of the axis swaps.
 - **Start** begins at the sketch plane or another face or plane, as for [Extrude](extrude).

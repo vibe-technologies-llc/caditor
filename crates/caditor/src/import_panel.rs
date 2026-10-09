@@ -62,12 +62,13 @@ impl Panel<'_> {
         };
         let model = self.model;
         let import = self.import;
-        let committed = feature_fields::expression_row(ui, model, caption, quantity, |value| {
-            let mut changed = import.clone();
-            rebuild(&mut changed.placement, value);
-            change(model, id, changed)
-        });
-        self.actions.extend(committed.map(Action::Apply));
+        let drafting =
+            feature_fields::expression_row_drafting(ui, model, caption, quantity, |value| {
+                let mut changed = import.clone();
+                rebuild(&mut changed.placement, value);
+                change(model, id, changed)
+            });
+        self.actions.extend(drafting.into_actions(id));
     }
 }
 

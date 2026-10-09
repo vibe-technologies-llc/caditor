@@ -30,6 +30,7 @@ pub struct Revisions {
     pub aids: ViewAids,
     pub analysed: u64,
     pub contrast: Contrast,
+    pub draft: u64,
 }
 
 pub struct SceneInputs<'a> {

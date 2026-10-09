@@ -30,6 +30,14 @@ pub const ABOUT_ORIGIN: &str = "Origin";
 pub const ABOUT_AXIS: &str = "Axis";
 pub const AXIS: &str = "Axis";
 pub const ANGLE: &str = "Angle";
+
+pub fn distance_caption(axis: MoveAxis) -> String {
+    format!("Move along {}", axis.name())
+}
+
+pub fn turn_caption(axis: MoveAxis) -> String {
+    format!("Turn about {}", axis.name())
+}
 pub const MAKE_A_COPY: &str = "Make a copy";
 pub const DIRECTIONS: &str = "Directions";
 pub const FRAME_DESCRIPTION: &str = "Turns about and shifts along the X, Y and Z axes of the \
@@ -237,7 +245,7 @@ impl Panel<'_> {
         let drafting = feature_fields::expression_row_drafting(
             ui,
             self.model,
-            &format!("Move along {}", axis.name()),
+            &distance_caption(axis),
             quantity,
             |value| {
                 let mut changed = movement.clone();
@@ -261,7 +269,7 @@ impl Panel<'_> {
         let drafting = feature_fields::expression_row_drafting(
             ui,
             self.model,
-            &format!("Turn about {}", axis.name()),
+            &turn_caption(axis),
             quantity,
             |value| {
                 let mut changed = movement.clone();

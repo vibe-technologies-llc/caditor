@@ -24,6 +24,10 @@ In any value field, of a feature or a sketch dimension, type `name = expression`
 it. These named values are listed under Model parameters, each with the feature or dimension it
 belongs to. Typing a plain expression in the field again unnames it.
 
+Dragging an arrow or ring in the view keeps a named value: the drag changes the parameter's
+expression, so the name stays. A value that uses other parameters, such as `depth` or
+`h = depth * 2`, does not drag; hovering its arrow says which parameters to change instead.
+
 ## Finding and sharing
 
 {command:palette} finds parameters by name and takes you to the value.

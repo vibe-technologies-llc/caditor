@@ -908,6 +908,27 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
             shoot(&mut drilled, gpu, out, "panel-hole-stepped", look);
         }
     }
+
+    let joined_dir = TempDir::new().expect("a temporary directory");
+    let mut joined = Harness::styled(look, joined_dir.path(), false);
+    let (_, top) = extruded_plate(&mut joined);
+    add_peg(&mut joined);
+    let peg_top = super::pickable_described(&mut joined, "Peg › Peg end face");
+    joined.select([top, peg_top]);
+    joined.click("Combine");
+    shoot_open(&mut joined, gpu, out, "panel-combine", look);
+
+    let threaded_dir = TempDir::new().expect("a temporary directory");
+    let mut threaded = Harness::styled(look, threaded_dir.path(), false);
+    threaded.select([]);
+    run_from_palette(&mut threaded, "Cylinder");
+    threaded.settle();
+    threaded.perform(Action::Editing(EditingCommand::CloseSolid));
+    threaded.settle();
+    let wall = super::pickable_described(&mut threaded, "Cylinder 1 › Cylinder 1 wall");
+    threaded.select([wall]);
+    threaded.key(Key::O, Modifiers::ALT | Modifiers::SHIFT);
+    shoot_open(&mut threaded, gpu, out, "panel-thread", look);
 }
 
 fn close_dialog(harness: &mut Harness) {

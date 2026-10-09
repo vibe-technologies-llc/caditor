@@ -3,14 +3,23 @@ use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
-    feature_fields::{self, Quantity, Rule},
-    field,
+    feature_fields::{self, Picker, Quantity, Rule},
+    field, icons,
     model::{Action, Model},
-    scale_tools, widgets,
+    reference_picking::Slot,
+    scale_tools,
+    selection::Selection,
+    widgets,
 };
 
 pub const DESCRIPTION: &str = "Resizes the body by the factor, keeping the centre in place";
 pub const CENTRE_IN: &str = "Centre in";
+pub const CENTRE_AT: &str = "Centre at";
+pub const BODY_CENTRE: &str = "Body centre";
+const CENTRE_HOVER: &str = "Scale about the selected corner, round edge, sphere, sketch point or \
+                            datum point";
+const BODY_CENTRE_HOVER: &str =
+    "Scale about the middle of the body's box as it stands before this scale";
 pub const FRAME_DESCRIPTION: &str =
     "The centre is measured from the origin of the coordinate system, along its X, Y and Z axes";
 
@@ -23,6 +32,7 @@ fn change(model: &Model, feature: FeatureId, scale: Scale) -> Result<Transaction
 
 struct Panel<'a> {
     model: &'a Model,
+    selection: &'a Selection,
     feature: &'a Feature,
     actions: &'a mut Vec<Action>,
 }
@@ -45,22 +55,53 @@ impl Panel<'_> {
             rule,
         };
         let model = self.model;
-        let committed = feature_fields::expression_row(ui, model, caption, quantity, |value| {
-            change(model, id, rebuild(value))
+        let drafting =
+            feature_fields::expression_row_drafting(ui, model, caption, quantity, |value| {
+                change(model, id, rebuild(value))
+            });
+        self.actions.extend(drafting.into_actions(id));
+    }
+
+    fn centre_at_row(&mut self, ui: &mut Ui, scale: &Scale) {
+        let (model, selection, id) = (self.model, self.selection, self.feature.id());
+        let picker = Picker {
+            feature: id,
+            slot: Slot::ScaleCentre,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                model,
+                selection,
+                (id, Slot::ScaleCentre),
+                || scale_tools::centre_change(model, selection, id, scale),
+            ),
+            hover: CENTRE_HOVER,
+        };
+        widgets::caption(ui, CENTRE_AT);
+        ui.horizontal_wrapped(|ui| {
+            feature_fields::reference_picker(ui, model, picker, self.actions);
+            let button = widgets::small_button(ui, icons::BODY_CENTRE, BODY_CENTRE);
+            if ui.add(button).on_hover_text(BODY_CENTRE_HOVER).clicked() {
+                self.actions.push(feature_fields::applied(
+                    &self.feature.name,
+                    scale_tools::body_centre_change(model, id, scale),
+                ));
+            }
         });
-        self.actions.extend(committed.map(Action::Apply));
+        ui.end_row();
     }
 }
 
 pub fn show(
     ui: &mut Ui,
     model: &Model,
+    selection: &Selection,
     actions: &mut Vec<Action>,
     feature: &Feature,
     scale: &Scale,
 ) {
     let mut panel = Panel {
         model,
+        selection,
         feature,
         actions,
     };
@@ -109,6 +150,7 @@ pub fn show(
                 },
             );
         }
+        panel.centre_at_row(ui, scale);
         feature_fields::feature_row(ui, model.document(), "Body", scale.body);
     });
 }

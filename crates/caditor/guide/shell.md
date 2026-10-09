@@ -4,7 +4,8 @@
 choose. Select the faces to open, then choose Shell.
 
 While it is open, click faces in the view to open or close them; the opened faces show in the
-selected colour. The panel lists them, each with a button to close it again, and sets the
+selected colour. **Choose in the view** in the panel first opens the faces of the body selected
+then. The panel lists them, each with a button to close it again, and sets the
 **Thickness**. Typing it previews the result before you press Enter.
 
 Only flat faces can be opened. The walls grow inward from the body's faces, so its outside stays

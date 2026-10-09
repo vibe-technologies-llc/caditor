@@ -155,3 +155,43 @@ pub fn toggle_face(model: &Model, feature: FeatureId, face: FaceKey) -> Option<T
         },
     ))
 }
+
+pub fn with_selected_faces(
+    model: &Model,
+    feature: FeatureId,
+    selection: &Selection,
+) -> Option<Transaction> {
+    let owner = model.document().feature(feature)?;
+    let offset = owner.kind.offset_face()?;
+    let input = bodies::input(model.evaluation(), feature)?;
+    let solid = &input.solid;
+    let mut taken: BTreeSet<FaceId> = offset
+        .resolutions(solid)
+        .iter()
+        .flat_map(|resolution| resolution.found().iter().copied())
+        .collect();
+    let mut changed = offset.clone();
+    for pickable in selection.iter() {
+        let Pickable::Face { body, face } = pickable else {
+            continue;
+        };
+        let Some(found) = (body == offset.body)
+            .then(|| bodies::find_face(input, face))
+            .flatten()
+            .filter(|found| !taken.contains(found))
+        else {
+            continue;
+        };
+        changed.faces.push(FaceReference::capture(solid, found)?);
+        taken.insert(found);
+    }
+    (changed.faces.len() > offset.faces.len()).then(|| {
+        Transaction::single(
+            format!("Move the selected faces with {}", owner.name),
+            Edit::SetFeatureKind {
+                id: feature,
+                kind: FeatureKind::OffsetFace(changed),
+            },
+        )
+    })
+}

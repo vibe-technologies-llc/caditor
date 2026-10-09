@@ -352,6 +352,18 @@ impl PointReference {
         }
     }
 
+    pub fn on_body(&self, solid: &Solid) -> Option<Point3> {
+        match self {
+            Self::Vertex { vertex, .. } => {
+                let found = vertex_named(solid, *vertex).ok()?;
+                Some(solid.vertex(found)?.point())
+            }
+            Self::Centre { edge, .. } => edge_centre(solid, edge.resolve(solid).ok()?),
+            Self::SurfaceCentre { face, .. } => surface_centre(solid, face.resolve(solid).ok()?),
+            Self::Origin | Self::Datum(_) | Self::Sketch { .. } | Self::Frame(_) => None,
+        }
+    }
+
     pub fn capture_surface_centre(body: FeatureId, solid: &Solid, face: FaceId) -> Option<Self> {
         surface_centre(solid, face)?;
         Some(Self::SurfaceCentre {

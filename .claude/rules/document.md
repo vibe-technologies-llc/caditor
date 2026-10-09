@@ -779,7 +779,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - A `PointReference` is the origin, a coordinate system's origin, a datum point, a body corner (`VertexName`, resolved when
   exactly one vertex has it), the centre of a round edge (an `EdgeReference`, pieces of one circle
   accepted), the centre of a spherical or toroidal face (`SurfaceCentre`, a `FaceReference`, pieces
-  of one surface accepted) or a sketch point (in its solved plane). An `AxisReference::Sketch` is a line of an
+  of one surface accepted) or a sketch point (in its solved plane); `PointReference::on_body`
+  places the three body kinds on a given solid, for the app. An `AxisReference::Sketch` is a line of an
   earlier sketch. Sketches they use join `features()`, so recompute reuses the datum, pattern or
   revolve only while the sketch is unchanged.
 - `Datum::Point` places a `DatumPoint` at a point reference moved by three length offsets.

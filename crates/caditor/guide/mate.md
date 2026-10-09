@@ -8,7 +8,8 @@ Select, in this order, a flat face of the body to move and then the face or plan
 a straight edge or round face of the body and then another axis.
 
 The panel shows both choices, each with Use selected and Choose in the view, a **Distance** to
-leave between faces, and whether the face points the same way or the other way.
+leave between faces (previewed as you type), and whether the face points the same way or the
+other way, which {command:model.reverse_direction} also flips.
 
 A mate keeps its kind: to change from faces to axes, make another mate. See also
 [Move and copy](move-and-copy).
