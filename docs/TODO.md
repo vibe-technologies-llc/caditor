@@ -328,7 +328,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [high · hard] Importing a large STEP file is slow, and its bodies appear in the view one by one
   over a long stretch instead of together. Nothing has been measured yet: start by timing a large
   import in release stage by stage (reading and healing, the recompute of each body, tessellation,
-  the hand to the renderer, the GPU upload) on a real file such as a 5 MB guitar pickup assembly,
+  the hand to the renderer, the GPU upload) on a real file such as a VZBot printer assembly (many bodies, large),
   and let the numbers pick the work. The suspects already on the roadmap are the single-threaded,
   uncached display meshing of each body (`Kernel performance`), the upload that takes in only
   8 MiB of meshes and silhouettes a frame (`MESH_UPLOAD_BYTES_PER_FRAME`, in
