@@ -63,6 +63,8 @@ mod interference_panel;
 mod layout;
 mod logging;
 mod logo;
+mod mate_panel;
+mod mate_tools;
 mod measure;
 mod measure_panel;
 mod menu_bar;

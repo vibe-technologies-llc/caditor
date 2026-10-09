@@ -859,6 +859,7 @@ impl Document {
             | (FeatureKind::Thread(_), FeatureKind::Thread(_))
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))
             | (FeatureKind::Move(_), FeatureKind::Move(_))
+            | (FeatureKind::Mate(_), FeatureKind::Mate(_))
             | (FeatureKind::Mirror(_), FeatureKind::Mirror(_))
             | (FeatureKind::Split(_), FeatureKind::Split(_))
             | (FeatureKind::Scale(_), FeatureKind::Scale(_))

@@ -10,6 +10,7 @@ use crate::{
     },
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     edit::{Edit, Transaction},
+    mate::MatePair,
     movement::TurnCentre,
     pattern::PatternKind,
     recompute::Inputs,
@@ -135,6 +136,16 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visit_axis(&mut turn.axis, "axis to turn about", visitor);
             }
         }
+        FeatureKind::Mate(mate) => match &mut mate.pair {
+            MatePair::Faces(faces) => {
+                visitor.face(mate.body, &mut faces.face, "the face it mates");
+                visit_plane(&mut faces.target, "the face it mates onto", visitor);
+            }
+            MatePair::Axes(axes) => {
+                visit_axis(&mut axes.axis, "axis to mate", visitor);
+                visit_axis(&mut axes.target, "axis to mate onto", visitor);
+            }
+        },
         FeatureKind::Combine(_)
         | FeatureKind::Scale(_)
         | FeatureKind::Hole(_)
@@ -143,7 +154,9 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             visit_plane(&mut mirror.plane, "the face it mirrors across", visitor);
         }
         FeatureKind::Split(split) => {
-            visit_plane(&mut split.plane, "the face it splits along", visitor);
+            if let Some(plane) = split.along.plane_mut() {
+                visit_plane(plane, "the face it splits along", visitor);
+            }
         }
         FeatureKind::Primitive(primitive) => {
             visit_plane(&mut primitive.plane, "the face it stands on", visitor);

@@ -53,6 +53,7 @@ const MODEL_BODIES: [&[Command]; 2] = [
         Command::Mirror,
         Command::Split,
         Command::Scale,
+        Command::Mate,
     ],
     &[
         Command::BodyAppearance,

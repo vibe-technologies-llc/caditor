@@ -189,9 +189,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   hole in the wrong place or a fillet to remove means remodelling it from scratch. Direct edits
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
-- [medium · medium] A body splits only along a plane (`Split`), not along a curved face or a sketch
-  curve swept through it, and cannot be placed by mating faces (a face onto another, flush or at a
-  distance, an axis onto another).
+- [low · medium] A body splits along a plane, a sketch curve or another body whole, but not along
+  one curved face of another body extended past its edges, and a mate places it by one pair of
+  faces or axes: a face and an axis together (flush and concentric) take two mates in a row, and
+  there are no tangent, angle or point mates.
 - [low · medium] Mirror reflects a whole body or chosen features (extrusions, revolves, holes), but
   not chosen faces: reflecting a set of faces (a pocket's walls and floor of an imported body
   with no features) across a plane, kept linked to the faces it copies, is missing.

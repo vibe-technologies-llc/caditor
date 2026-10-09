@@ -101,6 +101,7 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
         FeatureKind::Thread(thread) => thread.expressions_mut(),
         FeatureKind::Move(movement) => movement.expressions_mut().collect(),
+        FeatureKind::Mate(mate) => mate.expressions_mut(),
         FeatureKind::Scale(scale) => std::iter::once(&mut scale.factor)
             .chain(scale.center.iter_mut())
             .collect(),

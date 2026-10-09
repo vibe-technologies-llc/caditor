@@ -246,6 +246,11 @@ paths:
   `move_about_axis` record holding the same inner `feature`, its `axis` (an axis reference) and the
   stored text of its `angle` (unreadable: 0 deg); an axis that cannot be read loads turning about
   the body's centre, reported.
+- A `mate` feature record holds `body`, `pair` (`faces` with `face`, a face record, `target`, a
+  plane reference, and the `distance` text; or `axes` with `axis` and `target`, axis references)
+  and `flipped` only when set. An unreadable moving face loads as a reference to no face, so the
+  mate fails until it is chosen again; an unreadable target plane as the XY plane, an axis as the
+  Z axis and a distance as 0 mm, each reported.
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as
   the YZ plane, reported) and `keep_original`. One mirroring features rather than its whole body
   is a `feature_mirror` record: `feature`, the `mirror` record it would be mirroring the body, and
@@ -279,7 +284,10 @@ paths:
   turning the whole profile, reported. `cut_several` wraps it when the revolve also cuts other
   bodies.
 - A `split` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as the
-  YZ plane, reported) and `flipped` only when set.
+  YZ plane, reported) and `flipped` only when set. A split along another body or a sketch's curve
+  is a `split_along` record (`body`, `along` as `{"body": id}` or `{"sketch": id}`, `flipped` only
+  when set), since an older reader would not know what to split along; a split along a plane is
+  still written as `split`.
 - An `offset_face` feature record holds `body`, `distance` (stored text; unreadable: 1 mm,
   reported), `faces` (face records; an unreadable one is left out, reported as left where it is)
   and `tangent` only when set.

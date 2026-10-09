@@ -104,8 +104,11 @@ const CHOOSE_MOVE_PROMPT: &str =
 const CHOOSE_SCALE_PROMPT: &str = "Enter the factor and the centre in the feature's panel";
 const CHOOSE_MIRROR_PROMPT: &str =
     "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
-const CHOOSE_SPLIT_PROMPT: &str =
-    "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
+const CHOOSE_SPLIT_PROMPT: &str = "Choose what to split along in the feature's panel, or select a \
+                                   plane, flat face, sketch curve or other body and use it from \
+                                   there";
+const CHOOSE_MATE_PROMPT: &str = "Choose the faces or axes to mate in the feature's panel, or \
+                                  select one and use it from there";
 const CHOOSE_HOLE_PROMPT: &str = "Choose the hole's style and sizes in the feature's panel";
 const CHOOSE_PRIMITIVE_PROMPT: &str =
     "Enter the sizes and position in the feature's panel, or choose in the view where it goes";
@@ -3577,6 +3580,7 @@ impl ViewportState {
                 Some(FeatureKind::Scale(_)) => CHOOSE_SCALE_PROMPT,
                 Some(FeatureKind::Mirror(_)) => CHOOSE_MIRROR_PROMPT,
                 Some(FeatureKind::Split(_)) => CHOOSE_SPLIT_PROMPT,
+                Some(FeatureKind::Mate(_)) => CHOOSE_MATE_PROMPT,
                 Some(FeatureKind::Hole(_)) => CHOOSE_HOLE_PROMPT,
                 Some(FeatureKind::Primitive(_)) => CHOOSE_PRIMITIVE_PROMPT,
                 Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,

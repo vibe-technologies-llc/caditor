@@ -292,13 +292,13 @@ impl<'a> Placing<'a> {
     }
 }
 
-struct Context<'a> {
-    feature: &'a Feature,
-    inputs: &'a Inputs<'a>,
+pub(crate) struct Context<'a> {
+    pub feature: &'a Feature,
+    pub inputs: &'a Inputs<'a>,
 }
 
 impl Context<'_> {
-    fn error(&self, reason: String, remedy: String) -> Failure {
+    pub(crate) fn error(&self, reason: String, remedy: String) -> Failure {
         Failure::Error(Box::new(FeatureError {
             reason,
             remedy,
@@ -308,7 +308,7 @@ impl Context<'_> {
         }))
     }
 
-    fn value(
+    pub(crate) fn value(
         &self,
         expression: &Expression,
         dimension: Dimension,

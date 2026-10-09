@@ -4,7 +4,7 @@ use egui::{Context, Id};
 use crate::{
     datum_panel, datum_tools,
     editing::EditingCommand,
-    mirror_tools,
+    mate_tools, mirror_tools,
     model::{Action, Model, Notice},
     move_tools,
     pattern_tools::{self, Reference},
@@ -37,6 +37,8 @@ pub enum Slot {
     DatumRotation,
     MoveAxis,
     PrimitivePlace,
+    MateMoving,
+    MateTarget,
 }
 
 pub const MAX_HELD: usize = 2;
@@ -125,7 +127,11 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()
         }
         Slot::MirrorPlane => "Click a plane or flat face to mirror across".to_owned(),
-        Slot::SplitPlane => "Click a plane or flat face to split along".to_owned(),
+        Slot::MateMoving => "Click the face or axis of the moving body to mate".to_owned(),
+        Slot::MateTarget => "Click the face, plane or axis to mate onto".to_owned(),
+        Slot::SplitPlane => {
+            "Click a plane, flat face, sketch curve or another body to split along".to_owned()
+        }
         Slot::PrimitivePlace => {
             let noun = kind(model, picking.feature)
                 .and_then(FeatureKind::primitive)
@@ -202,7 +208,7 @@ pub fn change(
             mirror_tools::plane_change(model, selection, feature, mirror)
         }
         (Slot::SplitPlane, FeatureKind::Split(split)) => {
-            split_tools::plane_change(model, selection, feature, split)
+            split_tools::along_change(model, selection, feature, split)
         }
         (Slot::PatternDirection, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::First)
@@ -221,6 +227,12 @@ pub fn change(
         }
         (Slot::PrimitivePlace, FeatureKind::Primitive(primitive)) => {
             primitive_tools::place_change(model, selection, feature, primitive)
+        }
+        (Slot::MateMoving, FeatureKind::Mate(mate)) => {
+            mate_tools::moving_change(model, selection, feature, mate)
+        }
+        (Slot::MateTarget, FeatureKind::Mate(mate)) => {
+            mate_tools::target_change(model, selection, feature, mate)
         }
         _ => Err(format!("{} no longer takes this reference", owner.name)),
     }

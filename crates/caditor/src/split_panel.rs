@@ -1,6 +1,4 @@
-use caditor_document::{
-    Feature, FeatureId, PlaneReference, PrincipalPlane, Split, capitalized, describe_plane,
-};
+use caditor_document::{Feature, FeatureId, Split};
 use egui::{Id, Ui};
 
 use crate::{
@@ -11,10 +9,13 @@ use crate::{
     split_tools, widgets,
 };
 
-pub const DESCRIPTION: &str = "Cuts the body along the plane: the side the plane faces stays in \
-                               the body and the other side becomes a body of its own";
+pub const DESCRIPTION: &str = "Cuts the body along a plane, a sketch curve swept through it or \
+                               another body: the side the plane or curve faces, or what lies \
+                               outside the other body, stays in the body and the rest becomes a \
+                               body of its own";
 pub const KEEP_OTHER_SIDE: &str = "Keep the other side";
-const PICK_HOVER: &str = "Split along the selected plane or flat face instead";
+const PICK_HOVER: &str =
+    "Split along the selected plane, flat face, sketch curve or other body instead";
 
 struct Panel<'a> {
     model: &'a Model,
@@ -33,24 +34,21 @@ impl Panel<'_> {
         split_tools::change(self.model, self.id(), split).map(Action::Apply)
     }
 
-    fn plane_rows(&mut self, ui: &mut Ui) {
+    fn along_rows(&mut self, ui: &mut Ui) {
         let document = self.model.document();
-        let current = capitalized(&describe_plane(document, &self.split.plane));
+        let current = split_tools::describe(document, &self.split.along);
         widgets::caption(ui, "Split along");
         let chosen =
             feature_fields::combo(ui, Id::new(("split-plane", self.id())), current, || {
-                PrincipalPlane::ALL
+                split_tools::choices(self.model, self.id(), self.split)
                     .into_iter()
-                    .map(|plane| {
-                        let reference = PlaneReference::Principal(plane);
-                        Choice {
-                            label: capitalized(&describe_plane(document, &reference)),
-                            selected: self.split.plane == reference,
-                            change: self.change(Split {
-                                plane: reference,
-                                ..self.split.clone()
-                            }),
-                        }
+                    .map(|along| Choice {
+                        label: split_tools::describe(document, &along),
+                        selected: self.split.along == along,
+                        change: self.change(Split {
+                            along,
+                            ..self.split.clone()
+                        }),
                     })
                     .collect()
             });
@@ -65,7 +63,7 @@ impl Panel<'_> {
                 self.model,
                 self.selection,
                 (self.id(), Slot::SplitPlane),
-                || split_tools::plane_change(self.model, self.selection, self.id(), self.split),
+                || split_tools::along_change(self.model, self.selection, self.id(), self.split),
             ),
             hover: PICK_HOVER,
         };
@@ -109,7 +107,7 @@ pub fn show(
     };
     widgets::properties(ui, ("split-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
-        panel.plane_rows(ui);
+        panel.along_rows(ui);
         panel.side_row(ui);
         feature_fields::feature_row(ui, model.document(), "Body", split.body);
         feature_fields::feature_row(ui, model.document(), "Split-off body", feature.id());

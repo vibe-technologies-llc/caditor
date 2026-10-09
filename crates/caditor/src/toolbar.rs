@@ -7,7 +7,7 @@ use crate::{
     datum_tools,
     editing::{EditingCommand, SketchEditing},
     feature_tree::count,
-    hole_tools, icons, mirror_tools,
+    hole_tools, icons, mate_tools, mirror_tools,
     model::{Action, Model},
     move_tools,
     offers::Offers,
@@ -599,6 +599,13 @@ fn mirror_button(
         && let Ok(split) = split
     {
         actions.extend(split_tools::create_actions(model, split));
+    }
+
+    let mate = &context.offers.mate;
+    if commands.invoke(Command::Mate, mate)
+        && let Ok(mate) = mate
+    {
+        actions.extend(mate_tools::create_actions(model, mate));
     }
 }
 

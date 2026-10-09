@@ -16,6 +16,7 @@ mod hole;
 mod hole_standard;
 mod import;
 mod inlining;
+mod mate;
 mod mirror;
 mod model_parameters;
 mod movement;
@@ -77,6 +78,7 @@ pub use crate::{
     },
     hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,
+    mate::{AxisMate, FaceMate, Mate, MatePair},
     mirror::{MIRROR_IMAGE, Mirror},
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner, value_label},
     movement::{AxisTurn, BodyPlacement, Move, MoveAxis, Pivot, TurnCentre},
@@ -116,7 +118,7 @@ pub use crate::{
         Revolve, RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart,
         body_part, body_parts, profile_curve, sketch_regions,
     },
-    split::{HalfSpaceError, Split},
+    split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
     thread::{
         Bore, BoreError, PlacedThread, Thread, ThreadLength, ThreadPlacement, ThreadResult,
         hole_thread, placed_threads,
@@ -156,6 +158,8 @@ mod grouping_tests;
 mod history_tests;
 #[cfg(test)]
 mod hole_tests;
+#[cfg(test)]
+mod mate_tests;
 #[cfg(test)]
 mod mirror_tests;
 #[cfg(test)]

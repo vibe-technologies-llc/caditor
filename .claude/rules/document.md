@@ -445,6 +445,24 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `Feature::body` is the move itself) from the placed copy; a copy others use cannot stop being
   one.
 
+### Mate (`mate.rs`)
+
+- `Mate { body, pair, flipped }` places an existing body by its geometry: `MatePair::Faces` (a
+  `FaceReference` of the body, which must resolve to one plane, a `PlaneReference` target and a
+  length expression `distance`) or `MatePair::Axes` (two `AxisReference`s, the first normally an
+  edge or round face of the body). References are resolved at the mate's place, the moving ones
+  on the body as it stands before it, so the mate follows its target on every recompute.
+- Faces: the body turns about its box centre by the least turn taking the face's outward normal
+  opposite the target's (the same way when `flipped`; a half turn uses the face's x axis), then
+  shifts along the target normal until the face lies `distance` beyond the target plane, so it
+  keeps its place across the plane. Axes: the body turns about the point of its axis nearest its
+  box centre by the least turn onto the target's direction (reversed when `flipped`), then shifts
+  square to the target so the lines coincide.
+- It modifies its body like a move (`modifies_body`, state before kept), keeps every name
+  (`Solid::transformed`), and its target bodies, datums and sketches count as used like a move
+  axis's; healing visits the moving face and both references. A lost, split or curved moving face
+  fails it naming the face; a placement too far fails it in words.
+
 ### Mirror and scale (`mirror.rs`, `scaling.rs`)
 
 - `Mirror { body, plane, keep_original }` reflects its body across a `PlaneReference` resolved like
@@ -468,13 +486,28 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Split (`split.rs`)
 
-- `Split { body, plane, flipped }` cuts its body along a `PlaneReference` resolved like a mirror's:
-  the part on the side the plane's normal faces (the other side when `flipped`) stays in the body,
-  and the rest becomes a body of the split's own (`makes_body`, named after it). Both come from
-  one half-space block (a rectangle on the plane past the body's box by `HALF_SPACE_REACH` of its
-  diagonal plus `HALF_SPACE_MARGIN`, extruded to past the far side), intersected and subtracted,
-  so the two pieces share the cut face's name. A plane that does not pass through the body fails
-  it in words.
+- `Split { body, along, flipped }` cuts its body along a `SplitAlong`: the part on one side stays
+  in the body (the other side when `flipped`), and the rest becomes a body of the split's own
+  (`makes_body`, named after it). Both come from one tool solid, intersected and subtracted, so
+  the two pieces share the cut face's name.
+  - `Plane`, a `PlaneReference` resolved like a mirror's: the side its normal faces stays. The tool
+    is a half-space block (a rectangle on the plane past the body's box by `HALF_SPACE_REACH` of
+    its diagonal plus `HALF_SPACE_MARGIN`, extruded to past the far side).
+  - `Sketch`, an earlier sketch whose non-construction curves form one open chain joined end to
+    end (no circle, branch, loop or second chain): the chain is carried on straight along its end
+    tangents to a rectangle around the body and the curves (margins as the plane's), closed along
+    that rectangle on the left of the chain walked from its first end (the end on the curve of
+    lowest entity id, that curve's start if both are on it; the right when `flipped`), and the
+    region is extruded under the split's id from below the body to above it along the sketch
+    normal (`swept_half_space`); the closing lines take entity ids from `CLOSURE_ENTITIES`. A chain
+    whose closed outline is not one region (it crosses itself or its extensions cross) fails.
+    The sketch is in `reference_sketches`, so an edit refuses a feature that is not a sketch.
+  - `Body`, another body as it stands at the split, used whole as the tool: what lies outside it
+    stays, so its faces split along their whole surfaces. It counts in `bodies_used` and is left
+    as it was; splitting a body along itself fails.
+  - A tool that misses the body (an empty side) fails it in words naming the plane, curve or
+    body; a sketch's own problems (no curve, closed, not one chain, crossing itself) fail it with
+    the fix on the sketch.
 - It is the one feature whose result holds two bodies: the kept part is the result's own
   `SolidResult` and the split-off part is in `SolidResult::others`. `Feature::bodies` lists both
   (settling counts both), the walk stands each part under its own body (`body_parts`), and

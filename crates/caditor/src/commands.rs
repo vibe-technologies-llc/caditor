@@ -233,6 +233,7 @@ pub enum Command {
     Welcome,
     About,
     Messages,
+    Mate,
 }
 
 impl Command {
@@ -642,6 +643,7 @@ plain_commands! {
     DismissNotice,
     DismissTip,
     HideTips,
+    Mate,
 }
 
 impl Command {
@@ -894,6 +896,7 @@ impl Command {
             Self::Welcome => "help.welcome",
             Self::About => "help.about",
             Self::Messages => "help.messages",
+            Self::Mate => "model.mate",
         }
     }
 
@@ -1067,7 +1070,7 @@ impl Command {
             Self::ClearChosenRegions => "Clear the chosen regions",
             Self::StartAtSelected => "Start extrusion or revolution at selected face or plane",
             Self::MirrorAcrossSelected => "Mirror across selected face or plane",
-            Self::SplitAlongSelected => "Split along selected face or plane",
+            Self::SplitAlongSelected => "Split along selected plane, face, curve or body",
             Self::DatumUseSelected => "Base datum on selection",
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
             Self::PatternUseSelected => "Pattern along or about selected axis",
@@ -1089,6 +1092,7 @@ impl Command {
             Self::Welcome => "Welcome and samples…",
             Self::About => "About caditor",
             Self::Messages => "Recent messages",
+            Self::Mate => "Mate body",
         };
         fixed.to_owned()
     }
@@ -1197,6 +1201,7 @@ impl Command {
             | Self::CopyBody
             | Self::Mirror
             | Self::Split
+            | Self::Mate
             | Self::Scale
             | Self::BodyAppearance
             | Self::RenameBody
@@ -1475,6 +1480,7 @@ impl Command {
             | Self::Welcome
             | Self::About
             | Self::Messages
+            | Self::Mate
             | Self::UndoHistory
             | Self::SelectFree
             | Self::ToggleSketches

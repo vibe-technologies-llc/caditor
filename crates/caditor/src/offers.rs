@@ -2,7 +2,9 @@ use caditor_document::{AxisReference, Datum, DatumAxis, FeatureId};
 
 use crate::{
     combine_tools::{self, BodyPair},
-    datum_tools, measure,
+    datum_tools,
+    mate_tools::{self, MateSource},
+    measure,
     mirror_tools::{self, MirrorSource},
     model::Model,
     move_tools, offset_face_tools,
@@ -49,6 +51,7 @@ pub struct Offers {
     pub scale: Result<FeatureId, &'static str>,
     pub pattern: Result<PatternSource, &'static str>,
     pub thread: Result<ThreadSource, &'static str>,
+    pub mate: Result<MateSource, &'static str>,
     pub described: Vec<String>,
     pub selected: usize,
     pub size: Option<String>,
@@ -90,6 +93,7 @@ impl Offers {
             split: split_tools::source(model, selection, tree),
             scale: scale_tools::selected_body(model, selection, tree),
             thread: thread_tools::selected_face(model, selection),
+            mate: mate_tools::source(model, selection),
             described: selection
                 .iter()
                 .take(MAX_DESCRIBED)

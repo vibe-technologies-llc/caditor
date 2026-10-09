@@ -17,6 +17,7 @@ use crate::{
     edit::{Edit, Transaction},
     hole::Hole,
     import::Import,
+    mate::Mate,
     mirror::Mirror,
     model_parameters::ParameterOwner,
     movement::Move,
@@ -104,6 +105,7 @@ pub enum FeatureKind {
     Primitive(Primitive),
     Combine(Combine),
     Move(Move),
+    Mate(Mate),
     Mirror(Mirror),
     Split(Split),
     Scale(Scale),
@@ -180,6 +182,7 @@ impl FeatureKind {
             Self::Primitive(primitive) => primitive.heap_size(),
             Self::Combine(combine) => size_of_val(combine.more_tools.as_slice()),
             Self::Move(movement) => movement.heap_size(),
+            Self::Mate(mate) => mate.heap_size(),
             Self::Mirror(mirror) => mirror.heap_size(),
             Self::Split(split) => split.heap_size(),
             Self::Scale(scale) => scale.heap_size(),
@@ -209,6 +212,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -231,6 +235,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -253,6 +258,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -275,6 +281,7 @@ impl FeatureKind {
             Self::Primitive(primitive) => primitive.operation.target(),
             Self::Combine(combine) => Some(combine.body),
             Self::Move(movement) => Some(movement.body),
+            Self::Mate(mate) => Some(mate.body),
             Self::Mirror(mirror) => Some(mirror.body),
             Self::Split(split) => Some(split.body),
             Self::Scale(scale) => Some(scale.body),
@@ -297,9 +304,10 @@ impl FeatureKind {
             Self::Datum(datum) => used.extend(datum.bodies()),
             Self::Pattern(pattern) => used.extend(pattern.axis_bodies()),
             Self::Move(movement) => used.extend(movement.axis_body()),
+            Self::Mate(mate) => used.extend(mate.bodies()),
             Self::Combine(combine) => used.extend(combine.tools()),
             Self::Mirror(mirror) => used.extend(mirror.plane.body()),
-            Self::Split(split) => used.extend(split.plane.body()),
+            Self::Split(split) => used.extend(split.along.body()),
             Self::Primitive(primitive) => used.extend(primitive.plane.body()),
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Blend(_)
@@ -326,8 +334,9 @@ impl FeatureKind {
             Self::Solid(solid) => solid.end_datums(),
             Self::Datum(datum) => datum.plane_datums(),
             Self::Mirror(mirror) => mirror.plane.datum().into_iter().collect(),
-            Self::Split(split) => split.plane.datum().into_iter().collect(),
+            Self::Split(split) => split.along.datum().into_iter().collect(),
             Self::Primitive(primitive) => primitive.plane.datum().into_iter().collect(),
+            Self::Mate(mate) => mate.plane_datums(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
@@ -348,6 +357,7 @@ impl FeatureKind {
             Self::Datum(datum) => datum.axis_datums(),
             Self::Pattern(pattern) => pattern.axis_datums(),
             Self::Move(movement) => movement.axis_datum().into_iter().collect(),
+            Self::Mate(mate) => mate.axis_datums(),
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
@@ -375,6 +385,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -396,6 +407,8 @@ impl FeatureKind {
             Self::Solid(solid) => solid.axis_sketch().into_iter().collect(),
             Self::Pattern(pattern) => pattern.axis_sketches(),
             Self::Move(movement) => movement.axis_sketch().into_iter().collect(),
+            Self::Mate(mate) => mate.sketches(),
+            Self::Split(split) => split.along.sketch().into_iter().collect(),
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
@@ -403,7 +416,6 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Mirror(_)
-            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_)
@@ -423,6 +435,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::Primitive(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -442,6 +455,7 @@ impl FeatureKind {
                 | Self::OffsetFace(_)
                 | Self::Combine(_)
                 | Self::Move(_)
+                | Self::Mate(_)
                 | Self::Hole(_)
         )
     }
@@ -456,6 +470,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -478,6 +493,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -500,6 +516,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -523,6 +540,7 @@ impl FeatureKind {
             | Self::Thread(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -544,6 +562,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -567,6 +586,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -589,6 +609,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -603,6 +624,29 @@ impl FeatureKind {
     pub fn movement(&self) -> Option<&Move> {
         match self {
             Self::Move(movement) => Some(movement),
+            Self::Mate(_)
+            | Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::OffsetFace(_)
+            | Self::Primitive(_)
+            | Self::Combine(_)
+            | Self::Mirror(_)
+            | Self::Split(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_)
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
+        }
+    }
+
+    pub fn mate(&self) -> Option<&Mate> {
+        match self {
+            Self::Mate(mate) => Some(mate),
             Self::Sketch(_)
             | Self::Solid(_)
             | Self::Blend(_)
@@ -610,6 +654,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::Primitive(_)
             | Self::Combine(_)
+            | Self::Move(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -634,6 +679,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Pattern(_)
@@ -655,6 +701,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Scale(_)
             | Self::Hole(_)
@@ -677,6 +724,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Hole(_)
@@ -698,6 +746,7 @@ impl FeatureKind {
             | Self::OffsetFace(_)
             | Self::Primitive(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -721,6 +770,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -743,6 +793,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -765,6 +816,7 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Move(_)
+            | Self::Mate(_)
             | Self::Mirror(_)
             | Self::Split(_)
             | Self::Scale(_)
@@ -786,6 +838,7 @@ impl FeatureKind {
             Self::Primitive(primitive) => primitive.parameters(),
             Self::Combine(_) => BTreeSet::new(),
             Self::Move(movement) => movement.parameters(),
+            Self::Mate(mate) => mate.parameters(),
             Self::Mirror(_) | Self::Split(_) => BTreeSet::new(),
             Self::Scale(scale) => scale.parameters(),
             Self::Hole(hole) => hole.parameters(),
@@ -807,6 +860,7 @@ impl FeatureKind {
             Self::Primitive(primitive) => primitive.uses_parameter(parameter),
             Self::Combine(_) => false,
             Self::Move(movement) => movement.uses_parameter(parameter),
+            Self::Mate(mate) => mate.uses_parameter(parameter),
             Self::Mirror(_) | Self::Split(_) => false,
             Self::Scale(scale) => scale.uses_parameter(parameter),
             Self::Hole(hole) => hole.uses_parameter(parameter),
@@ -839,6 +893,7 @@ impl FeatureKind {
             Self::Primitive(primitive) => primitive.features(),
             Self::Combine(combine) => combine.features(),
             Self::Move(movement) => movement.features(),
+            Self::Mate(mate) => mate.features(),
             Self::Mirror(mirror) => mirror.features(),
             Self::Split(split) => split.features(),
             Self::Scale(scale) => scale.features(),
@@ -877,9 +932,10 @@ impl FeatureKind {
             Self::OffsetFace(offset) => offset.origin_features(),
             Self::Primitive(primitive) => primitive.origin_features(),
             Self::Move(movement) => movement.origin_features(),
+            Self::Mate(mate) => mate.origin_features(),
             Self::Combine(_) | Self::Scale(_) | Self::Hole(_) => BTreeSet::new(),
             Self::Mirror(mirror) => mirror.plane.origin_features(),
-            Self::Split(split) => split.plane.origin_features(),
+            Self::Split(split) => split.along.origin_features(),
             Self::Pattern(pattern) => pattern.origin_features(),
             Self::Datum(datum) => datum.origin_features(),
             Self::Thread(thread) => thread.origin_features(),
@@ -961,6 +1017,7 @@ impl Feature {
             FeatureKind::Combine(combine) => Some(combine.body),
             FeatureKind::Move(movement) if movement.copy => Some(self.id),
             FeatureKind::Move(movement) => Some(movement.body),
+            FeatureKind::Mate(mate) => Some(mate.body),
             FeatureKind::Mirror(mirror) => Some(mirror.body),
             FeatureKind::Split(split) => Some(split.body),
             FeatureKind::Scale(scale) => Some(scale.body),
@@ -993,7 +1050,8 @@ impl Feature {
             FeatureKind::Import(_) | FeatureKind::Split(_) => true,
             FeatureKind::Primitive(primitive) => primitive.operation == BodyOperation::NewBody,
             FeatureKind::Move(movement) => movement.copy,
-            FeatureKind::Sketch(_)
+            FeatureKind::Mate(_)
+            | FeatureKind::Sketch(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
