@@ -65,6 +65,7 @@ use crate::{
     view_cube, widgets, window_frame,
 };
 
+mod dimension_labels;
 mod feature_panels;
 mod import_jobs;
 mod screenshots;

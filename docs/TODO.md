@@ -154,8 +154,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
-- [low · medium] Dimension labels cannot be dragged; only linear dimensions sharing a line stack
-  clear of each other.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
   points (or calibrated by a known distance), given an opacity, locked and traced, as a part
   copied from an existing object or a drawing needs.

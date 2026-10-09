@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use caditor_document::{FeatureId, FeatureState};
+use caditor_document::{FeatureId, FeatureState, Transaction};
 use caditor_expression::{Dimension, Expression, Quantity};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchSolution};
@@ -12,12 +12,14 @@ use egui::{
 };
 
 use crate::{
-    annotation_layout::{self, DimensionLayout, Footprint, GlyphAnchor, GlyphKind, Obstacles},
+    annotation_layout::{
+        self, DimensionLayout, Footprint, GlyphAnchor, GlyphKind, LabelFrame, Obstacles,
+    },
     appearance, canvas,
     field::{self, DimensionTarget},
     model::{Action, Model},
     selection::{Pickable, Selection},
-    sketch_status,
+    sketch_status, sketch_tools,
     snap::Screen,
     units::Units,
 };
@@ -61,7 +63,9 @@ const FRAME_GAP: f32 = 1.5;
 pub const FRAME_WIDTH: f32 = 2.0;
 const FRAME_DASH: f32 = 4.0;
 const FRAME_DASH_GAP: f32 = 3.0;
-const EDIT_HINT: &str = "Double-click to change it.";
+const EDIT_HINT: &str = "Double-click to change it, or drag its label to move it.";
+pub const MOVE_LABEL_TRANSACTION: &str = "Move dimension label";
+const NO_LABEL_TO_MOVE: &str = "Select one dimension alone to move its label";
 
 pub fn field_id(feature: FeatureId, constraint: ConstraintId) -> Id {
     Id::new(("canvas-dimension", feature, constraint))
@@ -94,8 +98,65 @@ enum Frame {
 struct DimensionMark {
     constraint: ConstraintId,
     layout: DimensionLayout,
+    frame: Option<LabelFrame>,
     text: String,
     standing: Standing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LabelPlace {
+    pub at: Point2,
+    pub frame: LabelFrame,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LabelMoving {
+    pub feature: FeatureId,
+    pub constraint: ConstraintId,
+    pub place: LabelPlace,
+}
+
+impl LabelMoving {
+    pub fn transaction(&self, model: &Model, target: Point2) -> Transaction {
+        let mut transaction = sketch_tools::settled_transaction(
+            model,
+            self.feature,
+            MOVE_LABEL_TRANSACTION.to_owned(),
+        );
+        transaction.set_sketch_label(
+            self.feature,
+            self.constraint,
+            Some(self.place.frame.offset_of(target)),
+        );
+        transaction.finish()
+    }
+}
+
+pub fn label_to_move(
+    sketch: &Sketch,
+    entities: &[EntityId],
+    constraints: &[ConstraintId],
+    drawing: bool,
+) -> Result<ConstraintId, String> {
+    match (entities, constraints) {
+        ([], [only])
+            if !drawing
+                && sketch
+                    .constraint(*only)
+                    .is_some_and(|constraint| constraint.dimension().is_some()) =>
+        {
+            Ok(*only)
+        }
+        _ => Err(NO_LABEL_TO_MOVE.to_owned()),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LabelDrag {
+    feature: FeatureId,
+    constraint: ConstraintId,
+    grab: Vector2,
+    offset: Option<Vector2>,
 }
 
 struct GlyphMark {
@@ -202,6 +263,7 @@ impl Marks {
         screen: &impl Screen,
         view: Vector2,
         texts: &mut LabelTexts,
+        dragged: Option<(ConstraintId, Vector2)>,
     ) -> Option<Self> {
         texts.refresh(model, feature);
         let owner = model.document().feature(feature)?;
@@ -227,20 +289,30 @@ impl Marks {
                 annotation_layout::measured(&shown, constraint),
             ));
         }
-        let measured: Vec<_> = measured_dimensions
+        let offset_of = |id: ConstraintId| match dragged {
+            Some((dragged, offset)) if dragged == id => Some(offset),
+            _ => definition.label_offset(id),
+        };
+        let unplaced: Vec<_> = measured_dimensions
             .iter()
-            .map(|(_, _, _, measured)| *measured)
+            .map(|(id, _, _, measured)| measured.filter(|_| offset_of(*id).is_none()))
             .collect();
-        let lanes = annotation_layout::lanes(&measured, centre, extent_of(&shown));
+        let lanes = annotation_layout::lanes(&unplaced, centre, extent_of(&shown));
         for ((id, constraint, expression, measured), lane) in
             measured_dimensions.into_iter().zip(lanes)
         {
-            let layout = measured
-                .and_then(|measured| annotation_layout::layout(&measured, screen, centre, lane));
+            let frame = measured.as_ref().and_then(annotation_layout::label_frame);
+            let placed = frame
+                .zip(offset_of(id))
+                .map(|(frame, offset)| frame.place(offset));
+            let layout = measured.and_then(|measured| {
+                annotation_layout::layout(&measured, screen, centre, lane, placed)
+            });
             if let Some(layout) = layout {
                 dimensions.push(DimensionMark {
                     constraint: id,
                     layout,
+                    frame,
                     text: texts.text(model, &shown, id, constraint, expression),
                     standing: standings.of(id),
                 });
@@ -488,6 +560,9 @@ pub struct Annotations {
     field: Option<OpenField>,
     request: Option<FieldRequest>,
     texts: LabelTexts,
+    dragging: Option<LabelDrag>,
+    dropped: Option<LabelDrag>,
+    places: BTreeMap<(FeatureId, ConstraintId), LabelPlace>,
 }
 
 struct Placed {
@@ -495,11 +570,16 @@ struct Placed {
     hit: Rect,
     key: (ConstraintId, Option<EntityId>),
     hover: Hover,
+    label: Option<(Vector2, LabelFrame)>,
 }
 
 impl Annotations {
     pub fn hovered(&self) -> Option<Pickable> {
         self.hovered
+    }
+
+    pub fn label_place(&self, feature: FeatureId, constraint: ConstraintId) -> Option<LabelPlace> {
+        self.places.get(&(feature, constraint)).copied()
     }
 
     pub fn request_field(&mut self, feature: FeatureId, constraint: ConstraintId) {
@@ -523,6 +603,10 @@ impl Annotations {
         actions: &mut Vec<Action>,
     ) {
         self.hovered = None;
+        self.places.clear();
+        self.dragging = self
+            .dragging
+            .filter(|drag| drag.feature == surface.feature && surface.interactive);
         self.field = self.field.filter(|open| open.feature == surface.feature);
         self.request = self
             .request
@@ -531,17 +615,32 @@ impl Annotations {
             f64::from(surface.rect.width()),
             f64::from(surface.rect.height()),
         );
+        let dragged = self
+            .dragging
+            .and_then(|drag| Some((drag.constraint, drag.offset?)));
         let Some(marks) = Marks::collect(
             model,
             surface.feature,
             surface.screen,
             view,
             &mut self.texts,
+            dragged,
         ) else {
             self.field = None;
             return;
         };
         self.open_requested(model, &marks);
+        for mark in &marks.dimensions {
+            if let Some(frame) = mark.frame {
+                self.places.insert(
+                    (surface.feature, mark.constraint),
+                    LabelPlace {
+                        at: mark.layout.at,
+                        frame,
+                    },
+                );
+            }
+        }
 
         let painter = ui.painter_at(surface.rect);
         let editing = self.field.map(|open| open.constraint);
@@ -583,6 +682,13 @@ impl Annotations {
                     hit: *rect,
                     key: (mark.constraint, None),
                     hover: Hover::Dimension(mark.constraint),
+                    label: mark.frame.map(|frame| {
+                        let centre = rect.center() - surface.rect.min;
+                        (
+                            Vector2::new(f64::from(centre.x), f64::from(centre.y)),
+                            frame,
+                        )
+                    }),
                 })
             })
             .chain(glyphs.iter().map(|mark| Placed {
@@ -593,6 +699,7 @@ impl Annotations {
                 ),
                 key: (mark.constraint, Some(mark.anchor)),
                 hover: mark.hover.clone(),
+                label: None,
             }));
         if surface.interactive
             && let Some(definition) = model
@@ -603,6 +710,17 @@ impl Annotations {
             for target in placed {
                 self.interact(ui, surface, target, selection, definition);
             }
+        }
+        if let Some(drop) = self.dropped.take()
+            && let Some(offset) = drop.offset
+        {
+            let mut transaction = sketch_tools::settled_transaction(
+                model,
+                drop.feature,
+                MOVE_LABEL_TRANSACTION.to_owned(),
+            );
+            transaction.set_sketch_label(drop.feature, drop.constraint, Some(offset));
+            actions.push(Action::Apply(transaction.finish()));
         }
 
         let color = |constraint, standing| {
@@ -715,13 +833,23 @@ impl Annotations {
         if !hit.is_positive() {
             return;
         }
+        let sense = if target.label.is_some() {
+            Sense::click_and_drag()
+        } else {
+            Sense::CLICK
+        };
         let response = ui.interact(
             hit,
             Id::new(("sketch-annotation", surface.feature, target.key)),
-            Sense::CLICK,
+            sense,
         );
         if response.hovered() {
             self.hovered = Some(target.pickable);
+        }
+        if let (Some((label, frame)), Pickable::SketchConstraint { constraint, .. }) =
+            (target.label, target.pickable)
+        {
+            self.drag_label(surface, &response, constraint, label, frame);
         }
         if response.clicked() {
             let toggle = ui.input(|input| input.modifiers.shift || input.modifiers.command);
@@ -743,6 +871,49 @@ impl Annotations {
         response.on_hover_ui(|ui| {
             ui.label(target.hover.describe(definition));
         });
+    }
+
+    fn drag_label(
+        &mut self,
+        surface: &Surface<'_, impl Screen>,
+        response: &egui::Response,
+        constraint: ConstraintId,
+        label: Vector2,
+        frame: LabelFrame,
+    ) {
+        let within = |position: Pos2| {
+            let offset = position - surface.rect.min;
+            Vector2::new(f64::from(offset.x), f64::from(offset.y))
+        };
+        let pointer = response.interact_pointer_pos().map(within);
+        let pressed = response
+            .ctx
+            .input(|input| input.pointer.press_origin())
+            .map(within);
+        if response.drag_started()
+            && let Some(pressed) = pressed
+        {
+            self.dragging = Some(LabelDrag {
+                feature: surface.feature,
+                constraint,
+                grab: label - pressed,
+                offset: None,
+            });
+        }
+        let Some(mut drag) = self.dragging.filter(|drag| drag.constraint == constraint) else {
+            return;
+        };
+        if response.dragged()
+            && let Some(at) =
+                pointer.and_then(|pointer| surface.screen.to_sketch(pointer + drag.grab))
+        {
+            drag.offset = Some(frame.offset_of(at));
+            self.dragging = Some(drag);
+        }
+        if response.drag_stopped() {
+            self.dragging = None;
+            self.dropped = Some(drag);
+        }
     }
 
     fn show_field(

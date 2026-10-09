@@ -8,6 +8,7 @@ use egui::{
 };
 
 use crate::{
+    annotations,
     appearance::{self, CONTROL_HEIGHT, ICON_SIZE, SPACE_M, SPACE_S, Tokens, WIDGET_RADIUS},
     commands::{Command, CommandFrame},
     constraint_trial::ConstraintTrial,
@@ -182,7 +183,18 @@ pub fn show(
         definition,
         &sketch_tools::selected_constraints(selection, feature.id()),
     );
-    let moving = Moving::offered(&shown, feature.id(), &selected, active.tool.draws()).map(|_| ());
+    let moving = Moving::offered(&shown, feature.id(), &selected, active.tool.draws())
+        .map(|_| ())
+        .or_else(|reason| {
+            annotations::label_to_move(
+                definition,
+                &selected,
+                &sketch_tools::selected_constraints(selection, feature.id()),
+                active.tool.draws(),
+            )
+            .map(|_| ())
+            .map_err(|_| reason)
+        });
     let select_all = sketch_drag::can_select_all(&shown).map_err(str::to_owned);
 
     let tokens = appearance::tokens(ui);

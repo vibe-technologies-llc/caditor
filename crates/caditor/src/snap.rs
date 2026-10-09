@@ -14,6 +14,10 @@ const PARALLEL_TOLERANCE: f64 = 1e-12;
 
 pub trait Screen {
     fn to_screen(&self, point: Point2) -> Option<Vector2>;
+
+    fn to_sketch(&self, _point: Vector2) -> Option<Point2> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

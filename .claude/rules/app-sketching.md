@@ -494,11 +494,22 @@ paths:
 ## Annotations
 
 - Drawn with the egui painter (`annotations.rs`, placement in `annotation_layout.rs`) from the
-  displayed geometry through the current view, with offsets and sizes in screen points and no
-  stored positions. Dimensions sit away from the sketch's centre, and linear ones measured along
-  one line on one side whose spans overlap stack into lanes (`annotation_layout::lanes`, shortest
-  nearest, `LANE_SPACING` apart), so an overall dimension clears the chain beneath it; other constraints are glyphs
-  stacked beside each constrained entity on the opposite side.
+  displayed geometry through the current view, with offsets and sizes in screen points. Unplaced
+  dimensions sit away from the sketch's centre, and linear ones measured along one line on one
+  side whose spans overlap stack into lanes (`annotation_layout::lanes`, shortest nearest,
+  `LANE_SPACING` apart), so an overall dimension clears the chain beneath it; other constraints
+  are glyphs stacked beside each constrained entity on the opposite side.
+- Dragging a dimension's label places it: the offset is stored with the dimension (`sketch.md`)
+  in the dimension's `LabelFrame` (the middle of a distance along it, a circle's centre, an
+  angle's vertex along its first ray, an arc's centre along its start), so the label keeps its
+  place relative to the geometry as it moves or turns, and the drop is one undoable "Move
+  dimension label" transaction. A placed distance runs its dimension line through the label
+  (extension lines to it, the line extended when the label is past an end); a placed radius or
+  diameter points its leader at the label; a placed angle, arc length or sweep takes the label's
+  distance as its arc's radius and extends the arc round to it; the others draw a leader from
+  their usual label place. Placed dimensions take no lane. From the keyboard, Move selected
+  geometry with one dimension alone selected (`annotations::label_to_move`) opens the same "Move
+  to" field at the label (`@` for an offset) and moves it there.
 - Glyphs keep clear of dimension labels and of each other (`annotation_layout::place_glyphs` over
   `Obstacles`); when nothing is free the least covered place wins. An entity's anchor is clipped to
   the view first (`within_view`; off-screen entities get no glyphs, a line is anchored at the middle

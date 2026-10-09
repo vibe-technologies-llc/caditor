@@ -6,7 +6,7 @@ use std::{
 };
 
 use caditor_expression::{Expression, NameError, ParameterId, ParseError, check_name};
-use caditor_geometry::Plane;
+use caditor_geometry::{Plane, Vector2};
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, SketchError};
 
 use crate::{
@@ -143,6 +143,7 @@ pub enum Edit {
         id: ConstraintId,
         constraint: Constraint,
         inactive: bool,
+        label: Option<Vector2>,
     },
     RemoveSketchConstraint {
         feature: FeatureId,
@@ -152,6 +153,11 @@ pub enum Edit {
         feature: FeatureId,
         id: ConstraintId,
         active: bool,
+    },
+    SetSketchLabel {
+        feature: FeatureId,
+        id: ConstraintId,
+        offset: Option<Vector2>,
     },
 }
 
@@ -236,7 +242,8 @@ impl Transaction {
                 }
                 | Edit::AddSketchConstraint { feature, id, .. }
                 | Edit::RemoveSketchConstraint { feature, id }
-                | Edit::SetSketchConstraintActive { feature, id, .. } => {
+                | Edit::SetSketchConstraintActive { feature, id, .. }
+                | Edit::SetSketchLabel { feature, id, .. } => {
                     touched.features.insert(*feature);
                     touched.constraints.insert((*feature, *id));
                 }
@@ -288,6 +295,7 @@ impl Transaction {
                 | Edit::SetSketchConstruction { .. }
                 | Edit::SetSketchProjection { .. }
                 | Edit::SetSketchConstraintActive { .. }
+                | Edit::SetSketchLabel { .. }
                 | Edit::RemoveSketchConstraint { .. } => 0,
             })
             .sum();
@@ -646,7 +654,8 @@ impl Document {
                 id,
                 constraint,
                 inactive,
-            } => self.add_sketch_constraint(feature, id, constraint, inactive),
+                label,
+            } => self.add_sketch_constraint(feature, id, constraint, inactive, label),
             Edit::RemoveSketchConstraint { feature, id } => {
                 self.remove_sketch_constraint(feature, id)
             }
@@ -655,6 +664,11 @@ impl Document {
                 id,
                 active,
             } => self.set_sketch_constraint_active(feature, id, active),
+            Edit::SetSketchLabel {
+                feature,
+                id,
+                offset,
+            } => self.set_sketch_label(feature, id, offset),
         }
     }
 

@@ -277,6 +277,10 @@ paths:
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
   means active, so older files read unchanged); the journal's `add_sketch_constraint` carries the
   same flag and `set_sketch_constraint_active` is its own record.
+- A dimension placed by dragging its label carries `label`, its offset as two numbers, only when
+  placed; losing it changes nothing computed, so it is a field an older reader drops, putting the
+  label back in its usual place. An offset that cannot be set loads without it, reported. The
+  journal's `add_sketch_constraint` carries it too and `set_sketch_label` is its own record.
 - A sketch record carries `projections` only when it has projected geometry: each the projected
   entity's `entity` and its `source` (`edge` with `body` and an edge record, `vertex` with `body`
   and the vertex name's digest, or `sketch_entity` with `sketch` and `entity`). The projected flags

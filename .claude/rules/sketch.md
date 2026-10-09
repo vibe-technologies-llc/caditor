@@ -20,6 +20,11 @@ paths:
   conflicts or counts as redundant, and a new one is not refused for restating it. A dimension
   left inactive is a reference: its displayed value is `Sketch::measured` of the solved geometry.
   Removing a constraint forgets the flag; trim keeps it on the constraints it rebuilds.
+- A dimension can carry a label offset (`Sketch::set_label_offset`, a map beside the constraints,
+  part of `same_content` so moving a label is an undoable change): where its label was placed, in
+  millimetres along and across a frame the app derives from the measured geometry
+  (`annotation_layout::label_frame`), so the label follows the geometry. Only dimensions take one
+  (`NotADimension`), finite only; removing the constraint forgets it.
 - Projected geometry (`Sketch::set_projected`, a set beside the entities, part of
   `same_geometry`) is a curve and its points, or a lone point, whose position the document
   supplies. The solver holds it fixed like the origin: its points are `PointHandle::Fixed` and a

@@ -113,6 +113,7 @@ pub struct Sketch {
     entities: BTreeMap<EntityId, Entity>,
     constraints: BTreeMap<ConstraintId, Constraint>,
     inactive: BTreeSet<ConstraintId>,
+    labels: BTreeMap<ConstraintId, Vector2>,
     construction: BTreeSet<EntityId>,
     projected: BTreeSet<EntityId>,
     uses: BTreeMap<EntityId, usize>,
@@ -126,6 +127,7 @@ impl Sketch {
             entities: BTreeMap::new(),
             constraints: BTreeMap::new(),
             inactive: BTreeSet::new(),
+            labels: BTreeMap::new(),
             construction: BTreeSet::new(),
             projected: BTreeSet::new(),
             uses: BTreeMap::new(),
@@ -493,6 +495,7 @@ impl Sketch {
         self.same_geometry(other)
             && self.constraints == other.constraints
             && self.inactive == other.inactive
+            && self.labels == other.labels
     }
 
     pub fn is_active(&self, id: ConstraintId) -> bool {
@@ -521,6 +524,33 @@ impl Sketch {
             self.inactive.insert(id);
         }
         Ok(was)
+    }
+
+    pub fn label_offset(&self, id: ConstraintId) -> Option<Vector2> {
+        self.labels.get(&id).copied()
+    }
+
+    pub fn label_offsets(&self) -> impl ExactSizeIterator<Item = (ConstraintId, Vector2)> + '_ {
+        self.labels.iter().map(|(id, offset)| (*id, *offset))
+    }
+
+    pub fn set_label_offset(
+        &mut self,
+        id: ConstraintId,
+        offset: Option<Vector2>,
+    ) -> Result<Option<Vector2>, SketchError> {
+        let constraint = self
+            .constraints
+            .get(&id)
+            .ok_or(SketchError::MissingConstraint(id))?;
+        if constraint.dimension().is_none() {
+            return Err(SketchError::NotADimension(id));
+        }
+        match offset {
+            Some(offset) if !offset.is_finite() => Err(SketchError::NotFinite),
+            Some(offset) => Ok(self.labels.insert(id, offset)),
+            None => Ok(self.labels.remove(&id)),
+        }
     }
 
     pub fn is_construction(&self, id: EntityId) -> bool {
@@ -931,6 +961,7 @@ impl Sketch {
             .remove(&id)
             .ok_or(SketchError::MissingConstraint(id))?;
         self.inactive.remove(&id);
+        self.labels.remove(&id);
         self.count_uses(&removed.entities(), false);
         Ok(removed)
     }
@@ -2021,5 +2052,38 @@ mod tests {
         sketch.remove_unused_entity(line).unwrap();
 
         assert_eq!(sketch.construction().len(), 0);
+    }
+
+    #[test]
+    fn a_dimension_keeps_its_label_offset_until_it_is_removed() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+        let (start, end) = endpoints(&sketch, line);
+        let length = sketch
+            .add_constraint(Constraint::Distance {
+                from: start,
+                to: end,
+                value: Expression::Measure(10.0, caditor_expression::Unit::Millimetre),
+            })
+            .unwrap();
+        let level = sketch.add_constraint(Constraint::Horizontal(line)).unwrap();
+        let before = sketch.clone();
+
+        let first = sketch.set_label_offset(length, Some(Vector2::new(2.0, 8.0)));
+
+        assert_eq!(first, Ok(None));
+        assert_eq!(sketch.label_offset(length), Some(Vector2::new(2.0, 8.0)));
+        assert!(!sketch.same_content(&before));
+        assert!(sketch.same_geometry(&before));
+        assert_eq!(
+            sketch.set_label_offset(level, Some(Vector2::X)),
+            Err(SketchError::NotADimension(level))
+        );
+        assert_eq!(
+            sketch.set_label_offset(length, Some(Vector2::new(f64::NAN, 0.0))),
+            Err(SketchError::NotFinite)
+        );
+        sketch.remove_constraint(length).unwrap();
+        assert_eq!(sketch.label_offsets().len(), 0);
     }
 }
