@@ -325,14 +325,14 @@ pub struct GrowableBuffer {
     label: &'static str,
     usage: wgpu::BufferUsages,
     buffer: wgpu::Buffer,
-    small_uploads: u32,
     limit: u64,
     truncated: bool,
 }
 
 impl GrowableBuffer {
     pub const INITIAL_SIZE: u64 = 4096;
-    pub const SHRINK_AFTER_UPLOADS: u32 = 8;
+    const HEADROOM_SHARE: u64 = 4;
+    const SHRINK_SHARE: u64 = 4;
 
     pub fn new(device: &wgpu::Device, label: &'static str, usage: wgpu::BufferUsages) -> Self {
         let usage = usage | wgpu::BufferUsages::COPY_DST;
@@ -341,7 +341,6 @@ impl GrowableBuffer {
             label,
             usage,
             buffer: Self::allocate(device, label, usage, Self::INITIAL_SIZE.min(limit)),
-            small_uploads: 0,
             limit,
             truncated: false,
         }
@@ -372,15 +371,8 @@ impl GrowableBuffer {
         let length = bytes.len().min(self.limit / unit * unit);
         self.note_truncation(length < bytes.len());
 
-        let fitting = fitting_size(length).min(self.limit);
-        self.small_uploads = if fitting < self.buffer.size() / 4 {
-            self.small_uploads.saturating_add(1)
-        } else {
-            0
-        };
-        if length > self.buffer.size() || self.small_uploads >= Self::SHRINK_AFTER_UPLOADS {
-            self.buffer = Self::allocate(device, self.label, self.usage, fitting);
-            self.small_uploads = 0;
+        if let Some(size) = resized(self.buffer.size(), length, self.limit) {
+            self.buffer = Self::allocate(device, self.label, self.usage, size);
         }
         let written = usize::try_from(length)
             .ok()
@@ -413,8 +405,19 @@ impl GrowableBuffer {
     }
 }
 
+fn resized(current: u64, length: u64, limit: u64) -> Option<u64> {
+    let fitting = fitting_size(length).min(limit);
+    let outgrown = length > current;
+    let mostly_empty = length < current / GrowableBuffer::SHRINK_SHARE && fitting < current;
+    (outgrown || mostly_empty).then_some(fitting)
+}
+
 fn fitting_size(length: u64) -> u64 {
-    length.next_power_of_two().max(GrowableBuffer::INITIAL_SIZE)
+    length
+        .saturating_add(length / GrowableBuffer::HEADROOM_SHARE)
+        .div_ceil(wgpu::COPY_BUFFER_ALIGNMENT)
+        .saturating_mul(wgpu::COPY_BUFFER_ALIGNMENT)
+        .max(GrowableBuffer::INITIAL_SIZE)
 }
 
 #[cfg(test)]
@@ -429,6 +432,26 @@ mod tests {
         assert_eq!(bytes.len(), 20);
         assert_eq!(bytes.as_slice().get(..4), Some(&7u32.to_le_bytes()[..]));
         assert_eq!(bytes.as_slice().get(16..), Some(&4.0f32.to_le_bytes()[..]));
+    }
+
+    #[test]
+    fn a_buffer_grows_to_a_quarter_more_than_it_needs_and_shrinks_once_under_a_quarter_full() {
+        let limit = 1 << 30;
+        let grown = resized(4096, 100_001, limit);
+        let kept_full = resized(125_004, 100_000, limit);
+        let kept_quarter = resized(125_004, 125_004 / 4, limit);
+        let shrunk = resized(125_004, 30_000, limit);
+        let emptied = resized(125_004, 0, limit);
+        let small_stays = resized(4096, 0, limit);
+        let capped = resized(4096, limit - 4, limit);
+
+        assert_eq!(grown, Some(125_004));
+        assert_eq!(kept_full, None);
+        assert_eq!(kept_quarter, None);
+        assert_eq!(shrunk, Some(37_500));
+        assert_eq!(emptied, Some(GrowableBuffer::INITIAL_SIZE));
+        assert_eq!(small_stays, None);
+        assert_eq!(capped, Some(limit));
     }
 
     #[test]

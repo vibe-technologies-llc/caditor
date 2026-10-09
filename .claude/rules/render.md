@@ -136,7 +136,9 @@ paths:
   UI is drawn on the resolved surface after the 3D pass.
 - Each batch has a `GpuBatch` slot of `GrowableBuffer`s. A slot uploads only when its `Arc`
   differs or the anchor moved, so an idle frame or a camera move writes no vertices. A batch past
-  `max_buffer_size` draws only its first whole primitives (logged once).
+  `max_buffer_size` draws only its first whole primitives (logged once). A buffer an upload
+  outgrows is replaced by one a quarter larger than the upload (aligned), and one an upload fills
+  to under a quarter by one fitting that upload the same way, so the band between keeps it.
 - Draw order: every batch's lines, then markers, then fills. Translucent fills sort back to front
   by centroid depth across all batches, front-layer fills last (`FillOrder`).
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth

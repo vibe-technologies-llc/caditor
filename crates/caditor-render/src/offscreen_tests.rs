@@ -1191,30 +1191,29 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
 }
 
 #[test]
-fn a_buffer_shrinks_back_once_it_has_stayed_mostly_empty_for_a_while() {
+fn a_buffer_grows_with_headroom_and_shrinks_back_once_an_upload_fills_under_a_quarter() {
     let Some((device, queue)) = gpu() else {
         return;
     };
     let mut buffer = GrowableBuffer::new(&device, "test", wgpu::BufferUsages::VERTEX);
     let mut large = Bytes::default();
     large.floats(&[1.0; 100_000]);
+    let mut half = Bytes::default();
+    half.floats(&[1.0; 50_000]);
     let mut small = Bytes::default();
     small.floats(&[1.0; 10]);
 
-    buffer.upload(&device, &queue, &large, 4);
+    let written = buffer.upload(&device, &queue, &large, 4);
     let grown = buffer.size();
-    assert!(grown >= large.len());
+    buffer.upload(&device, &queue, &half, 4);
+    let after_half = buffer.size();
+    buffer.upload(&device, &queue, &small, 4);
+    let after_small = buffer.size();
 
-    for _ in 0..GrowableBuffer::SHRINK_AFTER_UPLOADS - 1 {
-        buffer.upload(&device, &queue, &small, 4);
-    }
-    buffer.upload(&device, &queue, &large, 4);
-    assert_eq!(buffer.size(), grown);
-
-    for _ in 0..GrowableBuffer::SHRINK_AFTER_UPLOADS {
-        buffer.upload(&device, &queue, &small, 4);
-    }
-    assert_eq!(buffer.size(), GrowableBuffer::INITIAL_SIZE);
+    assert_eq!(written, 100_000);
+    assert_eq!(grown, large.len() + large.len() / 4);
+    assert_eq!(after_half, grown);
+    assert_eq!(after_small, GrowableBuffer::INITIAL_SIZE);
 }
 
 fn is_background([red, green, blue, _]: [u8; 4]) -> bool {
