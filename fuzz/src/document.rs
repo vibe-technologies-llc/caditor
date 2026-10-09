@@ -1,9 +1,9 @@
 use caditor_document::{
-    AxisReference, AxisSide, BodyOperation, CancelToken, Datum, DatumAxis, DatumPlane, DatumPoint, Document,
-    Edit, Editor, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId, FeatureKind,
-    ModelEvaluator, PlaneReference, PlaneThrough, PointReference, PrincipalAxis, PrincipalGeometry,
-    PrincipalPlane, Recompute, RegionChoice, Revolve, RevolveAxis, RevolveExtent, RollbackBar,
-    SolidFeature, Transaction,
+    AxisReference, AxisSide, BodyOperation, CancelToken, Datum, DatumAxis, DatumPlane, DatumPoint,
+    Document, Edit, Editor, Evaluation, Extrude, ExtrudeEnd, ExtrudeExtent, Feature, FeatureId,
+    FeatureKind, ModelEvaluator, PlaneReference, PlaneThrough, PointReference, PrincipalAxis,
+    PrincipalGeometry, PrincipalPlane, Recompute, RegionChoice, Revolve, RevolveAxis,
+    RevolveExtent, RollbackBar, SolidFeature, Transaction,
 };
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::Plane;
@@ -105,9 +105,22 @@ fn operation(input: &mut Unstructured, document: &Document) -> Result<BodyOperat
 fn extrude_end(input: &mut Unstructured, document: &Document) -> Result<ExtrudeEnd> {
     Ok(match input.int_in_range(0u8..=3)? {
         0 => ExtrudeEnd::ThroughAll,
-        1 => ExtrudeEnd::UpToNext,
-        2 => ExtrudeEnd::UpToFace(plane_reference(input, document)?),
+        1 => ExtrudeEnd::UpToNext {
+            offset: end_offset(input, document)?,
+        },
+        2 => ExtrudeEnd::UpToFace {
+            target: Box::new(plane_reference(input, document)?),
+            offset: end_offset(input, document)?,
+        },
         _ => ExtrudeEnd::Distance(distance(input, document)?),
+    })
+}
+
+fn end_offset(input: &mut Unstructured, document: &Document) -> Result<Option<Box<Expression>>> {
+    Ok(if input.arbitrary::<bool>()? {
+        Some(Box::new(distance(input, document)?))
+    } else {
+        None
     })
 }
 
@@ -174,6 +187,9 @@ fn solid_feature(input: &mut Unstructured, document: &Document) -> Result<Option
             operation,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
         })
     } else {
         let lines = sketch_lines(document, sketch);
@@ -211,6 +227,7 @@ fn solid_feature(input: &mut Unstructured, document: &Document) -> Result<Option
                 1 => Some(AxisSide::Left),
                 _ => Some(AxisSide::Right),
             },
+            wall: None,
         })
     };
     Ok(Some(FeatureKind::Solid(solid)))
@@ -313,6 +330,7 @@ fn sketch_edit(input: &mut Unstructured, document: &Document) -> Result<Option<E
             id: ConstraintId::from_raw(sketch.next_id()),
             constraint: constraint(input, sketch)?,
             inactive: input.arbitrary()?,
+            label: None,
         },
         5 => Edit::RemoveSketchConstraint {
             feature,
