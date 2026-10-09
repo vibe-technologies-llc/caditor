@@ -1,5 +1,10 @@
 mod distance;
+mod extent;
 mod form;
+mod mass;
+#[cfg(test)]
+mod mass_tests;
+mod quadrature;
 #[cfg(test)]
 mod tests;
 
@@ -10,13 +15,16 @@ use thiserror::Error;
 
 pub use self::{
     distance::distance,
+    extent::extent,
     form::{
         Angle, AngleKind, Axis, EdgeForm, EdgeMeasure, FaceForm, angle, axis_of, axis_separation,
-        curve_measure, edge_measure, face_form, planar_area,
+        curve_measure, edge_measure, face_form,
     },
+    mass::{SolidMass, face_area, mass_properties},
 };
 use crate::{
     curve::{Curve, Line},
+    interrupt::Interrupted,
     interval::Interval,
     surface::{PlaneSurface, Surface},
     topology::{EdgeId, FaceContainment, FaceId, Solid, SolidClassifier},
@@ -91,6 +99,8 @@ pub enum MeasureError {
     NoClosestPoints,
     #[error("an axis or plane has no direction")]
     NoDirection,
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

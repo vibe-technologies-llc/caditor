@@ -16618,6 +16618,30 @@ fn the_measure_panel_shows_the_mass_properties_of_a_body_and_the_area_of_a_face(
     assert!(!harness.workspace.measure.open);
 }
 
+#[test]
+fn the_measure_panel_gives_exact_mass_properties_of_a_round_body() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_circle(Point2::ZERO, 10.0);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.click(crate::toolbar::MEASURE_LABEL);
+    harness.wait_until("the mass properties are shown", |harness| {
+        harness.shows("3141.6 mm³")
+    });
+
+    assert!(harness.shows("1256.64 mm²"));
+    assert!(harness.shows("20.000 × 20.000 × 10.000 mm"));
+    assert!(harness.shows("0.000, 0.000, 5.000 mm"));
+    assert!(!harness.shows_containing("display mesh"));
+    assert!(!harness.shows_containing("≈"));
+}
+
 fn crossed_line() -> (Sketch, EntityId, EntityId, EntityId) {
     let mut sketch = Sketch::new(Plane::XY);
     let line = sketch.add_line(Point2::ZERO, Point2::new(60.0, 0.0));

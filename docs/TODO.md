@@ -209,10 +209,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   profile last leaves it); an extrusion runs only square to its sketch, never along a chosen edge,
   axis or sketch line; a revolve turns only by angles, never up to a face or plane; and a hole is
   blind or through all, never up to a face or the next face it meets.
-- [medium · hard] Mass properties (volume, area, centroid, size, mass and inertia, per body and
-  in total) are exact only for bodies of flat faces and straight edges and otherwise taken from
-  the display mesh. Integrate exactly over the trimmed faces, as `planar_area` already does for
-  planes.
 - [medium · hard] Blends: only line and circle edges along planes, parallel cylinders and coaxial
   surfaces; no ellipse, spline or intersection edges, not even a straight edge beside a spline
   extrusion face; ends at steps and T-junctions refused; no variable radius, two-distance or

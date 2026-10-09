@@ -153,8 +153,10 @@ paths:
   `FaceOrigin`, never by index.
 - Vertices are colourless markers: they pick (winning over edges and faces nearby) but show only
   when hovered or selected. The conversion worker also computes each body's `BodyMass` (volume,
-  area, centroid, bounding-box size), exact only for flat faces and straight edges, else the
-  mesh's chord approximation, which the UI marks as approximate.
+  area, centroid, second moments and bounding-box size) and each face's area (`BodyFace::area`)
+  exactly from the kernel (`mass_properties`, `extent`), independent of the mesh. A face the
+  kernel could not integrate takes the mesh's triangles, and the body is then marked approximate
+  with the mesh's chord (`MassAccuracy::Mesh`).
 - A body is drawn in its appearance colour, else the default (`body_appearance::DEFAULT_COLOUR`);
   a failed or outdated feature on it tints it as before. While a sketch is edited, bodies are
   dimmed and not pickable.
@@ -171,7 +173,8 @@ paths:
   selected, also gets its size in `Offers::size` (Area, Length or Size, `measure::size_text` and
   `body_size_text`, marked ≈ when approximate), which the status bar shows beside the selection;
   the offers are worked out again when the bodies' meshes finish (`Model::bodies_pending`), since
-  curved areas and sizes read the mesh.
+  areas and sizes read the converted body (a face's area falls back to its mesh triangles,
+  marked ≈, until then).
 - `Selection::generation` is globally unique per content change, so caches key on it rather than
   cloning and comparing the set: the offers, Measure, the panels' Use selected offers
   (`feature_fields::offered_change`, kept per feature and slot in egui's memory), and the
@@ -206,8 +209,7 @@ paths:
   the tree, else every shown body, with the
   body's material and its mass from the density (No density set without one, a warning note when
   the density cannot be evaluated) and, with a density, the moments of inertia about the centroid
-  along the model axes and the principal moments (`MassProperties::second_moment`, integrated
-  over the mesh's tetrahedra). Two or more bodies also get an "All N bodies" card first: summed
+  along the model axes and the principal moments (`MassProperties::second_moment`). Two or more bodies also get an "All N bodies" card first: summed
   volume and area, the centroid weighted by mass (by volume unless every body has a density), and
   the total mass and inertia about that centroid only when every body has a density.
 - Relative to (shown once the model holds a coordinate system, `MeasureTool::relative_to`, World
@@ -220,7 +222,7 @@ paths:
 - Show or hide centres of mass (`Command::ToggleCentresOfMass`, View menu, palette) is a view aid
   (`ViewAids::centres_of_mass`, kept for the session in `ViewportState::aids`, not saved; it
   reaches the scene through `Sources::aids` and `Revisions::aids`). Outside sketch editing it
-  marks each shown body's centroid (`BodyMass`, so approximate on curved faces) with a ring on the
+  marks each shown body's centroid (`BodyMass`) with a ring on the
   front layer, a `Pickable::CentreOfMass(body)` on a dark outline (`ScenePalette::hole`) that keeps
   the ring (`centre_of_mass`, and the hover and selection colours) at 3:1 on bodies and canvas.
   Measure reads it as a point named "Centre of mass of <body>" (`Subject::CentreOfMass`), so the
@@ -246,7 +248,7 @@ paths:
   frame. The panel lists and marks at most `MAX_LISTED` contacts, Measure at most
   `MAX_MASS_CARDS` bodies' masses, each saying how many more were left out.
 - An overlap is meshed at the model's mesh quality for its volume, size and centroid
-  (`BodyMass::of`, approximate on curved faces) and its mesh edges drawn on the front layer; every
+  (`BodyMass::of`) and its mesh edges drawn on the front layer; every
   finding with a place gets a marker and a label in the view (error for overlaps, the measure
   colour for touches, warning for unchecked pairs) and a Show where button on its card.
 

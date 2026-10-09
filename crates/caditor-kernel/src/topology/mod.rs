@@ -376,14 +376,7 @@ impl Solid {
             };
             let surface = face.surface();
             let extremes: Vec<Point2> = match surface {
-                Surface::Sphere(sphere) => [Vector3::X, Vector3::Y, Vector3::Z]
-                    .into_iter()
-                    .flat_map(|axis| [axis, -axis])
-                    .map(|direction| {
-                        surface.project(sphere.center() + direction * sphere.radius(), None)
-                    })
-                    .collect(),
-                Surface::Torus(torus) => torus_extremes(torus)
+                Surface::Sphere(_) | Surface::Torus(_) => axis_extremes(surface)
                     .into_iter()
                     .map(|point| surface.project(point, None))
                     .collect(),
@@ -689,6 +682,23 @@ impl Solid {
 }
 
 const RING_SAMPLES: usize = 12;
+
+pub(crate) fn axis_extremes(surface: &Surface) -> Vec<Point3> {
+    match surface {
+        Surface::Sphere(sphere) => [Vector3::X, Vector3::Y, Vector3::Z]
+            .into_iter()
+            .flat_map(|axis| [axis, -axis])
+            .map(|direction| sphere.center() + direction * sphere.radius())
+            .collect(),
+        Surface::Torus(torus) => torus_extremes(torus),
+        Surface::Plane(_)
+        | Surface::Cylinder(_)
+        | Surface::Cone(_)
+        | Surface::Extrusion(_)
+        | Surface::Revolution(_)
+        | Surface::BSpline(_) => Vec::new(),
+    }
+}
 
 fn torus_extremes(torus: &Torus) -> Vec<Point3> {
     let frame = torus.frame();

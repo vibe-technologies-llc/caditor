@@ -61,8 +61,8 @@ pub use crate::{
     interval::{Domain, Interval},
     measure::{
         Accuracy, Angle, AngleKind, Axis, EdgeForm, EdgeMeasure, Element, FaceForm, MeasureError,
-        Separation, angle, axis_of, axis_separation, curve_measure, distance, edge_measure,
-        face_form, planar_area,
+        Separation, SolidMass, angle, axis_of, axis_separation, curve_measure, distance,
+        edge_measure, extent, face_area, face_form, mass_properties,
     },
     naming::{
         EdgeName, EdgeNaming, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference, Made,

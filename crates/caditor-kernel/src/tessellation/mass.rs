@@ -34,37 +34,64 @@ pub struct MassProperties {
     pub second_moment: SecondMoment,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct Moments {
+    pub(crate) area: f64,
+    pub(crate) volume: f64,
+    pub(crate) first: Vector3,
+    pub(crate) second: SecondMoment,
+}
+
+impl Moments {
+    pub(crate) fn of_triangles(triangles: &[[Point3; 3]], reference: Point3) -> Self {
+        let mut moments = Self::default();
+        for [a, b, c] in triangles {
+            let (a, b, c) = (*a - reference, *b - reference, *c - reference);
+            let signed = a.dot(b.cross(c)) / 6.0;
+            moments.volume += signed;
+            moments.first += (a + b + c) * (signed / 4.0);
+            moments.area += 0.5 * (b - a).cross(c - a).length();
+            let sum = a + b + c;
+            for corner in [a, b, c, sum] {
+                add_outer(&mut moments.second, corner, corner, signed / 20.0);
+            }
+        }
+        moments
+    }
+
+    pub(crate) fn add(&mut self, other: &Self) {
+        self.area += other.area;
+        self.volume += other.volume;
+        self.first += other.first;
+        for (row, other_row) in self.second.iter_mut().zip(other.second) {
+            for (entry, other_entry) in row.iter_mut().zip(other_row) {
+                *entry += other_entry;
+            }
+        }
+    }
+
+    pub(crate) fn about(self, reference: Point3) -> MassProperties {
+        let offset = if self.volume.abs() > f64::MIN_POSITIVE {
+            self.first / self.volume
+        } else {
+            Vector3::ZERO
+        };
+        let mut second = self.second;
+        add_outer(&mut second, offset, offset, -self.volume);
+        MassProperties {
+            volume: self.volume,
+            area: self.area,
+            centroid: reference + offset,
+            second_moment: second,
+        }
+    }
+}
+
 impl MassProperties {
     pub(crate) fn of(triangles: &[[Point3; 3]]) -> Self {
         let reference = Aabb::from_points(triangles.iter().flatten().copied())
             .map_or(Point3::ZERO, |bounds| bounds.center());
-        let mut volume = 0.0;
-        let mut area = 0.0;
-        let mut moment = Vector3::ZERO;
-        let mut second = [[0.0; 3]; 3];
-        for [a, b, c] in triangles {
-            let (a, b, c) = (*a - reference, *b - reference, *c - reference);
-            let signed = a.dot(b.cross(c)) / 6.0;
-            volume += signed;
-            moment += (a + b + c) * (signed / 4.0);
-            area += 0.5 * (b - a).cross(c - a).length();
-            let sum = a + b + c;
-            for corner in [a, b, c, sum] {
-                add_outer(&mut second, corner, corner, signed / 20.0);
-            }
-        }
-        let offset = if volume.abs() > f64::MIN_POSITIVE {
-            moment / volume
-        } else {
-            Vector3::ZERO
-        };
-        add_outer(&mut second, offset, offset, -volume);
-        Self {
-            volume,
-            area,
-            centroid: reference + offset,
-            second_moment: second,
-        }
+        Moments::of_triangles(triangles, reference).about(reference)
     }
 
     pub fn second_moment_about(&self, point: Point3) -> SecondMoment {
