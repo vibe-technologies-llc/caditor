@@ -3,7 +3,7 @@ use std::sync::Arc;
 use caditor_expression::Expression;
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{Interrupt, MeshQuality, ProfileError, interruptible};
-use caditor_sketch::{EntityId, Sketch, SketchSolution};
+use caditor_sketch::{EntityId, Sketch, SketchSolution, SplineKind};
 
 use crate::*;
 
@@ -1397,4 +1397,50 @@ fn a_start_offset_follows_the_parameter_it_uses() {
     );
     assert_eq!(document.parameter_users(lift), vec!["Base".to_owned()]);
     assert!(document.used_parameters().contains(&lift));
+}
+
+#[test]
+fn closed_splines_and_a_conic_closed_by_its_chord_extrude_into_bodies() {
+    let outline = [
+        Point2::new(0.0, 0.0),
+        Point2::new(20.0, 0.0),
+        Point2::new(25.0, 15.0),
+        Point2::new(5.0, 20.0),
+    ];
+    for kind in [
+        SplineKind::Control { closed: true },
+        SplineKind::Fit { closed: true },
+    ] {
+        let mut sketch = Sketch::new(Plane::XY);
+        sketch.add_spline_of(&outline, kind);
+        let (document, body) = single_body(
+            extruded(ExtrudeExtent::one_side(stored("5 mm"), false)),
+            sketch,
+        );
+
+        let evaluation = evaluate(&document, &mut Recompute::default());
+
+        assert!(volume(&evaluation, body) > 100.0, "{kind:?}");
+    }
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_spline_of(
+        &[
+            Point2::new(10.0, 0.0),
+            Point2::new(10.0, 10.0),
+            Point2::new(0.0, 10.0),
+        ],
+        SplineKind::Conic {
+            rho: std::f64::consts::SQRT_2 - 1.0,
+        },
+    );
+    sketch.add_line(Point2::new(0.0, 10.0), Point2::new(10.0, 0.0));
+    let (document, body) = single_body(
+        extruded(ExtrudeExtent::one_side(stored("2 mm"), false)),
+        sketch,
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let segment = 100.0 * (std::f64::consts::FRAC_PI_4 - 0.5) * 2.0;
+
+    assert!((volume(&evaluation, body) - segment).abs() < 0.05 * segment);
 }

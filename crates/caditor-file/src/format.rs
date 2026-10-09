@@ -28,7 +28,7 @@ use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
     RegionKey, RegionReference, Side, Solid, VertexName, WallSide,
 };
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SplineKind};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
@@ -1261,6 +1261,21 @@ pub(crate) enum EntityKindRecord {
     Spline {
         control_points: Vec<u64>,
     },
+    ClosedSpline {
+        control_points: Vec<u64>,
+    },
+    FitSpline {
+        fit_points: Vec<u64>,
+    },
+    ClosedFitSpline {
+        fit_points: Vec<u64>,
+    },
+    Conic {
+        start: u64,
+        apex: u64,
+        end: u64,
+        rho: f64,
+    },
     Ellipse {
         center: u64,
         major: u64,
@@ -1277,12 +1292,16 @@ pub(crate) enum EntityKindRecord {
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 
-const ENTITY_KINDS: [&str; 7] = [
+const ENTITY_KINDS: [&str; 11] = [
     "point",
     "line",
     "circle",
     "arc",
     "spline",
+    "closed_spline",
+    "fit_spline",
+    "closed_fit_spline",
+    "conic",
     "ellipse",
     "elliptical_arc",
 ];
@@ -1374,9 +1393,13 @@ pub(crate) enum ConstraintKindRecord {
         ellipse: u64,
         value: String,
     },
+    Rho {
+        conic: u64,
+        value: String,
+    },
 }
 
-const CONSTRAINT_KINDS: [&str; 25] = [
+const CONSTRAINT_KINDS: [&str; 26] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -1402,6 +1425,7 @@ const CONSTRAINT_KINDS: [&str; 25] = [
     "curvature",
     "major_radius",
     "minor_radius",
+    "rho",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -3280,9 +3304,32 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
             start: start.raw(),
             end: end.raw(),
         },
-        Entity::Spline { control_points } => EntityKindRecord::Spline {
-            control_points: control_points.iter().map(|point| point.raw()).collect(),
-        },
+        Entity::Spline { points, kind } => {
+            let raw: Vec<u64> = points.iter().map(|point| point.raw()).collect();
+            match (*kind, raw.as_slice()) {
+                (SplineKind::Control { closed: false }, _) => EntityKindRecord::Spline {
+                    control_points: raw,
+                },
+                (SplineKind::Control { closed: true }, _) => EntityKindRecord::ClosedSpline {
+                    control_points: raw,
+                },
+                (SplineKind::Fit { closed: false }, _) => {
+                    EntityKindRecord::FitSpline { fit_points: raw }
+                }
+                (SplineKind::Fit { closed: true }, _) => {
+                    EntityKindRecord::ClosedFitSpline { fit_points: raw }
+                }
+                (SplineKind::Conic { rho }, &[start, apex, end]) => EntityKindRecord::Conic {
+                    start,
+                    apex,
+                    end,
+                    rho,
+                },
+                (SplineKind::Conic { .. }, _) => EntityKindRecord::Spline {
+                    control_points: raw,
+                },
+            }
+        }
         Entity::Ellipse {
             center,
             major,
@@ -3399,6 +3446,10 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
         },
         Constraint::MinorRadius { ellipse, value } => ConstraintKindRecord::MinorRadius {
             ellipse: ellipse.raw(),
+            value: value.to_stored_text(),
+        },
+        Constraint::Rho { conic, value } => ConstraintKindRecord::Rho {
+            conic: conic.raw(),
             value: value.to_stored_text(),
         },
     }
@@ -5993,8 +6044,29 @@ fn restore_entity(record: &EntityKindRecord) -> Entity {
             start: entity(*start),
             end: entity(*end),
         },
-        EntityKindRecord::Spline { control_points } => Entity::Spline {
-            control_points: control_points.iter().copied().map(entity).collect(),
+        EntityKindRecord::Spline { control_points } => {
+            Entity::spline(control_points.iter().copied().map(entity).collect())
+        }
+        EntityKindRecord::ClosedSpline { control_points } => Entity::Spline {
+            points: control_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Control { closed: true },
+        },
+        EntityKindRecord::FitSpline { fit_points } => Entity::Spline {
+            points: fit_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Fit { closed: false },
+        },
+        EntityKindRecord::ClosedFitSpline { fit_points } => Entity::Spline {
+            points: fit_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Fit { closed: true },
+        },
+        EntityKindRecord::Conic {
+            start,
+            apex,
+            end,
+            rho,
+        } => Entity::Spline {
+            points: vec![entity(*start), entity(*apex), entity(*end)],
+            kind: SplineKind::Conic { rho: *rho },
         },
         EntityKindRecord::Ellipse {
             center,
@@ -6276,6 +6348,11 @@ fn constraint_from_record(
             let value = value(text, DrawnValue::MinorRadius(ellipse))?;
             Constraint::MinorRadius { ellipse, value }
         }
+        ConstraintKindRecord::Rho { conic, value: text } => {
+            let conic = entity(*conic);
+            let value = value(text, DrawnValue::Rho(conic))?;
+            Constraint::Rho { conic, value }
+        }
     })
 }
 
@@ -6335,6 +6412,7 @@ enum DrawnValue {
     Sweep(EntityId),
     MajorRadius(EntityId),
     MinorRadius(EntityId),
+    Rho(EntityId),
 }
 
 impl DrawnValue {
@@ -6350,6 +6428,7 @@ impl DrawnValue {
             Self::Sweep(_) => "a sweep",
             Self::MajorRadius(_) => "a major radius",
             Self::MinorRadius(_) => "a minor radius",
+            Self::Rho(_) => "a rho",
         }
     }
 
@@ -6365,6 +6444,7 @@ impl DrawnValue {
             Self::Sweep(_) => "drawn sweep",
             Self::MajorRadius(_) => "drawn major radius",
             Self::MinorRadius(_) => "drawn minor radius",
+            Self::Rho(_) => "drawn rho",
         }
     }
 
@@ -6388,10 +6468,12 @@ impl DrawnValue {
             Self::Sweep(arc) => Constraint::Sweep { arc, value },
             Self::MajorRadius(ellipse) => Constraint::MajorRadius { ellipse, value },
             Self::MinorRadius(ellipse) => Constraint::MinorRadius { ellipse, value },
+            Self::Rho(conic) => Constraint::Rho { conic, value },
         };
         let measured = sketch.measured(&constraint)?;
         let quantity = match self {
             Self::Angle { .. } | Self::Sweep(_) => Quantity::angle(measured),
+            Self::Rho(_) => Quantity::plain(measured),
             Self::Radius(_)
             | Self::Diameter(_)
             | Self::ArcLength(_)
@@ -6436,10 +6518,10 @@ fn restore_dimension(
          {drawn}.",
         kind.drawn_name()
     ));
-    let unit = if matches!(kind, DrawnValue::Angle { .. }) {
-        Unit::Degree
-    } else {
-        Unit::Millimetre
+    let unit = match kind {
+        DrawnValue::Rho(_) => return Some(Expression::Number(drawn.value)),
+        DrawnValue::Angle { .. } => Unit::Degree,
+        _ => Unit::Millimetre,
     };
     Some(Expression::Measure(drawn.value, unit))
 }

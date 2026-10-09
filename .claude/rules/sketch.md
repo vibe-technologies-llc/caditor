@@ -50,6 +50,17 @@ paths:
   `EllipseGeometry` of either, its parameter the angle of `centre + major cos t + minor sin t`
   with the minor axis a quarter turn counter-clockwise from the major). Nothing keeps the minor
   radius below the major one; exports take the longer as the major axis.
+- A `Spline` is its points and a `SplineKind`: `Control` (the points are control points), `Fit`
+  (the curve passes through them) or `Conic` (start, apex, end and a rho), the first two open or
+  `closed`. `Sketch::spline` gives the curve of any kind as a clamped `BSpline`
+  (`sketch::spline_through`), so drawing, intersections, profiles and exports need not know the
+  kind. A closed spline is periodic (smooth all round, no ends: `Entity::spline_ends` is none, so
+  it has no open ends and joins nothing at an end) and needs three points (`TooFewClosedPoints`);
+  a conic exactly three (`ConicPoints`) and rho within `MIN_RHO..=MAX_RHO` (`InvalidRho`), a
+  rational quadratic whose middle weight is `rho / (1 - rho)`, so it passes the point rho of the
+  way from the chord's middle to the apex (below 0.5 an ellipse, 0.5 a parabola, above a
+  hyperbola). `same_structure` compares the kind's form, not rho, which changes like a radius.
+  Every kind is affine-invariant, so mirror, patterns and copies map its points and keep the kind.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
 - Uses of each entity are counted incrementally, so refusing to remove a used one never scans the
   sketch and undoing a large import stays fast. The sketch never cascades a removal; the document's
@@ -117,6 +128,11 @@ paths:
   `Tangent` with a line only, and `MajorRadius`/`MinorRadius` (a dimension above zero; the major
   one restates a `Distance` between the centre and the axis point). Every other constraint,
   `Radius` and `Equal` included, refuses them.
+- `Rho { conic, value }` is a dimension of a conic's rho (`Dimension::NONE`, a plain number within
+  `MIN_RHO..=MAX_RHO`, `DimensionError::RhoOutOfRange`): it adds no equation and takes no degree
+  of freedom, since rho is not solved for; the solver shapes the conic with the evaluated value
+  (`System::rhos`) and writes it into the solved geometry, so a parameter drives the shape.
+  `Sketch::measured` gives the conic's rho. Projected conics refuse it (`OnlyReference`).
 - `Midpoint { point, curve }` takes a line or an arc, never a circle. On an arc it is two
   single-branch equations (`Form::OnBisector`, the point on the chord's perpendicular bisector, and
   `Form::ArcBulge`, its signed distance from the centre across the chord equal to the radius on the
@@ -334,8 +350,15 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   pieces and extensions are faceted the same way.
 - Sketch splines are clamped, uniform knots, degree `min(MAX_SPLINE_DEGREE, points - 1)`, exact
   derivatives, banded elimination (`banded.rs`). `BSpline::fit` approximates a dense polyline
-  within a tolerance, `interpolate` passes through points at evenly spaced parameters, `through`
-  follows unevenly spaced points without loops.
+  within a tolerance, `interpolate` passes through points at evenly spaced parameters (what an
+  open fit-point spline is), `through` follows unevenly spaced points without loops.
+- `BSpline::periodic` is the uniform cubic over the points taken round in a loop (knots
+  `periodic_knots`), clamped at its seam by knot insertion into the equivalent clamped spline of
+  `points + 3` control points over the same parameter, so its ends meet with equal first and
+  second derivatives. `interpolate_closed` passes through the points at the knots `i / n`, solving
+  the cyclic system (`periodic_through`, Gauss-Seidel: the diagonal outweighs the rest twice).
+  `BSpline::conic` is a rational quadratic; `weights` is the one rational case, and the rational
+  basis and its derivatives (`rational_basis`) serve the curve and the solver alike.
 - A spline meets a line or circle where its signed distance changes sign between samples
   (`intersect::spline_roots`, bisected); where the distance dips toward zero between samples
   without changing sign, the deepest point is found by golden-section search, giving two crossings

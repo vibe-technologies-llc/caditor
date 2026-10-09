@@ -11,7 +11,9 @@ use crate::{
     icon_font,
     section::SectionCommand,
     selection::Pickable,
-    shape_modes::{BlendMode, CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode},
+    shape_modes::{
+        BlendMode, CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode, SplineMode,
+    },
     sketch_tools::ConstraintTool,
 };
 
@@ -221,6 +223,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleFirstDimensionScales => phosphor::RESIZE,
         Command::ToggleGlyphs => phosphor::SHAPES,
         Command::ToggleCentresOfMass => phosphor::TARGET,
+        Command::ToggleControlPolygons => phosphor::POLYGON,
         Command::MinimizeWindow => MINIMIZE,
         Command::MaximizeWindow => MAXIMIZE,
         Command::FullScreen => FULL_SCREEN,
@@ -346,6 +349,7 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::TangentArc => phosphor::ARROW_BEND_UP_RIGHT,
         Tool::Ellipse => phosphor::EGG,
         Tool::EllipticalArc => phosphor::EGG_CRACK,
+        Tool::Conic => phosphor::PEN_NIB,
         Tool::Slot => phosphor::PILL,
         Tool::Polygon => phosphor::HEXAGON,
         Tool::Spline => phosphor::BEZIER_CURVE,
@@ -379,6 +383,10 @@ pub fn shape_mode(mode: ShapeMode) -> &'static str {
         ShapeMode::Slot(SlotMode::Ends) => tool(Tool::Slot),
         ShapeMode::Slot(SlotMode::Center) => phosphor::ARROWS_LEFT_RIGHT,
         ShapeMode::Slot(SlotMode::Arc) => phosphor::MAGNET,
+        ShapeMode::Spline(SplineMode::Control) => tool(Tool::Spline),
+        ShapeMode::Spline(SplineMode::Fit) => phosphor::PATH,
+        ShapeMode::Spline(SplineMode::ClosedControl) => phosphor::POLYGON,
+        ShapeMode::Spline(SplineMode::ClosedFit) => phosphor::CIRCLE_DASHED,
         ShapeMode::Blend(BlendMode::Tangent) => tool(Tool::BlendCurve),
         ShapeMode::Blend(BlendMode::Curvature) => phosphor::WAVE_SINE,
     }

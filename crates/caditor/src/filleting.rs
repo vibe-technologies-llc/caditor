@@ -459,12 +459,9 @@ fn end_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Option<
             Entity::Line { start, end }
             | Entity::Arc { start, end, .. }
             | Entity::EllipticalArc { start, end, .. } => vec![*start, *end],
-            Entity::Spline { control_points } => control_points
-                .first()
-                .into_iter()
-                .chain(control_points.last())
-                .copied()
-                .collect(),
+            spline @ Entity::Spline { .. } => spline
+                .spline_ends()
+                .map_or_else(Vec::new, |(first, last)| vec![first, last]),
             Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => Vec::new(),
         })
         .filter_map(|point| {

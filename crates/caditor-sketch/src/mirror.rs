@@ -221,9 +221,9 @@ impl Sketch {
                 same(at(*center), at(*center)) && same(at(*start), at(*end))
             }
             Some(Entity::Circle { center, .. }) => same(at(*center), at(*center)),
-            Some(Entity::Spline { control_points }) => {
-                let forward = control_points.iter().map(|point| at(*point));
-                let backward = control_points.iter().rev().map(|point| at(*point));
+            Some(Entity::Spline { points, .. }) => {
+                let forward = points.iter().map(|point| at(*point));
+                let backward = points.iter().rev().map(|point| at(*point));
                 forward.zip(backward).all(|(a, b)| same(a, b))
             }
             Some(Entity::Point(_) | Entity::Ellipse { .. } | Entity::EllipticalArc { .. })
@@ -274,8 +274,9 @@ impl Sketch {
                     center: image_of(center),
                     radius,
                 },
-                Entity::Spline { control_points } => Entity::Spline {
-                    control_points: control_points.into_iter().map(image_of).collect(),
+                Entity::Spline { points, kind } => Entity::Spline {
+                    points: points.into_iter().map(image_of).collect(),
+                    kind,
                 },
                 Entity::Point(_) | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
                     continue;

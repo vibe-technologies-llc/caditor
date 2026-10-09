@@ -716,13 +716,20 @@ pub fn profile_curve(sketch: &Sketch, id: EntityId) -> Option<ProfileCurve> {
             sketch.point(*start)?,
             sketch.point(*end)?,
         )),
-        Entity::Spline { .. } => sketch.spline(id).map(|spline| {
-            ProfileCurve::spline(
+        Entity::Spline { .. } => sketch.spline(id).map(|spline| match spline.weights() {
+            Some(weights) => ProfileCurve::rational_spline(
                 raw,
                 spline.degree(),
                 spline.knots().to_vec(),
                 spline.control_points().to_vec(),
-            )
+                weights.to_vec(),
+            ),
+            None => ProfileCurve::spline(
+                raw,
+                spline.degree(),
+                spline.knots().to_vec(),
+                spline.control_points().to_vec(),
+            ),
         }),
         Entity::Ellipse { .. } => sketch.ellipse(id).map(|ellipse| {
             ProfileCurve::ellipse(raw, ellipse.center, ellipse.major, ellipse.minor_radius)

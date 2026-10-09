@@ -4,14 +4,17 @@ use caditor_geometry::{Point2, Vector2};
 
 use crate::{
     constraint::Constraint,
-    curve::{BSpline, clamped_knots},
-    entity::{Entity, Role},
+    curve::{
+        BSpline, CONIC_DEGREE, CONIC_KNOTS, clamped_knots, conic_weight, periodic_knots,
+        periodic_through,
+    },
+    entity::{Entity, Role, SplineKind},
     id::{ConstraintId, EntityId},
     sketch::{Sketch, SketchError},
     solve::{
         equation::{
-            CircleHandle, Form, LengthOf, LineHandle, PointHandle, SplineEndHandle, SplineHandle,
-            fallback_direction,
+            CircleHandle, Equation, Form, LengthOf, LineHandle, PointHandle, SplineEndHandle,
+            SplineHandle, fallback_direction,
         },
         system::{Joints, System},
     },
@@ -102,7 +105,7 @@ impl System {
         spline: EntityId,
         other: EntityId,
     ) -> Result<Vec<f64>, SketchError> {
-        if joints.spline_end(sketch, spline, other).is_some() {
+        if joints.spline_end_on(sketch, spline, other).is_some() {
             return Ok(Vec::new());
         }
         Ok(vec![self.touching_start(sketch, spline, other)?])
@@ -207,8 +210,9 @@ impl System {
         parameter: Option<usize>,
     ) -> Result<Vec<Form>, SketchError> {
         let is_line = sketch.role(other) == Some(Role::Line);
-        if let Some((end, neighbour)) = joints.spline_end(sketch, spline, other) {
-            let (end, neighbour) = (self.point(end)?, self.point(neighbour)?);
+        if let Some(found) = joints.spline_end_on(sketch, spline, other) {
+            let legs = self.end_legs(sketch, spline, found)?;
+            let (end, neighbour) = (legs.end, legs.next);
             let leg = LineHandle {
                 start: end,
                 end: neighbour,
@@ -322,33 +326,141 @@ impl System {
 
     fn spline_handle(
         &self,
-        sketch: &Sketch,
+        _sketch: &Sketch,
         spline: EntityId,
     ) -> Result<Arc<SplineHandle>, SketchError> {
-        let Some(Entity::Spline { control_points }) = sketch.entity(spline) else {
-            return Err(SketchError::MissingEntity(spline));
-        };
-        let points = control_points
-            .iter()
-            .map(|point| self.point(*point))
-            .collect::<Result<Vec<_>, _>>()?;
-        let (degree, knots) = clamped_knots(points.len());
-        Ok(Arc::new(SplineHandle {
-            points,
-            degree,
-            knots,
-        }))
+        self.splines
+            .get(&spline)
+            .cloned()
+            .ok_or(SketchError::MissingEntity(spline))
     }
 
     fn curve(&self, sketch: &Sketch, spline: EntityId) -> Result<BSpline, SketchError> {
-        let Some(Entity::Spline { control_points }) = sketch.entity(spline) else {
-            return Err(SketchError::MissingEntity(spline));
-        };
-        let points = control_points
+        let handle = self.spline_handle(sketch, spline)?;
+        let points = handle
+            .points
             .iter()
-            .map(|point| Ok(self.point(*point)?.at(&self.values)))
-            .collect::<Result<Vec<Point2>, SketchError>>()?;
-        BSpline::clamped(points).ok_or(SketchError::TooFewControlPoints)
+            .map(|point| point.at(&self.values))
+            .collect();
+        Ok(BSpline::from_parts(
+            points,
+            handle.degree,
+            handle.knots.clone(),
+            handle.weights.clone(),
+        ))
+    }
+
+    pub(super) fn add_splines(&mut self, sketch: &Sketch) -> Result<(), SketchError> {
+        for (id, entity) in sketch.entities() {
+            let Entity::Spline { points, kind } = entity else {
+                continue;
+            };
+            let handles = points
+                .iter()
+                .map(|point| self.point(*point))
+                .collect::<Result<Vec<_>, _>>()?;
+            let handle = match *kind {
+                SplineKind::Control { closed: false } => clamped_handle(handles),
+                SplineKind::Control { closed: true } => periodic_handle(&handles),
+                SplineKind::Conic { rho } => {
+                    let driven = self.rhos.get(&id).copied().unwrap_or(rho);
+                    let weight = conic_weight(driven).ok_or(SketchError::InvalidRho)?;
+                    SplineHandle {
+                        points: handles,
+                        degree: CONIC_DEGREE,
+                        knots: CONIC_KNOTS.to_vec(),
+                        weights: Some(vec![1.0, weight, 1.0]),
+                    }
+                }
+                SplineKind::Fit { closed } => self.fit_handle(id, &handles, closed),
+            };
+            self.splines.insert(id, Arc::new(handle));
+        }
+        Ok(())
+    }
+
+    fn fit_handle(&mut self, id: EntityId, fits: &[PointHandle], closed: bool) -> SplineHandle {
+        let positions: Vec<Point2> = fits.iter().map(|fit| fit.at(&self.values)).collect();
+        if !closed && fits.len() <= 2 {
+            return clamped_handle(fits.to_vec());
+        }
+        let starts = if closed {
+            periodic_through(&positions)
+        } else {
+            BSpline::interpolate(&positions).map(|spline| spline.control_points().to_vec())
+        }
+        .unwrap_or_else(|| positions.clone());
+        let hidden_range = if closed {
+            0..fits.len()
+        } else {
+            1..fits.len() - 1
+        };
+        let mut hidden = Vec::with_capacity(hidden_range.len());
+        let mut controls = fits.to_vec();
+        for index in hidden_range {
+            let variable = self.values.len();
+            let start = starts.get(index).copied().unwrap_or(Point2::ZERO);
+            self.values.extend([start.x, start.y]);
+            hidden.push(variable);
+            if let Some(slot) = controls.get_mut(index) {
+                *slot = PointHandle::Variable(variable);
+            }
+        }
+        self.hidden.insert(id, hidden);
+        let handle = if closed {
+            periodic_handle(&controls)
+        } else {
+            clamped_handle(controls)
+        };
+        let last = fits.len().saturating_sub(1).max(1) as f64;
+        for (index, fit) in fits.iter().enumerate() {
+            let parameter = if closed {
+                index as f64 / fits.len() as f64
+            } else if index == 0 || index + 1 == fits.len() {
+                continue;
+            } else {
+                index as f64 / last
+            };
+            let [(first, weights), _, _] = handle.basis(parameter);
+            let terms: Arc<[(PointHandle, f64)]> = weights
+                .iter()
+                .zip(handle.points.iter().skip(first))
+                .filter(|(weight, _)| **weight != 0.0)
+                .map(|(weight, point)| (*point, *weight))
+                .collect();
+            for along in [Vector2::X, Vector2::Y] {
+                let form = Form::Through {
+                    point: *fit,
+                    terms: Arc::clone(&terms),
+                    along,
+                };
+                self.equations.push(Equation { owner: None, form });
+            }
+        }
+        handle
+    }
+}
+
+fn clamped_handle(points: Vec<PointHandle>) -> SplineHandle {
+    let (degree, knots) = clamped_knots(points.len());
+    SplineHandle {
+        points,
+        degree,
+        knots,
+        weights: None,
+    }
+}
+
+fn periodic_handle(points: &[PointHandle]) -> SplineHandle {
+    let count = points.len();
+    let (degree, knots) = periodic_knots(count);
+    SplineHandle {
+        points: (0..count + degree)
+            .filter_map(|index| points.get(index % count.max(1)).copied())
+            .collect(),
+        degree,
+        knots,
+        weights: None,
     }
 }
 
@@ -371,25 +483,30 @@ impl Contact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct SplineEnd {
     pub end: EntityId,
-    pub next: EntityId,
-    pub after: Option<EntityId>,
+    pub from_start: bool,
+}
+
+struct EndLegs {
+    end: PointHandle,
+    next: PointHandle,
+    after: Option<PointHandle>,
+    factor: f64,
 }
 
 fn spline_ends(sketch: &Sketch, spline: EntityId) -> Vec<SplineEnd> {
-    let Some(Entity::Spline { control_points }) = sketch.entity(spline) else {
+    let Some((first, last)) = sketch.entity(spline).and_then(Entity::spline_ends) else {
         return Vec::new();
     };
-    let backward: Vec<EntityId> = control_points.iter().rev().copied().collect();
-    [control_points.as_slice(), backward.as_slice()]
-        .into_iter()
-        .filter_map(|points| {
-            Some(SplineEnd {
-                end: *points.first()?,
-                next: *points.get(1)?,
-                after: points.get(2).copied(),
-            })
-        })
-        .collect()
+    vec![
+        SplineEnd {
+            end: first,
+            from_start: true,
+        },
+        SplineEnd {
+            end: last,
+            from_start: false,
+        },
+    ]
 }
 
 pub(super) fn end_factor(count: usize) -> f64 {
@@ -454,16 +571,6 @@ pub(crate) fn straight_spline(sketch: &Sketch, spline: EntityId) -> SketchError 
 }
 
 impl Joints {
-    pub(super) fn spline_end(
-        &self,
-        sketch: &Sketch,
-        spline: EntityId,
-        other: EntityId,
-    ) -> Option<(EntityId, EntityId)> {
-        self.spline_end_on(sketch, spline, other)
-            .map(|end| (end.end, end.next))
-    }
-
     pub(super) fn spline_end_on(
         &self,
         sketch: &Sketch,
@@ -497,12 +604,56 @@ impl Joints {
 }
 
 impl System {
-    fn leg(&self, from: EntityId, to: EntityId) -> Result<LineHandle, SketchError> {
-        let (start, end) = (self.point(from)?, self.point(to)?);
+    fn end_legs(
+        &self,
+        sketch: &Sketch,
+        spline: EntityId,
+        end: SplineEnd,
+    ) -> Result<EndLegs, SketchError> {
+        let handle = self.spline_handle(sketch, spline)?;
+        let count = handle.points.len();
+        let at = |step: usize| {
+            let index = if end.from_start {
+                Some(step)
+            } else {
+                count.checked_sub(step + 1)
+            };
+            index.and_then(|index| Some((*handle.points.get(index)?, index)))
+        };
+        let missing = || SketchError::MissingEntity(spline);
+        let (own, own_index) = at(0).ok_or_else(missing)?;
+        let (next, next_index) = at(1).ok_or_else(missing)?;
+        let after = at(2);
+        let weight = |index: usize| {
+            handle
+                .weights
+                .as_ref()
+                .and_then(|weights| weights.get(index))
+                .copied()
+                .unwrap_or(1.0)
+        };
+        let factor = after.map_or(0.0, |(_, after_index)| {
+            end_factor(count) * weight(own_index) * weight(after_index) / weight(next_index).powi(2)
+        });
+        Ok(EndLegs {
+            end: own,
+            next,
+            after: after.map(|(point, _)| point),
+            factor,
+        })
+    }
+
+    fn leg(
+        &self,
+        sketch: &Sketch,
+        spline: EntityId,
+        end: SplineEnd,
+    ) -> Result<LineHandle, SketchError> {
+        let legs = self.end_legs(sketch, spline, end)?;
         Ok(LineHandle {
-            start,
-            end,
-            fallback: self.initial_direction(start, end),
+            start: legs.end,
+            end: legs.next,
+            fallback: self.initial_direction(legs.end, legs.next),
         })
     }
 
@@ -512,15 +663,13 @@ impl System {
         spline: EntityId,
         end: SplineEnd,
     ) -> Result<SplineEndHandle, SketchError> {
-        let Some(Entity::Spline { control_points }) = sketch.entity(spline) else {
-            return Err(SketchError::MissingEntity(spline));
-        };
-        let after = end.after.ok_or_else(|| straight_spline(sketch, spline))?;
+        let legs = self.end_legs(sketch, spline, end)?;
+        let after = legs.after.ok_or_else(|| straight_spline(sketch, spline))?;
         Ok(SplineEndHandle {
-            end: self.point(end.end)?,
-            next: self.point(end.next)?,
-            after: self.point(after)?,
-            factor: end_factor(control_points.len()),
+            end: legs.end,
+            next: legs.next,
+            after,
+            factor: legs.factor,
         })
     }
 
@@ -533,8 +682,8 @@ impl System {
     ) -> Result<Vec<Form>, SketchError> {
         if let Some((first, second)) = joints.spline_joint(sketch, a, b) {
             return Ok(vec![Form::Parallel(
-                self.leg(first.end, first.next)?,
-                self.leg(second.end, second.next)?,
+                self.leg(sketch, a, first)?,
+                self.leg(sketch, b, second)?,
             )]);
         }
         let parameters = self.parameter_pair(id)?;

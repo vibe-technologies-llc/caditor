@@ -6,7 +6,7 @@ use std::{
 use caditor_geometry::{Point2, Vector2};
 
 use crate::{
-    curve::{basis_derivatives, length_nodes},
+    curve::{length_nodes, rational_basis},
     id::ConstraintId,
 };
 
@@ -201,6 +201,7 @@ pub(crate) struct SplineHandle {
     pub points: Vec<PointHandle>,
     pub degree: usize,
     pub knots: Vec<f64>,
+    pub weights: Option<Vec<f64>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -297,9 +298,7 @@ impl SplineAt {
 impl SplineHandle {
     fn at(&self, values: &[f64], parameter: usize) -> SplineAt {
         let parameter = value(values, parameter);
-        let count = self.points.len();
-        let [(first, weights), (_, slopes), (_, bends)] = [0, 1, 2]
-            .map(|order| basis_derivatives(self.degree, &self.knots, count, parameter, order));
+        let [(first, weights), (_, slopes), (_, bends)] = self.basis(parameter);
         let combine = |weights: &[f64]| {
             weights
                 .iter()
@@ -322,7 +321,7 @@ impl SplineHandle {
         let count = self.points.len();
         let mut total = 0.0;
         for (parameter, weight) in length_nodes(count) {
-            let (first, slopes) = basis_derivatives(self.degree, &self.knots, count, parameter, 1);
+            let [_, (first, slopes), _] = self.basis(parameter);
             let tangent = slopes
                 .iter()
                 .zip(self.points.iter().skip(first))
@@ -336,6 +335,16 @@ impl SplineHandle {
             }
         }
         total
+    }
+
+    pub(crate) fn basis(&self, parameter: f64) -> [(usize, Vec<f64>); 3] {
+        rational_basis(
+            self.degree,
+            &self.knots,
+            self.weights.as_deref(),
+            self.points.len(),
+            parameter,
+        )
     }
 
     fn push(&self, gradient: &mut Gradient, first: usize, weights: &[f64], partial: Vector2) {
@@ -580,6 +589,11 @@ pub(crate) enum Form {
         point: PointHandle,
         ellipse: EllipseHandle,
     },
+    Through {
+        point: PointHandle,
+        terms: Arc<[(PointHandle, f64)]>,
+        along: Vector2,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -651,12 +665,26 @@ impl Form {
             | Self::MatchedCurvature(..)
             | Self::OnEllipse { .. }
             | Self::EllipseTangent { .. }
-            | Self::EllipseTouch { .. } => None,
+            | Self::EllipseTouch { .. }
+            | Self::Through { .. } => None,
         }
     }
 
     fn evaluate(&self, values: &[f64], context: &Context, gradient: &mut Gradient) -> f64 {
         match *self {
+            Self::Through {
+                point,
+                ref terms,
+                along,
+            } => {
+                point.push(gradient, along);
+                let mut combined = Vector2::ZERO;
+                for (term, weight) in terms.iter() {
+                    term.push(gradient, -along * *weight);
+                    combined += term.at(values) * *weight;
+                }
+                along.dot(point.at(values) - combined)
+            }
             Self::OnEllipse { point, ellipse } => {
                 on_ellipse(point, &ellipse, values, context, gradient)
             }
@@ -1342,6 +1370,28 @@ mod tests {
             points: (0..count).map(|index| point(first + 2 * index)).collect(),
             degree,
             knots,
+            weights: None,
+        })
+    }
+
+    fn conic(first: usize) -> Arc<SplineHandle> {
+        Arc::new(SplineHandle {
+            points: (0..3).map(|index| point(first + 2 * index)).collect(),
+            degree: 2,
+            knots: crate::curve::CONIC_KNOTS.to_vec(),
+            weights: Some(vec![1.0, 2.5, 1.0]),
+        })
+    }
+
+    fn periodic(first: usize, count: usize) -> Arc<SplineHandle> {
+        let (degree, knots) = crate::curve::periodic_knots(count);
+        Arc::new(SplineHandle {
+            points: (0..count + degree)
+                .map(|index| point(first + 2 * (index % count)))
+                .collect(),
+            degree,
+            knots,
+            weights: None,
         })
     }
 
@@ -1622,6 +1672,33 @@ mod tests {
                 line: line(8, 12),
                 point: point(8),
                 ellipse: ellipse(14, 6, 11),
+            },
+            Form::SplineFoot {
+                point: point(12),
+                spline: conic(0),
+                parameter: 16,
+                fallback: Vector2::X,
+            },
+            Form::SplineOnLine {
+                spline: conic(4),
+                parameter: 17,
+                line: line(0, 14),
+                side: 1.0,
+                value: 0.5,
+            },
+            Form::SameLength(LengthOf::Spline(conic(2)), LengthOf::Spline(periodic(6, 4))),
+            Form::SplineDistance {
+                point: point(14),
+                spline: periodic(0, 5),
+                parameter: 17,
+                fallback: Vector2::Y,
+                side: -1.0,
+                value: 0.75,
+            },
+            Form::Through {
+                point: point(14),
+                terms: Arc::from([(point(0), 0.25), (point(4), 0.5), (point(8), 0.25)]),
+                along: Vector2::Y,
             },
         ]
     }

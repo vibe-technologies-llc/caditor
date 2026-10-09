@@ -191,13 +191,7 @@ fn add_curve(
             ) {
                 ends.extend([(*first, *start), (*last, *end)]);
             }
-            builder.add_sketch_entity_as(
-                sketch,
-                Entity::Spline {
-                    control_points: ids,
-                },
-                construction,
-            );
+            builder.add_sketch_entity_as(sketch, Entity::spline(ids), construction);
         }
     }
 }

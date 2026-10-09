@@ -285,9 +285,7 @@ mod tests {
             Edit::AddSketchEntity {
                 feature: FeatureId::from_raw(1),
                 id: EntityId::from_raw(1),
-                entity: Entity::Spline {
-                    control_points: (2..2 + controls).map(EntityId::from_raw).collect(),
-                },
+                entity: Entity::spline((2..2 + controls).map(EntityId::from_raw).collect()),
                 construction: false,
             },
         )

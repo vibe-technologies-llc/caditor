@@ -12,6 +12,8 @@ mod numeric;
 mod projection_tests;
 mod sparse;
 mod spline;
+#[cfg(test)]
+mod spline_kind_tests;
 mod system;
 mod tally;
 #[cfg(test)]
@@ -324,6 +326,9 @@ impl Sketch {
         }
         for (circle, radius) in &system.radii {
             geometry.set_radius(*circle, value(values, *radius));
+        }
+        for (conic, rho) in &system.rhos {
+            geometry.set_rho(*conic, *rho);
         }
         geometry
     }

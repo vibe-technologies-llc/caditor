@@ -117,11 +117,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
-- [medium · hard] Tools missing: a conic curve (two ends and a point it passes, shaped by a rho
-  value), a pattern of sketch geometry along a path, text (a font, a height, bold and
-  italic, set along a curve, its letters becoming closed regions that extrude), and fit-point,
-  closed or periodic splines (`BSpline::through` serves only DXF import, `BSpline::interpolate`
-  only its own tests, and the control polygon is not drawn).
+- [medium · hard] Tools missing: a pattern of sketch geometry along a path (copies tied to the
+  path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
+  font, a height, bold and italic, set along a curve, its letters becoming closed regions that
+  extrude).
+- [low · medium] Fit-point splines pass their points at evenly spaced parameters
+  (`BSpline::interpolate`, `interpolate_closed`), so unevenly spaced fit points overshoot between
+  them; chord-length parameters would need the knots, and the solver's spline handles, to follow
+  the points. A point held on a closed spline stops at its seam, its parameter clamped to one
+  turn, and DXF fit-point splines still import as control splines (`BSpline::through`).
 - [low · medium] Ellipses and elliptical arcs are drawn, constrained (point on, concentric, level
   or upright axis, tangent to a line, both radii) and swept, but cannot be trimmed, extended,
   split, broken, offset, filleted, mirrored or patterned (a copy needs its minor radius held equal

@@ -16,7 +16,7 @@ use caditor_file::{
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::MeshQuality;
 use caditor_render::{Background, GraphicsInfo, ImageError, Msaa, Shading};
-use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, Entity, EntityId, Sketch, SplineKind};
 use egui::{
     Color32, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
     ViewportCommand, ViewportId, ViewportIdMap, ViewportInfo,
@@ -83,6 +83,7 @@ mod shaped_sweeps;
 mod sketch_blend_curves;
 mod sketch_breaks;
 mod sketch_chamfers;
+mod sketch_conics;
 mod sketch_ellipses;
 mod sketch_first_dimension;
 mod sketch_free;
@@ -3653,7 +3654,10 @@ fn curvature_joins_two_splines_tangent_and_bending_alike_from_its_key() {
         Point2::new(30.0, -8.0),
     ]);
     let points = [first, second].map(|spline| match sketch.entity(spline) {
-        Some(caditor_sketch::Entity::Spline { control_points }) => control_points.clone(),
+        Some(caditor_sketch::Entity::Spline {
+            points: control_points,
+            ..
+        }) => control_points.clone(),
         other => panic!("expected a spline, found {other:?}"),
     });
     sketch
@@ -4998,7 +5002,11 @@ fn an_arc_starting_level_with_its_centre_and_a_spline_point_above_the_last_stay_
     let [spline] = entities_of_kind(sketch, "Spline")[..] else {
         panic!("one spline should be drawn");
     };
-    let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+    let Some(Entity::Spline {
+        points: control_points,
+        ..
+    }) = sketch.entity(spline).cloned()
+    else {
         panic!("the spline is a spline");
     };
     assert!(
@@ -7211,7 +7219,11 @@ fn a_spline_takes_clicked_control_points_until_enter() {
 
     let sketch = harness.sketch(feature);
     let spline = entities_of_kind(sketch, "Spline")[0];
-    let Some(Entity::Spline { control_points }) = sketch.entity(spline) else {
+    let Some(Entity::Spline {
+        points: control_points,
+        ..
+    }) = sketch.entity(spline)
+    else {
         panic!("expected a spline");
     };
     assert_eq!(control_points.len(), 4);
@@ -7220,6 +7232,38 @@ fn a_spline_takes_clicked_control_points_until_enter() {
     }
     assert_eq!(harness.model.undo_label(), Some("Draw spline"));
     assert!(harness.shows("Click the spline's first control point"));
+}
+
+#[test]
+fn a_fit_point_spline_closes_on_its_first_point_and_passes_every_point() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::S);
+    harness.use_tool(Key::S);
+    assert!(harness.shows("Click the first point the spline passes"));
+    let clicked = [
+        Point2::new(10.0, 10.0),
+        Point2::new(40.0, 12.0),
+        Point2::new(35.0, 40.0),
+        Point2::new(12.0, 35.0),
+    ];
+    for point in clicked {
+        harness.click_at(point);
+    }
+    harness.click_at(clicked[0]);
+
+    let sketch = harness.sketch(feature);
+    let spline = entities_of_kind(sketch, "Closed fit-point spline")[0];
+    let Some(Entity::Spline { points, kind }) = sketch.entity(spline) else {
+        panic!("expected a spline");
+    };
+    assert_eq!(*kind, SplineKind::Fit { closed: true });
+    assert_eq!(points.len(), 4);
+    let curve = sketch.spline(spline).unwrap();
+    for (index, expected) in clicked.iter().enumerate() {
+        let at = curve.point_at(index as f64 / clicked.len() as f64);
+        assert!(near(at, *expected), "{at} is not {expected}");
+    }
 }
 
 #[test]

@@ -5,7 +5,7 @@ use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Relations, Sketch,
-    SketchSolution,
+    SketchSolution, SplineKind,
 };
 
 use crate::{
@@ -446,10 +446,27 @@ fn radii(shown: &Sketch, items: &[Item]) -> Option<Vec<Constraint>> {
                     value,
                 })?);
             }
+            Shape::Spline if is_conic(shown, entity) => {
+                let rho = shown.measured(&Constraint::Rho {
+                    conic: entity,
+                    value: Expression::Number(0.0),
+                })?;
+                constraints.push(Constraint::Rho {
+                    conic: entity,
+                    value: Expression::Number(rounded_for_display(rho)),
+                });
+            }
             Shape::Point | Shape::Line | Shape::Spline => return None,
         }
     }
     (!constraints.is_empty()).then_some(constraints)
+}
+
+pub fn is_conic(sketch: &Sketch, entity: EntityId) -> bool {
+    matches!(
+        sketch.entity(entity).and_then(Entity::spline_kind),
+        Some(SplineKind::Conic { .. })
+    )
 }
 
 fn onto_one_curve(
@@ -1043,7 +1060,9 @@ pub fn add_constraints(
 }
 
 fn determines(solution: &SketchSolution, constraint: &Constraint) -> bool {
+    let shapes_without_freedom = matches!(constraint, Constraint::Rho { .. });
     constraint.dimension().is_some()
+        && !shapes_without_freedom
         && constraint
             .entities()
             .into_iter()

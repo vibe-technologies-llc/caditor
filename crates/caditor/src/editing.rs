@@ -29,6 +29,7 @@ pub enum Tool {
     Spline,
     Ellipse,
     EllipticalArc,
+    Conic,
     Trim,
     Extend,
     Offset,
@@ -44,7 +45,7 @@ pub enum Tool {
     BlendCurve,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Ellipse, EllipticalArc, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Intersect, Dimension, BlendCurve);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Ellipse, EllipticalArc, Conic, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Intersect, Dimension, BlendCurve);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -59,6 +60,7 @@ impl Tool {
             Self::TangentArc => "Tangent arc",
             Self::Ellipse => "Ellipse",
             Self::EllipticalArc => "Elliptical arc",
+            Self::Conic => "Conic",
             Self::Slot => "Slot",
             Self::Polygon => "Polygon",
             Self::Spline => "Spline",
@@ -99,6 +101,10 @@ impl Tool {
             Self::EllipticalArc => {
                 "Draw part of an ellipse from its centre, the end of its major axis, its start \
                  and its end"
+            }
+            Self::Conic => {
+                "Draw a conic from its two ends and its apex, where the tangents at its ends \
+                 meet, shaped by a rho value"
             }
             Self::Slot => "Draw a slot from the centres of its round ends and its width",
             Self::Polygon => "Draw a regular polygon from its centre and a corner",
@@ -182,6 +188,7 @@ impl Tool {
             | Self::TangentArc
             | Self::Ellipse
             | Self::EllipticalArc
+            | Self::Conic
             | Self::Slot
             | Self::Polygon
             | Self::Spline => true,

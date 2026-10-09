@@ -67,6 +67,7 @@ pub enum ProfileShape {
         degree: usize,
         knots: Vec<f64>,
         control_points: Vec<Point2>,
+        weights: Option<Vec<f64>>,
     },
     Ellipse {
         center: Point2,
@@ -152,6 +153,25 @@ impl ProfileCurve {
                 degree,
                 knots,
                 control_points,
+                weights: None,
+            },
+        )
+    }
+
+    pub fn rational_spline(
+        entity: u64,
+        degree: usize,
+        knots: Vec<f64>,
+        control_points: Vec<Point2>,
+        weights: Vec<f64>,
+    ) -> Self {
+        Self::new(
+            entity,
+            ProfileShape::Spline {
+                degree,
+                knots,
+                control_points,
+                weights: Some(weights),
             },
         )
     }

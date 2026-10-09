@@ -135,7 +135,8 @@ impl Sketch {
             Constraint::Fix { point, .. }
             | Constraint::ArcLength { arc: point, .. }
             | Constraint::Sweep { arc: point, .. }
-            | Constraint::MinorRadius { ellipse: point, .. } => Subject::Single(kind, point),
+            | Constraint::MinorRadius { ellipse: point, .. }
+            | Constraint::Rho { conic: point, .. } => Subject::Single(kind, point),
             Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => {
                 Subject::Size(entity)
             }

@@ -264,6 +264,7 @@ pub struct BSpline {
     control_points: Vec<Point2>,
     degree: usize,
     knots: Vec<f64>,
+    weights: Option<Vec<f64>>,
 }
 
 impl BSpline {
@@ -277,7 +278,59 @@ impl BSpline {
             control_points,
             degree,
             knots,
+            weights: None,
         })
+    }
+
+    pub fn periodic(control_points: &[Point2]) -> Option<Self> {
+        let count = control_points.len();
+        if count < MIN_CLOSED_POINTS {
+            return None;
+        }
+        let wrapped: Vec<Point2> = (0..count + MAX_SPLINE_DEGREE)
+            .filter_map(|index| control_points.get(index % count).copied())
+            .collect();
+        let (degree, knots) = periodic_knots(count);
+        let mut points = wrapped;
+        let mut knots = knots;
+        for end in [0.0, 1.0] {
+            for _ in 1..degree {
+                (knots, points) = inserted(degree, &knots, &points, end)?;
+            }
+        }
+        let skipped = degree - 1;
+        let kept = points
+            .get(skipped..points.len().checked_sub(skipped)?)?
+            .to_vec();
+        Self::clamped(kept)
+    }
+
+    pub fn interpolate_closed(points: &[Point2]) -> Option<Self> {
+        Self::periodic(&periodic_through(points)?)
+    }
+
+    pub fn conic(start: Point2, apex: Point2, end: Point2, rho: f64) -> Option<Self> {
+        let weight = conic_weight(rho)?;
+        Some(Self {
+            control_points: vec![start, apex, end],
+            degree: CONIC_DEGREE,
+            knots: CONIC_KNOTS.to_vec(),
+            weights: Some(vec![1.0, weight, 1.0]),
+        })
+    }
+
+    pub(crate) fn from_parts(
+        control_points: Vec<Point2>,
+        degree: usize,
+        knots: Vec<f64>,
+        weights: Option<Vec<f64>>,
+    ) -> Self {
+        Self {
+            control_points,
+            degree,
+            knots,
+            weights,
+        }
     }
 
     pub fn degree(&self) -> usize {
@@ -292,18 +345,30 @@ impl BSpline {
         &self.knots
     }
 
+    pub fn weights(&self) -> Option<&[f64]> {
+        self.weights.as_deref()
+    }
+
     pub fn point_at(&self, parameter: f64) -> Point2 {
         let parameter = if parameter.is_nan() {
             0.0
         } else {
             parameter.clamp(0.0, 1.0)
         };
+        if self.weights.is_some() {
+            let [weights, _, _] = self.rational_basis(parameter);
+            return self.combine(&weights);
+        }
         self.de_boor(parameter)
             .or_else(|| self.control_points.first().copied())
             .unwrap_or(Point2::ZERO)
     }
 
     pub fn derivatives(&self, parameter: f64) -> [Vector2; 2] {
+        if self.weights.is_some() {
+            let [_, slopes, bends] = self.rational_basis(parameter);
+            return [self.combine(&slopes), self.combine(&bends)];
+        }
         let count = self.control_points.len();
         [1, 2].map(|order| {
             let (first, weights) =
@@ -313,6 +378,23 @@ impl BSpline {
                 .zip(self.control_points.iter().skip(first))
                 .fold(Vector2::ZERO, |sum, (weight, point)| sum + *point * *weight)
         })
+    }
+
+    fn rational_basis(&self, parameter: f64) -> [(usize, Vec<f64>); 3] {
+        rational_basis(
+            self.degree,
+            &self.knots,
+            self.weights.as_deref(),
+            self.control_points.len(),
+            parameter,
+        )
+    }
+
+    fn combine(&self, (first, weights): &(usize, Vec<f64>)) -> Vector2 {
+        weights
+            .iter()
+            .zip(self.control_points.iter().skip(*first))
+            .fold(Vector2::ZERO, |sum, (weight, point)| sum + *point * *weight)
     }
 
     pub fn length(&self) -> f64 {
@@ -348,6 +430,14 @@ impl BSpline {
         let Some(lower) = self.degree.checked_sub(1).filter(|lower| *lower > 0) else {
             return 0.0;
         };
+        let spread = self.weights.as_deref().map_or(1.0, |weights| {
+            let (least, most) = weights
+                .iter()
+                .fold((f64::INFINITY, 0.0_f64), |(least, most), weight| {
+                    (least.min(*weight), most.max(*weight))
+                });
+            if least > 0.0 { most / least } else { 1.0 }
+        });
         let degree = self.degree;
         let knot = |index: usize| self.knots.get(index).copied().unwrap_or(0.0);
         let scaled = |a: Vector2, b: Vector2, factor: usize, width: f64| {
@@ -381,6 +471,8 @@ impl BSpline {
                 _ => None,
             })
             .fold(0.0, f64::max)
+            * spread
+            * spread
     }
 
     fn control_polygon_turning(&self) -> f64 {
@@ -430,6 +522,152 @@ impl BSpline {
         }
         points.get(degree).copied()
     }
+}
+
+pub(crate) const MIN_CLOSED_POINTS: usize = 3;
+pub(crate) const CONIC_DEGREE: usize = 2;
+pub(crate) const CONIC_KNOTS: [f64; 6] = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+const PERIODIC_SWEEPS: usize = 200;
+
+pub fn conic_weight(rho: f64) -> Option<f64> {
+    let weight = rho / (1.0 - rho);
+    (rho > 0.0 && rho < 1.0 && weight.is_finite()).then_some(weight)
+}
+
+pub(crate) fn periodic_knots(count: usize) -> (usize, Vec<f64>) {
+    let degree = MAX_SPLINE_DEGREE;
+    let spans = count.max(1) as f64;
+    let knots = (0..count + 2 * degree + 1)
+        .map(|index| (index as f64 - degree as f64) / spans)
+        .collect();
+    (degree, knots)
+}
+
+pub(crate) fn periodic_through(points: &[Point2]) -> Option<Vec<Point2>> {
+    let count = points.len();
+    if count < MIN_CLOSED_POINTS || points.iter().any(|point| !point.is_finite()) {
+        return None;
+    }
+    let rows = periodic_rows(count);
+    let mut solved = points.to_vec();
+    for _ in 0..PERIODIC_SWEEPS {
+        for (target, row) in points.iter().zip(&rows) {
+            let (own_slot, own) = row
+                .iter()
+                .copied()
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .filter(|(_, weight)| *weight > 0.0)?;
+            let others = row
+                .iter()
+                .filter(|(slot, _)| *slot != own_slot)
+                .try_fold(Vector2::ZERO, |sum, (slot, weight)| {
+                    Some(sum + solved.get(*slot).copied()? * *weight)
+                })?;
+            *solved.get_mut(own_slot)? = (*target - others) / own;
+        }
+    }
+    solved
+        .iter()
+        .all(|point| point.is_finite())
+        .then_some(solved)
+}
+
+pub(crate) fn periodic_rows(count: usize) -> Vec<Vec<(usize, f64)>> {
+    let (degree, knots) = periodic_knots(count);
+    (0..count)
+        .map(|index| {
+            let (first, weights) =
+                basis_values(degree, &knots, count + degree, index as f64 / count as f64);
+            let mut row: Vec<(usize, f64)> = Vec::with_capacity(weights.len());
+            for (offset, weight) in weights.iter().enumerate() {
+                let slot = (first + offset) % count;
+                match row.iter_mut().find(|(known, _)| *known == slot) {
+                    Some((_, total)) => *total += weight,
+                    None => row.push((slot, *weight)),
+                }
+            }
+            row
+        })
+        .collect()
+}
+
+fn inserted(
+    degree: usize,
+    knots: &[f64],
+    points: &[Point2],
+    at: f64,
+) -> Option<(Vec<f64>, Vec<Point2>)> {
+    let span = knots
+        .partition_point(|knot| *knot <= at)
+        .checked_sub(1)?
+        .min(points.len().checked_sub(1)?);
+    let first = span.checked_sub(degree)?;
+    let mut new_points = Vec::with_capacity(points.len() + 1);
+    for index in 0..=points.len() {
+        let point = if index <= first {
+            *points.get(index)?
+        } else if index > span {
+            *points.get(index - 1)?
+        } else {
+            let low = *knots.get(index)?;
+            let width = *knots.get(index + degree)? - low;
+            let share = if width > 0.0 { (at - low) / width } else { 0.0 };
+            points.get(index - 1)?.lerp(*points.get(index)?, share)
+        };
+        new_points.push(point);
+    }
+    let mut new_knots = knots.to_vec();
+    new_knots.insert(span + 1, at);
+    Some((new_knots, new_points))
+}
+
+pub(crate) fn rational_basis(
+    degree: usize,
+    knots: &[f64],
+    weights: Option<&[f64]>,
+    count: usize,
+    parameter: f64,
+) -> [(usize, Vec<f64>); 3] {
+    let [values, slopes, bends] =
+        [0, 1, 2].map(|order| basis_derivatives(degree, knots, count, parameter, order));
+    let Some(weights) = weights else {
+        return [values, slopes, bends];
+    };
+    let first = values.0;
+    let weight = |offset: usize| weights.get(first + offset).copied().unwrap_or(1.0);
+    let weighted = |basis: &[f64]| -> Vec<f64> {
+        basis
+            .iter()
+            .enumerate()
+            .map(|(offset, value)| value * weight(offset))
+            .collect()
+    };
+    let (value, slope, bend) = (weighted(&values.1), weighted(&slopes.1), weighted(&bends.1));
+    let total: f64 = value.iter().sum();
+    let total_slope: f64 = slope.iter().sum();
+    let total_bend: f64 = bend.iter().sum();
+    if !(total > 0.0 && total.is_finite()) {
+        return [values, slopes, bends];
+    }
+    let rational: Vec<f64> = value.iter().map(|value| value / total).collect();
+    let rational_slope: Vec<f64> = slope
+        .iter()
+        .zip(&rational)
+        .map(|(slope, value)| (slope - value * total_slope) / total)
+        .collect();
+    let rational_bend: Vec<f64> = bend
+        .iter()
+        .zip(&rational)
+        .zip(&rational_slope)
+        .map(|((bend, value), slope)| {
+            (bend - 2.0 * slope * total_slope - value * total_bend) / total
+        })
+        .collect();
+    [
+        (first, rational),
+        (first, rational_slope),
+        (first, rational_bend),
+    ]
 }
 
 pub(crate) fn basis_values(
@@ -756,6 +994,86 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_periodic_spline_clamped_at_its_seam_is_the_same_curve() {
+        let control = vec![
+            Point2::ZERO,
+            Point2::new(4.0, -1.0),
+            Point2::new(7.0, 3.0),
+            Point2::new(3.0, 6.0),
+            Point2::new(-2.0, 4.0),
+        ];
+        let (degree, knots) = periodic_knots(control.len());
+        let wrapped = BSpline::from_parts(
+            (0..control.len() + degree)
+                .map(|index| control[index % control.len()])
+                .collect(),
+            degree,
+            knots,
+            None,
+        );
+        let clamped = BSpline::periodic(&control).unwrap();
+
+        assert_eq!(clamped.control_points().len(), control.len() + degree);
+        for index in 0..=100 {
+            let parameter = f64::from(index) / 100.0;
+            assert!(
+                clamped
+                    .point_at(parameter)
+                    .distance(wrapped.point_at(parameter))
+                    < EPSILON * 100.0,
+                "{parameter}"
+            );
+        }
+        let [start, start_bend] = clamped.derivatives(0.0);
+        let [end, end_bend] = clamped.derivatives(1.0);
+        assert!(start.distance(end) < 1e-9);
+        assert!(start_bend.distance(end_bend) < 1e-7);
+        assert_eq!(BSpline::periodic(&control[..2]), None);
+    }
+
+    #[test]
+    fn a_closed_interpolating_spline_passes_every_point() {
+        let points = vec![
+            Point2::ZERO,
+            Point2::new(10.0, 2.0),
+            Point2::new(12.0, 9.0),
+            Point2::new(1.0, 7.0),
+        ];
+        let spline = BSpline::interpolate_closed(&points).unwrap();
+        for (index, point) in points.iter().enumerate() {
+            let parameter = index as f64 / points.len() as f64;
+            assert!(spline.point_at(parameter).distance(*point) < 1e-9);
+        }
+        assert!(spline.point_at(1.0).distance(points[0]) < 1e-9);
+    }
+
+    #[test]
+    fn rational_derivatives_match_finite_differences() {
+        let step = 1e-5;
+        let conic = BSpline::conic(
+            Point2::ZERO,
+            Point2::new(4.0, 6.0),
+            Point2::new(9.0, 0.0),
+            0.8,
+        )
+        .unwrap();
+        for parameter in [0.1, 0.4, 0.5, 0.77, 0.9] {
+            let [tangent, bend] = conic.derivatives(parameter);
+            let ahead = conic.point_at(parameter + step);
+            let behind = conic.point_at(parameter - step);
+            let here = conic.point_at(parameter);
+            let slope = (ahead - behind) / (2.0 * step);
+            let curvature = (ahead - here * 2.0 + behind) / (step * step);
+            assert!(tangent.distance(slope) < 1e-5 * (1.0 + slope.length()));
+            assert!(bend.distance(curvature) < 1e-2 * (1.0 + curvature.length()));
+        }
+        assert_eq!(
+            BSpline::conic(Point2::ZERO, Point2::X, Point2::Y, 1.0),
+            None
+        );
     }
 
     #[test]

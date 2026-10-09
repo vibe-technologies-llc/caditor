@@ -129,6 +129,7 @@ const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
 const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes toward the pointer   \
                                 Enter: place   Esc: cancel";
 const TYPED_SIDES_HINT: &str = "6 sides: set the sides";
+const TYPED_RHO_HINT: &str = "0.3 rho: set its shape";
 const SCRUB_HINT: &str = "Shift: move sideways to set the sides";
 const MOVE_HINT: &str = "@: by an offset   Enter: move   Esc: cancel";
 const BOX_FILL_OPACITY: f32 = 0.12;
@@ -2272,6 +2273,9 @@ impl ViewportState {
                     .filter(|hovered| !matches!(hovered, Pickable::CentreOfMass(_)));
             }
         }
+        if commands.available(Command::ToggleControlPolygons) {
+            self.aids.control_polygons_hidden = !self.aids.control_polygons_hidden;
+        }
         if commands.available(Command::ToggleSnapping) {
             self.snapping = !self.snapping;
         }
@@ -3067,6 +3071,8 @@ impl ViewportState {
         }
         let sides = if self.drawing.can_type_sides() {
             format!("   {TYPED_SIDES_HINT}")
+        } else if self.drawing.can_type_rho() {
+            format!("   {TYPED_RHO_HINT}")
         } else {
             String::new()
         };
@@ -3088,6 +3094,15 @@ impl ViewportState {
         if let Some(count) = typed_point::sides(&typed.text) {
             if let Err(reason) = self.drawing.set_sides(count) {
                 self.typed_point.open_with(typed.text, reason.to_owned());
+            }
+            return;
+        }
+        if let Some(rho) = typed_point::rho(model, &typed.text) {
+            let set = rho.and_then(|(value, typed)| {
+                self.drawing.set_rho(value, typed).map_err(str::to_owned)
+            });
+            if let Err(reason) = set {
+                self.typed_point.open_with(typed.text, reason);
             }
             return;
         }
@@ -3745,6 +3760,8 @@ impl ViewportState {
                         .unwrap_or_default();
                     let typed_sides = if self.drawing.can_type_sides() {
                         format!("   {TYPED_SIDES_HINT}")
+                    } else if self.drawing.can_type_rho() {
+                        format!("   {TYPED_RHO_HINT}")
                     } else {
                         String::new()
                     };

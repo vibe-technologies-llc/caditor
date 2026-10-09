@@ -35,6 +35,15 @@ const ANGLE: Expected = Expected {
     non_negative: false,
 };
 const SIDES_WORDS: [&str; 2] = ["sides", "side"];
+const RHO_WORD: &str = "rho";
+const RHO: Part = Part {
+    label: "rho",
+    noun: "rho",
+    expected: Expected {
+        dimension: Some(Dimension::NONE),
+        non_negative: true,
+    },
+};
 const FULL_TURN_DEGREES: f64 = 360.0;
 const FORMS: &str = "Type x, y such as 10, 20, or a length and an angle such as 25 < 30";
 
@@ -122,6 +131,19 @@ pub fn sides(text: &str) -> Option<usize> {
         .trim_end();
     let digits = !count.is_empty() && count.chars().all(|digit| digit.is_ascii_digit());
     digits.then(|| count.parse().unwrap_or(usize::MAX))
+}
+
+pub fn rho(model: &Model, text: &str) -> Option<Result<(f64, Expression), String>> {
+    let trimmed = text.trim();
+    let split = trimmed.len().checked_sub(RHO_WORD.len())?;
+    let (value, word) = (trimmed.get(..split)?, trimmed.get(split..)?);
+    if !word.eq_ignore_ascii_case(RHO_WORD) {
+        return None;
+    }
+    Some(
+        typed_value(model, value, RHO, Measured::Angle)
+            .map(|typed| (typed.value, typed.expression)),
+    )
 }
 
 fn starts_a_point(text: &str) -> bool {

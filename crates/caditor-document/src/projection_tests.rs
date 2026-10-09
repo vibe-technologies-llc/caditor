@@ -331,7 +331,10 @@ fn a_circle_seen_at_an_angle_is_projected_as_a_spline_through_its_outline() {
 
     let outline = sketch_outline(&source, circle, &tilted).unwrap();
 
-    let Outline::Spline(control) = outline else {
+    let Outline::Spline {
+        points: control, ..
+    } = outline
+    else {
         panic!("expected a spline, found {outline:?}");
     };
     assert_eq!(control.len(), PROJECTED_SPLINE_POINTS);

@@ -7,6 +7,7 @@ paths:
 # Profiles (`profile/`)
 
 - `Profile::new` takes `ProfileCurve`s (a line, circle, counter-clockwise arc, clamped B-spline,
+  rational when it carries weights (`ProfileCurve::rational_spline`, a sketch conic),
   ellipse or counter-clockwise elliptical arc, the last two as a centre, a major axis vector and a
   minor radius, `Curve2::Ellipse` running by its angle parameter, the arc between its end points),
   each tagged with the sketch entity id as a plain u64, and builds the planar arrangement. The

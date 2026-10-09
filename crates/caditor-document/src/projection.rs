@@ -9,7 +9,7 @@ use caditor_kernel::{
     BooleanError, Curve, EdgeId, EdgeReference, ReferenceError, Solid, VertexId, VertexName,
     vertex_names,
 };
-use caditor_sketch::{ArcGeometry, BSpline, EllipseGeometry, Entity, EntityId, Sketch};
+use caditor_sketch::{ArcGeometry, BSpline, EllipseGeometry, Entity, EntityId, Sketch, SplineKind};
 
 use crate::{
     attachment::SketchFeature,
@@ -125,7 +125,31 @@ pub enum Outline {
         start: Point2,
         end: Point2,
     },
-    Spline(Vec<Point2>),
+    Spline {
+        points: Vec<Point2>,
+        kind: SplineKind,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SplineForm {
+    Open,
+    Closed,
+    Fit,
+    ClosedFit,
+    Conic,
+}
+
+impl SplineForm {
+    fn of(kind: SplineKind) -> Self {
+        match kind {
+            SplineKind::Control { closed: false } => Self::Open,
+            SplineKind::Control { closed: true } => Self::Closed,
+            SplineKind::Fit { closed: false } => Self::Fit,
+            SplineKind::Fit { closed: true } => Self::ClosedFit,
+            SplineKind::Conic { .. } => Self::Conic,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,7 +158,7 @@ enum Shape {
     Line,
     Circle,
     Arc,
-    Spline(usize),
+    Spline(usize, SplineForm),
     Ellipse,
 }
 
@@ -145,7 +169,7 @@ impl Shape {
             Entity::Line { .. } => Self::Line,
             Entity::Circle { .. } => Self::Circle,
             Entity::Arc { .. } => Self::Arc,
-            Entity::Spline { control_points } => Self::Spline(control_points.len()),
+            Entity::Spline { points, kind } => Self::Spline(points.len(), SplineForm::of(*kind)),
             Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => Self::Ellipse,
         }
     }
@@ -158,7 +182,7 @@ impl Outline {
             Self::Line { .. } => Shape::Line,
             Self::Circle { .. } => Shape::Circle,
             Self::Arc { .. } => Shape::Arc,
-            Self::Spline(points) => Shape::Spline(points.len()),
+            Self::Spline { points, kind } => Shape::Spline(points.len(), SplineForm::of(*kind)),
         }
     }
 
@@ -201,7 +225,10 @@ impl Outline {
 
     fn spline_through(samples: &[Point2]) -> Option<Self> {
         let spline = BSpline::interpolate(samples)?;
-        Some(Self::Spline(spline.control_points().to_vec()))
+        Some(Self::Spline {
+            points: spline.control_points().to_vec(),
+            kind: SplineKind::OPEN,
+        })
     }
 
     fn fitted(
@@ -212,7 +239,7 @@ impl Outline {
         match wanted {
             None => Some(self),
             Some(shape) if shape == self.shape() => Some(self),
-            Some(Shape::Spline(count)) => Self::spline_through(&samples(count)),
+            Some(Shape::Spline(count, SplineForm::Open)) => Self::spline_through(&samples(count)),
             Some(_) => None,
         }
     }
@@ -367,10 +394,13 @@ fn sketch_entity_outline(
                 Outline::through(&arc_samples(arc, PROJECTED_SPLINE_POINTS))?
             }
         }
-        Entity::Spline { .. } => {
-            let spline = source.spline(entity)?;
-            Outline::Spline(spline.control_points().iter().copied().map(local).collect())
-        }
+        Entity::Spline { points, kind } => Outline::Spline {
+            points: points
+                .iter()
+                .map(|point| source.point(*point).map(local))
+                .collect::<Option<Vec<_>>>()?,
+            kind: *kind,
+        },
         Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
             let ellipse = source.ellipse(entity)?;
             Outline::through(&ellipse_samples(&ellipse, PROJECTED_SPLINE_POINTS, &local))?
@@ -442,12 +472,18 @@ impl TransactionBuilder<'_> {
                 let end = point(self, *end);
                 self.add_sketch_entity(feature, Entity::Arc { center, start, end })
             }
-            Outline::Spline(control) => {
-                let control_points = control
+            Outline::Spline { points, kind } => {
+                let points = points
                     .iter()
                     .map(|position| point(self, *position))
                     .collect();
-                self.add_sketch_entity(feature, Entity::Spline { control_points })
+                self.add_sketch_entity(
+                    feature,
+                    Entity::Spline {
+                        points,
+                        kind: *kind,
+                    },
+                )
             }
         };
         self.edits.push(Edit::SetSketchProjection {
@@ -647,11 +683,26 @@ fn place(sketch: &mut Sketch, entity: EntityId, outline: &Outline) -> Result<(),
             set_point(sketch, start, *from)?;
             set_point(sketch, end, *to)
         }
-        (Entity::Spline { control_points }, Outline::Spline(positions))
-            if control_points.len() == positions.len() =>
-        {
-            for (id, position) in control_points.iter().zip(positions) {
+        (
+            Entity::Spline { points, kind },
+            Outline::Spline {
+                points: positions,
+                kind: wanted,
+            },
+        ) if points.len() == positions.len() && kind.same_form(*wanted) => {
+            for (id, position) in points.iter().zip(positions) {
                 set_point(sketch, *id, *position)?;
+            }
+            if kind != *wanted {
+                sketch
+                    .replace_entity(
+                        entity,
+                        Entity::Spline {
+                            points,
+                            kind: *wanted,
+                        },
+                    )
+                    .map_err(|_| ())?;
             }
             Ok(())
         }

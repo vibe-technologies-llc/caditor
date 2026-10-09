@@ -1,6 +1,6 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2};
-use caditor_sketch::{Constraint, Drag, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, Drag, Entity, EntityId, Sketch, SplineKind};
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 
 use crate::{angle, length, point};
@@ -61,10 +61,21 @@ fn shape(input: &mut Unstructured, sketch: &mut Sketch) -> Result<Option<EntityI
         }
         4 => {
             let count = input.int_in_range(2..=MOST_SPLINE_POINTS)?;
-            let control_points = (0..count)
+            let points = (0..count)
                 .map(|_| point_id(input, sketch))
                 .collect::<Result<Vec<_>>>()?;
-            insert(sketch, Entity::Spline { control_points })
+            let kind = match input.int_in_range(0u8..=2)? {
+                0 => SplineKind::Control {
+                    closed: input.arbitrary()?,
+                },
+                1 => SplineKind::Fit {
+                    closed: input.arbitrary()?,
+                },
+                _ => SplineKind::Conic {
+                    rho: input.arbitrary()?,
+                },
+            };
+            insert(sketch, Entity::Spline { points, kind })
         }
         _ => {
             let corner = point(input)?;

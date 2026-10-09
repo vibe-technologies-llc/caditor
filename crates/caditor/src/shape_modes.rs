@@ -1,4 +1,4 @@
-use caditor_sketch::Continuity;
+use caditor_sketch::{Continuity, SplineKind};
 
 use crate::editing::Tool;
 
@@ -35,6 +35,36 @@ pub enum SlotMode {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SplineMode {
+    #[default]
+    Control,
+    Fit,
+    ClosedControl,
+    ClosedFit,
+}
+
+impl SplineMode {
+    pub fn kind(self, closed: bool) -> SplineKind {
+        match self {
+            Self::Control | Self::ClosedControl => SplineKind::Control {
+                closed: closed || self.closes(),
+            },
+            Self::Fit | Self::ClosedFit => SplineKind::Fit {
+                closed: closed || self.closes(),
+            },
+        }
+    }
+
+    pub fn closes(self) -> bool {
+        matches!(self, Self::ClosedControl | Self::ClosedFit)
+    }
+
+    pub fn passes_its_points(self) -> bool {
+        matches!(self, Self::Fit | Self::ClosedFit)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum BlendMode {
     #[default]
     Tangent,
@@ -56,11 +86,12 @@ pub enum ShapeMode {
     Circle(CircleMode),
     Polygon(PolygonMode),
     Slot(SlotMode),
+    Spline(SplineMode),
     Blend(BlendMode),
 }
 
 impl ShapeMode {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 18] = [
         Self::Rectangle(RectangleMode::Corners),
         Self::Rectangle(RectangleMode::Center),
         Self::Rectangle(RectangleMode::ThreePoints),
@@ -73,6 +104,10 @@ impl ShapeMode {
         Self::Slot(SlotMode::Ends),
         Self::Slot(SlotMode::Center),
         Self::Slot(SlotMode::Arc),
+        Self::Spline(SplineMode::Control),
+        Self::Spline(SplineMode::Fit),
+        Self::Spline(SplineMode::ClosedControl),
+        Self::Spline(SplineMode::ClosedFit),
         Self::Blend(BlendMode::Tangent),
         Self::Blend(BlendMode::Curvature),
     ];
@@ -89,6 +124,7 @@ impl ShapeMode {
             Self::Circle(_) => Tool::Circle,
             Self::Polygon(_) => Tool::Polygon,
             Self::Slot(_) => Tool::Slot,
+            Self::Spline(_) => Tool::Spline,
             Self::Blend(_) => Tool::BlendCurve,
         }
     }
@@ -115,6 +151,12 @@ impl ShapeMode {
                 SlotMode::Center => SlotMode::Arc,
                 SlotMode::Arc => SlotMode::Ends,
             }),
+            Self::Spline(mode) => Self::Spline(match mode {
+                SplineMode::Control => SplineMode::Fit,
+                SplineMode::Fit => SplineMode::ClosedControl,
+                SplineMode::ClosedControl => SplineMode::ClosedFit,
+                SplineMode::ClosedFit => SplineMode::Control,
+            }),
             Self::Blend(mode) => Self::Blend(match mode {
                 BlendMode::Tangent => BlendMode::Curvature,
                 BlendMode::Curvature => BlendMode::Tangent,
@@ -136,6 +178,10 @@ impl ShapeMode {
             Self::Slot(SlotMode::Ends) => "From the centres of its ends",
             Self::Slot(SlotMode::Center) => "From its centre",
             Self::Slot(SlotMode::Arc) => "Along an arc",
+            Self::Spline(SplineMode::Control) => "By control points",
+            Self::Spline(SplineMode::Fit) => "Through fit points",
+            Self::Spline(SplineMode::ClosedControl) => "Closed, by control points",
+            Self::Spline(SplineMode::ClosedFit) => "Closed, through fit points",
             Self::Blend(BlendMode::Tangent) => "Tangent (G1)",
             Self::Blend(BlendMode::Curvature) => "Curvature-continuous (G2)",
         }
@@ -195,6 +241,21 @@ impl ShapeMode {
                 "Draw a curved slot along an arc from the arc's centre, the centres of its ends \
                  and its width"
             }
+            Self::Spline(SplineMode::Control) => {
+                "Draw a spline bending toward control points, open unless it ends on its first \
+                 point"
+            }
+            Self::Spline(SplineMode::Fit) => {
+                "Draw a spline passing through every point placed, each a point to constrain and \
+                 dimension"
+            }
+            Self::Spline(SplineMode::ClosedControl) => {
+                "Draw a smooth closed loop bending toward control points, closed on finishing"
+            }
+            Self::Spline(SplineMode::ClosedFit) => {
+                "Draw a smooth closed loop passing through every point placed, closed on \
+                 finishing"
+            }
             Self::Blend(BlendMode::Tangent) => {
                 "Join the ends of two curves with a spline leaving each along its direction (G1)"
             }
@@ -219,6 +280,10 @@ impl ShapeMode {
             Self::Slot(SlotMode::Ends) => "sketch.slot.ends",
             Self::Slot(SlotMode::Center) => "sketch.slot.center",
             Self::Slot(SlotMode::Arc) => "sketch.slot.arc",
+            Self::Spline(SplineMode::Control) => "sketch.spline.control",
+            Self::Spline(SplineMode::Fit) => "sketch.spline.fit",
+            Self::Spline(SplineMode::ClosedControl) => "sketch.spline.closed_control",
+            Self::Spline(SplineMode::ClosedFit) => "sketch.spline.closed_fit",
             Self::Blend(BlendMode::Tangent) => "sketch.blend_curve.tangent",
             Self::Blend(BlendMode::Curvature) => "sketch.blend_curve.curvature",
         }
@@ -239,6 +304,7 @@ pub struct ShapeModes {
     circle: CircleMode,
     polygon: PolygonMode,
     slot: SlotMode,
+    spline: SplineMode,
     blend: BlendMode,
 }
 
@@ -249,6 +315,7 @@ impl ShapeModes {
             Tool::Circle => Some(ShapeMode::Circle(self.circle)),
             Tool::Polygon => Some(ShapeMode::Polygon(self.polygon)),
             Tool::Slot => Some(ShapeMode::Slot(self.slot)),
+            Tool::Spline => Some(ShapeMode::Spline(self.spline)),
             Tool::BlendCurve => Some(ShapeMode::Blend(self.blend)),
             Tool::Select
             | Tool::Point
@@ -258,7 +325,7 @@ impl ShapeModes {
             | Tool::TangentArc
             | Tool::Ellipse
             | Tool::EllipticalArc
-            | Tool::Spline
+            | Tool::Conic
             | Tool::Trim
             | Tool::Extend
             | Tool::Offset
@@ -284,6 +351,7 @@ impl ShapeModes {
             ShapeMode::Circle(mode) => self.circle = mode,
             ShapeMode::Polygon(mode) => self.polygon = mode,
             ShapeMode::Slot(mode) => self.slot = mode,
+            ShapeMode::Spline(mode) => self.spline = mode,
             ShapeMode::Blend(mode) => self.blend = mode,
         }
     }
@@ -306,6 +374,7 @@ mod tests {
     all_variants!(CircleMode: Center, TwoPoints, ThreePoints);
     all_variants!(PolygonMode: Corner, SideMiddle, Side);
     all_variants!(SlotMode: Ends, Center, Arc);
+    all_variants!(SplineMode: Control, Fit, ClosedControl, ClosedFit);
     all_variants!(BlendMode: Tangent, Curvature);
 
     #[test]
@@ -316,6 +385,7 @@ mod tests {
             .chain(CircleMode::ALL.into_iter().map(ShapeMode::Circle))
             .chain(PolygonMode::ALL.into_iter().map(ShapeMode::Polygon))
             .chain(SlotMode::ALL.into_iter().map(ShapeMode::Slot))
+            .chain(SplineMode::ALL.into_iter().map(ShapeMode::Spline))
             .chain(BlendMode::ALL.into_iter().map(ShapeMode::Blend))
             .collect();
 

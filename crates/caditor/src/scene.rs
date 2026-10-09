@@ -16,7 +16,7 @@ use caditor_render::{
 };
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Faceting, Reference, Sketch,
-    SketchSolution,
+    SketchSolution, SplineKind,
 };
 
 use crate::{
@@ -325,6 +325,7 @@ struct SketchShape {
     entity: EntityId,
     state: SketchState,
     outline: Outline,
+    control_polygon: Vec<Segment>,
 }
 
 #[derive(Debug, Clone)]
@@ -437,9 +438,21 @@ fn sketch_shapes(
                 entity,
                 state: states.state(entity),
                 outline,
+                control_polygon: control_polygon(sketch, entity, kind),
             })
         })
         .collect()
+}
+
+fn control_polygon(sketch: &Sketch, id: EntityId, entity: &Entity) -> Vec<Segment> {
+    let shows_handles = matches!(
+        entity.spline_kind(),
+        Some(SplineKind::Control { .. } | SplineKind::Conic { .. })
+    );
+    match sketch.spline_control_points(id) {
+        Some(points) if shows_handles => curve_segments(sketch.plane(), &points, true).collect(),
+        _ => Vec::new(),
+    }
 }
 
 pub fn build(
@@ -482,6 +495,7 @@ pub fn build(
         palette,
         analysis: aids.analysis.map(|analysis| (analyses, analysis)),
         reflection: aids.reflection,
+        control_polygons: !aids.control_polygons_hidden,
     };
 
     match &edited {
@@ -835,6 +849,7 @@ struct Builder<'a> {
     palette: &'static ScenePalette,
     analysis: Option<(&'a Analyses, FaceAnalysis)>,
     reflection: Option<Reflection>,
+    control_polygons: bool,
 }
 
 impl Builder<'_> {
@@ -1948,6 +1963,19 @@ impl Builder<'_> {
                     }
                 }
                 Outline::Curve(segments) => {
+                    if presence == Presence::Edited && self.control_polygons {
+                        self.scene
+                            .lines
+                            .extend(shape.control_polygon.iter().map(|segment| Line {
+                                start: segment.start,
+                                end: segment.end,
+                                color: look.curve,
+                                width: self.palette.curve_width,
+                                layer,
+                                pick: None,
+                                stroke: segment.stroke,
+                            }));
+                    }
                     let color = color(look.curve);
                     let width =
                         self.palette.curve_width(look.weight) + emphasis * HIGHLIGHT_EXTRA_WIDTH;
@@ -3267,6 +3295,60 @@ mod tests {
             .lines()
             .filter(|line| line.pick.is_some() && line.pick == pick)
             .count()
+    }
+
+    #[test]
+    fn the_edited_sketch_shows_control_polygons_until_they_are_hidden() {
+        let corners = [
+            Point2::new(0.0, 0.0),
+            Point2::new(10.0, 8.0),
+            Point2::new(20.0, -4.0),
+            Point2::new(30.0, 6.0),
+        ];
+        let mut sketch = Sketch::new(Plane::XY);
+        sketch.add_spline(&corners);
+        sketch.add_spline_of(&corners, SplineKind::Fit { closed: false });
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Splines", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let selection = Selection::default();
+        let highlight = Highlight {
+            selection: &selection,
+            hovered: &[],
+            chosen_rows: &[],
+        };
+        let guides = |hidden: bool| {
+            let sources = Sources {
+                document: &document,
+                evaluation: &Evaluation::default(),
+                bodies: &BodyMeshes::default(),
+                sketches: &DisplayedSketches::default(),
+                style: DisplayStyle::default(),
+                aids: ViewAids {
+                    control_polygons_hidden: hidden,
+                    ..ViewAids::default()
+                },
+                analyses: &Analyses::default(),
+                contrast: Contrast::default(),
+            };
+            let context = Context {
+                sketch: Some(feature),
+                ..Context::default()
+            };
+            build(
+                &sources,
+                &highlight,
+                context,
+                &mut SketchShapes::new(Faceting::within(0.01)),
+            )
+            .scene
+            .lines()
+            .filter(|line| line.pick.is_none() && matches!(line.stroke, Stroke::Dashed { .. }))
+            .count()
+        };
+
+        assert_eq!(guides(false) - guides(true), corners.len() - 1);
     }
 
     #[test]

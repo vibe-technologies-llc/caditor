@@ -157,7 +157,8 @@ paths:
   place a point at an enormous distance.
 - Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last
   point, or a line closing the outline on the chain's first point. Splines finish on Enter or a
-  click on the last control point. Each continuing segment records its anchor (`ChainStep`);
+  click on the last point, and close (periodic, `SplineKind`) on a click on the first once three
+  are placed ("Close the spline"; a typed point there does the same). Each continuing segment records its anchor (`ChainStep`);
   Backspace undoes the last segment when it is the newest undo step, and when the anchor's point
   is gone (undo, a deletion) the chain steps back to the newest anchor still there rather than
   ending.
@@ -172,6 +173,14 @@ paths:
   the pointer and runs the way the pointer swept round the centre (`Shape::sweeps_from`), Reverse
   the arc included. Neither has a default key (every free one is taken); the Curve button, the
   Sketch menu and the palette reach them.
+- A conic (`Tool::Conic`, in the Curve group, no default key) is its start, its end and its apex,
+  where the tangents at its ends meet (`Draft::conic`, a `SplineKind::Conic`), previewed with
+  the pointer as apex; an end on its start (`Refusal::ConicEnds`) or an apex on the line through
+  the ends (`ConicApex`) is refused. Its rho, 0.5 until set and kept while caditor runs like the
+  polygon's sides, is typed in the point field as `0.3 rho` (`typed_point::rho`, any
+  dimensionless expression; outside 0.01 to 0.99 refused in words) and shown in the prompt and
+  the readout. An expression using parameters also gives the new conic a `Rho` dimension holding
+  it (`Draft::conic`), so the parameter keeps driving its shape.
 - A tangent arc starts on a point ending a line, arc or spline (the newest if several) and leaves
   along that curve's direction with a `Tangent`.
   Switching between the Line and Tangent arc tools with a segment started (`Drawing::sync`) keeps
@@ -195,6 +204,10 @@ paths:
   grouped on the ribbon under one Arc button, and so do Spline, Ellipse and Elliptical arc under
   one Curve button (`app-look.md`), since an ellipse is a curve of its own, not a way to draw
   another.
+- Spline has four ways (`SplineMode`): by control points, through fit points (the curve passes
+  each placed point, which stays a point to constrain and dimension), and both closed, where
+  Enter closes the loop. Clicking the first point closes either open way too. The preview is the
+  curve of that kind through the placed points and the pointer.
 - Blend curve keeps its two ways the same way: tangent (G1) and curvature-continuous (G2)
   (`ShapeMode::Blend`, `ShapeModes::blend`), listed with the shapes under Sketch › Ways to draw
   shapes; the modify tool reads the way each frame and its prompt leads with it.
@@ -239,6 +252,13 @@ paths:
   switches drawing (`ActiveSketch::construction`): new curves are construction, points stay
   points. Construction curves are dashed (`scene::curve_segments`) and coloured by constraint
   state like any curve, so dashes never carry a constraint state.
+
+- The edited sketch's control-point splines (open or closed) and conics show their control
+  polygon (`scene::control_polygon`, `Sketch::spline_control_points`): dashed like construction,
+  in the curve's state colour at the regular width, never picked, so the points that shape the
+  curve read as its handles. A fit-point spline shows none, its fit points being its handles.
+  Show or hide spline control polygons (`Command::ToggleControlPolygons`, View menu, palette, no
+  default key; `ViewAids::control_polygons_hidden`, shown by default) hides them for the session.
 
 ## Constraint states without colour
 
@@ -490,7 +510,10 @@ paths:
   radius. A lone ellipse or elliptical arc adds its major and minor radii (`MajorRadius`,
   `MinorRadius`, the one already held left out), as the Radius tool does with one selected; an
   ellipse picked with anything else is refused in words, its centre and axis points dimensioning
-  the rest. A point and a construction line also wait for placement (`dimensioning::about_axis`):
+  the rest. A lone conic takes its rho (`Constraint::Rho`, through the Radius candidates,
+  labelled `rho` and laid out from the middle of its chord to the point it passes there), never
+  added as a reference, since rho is no freedom the other constraints could take up
+  (`sketch_tools::determines`). A point and a construction line also wait for placement (`dimensioning::about_axis`):
   across the line the diameter (`Constraint::AxisDiameter`, drawn from the point to its mirror
   image across the line and labelled Ø), on the point's side the distance. Enter always adds the
   aligned distance, the length or the radius. The Diameter tool adds the same diameter for a point

@@ -11,7 +11,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SplineKind};
 use tempfile::TempDir;
 
 use super::{
@@ -458,7 +458,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
         .unwrap();
     lines[base] = lines[base].replacen(
         "\"entities\":[",
-        "\"entities\":[{\"id\":90,\"conic\":{\"start\":0}},",
+        "\"entities\":[{\"id\":90,\"clothoid\":{\"start\":0}},",
         1,
     );
     let side = lines
@@ -484,7 +484,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
             "Record 6 holds something this version of caditor does not know (assembly), so it was \
              left out. It may come from a newer version.",
             "In “Base sketch”, an entity of a kind this version of caditor does not know \
-             (conic) was left out. It may come from a newer version.",
+             (clothoid) was left out. It may come from a newer version.",
         ]
     );
     let base_sketch = loaded.document.features().next().unwrap();
@@ -1469,6 +1469,48 @@ fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
 }
 
 #[test]
+fn closed_fit_point_and_conic_splines_round_trip_and_older_readers_report_them() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Splines");
+    let mut sketch = Sketch::new(Plane::XY);
+    let through = [
+        Point2::new(0.0, 0.0),
+        Point2::new(10.0, 4.0),
+        Point2::new(20.0, -2.0),
+    ];
+    sketch.add_spline_of(&through, SplineKind::Control { closed: true });
+    sketch.add_spline_of(&through, SplineKind::Fit { closed: false });
+    sketch.add_spline_of(&through, SplineKind::Fit { closed: true });
+    let conic = sketch.add_spline_of(&through, SplineKind::Conic { rho: 0.3 });
+    sketch.add_spline(&through);
+    sketch
+        .add_constraint(Constraint::Rho {
+            conic,
+            value: Expression::Number(0.3),
+        })
+        .unwrap();
+    transaction.add_feature("Curves", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(
+        &text
+            .replace("\"closed_spline\"", "\"shut_spline\"")
+            .replace("\"conic\"", "\"cone\""),
+    );
+
+    assert!(text.contains("\"fit_points\""), "{text}");
+    assert!(text.contains("\"closed_fit_spline\""), "{text}");
+    assert!(text.contains("\"rho\":0.3"), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    let reported = older.issues.join(" ");
+    assert!(reported.contains("(shut_spline)"), "{reported}");
+    assert!(reported.contains("(cone)"), "{reported}");
+}
+
+#[test]
 fn a_curvature_between_joined_splines_round_trips_and_older_readers_report_it() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Splines");
@@ -1484,7 +1526,7 @@ fn a_curvature_between_joined_splines_round_trips_and_older_readers_report_it() 
         Point2::new(30.0, -15.0),
     ]);
     let ends = [first, second].map(|spline| match sketch.entity(spline) {
-        Some(caditor_sketch::Entity::Spline { control_points }) => control_points.clone(),
+        Some(caditor_sketch::Entity::Spline { points, .. }) => points.clone(),
         _ => panic!("expected a spline"),
     });
     sketch

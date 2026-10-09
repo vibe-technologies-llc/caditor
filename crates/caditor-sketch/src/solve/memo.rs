@@ -16,6 +16,7 @@ enum Variable {
     Y(EntityId),
     Radius(EntityId),
     Parameter(ConstraintId, usize),
+    Control(EntityId, usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -24,6 +25,7 @@ struct Key {
     entities: Vec<EntityId>,
     constraints: Vec<(ConstraintId, Option<u64>)>,
     start: Vec<(Variable, u64)>,
+    weights: Vec<(EntityId, Vec<u64>)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -255,6 +257,12 @@ impl Names {
         for (entity, radius) in &system.radii {
             name(*radius, Variable::Radius(*entity));
         }
+        for (spline, hidden) in &system.hidden {
+            for (ordinal, x) in hidden.iter().enumerate() {
+                name(*x, Variable::Control(*spline, 2 * ordinal));
+                name(x + 1, Variable::Control(*spline, 2 * ordinal + 1));
+            }
+        }
         for (constraint, parameters) in &system.parameters {
             for (ordinal, parameter) in parameters.iter().enumerate() {
                 name(*parameter, Variable::Parameter(*constraint, ordinal));
@@ -341,8 +349,19 @@ impl Key {
                 Some((name, value(&system.values, *index).to_bits()))
             })
             .collect::<Option<Vec<_>>>()?;
+        let weights = entities
+            .iter()
+            .filter_map(|entity| {
+                let weights = system.splines.get(entity)?.weights.as_ref()?;
+                Some((
+                    *entity,
+                    weights.iter().map(|weight| weight.to_bits()).collect(),
+                ))
+            })
+            .collect();
         Some(Self {
             scale: system.context_of(component).scale.to_bits(),
+            weights,
             entities,
             constraints: constraints
                 .into_iter()

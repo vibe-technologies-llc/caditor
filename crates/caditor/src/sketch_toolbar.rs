@@ -35,7 +35,18 @@ pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
 pub const CURVE_LABEL: &str = "Curve";
 pub const CURVE_WAYS_LABEL: &str = "Ways to draw a curve";
-pub const CURVE_TOOLS: [Tool; 3] = [Tool::Spline, Tool::Ellipse, Tool::EllipticalArc];
+pub const CURVE_TOOLS: [Tool; 4] = [
+    Tool::Spline,
+    Tool::Ellipse,
+    Tool::EllipticalArc,
+    Tool::Conic,
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GroupChoice {
+    Tool(Tool),
+    Way(ShapeMode),
+}
 const ARC_GROUP: ToolGroup = ToolGroup {
     tools: &ARC_TOOLS,
     label: ARC_LABEL,
@@ -695,8 +706,14 @@ impl Bar<'_, '_> {
             if tool != current && self.commands.available(Command::SketchTool(tool)) {
                 self.request.tool = Some(tool);
             }
+            for mode in ShapeMode::of_tool(tool) {
+                if self.commands.available(Command::ShapeMode(mode)) {
+                    self.request.mode = Some(mode);
+                }
+            }
         }
         let button = self.tool_button(ui, current, group.label).rect;
+        let current_mode = self.modes.of(current);
         let id = Id::new(group.id).with("ways");
         let selected = group.tools.contains(&self.active.tool);
         let response = widgets::corner_menu_button(ui, id, button, group.ways, selected);
@@ -710,15 +727,31 @@ impl Bar<'_, '_> {
                     if widgets::menu_choice(ui, glyph, tool.label(), keys, tool == current)
                         .clicked()
                     {
-                        chosen = Some(tool);
+                        chosen = Some(GroupChoice::Tool(tool));
+                    }
+                }
+                if let Some(current_mode) = current_mode {
+                    ui.separator();
+                    for mode in ShapeMode::of_tool(current) {
+                        let keys = commands.keys(Command::ShapeMode(mode));
+                        let glyph = icons::shape_mode(mode);
+                        if widgets::menu_choice(ui, glyph, mode.label(), keys, mode == current_mode)
+                            .clicked()
+                        {
+                            chosen = Some(GroupChoice::Way(mode));
+                        }
                     }
                 }
                 chosen
             })
         });
-        if let Some(tool) = shown.and_then(|shown| shown.inner) {
-            ui.data_mut(|data| data.insert_temp(remembered, tool));
-            self.request.tool = Some(tool);
+        match shown.and_then(|shown| shown.inner) {
+            Some(GroupChoice::Tool(tool)) => {
+                ui.data_mut(|data| data.insert_temp(remembered, tool));
+                self.request.tool = Some(tool);
+            }
+            Some(GroupChoice::Way(mode)) => self.request.mode = Some(mode),
+            None => {}
         }
         button.width()
     }

@@ -72,8 +72,9 @@ impl Sketch {
     pub fn ends_of_curve(&self, curve: EntityId) -> Option<[EntityId; 2]> {
         match self.entity(curve)? {
             Entity::Line { start, end } | Entity::Arc { start, end, .. } => Some([*start, *end]),
-            Entity::Spline { control_points } => {
-                Some([*control_points.first()?, *control_points.last()?])
+            spline @ Entity::Spline { .. } => {
+                let (first, last) = spline.spline_ends()?;
+                Some([first, last])
             }
             Entity::Point(_)
             | Entity::Circle { .. }

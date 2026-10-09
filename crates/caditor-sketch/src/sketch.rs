@@ -9,10 +9,27 @@ use caditor_geometry::{Plane, Point2, Vector2};
 use crate::{
     constraint::{Constraint, DimensionError},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
-    entity::{Entity, Role},
+    entity::{Entity, Role, SplineKind},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
     solve::{arc_joint, joined_at_end, not_joined, spline_gap, straight_spline},
 };
+
+pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<BSpline> {
+    match (kind, positions) {
+        (SplineKind::Control { closed: false }, _) => BSpline::clamped(positions.to_vec()),
+        (SplineKind::Control { closed: true }, _) => BSpline::periodic(positions),
+        (SplineKind::Fit { closed: false }, _) => BSpline::interpolate(positions),
+        (SplineKind::Fit { closed: true }, _) => BSpline::interpolate_closed(positions),
+        (SplineKind::Conic { rho }, &[start, apex, end]) => BSpline::conic(start, apex, end, rho),
+        (SplineKind::Conic { .. }, _) => None,
+    }
+}
+
+impl SplineKind {
+    pub fn curve(self, points: &[Point2]) -> Option<BSpline> {
+        spline_through(points, self)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SketchError {
@@ -42,6 +59,12 @@ pub enum SketchError {
     InvalidMinorRadius,
     #[error("a spline needs at least two control points")]
     TooFewControlPoints,
+    #[error("a conic's rho must lie between 0.01 and 0.99")]
+    InvalidRho,
+    #[error("a closed spline needs at least three points")]
+    TooFewClosedPoints,
+    #[error("a conic needs exactly its start, apex and end")]
+    ConicPoints,
     #[error("it uses {label} twice")]
     SameEntity { entity: EntityId, label: String },
     #[error("it needs {needed}, but {found} is not one")]
@@ -244,14 +267,32 @@ impl Sketch {
     }
 
     pub fn spline(&self, id: EntityId) -> Option<BSpline> {
-        match self.entities.get(&id)? {
-            Entity::Spline { control_points } => BSpline::clamped(
-                control_points
-                    .iter()
-                    .map(|point| self.point(*point))
-                    .collect::<Option<Vec<_>>>()?,
-            ),
-            _ => None,
+        let Entity::Spline { points, kind } = self.entities.get(&id)? else {
+            return None;
+        };
+        let positions = points
+            .iter()
+            .map(|point| self.point(*point))
+            .collect::<Option<Vec<_>>>()?;
+        spline_through(&positions, *kind)
+    }
+
+    pub fn spline_control_points(&self, id: EntityId) -> Option<Vec<Point2>> {
+        let Entity::Spline { points, kind } = self.entities.get(&id)? else {
+            return None;
+        };
+        let positions = points
+            .iter()
+            .map(|point| self.point(*point))
+            .collect::<Option<Vec<_>>>()?;
+        match *kind {
+            SplineKind::Control { closed: false } | SplineKind::Conic { .. } => Some(positions),
+            SplineKind::Control { closed: true } => {
+                Some(positions.iter().chain(positions.first()).copied().collect())
+            }
+            SplineKind::Fit { .. } => {
+                spline_through(&positions, *kind).map(|spline| spline.control_points().to_vec())
+            }
         }
     }
 
@@ -374,7 +415,8 @@ impl Sketch {
             }
             | Constraint::MinorRadius {
                 ellipse: entity, ..
-            } => {
+            }
+            | Constraint::Rho { conic: entity, .. } => {
                 format!("{kind} of {}", label(entity))
             }
         }
@@ -411,6 +453,10 @@ impl Sketch {
             Constraint::Sweep { arc, .. } => self.arc(arc)?.sweep.to_degrees(),
             Constraint::MajorRadius { ellipse, .. } => self.ellipse(ellipse)?.major_radius(),
             Constraint::MinorRadius { ellipse, .. } => self.ellipse(ellipse)?.minor_radius,
+            Constraint::Rho { conic, .. } => match self.entity(conic)?.spline_kind()? {
+                SplineKind::Conic { rho } => rho,
+                SplineKind::Control { .. } | SplineKind::Fit { .. } => return None,
+            },
             Constraint::Coincident(..)
             | Constraint::Horizontal(_)
             | Constraint::Vertical(_)
@@ -746,11 +792,12 @@ impl Sketch {
     }
 
     pub fn add_spline(&mut self, control_points: &[Point2]) -> EntityId {
-        let control_points = control_points
-            .iter()
-            .map(|point| self.add_point(*point))
-            .collect();
-        self.insert(Entity::Spline { control_points })
+        self.add_spline_of(control_points, SplineKind::OPEN)
+    }
+
+    pub fn add_spline_of(&mut self, points: &[Point2], kind: SplineKind) -> EntityId {
+        let points = points.iter().map(|point| self.add_point(*point)).collect();
+        self.insert(Entity::Spline { points, kind })
     }
 
     pub fn add_constraint(&mut self, constraint: Constraint) -> Result<ConstraintId, SketchError> {
@@ -876,7 +923,7 @@ impl Sketch {
                 for (entity, role) in [(a, first), (b, second)] {
                     let straight = matches!(
                         self.entity(entity),
-                        Some(Entity::Spline { control_points }) if control_points.len() < 3
+                        Some(Entity::Spline { points, .. }) if points.len() < 3
                     );
                     if role == Role::Spline && straight {
                         return Err(straight_spline(self, entity));
@@ -985,6 +1032,17 @@ impl Sketch {
                     }),
                 }
             }
+            Constraint::Rho { conic, .. } => match self.entity(conic) {
+                Some(Entity::Spline {
+                    kind: SplineKind::Conic { .. },
+                    ..
+                }) => self.check_not_only_reference(&entities),
+                _ => Err(SketchError::WrongKind {
+                    entity: conic,
+                    found: self.entity_label(conic),
+                    needed: "a conic",
+                }),
+            },
         }
     }
 
@@ -1160,6 +1218,16 @@ impl Sketch {
         }
     }
 
+    pub(crate) fn set_rho(&mut self, id: EntityId, value: f64) {
+        if let Some(Entity::Spline {
+            kind: SplineKind::Conic { rho },
+            ..
+        }) = self.entities.get_mut(&id)
+        {
+            *rho = value;
+        }
+    }
+
     fn check_editable(&self, id: EntityId) -> Result<(), SketchError> {
         if id.is_reference() {
             return Err(SketchError::ReferenceGeometry {
@@ -1191,8 +1259,23 @@ impl Sketch {
             Entity::Circle { radius, .. } if !(radius.is_finite() && radius > 0.0) => {
                 return Err(SketchError::InvalidRadius);
             }
-            Entity::Spline { ref control_points } if control_points.len() < 2 => {
+            Entity::Spline { ref points, .. } if points.len() < 2 => {
                 return Err(SketchError::TooFewControlPoints);
+            }
+            Entity::Spline {
+                ref points,
+                kind: SplineKind::Conic { .. },
+            } if points.len() != 3 => {
+                return Err(SketchError::ConicPoints);
+            }
+            Entity::Spline { ref points, kind } if points.len() < kind.fewest_points() => {
+                return Err(SketchError::TooFewClosedPoints);
+            }
+            Entity::Spline {
+                kind: SplineKind::Conic { rho },
+                ..
+            } if !SplineKind::rho_is_valid(rho) => {
+                return Err(SketchError::InvalidRho);
             }
             Entity::Ellipse { minor_radius, .. } | Entity::EllipticalArc { minor_radius, .. }
                 if !(minor_radius.is_finite() && minor_radius > 0.0) =>
@@ -1554,13 +1637,7 @@ mod tests {
             "it uses Point 1 twice"
         );
         assert_eq!(
-            insert(
-                &mut sketch,
-                10,
-                Entity::Spline {
-                    control_points: vec![a]
-                }
-            ),
+            insert(&mut sketch, 10, Entity::spline(vec![a])),
             Err(SketchError::TooFewControlPoints)
         );
         assert_eq!(
@@ -1576,14 +1653,7 @@ mod tests {
             },
         )
         .unwrap();
-        insert(
-            &mut sketch,
-            11,
-            Entity::Spline {
-                control_points: vec![a, b, a],
-            },
-        )
-        .unwrap();
+        insert(&mut sketch, 11, Entity::spline(vec![a, b, a])).unwrap();
 
         sketch.reserve_ids_below(u64::MAX);
         let next = sketch.add_point(Point2::ZERO);
@@ -1675,7 +1745,11 @@ mod tests {
             refused(Constraint::Coincident(spline, EntityId::HORIZONTAL_AXIS)),
             "Coincident does not apply to Spline 14 and Horizontal axis"
         );
-        let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+        let Some(Entity::Spline {
+            points: control_points,
+            ..
+        }) = sketch.entity(spline).cloned()
+        else {
             panic!("expected a spline");
         };
         assert_eq!(
@@ -1686,9 +1760,7 @@ mod tests {
             refused(Constraint::Tangent(spline, spline)),
             "it uses Spline 14 twice"
         );
-        let other_spline = Entity::Spline {
-            control_points: vec![start, endpoints(&sketch, other).0],
-        };
+        let other_spline = Entity::spline(vec![start, endpoints(&sketch, other).0]);
         let mut two_splines = sketch.clone();
         two_splines
             .insert_entity(EntityId::from_raw(30), other_spline)
