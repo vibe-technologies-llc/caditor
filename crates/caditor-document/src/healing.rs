@@ -359,13 +359,19 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
             };
             let count = ends.len();
             for (index, end) in ends.into_iter().enumerate() {
-                if let ExtrudeEnd::UpToFace { target, .. } = end {
-                    let what = match (count, index) {
-                        (1, _) => "the face its end runs up to",
-                        (_, 0) => "the face its forward end runs up to",
-                        _ => "the face its backward end runs up to",
-                    };
-                    visit_plane(target, what, visitor);
+                let what = match (count, index) {
+                    (1, _) => "the face its end runs up to",
+                    (_, 0) => "the face its forward end runs up to",
+                    _ => "the face its backward end runs up to",
+                };
+                match end {
+                    ExtrudeEnd::UpToFace { target, .. } => visit_plane(target, what, visitor),
+                    ExtrudeEnd::UpToSurface { face } => {
+                        visitor.face(face.body, &mut face.face, what);
+                    }
+                    ExtrudeEnd::Distance(_)
+                    | ExtrudeEnd::ThroughAll
+                    | ExtrudeEnd::UpToNext { .. } => {}
                 }
             }
             if let Some(SolidStart::Plane(target)) = &mut extrude.start {

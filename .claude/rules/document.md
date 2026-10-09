@@ -285,6 +285,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
     a step; two sides or an offset still need one flat face and fail in words.
   - Up to face ends on the face's plane extended past the face, which must lie beyond the whole
     profile on its side.
+  - `UpToSurface` (a boxed `FaceAttachment`, no offset) ends on any face, flat or curved,
+    resolved in its body's state at the extrusion's place: a flat one ends on its plane as Up to
+    face does; a curved one is stopped where the profile meets that face's body
+    (`stop_at_body`, as up to next), and fails naming the other faces of that body met first. Its
+    body counts among `end_bodies`, its face's origins among the feature's, and healing keeps it.
   - Either up-to end may carry an `offset` (a signed length expression, boxed like the target to
     keep `FeatureKind` small; zero is stored as absent): the end plane moves along its own normal
     that far past the face, or stops short of it when negative, so a slanted plane stays the same

@@ -316,6 +316,10 @@ paths:
   would fail on the crossing profile or turn both sides; an inner record that is no revolve loads
   turning the whole profile, reported. `cut_several` wraps it when the revolve also cuts other
   bodies.
+- An extrusion with an end up to a curved face is a `surface_ends` record: `feature`, the
+  record it would be with those ends through all (which `offset_ends` may wrap), and `forward` and
+  `backward` as `offset_ends` names them, each the face's attachment record only when that end
+  runs up to one; an unreadable face loads that end as 10 mm, reported.
 - An extrusion with an up-to end offset from the face it reaches is an `offset_ends` record:
   `feature`, the record it would be with no offsets (which `shaped_sweep` and the wrappers inside it
   may wrap), and `forward` (the one end of a one-sided extrusion, or the forward end) and

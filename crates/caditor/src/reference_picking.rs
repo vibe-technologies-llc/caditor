@@ -127,7 +127,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::RevolveAxis | Slot::DatumRotation | Slot::MoveAxis => {
             format!("Click {AXIS} to turn about")
         }
-        Slot::ExtrudeTarget(_) => "Click a flat face or plane to extrude up to".to_owned(),
+        Slot::ExtrudeTarget(_) => "Click a face or plane to extrude up to".to_owned(),
         Slot::HoleTarget => "Click a flat face or plane to drill up to".to_owned(),
         Slot::StartPlane => {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()

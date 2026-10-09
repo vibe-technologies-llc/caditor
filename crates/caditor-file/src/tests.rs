@@ -5202,6 +5202,65 @@ fn extents_to_faces_planes_and_the_next_face_and_two_angles_are_saved_and_loaded
 }
 
 #[test]
+fn ends_up_to_curved_faces_are_a_kind_older_readers_report() {
+    use caditor_document::{
+        BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, RegionChoice,
+        SolidFeature,
+    };
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let sketch = document.features().next().unwrap().id();
+    let mut transaction = document.transaction("Surfaces");
+    let side = FaceAttachment {
+        body: base,
+        face: FaceReference::new(
+            FaceName::from_digest(0x51de),
+            Some(FaceOrigin::EndCap {
+                feature: base.raw(),
+            }),
+            [FaceName::from_digest(7)],
+        ),
+    };
+    let one = transaction.add_feature(
+        "Up to it",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::TwoSides {
+                forward: ExtrudeEnd::up_to_surface(side),
+                backward: ExtrudeEnd::up_to_next()
+                    .with_offset(Some(transaction.parse("1 mm").unwrap())),
+            },
+            operation: BodyOperation::Add(base),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("surface_ends", "surface_endz"));
+    let damaged = decode_text(&text.replacen("\"face\":\"0000", "\"face\":\"zz00", 1));
+
+    assert!(text.contains("\"surface_ends\":{\"feature\":{\"offset_ends\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(one).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    let kind = document.feature(one).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: one, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
 fn ends_offset_from_the_faces_they_reach_are_a_kind_older_readers_report() {
     use caditor_document::{
         BodyOperation, Datum, DatumPlane, Extrude, ExtrudeEnd, ExtrudeExtent, PlaneReference,

@@ -193,8 +193,9 @@ paths:
   region is chosen until one is clicked. Double-clicking a face opens the feature that made it.
 - Each extrusion side has an end kind; one that cannot apply is offered disabled with the reason
   on hover. Up to face takes the selected face or plane captured where the extrusion sits in the
-  tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), each refusal
-  saying why (curved, made later, an axis); with none usable it starts choosing one in the view.
+  tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), or else one
+  selected curved face as an `UpToSurface` end (`sketch_placement::surface_at`), each refusal
+  saying why (made later, an axis); with none usable it starts choosing one in the view.
   An end Up to next or Up to face has an offset field below it (`solid_panel::END_OFFSET`, Past
   the face, and Forward or Backward past face; key `<side>-offset`; any sign, negative stopping
   short, zero clearing it), kept when the end switches between the two or takes another face.

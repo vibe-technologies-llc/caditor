@@ -752,7 +752,10 @@ fn start_anchor(start: Option<&SolidStart>) -> Option<Anchor> {
 fn end_anchor(end: &ExtrudeEnd) -> Option<Anchor> {
     match end {
         ExtrudeEnd::UpToFace { target, .. } => plane_anchor(target),
-        ExtrudeEnd::Distance(_) | ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext { .. } => None,
+        ExtrudeEnd::Distance(_)
+        | ExtrudeEnd::ThroughAll
+        | ExtrudeEnd::UpToNext { .. }
+        | ExtrudeEnd::UpToSurface { .. } => None,
     }
 }
 

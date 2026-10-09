@@ -9,16 +9,17 @@ use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
-    GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, Mesh,
-    MeshQuality, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, Region, RegionMesh,
-    RegionReference, SamplingTolerance, Selection, Solid, StopError, SweepError, TessellationError,
-    VertexId, VertexName, WallError, WallSide, boolean, extrude_tapered, heights, next_face,
-    resolve_regions, revolve, stop_at_body, vertex_names, wall_regions,
+    FaceOrigin, GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE,
+    MAX_TAPER_DEGREES, Mesh, MeshQuality, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError,
+    ReferenceError, Region, RegionMesh, RegionReference, SamplingTolerance, Selection, Solid,
+    StopError, SweepError, TessellationError, VertexId, VertexName, WallError, WallSide, boolean,
+    extrude_tapered, heights, next_face, resolve_regions, revolve, stop_at_body, vertex_names,
+    wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
-    attachment::AttachmentError,
+    attachment::{AttachmentError, FaceAttachment, face_plane},
     datum::{AxisReference, PlaneReference, Resolver, capitalized, describe_axis, describe_plane},
     describe::describe_origin,
     document::{Feature, FeatureId, list_names},
@@ -87,6 +88,9 @@ pub enum ExtrudeEnd {
         target: Box<PlaneReference>,
         offset: Option<Box<Expression>>,
     },
+    UpToSurface {
+        face: Box<FaceAttachment>,
+    },
 }
 
 impl ExtrudeEnd {
@@ -101,24 +105,46 @@ impl ExtrudeEnd {
         }
     }
 
+    pub fn up_to_surface(face: FaceAttachment) -> Self {
+        Self::UpToSurface {
+            face: Box::new(face),
+        }
+    }
+
     pub fn distance(&self) -> Option<&Expression> {
         match self {
             Self::Distance(distance) => Some(distance),
-            Self::ThroughAll | Self::UpToNext { .. } | Self::UpToFace { .. } => None,
+            Self::ThroughAll
+            | Self::UpToNext { .. }
+            | Self::UpToFace { .. }
+            | Self::UpToSurface { .. } => None,
         }
     }
 
     pub fn target(&self) -> Option<&PlaneReference> {
         match self {
             Self::UpToFace { target, .. } => Some(target),
-            Self::Distance(_) | Self::ThroughAll | Self::UpToNext { .. } => None,
+            Self::Distance(_)
+            | Self::ThroughAll
+            | Self::UpToNext { .. }
+            | Self::UpToSurface { .. } => None,
+        }
+    }
+
+    pub fn surface(&self) -> Option<&FaceAttachment> {
+        match self {
+            Self::UpToSurface { face } => Some(face),
+            Self::Distance(_)
+            | Self::ThroughAll
+            | Self::UpToNext { .. }
+            | Self::UpToFace { .. } => None,
         }
     }
 
     pub fn offset(&self) -> Option<&Expression> {
         match self {
             Self::UpToNext { offset } | Self::UpToFace { offset, .. } => offset.as_deref(),
-            Self::Distance(_) | Self::ThroughAll => None,
+            Self::Distance(_) | Self::ThroughAll | Self::UpToSurface { .. } => None,
         }
     }
 
@@ -128,7 +154,7 @@ impl ExtrudeEnd {
             Self::UpToNext { offset } | Self::UpToFace { offset, .. } => {
                 offset.as_deref_mut().into_iter().collect()
             }
-            Self::ThroughAll => Vec::new(),
+            Self::ThroughAll | Self::UpToSurface { .. } => Vec::new(),
         }
     }
 
@@ -142,7 +168,7 @@ impl ExtrudeEnd {
         match self {
             Self::UpToNext { .. } => Self::UpToNext { offset },
             Self::UpToFace { target, .. } => Self::UpToFace { target, offset },
-            other @ (Self::Distance(_) | Self::ThroughAll) => other,
+            other @ (Self::Distance(_) | Self::ThroughAll | Self::UpToSurface { .. }) => other,
         }
     }
 }
@@ -208,6 +234,13 @@ impl ExtrudeExtent {
         self.ends()
             .into_iter()
             .filter_map(ExtrudeEnd::target)
+            .collect()
+    }
+
+    pub fn surfaces(&self) -> Vec<&FaceAttachment> {
+        self.ends()
+            .into_iter()
+            .filter_map(ExtrudeEnd::surface)
             .collect()
     }
 }
@@ -446,10 +479,18 @@ impl SolidFeature {
             .collect()
     }
 
+    fn surfaces(&self) -> Vec<&FaceAttachment> {
+        match self {
+            Self::Extrude(extrude) => extrude.extent.surfaces(),
+            Self::Revolve(_) => Vec::new(),
+        }
+    }
+
     pub fn end_bodies(&self) -> BTreeSet<FeatureId> {
         self.targets()
             .into_iter()
             .filter_map(PlaneReference::body)
+            .chain(self.surfaces().into_iter().map(|face| face.body))
             .collect()
     }
 
@@ -457,6 +498,11 @@ impl SolidFeature {
         self.targets()
             .into_iter()
             .flat_map(PlaneReference::origin_features)
+            .chain(
+                self.surfaces()
+                    .into_iter()
+                    .flat_map(FaceAttachment::origin_features),
+            )
             .chain(
                 self.axis()
                     .and_then(RevolveAxis::model)
@@ -537,7 +583,12 @@ impl SolidFeature {
             .targets()
             .into_iter()
             .map(PlaneReference::heap_size)
-            .sum();
+            .sum::<usize>()
+            + self
+                .surfaces()
+                .into_iter()
+                .map(|face| size_of::<FaceAttachment>() + face.face.heap_size())
+                .sum::<usize>();
         let axis = match self {
             Self::Extrude(_) => 0,
             Self::Revolve(revolve) => match &revolve.axis {
@@ -1770,6 +1821,7 @@ struct StopAt {
     body: FeatureId,
     far: f64,
     reversed: bool,
+    face: Option<FaceName>,
 }
 
 impl Ends<'_> {
@@ -1843,7 +1895,39 @@ impl Ends<'_> {
                 let offset = self.offset(offset.as_deref(), side)?;
                 self.up_to_face(target, side, offset)
             }
+            ExtrudeEnd::UpToSurface { face } => self.up_to_surface(face, side),
         }
+    }
+
+    fn up_to_surface(&self, face: &FaceAttachment, side: Side) -> Result<LinearBound, Failure> {
+        let solid = self.body(face.body)?;
+        let body_name = feature_name(self.inputs, face.body);
+        let found = face.face.resolve(solid).map_err(|error| {
+            let reason = match error {
+                ReferenceError::Missing => format!(
+                    "The face this extrusion runs up to is no longer part of the body of \
+                     {body_name}."
+                ),
+                ReferenceError::Ambiguous(_) => format!(
+                    "The face of {body_name} this extrusion runs up to was split, and several \
+                     parts match it equally."
+                ),
+            };
+            self.error(
+                reason,
+                "Select a face and use it for this end, or choose another end.".to_owned(),
+            )
+        })?;
+        let name = describe_origin(self.inputs.document, face.face.origin());
+        if let Some(plane) = face_plane(solid, found) {
+            return self.offset_end(plane, side, 0.0, &name);
+        }
+        let stop = self.stop_at(face.body, side)?;
+        if let Some(mut known) = self.stop.get() {
+            known.face = solid.face(found).map(|found| found.name());
+            self.stop.set(Some(known));
+        }
+        Ok(stop)
     }
 
     fn offset(&self, offset: Option<&Expression>, side: Side) -> Result<f64, Failure> {
@@ -2034,6 +2118,7 @@ impl Ends<'_> {
             body,
             far,
             reversed: side.reversed(),
+            face: None,
         }));
         Ok(LinearBound::Offset(side.sign() * far))
     }
@@ -2244,24 +2329,68 @@ impl Stopping<'_> {
                 &error,
             ),
         })?;
-        match (self.operation, stopped.entering) {
-            (BodyOperation::Add(_), false) => Err(self.error(
+        let refusal = match (self.operation, stopped.entering) {
+            (BodyOperation::Add(target), false) if target == stop.body => Some((
                 format!(
                     "The profile of {sketch} starts inside the body of {body_name}, so extruding \
                      it up to the next face adds nothing."
                 ),
-                "Choose Remove from body, or place the sketch outside the body.".to_owned(),
+                "Choose Remove from body, or place the sketch outside the body.",
             )),
-            (BodyOperation::Remove(_), true) => Err(self.error(
+            (BodyOperation::Remove(target), true) if target == stop.body => Some((
                 format!(
                     "The profile of {sketch} first meets the body of {body_name} where it enters \
                      it, so extruding up to that face removes nothing."
                 ),
-                "Place the sketch on or inside the body, or use Through all or Up to face."
-                    .to_owned(),
+                "Place the sketch on or inside the body, or use Through all or Up to face.",
             )),
-            _ => Ok(stopped.solid),
+            _ => None,
+        };
+        if let Some((reason, remedy)) = refusal {
+            return Err(self.error(reason, remedy.to_owned()));
         }
+        match stop.face {
+            Some(chosen) => self.on_face(body, &body_name, chosen, stopped.solid),
+            None => Ok(stopped.solid),
+        }
+    }
+}
+
+impl Stopping<'_> {
+    fn on_face(
+        &self,
+        body: &Solid,
+        body_name: &str,
+        chosen: FaceName,
+        stopped: Solid,
+    ) -> Result<Solid, Failure> {
+        let of_body: BTreeMap<FaceName, Option<FaceOrigin>> = body
+            .faces()
+            .map(|(_, face)| (face.name(), face.origin()))
+            .collect();
+        let mut others: Vec<String> = stopped
+            .faces()
+            .filter(|(_, face)| face.name() != chosen)
+            .filter_map(|(_, face)| of_body.get(&face.name()))
+            .map(|origin| describe_origin(self.inputs.document, *origin))
+            .collect();
+        others.sort();
+        others.dedup();
+        if others.is_empty() {
+            return Ok(stopped);
+        }
+        let face = of_body
+            .get(&chosen)
+            .map(|origin| describe_origin(self.inputs.document, *origin))
+            .unwrap_or_default();
+        Err(self.error(
+            format!(
+                "The profile of {} meets {} of {body_name} before it reaches {face}.",
+                self.context.sketch_name,
+                list_names(&others)
+            ),
+            "Choose the face the profile meets first, or use Up to next.".to_owned(),
+        ))
     }
 }
 

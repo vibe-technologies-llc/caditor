@@ -1181,3 +1181,98 @@ fn an_offset_stops_an_end_short_of_or_past_the_face_it_reaches() {
     );
     assert_eq!(evaluation.failed_count(), 1);
 }
+
+fn curved_face(solid: &Solid) -> FaceId {
+    solid
+        .faces()
+        .find(|(_, face)| !matches!(face.surface(), Surface::Plane(_)))
+        .map(|(id, _)| id)
+        .unwrap()
+}
+
+#[test]
+fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face() {
+    let mut document = Document::default();
+    let rod_sketch = add(&mut document, "Rod sketch", rod());
+    let rod = add(
+        &mut document,
+        "Rod",
+        extrusion(
+            rod_sketch,
+            ExtrudeExtent::one_side(millimetres(20.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let solid = evaluation.body(rod).unwrap();
+    let side = FaceAttachment {
+        body: rod,
+        face: caditor_kernel::FaceReference::capture(solid, curved_face(solid)).unwrap(),
+    };
+    let strip = add(
+        &mut document,
+        "Strip sketch",
+        FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
+    );
+    let stand = add(
+        &mut document,
+        "Stand",
+        extrusion(
+            strip,
+            one_side(ExtrudeEnd::up_to_surface(side.clone()), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let block_sketch = add(
+        &mut document,
+        "Block sketch",
+        FeatureKind::from(rectangle(at(13.0), (0.0, -3.0), (5.0, 3.0))),
+    );
+    add(
+        &mut document,
+        "Block",
+        extrusion(
+            block_sketch,
+            ExtrudeExtent::one_side(millimetres(3.0), false),
+            BodyOperation::Add(rod),
+        ),
+    );
+    let blocked = add(
+        &mut document,
+        "Blocked",
+        extrusion(
+            strip,
+            one_side(ExtrudeEnd::up_to_surface(side), false),
+            BodyOperation::NewBody,
+        ),
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert!(matches!(
+        evaluation.feature(stand).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    let expected = 40.0 - under_the_rod(2.0);
+    let found = volume(&evaluation, stand);
+    assert!(
+        (found - expected).abs() < 2e-3 * expected,
+        "{found} {expected}"
+    );
+    let refused = failure(&evaluation, blocked);
+    assert!(
+        refused.reason.starts_with(
+            "The profile of Strip sketch meets Block start face of Rod before it reaches"
+        ),
+        "{}",
+        refused.reason
+    );
+    assert!(
+        document
+            .feature(stand)
+            .unwrap()
+            .kind
+            .bodies_used()
+            .contains(&rod)
+    );
+}

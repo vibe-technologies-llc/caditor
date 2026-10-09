@@ -14108,6 +14108,80 @@ fn an_end_up_to_the_next_face_stops_short_of_it_by_the_offset_typed_in_its_panel
 }
 
 #[test]
+fn an_extrusion_runs_up_to_a_selected_curved_face() {
+    let mut harness = Harness::new();
+    let across = Plane::from_frame(
+        caditor_geometry::Point3::new(-10.0, 0.0, 20.0),
+        caditor_geometry::Vector3::X,
+        caditor_geometry::Vector3::Y,
+    )
+    .unwrap();
+    let mut rod = Sketch::new(across);
+    rod.add_circle(Point2::new(0.0, 0.0), 5.0);
+    harness.add_sketch(rod);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let rod_body = harness.workspace.editing.solid().expect("the rod is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let mut strip = Sketch::new(Plane::XY);
+    rectangle(&mut strip, Point2::new(-6.0, -1.0), Point2::new(-5.0, 1.0));
+    harness.add_sketch(strip);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let stand = open_solid(&harness);
+    harness.frame();
+
+    let curved = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            matches!(pickable, Pickable::Face { .. })
+                && pickable
+                    .describe(harness.document(), harness.model.evaluation())
+                    .starts_with("Extrude 1 › Extrude 1 side")
+        })
+        .expect("the side of the rod is pickable");
+    harness.select([curved]);
+    run_from_palette(&mut harness, "extrude up to selected");
+    harness.settle();
+    let reached = extent_of(&harness, stand);
+
+    assert!(
+        matches!(
+            reached,
+            ExtrudeExtent::OneSide {
+                end: caditor_document::ExtrudeEnd::UpToSurface { .. },
+                ..
+            }
+        ),
+        "{reached:?}"
+    );
+    assert_eq!(
+        harness.model.evaluation().failed_count(),
+        0,
+        "{:?}",
+        harness
+            .model
+            .evaluation()
+            .feature(stand)
+            .map(|found| &found.state)
+    );
+    let half = 1.0_f64;
+    let under = 2.0 * (half / 2.0 * (25.0 - half * half).sqrt() + 12.5 * (half / 5.0).asin());
+    let expected = 250.0 * std::f64::consts::PI + 40.0 - under;
+    let found = harness.body_volume(rod_body);
+    assert!(
+        (found - expected).abs() < 0.01 * expected,
+        "{found} {expected}"
+    );
+}
+
+#[test]
 fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);
@@ -14118,7 +14192,7 @@ fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
     open_combo(&mut harness, "End");
     harness.click_lowest("Up to face");
     harness.settle();
-    let asks_for_a_face = harness.shows("Click a flat face or plane to extrude up to.");
+    let asks_for_a_face = harness.shows("Click a face or plane to extrude up to.");
     let still_a_distance = extent_of(&harness, tower);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();

@@ -1,7 +1,7 @@
 use caditor_document::{
     AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature,
     FeatureId, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
-    SolidStart, Transaction, Wall, capitalized, describe_plane, displayed_axis,
+    SolidStart, Transaction, Wall, capitalized, describe_origin, describe_plane, displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -91,7 +91,7 @@ impl EndKind {
             ExtrudeEnd::Distance(_) => Self::Distance,
             ExtrudeEnd::ThroughAll => Self::ThroughAll,
             ExtrudeEnd::UpToNext { .. } => Self::UpToNext,
-            ExtrudeEnd::UpToFace { .. } => Self::UpToFace,
+            ExtrudeEnd::UpToFace { .. } | ExtrudeEnd::UpToSurface { .. } => Self::UpToFace,
         }
     }
 
@@ -299,10 +299,9 @@ impl Panel<'_> {
                         .target()
                         .map(|_| ExtrudeEnd::up_to_next().with_offset(end.offset().cloned()))
                         .ok_or_else(|| UP_TO_NEXT_NEEDS_A_BODY.to_owned()),
-                    EndKind::UpToFace => selected_target(self.model, self.selection, self.id())
-                        .map(|target| {
-                            ExtrudeEnd::up_to_face(target).with_offset(end.offset().cloned())
-                        }),
+                    EndKind::UpToFace => {
+                        selected_end(self.model, self.selection, self.id(), end.offset().cloned())
+                    }
                 };
                 let change = match candidate {
                     Ok(candidate) => self
@@ -347,7 +346,7 @@ impl Panel<'_> {
                 (self.id(), slot),
                 || target_change(self.model, self.selection, self.id(), extrude, rows.side),
             ),
-            hover: "Run up to the selected flat face or plane instead",
+            hover: "Run up to the selected face or plane instead",
         };
         match end {
             ExtrudeEnd::Distance(distance) => {
@@ -372,6 +371,22 @@ impl Panel<'_> {
                     self.actions,
                 );
                 self.offset_row(ui, rows, extrude, end, rebuild);
+                return;
+            }
+            ExtrudeEnd::UpToSurface { face } => {
+                let shown = Shown::Named(capitalized(&describe_origin(
+                    self.document(),
+                    face.face.origin(),
+                )));
+                feature_fields::reference_row(
+                    ui,
+                    self.model,
+                    rows.face,
+                    shown,
+                    picker,
+                    None,
+                    self.actions,
+                );
                 return;
             }
             ExtrudeEnd::UpToNext { .. } => self.offset_row(ui, rows, extrude, end, rebuild),
@@ -1195,6 +1210,33 @@ pub fn selected_target(
     }
 }
 
+fn selected_end(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    offset: Option<Expression>,
+) -> Result<ExtrudeEnd, String> {
+    let flat = match selected_target(model, selection, feature) {
+        Ok(target) => return Ok(ExtrudeEnd::up_to_face(target).with_offset(offset)),
+        Err(reason) => reason,
+    };
+    let picked: Vec<Pickable> = selection.iter().collect();
+    let [Pickable::Face { body, face }] = picked.as_slice() else {
+        return Err(flat);
+    };
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+    let choice = FaceChoice {
+        body: *body,
+        face: *face,
+    };
+    sketch_placement::surface_at(model, choice, index)
+        .map(ExtrudeEnd::up_to_surface)
+        .map_err(str::to_owned)
+}
+
 fn end_on(extent: &ExtrudeExtent, side: Side) -> Option<&ExtrudeEnd> {
     match (extent, side) {
         (ExtrudeExtent::OneSide { end, .. }, Side::One) => Some(end),
@@ -1236,7 +1278,7 @@ pub fn target_change(
     let kept = end_on(&extrude.extent, side)
         .and_then(ExtrudeEnd::offset)
         .cloned();
-    let end = ExtrudeEnd::up_to_face(selected_target(model, selection, feature)?).with_offset(kept);
+    let end = selected_end(model, selection, feature, kept)?;
     let extent = with_end_on(&extrude.extent, side, end).ok_or_else(|| SIDES_CHANGED.to_owned())?;
     if extent == extrude.extent {
         return Err("This end already runs up to the selected face or plane".to_owned());
@@ -1256,7 +1298,7 @@ pub fn up_to_selected_change(
         .first()
         .and_then(|end| end.offset())
         .cloned();
-    let end = ExtrudeEnd::up_to_face(selected_target(model, selection, feature)?).with_offset(kept);
+    let end = selected_end(model, selection, feature, kept)?;
     let extent = match &extrude.extent {
         ExtrudeExtent::OneSide { reversed, .. } => ExtrudeExtent::OneSide {
             end,
