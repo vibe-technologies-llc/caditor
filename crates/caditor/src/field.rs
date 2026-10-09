@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use caditor_document::{Document, Edit, FeatureId, ParameterOwner, ParameterValues, Transaction};
 use caditor_expression::{Dimension, Expression, Naming};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
@@ -25,6 +27,17 @@ pub struct FieldResponse<T> {
     pub edited: Option<String>,
     pub left: bool,
     pub response: Response,
+}
+
+pub fn busy<K: Ord>(ui: &Ui, fields: impl IntoIterator<Item = (K, Id)>) -> BTreeSet<K> {
+    let focused = ui.memory(|memory| memory.focused());
+    ui.data(|data| {
+        fields
+            .into_iter()
+            .filter(|(_, id)| focused == Some(*id) || data.get_temp::<Draft>(*id).is_some())
+            .map(|(key, _)| key)
+            .collect()
+    })
 }
 
 pub fn commit_field<T>(

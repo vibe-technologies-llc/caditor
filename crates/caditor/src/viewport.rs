@@ -138,7 +138,8 @@ const LIST_NOT_WITH_TOOL: &str =
 const NO_TARGET_HIGHLIGHTED: &str =
     "Highlight a piece or an end first, with Highlight the next item in the view";
 
-struct SketchScreen {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SketchScreen {
     view: View,
     plane: Plane,
     pixels_per_point: f64,
@@ -4445,17 +4446,91 @@ mod tests {
         assert!(!evaluated.same_scene(&edited));
         assert!(!entered.same_scene(&evaluated));
     }
+
+    fn annotated(
+        state: &mut ViewportState,
+        context: &egui::Context,
+        model: &Model,
+        feature: FeatureId,
+    ) {
+        let rect = state.rect.unwrap();
+        let input = egui::RawInput {
+            screen_rect: Some(rect),
+            ..egui::RawInput::default()
+        };
+        let editing = SketchEditing::editing(feature);
+        let mut actions = Vec::new();
+        let mut output = context.run_ui(input, |ui| {
+            state.annotate(ui, rect, model, &editing, &mut actions);
+        });
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn only_dimensions_near_the_view_are_laid_out_and_a_still_frame_lays_out_nothing() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let near = sketch.add_line(Point2::ZERO, Point2::new(20.0, 0.0));
+        let far = sketch.add_line(Point2::new(5000.0, 0.0), Point2::new(5020.0, 0.0));
+        let mut dimension = |line| {
+            let Some(&Entity::Line { start, end }) = sketch.entity(line) else {
+                panic!("expected a line");
+            };
+            sketch
+                .add_constraint(caditor_sketch::Constraint::Distance {
+                    from: start,
+                    to: end,
+                    value: caditor_expression::Expression::Measure(
+                        20.0,
+                        caditor_expression::Unit::Millimetre,
+                    ),
+                })
+                .unwrap()
+        };
+        let shown = dimension(near);
+        let hidden = dimension(far);
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Sketch", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let mut model = model_of(document);
+        settle(&mut model);
+        let context = egui::Context::default();
+        let mut state = state_with_cursor();
+        state.camera = Camera::new(Viewpoint::facing(
+            &Plane::XY,
+            Point3::new(10.0, 0.0, 0.0),
+            100.0,
+        ));
+
+        annotated(&mut state, &context, &model, feature);
+        let first = state.annotations.layouts();
+        annotated(&mut state, &context, &model, feature);
+
+        assert_eq!(state.annotations.laid_out(), vec![shown]);
+        assert_eq!(state.annotations.layouts(), first);
+
+        state.camera = Camera::new(Viewpoint::facing(
+            &Plane::XY,
+            Point3::new(5010.0, 0.0, 0.0),
+            100.0,
+        ));
+        annotated(&mut state, &context, &model, feature);
+
+        assert_eq!(state.annotations.laid_out(), vec![hidden]);
+        assert_eq!(state.annotations.layouts(), first + 1);
+    }
 }
 
 #[cfg(test)]
-mod timing {
+pub mod timing {
     use std::time::Instant;
 
     use caditor_document::{
         BodyOperation, Document, Extrude, ExtrudeExtent, RegionChoice, SolidFeature,
     };
-    use caditor_sketch::Sketch;
-    use egui::pos2;
+    use caditor_expression::{Expression, Unit};
+    use caditor_sketch::{Constraint, Sketch};
+    use egui::{RawInput, pos2};
 
     use super::{
         tests::{model_of, settle},
@@ -4465,22 +4540,30 @@ mod timing {
     const FRAMES: u32 = 200;
     const WARM_UP: u32 = 3;
 
-    fn large_sketch() -> Sketch {
+    const PARALLEL_LINES: usize = 4000;
+    const DIMENSIONED_LINES: usize = 4000;
+    const EQUAL_RADII: usize = 5;
+
+    pub fn large_sketch() -> Sketch {
         let mut sketch = Sketch::new(Plane::XY);
+        let mut lines = Vec::new();
         for row in 0..100 {
             for column in 0..200 {
                 let at = Point2::new(f64::from(column) * 5.0, f64::from(row) * 5.0);
-                sketch.add_line(at, at + Vector2::new(3.0, 1.0));
+                lines.push(sketch.add_line(at, at + Vector2::new(3.0, 1.0)));
             }
         }
+        let mut circles = Vec::new();
         for index in 0..2000 {
             let at = Point2::new(
                 f64::from(index % 50) * 20.0,
                 -20.0 - f64::from(index / 50) * 20.0,
             );
-            sketch.add_circle(at, 4.0 + f64::from(index % 5));
+            let radius = 4.0 + f64::from(index % 5);
+            circles.push((sketch.add_circle(at, radius), radius));
             sketch.add_arc(at, at + Vector2::new(8.0, 0.0), at + Vector2::new(0.0, 8.0));
         }
+        constrain(&mut sketch, &lines, &circles);
         for index in 0..200 {
             let at = Point2::new(1100.0, f64::from(index) * 6.0);
             sketch.add_spline(&[
@@ -4491,6 +4574,40 @@ mod timing {
             ]);
         }
         sketch
+    }
+
+    fn constrain(sketch: &mut Sketch, lines: &[EntityId], circles: &[(EntityId, f64)]) {
+        let millimetres = |value| Expression::Measure(value, Unit::Millimetre);
+        for [first, second] in lines.as_chunks::<2>().0.iter().take(PARALLEL_LINES / 2) {
+            sketch
+                .add_constraint(Constraint::Parallel(*first, *second))
+                .unwrap();
+        }
+        for line in lines.iter().take(DIMENSIONED_LINES) {
+            let Some(&Entity::Line { start, end }) = sketch.entity(*line) else {
+                panic!("expected a line");
+            };
+            sketch
+                .add_constraint(Constraint::HorizontalDistance {
+                    from: start,
+                    to: end,
+                    value: millimetres(3.0),
+                })
+                .unwrap();
+        }
+        for group in circles.as_chunks::<{ EQUAL_RADII * 2 }>().0 {
+            for (first, second) in group.iter().zip(group.iter().skip(EQUAL_RADII)) {
+                sketch
+                    .add_constraint(Constraint::Radius {
+                        entity: first.0,
+                        value: millimetres(first.1),
+                    })
+                    .unwrap();
+                sketch
+                    .add_constraint(Constraint::Equal(first.0, second.0))
+                    .unwrap();
+            }
+        }
     }
 
     fn holed_plate() -> Sketch {
@@ -4528,7 +4645,7 @@ mod timing {
         sketch
     }
 
-    fn sketch_document(sketch: Sketch) -> (Document, FeatureId) {
+    pub fn sketch_document(sketch: Sketch) -> (Document, FeatureId) {
         let mut document = Document::default();
         let mut transaction = document.transaction("Add sketch");
         let feature = transaction.add_feature("Large sketch", FeatureKind::from(sketch));
@@ -4556,7 +4673,7 @@ mod timing {
         document
     }
 
-    fn settled(document: Document) -> Model {
+    pub fn settled(document: Document) -> Model {
         let started = Instant::now();
         let mut model = model_of(document);
         settle(&mut model);
@@ -4599,6 +4716,46 @@ mod timing {
         }
     }
 
+    impl Scenario<'_> {
+        fn time_marks(
+            &self,
+            name: &str,
+            viewpoint: Viewpoint,
+            mut change: impl FnMut(&mut ViewportState, u32),
+        ) {
+            let context = egui::Context::default();
+            context.set_fonts(crate::fonts::definitions());
+            let mut state = placed_state();
+            state.camera = Camera::new(viewpoint);
+            let rect = state.rect.unwrap();
+            let frame = |state: &mut ViewportState| {
+                let input = RawInput {
+                    screen_rect: Some(rect),
+                    ..RawInput::default()
+                };
+                let mut actions = Vec::new();
+                let mut output = context.run_ui(input, |ui| {
+                    state.annotate(ui, rect, self.model, self.editing, &mut actions);
+                });
+                output.textures_delta.clear();
+            };
+            for index in 0..WARM_UP {
+                change(&mut state, index);
+                frame(&mut state);
+            }
+            let started = Instant::now();
+            for index in 0..FRAMES {
+                change(&mut state, index);
+                frame(&mut state);
+            }
+            eprintln!("{name}: {:?} per frame", started.elapsed() / FRAMES);
+        }
+    }
+
+    fn facing_sketch(x: f64, y: f64, distance: f64) -> Viewpoint {
+        Viewpoint::facing(&Plane::XY, Point3::new(x, y, 0.0), distance)
+    }
+
     fn hover(state: &mut ViewportState, pickable: Pickable) {
         state.hovered = Some(pickable);
         state.hover_source = None;
@@ -4626,6 +4783,16 @@ mod timing {
             .and_then(|feature| feature.kind.sketch())
             .map(|sketch| sketch.entities().map(|(id, _)| id).take(2).collect())
             .unwrap();
+        let whole = facing_sketch(565.0, 190.0, 2600.0);
+        let close = facing_sketch(60.0, 60.0, 150.0);
+        scenario.time_marks("marks, whole sketch, idle", whole, |_, _| {});
+        scenario.time_marks("marks, whole sketch, camera moving", whole, |state, _| {
+            orbit(state);
+        });
+        scenario.time_marks("marks, zoomed in, idle", close, |_, _| {});
+        scenario.time_marks("marks, zoomed in, camera moving", close, |state, _| {
+            orbit(state);
+        });
         scenario.time("sketch, idle", |_, _| {});
         scenario.time("sketch, camera moving", |state, _| orbit(state));
         scenario.time("sketch, hover changing", |state, frame| {

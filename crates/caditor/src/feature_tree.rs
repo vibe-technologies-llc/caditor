@@ -2327,6 +2327,7 @@ struct SketchCard<'a> {
     sketch: &'a Sketch,
     involved: BTreeSet<ConstraintId>,
     solution: Option<&'a SketchSolution>,
+    busy: BTreeSet<ConstraintId>,
 }
 
 fn sketch_body(
@@ -2347,16 +2348,24 @@ fn sketch_body(
         count(sketch.entities().len(), "entity", "entities"),
         ui,
     ));
+    let (dimensions, constraints): (Vec<_>, Vec<_>) = sketch
+        .constraints()
+        .partition(|(_, definition)| definition.dimension().is_some());
+    let fields = dimensions.iter().map(|(constraint, _)| {
+        let focus = Focus::Dimension {
+            feature: feature.id(),
+            constraint: *constraint,
+        };
+        (*constraint, focus.field_id())
+    });
     let card = SketchCard {
         model,
         feature,
         sketch,
         involved: involved_constraints(model, feature),
         solution: sketch_status::up_to_date_solution(model.evaluation(), feature.id()),
+        busy: field::busy(ui, fields),
     };
-    let (dimensions, constraints): (Vec<_>, Vec<_>) = sketch
-        .constraints()
-        .partition(|(_, definition)| definition.dimension().is_some());
     if dimensions.is_empty() && constraints.is_empty() {
         ui.label(widgets::muted("No constraints yet.", ui));
         return;
@@ -2374,21 +2383,69 @@ fn sketch_body(
             widgets::reveal_section(ui.ctx(), &id);
         }
         widgets::section(ui, &id, title, Some(listed.len()), None, |ui| {
+            let mut reserved = Reserved::default();
             for (constraint, definition) in listed {
                 let plain = is_plain_constraint(&card, state, constraint, definition);
+                let dimension = definition.dimension().is_some();
+                let known = if dimension {
+                    state.plain_dimension_height
+                } else {
+                    state.plain_constraint_height
+                };
                 if plain
-                    && let Some(height) = state.plain_constraint_height
-                    && !near_view(ui, height)
+                    && let Some(height) = known
+                    && !reserved.near_view(ui, height)
                 {
-                    ui.allocate_space(vec2(ui.available_width(), height));
+                    reserved.add(height);
                     continue;
                 }
-                let row = constraint_row(ui, &card, state, actions, constraint, definition);
-                if plain {
-                    state.plain_constraint_height = Some(row.height());
+                reserved.allocate(ui);
+                let top = ui.cursor().min.y;
+                constraint_row(ui, &card, state, actions, constraint, definition);
+                let height = ui.cursor().min.y - top - ui.spacing().item_spacing.y;
+                match (plain, dimension) {
+                    (false, _) => {}
+                    (true, false) => state.plain_constraint_height = Some(height),
+                    (true, true) => state.plain_dimension_height = Some(height),
                 }
             }
+            reserved.allocate(ui);
         });
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Reserved {
+    height: f32,
+    rows: usize,
+}
+
+impl Reserved {
+    fn top(&self, ui: &Ui) -> f32 {
+        ui.cursor().min.y + self.height + self.rows as f32 * ui.spacing().item_spacing.y
+    }
+
+    fn near_view(&self, ui: &Ui, height: f32) -> bool {
+        let estimate = Rect::from_min_size(
+            pos2(ui.cursor().min.x, self.top(ui)),
+            vec2(ui.available_width(), height),
+        );
+        ui.clip_rect()
+            .intersects(estimate.expand(height + ui.spacing().item_spacing.y))
+    }
+
+    fn add(&mut self, height: f32) {
+        self.height += height;
+        self.rows += 1;
+    }
+
+    fn allocate(&mut self, ui: &mut Ui) {
+        if self.rows == 0 {
+            return;
+        }
+        let gaps = (self.rows - 1) as f32 * ui.spacing().item_spacing.y;
+        ui.allocate_space(vec2(ui.available_width(), self.height + gaps));
+        *self = Self::default();
     }
 }
 
@@ -2398,13 +2455,21 @@ fn is_plain_constraint(
     constraint: ConstraintId,
     definition: &Constraint,
 ) -> bool {
-    definition.dimension().is_none()
+    let feature = card.feature.id();
+    let idle_dimension = definition.dimension().is_none_or(|_| {
+        !card.busy.contains(&constraint)
+            && !state.wants_focus(Focus::Dimension {
+                feature,
+                constraint,
+            })
+    });
+    idle_dimension
         && card
             .solution
             .and_then(|solution| solution.redundancy(constraint))
             .is_none()
         && !state.wants_focus(Focus::Constraint {
-            feature: card.feature.id(),
+            feature,
             constraint,
         })
 }
@@ -2416,7 +2481,7 @@ fn constraint_row(
     actions: &mut Vec<Action>,
     constraint: ConstraintId,
     definition: &Constraint,
-) -> Rect {
+) {
     let SketchCard {
         model,
         feature,
@@ -2472,7 +2537,6 @@ fn constraint_row(
         });
     }
     let label = row.id;
-    let rect = row.rect;
     reveal_if_focused(
         state,
         row,
@@ -2484,7 +2548,6 @@ fn constraint_row(
     if let Some(expression) = definition.dimension() {
         dimension_field(ui, card, state, actions, constraint, expression, label);
     }
-    rect
 }
 
 fn dimension_field(
@@ -2600,4 +2663,54 @@ fn field_error(ui: &mut Ui, error: &str) {
 pub fn count(amount: usize, singular: &str, plural: &str) -> String {
     let noun = if amount == 1 { singular } else { plural };
     format!("{amount} {noun}")
+}
+
+#[cfg(test)]
+mod timing {
+    use std::time::Instant;
+
+    use egui::{RawInput, ScrollArea, pos2};
+
+    use super::*;
+    use crate::viewport::timing::{large_sketch, settled, sketch_document};
+
+    const FRAMES: u32 = 100;
+    const WARM_UP: u32 = 3;
+
+    #[test]
+    #[ignore = "a timing benchmark: cargo test --release -p caditor sketch_card_costs -- --ignored --nocapture"]
+    fn sketch_card_costs_on_a_large_sketch() {
+        let (document, sketch) = sketch_document(large_sketch());
+        let model = settled(document);
+        let feature = model.document().feature(sketch).unwrap();
+        let definition = feature.kind.sketch().unwrap();
+        let context = egui::Context::default();
+        context.set_fonts(crate::fonts::definitions());
+        context.set_global_style(crate::appearance::style(true, false));
+        let mut state = PanelState::default();
+        let mut frame = || {
+            let input = RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(400.0, 1000.0))),
+                ..RawInput::default()
+            };
+            let mut actions = Vec::new();
+            let mut output = context.run_ui(input, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    sketch_body(ui, &model, &mut state, &mut actions, feature, definition);
+                });
+            });
+            output.textures_delta.clear();
+        };
+        for _ in 0..WARM_UP {
+            frame();
+        }
+        let started = Instant::now();
+        for _ in 0..FRAMES {
+            frame();
+        }
+        eprintln!(
+            "sketch card, idle: {:?} per frame",
+            started.elapsed() / FRAMES
+        );
+    }
 }
