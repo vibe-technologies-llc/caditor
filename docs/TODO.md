@@ -159,9 +159,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   leave it fully constrained, each set previewed before it is added as one undoable change. A
   check of the sketch would also name what the eye misses (ends a hair apart but not joined, a
   curve lying twice on itself or another, curves of no length) and offer the fix.
-- [low · easy] Nothing selects what is still free: a sketch counts its remaining degrees of
-  freedom and colours its curves, but no command selects the points and curves not yet fully
-  constrained, so the one loose point of a large sketch is found by eye.
 - [low · easy] The first dimension of a sketch moves only what it measures, so a traced or
   imported outline at the wrong size is scaled by hand first. An option to scale the whole sketch
   about its origin when its first dimension is set, while it has no other, would size it in one

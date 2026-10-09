@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Drag, Entity, EntityId, Faceting, MAX_LENGTH, Sketch};
+use caditor_sketch::{
+    Drag, Entity, EntityId, EntityState, Faceting, MAX_LENGTH, Sketch, SketchSolution,
+};
 
 use crate::{
     drag_solver::{DragCommand, Join},
@@ -14,6 +16,9 @@ use crate::{
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
 const MOVE_WHILE_DRAWING: &str = "Switch to the Select tool to move geometry";
 const NOTHING_TO_SELECT: &str = "The sketch has no geometry to select";
+pub const NOT_SOLVED: &str =
+    "What is still free is known once the sketch has solved; fix its problems or wait for it";
+pub const NOTHING_FREE: &str = "Everything in the sketch is fully constrained";
 
 #[derive(Debug, Clone, PartialEq)]
 enum Handles {
@@ -694,6 +699,27 @@ pub fn select_all(sketch: &Sketch) -> Result<Vec<EntityId>, &'static str> {
         Err(NOTHING_TO_SELECT)
     } else {
         Ok(everything)
+    }
+}
+
+pub fn select_free(
+    sketch: &Sketch,
+    projected: &BTreeSet<EntityId>,
+    solution: Option<&SketchSolution>,
+) -> Result<Vec<EntityId>, &'static str> {
+    let solution = solution.ok_or(NOT_SOLVED)?;
+    let free = selectable(
+        sketch,
+        sketch
+            .entities()
+            .map(|(id, _)| id)
+            .filter(|id| !id.is_reference() && !projected.contains(id))
+            .filter(|id| solution.entity_state(*id) != Some(EntityState::FullyConstrained)),
+    );
+    if free.is_empty() {
+        Err(NOTHING_FREE)
+    } else {
+        Ok(free)
     }
 }
 

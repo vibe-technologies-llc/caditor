@@ -110,6 +110,12 @@ paths:
   event only when the system clipboard holds text.
 - Double-clicking a curve (no tool active) selects its chain, the lines and arcs joined end to end
   that Offset would take (`Sketch::offset_chain_through`).
+- Select what is still free (`Command::SelectFree`, Sketch menu, palette, no default key;
+  `sketch_drag::select_free`) replaces the selection with the edited sketch's points and curves
+  that are not `EntityState::FullyConstrained` in the settled solution (`Model::settled_solution`),
+  projected and reference geometry left out and a point dropped when a curve using it is taken.
+  Without a settled solution (recompute pending, the sketch failing) it is refused with
+  `NOT_SOLVED`, and with nothing free with `NOTHING_FREE`.
 
 ## Drawing tools
 

@@ -91,6 +91,7 @@ pub enum Command {
     ScaleGeometry,
     MoveGeometry,
     SelectAll,
+    SelectFree,
     CopyGeometry,
     CutGeometry,
     PasteGeometry,
@@ -566,6 +567,7 @@ plain_commands! {
     ScaleGeometry,
     MoveGeometry,
     SelectAll,
+    SelectFree,
     CopyGeometry,
     CutGeometry,
     PasteGeometry,
@@ -671,6 +673,7 @@ impl Command {
             Self::ScaleGeometry => "sketch.scale",
             Self::MoveGeometry => "sketch.move",
             Self::SelectAll => "sketch.select_all",
+            Self::SelectFree => "sketch.select_free",
             Self::CopyGeometry => "sketch.copy",
             Self::CutGeometry => "sketch.cut",
             Self::PasteGeometry => "sketch.paste",
@@ -894,6 +897,7 @@ impl Command {
             Self::ScaleGeometry => "Scale selected sketch geometry",
             Self::MoveGeometry => "Move selected sketch geometry",
             Self::SelectAll => "Select all sketch geometry",
+            Self::SelectFree => "Select what is still free in the sketch",
             Self::CopyGeometry => "Copy selected sketch geometry",
             Self::CutGeometry => "Cut selected sketch geometry",
             Self::PasteGeometry => "Paste sketch geometry",
@@ -1199,6 +1203,7 @@ impl Command {
             | Self::ToggleTypedDimensions
             | Self::MoveGeometry
             | Self::SelectAll
+            | Self::SelectFree
             | Self::CopyGeometry
             | Self::CutGeometry
             | Self::PasteGeometry
@@ -1224,6 +1229,7 @@ impl Command {
             | Self::ToggleTypedDimensions
             | Self::MoveGeometry
             | Self::SelectAll
+            | Self::SelectFree
             | Self::CopyGeometry
             | Self::CutGeometry
             | Self::PasteGeometry
@@ -1407,7 +1413,8 @@ impl Command {
             | Self::Welcome
             | Self::About
             | Self::Messages
-            | Self::UndoHistory => Vec::new(),
+            | Self::UndoHistory
+            | Self::SelectFree => Vec::new(),
         }
     }
 

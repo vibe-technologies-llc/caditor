@@ -2588,6 +2588,17 @@ impl ViewportState {
         {
             self.add_to_selection(feature, everything, false);
         }
+        let projected = owner
+            .kind
+            .sketch()
+            .map(|definition| definition.projected().collect())
+            .unwrap_or_default();
+        let free = sketch_drag::select_free(&sketch, &projected, model.settled_solution(feature));
+        if commands.invoke(Command::SelectFree, &free)
+            && let Ok(free) = free
+        {
+            self.add_to_selection(feature, free, false);
+        }
         self.clipboard_commands(model, feature, &sketch, &selected, commands, actions);
     }
 

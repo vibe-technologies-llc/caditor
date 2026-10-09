@@ -129,6 +129,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Construction => CONSTRUCTION,
         Command::MoveGeometry => phosphor::ARROWS_OUT_CARDINAL,
         Command::SelectAll => phosphor::SELECTION_ALL,
+        Command::SelectFree => phosphor::LOCK_SIMPLE_OPEN,
         Command::CopyGeometry => COPY,
         Command::CutGeometry => phosphor::SCISSORS,
         Command::PasteGeometry => phosphor::CLIPBOARD,

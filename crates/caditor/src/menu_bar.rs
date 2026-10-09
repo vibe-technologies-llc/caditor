@@ -661,6 +661,7 @@ impl Menus<'_, '_> {
                     Command::RotateGeometry,
                     Command::ScaleGeometry,
                     Command::SelectAll,
+                    Command::SelectFree,
                 ],
             );
             self.items(
