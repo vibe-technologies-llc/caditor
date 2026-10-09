@@ -4,7 +4,7 @@ use caditor_document::{DensityError, FeatureId, displayed_frame};
 use caditor_expression::format_number;
 use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::{Accuracy, MassProperties, SecondMoment};
-use egui::{ComboBox, Label, ScrollArea, TextWrapMode, Ui};
+use egui::{ComboBox, Label, Popup, ScrollArea, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
@@ -13,7 +13,9 @@ use crate::{
     guide::Page,
     guide_panel, icons, layout,
     measure::{APPROXIMATELY, Freshness, MeasureTool, MeasuredLine, Readout, Relative, Value},
-    model::Model,
+    model::{Action, Model, Notice},
+    panels::PanelState,
+    parameter_table,
     selection::{Pickable, Selection},
     units::{LengthUnit, Units},
     visibility,
@@ -41,6 +43,9 @@ const GRAMS_PER_CUBIC_MILLIMETRE: f64 = 1e-3;
 const ALL_BODIES: &str = "Every body shown; select a face, edge or vertex for one body alone.";
 const INERTIA_DIGITS: i32 = 4;
 const NOT_EVERY_DENSITY: &str = "Not every body has a density";
+pub const COPY_VALUE: &str = "Copy value";
+pub const NEW_PARAMETER: &str = "New parameter from this value";
+const MORE_FOR_VALUE: &str = "Copy this value or make it a parameter";
 pub const RELATIVE_TO: &str = "Relative to";
 pub const WORLD: &str = "World";
 const RELATIVE_HOVER: &str = "Positions, directions and the distances along X, Y and Z are read \
@@ -571,7 +576,20 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
     }
 }
 
-pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, room: f32) {
+#[derive(Debug, Clone, PartialEq)]
+enum RowChoice {
+    Copy { label: String, text: String },
+    Parameter { label: String, value: Value },
+}
+
+pub fn show(
+    ui: &mut Ui,
+    context: &MeasureContext<'_>,
+    tool: &mut MeasureTool,
+    room: f32,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+) {
     let relative = relative(context.model, tool);
     tool.measurements.refresh(
         context.model,
@@ -585,6 +603,7 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
         shown.map(|(readout, freshness)| (readout, readout_cards(readout, unit), freshness));
     let masses = mass_cards(context);
     let mut close = false;
+    let mut chosen = None;
     let mut relative_to = tool.relative_to;
     egui::Panel::right("measure")
         .resizable(true)
@@ -629,30 +648,100 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
                         if *freshness == Freshness::Stale {
                             ui.multiply_opacity(STALE_OPACITY);
                         }
-                        readings(ui, readout, cards);
+                        chosen = readings(ui, readout, cards);
                     });
                 }
-                mass_section(ui, &masses);
+                chosen = mass_section(ui, &masses).or(chosen.take());
             });
         });
     tool.relative_to = relative_to;
     if close {
         tool.toggle();
     }
+    if let Some(choice) = chosen {
+        perform(ui, context.model, state, actions, choice);
+    }
 }
 
-fn readings(ui: &mut Ui, readout: &Readout, cards: &[Card]) {
+fn perform(
+    ui: &Ui,
+    model: &Model,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    choice: RowChoice,
+) {
+    match choice {
+        RowChoice::Copy { label, text } => {
+            ui.ctx().copy_text(text.clone());
+            actions.push(Action::Inform(Notice::info(format!(
+                "Copied {}: {text}.",
+                label.to_lowercase()
+            ))));
+        }
+        RowChoice::Parameter { label, value } => {
+            let Some(expression) = parameter_expression(value, model.units()) else {
+                return;
+            };
+            let text = model.document().expression_text(&expression);
+            let name = parameter_table::add_with(
+                model,
+                state,
+                actions,
+                &parameter_stem(&label),
+                expression,
+            );
+            actions.push(Action::Inform(Notice::info(format!(
+                "Added the parameter {name} = {text} from the measured {}. Type a new name in \
+                 its field in Parameters to rename it.",
+                label.to_lowercase()
+            ))));
+        }
+    }
+}
+
+fn parameter_expression(value: Value, units: Units) -> Option<caditor_expression::Expression> {
+    match value {
+        Value::Length(millimetres) => Some(units.measured(millimetres)),
+        Value::Angle(radians) => Some(units.angle.measured(radians.to_degrees())),
+        Value::Area(square_millimetres) => Some(units.measured_area_expression(square_millimetres)),
+        Value::Position(_) | Value::Direction(_) | Value::SecondMoment(_) => None,
+    }
+}
+
+fn parameter_stem(label: &str) -> String {
+    label
+        .to_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn readings(ui: &mut Ui, readout: &Readout, cards: &[Card]) -> Option<RowChoice> {
     if let Some(problem) = readout.problem {
         widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
         ui.add_space(SPACE_M);
     }
-    for (index, card) in cards.iter().enumerate() {
-        show_card(ui, ("measured", index), card);
+    let mut chosen = None;
+    for (index, (card, group)) in cards.iter().zip(&readout.groups).enumerate() {
+        let values: Vec<Option<Value>> = group
+            .readings
+            .iter()
+            .map(|reading| Some(reading.value))
+            .collect();
+        chosen = card_with_menus(ui, ("measured", index), card, &values).or(chosen.take());
         ui.add_space(SPACE_M);
     }
+    chosen
 }
 
-fn mass_section(ui: &mut Ui, masses: &Masses) {
+fn mass_section(ui: &mut Ui, masses: &Masses) -> Option<RowChoice> {
+    let mut chosen = None;
     widgets::section(
         ui,
         MASS_SECTION,
@@ -667,11 +756,11 @@ fn mass_section(ui: &mut Ui, masses: &Masses) {
                 ui.label(widgets::muted("There are no bodies yet.", ui));
             }
             if let Some(total) = &masses.total {
-                show_card(ui, ("mass-total", 0), total);
+                chosen = card_with_menus(ui, ("mass-total", 0), total, &[]);
                 ui.add_space(SPACE_S);
             }
             for (index, card) in masses.cards.iter().enumerate() {
-                show_card(ui, ("mass", index), card);
+                chosen = card_with_menus(ui, ("mass", index), card, &[]).or(chosen.take());
                 ui.add_space(SPACE_S);
             }
             let unlisted = masses.bodies.saturating_sub(masses.cards.len());
@@ -683,9 +772,35 @@ fn mass_section(ui: &mut Ui, masses: &Masses) {
             }
         },
     );
+    chosen
 }
 
 pub fn show_card(ui: &mut Ui, id: (&str, usize), card: &Card) {
+    card_rows(ui, id, card, |ui, row, _| {
+        ui.add(Label::new(&row.text).selectable(true));
+        None
+    });
+}
+
+fn card_with_menus(
+    ui: &mut Ui,
+    id: (&str, usize),
+    card: &Card,
+    values: &[Option<Value>],
+) -> Option<RowChoice> {
+    card_rows(ui, id, card, |ui, row, index| {
+        let value = values.get(index).copied().flatten();
+        value_with_menu(ui, row, value)
+    })
+}
+
+fn card_rows(
+    ui: &mut Ui,
+    id: (&str, usize),
+    card: &Card,
+    mut value: impl FnMut(&mut Ui, &Row, usize) -> Option<RowChoice>,
+) -> Option<RowChoice> {
+    let mut chosen = None;
     widgets::card(ui, |ui| {
         ui.add(
             Label::new(widgets::strong(&card.title))
@@ -694,9 +809,9 @@ pub fn show_card(ui: &mut Ui, id: (&str, usize), card: &Card) {
         );
         if !card.rows.is_empty() {
             widgets::properties(ui, id, |ui| {
-                for row in &card.rows {
+                for (index, row) in card.rows.iter().enumerate() {
                     widgets::property(ui, &row.label, |ui| {
-                        ui.add(Label::new(&row.text).selectable(true));
+                        chosen = value(ui, row, index).or(chosen.take());
                     });
                 }
             });
@@ -705,6 +820,49 @@ pub fn show_card(ui: &mut Ui, id: (&str, usize), card: &Card) {
     for (tone, note) in &card.notes {
         widgets::callout(ui, *tone, |ui| ui.label(note));
     }
+    chosen
+}
+
+fn value_with_menu(ui: &mut Ui, row: &Row, value: Option<Value>) -> Option<RowChoice> {
+    ui.horizontal(|ui| {
+        let shown = ui.add(Label::new(&row.text).selectable(true));
+        let more = widgets::named(
+            widgets::icon_button(ui, icons::MORE, MORE_FOR_VALUE),
+            &format!("More for {}", row.label),
+        );
+        let mut chosen = None;
+        Popup::menu(&more).show(|ui| {
+            widgets::fitted_menu(ui, |ui| chosen = row_menu(ui, row, value));
+        });
+        shown.context_menu(|ui| {
+            widgets::fitted_menu(ui, |ui| chosen = row_menu(ui, row, value).or(chosen.take()));
+        });
+        chosen
+    })
+    .inner
+}
+
+fn row_menu(ui: &mut Ui, row: &Row, value: Option<Value>) -> Option<RowChoice> {
+    let mut chosen = None;
+    if widgets::menu_item(ui, icons::COPY, COPY_VALUE, None).clicked() {
+        chosen = Some(RowChoice::Copy {
+            label: row.label.clone(),
+            text: row.text.clone(),
+        });
+        ui.close();
+    }
+    let parameterisable =
+        value.filter(|value| matches!(value, Value::Length(_) | Value::Angle(_) | Value::Area(_)));
+    if let Some(value) = parameterisable
+        && widgets::menu_item(ui, icons::PARAMETERS, NEW_PARAMETER, None).clicked()
+    {
+        chosen = Some(RowChoice::Parameter {
+            label: row.label.clone(),
+            value,
+        });
+        ui.close();
+    }
+    chosen
 }
 
 #[cfg(test)]
@@ -885,5 +1043,34 @@ mod tests {
         );
         assert_eq!(mass_text(1234.5), "1.234 kg");
         assert_eq!(mass_text(0.5), "0.50 g");
+    }
+
+    #[test]
+    fn lengths_angles_and_areas_become_parameter_values_in_the_chosen_units() {
+        let units = Units::from(LengthUnit::Centimetre);
+        let text = |value| {
+            parameter_expression(value, units)
+                .map(|expression| expression.to_text(&|_| None::<&str>))
+        };
+        let area = parameter_expression(Value::Area(1234.5678), units).unwrap();
+        let read_back =
+            caditor_expression::Expression::parse_stored(&area.to_text(&|_| None::<&str>));
+
+        assert_eq!(text(Value::Length(25.4)).as_deref(), Some("2.54 cm"));
+        assert_eq!(
+            text(Value::Angle(std::f64::consts::FRAC_PI_2)).as_deref(),
+            Some("90 deg")
+        );
+        assert_eq!(
+            text(Value::Area(1234.5678)).as_deref(),
+            Some("12.345678 cm²")
+        );
+        assert_eq!(read_back.ok(), Some(area));
+        assert_eq!(text(Value::Position(Point3::ZERO)), None);
+        assert_eq!(
+            parameter_stem("Angle between the lines"),
+            "angle_between_the_lines"
+        );
+        assert_eq!(parameter_stem("Along X"), "along_x");
     }
 }

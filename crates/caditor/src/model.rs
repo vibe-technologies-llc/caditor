@@ -8,7 +8,7 @@ use std::{
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
     FeatureResult, FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Pivot, Prepared,
-    Progress, Recomputer, SketchResult, Stale, Transaction, TurnCentre, displayed_axis,
+    Progress, Recomputer, SketchResult, Stale, Transaction, TurnCentre, UndoMark, displayed_axis,
     displayed_frame,
 };
 use caditor_file::{
@@ -513,6 +513,14 @@ impl Model {
 
     pub fn redo_steps(&self) -> impl Iterator<Item = &Transaction> {
         self.editor.redo_steps()
+    }
+
+    pub fn undo_mark(&self) -> UndoMark {
+        self.editor.undo_mark()
+    }
+
+    pub fn undo_steps_since(&self, mark: UndoMark) -> Option<Vec<&Transaction>> {
+        self.editor.undo_steps_since(mark)
     }
 
     pub fn status(&self) -> RecomputeStatus {

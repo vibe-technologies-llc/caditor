@@ -692,7 +692,7 @@ pub fn show(
             bodies: viewport.bodies(),
             tree_bodies: &tree_bodies,
         };
-        measure_panel::show(ui, &context, measure, room);
+        measure_panel::show(ui, &context, measure, room, panels, actions);
     }
     let measured = measure
         .open
@@ -1206,6 +1206,7 @@ pub fn perform(
     files: &mut Files,
     workspace: &mut Workspace,
 ) {
+    let since = model.undo_mark();
     for action in actions {
         match action {
             Action::File(command) => files.perform(command, model),
@@ -1214,7 +1215,7 @@ pub fn perform(
             {
                 model.perform(Action::Inform(Notice::warning(reason)));
             }
-            Action::Editing(command) => workspace.editing.perform(command, model),
+            Action::Editing(command) => workspace.editing.perform_after(command, model, since),
             Action::Preferences(command) => workspace.preferences_command(command, model, files),
             Action::Filter(filter) => workspace.viewport.set_filter(filter),
             other => model.perform(other),

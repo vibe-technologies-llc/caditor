@@ -7,7 +7,11 @@ bottom. Each feature uses only what is above it.
 
 Double-click a row, press Enter on it or use its pencil button to open it: a sketch for editing,
 another feature with its settings under the row. Every change applies at once and can be undone;
-the check mark, Enter or Escape closes it. Double-clicking a face in the view opens the feature that
+the check mark, Enter or Escape closes it, keeping the changes. The cross beside the check mark,
+{command:model.cancel_feature}, closes it and takes back every change made since it was opened,
+or the whole feature when the tool that made it opened it, as ordinary undo steps that Redo brings
+back. When something else in the model changed meanwhile, or Undo already went back past the
+opening, it says so and changes nothing. Double-clicking a face in the view opens the feature that
 made it, and {command:model.edit_feature} with no row chosen opens the feature of the one face,
 edge, datum or sketch curve selected.
 

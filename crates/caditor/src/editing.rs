@@ -1,4 +1,4 @@
-use caditor_document::{Document, FeatureId, FeatureKind};
+use caditor_document::{Document, Edit, FeatureId, FeatureKind, Transaction, UndoMark};
 use caditor_sketch::Sketch;
 
 use crate::{
@@ -250,6 +250,7 @@ pub enum EditingCommand {
     DrawConstruction(bool),
     OpenSolid(FeatureId),
     CloseSolid,
+    CancelSolid,
     Pick(Picking),
     HoldPicked(Pickable),
     StopPicking,
@@ -275,10 +276,33 @@ impl Context {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Opened {
+    pub feature: FeatureId,
+    pub added: bool,
+    mark: UndoMark,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CancelRefusal {
+    #[error("no feature is open; open one with Edit feature first")]
+    NothingOpen,
+    #[error(
+        "the undo history no longer goes back to when {feature} was opened; undo its changes \
+         one at a time instead"
+    )]
+    HistoryChanged { feature: String },
+    #[error(
+        "\"{step}\", made while {feature} was open, changed more than {feature}; undo the \
+         changes one at a time instead"
+    )]
+    ChangedElsewhere { feature: String, step: String },
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SketchEditing {
     active: Option<ActiveSketch>,
-    solid: Option<FeatureId>,
+    solid: Option<Opened>,
     picking: Option<Picking>,
     choosing_plane: bool,
     modes: ShapeModes,
@@ -295,7 +319,36 @@ impl SketchEditing {
     }
 
     pub fn solid(&self) -> Option<FeatureId> {
+        self.solid.map(|opened| opened.feature)
+    }
+
+    pub fn opened(&self) -> Option<Opened> {
         self.solid
+    }
+
+    pub fn cancelling(&self, model: &Model) -> Result<usize, CancelRefusal> {
+        let opened = self.solid.ok_or(CancelRefusal::NothingOpen)?;
+        let document = model.document();
+        let name = document
+            .feature(opened.feature)
+            .map(|feature| feature.name.clone())
+            .ok_or(CancelRefusal::NothingOpen)?;
+        let steps =
+            model
+                .undo_steps_since(opened.mark)
+                .ok_or_else(|| CancelRefusal::HistoryChanged {
+                    feature: name.clone(),
+                })?;
+        if let Some(step) = steps.iter().find(|step| {
+            !(opened.added && adds(step, opened.feature)
+                || changes_only(document, step, opened.feature))
+        }) {
+            return Err(CancelRefusal::ChangedElsewhere {
+                feature: name,
+                step: step.label().to_owned(),
+            });
+        }
+        Ok(steps.len())
     }
 
     pub fn modes(&self) -> ShapeModes {
@@ -305,7 +358,7 @@ impl SketchEditing {
     pub fn context(&self) -> Context {
         Context {
             sketch: self.feature(),
-            solid: self.solid,
+            solid: self.solid(),
             choosing_plane: self.choosing_plane,
             projecting: self.active.is_some_and(|active| active.tool.projects()),
             intersecting: self.active.is_some_and(|active| active.tool.intersects()),
@@ -337,6 +390,11 @@ impl SketchEditing {
     }
 
     pub fn perform(&mut self, command: EditingCommand, model: &mut Model) {
+        let since = model.undo_mark();
+        self.perform_after(command, model, since);
+    }
+
+    pub fn perform_after(&mut self, command: EditingCommand, model: &mut Model, since: UndoMark) {
         self.sync(model);
         match command {
             EditingCommand::NewSketch(Some(plane)) => self.create(plane, model),
@@ -366,11 +424,12 @@ impl SketchEditing {
                     active.construction = construction;
                 }
             }
-            EditingCommand::OpenSolid(feature) => self.open_solid(feature, model.document()),
+            EditingCommand::OpenSolid(feature) => self.open_solid(feature, model, since),
             EditingCommand::CloseSolid => self.solid = None,
+            EditingCommand::CancelSolid => self.cancel(model),
             EditingCommand::Pick(picking) => {
-                self.open_solid(picking.feature, model.document());
-                if self.solid == Some(picking.feature) {
+                self.open_solid(picking.feature, model, since);
+                if self.solid() == Some(picking.feature) {
                     self.picking = Some(picking);
                 }
             }
@@ -384,18 +443,50 @@ impl SketchEditing {
         self.drop_stale_picking();
     }
 
-    fn open_solid(&mut self, feature: FeatureId, document: &Document) {
-        if opened_solid(document, feature) && document.is_active(feature) {
-            self.active = None;
-            self.choosing_plane = false;
-            self.solid = Some(feature);
+    fn open_solid(&mut self, feature: FeatureId, model: &Model, since: UndoMark) {
+        let document = model.document();
+        if !opened_solid(document, feature) || !document.is_active(feature) {
+            return;
+        }
+        self.active = None;
+        self.choosing_plane = false;
+        if self.solid() == Some(feature) {
+            return;
+        }
+        let added = model
+            .undo_steps_since(since)
+            .is_some_and(|steps| steps.iter().any(|step| adds(step, feature)));
+        self.solid = Some(Opened {
+            feature,
+            added,
+            mark: since,
+        });
+    }
+
+    fn cancel(&mut self, model: &mut Model) {
+        match self.cancelling(model) {
+            Ok(steps) => {
+                for _ in 0..steps {
+                    model.perform(Action::Undo);
+                }
+                self.solid = None;
+                self.picking = None;
+            }
+            Err(refusal) => {
+                let open = self.solid.and_then(|opened| {
+                    let feature = model.document().feature(opened.feature)?;
+                    Some(cancel_title(&feature.name, opened.added))
+                });
+                let title = open.unwrap_or_else(|| Command::CancelFeature.title());
+                model.perform(Action::Inform(Notice::info(format!("{title}: {refusal}."))));
+            }
         }
     }
 
     fn drop_stale_picking(&mut self) {
         if self
             .picking
-            .is_some_and(|picking| Some(picking.feature) != self.solid)
+            .is_some_and(|picking| Some(picking.feature) != self.solid())
         {
             self.picking = None;
         }
@@ -415,7 +506,7 @@ impl SketchEditing {
         {
             self.active = None;
         }
-        if let Some(solid) = self.solid
+        if let Some(solid) = self.solid()
             && (!opened_solid(document, solid) || !document.is_active(solid))
         {
             self.solid = None;
@@ -473,6 +564,58 @@ fn refuse_new_sketch(model: &mut Model, reason: &str) {
         "{}: {reason}.",
         Command::NewSketch.title()
     ))));
+}
+
+pub fn cancel_title(name: &str, added: bool) -> String {
+    if added {
+        format!("Cancel the new {name}")
+    } else {
+        format!("Cancel the changes to {name}")
+    }
+}
+
+fn adds(step: &Transaction, feature: FeatureId) -> bool {
+    step.edits()
+        .iter()
+        .any(|edit| matches!(edit, Edit::RemoveFeature { id } if *id == feature))
+}
+
+fn changes_only(document: &Document, step: &Transaction, feature: FeatureId) -> bool {
+    let touched = step.touched();
+    let elsewhere = touched.rollback
+        || touched.principal
+        || touched.properties
+        || touched.views
+        || touched.selection_sets
+        || touched.configurations;
+    !elsewhere
+        && touched.features.iter().all(|id| *id == feature)
+        && touched
+            .parameters
+            .iter()
+            .all(|id| owned_by(document, step, *id, feature))
+}
+
+fn owned_by(
+    document: &Document,
+    step: &Transaction,
+    parameter: caditor_expression::ParameterId,
+    feature: FeatureId,
+) -> bool {
+    let owns = |owner: Option<&caditor_document::ParameterOwner>| {
+        owner.is_some_and(|owner| owner.feature() == feature)
+    };
+    owns(
+        document
+            .parameter(parameter)
+            .and_then(|parameter| parameter.owner.as_ref()),
+    ) || step.edits().iter().any(|edit| match edit {
+        Edit::InsertParameter {
+            parameter: kept, ..
+        } => kept.id() == parameter && owns(kept.owner.as_ref()),
+        Edit::SetParameterOwner { id, owner } => *id == parameter && owns(owner.as_ref()),
+        _ => false,
+    })
 }
 
 pub fn edited_sketch(document: &Document, feature: FeatureId) -> Option<&Sketch> {

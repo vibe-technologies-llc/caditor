@@ -626,6 +626,26 @@ fn focus_primary_action(ctx: &egui::Context) {
     }
 }
 
+pub fn link(ui: &mut Ui, text: &str, style: Option<TextStyle>) -> Response {
+    let tokens = appearance::tokens(ui);
+    let mut rich = RichText::new(text).color(tokens.accent_text).underline();
+    if let Some(style) = style {
+        rich = rich.text_style(style);
+    }
+    let response = ui.add(Label::new(rich).selectable(false).sense(Sense::click()));
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Link, true, text));
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+        let stroke = Stroke::new(UNDERLINE_WIDTH * 2.0, tokens.accent_text);
+        ui.painter()
+            .hline(response.rect.x_range(), response.rect.bottom(), stroke);
+    }
+    if response.has_focus() {
+        paint_focus_ring(ui, response.rect);
+    }
+    response
+}
+
 pub fn link_label(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
     let response = ui.add(Label::new(text).selectable(false).sense(Sense::click()));
     if response.hovered() {

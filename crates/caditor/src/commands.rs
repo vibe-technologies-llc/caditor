@@ -220,6 +220,7 @@ pub enum Command {
     RollbackDown,
     EditFeature,
     CloseFeature,
+    CancelFeature,
     DetachSketch,
     PlaceSketch,
     UseSelectedAxis,
@@ -241,6 +242,7 @@ pub enum Command {
     FilterFeatures,
     AddParameter,
     DeleteParameter,
+    DeleteUnusedParameters,
     MoveParameterUp,
     MoveParameterDown,
     ParameterNote,
@@ -657,6 +659,7 @@ plain_commands! {
     RollbackDown,
     EditFeature,
     CloseFeature,
+    CancelFeature,
     DetachSketch,
     PlaceSketch,
     UseSelectedAxis,
@@ -678,6 +681,7 @@ plain_commands! {
     FilterFeatures,
     AddParameter,
     DeleteParameter,
+    DeleteUnusedParameters,
     MoveParameterUp,
     MoveParameterDown,
     ParameterNote,
@@ -933,6 +937,7 @@ impl Command {
             Self::RollbackDown => "model.rollback_down",
             Self::EditFeature => "model.edit_feature",
             Self::CloseFeature => "model.close_feature",
+            Self::CancelFeature => "model.cancel_feature",
             Self::DetachSketch => "model.detach_sketch",
             Self::PlaceSketch => "model.place_sketch",
             Self::UseSelectedAxis => "model.use_selected_axis",
@@ -954,6 +959,7 @@ impl Command {
             Self::FilterFeatures => "model.filter_features",
             Self::AddParameter => "model.add_parameter",
             Self::DeleteParameter => "model.delete_parameter",
+            Self::DeleteUnusedParameters => "model.delete_unused_parameters",
             Self::MoveParameterUp => "model.move_parameter_up",
             Self::MoveParameterDown => "model.move_parameter_down",
             Self::ParameterNote => "model.parameter_note",
@@ -1152,6 +1158,7 @@ impl Command {
             Self::RollbackDown => "Move the rollback bar down",
             Self::EditFeature => "Edit feature",
             Self::CloseFeature => "Finish editing feature",
+            Self::CancelFeature => "Cancel the changes to the feature",
             Self::DetachSketch => "Detach sketch",
             Self::PlaceSketch => "Place sketch on selected plane or face",
             Self::UseSelectedAxis => "Revolve about selected axis",
@@ -1173,6 +1180,7 @@ impl Command {
             Self::FilterFeatures => "Filter the feature tree",
             Self::AddParameter => "Add parameter",
             Self::DeleteParameter => "Delete parameter",
+            Self::DeleteUnusedParameters => "Delete unused parameters",
             Self::MoveParameterUp => "Move parameter up",
             Self::MoveParameterDown => "Move parameter down",
             Self::ParameterNote => "Add or edit the parameter's note",
@@ -1392,6 +1400,7 @@ impl Command {
             | Self::RollbackDown
             | Self::EditFeature
             | Self::CloseFeature
+            | Self::CancelFeature
             | Self::DetachSketch
             | Self::PlaceSketch
             | Self::UseSelectedAxis
@@ -1413,6 +1422,7 @@ impl Command {
             | Self::FilterFeatures
             | Self::AddParameter
             | Self::DeleteParameter
+            | Self::DeleteUnusedParameters
             | Self::MoveParameterUp
             | Self::MoveParameterDown
             | Self::ParameterNote
@@ -1652,6 +1662,7 @@ impl Command {
             | Self::SetHomeView
             | Self::ResetHomeView
             | Self::CloseFeature
+            | Self::CancelFeature
             | Self::DetachSketch
             | Self::PlaceSketch
             | Self::UseSelectedAxis
@@ -1671,6 +1682,7 @@ impl Command {
             | Self::ReverseDirection
             | Self::AddParameter
             | Self::DeleteParameter
+            | Self::DeleteUnusedParameters
             | Self::MoveParameterUp
             | Self::MoveParameterDown
             | Self::ParameterNote

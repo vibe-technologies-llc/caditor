@@ -124,6 +124,7 @@ pub struct PanelState {
     pub constraint_offers: ConstraintOffers,
     pub parameter_uses: ParameterUses,
     pub tree_filter: String,
+    pub parameter_filter: String,
     pub plain_row_height: Option<f32>,
     pub plain_constraint_height: Option<f32>,
     pub plain_dimension_height: Option<f32>,

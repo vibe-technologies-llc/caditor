@@ -80,7 +80,7 @@ pub use crate::{
         RollbackBar, TreeRow,
     },
     edit::{Edit, EditError, MAX_PARAMETER_NOTE_CHARS, Touched, Transaction, TransactionBuilder},
-    editor::{Base, Editor, Prepared, Stale},
+    editor::{Base, Editor, Prepared, Stale, UndoMark},
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
     healing::Healing,
     hole::{

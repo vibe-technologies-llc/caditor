@@ -4,6 +4,8 @@ Every change to the model can be undone: sketch edits, feature values, parameter
 hiding and restoring an older version alike.
 
 - {command:edit.undo} takes back the last change and {command:edit.redo} brings it back.
+- {command:model.cancel_feature} undoes every step made since the open feature was opened, and
+  closes it ([the feature tree](feature-tree)).
 - {command:edit.undo_history} lists the steps Undo and Redo hold. Hover one to see what it changed;
   click it to go back or forward to that point in one go.
 

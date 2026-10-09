@@ -260,12 +260,25 @@ paths:
   icon with the reason on hover, a refused edit an `error_row`. A row's delete button shows only
   while the row is hovered or the button has keyboard focus, and stays in the Tab order.
 - Model parameters (those with an owner) are a table of their own below the others, under
-  `MODEL_PARAMETERS` (its hover says how a value is named), each row followed by a muted line
-  naming its owner (`Document::owner_text`, else that it was deleted). Their rows edit, note,
+  `MODEL_PARAMETERS` (its hover says how a value is named), each row followed by a line naming its
+  owner (`Document::owner_text`), a `widgets::link` that chooses and reveals the owning feature
+  and focuses it, or the owning dimension's field (`Focus::Feature`, `Focus::Dimension`;
+  `parameter_table::go_to_owner`), else a muted line saying it was deleted. Their rows edit, note,
   move and delete like any other; Move up and down stay within the row's table. Deleting a used
   one inlines it, which writes the value back into its field.
+- A filter field (`PanelState::parameter_filter`) heads both tables once there are
+  `FILTER_FROM_PARAMETERS` parameters, or while it holds text or focus, keeping the rows whose
+  name, expression text or owner text contains it in any case, plus a row wanted for focus or
+  holding it; with no match an empty state offers Clear the filter.
+- Delete N unused parameters (`Command::DeleteUnusedParameters`, the button under the tables
+  shown while there are any, Model › Parameters, palette; `parameter_table::UnusedDeletion`)
+  removes in one transaction every parameter `ParameterUses` finds nothing referring to, owned
+  ones included, as the row's own delete would remove each, with a notice naming them; it is
+  unavailable with the reason when there are none. A parameter used only by one of them stays,
+  as it is still in use when the change is built.
 - Tree rows (`tree_row.rs`, shared with `principal_tree.rs`) have fixed trailing slots that stay
-  empty when a row has nothing for them, so icons line up in columns; callouts and cards under a
+  empty when a row has nothing for them, so icons line up in columns (the open feature's row alone
+  adds one, its Cancel cross left of the checkmark, `app-modelling.md`); callouts and cards under a
   row (`tree_row::indented`) keep the normal spacing.
 - A plain feature row (collapsed, no callout, not edited, renamed, revealed, focused or wanted for
   focus; `feature_tree::is_plain`) more than a row beyond the visible part of the panel only

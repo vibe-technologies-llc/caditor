@@ -21,7 +21,7 @@ use crate::{
     commands::{Command, CommandFrame},
     datum_panel,
     drawing_export::{self, DrawingSource},
-    editing::{EditingCommand, SketchEditing},
+    editing::{self, EditingCommand, Opened, SketchEditing},
     feature_clipboard, feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
@@ -182,6 +182,7 @@ fn rows(
             feature,
             selection,
             edited: editing.feature() == Some(id) || editing.solid() == Some(id),
+            opened: editing.opened().filter(|opened| opened.feature == id),
             selected: chosen.contains(&id) || state.in_view.contains(&id),
             rolled_back: index >= bar,
             grouped: group.is_some(),
@@ -378,6 +379,7 @@ struct Row<'a> {
     feature: &'a Feature,
     selection: &'a Selection,
     edited: bool,
+    opened: Option<Opened>,
     selected: bool,
     rolled_back: bool,
     grouped: bool,
@@ -690,6 +692,9 @@ fn feature_row(
                     edit_button(ui, row, actions);
                 }
             });
+            if let Some(opened) = row.opened {
+                tree_row::slot(ui, |ui| cancel_button(ui, row.feature, opened, actions));
+            }
             tree_row::slot(ui, |ui| {
                 let computed = status.filter(|_| !model.evaluation().is_pending(id));
                 status_icon(ui, row, computed);
@@ -1193,6 +1198,13 @@ fn more_menu(
     });
 }
 
+fn cancel_button(ui: &mut Ui, feature: &Feature, opened: Opened, actions: &mut Vec<Action>) {
+    let title = editing::cancel_title(&feature.name, opened.added);
+    if widgets::icon_button(ui, icons::CLOSE, &title).clicked() {
+        actions.push(Action::Editing(EditingCommand::CancelSolid));
+    }
+}
+
 fn edit_button(ui: &mut Ui, row: &Row<'_>, actions: &mut Vec<Action>) {
     let Some(command) = edit_command(row.feature, row.edited) else {
         return;
@@ -1356,6 +1368,13 @@ fn context_menu(
             && let Ok(command) = editable
         {
             actions.push(Action::Editing(command));
+        }
+        if let Some(opened) = row.opened {
+            let title = editing::cancel_title(&feature.name, opened.added);
+            if widgets::menu_item(ui, icons::CLOSE, &title, None).clicked() {
+                actions.push(Action::Editing(EditingCommand::CancelSolid));
+                ui.close();
+            }
         }
         ui.separator();
     }
@@ -2193,6 +2212,14 @@ fn feature_commands(
     let open = editing.solid().ok_or(NOTHING_OPEN);
     if commands.invoke(Command::CloseFeature, &open) {
         actions.push(Action::Editing(EditingCommand::CloseSolid));
+    }
+    let cancelling = editing.cancelling(model);
+    let open_name = editing
+        .solid()
+        .and_then(|id| model.document().feature(id))
+        .map(|feature| feature.name.clone());
+    if commands.invoke_detailed(Command::CancelFeature, open_name, &cancelling) {
+        actions.push(Action::Editing(EditingCommand::CancelSolid));
     }
     let document = model.document();
     let toggled: Vec<FeatureId> = chosen.targets.iter().map(|target| target.id()).collect();
