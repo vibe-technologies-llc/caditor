@@ -30,6 +30,7 @@ use crate::{
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
     split::Split,
+    thread::Thread,
     views::SavedViews,
 };
 
@@ -101,6 +102,7 @@ pub enum FeatureKind {
     Datum(Datum),
     Import(Import),
     Remove(Remove),
+    Thread(Thread),
 }
 
 impl From<Pattern> for FeatureKind {
@@ -182,6 +184,7 @@ impl FeatureKind {
             Self::Pattern(pattern) => size_of::<Pattern>() + pattern.heap_size(),
             Self::Datum(datum) => datum.heap_size(),
             Self::Remove(_) => 0,
+            Self::Thread(thread) => thread.heap_size(),
         };
         size_of::<Self>() + owned
     }
@@ -203,7 +206,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -224,7 +228,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -245,7 +250,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -265,6 +271,7 @@ impl FeatureKind {
             Self::Hole(hole) => Some(hole.body),
             Self::Pattern(pattern) => Some(pattern.body),
             Self::Remove(remove) => Some(remove.body),
+            Self::Thread(thread) => Some(thread.body),
             Self::Datum(_) | Self::Import(_) => None,
         }
     }
@@ -291,7 +298,8 @@ impl FeatureKind {
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_)
-            | Self::Remove(_) => {}
+            | Self::Remove(_)
+            | Self::Thread(_) => {}
         }
         used
     }
@@ -319,7 +327,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Import(_)
-            | Self::Remove(_) => BTreeSet::new(),
+            | Self::Remove(_)
+            | Self::Thread(_) => BTreeSet::new(),
         }
     }
 
@@ -340,7 +349,8 @@ impl FeatureKind {
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_)
-            | Self::Remove(_) => BTreeSet::new(),
+            | Self::Remove(_)
+            | Self::Thread(_) => BTreeSet::new(),
         }
     }
 
@@ -361,7 +371,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Import(_)
-            | Self::Remove(_) => BTreeSet::new(),
+            | Self::Remove(_)
+            | Self::Thread(_) => BTreeSet::new(),
         }
     }
 
@@ -386,7 +397,8 @@ impl FeatureKind {
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_)
-            | Self::Remove(_) => BTreeSet::new(),
+            | Self::Remove(_)
+            | Self::Thread(_) => BTreeSet::new(),
         }
     }
 
@@ -407,7 +419,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Import(_) => Vec::new(),
+            | Self::Import(_)
+            | Self::Thread(_) => Vec::new(),
         }
     }
 
@@ -440,7 +453,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -461,7 +475,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -482,7 +497,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -494,6 +510,7 @@ impl FeatureKind {
             | Self::Blend(_)
             | Self::Shell(_)
             | Self::Primitive(_)
+            | Self::Thread(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -511,6 +528,29 @@ impl FeatureKind {
         match self {
             Self::Primitive(primitive) => Some(primitive),
             Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
+            | Self::OffsetFace(_)
+            | Self::Combine(_)
+            | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Split(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_)
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
+        }
+    }
+
+    pub fn thread(&self) -> Option<&Thread> {
+        match self {
+            Self::Thread(thread) => Some(thread),
+            Self::Sketch(_)
+            | Self::Primitive(_)
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
@@ -545,7 +585,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -566,7 +607,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -587,7 +629,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -608,7 +651,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -629,7 +673,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -650,7 +695,8 @@ impl FeatureKind {
             | Self::Pattern(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -671,7 +717,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Datum(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -692,7 +739,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Import(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -713,7 +761,8 @@ impl FeatureKind {
             | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Datum(_)
-            | Self::Remove(_) => None,
+            | Self::Remove(_)
+            | Self::Thread(_) => None,
         }
     }
 
@@ -734,6 +783,7 @@ impl FeatureKind {
             Self::Datum(datum) => datum.parameters(),
             Self::Import(import) => import.placement.parameters(),
             Self::Remove(_) => BTreeSet::new(),
+            Self::Thread(thread) => thread.parameters(),
         }
     }
 
@@ -754,6 +804,7 @@ impl FeatureKind {
             Self::Datum(datum) => datum.uses_parameter(parameter),
             Self::Import(import) => import.placement.uses_parameter(parameter),
             Self::Remove(_) => false,
+            Self::Thread(thread) => thread.uses_parameter(parameter),
         }
     }
 
@@ -785,6 +836,7 @@ impl FeatureKind {
             Self::Pattern(pattern) => pattern.features(),
             Self::Datum(datum) => datum.features(),
             Self::Remove(remove) => remove.features(),
+            Self::Thread(thread) => thread.features(),
             Self::Import(_) => BTreeSet::new(),
         };
         used.extend(self.bodies_used());
@@ -820,6 +872,7 @@ impl FeatureKind {
             Self::Split(split) => split.plane.origin_features(),
             Self::Pattern(pattern) => pattern.origin_features(),
             Self::Datum(datum) => datum.origin_features(),
+            Self::Thread(thread) => thread.origin_features(),
             Self::Import(_) | Self::Remove(_) => BTreeSet::new(),
         }
     }
@@ -905,7 +958,7 @@ impl Feature {
             FeatureKind::Pattern(pattern) => Some(pattern.body),
             FeatureKind::Import(_) => Some(self.id),
             FeatureKind::Remove(remove) => Some(remove.body),
-            FeatureKind::Sketch(_) | FeatureKind::Datum(_) => None,
+            FeatureKind::Sketch(_) | FeatureKind::Datum(_) | FeatureKind::Thread(_) => None,
         }
     }
 
@@ -940,7 +993,8 @@ impl Feature {
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
-            | FeatureKind::Remove(_) => false,
+            | FeatureKind::Remove(_)
+            | FeatureKind::Thread(_) => false,
         }
     }
 }

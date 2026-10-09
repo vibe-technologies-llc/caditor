@@ -35,7 +35,7 @@ use crate::{
     shell_panel,
     sketch_placement::{self, PlacementTarget},
     sketch_status::{self, SketchSummary},
-    sketch_tools, solid_panel, solid_tools, split_panel, split_tools,
+    sketch_tools, solid_panel, solid_tools, split_panel, split_tools, thread_panel,
     tree_row::{self, Look},
     visibility,
     widgets::{self, DialogWidth, Tone},
@@ -265,6 +265,7 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
             PrimitiveKind::Sphere => &["sphere", "ball", "primitive"],
             PrimitiveKind::Torus => &["torus", "ring", "primitive"],
         },
+        FeatureKind::Thread(_) => &["thread", "tap", "screw", "cosmetic thread"],
         FeatureKind::Combine(combine) => match combine.operation {
             CombineOperation::Join => &["combine", "join", "union"],
             CombineOperation::Cut => &["combine", "cut", "subtract", "difference"],
@@ -855,6 +856,9 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::Thread(thread) => {
+            thread_panel::show(ui, model, actions, feature, thread);
+        }
         FeatureKind::OffsetFace(offset) => {
             offset_face_panel::show(
                 ui,
@@ -959,7 +963,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
     }
     match row.feature.kind {
         FeatureKind::Sketch(_) => tokens.accent_text,
-        FeatureKind::Datum(_) => tokens.text_muted,
+        FeatureKind::Datum(_) | FeatureKind::Thread(_) => tokens.text_muted,
         FeatureKind::Solid(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
@@ -1086,7 +1090,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
-            | FeatureKind::Remove(_),
+            | FeatureKind::Remove(_)
+            | FeatureKind::Thread(_),
             true,
         ) => EditingCommand::CloseSolid,
         (
@@ -1103,7 +1108,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Hole(_)
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
-            | FeatureKind::Remove(_),
+            | FeatureKind::Remove(_)
+            | FeatureKind::Thread(_),
             false,
         ) => EditingCommand::OpenSolid(id),
         (FeatureKind::Import(_), _) => return None,

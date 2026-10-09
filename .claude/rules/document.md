@@ -311,8 +311,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (`FinePitch` by its place in `fine_pitches`: the first is the pitch older versions offered, so
   M12 and M20 list 1.25 and 1.5 before the others; drilled at the major diameter less the pitch),
   or a heat-set insert), with counterbore and countersink sizes for socket and countersunk heads.
-  It names the thread of a tapped hole for the user and changes nothing computed: the expressions
-  alone drive the hole. `MetricSize::offers` says which fits a size has (`fits` for the Fit row,
+  It names the thread of a tapped hole and gives each round bore its cosmetic thread (Thread
+  below), but changes nothing of the solid: the expressions alone drive the hole. `MetricSize::offers` says which fits a size has (`fits` for the Fit row,
   `fine_fits` for its pitches); `HoleStandard::offered` falls back to the first fine pitch, or to
   normal clearance, when a size lacks the fit asked for.
 - Heat-set insert bores (`HeatSetInsert`: hole, insert length, least wall) are those published for
@@ -337,6 +337,44 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   not wider than the hole or as deep as it, the angle is outside 0° to `MAX_CONE_ANGLE`
   (179°, also the Hole panel's field rule), the sketch has no
   points, more than `MAX_HOLES`, or a hole does not cut into the body (it adds no face).
+
+### Thread (`thread.rs`, `thread_standard.rs`)
+
+- `Thread { body, face, size, class, hand, length, reversed }` is a cosmetic thread: it refers to
+  a cylindrical face by its `FaceReference` (pieces of one split face accepted, like a shell's),
+  resolved in the body's state at its place, and changes no solid. Its result is
+  `FeatureResult::Thread` (`ThreadResult`: the side, the designation text, the evaluated depth and
+  the `ThreadPlacement` at its place). Its body is used (`body_input`, so `bodies_used`) but it is
+  not a body state (`Feature::body` is none), like a datum; the face's origin features are its
+  `origin_features` and healing matches the face like any reference. It can be hidden.
+- `Bore::of` reads the face: internal when the face's sense is reversed (its normal points at the
+  axis, a bore), external otherwise (a shaft or boss); the axial extent from its edges; and which
+  ends are open (an edge there meets a face whose normal points away from the face's span: a
+  hole's mouth or counterbore floor, a shaft's free end or chamfer, never a blind bottom or a
+  shoulder). The thread starts at the open end (the upper end along the axis when both or neither
+  are), or the other with `reversed`, and runs the whole face or `ThreadLength::Depth` (a length
+  expression above zero; one past the face stops at its end).
+- It fails alone, in words naming the face or body, when the face is lost or tied, is not
+  cylindrical, the class is not one the standard offers for the face's side, or the face's
+  diameter does not fit the size (`ThreadSize::fits`: a bore between the minor diameter less a
+  pitch and the major diameter, a shaft between the minor and the major plus a pitch), suggesting
+  the nearest size of the standard (`ThreadFamily::nearest`) when it fits.
+- The standards (`ThreadFamily`): ISO metric coarse and fine (ISO 261, M1.6 to M64, every fine
+  pitch of each size), ISO 228 parallel pipe (G 1/16 to 6), ISO 7 taper pipe (R 1/16 to 6) and
+  ISO 2901 trapezoidal (Tr 8x1.5 to Tr 100x12 at the preferred pitch). Minor diameters follow the
+  standard's profile (metric D1 and d3, the Whitworth form for pipes, ISO 2904's clearance for
+  trapezoidal, whose internal major is D4). `ThreadClass` is one of the classes the standard offers
+  for a side (metric 6H, 5H, 7H, 4H, 6G and 6g, 6h, 4h, 8g, 6e, 6f; ISO 228 the one internal class
+  and A or B; ISO 7 Rc or Rp and R; trapezoidal 7H, 8H and 7e, 8e, 7c, 8c), the first the default.
+  `ThreadDesignation::text` writes each standard's notation: `M8-6g`, `M8x1-6H-LH`, `G 1/2 A`,
+  `Rc 3/4`, `R 1 LH`, `Tr 20x4 LH-7e`.
+- `placed_threads` places every thread for showing and exporting on the bodies as they finally
+  stand, not at the feature's place, so a thread follows a later move, mirror or scale of its body
+  (names kept) and lands on the body a combine joined it into; a face no longer found there is
+  not placed. Failed threads are not placed. A tapped round hole (`hole_thread`: a `standard`
+  with a tapped or fine fit, its size found in the metric tables) places one thread per wall face
+  (`Hole::is_wall`, grouped by entity so a split bore is one thread) over the whole wall, class 6H,
+  right-handed; a pattern's copies of the hole are not threaded.
 
 ### Move (`movement.rs`)
 

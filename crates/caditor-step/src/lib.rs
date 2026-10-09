@@ -10,7 +10,7 @@ pub use crate::{
         read_step_copies,
     },
     write::{
-        SCHEMA, StepBody, StepDetails, StepWritten, WriteError, write_step, write_step_detailed,
-        write_step_keeping_what_can_be,
+        SCHEMA, StepBody, StepDetails, StepThread, StepWritten, WriteError, write_step,
+        write_step_detailed, write_step_keeping_what_can_be,
     },
 };

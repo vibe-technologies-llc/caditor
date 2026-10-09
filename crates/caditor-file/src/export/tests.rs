@@ -72,6 +72,7 @@ fn mesh_of(solid: &Solid, resolution: MeshResolution) -> MeshBody<'_> {
             solid,
             look: None,
             group: None,
+            threads: &[],
         },
         &resolution.tolerance([solid]),
         &CancelToken::never(),
@@ -326,12 +327,14 @@ fn a_text_stl_keeps_each_body_as_a_named_solid_with_exact_coordinates() {
             solid: &far,
             look: None,
             group: None,
+            threads: &[],
         },
         ExportBody {
             name: "Kühler\tpin",
             solid: &pin,
             look: None,
             group: None,
+            threads: &[],
         },
     ];
     let options = MeshOptions {
@@ -391,6 +394,7 @@ fn a_binary_stl_far_from_the_origin_is_moved_near_it_and_says_by_how_much() {
             solid,
             look: None,
             group: None,
+            threads: &[],
         }]
     };
     let export = |path: &Path, solid| {
@@ -442,6 +446,7 @@ fn a_3mf_thumbnail_is_a_png_the_package_relationships_point_to() {
         solid: &block,
         look: None,
         group: None,
+        threads: &[],
     }];
     let pixels: Vec<u8> = (0..4 * 3)
         .flat_map(|index| [index * 20, 40, 200, 255])
@@ -724,12 +729,14 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
                 material: None,
             }),
             group: None,
+            threads: &[],
         },
         ExportBody {
             name: "Pin",
             solid: &pin,
             look: None,
             group: None,
+            threads: &[],
         },
         ExportBody {
             name: "Cap",
@@ -740,6 +747,7 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
                 material: Some("Cast iron"),
             }),
             group: None,
+            threads: &[],
         },
     ];
 
@@ -783,6 +791,7 @@ fn an_obj_never_replaces_a_material_library_it_did_not_write() {
             material: None,
         }),
         group: None,
+        threads: &[],
     }];
 
     export_obj(&path, &coloured);
@@ -818,6 +827,7 @@ fn an_obj_of_plain_bodies_writes_no_material_library() {
             solid: &block,
             look: None,
             group: None,
+            threads: &[],
         }],
     );
 
@@ -908,6 +918,40 @@ fn a_glb_gives_a_coloured_body_a_material_in_linear_colour() {
     assert_eq!(factor[1], 0.0);
     assert!((factor[2].as_f64().unwrap() - 0.2158605).abs() < 1e-6);
     assert_eq!(factor[3], 1.0);
+}
+
+#[test]
+fn a_glb_node_and_an_obj_object_name_the_threads_of_their_body() {
+    let block = block();
+    let threads = [ExportThread {
+        designation: "M6-6H".to_owned(),
+        start: Point3::new(5.0, 5.0, 10.0),
+        direction: -Vector3::Z,
+        length: 8.0,
+    }];
+    let mut meshes = [
+        mesh_of(&block, MeshResolution::Coarse),
+        mesh_of(&block, MeshResolution::Coarse),
+    ];
+    meshes[0].threads = &threads;
+
+    let glb = glb(&gltf::encode(&meshes, &ModelProperties::default()).unwrap());
+    let obj = String::from_utf8(obj::encode(&meshes, None, &ModelProperties::default()).unwrap())
+        .unwrap();
+
+    assert_eq!(
+        glb.json["nodes"][0]["extras"],
+        serde_json::json!({ "threads": ["M6-6H"] })
+    );
+    assert!(glb.json["nodes"][1].get("extras").is_none());
+    assert_eq!(obj.matches("# Thread: M6-6H").count(), 1);
+    let thread_line = obj.lines().position(|line| line == "# Thread: M6-6H");
+    assert_eq!(
+        thread_line,
+        obj.lines()
+            .position(|line| line.starts_with("o "))
+            .map(|line| line + 1)
+    );
 }
 
 #[test]
@@ -1018,6 +1062,7 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
         solid: &block,
         look: None,
         group: None,
+        threads: &[],
     }];
     for format in ExportFormat::ALL {
         let path = dir.path().join(format!("part.{}", format.extension()));
@@ -1067,6 +1112,7 @@ fn a_step_export_styles_a_coloured_body_with_its_colour() {
             material: Some("Steel"),
         }),
         group: None,
+        threads: &[],
     }];
 
     export_bodies(
@@ -1101,6 +1147,7 @@ fn a_step_export_writes_the_transparency_of_a_see_through_body_and_reads_it_back
             material: None,
         }),
         group: None,
+        threads: &[],
     };
     let bodies = [body("Acrylic", Some(25)), body("Frame", None)];
 
@@ -1141,6 +1188,7 @@ fn a_step_export_puts_bodies_in_a_folder_on_a_layer_named_after_it() {
         solid: &block,
         look: None,
         group,
+        threads: &[],
     };
     let bodies = [
         body("Bolt", Some("Hardware")),
@@ -1172,12 +1220,14 @@ fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept(
             solid: &block,
             look: None,
             group: None,
+            threads: &[],
         },
         ExportBody {
             name: "Bad",
             solid: &block,
             look: None,
             group: None,
+            threads: &[],
         },
     ];
     let mesher = |body: &ExportBody<'_>| match body.name {
@@ -1185,6 +1235,7 @@ fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept(
         _ => Ok(MeshBody {
             name: "Good",
             look: None,
+            threads: &[],
             positions: Vec::new(),
             triangles: Vec::new(),
         }),
@@ -1213,6 +1264,7 @@ fn a_cancelled_or_empty_export_writes_nothing() {
         solid: &block,
         look: None,
         group: None,
+        threads: &[],
     }];
     let cancelled = Arc::new(AtomicBool::new(true));
     let flag = Arc::clone(&cancelled);
@@ -1272,6 +1324,7 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
         solid: &block,
         look: None,
         group: None,
+        threads: &[],
     }];
     for (format, name, allowed) in [
         (ExportFormat::Stl, "part.stl", 2),
@@ -1952,6 +2005,7 @@ fn a_step_export_names_its_product_and_header_from_the_model_properties() {
         solid: &block,
         look: None,
         group: None,
+        threads: &[],
     }];
 
     export_bodies(

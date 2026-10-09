@@ -132,6 +132,11 @@ paths:
   `partnumber` when there is one body, glTF as `asset.extras` (`title`, `partNumber`, `revision`,
   `author`, `organisation`, `description`), OBJ as `# <Label>: <value>` lines after its header.
   STL has nowhere to put them.
+- `ExportBody::threads` (`ExportThread`: designation, start, direction, length; the app fills it
+  from `placed_threads` for the body) carry cosmetic threads where the format has room: STEP as a
+  thread property of the body's part (`step-write.md`), glTF as the node's `extras.threads` (the
+  designations), OBJ as a `# Thread: <designation>` line after the object's `o` line. STL and 3MF
+  carry none: 3MF would need metadata in a namespace of our own on each object.
 - Saved atomically like a model. Cancellation is checked between bodies and before writing;
   failures are sentences naming the body. A body that cannot be meshed or written (a panic
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that

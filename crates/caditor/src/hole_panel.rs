@@ -146,8 +146,8 @@ impl Panel<'_> {
             feature_fields::description_row(
                 ui,
                 &format!(
-                    "Thread {thread}: printed at the tap drill size, then cut with a tap or by a \
-                     self-tapping screw"
+                    "Thread {thread}: drawn on each bore and named in the exports, printed at the \
+                     tap drill size, then cut with a tap or by a self-tapping screw"
                 ),
             );
         }

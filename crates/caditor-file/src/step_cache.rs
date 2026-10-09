@@ -114,6 +114,7 @@ mod tests {
                 colour: None,
                 opacity: None,
                 layer: None,
+                threads: &[],
             }],
             "Block",
             SystemTime::UNIX_EPOCH,

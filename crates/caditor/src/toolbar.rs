@@ -18,7 +18,7 @@ use crate::{
     shell_tools,
     sketch_placement::SketchTarget,
     solid_tools::{self, Sweep},
-    split_tools,
+    split_tools, thread_tools,
     viewport::CHOOSE_PLANE_PROMPT,
     widgets::ToolButton,
 };
@@ -130,6 +130,7 @@ fn group_buttons(
             solid_buttons(ui, model, context, commands, actions);
             hole_button(ui, model, context, commands, actions);
             primitive_offers(model, context, commands, actions);
+            thread_offer(model, context, commands, actions);
         }
         Group::Modify => {
             blend_buttons(ui, model, context, commands, actions);
@@ -337,6 +338,24 @@ fn hole_button(
         && let Ok(source) = source
     {
         actions.extend(hole_tools::create_actions(model, source));
+    }
+}
+
+fn thread_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.thread;
+    if commands.invoke(Command::Thread, source)
+        && let Ok(source) = source
+    {
+        actions.extend(thread_tools::create_actions(
+            model.document(),
+            model.evaluation(),
+            *source,
+        ));
     }
 }
 

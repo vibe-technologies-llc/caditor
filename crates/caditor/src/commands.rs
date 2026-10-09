@@ -106,6 +106,7 @@ pub enum Command {
     NewCylinder,
     NewSphere,
     NewTorus,
+    Thread,
     Fillet,
     Chamfer,
     Shell,
@@ -536,6 +537,7 @@ plain_commands! {
     NewCylinder,
     NewSphere,
     NewTorus,
+    Thread,
     Fillet,
     Chamfer,
     Shell,
@@ -733,6 +735,7 @@ impl Command {
             Self::NewCylinder => "model.cylinder",
             Self::NewSphere => "model.sphere",
             Self::NewTorus => "model.torus",
+            Self::Thread => "model.thread",
             Self::Fillet => "model.fillet",
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
@@ -924,6 +927,7 @@ impl Command {
             Self::NewCylinder => "Cylinder",
             Self::NewSphere => "Sphere",
             Self::NewTorus => "Torus",
+            Self::Thread => "Thread",
             Self::Fillet => "Fillet",
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
@@ -1129,6 +1133,7 @@ impl Command {
             | Self::NewCylinder
             | Self::NewSphere
             | Self::NewTorus
+            | Self::Thread
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
@@ -1310,6 +1315,7 @@ impl Command {
             Self::NewCylinder => vec![alt(Key::Y)],
             Self::NewSphere => vec![alt(Key::U)],
             Self::NewTorus => vec![alt_shift(Key::U)],
+            Self::Thread => vec![alt_shift(Key::O)],
             Self::Fillet => vec![alt(Key::F)],
             Self::Chamfer => vec![alt(Key::C)],
             Self::Shell => vec![alt(Key::S)],

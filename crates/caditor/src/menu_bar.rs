@@ -590,6 +590,7 @@ impl Menus<'_, '_> {
                     Command::Extrude,
                     Command::Revolve,
                     Command::Hole,
+                    Command::Thread,
                 ],
             );
             self.group(ui, Command::NewBox, "Primitives", &MODEL_PRIMITIVES);

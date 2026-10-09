@@ -302,6 +302,7 @@ fn written_and_read(name: &str, solid: &Solid) -> Option<(String, Vec<Solid>)> {
             colour: None,
             opacity: None,
             layer: None,
+            threads: &[],
         }],
         name,
         SystemTime::UNIX_EPOCH,

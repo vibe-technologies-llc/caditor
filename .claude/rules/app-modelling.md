@@ -15,6 +15,8 @@ paths:
   - "crates/caditor/src/move_tools.rs"
   - "crates/caditor/src/hole_tools.rs"
   - "crates/caditor/src/hole_panel.rs"
+  - "crates/caditor/src/thread_tools.rs"
+  - "crates/caditor/src/thread_panel.rs"
   - "crates/caditor/src/move_panel.rs"
   - "crates/caditor/src/move_manipulator.rs"
   - "crates/caditor/src/mirror_tools.rs"
@@ -254,6 +256,28 @@ paths:
   bottom a 118° cone, with its Drill point angle field, key `drill-point-angle`), Reverse direction, and the Sketch and Body rows (the body
   a list of `bodies_before`). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.
+
+## Thread
+
+- Thread (Alt+Shift+O, Model menu, palette; not on the ribbon, which it would widen past one row)
+  takes the one selected cylindrical face of a shown body (`thread_tools::selected_face`; a flat
+  face, several faces or anything else selected with it is refused in words) and creates a
+  `Thread` named "Thread on <the face in words>" (numbered when taken), of the ISO metric coarse
+  size nearest the face (its minor diameter for a bore, its major for a shaft), the side's first
+  class, right-handed and the whole face long, then opens it.
+- The panel describes it, then Face in words with its Side (internal or external, read from the
+  face), the Designation as exported, Standard (a combo; switching takes the standard's size
+  nearest the face and its first class for the side), Size, Class (the classes for the face's
+  side; hidden when the standard has only the one), Hand (Right, Left), Length (Full face, Depth
+  with its Depth field and Start from the other end) and Body. The face and side are read from
+  the body as the thread sees it (`thread_tools::threaded_bore`).
+- Threads are drawn on shown bodies (`scene::Builder::threads`, from `placed_threads`), outside
+  sketch editing: the thread's circle (the major diameter for a bore, the minor for a shaft) solid
+  at its start, the same circle dashed at its end and four dashed lines along it, each also drawn
+  on `Layer::Hidden` so the parts inside the material show dashed through it, in
+  `ScenePalette::thread` (held to 3:1 on a body in high contrast), the open thread in the selected
+  colour and wider. A hidden thread is drawn only while open. A tapped hole's threads are drawn
+  the same way, and the Hole panel says so.
 
 ## Combine
 

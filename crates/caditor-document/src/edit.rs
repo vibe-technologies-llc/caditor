@@ -781,6 +781,7 @@ impl Document {
             | (FeatureKind::Shell(_), FeatureKind::Shell(_))
             | (FeatureKind::OffsetFace(_), FeatureKind::OffsetFace(_))
             | (FeatureKind::Primitive(_), FeatureKind::Primitive(_))
+            | (FeatureKind::Thread(_), FeatureKind::Thread(_))
             | (FeatureKind::Combine(_), FeatureKind::Combine(_))
             | (FeatureKind::Move(_), FeatureKind::Move(_))
             | (FeatureKind::Mirror(_), FeatureKind::Mirror(_))

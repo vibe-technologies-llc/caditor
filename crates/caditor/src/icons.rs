@@ -147,6 +147,7 @@ pub fn command(command: Command) -> &'static str {
         Command::NewCylinder => primitive(PrimitiveKind::Cylinder),
         Command::NewSphere => primitive(PrimitiveKind::Sphere),
         Command::NewTorus => primitive(PrimitiveKind::Torus),
+        Command::Thread => THREAD,
         Command::Combine => COMBINE,
         Command::Move => MOVE,
         Command::CopyBody => COPY_BODY,
@@ -268,6 +269,7 @@ const MOVE: &str = phosphor::HAND_GRABBING;
 const MIRROR: &str = phosphor::FLIP_HORIZONTAL;
 const SPLIT: &str = phosphor::SQUARE_SPLIT_HORIZONTAL;
 const OFFSET_FACE: &str = phosphor::ARROWS_OUT_LINE_VERTICAL;
+const THREAD: &str = phosphor::SPIRAL;
 const SCALE: &str = phosphor::RESIZE;
 const HOLE: &str = phosphor::CIRCLE_DASHED;
 const LINEAR_PATTERN: &str = phosphor::SQUARES_FOUR;
@@ -402,6 +404,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::OffsetFace(_) => OFFSET_FACE,
         FeatureKind::Primitive(primitive) => self::primitive(primitive.shape.kind()),
+        FeatureKind::Thread(_) => THREAD,
         FeatureKind::Combine(combine) => self::combine(combine.operation),
         FeatureKind::Move(movement) if movement.copy => COPY_BODY,
         FeatureKind::Move(_) => MOVE,

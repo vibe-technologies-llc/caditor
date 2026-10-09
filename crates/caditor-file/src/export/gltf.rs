@@ -160,7 +160,18 @@ fn add_body(parts: &mut Parts, body: &MeshBody<'_>) {
         "name": body.name,
         "primitives": [primitive],
     }));
-    parts.nodes.push(json!({ "name": body.name, "mesh": mesh }));
+    let mut node = json!({ "name": body.name, "mesh": mesh });
+    if !body.threads.is_empty()
+        && let Some(fields) = node.as_object_mut()
+    {
+        let threads: Vec<&str> = body
+            .threads
+            .iter()
+            .map(|thread| thread.designation.as_str())
+            .collect();
+        fields.insert("extras".to_owned(), json!({ "threads": threads }));
+    }
+    parts.nodes.push(node);
 }
 
 fn linear(colour: Rgb) -> [f64; 4] {

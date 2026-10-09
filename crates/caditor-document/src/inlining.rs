@@ -99,6 +99,7 @@ fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::Shell(shell) => vec![&mut shell.thickness],
         FeatureKind::OffsetFace(offset) => vec![&mut offset.distance],
         FeatureKind::Primitive(primitive) => primitive.expressions_mut(),
+        FeatureKind::Thread(thread) => thread.expressions_mut(),
         FeatureKind::Move(movement) => movement.expressions_mut().collect(),
         FeatureKind::Scale(scale) => std::iter::once(&mut scale.factor)
             .chain(scale.center.iter_mut())

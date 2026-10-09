@@ -1141,6 +1141,7 @@ mod step {
                 colour: None,
                 opacity: None,
                 layer: None,
+                threads: &[],
             }],
             "block",
             SystemTime::UNIX_EPOCH,
@@ -1159,6 +1160,7 @@ mod step {
                     colour: Some([200, 30, 40]),
                     opacity: None,
                     layer: None,
+                    threads: &[],
                 },
                 StepBody {
                     name: "Plain",
@@ -1166,6 +1168,7 @@ mod step {
                     colour: None,
                     opacity: None,
                     layer: None,
+                    threads: &[],
                 },
             ],
             "pair",
@@ -1200,6 +1203,7 @@ mod step {
             colour: Some([200, 30, 40]),
             opacity,
             layer: None,
+            threads: &[],
         };
         let text = write_step(
             &[
@@ -1243,6 +1247,7 @@ mod step {
             colour: None,
             opacity: None,
             layer,
+            threads: &[],
         };
         let text = write_step(
             &[
@@ -1503,6 +1508,7 @@ mod step {
                 colour: None,
                 opacity: None,
                 layer: None,
+                threads: &[],
             }],
             "pair",
             SystemTime::UNIX_EPOCH,
@@ -1592,6 +1598,7 @@ mod step {
                 colour: None,
                 opacity: None,
                 layer: None,
+                threads: &[],
             }],
             "parts",
             SystemTime::UNIX_EPOCH,
@@ -1632,6 +1639,7 @@ mod step {
                 colour: None,
                 opacity: None,
                 layer: None,
+                threads: &[],
             }],
             "Part",
             SystemTime::UNIX_EPOCH,
@@ -1718,6 +1726,7 @@ mod step {
                     colour: None,
                     opacity: None,
                     layer: None,
+                    threads: &[],
                 },
                 StepBody {
                     name: "Part",
@@ -1725,6 +1734,7 @@ mod step {
                     colour: None,
                     opacity: None,
                     layer: None,
+                    threads: &[],
                 },
             ],
             "parts",

@@ -136,5 +136,6 @@ fn result_bytes(result: &FeatureResult) -> usize {
             size_of_val(sketch) + sketch.geometry.entities().len() * SKETCH_ENTITY_BYTES
         }
         FeatureResult::Datum(datum) => size_of_val(datum),
+        FeatureResult::Thread(thread) => size_of_val(thread) + thread.designation.len(),
     }
 }

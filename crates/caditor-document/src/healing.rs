@@ -170,6 +170,9 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visitor.face(offset.body, face, &what);
             }
         }
+        FeatureKind::Thread(thread) => {
+            visitor.face(thread.body, &mut thread.face, "its threaded face");
+        }
         FeatureKind::Pattern(pattern) => match &mut pattern.kind {
             PatternKind::Linear { first, second } => {
                 visit_axis(&mut first.axis, "first direction", visitor);

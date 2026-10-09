@@ -125,6 +125,8 @@ mod split_panel;
 mod split_tools;
 mod status_bar;
 mod tangent_circling;
+mod thread_panel;
+mod thread_tools;
 mod toolbar;
 mod tracking;
 mod tree_row;
