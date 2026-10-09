@@ -350,8 +350,13 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] Translucent lines keep square ends, so a translucent polyline still notches where
   its segments meet at an angle; joining them without blending twice needs mitred joins built
   from the neighbouring segments, which instances do not know.
-- [low · medium] On GL and other devices without texture view formats the multisample resolve
-  still averages in gamma space: a resolve of its own (a pass reading the samples) would fix it.
+- [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
+  formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
+  reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was
+  tried: it matches the view-format resolve on Vulkan, but wgpu 30's GL backend binds a
+  multisampled texture as `TEXTURE_2D` (`gles::Texture::get_info_from_desc` never chooses
+  `TEXTURE_2D_MULTISAMPLE`), so every sample reads as zero there and the frame comes out black. It
+  needs that fixed in wgpu, or a GL-only blit resolve into an sRGB texture.
 
 ## Interface performance
 
