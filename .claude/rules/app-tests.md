@@ -18,6 +18,12 @@ paths:
   the button across frames (`hold_drag`, `release_drag`) so a test can read mid-drag state.
 - Overlap checks compare only the visible part of each text (`Harness::text_clips`), since
   content scrolled under a bar is clipped there.
+- `settle` waits for the recompute and body meshing, runs two frames, and starts over while those
+  frames started more (opening a feature meshes the body before it from a frame), so the scene
+  after it is the finished one. `point_at`, and so `click_at`, settles first when a recompute or
+  meshing is still running: its result changes the panels (a sketch's status pills), and a
+  layout change landing between working out a screen position and the frame that reads the
+  pointer would put the pointer somewhere else in the sketch.
 - A constraint trial (`app-sketching.md`) is waited for at the end of each harness frame
   (`Model::finish_checking_constraints`), so a constraint button's result is in the document by
   the next check as if applied at once.

@@ -446,12 +446,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Checks and CI
 
-- [medium · medium] Three UI tests fail now and then when the app suite runs in a release build
-  (`cargo test --release -p caditor`, about one run in two), never in debug or alone:
-  `a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_view` finds no body
-  mesh yet in `built_with_meshes(1)`, and `a_point_placed_where_two_lines_cross_is_held_on_both`
-  and `a_point_placed_at_the_centre_of_a_triangle_lands_there_but_is_not_kept_there` find the point
-  away from where it was placed. The race behind them has not been found yet.
 - [medium · medium] `tests/crash_flush.rs` runs the crash protection with a real storage worker in a
   child process, not the app itself. `check-install.sh` only runs `--version`; start the packaged
   binary to a first frame under Xvfb and lavapipe, kill it there and recover its journal, check its
