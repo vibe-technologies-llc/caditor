@@ -15,10 +15,11 @@ use caditor_document::{
     ModelProperties, Rgb, placed_threads,
 };
 use caditor_file::{
-    ExportBody, ExportError, ExportFormat, ExportThread, Exported, Look, MeshOptions,
+    ExportBody, ExportError, ExportFace, ExportFormat, ExportThread, Exported, Look, MeshOptions,
     MeshResolution, RgbaImage, StlEncoding,
 };
 use caditor_geometry::Vector3;
+use caditor_kernel::Solid;
 use caditor_render::{ImageError, SurfaceSize};
 use egui::{ScrollArea, Sides, Ui};
 use parking_lot::Mutex;
@@ -181,6 +182,26 @@ pub struct ExportSource {
     pub look: Option<OwnedLook>,
     pub group: Option<String>,
     pub threads: Vec<ExportThread>,
+    pub faces: Vec<ExportFace>,
+}
+
+fn face_looks(appearance: &BodyAppearance, solid: &Solid) -> Vec<ExportFace> {
+    if appearance.faces.is_empty() {
+        return Vec::new();
+    }
+    let colours = appearance.face_colours(solid);
+    let opacities = appearance.face_opacities(solid);
+    solid
+        .faces()
+        .enumerate()
+        .filter_map(|(face, (id, _))| {
+            Some(ExportFace {
+                face,
+                colour: *colours.get(&id)?,
+                opacity: opacities.get(&id).copied(),
+            })
+        })
+        .collect()
 }
 
 impl ExportSource {
@@ -195,6 +216,10 @@ impl ExportSource {
             result: Arc::clone(result),
             look: feature.and_then(|feature| OwnedLook::of(&feature.appearance)),
             group: feature.and_then(|feature| feature.group.clone()),
+            faces: match (feature, result.solid()) {
+                (Some(feature), Some(shown)) => face_looks(&feature.appearance, &shown.solid),
+                _ => Vec::new(),
+            },
             threads: placed_threads(document, evaluation)
                 .into_iter()
                 .filter(|thread| thread.body == body)
@@ -215,6 +240,7 @@ impl ExportSource {
             look: self.look.as_ref().map(OwnedLook::borrowed),
             group: self.group.as_deref(),
             threads: &self.threads,
+            faces: &self.faces,
         })
     }
 }

@@ -39,6 +39,7 @@ fn prism_text(sides: usize) -> String {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Prism",
         SystemTime::UNIX_EPOCH,

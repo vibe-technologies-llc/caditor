@@ -53,22 +53,51 @@ paths:
 
 ## Colours, opacity and layers (`presentation.rs`)
 
-- Each solid gets a `colour`, an `opacity` and a `layer`, or none. A `STYLED_ITEM` (an `OVER_RIDING_STYLED_ITEM`
-  wins) gives its item the first surface colour found within `SEARCH_DEPTH` references of its
-  styles: a `COLOUR_RGB` (channels clamped to 0–1, times 255) or a `DRAUGHTING_PRE_DEFINED_COLOUR`
-  of the eight named ones; curve, point and text styles are skipped. The first
-  `SURFACE_STYLE_TRANSPARENT` found the same way (loose in a side style, or in the properties of a
-  `SURFACE_STYLE_RENDERING_WITH_PROPERTIES`) gives the opacity, a percent of one minus its
-  transparency clamped to 0–1, found and assigned apart from the colour so a style with one and
-  not the other gives only that one; an opacity of 100 is none. A
-  `PRESENTATION_LAYER_ASSIGNMENT` puts its items on its layer, a styled item counting as the item
-  it styles; the first layer naming an item keeps it.
-- A solid takes the value on itself, else on one of its shells, else the value every face shares;
-  a face without one, or faces differing, give none, so a part of mixed face colours (or of some
-  see-through faces) keeps the default look rather than one of them.
-- Each face whose own colour or opacity differs from its solid's becomes a `FaceLook` on the solid,
-  by its index among the kernel faces (`Built::faces` maps them to file faces; faceted bodies have
-  none): its colour when it differs, its opacity (100 is explicitly solid) when it differs.
+- Each solid gets a `colour`, an `opacity` and a `layer`, or none, and `FaceLook`s for its faces.
+  Every styled item counts, whichever representation lists it (a
+  `MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION` or none): `STYLED_ITEM`,
+  `OVER_RIDING_STYLED_ITEM` (its values win over plain styles of the same item) and
+  `CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM`, simple or complex instances. A style on an
+  `ORIENTED_FACE` is its face's.
+- Styles are read by their structure, never searched: `PRESENTATION_STYLE_ASSIGNMENT` (or
+  `PRESENTATION_STYLE_BY_CONTEXT`), `SURFACE_STYLE_USAGE` (`.POSITIVE.` and `.BOTH.` give the
+  outside, used first; `.NEGATIVE.` only when nothing else is stated), `SURFACE_SIDE_STYLE`,
+  `SURFACE_STYLE_FILL_AREA` with `FILL_AREA_STYLE_COLOUR`, `SURFACE_STYLE_RENDERING` and
+  `..._WITH_PROPERTIES` (their colour, `$` allowed, counts after a fill colour; their
+  `SURFACE_STYLE_TRANSPARENT` and reflectances), and `SURFACE_STYLE_TRANSPARENT` loose in a side
+  style, so a style's every part counts, not the first found. A `COLOUR_RGB` in 0–1 (or 0–255 when
+  a channel passes 1) or a `DRAUGHTING_PRE_DEFINED_COLOUR` of the eight named ones gives the colour;
+  a transparency in 0–1 gives the opacity, a percent of one minus it. `NULL_STYLE` states the item
+  plain. Curve, point, text and the surface's curve styles are skipped silently.
+- What cannot be understood (an unknown colour or style kind, a colour name not among the eight, a
+  transparency outside 0–1, a hatched or tiled fill, a style missing from the file, a style for
+  one copy matching none) is named by entity in one note, at most `MOST_NAMED_PROBLEMS` listed,
+  only when it styles something imported (a solid, shell, face or a link placing one); what it
+  styles keeps the look it has without it.
+- Inheritance: a face takes the first stated value from itself, its shell, its solid, then the
+  links that place this copy, innermost first. A level stating a colour states its opacity too
+  (opaque without a transparency), so a coloured face on a see-through body is opaque; a level
+  stating only a transparency leaves the colour to the levels above.
+- Assembly instances: each placement carries its path (`Placements::paths`: its representations,
+  the relationship or `MAPPED_ITEM` of every link and the `NEXT_ASSEMBLY_USAGE_OCCURRENCE` of each),
+  so a plain style on a `MAPPED_ITEM` or relationship styles the copies it places, and a
+  `CONTEXT_DEPENDENT_OVER_RIDING_STYLED_ITEM` (or a `PRESENTATION_STYLE_BY_CONTEXT`) applies only
+  to copies whose path holds every element of its context, the longest context winning. Looks are
+  worked out per placement, shared between copies whose styled path is the same
+  (`placement_key`).
+- The body's look is the first stated by its solid, its shells or the links above; when none
+  states anything, the colour and the opacity most of its faces share (ties to the first face's),
+  so a part whose faces are all styled (SolidWorks, NX) takes its main colour. Each face whose
+  colour or opacity differs from the body's is a `FaceLook` by its index among the kernel faces
+  (`Built::faces` maps them to file faces): its colour when it differs (a face with none under a
+  coloured body cannot say so and takes the body's), its opacity (100 is explicitly solid) when it
+  differs.
+- A faceted body (`Healing::Faceted`) carries its faces' looks too: each flat face takes the file
+  face covering most of its area among the triangles it was made of (`FacetedSolids::sources`,
+  `SolidBuilder::unvalidated_mesh`'s face per triangle); a face only of closing fans has none.
+- A `PRESENTATION_LAYER_ASSIGNMENT` puts its items on its layer, a styled item counting as the
+  item it styles; the first layer naming an item keeps it. A solid takes the layer on itself, else
+  on one of its shells, else the one every face shares.
 
 ## Units and precision
 

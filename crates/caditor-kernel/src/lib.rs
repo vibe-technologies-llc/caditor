@@ -48,8 +48,8 @@ pub use crate::{
     curve2::{BSplineCurve2, Circle2, Curve2, Curve2Derivatives, Curve2Sample, Ellipse2, Line2},
     error::GeometryError,
     faceted::{
-        FacetedError, FacetedSolids, MAX_FACETED_FACES, MAX_FILLED_HOLE_EDGES, MeshRepairs,
-        TriangleMesh, faceted_solids,
+        FaceMesh, FacetedError, FacetedSolids, MAX_FACETED_FACES, MAX_FILLED_HOLE_EDGES,
+        MeshRepairs, TriangleMesh, faceted_solids,
     },
     hole_faces::hole_faces,
     interrupt::{Interrupt, Interrupted, check as check_interrupt, interruptible},

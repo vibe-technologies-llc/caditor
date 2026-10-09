@@ -311,20 +311,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
-- [medium · hard] STEP transparency is only half carried. Writing: a body's opacity is written
-  only beside a colour (a see-through body of the default colour exports opaque), and face colours
-  and face opacities (`FaceLook`s) are not written at all, so a part with some see-through faces
-  loses them on export. Reading: a see-through face coloured by neither itself nor its body
-  imports opaque, a solid whose faces differ in colour or opacity keeps the default look rather
-  than the look most of them share, face looks are dropped for parts stored as several lumps and
-  for faceted bodies, and only the first `SURFACE_STYLE_TRANSPARENT` found within the search depth
-  counts. Make both directions complete: write opacity with or without a colour and per face,
-  read every form of styled item that AP214, AP242 and the CAD exporters (SolidWorks, CATIA,
-  Creo, NX, Fusion, FreeCAD) use for a see-through body or face, including any that style
-  assembly instances, carry the looks through lumps and faceted bodies, and hold by round trip
-  tests that a body, a mix of faces and an assembly come back with exactly their colours and
-  opacities. Then check files from those systems and have the import report say what it could not
-  understand. `step-read.md` and `step-write.md` change in the same commit.
+- [low · easy] STEP styling is read and written in every form the standard and the tests
+  cover (`step-read.md`), but has been checked only against a handful of real files with plain
+  colours. Read files with see-through bodies and faces and with copies coloured on their own from
+  SolidWorks, CATIA, Creo, NX, Fusion and FreeCAD (`STEP_CORPUS`), and support any styling the
+  import report names as not understood.
 - [high · hard] Importing a large STEP file is slow, and its bodies appear in the view one by one
   over a long stretch instead of together. Nothing has been measured yet: start by timing a large
   import in release stage by stage (reading and healing, the recompute of each body, tessellation,

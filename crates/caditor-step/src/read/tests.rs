@@ -15,6 +15,7 @@ fn round_trip(name: &str, solid: &caditor_kernel::Solid) -> caditor_kernel::Soli
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         name,
         SystemTime::UNIX_EPOCH,
@@ -103,6 +104,7 @@ fn a_file_cut_short_inside_its_data_reads_the_solids_before_the_cut() {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "plate",
         SystemTime::UNIX_EPOCH,
@@ -137,6 +139,7 @@ fn a_file_with_a_damaged_header_and_no_closing_line_still_reads_its_solids() {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "plate",
         SystemTime::UNIX_EPOCH,
@@ -283,6 +286,7 @@ fn lengths_follow_the_unit_of_the_file() {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -304,6 +308,7 @@ fn lengths_follow_the_unit_of_the_file() {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -338,6 +343,7 @@ fn lengths_follow_the_unit_of_the_file() {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -437,6 +443,7 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Bracket",
         SystemTime::UNIX_EPOCH,
@@ -460,6 +467,7 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
             StepBody {
                 name: "Right",
@@ -468,6 +476,7 @@ fn a_single_body_takes_its_product_name_and_several_keep_their_own() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
         ],
         "Bracket",
@@ -494,6 +503,7 @@ fn coloured_bodies_read_back_as_the_same_solids() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
             StepBody {
                 name: "Plain",
@@ -502,6 +512,7 @@ fn coloured_bodies_read_back_as_the_same_solids() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
         ],
         "Bracket",
@@ -518,7 +529,7 @@ fn coloured_bodies_read_back_as_the_same_solids() {
     assert_eq!(names, ["Red", "Plain"]);
 }
 
-fn faceted_cube(top: &str, missing_face: bool) -> String {
+pub(super) fn faceted_cube(top: &str, missing_face: bool) -> String {
     const FACES: [[usize; 4]; 6] = [
         [0, 2, 3, 1],
         [4, 5, 7, 6],
@@ -783,6 +794,7 @@ fn offset_of(
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Offset",
         SystemTime::UNIX_EPOCH,
@@ -1076,7 +1088,12 @@ fn replicas_of_points_curves_and_surfaces_are_their_parents_transformed() {
     assert_same_shape("replicas", &plate, &model.solids[0].solid);
 }
 
-fn with_precision(text: &str, representation: &str, brep: u64, precision: &str) -> String {
+pub(super) fn with_precision(
+    text: &str,
+    representation: &str,
+    brep: u64,
+    precision: &str,
+) -> String {
     text.replace(
         "ENDSEC;\nEND-ISO-10303-21;",
         &format!(
@@ -1114,6 +1131,7 @@ fn only_repairs_beyond_the_precision_of_the_file_are_reported() {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -1240,6 +1258,7 @@ fn a_surface_of_revolution_whose_profile_is_not_in_a_meridian_plane_is_refused()
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Vase",
         SystemTime::UNIX_EPOCH,
@@ -1369,6 +1388,7 @@ fn a_colour_written_on_a_body_reads_back_and_uncoloured_bodies_have_none() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
             StepBody {
                 name: "Plain",
@@ -1377,6 +1397,7 @@ fn a_colour_written_on_a_body_reads_back_and_uncoloured_bodies_have_none() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
         ],
         "model",
@@ -1399,7 +1420,7 @@ fn a_colour_written_on_a_body_reads_back_and_uncoloured_bodies_have_none() {
 }
 
 #[test]
-fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_give_none() {
+fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_the_most_shared() {
     let plate = fixtures::plate_with_hole();
     let text = write_step(
         &[StepBody {
@@ -1409,6 +1430,7 @@ fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_give_none() 
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -1447,11 +1469,25 @@ fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_give_none() 
         let mut styled = text.clone();
         let end = styled.rfind("ENDSEC;").unwrap();
         styled.insert_str(end, &extra);
-        read_step(&styled).unwrap().solids.remove(0).colour
+        read_step(&styled).unwrap().solids.remove(0)
     };
 
-    assert_eq!(styled(&["#900007"]), Some([0, 0, 255]));
-    assert_eq!(styled(&["#900007", "#900017"]), None);
+    let one = styled(&["#900007"]);
+    let mixed = styled(&["#900007", "#900007", "#900017"]);
+    let mostly_green = styled(&["#900017", "#900017", "#900007"]);
+
+    assert_eq!((one.colour, one.faces.len()), (Some([0, 0, 255]), 0));
+    assert_eq!(mixed.colour, Some([0, 0, 255]));
+    let green: Vec<usize> = (0..faces.len()).filter(|face| face % 3 == 2).collect();
+    let found: Vec<usize> = mixed.faces.iter().map(|look| look.face).collect();
+    assert_eq!(found, green);
+    assert!(
+        mixed
+            .faces
+            .iter()
+            .all(|look| (look.colour, look.opacity) == (Some([0, 255, 0]), None))
+    );
+    assert_eq!(mostly_green.colour, Some([0, 255, 0]));
 }
 
 fn styled_faces(
@@ -1527,16 +1563,19 @@ fn faces_of_their_own_colour_or_see_through_carry_their_look_onto_the_imported_f
     let overridden = styled_faces(&text, Some("#900007"), "#900027", None);
     let shared = styled_faces(&text, None, "#900007", Some("#900007"));
 
-    assert_eq!((two_colours.colour, two_colours.opacity), (None, None));
-    assert_eq!(two_colours.faces.len(), faces);
-    for look in &two_colours.faces {
-        let expected = if is_top(&two_colours.solid, look.face) {
-            (Some([255, 0, 0]), Some(50))
-        } else {
-            (Some([0, 0, 255]), None)
-        };
-        assert_eq!((look.colour, look.opacity), expected, "{look:?}");
-    }
+    assert!(faces > 2);
+    assert_eq!(
+        (two_colours.colour, two_colours.opacity),
+        (Some([0, 0, 255]), None)
+    );
+    let [top] = two_colours.faces.as_slice() else {
+        panic!(
+            "expected only the top face to differ: {:?}",
+            two_colours.faces
+        );
+    };
+    assert!(is_top(&two_colours.solid, top.face));
+    assert_eq!((top.colour, top.opacity), (Some([255, 0, 0]), Some(50)));
     assert_eq!(overridden.colour, Some([0, 0, 255]));
     assert_eq!(overridden.faces.len(), 1);
     assert!(is_top(&overridden.solid, overridden.faces[0].face));
@@ -1555,6 +1594,7 @@ fn an_opacity_written_on_a_body_reads_back_and_opaque_bodies_have_none() {
         opacity,
         layer: None,
         threads: &[],
+        faces: &[],
     };
     let text = write_step(
         &[
@@ -1586,6 +1626,12 @@ fn an_opacity_written_on_a_body_reads_back_and_opaque_bodies_have_none() {
 }
 
 fn plate_styled_by(side_style_elements: &str, entities: &str) -> StepSolid {
+    plate_styled_model(side_style_elements, entities)
+        .solids
+        .remove(0)
+}
+
+fn plate_styled_model(side_style_elements: &str, entities: &str) -> crate::read::StepModel {
     let plate = fixtures::plate_with_hole();
     let text = write_step(
         &[StepBody {
@@ -1595,6 +1641,7 @@ fn plate_styled_by(side_style_elements: &str, entities: &str) -> StepSolid {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Panel",
         SystemTime::UNIX_EPOCH,
@@ -1614,7 +1661,7 @@ fn plate_styled_by(side_style_elements: &str, entities: &str) -> StepSolid {
     let mut styled = text.clone();
     let end = styled.rfind("ENDSEC;").unwrap();
     styled.insert_str(end, &extra);
-    read_step(&styled).unwrap().solids.remove(0)
+    read_step(&styled).unwrap()
 }
 
 const FILL: &str = "#900001=COLOUR_RGB('',1.,0.,0.);\n\
@@ -1646,16 +1693,26 @@ fn the_transparency_of_a_rendering_with_properties_gives_the_body_its_opacity() 
 }
 
 #[test]
-fn a_transparency_outside_zero_to_one_is_clamped_and_none_means_opaque() {
+fn a_transparency_outside_zero_to_one_is_named_as_not_understood_and_none_means_opaque() {
     let transparent = |transparency: &str| {
         let entities = format!("{FILL}#900005=SURFACE_STYLE_TRANSPARENT({transparency});\n");
-        plate_styled_by("#900004,#900005", &entities).opacity
+        let mut model = plate_styled_model("#900004,#900005", &entities);
+        (model.solids.remove(0).opacity, model.notes)
     };
 
-    assert_eq!(transparent("0."), None);
-    assert_eq!(transparent("-3."), None);
-    assert_eq!(transparent("1."), Some(0));
-    assert_eq!(transparent("7."), Some(0));
+    assert_eq!(transparent("0."), (None, Vec::new()));
+    assert_eq!(transparent("1."), (Some(0), Vec::new()));
+    for outside in ["-3.", "7."] {
+        let (opacity, notes) = transparent(outside);
+        assert_eq!(opacity, None);
+        assert_eq!(
+            notes,
+            [
+                "Some styling in the file could not be understood, so what it styles keeps the \
+              look it has without it: #900005, a transparency that is not between 0 and 1."
+            ]
+        );
+    }
     assert_eq!(plate_styled_by("#900004", FILL).opacity, None);
 }
 
@@ -1669,6 +1726,7 @@ fn a_layer_written_on_bodies_reads_back_on_each_and_unlayered_bodies_have_none()
         opacity: None,
         layer,
         threads: &[],
+        faces: &[],
     };
     let text = write_step(
         &[
@@ -1709,6 +1767,7 @@ fn a_layer_holding_a_styled_item_puts_the_styled_body_on_it() {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "Plate",
         SystemTime::UNIX_EPOCH,
@@ -1741,6 +1800,7 @@ fn written(name: &str, solid: &caditor_kernel::Solid) -> String {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         name,
         SystemTime::UNIX_EPOCH,

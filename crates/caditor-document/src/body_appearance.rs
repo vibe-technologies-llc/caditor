@@ -11,6 +11,7 @@ pub const MIN_OPACITY_PERCENT: u8 = 10;
 pub const OPAQUE_PERCENT: u8 = 100;
 pub const OPACITY_STEPS: [u8; 3] = [75, 50, 25];
 pub const MAX_DENSITY: f64 = 100.0;
+pub const DEFAULT_BODY_COLOUR: Rgb = Rgb::new(150, 162, 180);
 const GRAMS_PER_CUBIC_MILLIMETRE_AT_UNIT_DENSITY: f64 = 1e-3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

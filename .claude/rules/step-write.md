@@ -22,15 +22,22 @@ paths:
   the product's and the header's `FILE_DESCRIPTION` (else the model name), the revision the
   `PRODUCT_DEFINITION_FORMATION` id, and the author and organisation fill `FILE_NAME`, which are
   otherwise empty.
-- A `StepBody` with a `colour` gets one `STYLED_ITEM` per solid, each pointing at a
-  `PRESENTATION_STYLE_ASSIGNMENT` (surface fill of `COLOUR_RGB`, the 0–255 channels over 255,
-  `.BOTH.` sides) written once per distinct colour and opacity, all gathered in one
-  `MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION` on the shape's context; uncoloured
-  bodies write no presentation at all. The reader ignores it, since its items are styled items.
-- A `StepBody` with an `opacity` below 100 (a percent, only written beside a colour) adds to its
-  side style a `SURFACE_STYLE_RENDERING_WITH_PROPERTIES` (`.NORMAL_SHADING.`, the same colour)
-  holding a `SURFACE_STYLE_TRANSPARENT` of one minus the opacity, the form AP214 and AP242
-  readers take for a see-through body; the reader reads it back.
+- A `StepBody` with a `colour`, an `opacity` below 100 or `faces` gets one `STYLED_ITEM` per
+  solid, each pointing at a `PRESENTATION_STYLE_ASSIGNMENT` written once per distinct colour and
+  opacity, all gathered in one `MECHANICAL_DESIGN_GEOMETRIC_PRESENTATION_REPRESENTATION` on the
+  shape's context; a body with none writes no presentation at all. A colour is a surface fill of
+  `COLOUR_RGB` (the 0–255 channels over 255, `.BOTH.` sides).
+- An opacity below 100 (a percent) adds to the side style a
+  `SURFACE_STYLE_RENDERING_WITH_PROPERTIES` (`.NORMAL_SHADING.`, the same colour, or `$` without
+  one) holding a `SURFACE_STYLE_TRANSPARENT` of one minus the opacity, the form AP214 and AP242
+  readers take for a see-through body, so a see-through body of no colour stays see-through. A
+  body with face looks but neither colour nor opacity styles its solids with `NULL_STYLE`, so the
+  reader keeps it plain rather than taking the look most faces share.
+- `StepBody::faces` (`FaceLook`s by index among the solid's faces; `Shapes` records each written
+  `ADVANCED_FACE`) styles each face whose look differs from the body's with its whole look: its
+  colour, else the body's, and its opacity, else the body's, 100 being solid. The reader gives the
+  same body and face looks back exactly. `lump_faces` lists the faces of each lump in the order
+  written, which import uses to carry face looks onto the lumps it stores apart.
 - A `StepBody` with a `layer` (the body's folder) is listed in one `PRESENTATION_LAYER_ASSIGNMENT`
   per distinct layer name, holding its solids; a blank name writes none.
 - A `StepBody` with `threads` (`StepThread`: designation, start, direction, length) gets one

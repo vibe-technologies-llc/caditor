@@ -33,11 +33,11 @@ pub use crate::{
     },
     export::{
         Annotations, Construction, DrawingExported, DrawingSheet, ExportBody, ExportError,
-        ExportFormat, ExportThread, Exported, FaceExported, ImageExportError, Look, MeshOptions,
-        MeshResolution, NamedFace, NamedSketch, Nesting, PNG_EXTENSION, PixelRows, PngExportError,
-        RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, SheetLayout, SketchExported, SketchFormat,
-        StlEncoding, export_bodies, export_drawing, export_face, export_faces, export_png,
-        export_sketch, export_sketches,
+        ExportFace, ExportFormat, ExportThread, Exported, FaceExported, ImageExportError, Look,
+        MeshOptions, MeshResolution, NamedFace, NamedSketch, Nesting, PNG_EXTENSION, PixelRows,
+        PngExportError, RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, SheetLayout, SketchExported,
+        SketchFormat, StlEncoding, export_bodies, export_drawing, export_face, export_faces,
+        export_png, export_sketch, export_sketches,
     },
     format::FORMAT_VERSION,
     import::{

@@ -4,7 +4,7 @@
 
 {command:file.export} writes the bodies you choose as:
 
-- **STEP**, for other CAD programs, with colours and threads.
+- **STEP**, for other CAD programs, with the colours and opacity of bodies and faces, and threads.
 - **STL**, for 3D printing, binary or text.
 - **3MF**, for 3D printing, with a thumbnail of the model.
 - **OBJ** and **glTF** (`.glb`), for other 3D programs.

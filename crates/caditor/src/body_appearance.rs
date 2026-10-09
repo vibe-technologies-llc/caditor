@@ -18,7 +18,7 @@ use crate::{
     widgets::{self, FIELD_WIDTH},
 };
 
-pub const DEFAULT_COLOUR: Rgb = Rgb::new(150, 162, 180);
+pub const DEFAULT_COLOUR: Rgb = caditor_document::DEFAULT_BODY_COLOUR;
 pub const DEFAULT_COLOUR_NAME: &str = "Default colour";
 pub const BODY_COLOUR_NAME: &str = "The body's colour";
 pub const CUSTOM_COLOUR_NAME: &str = "Custom colour";

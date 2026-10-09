@@ -1147,6 +1147,7 @@ mod step {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             }],
             "block",
             SystemTime::UNIX_EPOCH,
@@ -1166,6 +1167,7 @@ mod step {
                     opacity: None,
                     layer: None,
                     threads: &[],
+                    faces: &[],
                 },
                 StepBody {
                     name: "Plain",
@@ -1174,6 +1176,7 @@ mod step {
                     opacity: None,
                     layer: None,
                     threads: &[],
+                    faces: &[],
                 },
             ],
             "pair",
@@ -1209,6 +1212,7 @@ mod step {
             opacity,
             layer: None,
             threads: &[],
+            faces: &[],
         };
         let text = write_step(
             &[
@@ -1267,7 +1271,7 @@ mod step {
              #900017=PRESENTATION_STYLE_ASSIGNMENT((#900016));\n",
         );
         for (index, face) in faces.iter().enumerate() {
-            let style = if index % 2 == 0 { "#900017" } else { "#900007" };
+            let style = if index % 3 == 0 { "#900017" } else { "#900007" };
             styles.push_str(&format!(
                 "#{}=STYLED_ITEM('',({style}),{face});\n",
                 910_000 + index
@@ -1289,12 +1293,16 @@ mod step {
         let loaded = decode(&encode(&document).unwrap()).unwrap();
 
         assert_eq!(faces.len(), 6);
-        assert_eq!((appearance.colour, appearance.opacity), (None, None));
+        assert_eq!(
+            (appearance.colour, appearance.opacity),
+            (Some(Rgb::new(0, 0, 255)), None)
+        );
+        assert_eq!(appearance.faces.len(), 2);
         for (index, (face, _)) in solid.faces().enumerate() {
-            let expected = if index % 2 == 0 {
+            let expected = if index % 3 == 0 {
                 (Some(Rgb::new(255, 0, 0)), Some(50))
             } else {
-                (Some(Rgb::new(0, 0, 255)), None)
+                (None, None)
             };
             assert_eq!(
                 (colours.get(&face).copied(), opacities.get(&face).copied()),
@@ -1316,6 +1324,7 @@ mod step {
             opacity: None,
             layer,
             threads: &[],
+            faces: &[],
         };
         let text = write_step(
             &[
@@ -1544,8 +1553,7 @@ mod step {
         ));
     }
 
-    #[test]
-    fn a_surface_model_of_several_closed_shells_is_imported_as_a_body_per_shell() {
+    fn pair() -> Solid {
         let square = |first: u64, x: f64| -> Vec<ProfileCurve> {
             let corners = [(x, 0.0), (x + 2.0, 0.0), (x + 2.0, 2.0), (x, 2.0)];
             (0..4)
@@ -1564,26 +1572,16 @@ mod step {
             .unwrap()
             .select(&Selection::EvenDepth)
             .unwrap();
-        let pair = extrude(
+        extrude(
             &Plane::XY,
             &regions,
             LinearExtent::one_side(1.0).unwrap(),
             1,
         )
-        .unwrap();
-        let written = write_step(
-            &[StepBody {
-                name: "Pair",
-                solid: &pair,
-                colour: None,
-                opacity: None,
-                layer: None,
-                threads: &[],
-            }],
-            "pair",
-            SystemTime::UNIX_EPOCH,
-        )
-        .unwrap();
+        .unwrap()
+    }
+
+    fn as_one_surface_model(written: &str) -> String {
         let breps: Vec<(String, String)> = written
             .lines()
             .filter_map(|line| {
@@ -1594,7 +1592,7 @@ mod step {
         let [(first, first_shell), (second, second_shell)] = breps.as_slice() else {
             panic!("expected two breps in {written}");
         };
-        let text = written
+        written
             .replace(
                 &format!("{first}=MANIFOLD_SOLID_BREP('Pair',{first_shell});"),
                 &format!(
@@ -1604,7 +1602,27 @@ mod step {
             .replace(
                 &format!("{second}=MANIFOLD_SOLID_BREP('Pair',{second_shell});"),
                 &format!("{second}=CARTESIAN_POINT('',(0.,0.,0.));"),
-            );
+            )
+    }
+
+    #[test]
+    fn a_surface_model_of_several_closed_shells_is_imported_as_a_body_per_shell() {
+        let pair = pair();
+        let written = write_step(
+            &[StepBody {
+                name: "Pair",
+                solid: &pair,
+                colour: None,
+                opacity: None,
+                layer: None,
+                threads: &[],
+                faces: &[],
+            }],
+            "pair",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let text = as_one_surface_model(&written);
 
         let import = parse_step(&text, "pair.step").unwrap();
 
@@ -1614,6 +1632,125 @@ mod step {
             assert!((volume(&body.import.solid) - 4.0).abs() < 1e-6);
             assert_eq!(body.import.solid.shells().count(), 1);
         }
+    }
+
+    fn is_cap(solid: &Solid, face: usize, height: f64) -> bool {
+        let Some((_, face)) = solid.faces().nth(face) else {
+            return false;
+        };
+        matches!(face.surface(), caditor_kernel::Surface::Plane(plane)
+            if plane.frame().normal().z.abs() > 0.999
+                && (plane.frame().origin().z - height).abs() < 1e-9)
+    }
+
+    #[test]
+    fn faces_of_a_part_stored_as_several_lumps_keep_their_looks_on_each_lump() {
+        let pair = pair();
+        let right = |face: usize| {
+            let (id, _) = pair.faces().nth(face).unwrap();
+            let shell = pair.face(id).unwrap().shell();
+            pair.shells().last().is_some_and(|(last, _)| last == shell)
+        };
+        let mut looks = Vec::new();
+        for face in 0..pair.faces().count() {
+            if is_cap(&pair, face, 1.0) {
+                looks.push(caditor_step::FaceLook {
+                    face,
+                    colour: Some([255, 0, 0]),
+                    opacity: None,
+                });
+            } else if is_cap(&pair, face, 0.0) && right(face) {
+                looks.push(caditor_step::FaceLook {
+                    face,
+                    colour: None,
+                    opacity: Some(50),
+                });
+            }
+        }
+        let written = write_step(
+            &[StepBody {
+                name: "Pair",
+                solid: &pair,
+                colour: None,
+                opacity: None,
+                layer: None,
+                threads: &[],
+                faces: &looks,
+            }],
+            "pair",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let text = as_one_surface_model(&written);
+
+        let import = parse_step(&text, "pair.step").unwrap();
+
+        assert_eq!(looks.len(), 3);
+        assert_eq!(import.bodies.len(), 2);
+        let mut see_through = 0;
+        for body in &import.bodies {
+            let solid = &body.import.solid;
+            let on_right = solid
+                .bounding_box()
+                .is_some_and(|bounds| bounds.min().x > 4.0);
+            assert_eq!((body.colour, body.opacity), (None, None));
+            let tops: Vec<_> = body
+                .faces
+                .iter()
+                .filter(|face| is_cap(solid, face.face as usize, 1.0))
+                .collect();
+            assert_eq!(tops.len(), 1, "{:?}", body.faces);
+            assert_eq!(
+                (tops[0].colour, tops[0].opacity),
+                (Some(Rgb::new(255, 0, 0)), None)
+            );
+            for face in body.faces.iter().filter(|face| tops[0] != *face) {
+                assert!(on_right);
+                assert!(is_cap(solid, face.face as usize, 0.0));
+                assert_eq!((face.colour, face.opacity), (None, Some(50)));
+                see_through += 1;
+            }
+        }
+        assert_eq!(see_through, 1);
+    }
+
+    #[test]
+    fn a_see_through_face_coloured_by_neither_itself_nor_its_body_imports_see_through() {
+        let solid = block();
+        let text = write_step(
+            &[StepBody {
+                name: "Block",
+                solid: &solid,
+                colour: None,
+                opacity: None,
+                layer: None,
+                threads: &[],
+                faces: &[caditor_step::FaceLook {
+                    face: 0,
+                    colour: None,
+                    opacity: Some(25),
+                }],
+            }],
+            "block",
+            SystemTime::UNIX_EPOCH,
+        )
+        .unwrap();
+        let import = parse_step(&text, "block.step").unwrap();
+        let mut document = Document::default();
+
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+
+        let appearance = &document.features().next().unwrap().appearance;
+        assert_eq!((appearance.colour, appearance.opacity), (None, None));
+        let [face] = appearance.faces.as_slice() else {
+            panic!("expected one face look: {:?}", appearance.faces);
+        };
+        assert_eq!(
+            (face.colour, face.opacity),
+            (caditor_document::DEFAULT_BODY_COLOUR, Some(25))
+        );
     }
 
     fn block_file(dir: &tempfile::TempDir) -> std::path::PathBuf {
@@ -1669,6 +1806,7 @@ mod step {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             }],
             "parts",
             SystemTime::UNIX_EPOCH,
@@ -1710,6 +1848,7 @@ mod step {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             }],
             "Part",
             SystemTime::UNIX_EPOCH,
@@ -1797,6 +1936,7 @@ mod step {
                     opacity: None,
                     layer: None,
                     threads: &[],
+                    faces: &[],
                 },
                 StepBody {
                     name: "Part",
@@ -1805,6 +1945,7 @@ mod step {
                     opacity: None,
                     layer: None,
                     threads: &[],
+                    faces: &[],
                 },
             ],
             "parts",

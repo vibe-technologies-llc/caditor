@@ -11,7 +11,7 @@ use crate::{
     sense::Sense,
     surface::{PlaneSurface, Surface},
     tolerance::LINEAR_RESOLUTION,
-    topology::{BuildError, EdgeId, Solid, SolidBuilder, VertexId},
+    topology::{BuildError, EdgeId, FaceId, Solid, SolidBuilder, VertexId},
 };
 
 pub const MAX_FACETED_FACES: usize = 20_000;
@@ -29,6 +29,12 @@ const VOID_VOLUME_FRACTION: f64 = 1e-12;
 pub struct TriangleMesh {
     pub positions: Vec<Point3>,
     pub triangles: Vec<[usize; 3]>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FaceMesh {
+    pub mesh: TriangleMesh,
+    pub faces: Vec<FaceId>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -50,6 +56,7 @@ pub struct FacetedSolids {
     pub solids: Vec<Solid>,
     pub repairs: MeshRepairs,
     pub faces: usize,
+    pub sources: Vec<Vec<Vec<usize>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Error)]
@@ -74,20 +81,26 @@ pub enum FacetedError {
 
 pub fn faceted_solids(mesh: &TriangleMesh) -> Result<FacetedSolids, FacetedError> {
     let mut repairs = MeshRepairs::default();
-    let welded = weld(mesh, &mut repairs)?;
-    let mut triangles = clean(&welded.positions, &welded.triangles, &mut repairs);
+    let (welded, welded_sources) = weld(mesh, &mut repairs)?;
+    let (mut triangles, cleaned) = clean(&welded.positions, &welded.triangles, &mut repairs);
     if triangles.is_empty() {
         return Err(FacetedError::NoTriangles);
     }
+    let mut sources: Vec<Option<usize>> = cleaned
+        .into_iter()
+        .map(|kept| welded_sources.get(kept).copied())
+        .collect();
     repairs.filled_holes = fill_holes(&mut triangles);
+    sources.resize(triangles.len(), None);
     let positions = welded.positions;
-    let shells = shells(&positions, &triangles, &mut repairs)?;
+    let shells = shells(&positions, &triangles, &sources, &mut repairs)?;
     if shells.is_empty() {
         let open_edges = open_edge_count(&triangles);
         return Err(FacetedError::NotClosed { open_edges });
     }
     let noise = noise_of(&positions);
     let mut solids = Vec::with_capacity(shells.len());
+    let mut face_sources = Vec::with_capacity(shells.len());
     let mut faces = 0usize;
     for shell in &shells {
         interrupt::check()?;
@@ -98,15 +111,20 @@ pub fn faceted_solids(mesh: &TriangleMesh) -> Result<FacetedSolids, FacetedError
             repairs.kept_triangles += 1;
         }
         solids.push(built.solid);
+        face_sources.push(built.sources);
     }
     Ok(FacetedSolids {
         solids,
         repairs,
         faces,
+        sources: face_sources,
     })
 }
 
-fn weld(mesh: &TriangleMesh, repairs: &mut MeshRepairs) -> Result<TriangleMesh, FacetedError> {
+fn weld(
+    mesh: &TriangleMesh,
+    repairs: &mut MeshRepairs,
+) -> Result<(TriangleMesh, Vec<usize>), FacetedError> {
     let finite: Vec<Point3> = mesh
         .positions
         .iter()
@@ -131,24 +149,25 @@ fn weld(mesh: &TriangleMesh, repairs: &mut MeshRepairs) -> Result<TriangleMesh, 
         renumbered.push(Some(index));
     }
     repairs.welded = mesh.positions.len().saturating_sub(positions.len());
-    let triangles = mesh
-        .triangles
-        .iter()
-        .filter_map(|corners| {
-            let mapped = corners.map(|corner| renumbered.get(corner).copied().flatten());
-            match mapped {
-                [Some(a), Some(b), Some(c)] => Some([a, b, c]),
-                _ => {
-                    repairs.degenerate += 1;
-                    None
-                }
+    let mut triangles = Vec::with_capacity(mesh.triangles.len());
+    let mut sources = Vec::with_capacity(mesh.triangles.len());
+    for (source, corners) in mesh.triangles.iter().enumerate() {
+        let mapped = corners.map(|corner| renumbered.get(corner).copied().flatten());
+        match mapped {
+            [Some(a), Some(b), Some(c)] => {
+                triangles.push([a, b, c]);
+                sources.push(source);
             }
-        })
-        .collect();
-    Ok(TriangleMesh {
-        positions,
-        triangles,
-    })
+            _ => repairs.degenerate += 1,
+        }
+    }
+    Ok((
+        TriangleMesh {
+            positions,
+            triangles,
+        },
+        sources,
+    ))
 }
 
 fn point(positions: &[Point3], index: usize) -> Point3 {
@@ -164,13 +183,14 @@ fn clean(
     positions: &[Point3],
     triangles: &[[usize; 3]],
     repairs: &mut MeshRepairs,
-) -> Vec<[usize; 3]> {
+) -> (Vec<[usize; 3]>, Vec<usize>) {
     let scale =
         Aabb::from_points(positions.iter().copied()).map_or(0.0, |bounds| bounds.diagonal());
     let tiny = (scale * WELD_FRACTION).powi(2);
     let mut seen = BTreeSet::new();
     let mut kept = Vec::with_capacity(triangles.len());
-    for triangle in triangles {
+    let mut kept_indices = Vec::with_capacity(triangles.len());
+    for (index, triangle) in triangles.iter().enumerate() {
         let [a, b, c] = *triangle;
         if a == b || b == c || a == c || area_vector(positions, *triangle).length() <= tiny {
             repairs.degenerate += 1;
@@ -183,8 +203,9 @@ fn clean(
             continue;
         }
         kept.push(*triangle);
+        kept_indices.push(index);
     }
-    kept
+    (kept, kept_indices)
 }
 
 fn half_edges(triangle: [usize; 3]) -> [(usize, usize); 3] {
@@ -268,6 +289,7 @@ fn fill_holes(triangles: &mut Vec<[usize; 3]>) -> usize {
 
 struct Shell {
     triangles: Vec<[usize; 3]>,
+    sources: Vec<Option<usize>>,
 }
 
 fn signed_volume(positions: &[Point3], triangles: &[[usize; 3]]) -> f64 {
@@ -283,6 +305,7 @@ fn signed_volume(positions: &[Point3], triangles: &[[usize; 3]]) -> f64 {
 fn shells(
     positions: &[Point3],
     triangles: &[[usize; 3]],
+    sources: &[Option<usize>],
     repairs: &mut MeshRepairs,
 ) -> Result<Vec<Shell>, FacetedError> {
     let users = edge_users(triangles);
@@ -337,7 +360,7 @@ fn shells(
         }
         shells.push((members, open, tangled));
     }
-    let mut closed: Vec<(Vec<[usize; 3]>, f64)> = Vec::new();
+    let mut closed: Vec<(Shell, f64)> = Vec::new();
     for (members, open, tangled) in shells {
         if open {
             repairs.open_shells += 1;
@@ -347,11 +370,17 @@ fn shells(
             repairs.tangled_shells += 1;
             continue;
         }
-        let shell: Vec<[usize; 3]> = members
-            .iter()
-            .filter_map(|index| oriented.get(*index).copied())
-            .collect();
-        let volume = signed_volume(positions, &shell);
+        let shell = Shell {
+            triangles: members
+                .iter()
+                .filter_map(|index| oriented.get(*index).copied())
+                .collect(),
+            sources: members
+                .iter()
+                .map(|index| sources.get(*index).copied().flatten())
+                .collect(),
+        };
+        let volume = signed_volume(positions, &shell.triangles);
         closed.push((shell, volume));
     }
     let largest = closed
@@ -361,7 +390,13 @@ fn shells(
     let boxes: Vec<Option<Aabb>> = closed
         .iter()
         .map(|(shell, _)| {
-            Aabb::from_points(shell.iter().flatten().map(|index| point(positions, *index)))
+            Aabb::from_points(
+                shell
+                    .triangles
+                    .iter()
+                    .flatten()
+                    .map(|index| point(positions, *index)),
+            )
         })
         .collect();
     let mut kept = Vec::new();
@@ -387,11 +422,18 @@ fn shells(
         }
         let triangles = if *volume < 0.0 {
             repairs.inverted_shells += 1;
-            shell.iter().map(|[a, b, c]| [*a, *c, *b]).collect()
+            shell
+                .triangles
+                .iter()
+                .map(|[a, b, c]| [*a, *c, *b])
+                .collect()
         } else {
-            shell.clone()
+            shell.triangles.clone()
         };
-        kept.push(Shell { triangles });
+        kept.push(Shell {
+            triangles,
+            sources: shell.sources.clone(),
+        });
     }
     Ok(kept)
 }
@@ -411,6 +453,7 @@ fn noise_of(positions: &[Point3]) -> f64 {
 struct Built {
     solid: Solid,
     faces: usize,
+    sources: Vec<Vec<usize>>,
     kept_triangles: bool,
 }
 
@@ -464,9 +507,21 @@ fn shell_solid(
         };
         match assemble(&snapped, triangles, &layout) {
             Ok(solid) => {
+                let sources = layout
+                    .regions
+                    .iter()
+                    .map(|region| {
+                        region
+                            .triangles
+                            .iter()
+                            .filter_map(|triangle| shell.sources.get(*triangle).copied().flatten())
+                            .collect()
+                    })
+                    .collect();
                 return Ok(Built {
                     solid,
                     faces: layout.regions.len(),
+                    sources,
                     kept_triangles: keeping_triangles,
                 });
             }

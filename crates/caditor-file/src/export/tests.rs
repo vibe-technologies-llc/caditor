@@ -73,6 +73,7 @@ fn mesh_of(solid: &Solid, resolution: MeshResolution) -> MeshBody<'_> {
             look: None,
             group: None,
             threads: &[],
+            faces: &[],
         },
         &resolution.tolerance([solid]),
         &CancelToken::never(),
@@ -328,6 +329,7 @@ fn a_text_stl_keeps_each_body_as_a_named_solid_with_exact_coordinates() {
             look: None,
             group: None,
             threads: &[],
+            faces: &[],
         },
         ExportBody {
             name: "Kühler\tpin",
@@ -335,6 +337,7 @@ fn a_text_stl_keeps_each_body_as_a_named_solid_with_exact_coordinates() {
             look: None,
             group: None,
             threads: &[],
+            faces: &[],
         },
     ];
     let options = MeshOptions {
@@ -395,6 +398,7 @@ fn a_binary_stl_far_from_the_origin_is_moved_near_it_and_says_by_how_much() {
             look: None,
             group: None,
             threads: &[],
+            faces: &[],
         }]
     };
     let export = |path: &Path, solid| {
@@ -447,6 +451,7 @@ fn a_3mf_thumbnail_is_a_png_the_package_relationships_point_to() {
         look: None,
         group: None,
         threads: &[],
+        faces: &[],
     }];
     let pixels: Vec<u8> = (0..4 * 3)
         .flat_map(|index| [index * 20, 40, 200, 255])
@@ -730,6 +735,7 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
             }),
             group: None,
             threads: &[],
+            faces: &[],
         },
         ExportBody {
             name: "Pin",
@@ -737,6 +743,7 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
             look: None,
             group: None,
             threads: &[],
+            faces: &[],
         },
         ExportBody {
             name: "Cap",
@@ -748,6 +755,7 @@ fn an_obj_of_coloured_bodies_points_into_a_material_library_beside_it() {
             }),
             group: None,
             threads: &[],
+            faces: &[],
         },
     ];
 
@@ -792,6 +800,7 @@ fn an_obj_never_replaces_a_material_library_it_did_not_write() {
         }),
         group: None,
         threads: &[],
+        faces: &[],
     }];
 
     export_obj(&path, &coloured);
@@ -828,6 +837,7 @@ fn an_obj_of_plain_bodies_writes_no_material_library() {
             look: None,
             group: None,
             threads: &[],
+            faces: &[],
         }],
     );
 
@@ -1063,6 +1073,7 @@ fn exporting_writes_the_file_and_reports_what_it_holds() {
         look: None,
         group: None,
         threads: &[],
+        faces: &[],
     }];
     for format in ExportFormat::ALL {
         let path = dir.path().join(format!("part.{}", format.extension()));
@@ -1113,6 +1124,7 @@ fn a_step_export_styles_a_coloured_body_with_its_colour() {
         }),
         group: None,
         threads: &[],
+        faces: &[],
     }];
 
     export_bodies(
@@ -1148,6 +1160,7 @@ fn a_step_export_writes_the_transparency_of_a_see_through_body_and_reads_it_back
         }),
         group: None,
         threads: &[],
+        faces: &[],
     };
     let bodies = [body("Acrylic", Some(25)), body("Frame", None)];
 
@@ -1179,6 +1192,68 @@ fn a_step_export_writes_the_transparency_of_a_see_through_body_and_reads_it_back
 }
 
 #[test]
+fn a_step_export_writes_the_colours_and_opacities_of_faces_and_reads_them_back() {
+    let dir = TempDir::new().unwrap();
+    let block = block();
+    let path = dir.path().join("faces.step");
+    let faces = [
+        super::ExportFace {
+            face: 0,
+            colour: Rgb::new(0, 255, 0),
+            opacity: None,
+        },
+        super::ExportFace {
+            face: 2,
+            colour: Rgb::new(200, 220, 255),
+            opacity: Some(50),
+        },
+    ];
+    let bodies = [ExportBody {
+        name: "Block",
+        solid: &block,
+        look: Some(Look {
+            colour: Rgb::new(200, 220, 255),
+            opacity: None,
+            material: None,
+        }),
+        group: None,
+        threads: &[],
+        faces: &faces,
+    }];
+
+    export_bodies(
+        &path,
+        ExportFormat::Step,
+        &MeshOptions::default(),
+        &bodies,
+        &ModelProperties::default(),
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let read = caditor_step::read_step(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+    let [solid] = read.solids.as_slice() else {
+        panic!("expected one solid");
+    };
+    assert_eq!((solid.colour, solid.opacity), (Some([200, 220, 255]), None));
+    assert_eq!(
+        solid.faces,
+        [
+            caditor_step::FaceLook {
+                face: 0,
+                colour: Some([0, 255, 0]),
+                opacity: None,
+            },
+            caditor_step::FaceLook {
+                face: 2,
+                colour: None,
+                opacity: Some(50),
+            },
+        ]
+    );
+}
+
+#[test]
 fn a_step_export_puts_bodies_in_a_folder_on_a_layer_named_after_it() {
     let dir = TempDir::new().unwrap();
     let block = block();
@@ -1189,6 +1264,7 @@ fn a_step_export_puts_bodies_in_a_folder_on_a_layer_named_after_it() {
         look: None,
         group,
         threads: &[],
+        faces: &[],
     };
     let bodies = [
         body("Bolt", Some("Hardware")),
@@ -1221,6 +1297,7 @@ fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept(
             look: None,
             group: None,
             threads: &[],
+            faces: &[],
         },
         ExportBody {
             name: "Bad",
@@ -1228,6 +1305,7 @@ fn a_body_that_cannot_be_meshed_is_left_out_and_named_while_the_others_are_kept(
             look: None,
             group: None,
             threads: &[],
+            faces: &[],
         },
     ];
     let mesher = |body: &ExportBody<'_>| match body.name {
@@ -1265,6 +1343,7 @@ fn a_cancelled_or_empty_export_writes_nothing() {
         look: None,
         group: None,
         threads: &[],
+        faces: &[],
     }];
     let cancelled = Arc::new(AtomicBool::new(true));
     let flag = Arc::clone(&cancelled);
@@ -1325,6 +1404,7 @@ fn cancelling_stops_the_meshing_of_a_body_already_started() {
         look: None,
         group: None,
         threads: &[],
+        faces: &[],
     }];
     for (format, name, allowed) in [
         (ExportFormat::Stl, "part.stl", 2),
@@ -2078,6 +2158,7 @@ fn a_step_export_names_its_product_and_header_from_the_model_properties() {
         look: None,
         group: None,
         threads: &[],
+        faces: &[],
     }];
 
     export_bodies(

@@ -156,11 +156,12 @@ paths:
   `Misplacement::CopyUnplaceable`'s note.
 - Each `ImportedBody` carries the copy's STEP `colour`, its `opacity` and its `layer` as `group`,
   and its faces' own looks as `ImportedFace`s (index in the stored solid, colour, opacity snapped
-  like the body's with solid as 100, kept only when it differs from the body's), only when the
-  part is stored as one lump of as many faces, since canonicalising keeps the face order.
+  like the body's with solid as 100, kept only when it differs from the body's). Face indices are
+  carried onto each stored lump through `caditor_step::lump_faces` (the faces of each lump in the
+  order written, which canonicalising keeps), for every lump whose face count matches.
   `bodies_transaction` makes each a `FaceColour` naming the imported face
-  (`FaceName::imported`, origin `Imported`), coloured with its own colour else the body's; a face
-  see-through but coloured by neither keeps the body's look.
+  (`FaceName::imported`, origin `Imported`), coloured with its own colour, else the body's, else
+  `DEFAULT_BODY_COLOUR`, so a face see-through but coloured by neither stays see-through.
   The STEP opacity (a percent) is snapped when the copy is read to the nearest of the body's
   opacity steps, solid included (`nearest_opacity_step`, `document.md`), so a nearly solid body
   imports solid. `bodies_transaction` sets a coloured or see-through body's appearance colour and
@@ -190,7 +191,9 @@ paths:
 
 - `export_bodies` writes STEP (a body with a look styled with its colour and, when see-through
   (`Look::opacity`), its transparency, `step-write.md`; a body with an opacity but no colour or
-  material still has a look, in the app's default colour; a body in a folder
+  material still has a look, in the app's default colour; its faces' looks (`ExportBody::faces`,
+  `ExportFace` by index among the solid's faces, which the app fills from the appearance's
+  `face_colours` and `face_opacities`) styled per face; a body in a folder
   (`ExportBody::group`, the making feature's group) on a layer of the folder's name), or tessellates at a `MeshResolution` (a chord fraction of the
   largest body's diagonal plus an angle between triangles) into STL (`MeshOptions::stl`, see
   below), 3MF (one named object per body, millimetres, a thumbnail when given; a body with a
