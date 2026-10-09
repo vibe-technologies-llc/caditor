@@ -100,8 +100,13 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Conflict diagnosis confirms each constraint of a conflict with a damped
   Gauss–Newton descent over the whole part, so a conflict running through a part of a few hundred
   lines (a chain of 300 with its far end fixed out of reach) still runs out of `DIAGNOSIS_WORK` and
-  is reported as not solving; one factorisation of the Jacobian, updated per constraint left out,
-  would make each confirmation cheap.
+  is reported as not solving. Each confirmation there already converges in one step, but the set
+  found holds all 600 distances and coincidences and each step is charged its ~900 equations, so
+  trimming alone needs ~540,000 units against the ~430,000 left: the cost is quadratic in the
+  conflict's size whatever the descent does. One factorisation of the Jacobian at the set's
+  least-squares point (its left null vector gives every witness as a step through one
+  pseudo-inverse column), checked against the residuals and charged by that work, would make each
+  confirmation cheap; a confirmation that does not converge falls back to the descent.
 - [medium · hard] A sketch solved from a degenerate start can fail to solve again from its own
   result: a spline with four coincident control points, tangent to a zero-size arc on one of them,
   with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases
