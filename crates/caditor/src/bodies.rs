@@ -393,12 +393,14 @@ pub struct BodyBefore {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OpenDraft<'a> {
     pub evaluation: Option<&'a Evaluation>,
-    pub result: Option<&'a Arc<FeatureResult>>,
+    pub result: Option<(FeatureId, &'a Arc<FeatureResult>)>,
+    pub cuts: Option<&'a [Arc<FeatureResult>]>,
     pub moved: Option<(FeatureId, RigidTransform)>,
 }
 
 #[derive(Debug, Clone)]
 pub struct DraftShown {
+    pub body: FeatureId,
     pub mesh: Arc<BodyMesh>,
     pub computed: bool,
 }
@@ -490,7 +492,11 @@ impl BodyMeshes {
                 choice,
             })
         });
-        let wanted = feature.map_or(&[][..], |feature| evaluation.cuts(feature));
+        let wanted = match (feature, draft.cuts) {
+            (Some(_), Some(drafted)) => drafted,
+            (Some(feature), None) => evaluation.cuts(feature),
+            (None, _) => &[][..],
+        };
         let pending = wanted
             .iter()
             .any(|cut| matches!(meshing.lookup(cut), Converted::Pending));
@@ -544,17 +550,25 @@ impl BodyMeshes {
                         .is_some_and(|status| status.state == FeatureState::UpToDate)
             })
         });
-        let shown = match draft.result.map(|result| meshing.lookup(result)) {
-            Some(Converted::Ready(mesh)) => Some(DraftShown {
+        let shown = match draft
+            .result
+            .map(|(body, result)| (body, meshing.lookup(result)))
+        {
+            Some((body, Converted::Ready(mesh))) => Some(DraftShown {
+                body,
                 mesh: Arc::clone(mesh),
                 computed,
             }),
-            Some(Converted::Pending) => self.draft.clone(),
-            Some(Converted::Missing) | None => None,
+            Some((body, Converted::Pending)) => {
+                self.draft.clone().filter(|shown| shown.body == body)
+            }
+            Some((_, Converted::Missing)) | None => None,
         };
         let same_draft = match (&shown, &self.draft) {
             (Some(new), Some(old)) => {
-                Arc::ptr_eq(&new.mesh, &old.mesh) && new.computed == old.computed
+                new.body == old.body
+                    && Arc::ptr_eq(&new.mesh, &old.mesh)
+                    && new.computed == old.computed
             }
             (None, None) => true,
             (Some(_), None) | (None, Some(_)) => false,

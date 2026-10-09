@@ -599,18 +599,23 @@ impl Model {
         {
             self.drop_draft();
         }
-        let drafted = self.draft_body_result();
-        let open: Vec<Arc<FeatureResult>> = feature
-            .map(|feature| {
-                self.evaluation
-                    .body_before(feature)
-                    .into_iter()
-                    .chain(self.evaluation.cuts(feature))
-                    .chain(drafted.as_ref())
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
+        let drafted = self.draft_body_result().map(|(_, result)| result);
+        let cuts = self
+            .draft_cuts()
+            .unwrap_or_default()
+            .iter()
+            .chain(feature.map_or(&[][..], |feature| self.evaluation.cuts(feature)));
+        let open: Vec<Arc<FeatureResult>> = match feature {
+            Some(feature) => self
+                .evaluation
+                .body_before(feature)
+                .into_iter()
+                .chain(cuts)
+                .chain(drafted.as_ref())
+                .cloned()
+                .collect(),
+            None => Vec::new(),
+        };
         self.mesh_requested
             .retain(|requested| open.iter().any(|result| Arc::ptr_eq(result, requested)));
         self.shown_before = open.clone();
@@ -681,10 +686,16 @@ impl Model {
         }
     }
 
-    pub fn draft_body_result(&self) -> Option<Arc<FeatureResult>> {
+    pub fn draft_body_result(&self) -> Option<(FeatureId, Arc<FeatureResult>)> {
         let draft = self.draft.as_ref()?;
-        let body = self.evaluation.body_before(draft.feature)?.solid()?.body;
-        draft.evaluation.as_ref()?.body_result(body).cloned()
+        let body = self.document().feature(draft.feature)?.body()?;
+        let result = draft.evaluation.as_ref()?.body_result(body)?;
+        Some((body, Arc::clone(result)))
+    }
+
+    pub fn draft_cuts(&self) -> Option<&[Arc<FeatureResult>]> {
+        let draft = self.draft.as_ref()?;
+        Some(draft.evaluation.as_ref()?.cuts(draft.feature))
     }
 
     pub fn take_file_events(&mut self) -> Vec<FileEvent> {

@@ -255,10 +255,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
   without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
   in part can be had. It is a feature of its own, naming the faces it splits.
-- [low · medium] A primitive shows a typed size only once it is entered, not while typing as a
-  fillet's does (the draft preview draws only a body that stood before the feature), and a pattern
-  cannot repeat a primitive adding to or cutting a body as it repeats an extrusion's tool
-  (`repeatable_on`).
 - [low · medium] Expressions cannot read a measured value (a distance or angle taken from the
   geometry): parameters evaluate before and apart from recompute, so a measured one would need
   recompute to evaluate parameters in tree order beside the features, the measured reference

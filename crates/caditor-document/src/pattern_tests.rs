@@ -721,3 +721,85 @@ fn a_feature_that_made_the_body_is_not_repeated_but_named() {
     );
     assert_eq!(error.fix, Some(FixTarget::Feature(seeded.plate)));
 }
+
+fn primitive_on_plate(
+    shape: PrimitiveShape,
+    x: f64,
+    reversed: bool,
+    operation: BodyOperation,
+) -> FeatureKind {
+    let mm = |value: f64| Expression::measure(value, caditor_expression::Unit::Millimetre);
+    FeatureKind::Primitive(Primitive {
+        shape,
+        plane: PlaneReference::Principal(PrincipalPlane::Xy),
+        at: [mm(x), mm(5.0)],
+        anchor: PrimitiveAnchor::BaseCentre,
+        reversed,
+        operation,
+    })
+}
+
+#[test]
+fn a_pattern_of_features_repeats_primitives_adding_to_and_cutting_the_body() {
+    let mm = |value: f64| Expression::measure(value, caditor_expression::Unit::Millimetre);
+    let mut seeded = seeded(|_| Vec::new());
+    let pocket_shape = PrimitiveShape::Box {
+        length: mm(2.0),
+        width: mm(2.0),
+        height: mm(2.0),
+    };
+    let peg_shape = PrimitiveShape::Cylinder {
+        diameter: mm(2.0),
+        height: mm(3.0),
+    };
+
+    let mut transaction = seeded.document.transaction("Primitives");
+    let pocket = transaction.add_feature(
+        "Pocket",
+        primitive_on_plate(
+            pocket_shape,
+            15.0,
+            false,
+            BodyOperation::Remove(seeded.plate),
+        ),
+    );
+    let peg = transaction.add_feature(
+        "Peg",
+        primitive_on_plate(peg_shape, 17.0, true, BodyOperation::Add(seeded.plate)),
+    );
+    let mut pattern = seeded
+        .document
+        .feature(seeded.pattern)
+        .unwrap()
+        .kind
+        .clone();
+    if let FeatureKind::Pattern(pattern) = &mut pattern {
+        pattern.repeated = vec![pocket, peg];
+    }
+    transaction
+        .edit(Edit::MoveFeature {
+            id: seeded.pattern,
+            index: 8,
+        })
+        .edit(Edit::SetFeatureKind {
+            id: seeded.pattern,
+            kind: pattern,
+        });
+    seeded.document.apply(transaction.finish()).unwrap();
+    let evaluation = evaluate(&seeded.document, &mut Recompute::default());
+
+    assert_eq!(
+        repeatable_on(&seeded.document.feature(pocket).unwrap().kind),
+        Some(seeded.plate)
+    );
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(evaluation.cuts(seeded.pattern).len(), 1);
+    let hole = std::f64::consts::PI * 4.0;
+    let boss = 4.0 * 6.0 * 2.0;
+    let peg = std::f64::consts::PI * 3.0;
+    assert_volume(
+        &evaluation,
+        seeded.plate,
+        60.0 * 10.0 * 4.0 - hole + boss - 3.0 * 8.0 + 3.0 * peg,
+    );
+}

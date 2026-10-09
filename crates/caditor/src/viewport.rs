@@ -763,7 +763,8 @@ impl ViewportState {
             context.solid,
             OpenDraft {
                 evaluation: model.draft_evaluation(),
-                result: drafted.as_ref(),
+                result: drafted.as_ref().map(|(body, result)| (*body, result)),
+                cuts: model.draft_cuts(),
                 moved: model.draft_placement(),
             },
         );

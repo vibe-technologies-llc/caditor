@@ -53,14 +53,17 @@ paths:
   outside the rounded surface, and hidden ones stay hidden since unpicked faces still write depth
   in the pick pass. A failed or pending blend and a shell show the body before them instead
   (`OpenView::Before`).
-- Typing in an open fillet's or chamfer's size field or a move's fields previews the value before
-  it is entered: `commit_field` reports the text as edited (`FieldResponse::edited`) and
+- Typing in an open fillet's or chamfer's size field, an offset face's distance, a primitive's
+  sizes and position or a move's fields previews the value before it is entered: `commit_field` reports the text as edited (`FieldResponse::edited`) and
   `feature_fields::expression_row_drafting` turns valid text into `Action::Preview` with the
   transaction it would commit, never applied. `Model` applies it to a copy of the document
   (`DraftPreview`, dropped when the feature closes, the text turns invalid, Escape or leaving the
   field without a change; a new one whenever the feature's kind or the transaction differs, since
-  editing a named value changes only its parameter). A blend's copy is computed as a draft (`document-recompute.md`) and its
-  body drawn in the result's place once meshed (`BodyMeshes::draft`, `OpenDraft`); a move is not
+  editing a named value changes only its parameter). Any other feature's copy is computed as a
+  draft (`document-recompute.md`) and the draft's state of the body the feature makes or changes
+  (`Feature::body`, `Model::draft_body_result`) is drawn in that body's place once meshed
+  (`BodyMeshes::draft`, `OpenDraft`), a body made by the feature itself included; a removal's
+  tools are the draft's (`Model::draft_cuts`). A move is not
   recomputed: `Model::draft_placement` (the draft's `Move::placement` after undoing the one shown)
   places the drawn body (`MeshInstance::placement`, its edges and vertices moved on the CPU).
   Entering the value commits as before, and the draft stays shown (held) until the model has
@@ -240,7 +243,8 @@ paths:
 - The panel has the Shape switch (switching takes the new shape's default sizes), Placed on with
   Use selected or Choose in the view (the same slot), Position X and Y (key `primitive-field`,
   `("at", index)`), Starts at (Corner, Base centre, Centre), the sizes (`("size", index)`, each
-  checked by its `SizeRule`: `Rule::AboveZero`, `ZeroOrMore`, or `Sides` for a plain count),
+  checked by its `SizeRule`: `Rule::AboveZero`, `ZeroOrMore`, or `Sides` for a plain count;
+  typing a size or position previews it, as Preview while open says),
   Reverse direction (left out for Centre, where it changes nothing), and Result with Body as an
   extrusion's. Switching Result between joining (New body, Add) and cutting (Remove, Intersect)
   on a face reverses the direction to match (`primitive_tools::with_operation`), so a cut goes
@@ -372,8 +376,8 @@ paths:
 
 ## Patterns
 
-- With rows chosen in the tree that are all extrusions, revolves or holes adding to or removing
-  from one body (`pattern_tools::repeatable`, from the tree's raw rows, which the offers carry
+- With rows chosen in the tree that are all extrusions, revolves, holes or primitives adding to
+  or removing from one body (`pattern_tools::repeatable`, from the tree's raw rows, which the offers carry
   beside its bodies), Linear and Circular pattern repeat those features instead of the body, the
   hover naming them ("Repeat Hole 1 along …"), with a default spacing of twice their tools'
   extent along the direction. The panel's Repeats rows list them, each with Stop repeating (the

@@ -557,6 +557,10 @@ pub fn build(
             }
             Some(_) | None => {}
         }
+        let mesh = match bodies.draft() {
+            Some(draft) if draft.body == body && editing.is_none() => draft.mesh.as_ref(),
+            Some(_) | None => mesh,
+        };
         let color = match editing {
             Some(_) => None,
             None => Some(body_color(palette, document, evaluation, body)),

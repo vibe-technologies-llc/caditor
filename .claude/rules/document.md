@@ -311,7 +311,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   survive; switching the shape (`SetFeatureKind` allows it) changes them.
 - `operation` is a `BodyOperation` as a solid's: a new body of its own (`makes_body`), or joined
   to, cut from or intersected with the target body (kernel `boolean`), keeping the tool as the
-  result's `joins` or `cuts`. A failure names the shape and the body in words (`trouble.rs`), the
+  result's `joins` or `cuts`, so a pattern or mirror of features repeats one that adds or cuts as
+  it repeats an extrusion's tool. A failure names the shape and the body in words (`trouble.rs`), the
   feature failing alone.
 
 ### Hole (`hole.rs`)
@@ -493,8 +494,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - Repeats the whole body as it stands before the pattern and unions the copies (kernel `pattern`).
   Boxed in `FeatureKind`, which it would otherwise double in size.
-- With `repeated` features (`Pattern::repeating`; `repeatable_on` says which: an extrusion or
-  revolve adding to or removing from a body, or a hole) it repeats their tools instead: for each,
+- With `repeated` features (`Pattern::repeating`; `repeatable_on` says which: an extrusion,
+  revolve or primitive adding to or removing from a body, or a hole) it repeats their tools instead: for each,
   in tree order, the tools kept with its result (`SolidResult::cuts` of a removal or a hole,
   `joins` of an addition) are placed at every copy and unioned without the original (kernel
   `pattern_copies`), then cut from or joined to the body as it stands, so the original feature is

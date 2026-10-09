@@ -25,7 +25,7 @@ pub const INSTANCES: &str = "Instances";
 pub const REPEATS: &str = "Repeats";
 pub const WHOLE_BODY: &str = "The whole body";
 pub const REPEAT_CHOSEN: &str = "Repeat the chosen features";
-const REPEAT_CHOSEN_HINT: &str = "Choose extrusions, revolves or holes of this body above the \
+const REPEAT_CHOSEN_HINT: &str = "Choose extrusions, revolves, holes or primitives of this body above the \
                                   pattern in the tree (Ctrl+click), then repeat them instead of \
                                   the whole body";
 pub const NO_SECOND_DIRECTION: &str = "None";
