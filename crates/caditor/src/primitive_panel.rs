@@ -1,6 +1,6 @@
 use caditor_document::{
-    BodyOperation, Feature, FeatureId, Primitive, PrimitiveAnchor, PrimitiveKind, capitalized,
-    describe_plane,
+    BodyOperation, Feature, FeatureId, Primitive, PrimitiveAnchor, PrimitiveKind, SizeRule,
+    capitalized, describe_plane,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Label, Ui};
@@ -23,6 +23,13 @@ fn shape_hover(kind: PrimitiveKind) -> &'static str {
         PrimitiveKind::Cylinder => "A round post of a diameter and height",
         PrimitiveKind::Sphere => "A ball of a diameter",
         PrimitiveKind::Torus => "A ring of a diameter and a tube diameter",
+        PrimitiveKind::Cone => {
+            "A cone or frustum of two diameters, either of them zero, and a height"
+        }
+        PrimitiveKind::Wedge => "A block whose top is shorter, sloping down to the right",
+        PrimitiveKind::Prism => {
+            "A straight prism of a number of sides, a diameter across its corners and a height"
+        }
     }
 }
 
@@ -117,12 +124,12 @@ impl Panel<'_> {
         ui.end_row();
     }
 
-    fn length_row(
+    fn value_row(
         &mut self,
         ui: &mut Ui,
         caption: &str,
         key: (&'static str, usize),
-        rule: Rule,
+        (dimension, rule): (Dimension, Rule),
         changed: impl Fn(Expression) -> Primitive,
     ) {
         let expression = match key {
@@ -142,7 +149,7 @@ impl Panel<'_> {
             feature: self.id(),
             id: Id::new(("primitive-field", self.id(), key)),
             expression,
-            dimension: Dimension::LENGTH,
+            dimension,
             rule,
         };
         let committed =
@@ -155,7 +162,8 @@ impl Panel<'_> {
     fn position_rows(&mut self, ui: &mut Ui) {
         for (index, caption) in POSITION_CAPTIONS.into_iter().enumerate() {
             let primitive = self.primitive.clone();
-            self.length_row(ui, caption, ("at", index), Rule::Any, move |value| {
+            let any = (Dimension::LENGTH, Rule::Any);
+            self.value_row(ui, caption, ("at", index), any, move |value| {
                 let mut changed = primitive.clone();
                 if let Some(slot) = changed.at.get_mut(index) {
                     *slot = value;
@@ -196,21 +204,21 @@ impl Panel<'_> {
             .into_iter()
             .map(|(what, _)| capitalized(what))
             .collect();
-        for (index, caption) in captions.iter().enumerate() {
+        let rules = self.primitive.shape.rules();
+        for (index, (caption, rule)) in captions.iter().zip(rules).enumerate() {
             let primitive = self.primitive.clone();
-            self.length_row(
-                ui,
-                caption,
-                ("size", index),
-                Rule::AboveZero,
-                move |value| {
-                    let mut changed = primitive.clone();
-                    if let Some(slot) = changed.shape.sizes_mut().into_iter().nth(index) {
-                        *slot = value;
-                    }
-                    changed
-                },
-            );
+            let checked = match rule {
+                SizeRule::AboveZero => (Dimension::LENGTH, Rule::AboveZero),
+                SizeRule::ZeroOrMore => (Dimension::LENGTH, Rule::ZeroOrMore),
+                SizeRule::Sides => (Dimension::NONE, Rule::Sides),
+            };
+            self.value_row(ui, caption, ("size", index), checked, move |value| {
+                let mut changed = primitive.clone();
+                if let Some(slot) = changed.shape.sizes_mut().into_iter().nth(index) {
+                    *slot = value;
+                }
+                changed
+            });
         }
     }
 

@@ -276,8 +276,10 @@ paths:
   reported), `faces` (face records; an unreadable one is left out, reported as left where it is)
   and `tangent` only when set.
 - A `primitive` feature record holds `shape` (`box` with `length`, `width`, `height`; `cylinder`
-  with `diameter`, `height`; `sphere` with `diameter`; `torus` with `diameter`, `tube`, each stored
-  text; unreadable: 10 mm, a tube 2 mm, reported), `plane` (a plane reference; unreadable: the XY
+  with `diameter`, `height`; `sphere` with `diameter`; `torus` with `diameter`, `tube`; `cone` with
+  `bottom`, `top`, `height`; `wedge` with `length`, `width`, `height`, `top`; `prism` with `sides`,
+  `diameter`, `height`, each stored text; unreadable: 10 mm, a tube 2 mm, a cone's top or a
+  wedge's top 0 mm, sides 6, reported), `plane` (a plane reference; unreadable: the XY
   plane, reported), `at` (two stored texts; unreadable: 0 mm, reported), `anchor` (`corner`,
   `base_centre`, `centre`), `operation` as an extrusion's, and `reversed` only when set.
 - A `thread` feature record holds `body`, `face` (a face record; unreadable digests load as a
@@ -308,7 +310,8 @@ paths:
 - A sketch record carries `projections` only when it has projected geometry: each the projected
   entity's `entity` and its `source` (`edge` with `body` and an edge record, `vertex` with `body`
   and the vertex name's digest, `sketch_entity` with `sketch` and `entity`, `section` with `body`
-  and an edge record, or `datum_plane` with `datum` and a finite positive `reach`). An older
+  and an edge record, `datum_plane` with `datum` and a finite positive `reach`, or
+  `principal_plane` with `plane` (`xy`, `xz`, `yz`) and a finite positive `reach`). An older
   reader lacking a source kind keeps its geometry as ordinary geometry, reported. The projected flags
   of the entity and its points are not stored; loading derives them from this list after the
   constraints, so stored constraints between projected geometry still load. An unreadable source

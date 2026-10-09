@@ -411,7 +411,7 @@ impl Pickable {
                         .is_some_and(|sketch| sketch.constraint(constraint).is_some())
             }
             Self::Plane(plane) => {
-                editing.is_none()
+                (editing.is_none() || context.intersecting)
                     && (context.choosing_plane
                         || visibility::is_principal_shown(
                             document,

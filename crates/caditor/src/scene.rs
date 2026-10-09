@@ -6,7 +6,7 @@ use std::{
 use caditor_document::{
     Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
     PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, SolidResult,
-    body_parts, displayed_axis, placed_threads,
+    body_parts, datum_outline, displayed_axis, placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{RegionKey, RegionMesh, RegionReference, resolve_regions};
@@ -485,6 +485,13 @@ pub fn build(
         Some((feature, displayed)) => {
             builder.sketch_references(feature.id(), displayed.plane(), reference_size);
             if context.intersecting {
+                for plane in PrincipalPlane::ALL {
+                    if visibility::is_principal_shown(document, PrincipalGeometry::Plane(plane))
+                        && datum_outline(&plane.plane(), &displayed.plane(), 1.0).is_some()
+                    {
+                        builder.principal_plane(plane, reference_size);
+                    }
+                }
                 let earlier = document
                     .active_features()
                     .take_while(|earlier| earlier.id() != feature.id());

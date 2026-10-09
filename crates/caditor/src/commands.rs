@@ -91,6 +91,7 @@ pub enum Command {
     ScaleGeometry,
     MoveGeometry,
     SelectAll,
+    SelectFree,
     CopyGeometry,
     CutGeometry,
     PasteGeometry,
@@ -107,6 +108,9 @@ pub enum Command {
     NewSphere,
     NewTorus,
     Thread,
+    NewCone,
+    NewWedge,
+    NewPrism,
     Fillet,
     Chamfer,
     Shell,
@@ -153,6 +157,9 @@ pub enum Command {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    ToggleSketches,
+    ToggleDatums,
+    ToggleBodies,
     SaveView,
     SavedViews,
     SetHomeView,
@@ -165,6 +172,7 @@ pub enum Command {
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
+    ToggleFirstDimensionScales,
     ToggleGlyphs,
     ToggleCentresOfMass,
     MinimizeWindow,
@@ -498,6 +506,7 @@ plain_commands! {
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
+    ToggleFirstDimensionScales,
     ToggleGlyphs,
     ToggleCentresOfMass,
     Measure,
@@ -522,6 +531,9 @@ plain_commands! {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    ToggleSketches,
+    ToggleDatums,
+    ToggleBodies,
     SaveView,
     SavedViews,
     SetHomeView,
@@ -538,6 +550,9 @@ plain_commands! {
     NewSphere,
     NewTorus,
     Thread,
+    NewCone,
+    NewWedge,
+    NewPrism,
     Fillet,
     Chamfer,
     Shell,
@@ -568,6 +583,7 @@ plain_commands! {
     ScaleGeometry,
     MoveGeometry,
     SelectAll,
+    SelectFree,
     CopyGeometry,
     CutGeometry,
     PasteGeometry,
@@ -673,6 +689,7 @@ impl Command {
             Self::ScaleGeometry => "sketch.scale",
             Self::MoveGeometry => "sketch.move",
             Self::SelectAll => "sketch.select_all",
+            Self::SelectFree => "sketch.select_free",
             Self::CopyGeometry => "sketch.copy",
             Self::CutGeometry => "sketch.cut",
             Self::PasteGeometry => "sketch.paste",
@@ -737,6 +754,9 @@ impl Command {
             Self::NewSphere => "model.sphere",
             Self::NewTorus => "model.torus",
             Self::Thread => "model.thread",
+            Self::NewCone => "model.cone",
+            Self::NewWedge => "model.wedge",
+            Self::NewPrism => "model.prism",
             Self::Fillet => "model.fillet",
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
@@ -788,6 +808,9 @@ impl Command {
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
+            Self::ToggleSketches => "view.toggle_sketches",
+            Self::ToggleDatums => "view.toggle_datums",
+            Self::ToggleBodies => "view.toggle_bodies",
             Self::SaveView => "view.save",
             Self::SavedViews => "view.saved_views",
             Self::SetHomeView => "view.set_home",
@@ -800,6 +823,7 @@ impl Command {
             Self::ToggleSelectThrough => "view.toggle_select_through",
             Self::CycleSelectionPriority => "select.priority",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
+            Self::ToggleFirstDimensionScales => "sketch.toggle_first_dimension_scales",
             Self::ToggleGlyphs => "view.toggle_glyphs",
             Self::ToggleCentresOfMass => "view.toggle_centres_of_mass",
             Self::MinimizeWindow => "view.minimize_window",
@@ -898,6 +922,7 @@ impl Command {
             Self::ScaleGeometry => "Scale selected sketch geometry",
             Self::MoveGeometry => "Move selected sketch geometry",
             Self::SelectAll => "Select all sketch geometry",
+            Self::SelectFree => "Select what is still free in the sketch",
             Self::CopyGeometry => "Copy selected sketch geometry",
             Self::CutGeometry => "Cut selected sketch geometry",
             Self::PasteGeometry => "Paste sketch geometry",
@@ -929,6 +954,9 @@ impl Command {
             Self::NewSphere => "Sphere",
             Self::NewTorus => "Torus",
             Self::Thread => "Thread",
+            Self::NewCone => "Cone",
+            Self::NewWedge => "Wedge",
+            Self::NewPrism => "Prism",
             Self::Fillet => "Fillet",
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
@@ -976,6 +1004,9 @@ impl Command {
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
+            Self::ToggleSketches => "Hide or show every sketch",
+            Self::ToggleDatums => "Hide or show every datum",
+            Self::ToggleBodies => "Hide or show every body",
             Self::SaveView => "Save the current view",
             Self::SavedViews => "Saved views…",
             Self::SetHomeView => "Make the current view the Isometric view",
@@ -988,6 +1019,7 @@ impl Command {
             Self::ToggleSelectThrough => "Select through to what is hidden",
             Self::CycleSelectionPriority => "Cycle the selection priority: body, face, edge",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
+            Self::ToggleFirstDimensionScales => "Scale the whole sketch on its first dimension",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
             Self::ToggleCentresOfMass => "Show or hide centres of mass",
             Self::MinimizeWindow => "Minimize the window",
@@ -1110,6 +1142,9 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
+            | Self::ToggleSketches
+            | Self::ToggleDatums
+            | Self::ToggleBodies
             | Self::SaveView
             | Self::SavedViews
             | Self::SetHomeView
@@ -1135,6 +1170,9 @@ impl Command {
             | Self::NewSphere
             | Self::NewTorus
             | Self::Thread
+            | Self::NewCone
+            | Self::NewWedge
+            | Self::NewPrism
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
@@ -1203,8 +1241,10 @@ impl Command {
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
+            | Self::ToggleFirstDimensionScales
             | Self::MoveGeometry
             | Self::SelectAll
+            | Self::SelectFree
             | Self::CopyGeometry
             | Self::CutGeometry
             | Self::PasteGeometry
@@ -1228,8 +1268,10 @@ impl Command {
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
+            | Self::ToggleFirstDimensionScales
             | Self::MoveGeometry
             | Self::SelectAll
+            | Self::SelectFree
             | Self::CopyGeometry
             | Self::CutGeometry
             | Self::PasteGeometry
@@ -1354,6 +1396,7 @@ impl Command {
             | Self::RotateGeometry
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
+            | Self::ToggleFirstDimensionScales
             | Self::Filter(_)
             | Self::Style(_)
             | Self::Analysis(_)
@@ -1414,7 +1457,14 @@ impl Command {
             | Self::Welcome
             | Self::About
             | Self::Messages
-            | Self::UndoHistory => Vec::new(),
+            | Self::UndoHistory
+            | Self::SelectFree
+            | Self::ToggleSketches
+            | Self::ToggleDatums
+            | Self::ToggleBodies
+            | Self::NewCone
+            | Self::NewWedge
+            | Self::NewPrism => Vec::new(),
         }
     }
 

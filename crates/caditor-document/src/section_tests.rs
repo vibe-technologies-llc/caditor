@@ -253,3 +253,51 @@ fn a_datum_section_must_come_from_a_plane() {
         Err(EditError::NotAPlane(_))
     ));
 }
+
+#[test]
+fn a_principal_plane_crosses_a_tilted_sketch_in_a_line_that_follows_the_tilt() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Datum");
+    let tilt = transaction.add_parameter("tilt", transaction.parse("30 deg").unwrap());
+    let datum = transaction.add_feature(
+        "Plane",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: Some(PlaneRotation {
+                axis: AxisReference::Principal(PrincipalAxis::X),
+                angle: Expression::Parameter(tilt),
+            }),
+            offset: transaction.parse("5 mm").unwrap(),
+        })),
+    );
+    let sketch = transaction.add_feature(
+        "Cut",
+        FeatureKind::Sketch(SketchFeature::on_datum(Sketch::new(Plane::XY), datum)),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let tilted = solved(&evaluate(&document, &mut engine), sketch).plane();
+
+    let mut transaction = document.transaction("Intersect");
+    let source = ProjectionSource::PrincipalPlane {
+        plane: PrincipalPlane::Xy,
+        reach: 20.0,
+    };
+    let outline = datum_outline(&Plane::XY, &tilted, 20.0).unwrap();
+    let line = transaction.add_projection(sketch, source.clone(), &outline);
+    document.apply(transaction.finish()).unwrap();
+    set(&mut document, tilt, "60 deg");
+    let evaluation = evaluate(&document, &mut engine);
+    let steeper = solved(&evaluation, sketch);
+    let (start, end) = steeper.line_endpoints(line).unwrap();
+    let height = |point: Point2| steeper.plane().to_world(point).z;
+
+    assert_eq!(source.feature(), None);
+    assert!(height(start).abs() < EXACT && height(end).abs() < EXACT);
+    assert!(((start - end).length() - 40.0).abs() < EXACT);
+
+    set(&mut document, tilt, "0 deg");
+    let level = evaluate(&document, &mut engine);
+
+    assert!(failure(&level, sketch).reason.contains("the XY plane"));
+}

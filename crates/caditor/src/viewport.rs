@@ -292,6 +292,7 @@ pub struct ViewportState {
     lasso: bool,
     select_through: bool,
     typed_dimensions: bool,
+    first_dimension_scales: bool,
     glyphs_shown: bool,
     aids: ViewAids,
     analyses: Analyses,
@@ -427,6 +428,7 @@ impl ViewportState {
             lasso: false,
             select_through: false,
             typed_dimensions: true,
+            first_dimension_scales: false,
             glyphs_shown: true,
             aids: ViewAids::default(),
             analyses: Analyses::default(),
@@ -460,6 +462,10 @@ impl ViewportState {
 
     pub fn typed_dimensions(&self) -> bool {
         self.typed_dimensions
+    }
+
+    pub fn first_dimension_scales(&self) -> bool {
+        self.first_dimension_scales
     }
 
     pub fn aids(&self) -> ViewAids {
@@ -2138,6 +2144,9 @@ impl ViewportState {
         if commands.available(Command::ToggleTypedDimensions) {
             self.typed_dimensions = !self.typed_dimensions;
         }
+        if commands.available(Command::ToggleFirstDimensionScales) {
+            self.first_dimension_scales = !self.first_dimension_scales;
+        }
         for style in DisplayStyle::ALL {
             if commands.available(Command::Style(style)) {
                 self.set_style(style);
@@ -2629,6 +2638,17 @@ impl ViewportState {
             && let Ok(everything) = everything
         {
             self.add_to_selection(feature, everything, false);
+        }
+        let projected = owner
+            .kind
+            .sketch()
+            .map(|definition| definition.projected().collect())
+            .unwrap_or_default();
+        let free = sketch_drag::select_free(&sketch, &projected, model.settled_solution(feature));
+        if commands.invoke(Command::SelectFree, &free)
+            && let Ok(free) = free
+        {
+            self.add_to_selection(feature, free, false);
         }
         self.clipboard_commands(model, feature, &sketch, &selected, commands, actions);
     }
@@ -3196,6 +3216,7 @@ impl ViewportState {
                 && self.dimensioning.is_none(),
             glyphs: self.glyphs_shown,
             highlight: self.keyboard_highlight,
+            first_dimension_scales: self.first_dimension_scales,
         };
         self.annotations
             .show(ui, model, &surface, &mut self.selection, actions);

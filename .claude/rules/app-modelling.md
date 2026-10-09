@@ -224,10 +224,11 @@ paths:
 
 ## Primitives
 
-- Box (Alt+B), Cylinder (Alt+Y), Sphere (Alt+U) and Torus (Alt+Shift+U) are in the Model menu's
-  Primitives group and the palette, not on the ribbon, which they would widen past one row. Each
-  creates a `Primitive` of the `DEFAULT_*` sizes of `primitive_tools.rs`, a box and a cylinder
-  starting at their base's centre, a sphere and a torus at their centre, and opens it, previewed
+- Box (Alt+B), Cylinder (Alt+Y), Sphere (Alt+U), Torus (Alt+Shift+U), Cone, Wedge and Prism (no
+  default key) are in the Model menu's Primitives group and the palette, not on the ribbon, which
+  they would widen past one row. Each creates a `Primitive` of the `DEFAULT_*` sizes of
+  `primitive_tools.rs` (a cone to a point, a wedge sloping to an edge, a six-sided prism), a sphere
+  and a torus starting at their centre and the rest at their base's centre, and opens it, previewed
   like an extrusion (see-through while open, the cut tool over the body for a removal).
 - With one plane, datum plane or flat face selected (`datum_tools::chosen_plane`; several are
   refused), it stands there: on a face at its middle (`hole_tools::face_middle`) and added to that
@@ -238,7 +239,8 @@ paths:
   `pick_action`); the keyboard highlight places it at the face's middle or the plane's origin.
 - The panel has the Shape switch (switching takes the new shape's default sizes), Placed on with
   Use selected or Choose in the view (the same slot), Position X and Y (key `primitive-field`,
-  `("at", index)`), Starts at (Corner, Base centre, Centre), the sizes (`("size", index)`),
+  `("at", index)`), Starts at (Corner, Base centre, Centre), the sizes (`("size", index)`, each
+  checked by its `SizeRule`: `Rule::AboveZero`, `ZeroOrMore`, or `Sides` for a plain count),
   Reverse direction (left out for Centre, where it changes nothing), and Result with Body as an
   extrusion's. Switching Result between joining (New body, Add) and cutting (Remove, Intersect)
   on a face reverses the direction to match (`primitive_tools::with_operation`), so a cut goes
@@ -407,6 +409,11 @@ paths:
   open datum. Extrude and Revolve hide their sketch in the same transaction. Every hide control
   is also a command. Hide everything but the selection (`visibility::hide_others`) hides in one
   transaction every other shown hideable feature and principal item, except the edited sketch.
+- Hide or show every sketch, datum or body (`Command::ToggleSketches`, `ToggleDatums`,
+  `ToggleBodies`, View menu, palette, no default key; `visibility::toggle_kind`) is one
+  transaction per kind: while any of that kind is shown it hides every one shown, otherwise it
+  shows them all; the edited sketch is never touched, and a model with none of the kind refuses
+  in words. Body-making features count as bodies, as `can_hide` judges them.
 - Principal planes, axes and origin hide the same way through a group row (`principal_tree.rs`)
   with an eye for the group and one per item. Hidden ones are drawn and offered anyway while a
   sketch's plane is chosen (`Context::choosing_plane`).

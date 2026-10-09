@@ -159,16 +159,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   leave it fully constrained, each set previewed before it is added as one undoable change. A
   check of the sketch would also name what the eye misses (ends a hair apart but not joined, a
   curve lying twice on itself or another, curves of no length) and offer the fix.
-- [low · easy] Intersect takes faces, bodies and datum planes but not the principal planes, which
-  are not drawn while a sketch is edited; a sketch on a tilted datum cannot draw where the XY
-  plane crosses it.
-- [low · easy] Nothing selects what is still free: a sketch counts its remaining degrees of
-  freedom and colours its curves, but no command selects the points and curves not yet fully
-  constrained, so the one loose point of a large sketch is found by eye.
-- [low · easy] The first dimension of a sketch moves only what it measures, so a traced or
-  imported outline at the wrong size is scaled by hand first. An option to scale the whole sketch
-  about its origin when its first dimension is set, while it has no other, would size it in one
-  step.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
   points (or calibrated by a known distance), given an opacity, locked and traced, as a part
   copied from an existing object or a drawing needs.
@@ -265,9 +255,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
   without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
   in part can be had. It is a feature of its own, naming the faces it splits.
-- [low · easy] Primitives are a box, cylinder, sphere and torus only: no cone or frustum (two
-  diameters, either may be zero, and a height), wedge (a box whose top is shorter along one side)
-  or prism of a typed number of sides, which today each take a sketch and an extrusion or revolve.
 - [low · medium] A primitive shows a typed size only once it is entered, not while typing as a
   fillet's does (the draft preview draws only a body that stood before the feature), and a pattern
   cannot repeat a primitive adding to or cutting a body as it repeats an extrusion's tool
@@ -387,9 +374,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
   distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
   at once, which only looks into the model and changes nothing. Measure works on what it shows.
-- [low · easy] Nothing hides or shows by kind: hiding every sketch, every datum or every body takes
-  choosing each, where a command per kind beside Hide everything but the selection and Show
-  everything would clear the view for a picture or a measurement in one step.
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
 - [low · medium] Lighting and the MSAA resolve happen in gamma space.

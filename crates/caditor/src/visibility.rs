@@ -14,6 +14,41 @@ const NOTHING_HIDDEN: &str = "Nothing is hidden";
 const NOT_HIDEABLE: &str = "Only sketches, datums and features that make a body can be hidden";
 const PRINCIPAL_GROUP: &str = "principal planes, axes and origin";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Sketches,
+    Datums,
+    Bodies,
+}
+
+impl Kind {
+    pub const ALL: [Self; 3] = [Self::Sketches, Self::Datums, Self::Bodies];
+
+    fn holds(self, feature: &Feature) -> bool {
+        match &feature.kind {
+            FeatureKind::Sketch(_) => self == Self::Sketches,
+            FeatureKind::Datum(_) => self == Self::Datums,
+            _ => self == Self::Bodies && can_hide(feature),
+        }
+    }
+
+    fn singular(self) -> &'static str {
+        match self {
+            Self::Sketches => "sketch",
+            Self::Datums => "datum",
+            Self::Bodies => "body",
+        }
+    }
+
+    fn plural(self) -> &'static str {
+        match self {
+            Self::Sketches => "sketches",
+            Self::Datums => "datums",
+            Self::Bodies => "bodies",
+        }
+    }
+}
+
 pub fn can_hide(feature: &Feature) -> bool {
     match &feature.kind {
         FeatureKind::Sketch(_) | FeatureKind::Datum(_) | FeatureKind::Thread(_) => true,
@@ -135,6 +170,32 @@ pub fn toggle_principal_group(document: &Document) -> Transaction {
             .map(|geometry| set_principal_hidden(geometry, hide))
             .collect(),
     )
+}
+
+pub fn toggle_kind(
+    document: &Document,
+    kind: Kind,
+    edited: Option<FeatureId>,
+) -> Result<Transaction, String> {
+    let held: Vec<&Feature> = document
+        .features()
+        .filter(|feature| kind.holds(feature) && Some(feature.id()) != edited)
+        .collect();
+    if held.is_empty() {
+        return Err(format!(
+            "The model has no {} to hide or show",
+            kind.plural()
+        ));
+    }
+    let hide = held.iter().any(|feature| !feature.hidden);
+    let verb = if hide { "Hide" } else { "Show" };
+    Ok(Transaction::new(
+        format!("{verb} every {}", kind.singular()),
+        held.into_iter()
+            .filter(|feature| feature.hidden != hide)
+            .map(|feature| set_hidden(feature.id(), hide))
+            .collect(),
+    ))
 }
 
 pub fn hide_selection(
@@ -332,6 +393,39 @@ mod tests {
         assert!(!is_shown(&document, second) && !is_shown(&document, third));
         assert!(!any_principal_shown(&document));
         assert_eq!(again, Err(ALREADY_ISOLATED.to_owned()));
+    }
+
+    #[test]
+    fn a_kind_hides_while_any_of_it_is_shown_then_shows_it_all_again() {
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Sketches");
+        let first = transaction.add_feature("First", FeatureKind::from(Sketch::new(Plane::XY)));
+        let second = transaction.add_feature("Second", FeatureKind::from(Sketch::new(Plane::XZ)));
+        let edited = transaction.add_feature("Edited", FeatureKind::from(Sketch::new(Plane::YZ)));
+        document.apply(transaction.finish()).unwrap();
+        document
+            .apply(toggle(document.feature(second).unwrap()).unwrap())
+            .unwrap();
+
+        let hide = toggle_kind(&document, Kind::Sketches, Some(edited)).unwrap();
+        document.apply(hide.clone()).unwrap();
+        let show = toggle_kind(&document, Kind::Sketches, Some(edited)).unwrap();
+        document.apply(show.clone()).unwrap();
+
+        assert_eq!(hide.label(), "Hide every sketch");
+        assert_eq!(hide.edits().len(), 1);
+        assert_eq!(show.label(), "Show every sketch");
+        assert_eq!(show.edits().len(), 2);
+        assert!(
+            [first, second, edited]
+                .iter()
+                .all(|id| is_shown(&document, *id))
+        );
+        assert_eq!(
+            toggle_kind(&document, Kind::Datums, None),
+            Err("The model has no datums to hide or show".to_owned())
+        );
+        assert!(toggle_kind(&document, Kind::Bodies, None).is_err());
     }
 
     #[test]

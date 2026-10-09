@@ -537,6 +537,7 @@ pub struct Surface<'a, S> {
     pub interactive: bool,
     pub glyphs: bool,
     pub highlight: Option<Pickable>,
+    pub first_dimension_scales: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -959,12 +960,11 @@ impl Annotations {
                             FIELD_WIDTH,
                             open.focus_pending,
                             |text| {
-                                field::dimension_transaction(
-                                    document,
-                                    model.parameters(),
+                                sketch_tools::dimension_change(
+                                    model,
                                     target,
                                     text,
-                                    model.units(),
+                                    surface.first_dimension_scales,
                                 )
                             },
                         );

@@ -13,6 +13,7 @@ use caditor_sketch::{ArcGeometry, BSpline, Entity, EntityId, Sketch};
 
 use crate::{
     attachment::SketchFeature,
+    datum::PrincipalPlane,
     document::{Feature, FeatureId},
     edit::{Edit, TransactionBuilder},
     origins,
@@ -46,6 +47,10 @@ pub enum ProjectionSource {
         datum: FeatureId,
         reach: f64,
     },
+    PrincipalPlane {
+        plane: PrincipalPlane,
+        reach: f64,
+    },
 }
 
 impl ProjectionSource {
@@ -54,7 +59,9 @@ impl ProjectionSource {
             Self::Edge { body, .. } | Self::Vertex { body, .. } | Self::Section { body, .. } => {
                 Some(*body)
             }
-            Self::SketchEntity { .. } | Self::DatumPlane { .. } => None,
+            Self::SketchEntity { .. } | Self::DatumPlane { .. } | Self::PrincipalPlane { .. } => {
+                None
+            }
         }
     }
 
@@ -64,7 +71,8 @@ impl ProjectionSource {
             Self::Edge { .. }
             | Self::Vertex { .. }
             | Self::Section { .. }
-            | Self::DatumPlane { .. } => None,
+            | Self::DatumPlane { .. }
+            | Self::PrincipalPlane { .. } => None,
         }
     }
 
@@ -74,26 +82,29 @@ impl ProjectionSource {
             Self::Edge { .. }
             | Self::Vertex { .. }
             | Self::SketchEntity { .. }
-            | Self::Section { .. } => None,
+            | Self::Section { .. }
+            | Self::PrincipalPlane { .. } => None,
         }
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Edge { edge, .. } | Self::Section { edge, .. } => origins::of_edge(edge),
-            Self::Vertex { .. } | Self::SketchEntity { .. } | Self::DatumPlane { .. } => {
-                BTreeSet::new()
-            }
+            Self::Vertex { .. }
+            | Self::SketchEntity { .. }
+            | Self::DatumPlane { .. }
+            | Self::PrincipalPlane { .. } => BTreeSet::new(),
         }
     }
 
-    pub fn feature(&self) -> FeatureId {
+    pub fn feature(&self) -> Option<FeatureId> {
         match self {
             Self::Edge { body, .. } | Self::Vertex { body, .. } | Self::Section { body, .. } => {
-                *body
+                Some(*body)
             }
-            Self::SketchEntity { sketch, .. } => *sketch,
-            Self::DatumPlane { datum, .. } => *datum,
+            Self::SketchEntity { sketch, .. } => Some(*sketch),
+            Self::DatumPlane { datum, .. } => Some(*datum),
+            Self::PrincipalPlane { .. } => None,
         }
     }
 }
@@ -532,6 +543,12 @@ fn outline_of(
                 .filter(|outline| outline.shape() == wanted)
                 .ok_or(ProjectionError::Parallel)
         }
+        ProjectionSource::PrincipalPlane {
+            plane: principal,
+            reach,
+        } => datum_outline(&principal.plane(), plane, *reach)
+            .filter(|outline| outline.shape() == wanted)
+            .ok_or(ProjectionError::Parallel),
         ProjectionSource::Vertex { body, vertex } => {
             let solid = inputs
                 .body(*body)
@@ -630,28 +647,35 @@ fn projection_failure(
     inputs: &Inputs<'_>,
 ) -> Failure {
     let label = sketch.entity_label(entity);
-    let source_name = inputs
-        .document
-        .feature(source.feature())
-        .map(|source| source.name.clone())
-        .unwrap_or_else(|| "a deleted feature".to_owned());
+    let source_name = match source {
+        ProjectionSource::PrincipalPlane { plane, .. } => format!("the {}", plane.name()),
+        _ => source
+            .feature()
+            .and_then(|source| inputs.document.feature(source))
+            .map(|source| source.name.clone())
+            .unwrap_or_else(|| "a deleted feature".to_owned()),
+    };
     let what = match source {
         ProjectionSource::Edge { .. } => format!("an edge of {source_name}"),
         ProjectionSource::Vertex { .. } => format!("a corner of {source_name}"),
         ProjectionSource::SketchEntity { .. } => format!("geometry of {source_name}"),
         ProjectionSource::Section { .. } => format!("the cut through {source_name}"),
-        ProjectionSource::DatumPlane { .. } => format!("the cut along {source_name}"),
+        ProjectionSource::DatumPlane { .. } | ProjectionSource::PrincipalPlane { .. } => {
+            format!("the cut along {source_name}")
+        }
     };
     let verb = match source {
-        ProjectionSource::Section { .. } | ProjectionSource::DatumPlane { .. } => "drawn from",
+        ProjectionSource::Section { .. }
+        | ProjectionSource::DatumPlane { .. }
+        | ProjectionSource::PrincipalPlane { .. } => "drawn from",
         ProjectionSource::Edge { .. }
         | ProjectionSource::Vertex { .. }
         | ProjectionSource::SketchEntity { .. } => "projected from",
     };
     let redo = match source {
-        ProjectionSource::Section { .. } | ProjectionSource::DatumPlane { .. } => {
-            "intersect what you want"
-        }
+        ProjectionSource::Section { .. }
+        | ProjectionSource::DatumPlane { .. }
+        | ProjectionSource::PrincipalPlane { .. } => "intersect what you want",
         ProjectionSource::Edge { .. }
         | ProjectionSource::Vertex { .. }
         | ProjectionSource::SketchEntity { .. } => "project the geometry you want",
@@ -685,9 +709,9 @@ fn projection_failure(
         ProjectionError::Cancelled => format!("{label} is {verb} {what}, which was cancelled."),
     };
     let fix = match error {
-        ProjectionError::SourceUnavailable | ProjectionError::Parallel => {
-            Some(FixTarget::Feature(source.feature()))
-        }
+        ProjectionError::SourceUnavailable | ProjectionError::Parallel => Some(FixTarget::Feature(
+            source.feature().unwrap_or_else(|| feature.id()),
+        )),
         ProjectionError::Missing
         | ProjectionError::Ambiguous
         | ProjectionError::ChangedShape

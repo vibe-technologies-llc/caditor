@@ -111,6 +111,12 @@ paths:
   event only when the system clipboard holds text.
 - Double-clicking a curve (no tool active) selects its chain, the lines and arcs joined end to end
   that Offset would take (`Sketch::offset_chain_through`).
+- Select what is still free (`Command::SelectFree`, Sketch menu, palette, no default key;
+  `sketch_drag::select_free`) replaces the selection with the edited sketch's points and curves
+  that are not `EntityState::FullyConstrained` in the settled solution (`Model::settled_solution`),
+  projected and reference geometry left out and a point dropped when a curve using it is taken.
+  Without a settled solution (recompute pending, the sketch failing) it is refused with
+  `NOT_SOLVED`, and with nothing free with `NOTHING_FREE`.
 
 ## Drawing tools
 
@@ -192,13 +198,14 @@ paths:
 - Intersect (`Tool::Intersect`, Alt+I, Sketch menu, palette; not on the sketch bar, whose Edit
   group would grow a row, `sketch_toolbar::OFF_RIBBON`) draws where the model crosses the sketch
   plane. It is a projecting tool (`Tool::projects`), so bodies are pickable as for Project, and
-  `Context::intersecting` also draws and offers the shown datum planes above the sketch. A click
-  on a face adds the cut through that face (`section_curves`, filtered by the face's name), a
-  Shift-click or `Command::IntersectBody` (Shift+Space, on the highlighted or hovered face) the
-  cut through its whole body, and a click on a datum plane the line where it crosses the sketch
-  as a construction line, spanning the shown bodies (`datum_reach`). Each is one undoable
-  transaction from the body's state at the sketch; a plane missing the face or body, a parallel
-  datum plane, a later datum and cuts already drawn are refused in words.
+  `Context::intersecting` also draws and offers the shown datum planes above the sketch and the
+  shown principal planes that cross it (a parallel one is not drawn). A click on a face adds the
+  cut through that face (`section_curves`, filtered by the face's name), a Shift-click or
+  `Command::IntersectBody` (Shift+Space, on the highlighted or hovered face) the cut through its
+  whole body, and a click on a datum or principal plane the line where it crosses the sketch as a
+  construction line, spanning the shown bodies (`datum_reach`). Each is one undoable transaction
+  from the body's state at the sketch; a plane missing the face or body, a parallel plane, a later
+  datum and cuts already drawn are refused in words.
 - Projected geometry is drawn in the `PROJECTED` palette, is never grabbed or dragged and follows
   its source on every recompute (`document.md`).
 
@@ -428,6 +435,15 @@ paths:
   "(disabled)".
 - Dimensions start at the displayed geometry's measured value. Every sketch transaction first
   settles the sketch to the last result when up to date (`Model::settled_sketch`).
+- Scale the whole sketch on its first dimension (`Command::ToggleFirstDimensionScales`, Sketch
+  menu, palette, no default key; off by default, kept for the session in
+  `ViewportState::first_dimension_scales`) makes a value typed in a dimension's field on the
+  canvas (`sketch_tools::dimension_change`) scale every point and circle of the settled sketch
+  about its origin by the new value over the measured one, in the same transaction as the value
+  ("Scale <sketch> to its first dimension"), so a traced or imported outline is sized in one
+  step. It applies only to an active length dimension that is the sketch's only active dimension,
+  with no active `Fix` and no projected geometry and the sketch settled; otherwise the value is
+  set as usual.
 - A new dimension whose every entity is `EntityState::FullyConstrained` in the settled solution
   (`Model::settled_solution`, none while a recompute is pending) is already determined, so it is
   added inactive in the same transaction, labelled "Add reference ...", with a notice saying it

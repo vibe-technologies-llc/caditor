@@ -1,4 +1,7 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    f64::consts::{FRAC_PI_2, PI, TAU},
+};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
@@ -21,6 +24,28 @@ const BACK: u64 = 3;
 const LEFT: u64 = 4;
 const ROUND: u64 = 1;
 const ON_AXIS: u64 = 2;
+const BASE: u64 = 3;
+const TOP: u64 = 4;
+const WEDGE_BOTTOM: u64 = 1;
+const WEDGE_SLOPE: u64 = 2;
+const WEDGE_TOP: u64 = 3;
+const WEDGE_LEFT: u64 = 4;
+const WHOLE_TOLERANCE: f64 = 1e-9;
+pub const MIN_PRISM_SIDES: u32 = 3;
+pub const MAX_PRISM_SIDES: u32 = 64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cap {
+    Start,
+    End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizeRule {
+    AboveZero,
+    ZeroOrMore,
+    Sides,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimitiveKind {
@@ -28,10 +53,21 @@ pub enum PrimitiveKind {
     Cylinder,
     Sphere,
     Torus,
+    Cone,
+    Wedge,
+    Prism,
 }
 
 impl PrimitiveKind {
-    pub const ALL: [Self; 4] = [Self::Box, Self::Cylinder, Self::Sphere, Self::Torus];
+    pub const ALL: [Self; 7] = [
+        Self::Box,
+        Self::Cylinder,
+        Self::Sphere,
+        Self::Torus,
+        Self::Cone,
+        Self::Wedge,
+        Self::Prism,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -39,6 +75,9 @@ impl PrimitiveKind {
             Self::Cylinder => "Cylinder",
             Self::Sphere => "Sphere",
             Self::Torus => "Torus",
+            Self::Cone => "Cone",
+            Self::Wedge => "Wedge",
+            Self::Prism => "Prism",
         }
     }
 
@@ -48,6 +87,9 @@ impl PrimitiveKind {
             Self::Cylinder => "cylinder",
             Self::Sphere => "sphere",
             Self::Torus => "torus",
+            Self::Cone => "cone",
+            Self::Wedge => "wedge",
+            Self::Prism => "prism",
         }
     }
 }
@@ -70,6 +112,22 @@ pub enum PrimitiveShape {
         diameter: Expression,
         tube: Expression,
     },
+    Cone {
+        bottom: Expression,
+        top: Expression,
+        height: Expression,
+    },
+    Wedge {
+        length: Expression,
+        width: Expression,
+        height: Expression,
+        top: Expression,
+    },
+    Prism {
+        sides: Expression,
+        diameter: Expression,
+        height: Expression,
+    },
 }
 
 impl PrimitiveShape {
@@ -79,6 +137,9 @@ impl PrimitiveShape {
             Self::Cylinder { .. } => PrimitiveKind::Cylinder,
             Self::Sphere { .. } => PrimitiveKind::Sphere,
             Self::Torus { .. } => PrimitiveKind::Torus,
+            Self::Cone { .. } => PrimitiveKind::Cone,
+            Self::Wedge { .. } => PrimitiveKind::Wedge,
+            Self::Prism { .. } => PrimitiveKind::Prism,
         }
     }
 
@@ -96,6 +157,55 @@ impl PrimitiveShape {
             Self::Torus { diameter, tube } => {
                 vec![("diameter", diameter), ("tube diameter", tube)]
             }
+            Self::Cone {
+                bottom,
+                top,
+                height,
+            } => vec![
+                ("bottom diameter", bottom),
+                ("top diameter", top),
+                ("height", height),
+            ],
+            Self::Wedge {
+                length,
+                width,
+                height,
+                top,
+            } => vec![
+                ("length", length),
+                ("width", width),
+                ("height", height),
+                ("top length", top),
+            ],
+            Self::Prism {
+                sides,
+                diameter,
+                height,
+            } => vec![
+                ("number of sides", sides),
+                ("diameter", diameter),
+                ("height", height),
+            ],
+        }
+    }
+
+    pub fn rules(&self) -> Vec<SizeRule> {
+        match self {
+            Self::Box { .. } => vec![SizeRule::AboveZero; 3],
+            Self::Cylinder { .. } | Self::Torus { .. } => vec![SizeRule::AboveZero; 2],
+            Self::Sphere { .. } => vec![SizeRule::AboveZero],
+            Self::Cone { .. } => vec![
+                SizeRule::ZeroOrMore,
+                SizeRule::ZeroOrMore,
+                SizeRule::AboveZero,
+            ],
+            Self::Wedge { .. } => vec![
+                SizeRule::AboveZero,
+                SizeRule::AboveZero,
+                SizeRule::AboveZero,
+                SizeRule::ZeroOrMore,
+            ],
+            Self::Prism { .. } => vec![SizeRule::Sides, SizeRule::AboveZero, SizeRule::AboveZero],
         }
     }
 
@@ -109,6 +219,22 @@ impl PrimitiveShape {
             Self::Cylinder { diameter, height } => vec![diameter, height],
             Self::Sphere { diameter } => vec![diameter],
             Self::Torus { diameter, tube } => vec![diameter, tube],
+            Self::Cone {
+                bottom,
+                top,
+                height,
+            } => vec![bottom, top, height],
+            Self::Wedge {
+                length,
+                width,
+                height,
+                top,
+            } => vec![length, width, height, top],
+            Self::Prism {
+                sides,
+                diameter,
+                height,
+            } => vec![sides, diameter, height],
         }
     }
 
@@ -118,9 +244,25 @@ impl PrimitiveShape {
             (Self::Box { .. }, RIGHT) => "right face",
             (Self::Box { .. }, BACK) => "back face",
             (Self::Box { .. }, LEFT) => "left face",
-            (Self::Box { .. }, _) => "side face",
-            (Self::Cylinder { .. }, _) => "wall",
+            (Self::Box { .. } | Self::Prism { .. }, _) => "side face",
+            (Self::Cone { .. }, BASE) => "bottom face",
+            (Self::Cone { .. }, TOP) => "top face",
+            (Self::Cylinder { .. } | Self::Cone { .. }, _) => "wall",
             (Self::Sphere { .. } | Self::Torus { .. }, _) => "surface",
+            (Self::Wedge { .. }, WEDGE_BOTTOM) => "bottom face",
+            (Self::Wedge { .. }, WEDGE_SLOPE) => "sloped face",
+            (Self::Wedge { .. }, WEDGE_TOP) => "top face",
+            (Self::Wedge { .. }, WEDGE_LEFT) => "left face",
+            (Self::Wedge { .. }, _) => "side face",
+        }
+    }
+
+    pub fn cap_name(&self, cap: Cap) -> &'static str {
+        match (self, cap) {
+            (Self::Wedge { .. }, Cap::Start) => "front face",
+            (Self::Wedge { .. }, Cap::End) => "back face",
+            (_, Cap::Start) => "bottom face",
+            (_, Cap::End) => "top face",
         }
     }
 }
@@ -226,9 +368,23 @@ impl Context<'_> {
     }
 
     fn value(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
+        self.value_as(expression, what, Dimension::LENGTH)
+    }
+
+    fn value_as(
+        &self,
+        expression: &Expression,
+        what: &str,
+        dimension: Dimension,
+    ) -> Result<f64, Failure> {
         let parameters = self.resolver.inputs.parameters;
+        let example = if dimension == Dimension::LENGTH {
+            "a length, such as 10 mm"
+        } else {
+            "a plain number, such as 6"
+        };
         expression
-            .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
+            .evaluate_as(dimension, &|id| parameters.value(id))
             .map_err(|error| {
                 let (remedy, fix) = match &error {
                     EvalError::ParameterFailed { id, name } => (
@@ -236,7 +392,7 @@ impl Context<'_> {
                         FixTarget::Parameter(*id),
                     ),
                     EvalError::WrongKind { .. } => (
-                        format!("Edit the {what} so it gives a length, such as 10 mm."),
+                        format!("Edit the {what} so it gives {example}."),
                         FixTarget::Feature(self.feature().id()),
                     ),
                     _ => (
@@ -276,6 +432,36 @@ impl Context<'_> {
         self.within_reach(value, what)
     }
 
+    fn size_or_zero(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
+        let value = self.value(expression, what)?;
+        if value < 0.0 {
+            return Err(self.error(
+                format!("The {what} of the {} cannot be negative.", self.shape),
+                format!("Enter a {what} of zero or more."),
+            ));
+        }
+        self.within_reach(value, what)
+    }
+
+    fn sides(&self, expression: &Expression) -> Result<u32, Failure> {
+        let what = "number of sides";
+        let value = self.value_as(expression, what, Dimension::NONE)?;
+        let whole = value.round();
+        if (value - whole).abs() > WHOLE_TOLERANCE
+            || whole < f64::from(MIN_PRISM_SIDES)
+            || whole > f64::from(MAX_PRISM_SIDES)
+        {
+            return Err(self.error(
+                format!(
+                    "The {what} of the prism must be a whole number from {MIN_PRISM_SIDES} to \
+                     {MAX_PRISM_SIDES}."
+                ),
+                format!("Enter a whole number from {MIN_PRISM_SIDES} to {MAX_PRISM_SIDES}."),
+            ));
+        }
+        Ok(whole as u32)
+    }
+
     fn unbuildable(&self, error: &dyn std::fmt::Display) -> Failure {
         log::warn!("{} could not be built: {error}", self.feature().name);
         self.error(
@@ -287,9 +473,31 @@ impl Context<'_> {
 
 enum Sizes {
     Box([f64; 3]),
-    Cylinder { radius: f64, height: f64 },
-    Sphere { radius: f64 },
-    Torus { ring: f64, tube: f64 },
+    Cylinder {
+        radius: f64,
+        height: f64,
+    },
+    Sphere {
+        radius: f64,
+    },
+    Torus {
+        ring: f64,
+        tube: f64,
+    },
+    Cone {
+        bottom: f64,
+        top: f64,
+        height: f64,
+    },
+    Wedge {
+        extents: [f64; 3],
+        top: f64,
+    },
+    Prism {
+        sides: u32,
+        radius: f64,
+        height: f64,
+    },
 }
 
 impl Sizes {
@@ -324,6 +532,55 @@ impl Sizes {
                 }
                 Self::Torus { ring, tube }
             }
+            PrimitiveShape::Cone {
+                bottom,
+                top,
+                height,
+            } => {
+                let bottom = context.size_or_zero(bottom, "bottom diameter")? / 2.0;
+                let top = context.size_or_zero(top, "top diameter")? / 2.0;
+                let height = context.size(height, "height")?;
+                if bottom <= 0.0 && top <= 0.0 {
+                    return Err(context.error(
+                        "The bottom and top diameters of the cone cannot both be zero.".to_owned(),
+                        "Enter a diameter above zero for the bottom or the top.".to_owned(),
+                    ));
+                }
+                Self::Cone {
+                    bottom,
+                    top,
+                    height,
+                }
+            }
+            PrimitiveShape::Wedge {
+                length,
+                width,
+                height,
+                top,
+            } => {
+                let extents = [
+                    context.size(length, "length")?,
+                    context.size(width, "width")?,
+                    context.size(height, "height")?,
+                ];
+                let top = context.size_or_zero(top, "top length")?;
+                if top > extents[0] {
+                    return Err(context.error(
+                        "The top length of the wedge cannot be more than its length.".to_owned(),
+                        "Make the top shorter or the wedge longer.".to_owned(),
+                    ));
+                }
+                Self::Wedge { extents, top }
+            }
+            PrimitiveShape::Prism {
+                sides,
+                diameter,
+                height,
+            } => Self::Prism {
+                sides: context.sides(sides)?,
+                radius: context.size(diameter, "diameter")? / 2.0,
+                height: context.size(height, "height")?,
+            },
         })
     }
 
@@ -333,6 +590,16 @@ impl Sizes {
             Self::Cylinder { radius, height } => [2.0 * radius, 2.0 * radius, height],
             Self::Sphere { radius } => [2.0 * radius; 3],
             Self::Torus { ring, tube } => [2.0 * (ring + tube), 2.0 * (ring + tube), 2.0 * tube],
+            Self::Cone {
+                bottom,
+                top,
+                height,
+            } => {
+                let widest = 2.0 * bottom.max(top);
+                [widest, widest, height]
+            }
+            Self::Wedge { extents, .. } => extents,
+            Self::Prism { radius, height, .. } => [2.0 * radius, 2.0 * radius, height],
         }
     }
 }
@@ -434,6 +701,96 @@ fn tool(
             let centre = placement.low + (x + y) * outer + up * tube;
             let curves = [ProfileCurve::circle(ROUND, Point2::new(ring, 0.0), tube)];
             revolved(context, centre, x, normal, &curves, raw)
+        }
+        Sizes::Cone {
+            bottom,
+            top,
+            height,
+        } => {
+            let widest = bottom.max(top);
+            let centre = placement.low + (x + y) * widest;
+            let mut curves = vec![ProfileCurve::line(
+                ROUND,
+                Point2::new(bottom, 0.0),
+                Point2::new(top, height),
+            )];
+            if top > 0.0 {
+                curves.push(ProfileCurve::line(
+                    TOP,
+                    Point2::new(top, height),
+                    Point2::new(0.0, height),
+                ));
+            }
+            curves.push(ProfileCurve::line(
+                ON_AXIS,
+                Point2::new(0.0, height),
+                Point2::ZERO,
+            ));
+            if bottom > 0.0 {
+                curves.push(ProfileCurve::line(
+                    BASE,
+                    Point2::ZERO,
+                    Point2::new(bottom, 0.0),
+                ));
+            }
+            revolved(context, centre, x, up, &curves, raw)
+        }
+        Sizes::Wedge {
+            extents: [length, width, height],
+            top,
+        } => {
+            let across = x.cross(up);
+            let frame = Plane::from_frame(placement.low, across, x)
+                .ok_or_else(|| unbuildable(&"the plane has no direction"))?;
+            let mut curves = vec![
+                ProfileCurve::line(WEDGE_BOTTOM, Point2::ZERO, Point2::new(length, 0.0)),
+                ProfileCurve::line(
+                    WEDGE_SLOPE,
+                    Point2::new(length, 0.0),
+                    Point2::new(top, height),
+                ),
+            ];
+            if top > 0.0 {
+                curves.push(ProfileCurve::line(
+                    WEDGE_TOP,
+                    Point2::new(top, height),
+                    Point2::new(0.0, height),
+                ));
+            }
+            curves.push(ProfileCurve::line(
+                WEDGE_LEFT,
+                Point2::new(0.0, height),
+                Point2::ZERO,
+            ));
+            let profile = Profile::new(&curves).map_err(|error| unbuildable(&error))?;
+            let extent = LinearExtent::new(0.0, width * y.dot(across))
+                .map_err(|error| unbuildable(&error))?;
+            extrude(&frame, profile.regions(), extent, raw).map_err(|error| unbuildable(&error))
+        }
+        Sizes::Prism {
+            sides,
+            radius,
+            height,
+        } => {
+            let frame = Plane::from_frame(placement.low, normal, x)
+                .ok_or_else(|| unbuildable(&"the plane has no direction"))?;
+            let centre = Point2::new(radius, radius);
+            let step = TAU / f64::from(sides);
+            let first = -FRAC_PI_2 - PI / f64::from(sides);
+            let corners: Vec<Point2> = (0..sides)
+                .map(|corner| {
+                    let angle = first + step * f64::from(corner);
+                    centre + Vector2::new(angle.cos(), angle.sin()) * radius
+                })
+                .collect();
+            let curves: Vec<ProfileCurve> = (1..=u64::from(sides))
+                .zip(corners.iter().zip(corners.iter().cycle().skip(1)))
+                .map(|(entity, (start, end))| ProfileCurve::line(entity, *start, *end))
+                .collect();
+            let profile = Profile::new(&curves).map_err(|error| unbuildable(&error))?;
+            let extent = LinearExtent::new(0.0, height * up.dot(normal))
+                .map_err(|error| unbuildable(&error))?;
+            extrude(&frame, profile.regions(), extent, raw).map_err(|error| unbuildable(&error))
         }
     }
 }

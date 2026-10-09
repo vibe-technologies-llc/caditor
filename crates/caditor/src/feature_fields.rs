@@ -1,5 +1,6 @@
 use caditor_document::{
-    Document, FeatureId, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, ParameterOwner, Transaction,
+    Document, FeatureId, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, MAX_PRISM_SIDES, MIN_PRISM_SIDES,
+    ParameterOwner, Transaction,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{ComboBox, Id, Label, RichText, Ui, WidgetText};
@@ -16,6 +17,7 @@ use crate::{
 };
 
 pub const ABOVE_ZERO: &str = "Enter a value above zero";
+pub const ZERO_OR_MORE: &str = "Enter a value of zero or more";
 pub const ABOVE_ZERO_OR_REVERSE: &str =
     "Enter a value above zero. Use Reverse direction to go the other way";
 pub const TURN: &str = "Enter an angle above 0° and up to 360°";
@@ -36,10 +38,12 @@ const WHOLE_TOLERANCE: f64 = 1e-9;
 pub enum Rule {
     Any,
     AboveZero,
+    ZeroOrMore,
     AboveZeroOrReverse,
     Turn,
     TurnBeside(f64),
     Count,
+    Sides,
     ConeAngle,
 }
 
@@ -48,6 +52,7 @@ impl Rule {
         let refusal = match self {
             Self::Any => None,
             Self::AboveZero => (value <= 0.0).then_some(ABOVE_ZERO),
+            Self::ZeroOrMore => (value < 0.0).then_some(ZERO_OR_MORE),
             Self::AboveZeroOrReverse => (value <= 0.0).then_some(ABOVE_ZERO_OR_REVERSE),
             Self::Turn => (value <= 0.0 || value > FULL_TURN_DEGREES).then_some(TURN),
             Self::TurnBeside(other) => {
@@ -60,6 +65,16 @@ impl Rule {
                 return Err(format!("Enter a count of at most {MAX_PATTERN_INSTANCES}"));
             }
             Self::Count => None,
+            Self::Sides
+                if (value - value.round()).abs() > WHOLE_TOLERANCE
+                    || value < f64::from(MIN_PRISM_SIDES)
+                    || value > f64::from(MAX_PRISM_SIDES) =>
+            {
+                return Err(format!(
+                    "Enter a whole number from {MIN_PRISM_SIDES} to {MAX_PRISM_SIDES}"
+                ));
+            }
+            Self::Sides => None,
             Self::ConeAngle if value <= 0.0 || value > MAX_CONE_ANGLE => {
                 return Err(format!(
                     "Enter an angle above 0° and up to {MAX_CONE_ANGLE}°"

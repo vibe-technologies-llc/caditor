@@ -3268,6 +3268,57 @@ fn primitives_are_saved_and_loaded_as_a_record_of_their_own() {
 }
 
 #[test]
+fn cones_wedges_and_prisms_are_saved_and_loaded_with_their_sizes() {
+    use caditor_document::{BodyOperation, Primitive, PrimitiveAnchor, PrimitiveShape};
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Primitives");
+    let shapes = [
+        PrimitiveShape::Cone {
+            bottom: transaction.parse("6 mm").unwrap(),
+            top: transaction.parse("0 mm").unwrap(),
+            height: transaction.parse("9 mm").unwrap(),
+        },
+        PrimitiveShape::Wedge {
+            length: transaction.parse("10 mm").unwrap(),
+            width: transaction.parse("4 mm").unwrap(),
+            height: transaction.parse("3 mm").unwrap(),
+            top: transaction.parse("2 mm").unwrap(),
+        },
+        PrimitiveShape::Prism {
+            sides: transaction.parse("5").unwrap(),
+            diameter: transaction.parse("8 mm").unwrap(),
+            height: transaction.parse("2 mm").unwrap(),
+        },
+    ];
+    for (index, shape) in shapes.into_iter().enumerate() {
+        transaction.add_feature(
+            format!("Shape {index}"),
+            FeatureKind::Primitive(Primitive {
+                shape,
+                plane: PlaneReference::Principal(PrincipalPlane::Xy),
+                at: [
+                    transaction.parse("0 mm").unwrap(),
+                    transaction.parse("0 mm").unwrap(),
+                ],
+                anchor: PrimitiveAnchor::BaseCentre,
+                reversed: false,
+                operation: BodyOperation::NewBody,
+            }),
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert!(text.contains("\"cone\":{\"bottom\":\"6 mm\",\"height\":\"9 mm\",\"top\":\"0 mm\"}"));
+    assert!(text.contains("\"wedge\":{\"height\":\"3 mm\",\"length\":\"10 mm\""));
+    assert!(text.contains("\"prism\":{\"diameter\":\"8 mm\",\"height\":\"2 mm\",\"sides\":\"5\"}"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+}
+
+#[test]
 fn an_unreadable_primitive_plane_and_size_are_reported_and_replaced() {
     let (document, block, _) = primitive_model();
     let text = encode(&document)
@@ -6450,6 +6501,17 @@ fn intersected_geometry_and_its_sources_survive_saving_and_the_journal() {
             end: Point2::new(0.0, 25.0),
         },
     );
+    let level = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::PrincipalPlane {
+            plane: PrincipalPlane::Xy,
+            reach: 40.0,
+        },
+        &caditor_document::Outline::Line {
+            start: Point2::new(-40.0, 0.0),
+            end: Point2::new(40.0, 0.0),
+        },
+    );
     let change = transaction.finish();
     let undo = document.apply(change.clone()).unwrap();
 
@@ -6467,9 +6529,10 @@ fn intersected_geometry_and_its_sources_survive_saving_and_the_journal() {
 
     assert!(text.contains("\"section\""), "{text}");
     assert!(text.contains("\"datum_plane\""), "{text}");
+    assert!(text.contains("\"principal_plane\""), "{text}");
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
-    assert!(sketch.is_projected(cut) && sketch.is_projected(along));
+    assert!(sketch.is_projected(cut) && sketch.is_projected(along) && sketch.is_projected(level));
     assert_eq!(format::restore_transaction(journaled), Some(change));
     assert_eq!(format::restore_transaction(undone), Some(undo));
 }
