@@ -424,8 +424,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `SetSketchPlacement` sets plane and attachment together. A body with attached sketches cannot
   stop making a body.
 - A sketch's `projections` (`projection.rs`) map a projected entity to its `ProjectionSource`: an
-  edge of a body (an `EdgeReference`), a corner (its `VertexName`) or an entity of an earlier
-  sketch. Before solving, recompute places each in the sketch plane from the source as it stands at
+  edge of a body (an `EdgeReference`), a corner (its `VertexName`), an entity of an earlier
+  sketch, a section edge or a datum plane's line. Before solving, recompute places each in the sketch plane from the source as it stands at
   the sketch (`refreshed`, in the body's state at that point): a line, a circle or arc lying in a
   parallel plane (turned to stay counter-clockwise), a point, or otherwise a spline through
   `PROJECTED_SPLINE_POINTS` samples; another sketch's spline maps its control points exactly. The
@@ -437,6 +437,18 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   adds an `Outline` (`edge_outline`, `vertex_outline`, `sketch_outline`) as points, a curve and
   its source in one transaction. A sketch's evaluation records every body standing at it
   (`Evaluation::body_result_seen_by`), so the app projects from that state.
+- Intersect sources (`section.rs`): a `Section` is an edge of the body cut by the sketch plane,
+  the body intersected with the half-space above the plane (`split::half_space_solid`, the one
+  Split uses, extruded under the sketch's own feature id). Its edges between the cut face (a cap
+  whose origin is the sketch) and a body face are the section curves, each named by the kernel
+  from the body face it crosses (`EdgeName::between` and its disambiguation) and kept as an
+  `EdgeReference` with the cap's origin dropped, so `origin_features` never names the sketch.
+  `refreshed` cuts each body once per recompute; a reference no longer found means the plane no
+  longer cuts that face, a failing cut fails the sketch alone and cancelling stops it. A
+  `DatumPlane { datum, reach }` is the line where an earlier datum plane crosses the sketch
+  plane, centred where it passes nearest the sketch origin and `reach` long either way;
+  `datum_outline` gives none for a parallel plane. Datum sources count in `planes_used`, so an
+  edit refuses one that is not a datum plane (`NotAPlane`).
 - Datums are planes, axes and points with a `DatumResult`, referring to model geometry in each
   body's state at the feature's place in the tree. Edits refuse a sketch or plane based on a
   non-datum-plane (`NotAPlane`), an axis reference to a non-datum-axis (`NotAnAxis`), a point

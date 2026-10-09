@@ -140,6 +140,12 @@ impl SketchFeature {
             .filter_map(ProjectionSource::sketch)
     }
 
+    pub fn projected_datums(&self) -> impl Iterator<Item = FeatureId> + '_ {
+        self.projections
+            .values()
+            .filter_map(ProjectionSource::datum)
+    }
+
     pub fn projection(&self, entity: EntityId) -> Option<&ProjectionSource> {
         self.projections.get(&entity)
     }

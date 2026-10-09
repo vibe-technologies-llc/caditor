@@ -221,6 +221,7 @@ impl ShapeModes {
             | Tool::Fillet
             | Tool::Chamfer
             | Tool::Project
+            | Tool::Intersect
             | Tool::Dimension => None,
         }
     }

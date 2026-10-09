@@ -5994,6 +5994,68 @@ fn projected_geometry_and_its_sources_survive_saving_and_the_journal() {
 }
 
 #[test]
+fn intersected_geometry_and_its_sources_survive_saving_and_the_journal() {
+    let mut document = sample();
+    let side = named(&document, "Side sketch");
+    let edge = caditor_kernel::EdgeReference::new(
+        caditor_kernel::EdgeName::from_digest(15),
+        [
+            caditor_kernel::FaceName::from_digest(11),
+            caditor_kernel::FaceName::from_digest(12),
+        ],
+        [
+            caditor_kernel::VertexName::from_digest(13),
+            caditor_kernel::VertexName::from_digest(14),
+        ],
+    );
+    let mut transaction = document.transaction("Intersect");
+    let cut = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::Section {
+            body: FeatureId::from_raw(90),
+            edge,
+        },
+        &caditor_document::Outline::Circle {
+            center: Point2::ZERO,
+            radius: 3.0,
+        },
+    );
+    let along = transaction.add_projection(
+        side,
+        caditor_document::ProjectionSource::DatumPlane {
+            datum: FeatureId::from_raw(91),
+            reach: 25.0,
+        },
+        &caditor_document::Outline::Line {
+            start: Point2::new(0.0, -25.0),
+            end: Point2::new(0.0, 25.0),
+        },
+    );
+    let change = transaction.finish();
+    let undo = document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+    let undone: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&undo)).unwrap());
+    let sketch = loaded
+        .document
+        .feature(side)
+        .and_then(|feature| feature.kind.sketch())
+        .unwrap();
+
+    assert!(text.contains("\"section\""), "{text}");
+    assert!(text.contains("\"datum_plane\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(sketch.is_projected(cut) && sketch.is_projected(along));
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+    assert_eq!(format::restore_transaction(undone), Some(undo));
+}
+
+#[test]
 fn an_unreadable_projection_leaves_ordinary_geometry_and_is_reported() {
     let mut document = sample();
     let side = named(&document, "Side sketch");

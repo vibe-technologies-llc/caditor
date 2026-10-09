@@ -150,6 +150,7 @@ impl Shape {
             | Tool::Fillet
             | Tool::Chamfer
             | Tool::Project
+            | Tool::Intersect
             | Tool::Dimension => None,
         }
     }

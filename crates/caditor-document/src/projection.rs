@@ -1,8 +1,13 @@
-use std::{borrow::Cow, collections::BTreeSet, f64::consts::TAU};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+    f64::consts::TAU,
+};
 
 use caditor_geometry::{Plane, Point2, Point3};
 use caditor_kernel::{
-    Curve, EdgeId, EdgeReference, ReferenceError, Solid, VertexId, VertexName, vertex_names,
+    BooleanError, Curve, EdgeId, EdgeReference, ReferenceError, Solid, VertexId, VertexName,
+    vertex_names,
 };
 use caditor_sketch::{ArcGeometry, BSpline, Entity, EntityId, Sketch};
 
@@ -12,7 +17,8 @@ use crate::{
     edit::{Edit, TransactionBuilder},
     origins,
     pieces::pieces_of_one_edge,
-    recompute::{Failure, FeatureError, FixTarget, Inputs},
+    recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    section::{SectionError, datum_outline, section_solid},
     tolerance::{self, POSITION_TOLERANCE},
 };
 
@@ -32,34 +38,62 @@ pub enum ProjectionSource {
         sketch: FeatureId,
         entity: EntityId,
     },
+    Section {
+        body: FeatureId,
+        edge: EdgeReference,
+    },
+    DatumPlane {
+        datum: FeatureId,
+        reach: f64,
+    },
 }
 
 impl ProjectionSource {
     pub fn body(&self) -> Option<FeatureId> {
         match self {
-            Self::Edge { body, .. } | Self::Vertex { body, .. } => Some(*body),
-            Self::SketchEntity { .. } => None,
+            Self::Edge { body, .. } | Self::Vertex { body, .. } | Self::Section { body, .. } => {
+                Some(*body)
+            }
+            Self::SketchEntity { .. } | Self::DatumPlane { .. } => None,
         }
     }
 
     pub fn sketch(&self) -> Option<FeatureId> {
         match self {
             Self::SketchEntity { sketch, .. } => Some(*sketch),
-            Self::Edge { .. } | Self::Vertex { .. } => None,
+            Self::Edge { .. }
+            | Self::Vertex { .. }
+            | Self::Section { .. }
+            | Self::DatumPlane { .. } => None,
+        }
+    }
+
+    pub fn datum(&self) -> Option<FeatureId> {
+        match self {
+            Self::DatumPlane { datum, .. } => Some(*datum),
+            Self::Edge { .. }
+            | Self::Vertex { .. }
+            | Self::SketchEntity { .. }
+            | Self::Section { .. } => None,
         }
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         match self {
-            Self::Edge { edge, .. } => origins::of_edge(edge),
-            Self::Vertex { .. } | Self::SketchEntity { .. } => BTreeSet::new(),
+            Self::Edge { edge, .. } | Self::Section { edge, .. } => origins::of_edge(edge),
+            Self::Vertex { .. } | Self::SketchEntity { .. } | Self::DatumPlane { .. } => {
+                BTreeSet::new()
+            }
         }
     }
 
     pub fn feature(&self) -> FeatureId {
         match self {
-            Self::Edge { body, .. } | Self::Vertex { body, .. } => *body,
+            Self::Edge { body, .. } | Self::Vertex { body, .. } | Self::Section { body, .. } => {
+                *body
+            }
             Self::SketchEntity { sketch, .. } => *sketch,
+            Self::DatumPlane { datum, .. } => *datum,
         }
     }
 }
@@ -177,7 +211,13 @@ pub enum ProjectionError {
     Missing,
     Ambiguous,
     ChangedShape,
+    NotCut,
+    Uncuttable,
+    Parallel,
+    Cancelled,
 }
+
+type Sections = BTreeMap<FeatureId, Result<Solid, ProjectionError>>;
 
 pub fn edge_outline(solid: &Solid, edge: EdgeId, plane: &Plane) -> Option<Outline> {
     curve_outline(solid, &[edge], plane, None)
@@ -397,14 +437,17 @@ pub(crate) fn refreshed<'a>(
         return Ok(Cow::Borrowed(&definition.sketch));
     }
     let mut sketch = definition.sketch.clone();
+    let mut sections = Sections::new();
     for (entity, source) in &definition.projections {
         let Some(existing) = sketch.entity(*entity) else {
             continue;
         };
         let wanted = Shape::of(existing);
-        let outline = outline_of(source, plane, wanted, inputs).map_err(|error| {
-            projection_failure(feature, &sketch, *entity, source, error, inputs)
-        })?;
+        let outline = outline_of(source, plane, wanted, feature.id(), inputs, &mut sections)
+            .map_err(|error| match error {
+                ProjectionError::Cancelled => Failure::Cancelled,
+                error => projection_failure(feature, &sketch, *entity, source, error, inputs),
+            })?;
         place(&mut sketch, *entity, &outline).map_err(|()| {
             projection_failure(
                 feature,
@@ -419,26 +462,75 @@ pub(crate) fn refreshed<'a>(
     Ok(Cow::Owned(sketch))
 }
 
+fn edge_in(
+    solid: &Solid,
+    edge: &EdgeReference,
+    plane: &Plane,
+    wanted: Shape,
+) -> Result<Outline, ProjectionError> {
+    let pieces = match edge.resolve(solid) {
+        Ok(edge) => vec![edge],
+        Err(ReferenceError::Ambiguous(pieces)) if pieces_of_one_edge(solid, &pieces) => pieces,
+        Err(ReferenceError::Ambiguous(_)) => return Err(ProjectionError::Ambiguous),
+        Err(ReferenceError::Missing) => return Err(ProjectionError::Missing),
+    };
+    curve_outline(solid, &pieces, plane, Some(wanted)).ok_or(ProjectionError::ChangedShape)
+}
+
+fn section_of<'a>(
+    body: FeatureId,
+    plane: &Plane,
+    sketch: FeatureId,
+    inputs: &Inputs<'_>,
+    sections: &'a mut Sections,
+) -> Result<&'a Solid, ProjectionError> {
+    let section = sections.entry(body).or_insert_with(|| {
+        let solid = inputs
+            .body(body)
+            .ok_or(ProjectionError::SourceUnavailable)?;
+        section_solid(solid, plane, sketch).map_err(|error| match error {
+            SectionError::Misses => ProjectionError::NotCut,
+            SectionError::Boolean(BooleanError::Cancelled(_)) => ProjectionError::Cancelled,
+            SectionError::HalfSpace(_) | SectionError::Boolean(_) => ProjectionError::Uncuttable,
+        })
+    });
+    section.as_ref().map_err(|error| *error)
+}
+
 fn outline_of(
     source: &ProjectionSource,
     plane: &Plane,
     wanted: Shape,
+    sketch: FeatureId,
     inputs: &Inputs<'_>,
+    sections: &mut Sections,
 ) -> Result<Outline, ProjectionError> {
     match source {
         ProjectionSource::Edge { body, edge } => {
             let solid = inputs
                 .body(*body)
                 .ok_or(ProjectionError::SourceUnavailable)?;
-            let pieces = match edge.resolve(solid) {
-                Ok(edge) => vec![edge],
-                Err(ReferenceError::Ambiguous(pieces)) if pieces_of_one_edge(solid, &pieces) => {
-                    pieces
-                }
-                Err(ReferenceError::Ambiguous(_)) => return Err(ProjectionError::Ambiguous),
-                Err(ReferenceError::Missing) => return Err(ProjectionError::Missing),
-            };
-            curve_outline(solid, &pieces, plane, Some(wanted)).ok_or(ProjectionError::ChangedShape)
+            edge_in(solid, edge, plane, wanted)
+        }
+        ProjectionSource::Section { body, edge } => {
+            let section = section_of(*body, plane, sketch, inputs, sections)?;
+            match edge_in(section, edge, plane, wanted) {
+                Err(ProjectionError::Missing) => Err(ProjectionError::NotCut),
+                outcome => outcome,
+            }
+        }
+        ProjectionSource::DatumPlane { datum, reach } => {
+            let datum = inputs
+                .features
+                .get(datum)
+                .and_then(|result| match result.as_ref() {
+                    FeatureResult::Datum(result) => result.plane(),
+                    _ => None,
+                })
+                .ok_or(ProjectionError::SourceUnavailable)?;
+            datum_outline(&datum, plane, *reach)
+                .filter(|outline| outline.shape() == wanted)
+                .ok_or(ProjectionError::Parallel)
         }
         ProjectionSource::Vertex { body, vertex } => {
             let solid = inputs
@@ -547,34 +639,65 @@ fn projection_failure(
         ProjectionSource::Edge { .. } => format!("an edge of {source_name}"),
         ProjectionSource::Vertex { .. } => format!("a corner of {source_name}"),
         ProjectionSource::SketchEntity { .. } => format!("geometry of {source_name}"),
+        ProjectionSource::Section { .. } => format!("the cut through {source_name}"),
+        ProjectionSource::DatumPlane { .. } => format!("the cut along {source_name}"),
+    };
+    let verb = match source {
+        ProjectionSource::Section { .. } | ProjectionSource::DatumPlane { .. } => "drawn from",
+        ProjectionSource::Edge { .. }
+        | ProjectionSource::Vertex { .. }
+        | ProjectionSource::SketchEntity { .. } => "projected from",
+    };
+    let redo = match source {
+        ProjectionSource::Section { .. } | ProjectionSource::DatumPlane { .. } => {
+            "intersect what you want"
+        }
+        ProjectionSource::Edge { .. }
+        | ProjectionSource::Vertex { .. }
+        | ProjectionSource::SketchEntity { .. } => "project the geometry you want",
     };
     let reason = match error {
-        ProjectionError::SourceUnavailable => format!(
-            "{label} is projected from {what}, which is not available at this point in the tree."
-        ),
+        ProjectionError::SourceUnavailable => {
+            format!("{label} is {verb} {what}, which is not available at this point in the tree.")
+        }
         ProjectionError::Missing => {
-            format!("{label} is projected from {what} that no longer exists.")
+            format!("{label} is {verb} {what} that no longer exists.")
         }
         ProjectionError::Ambiguous => format!(
-            "{label} is projected from {what} that was split into separate parts, so it is unclear \
-             which one to follow."
+            "{label} is {verb} {what} that was split into separate parts, so it is unclear which \
+             one to follow."
         ),
         ProjectionError::ChangedShape => format!(
-            "{label} is projected from {what} whose shape in this sketch changed kind, for \
-             example a line now seen end-on."
+            "{label} is {verb} {what} whose shape in this sketch changed kind, for example a \
+             line now seen end-on."
         ),
+        ProjectionError::NotCut => format!(
+            "{label} is {verb} {what}, but the sketch plane no longer cuts the face it came from."
+        ),
+        ProjectionError::Uncuttable => format!(
+            "{label} is {verb} {what}, which could not be worked out: the body could not be cut \
+             along the sketch plane."
+        ),
+        ProjectionError::Parallel => format!(
+            "{label} is {verb} {what}, which now lies parallel to the sketch, so the two no \
+             longer meet in a line."
+        ),
+        ProjectionError::Cancelled => format!("{label} is {verb} {what}, which was cancelled."),
     };
     let fix = match error {
-        ProjectionError::SourceUnavailable => Some(FixTarget::Feature(source.feature())),
-        ProjectionError::Missing | ProjectionError::Ambiguous | ProjectionError::ChangedShape => {
-            Some(FixTarget::Feature(feature.id()))
+        ProjectionError::SourceUnavailable | ProjectionError::Parallel => {
+            Some(FixTarget::Feature(source.feature()))
         }
+        ProjectionError::Missing
+        | ProjectionError::Ambiguous
+        | ProjectionError::ChangedShape
+        | ProjectionError::NotCut
+        | ProjectionError::Uncuttable
+        | ProjectionError::Cancelled => Some(FixTarget::Feature(feature.id())),
     };
     Failure::Error(Box::new(FeatureError {
         reason,
-        remedy: format!(
-            "Open the sketch, delete {label} and project the geometry you want in its place."
-        ),
+        remedy: format!("Open the sketch, delete {label} and {redo} in its place."),
         fix,
         constraints: Vec::new(),
         place: None,

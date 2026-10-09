@@ -29,6 +29,7 @@ mod properties;
 mod recompute;
 mod removal;
 mod scaling;
+mod section;
 mod shell;
 mod solid;
 mod split;
@@ -94,13 +95,14 @@ pub use crate::{
     },
     removal::Remove,
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR, Scale},
+    section::{SectionCurve, SectionError, datum_outline, section_curves},
     shell::Shell,
     solid::{
         AxisSide, BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice,
         Revolve, RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart,
         body_part, body_parts, profile_curve, sketch_regions,
     },
-    split::Split,
+    split::{HalfSpaceError, Split},
     values::{ParameterError, ParameterValues},
     views::{
         HOME_VIEW_NAME, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, NamedView, SavedView, SavedViews,
@@ -153,6 +155,8 @@ mod properties_tests;
 mod removal_tests;
 #[cfg(test)]
 mod scaling_tests;
+#[cfg(test)]
+mod section_tests;
 #[cfg(test)]
 mod shell_tests;
 #[cfg(test)]

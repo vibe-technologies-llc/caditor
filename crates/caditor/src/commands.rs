@@ -94,6 +94,7 @@ pub enum Command {
     CopyGeometry,
     CutGeometry,
     PasteGeometry,
+    IntersectBody,
     SketchTool(Tool),
     ShapeMode(ShapeMode),
     Constraint(ConstraintTool),
@@ -558,6 +559,7 @@ plain_commands! {
     CopyGeometry,
     CutGeometry,
     PasteGeometry,
+    IntersectBody,
     DeleteSelection,
     ClearRecent,
     RecoverUnsaved,
@@ -662,6 +664,7 @@ impl Command {
             Self::CopyGeometry => "sketch.copy",
             Self::CutGeometry => "sketch.cut",
             Self::PasteGeometry => "sketch.paste",
+            Self::IntersectBody => "sketch.intersect_body",
             Self::SketchTool(tool) => match tool {
                 Tool::Select => "sketch.select",
                 Tool::Point => "sketch.point",
@@ -684,6 +687,7 @@ impl Command {
                 Tool::Fillet => "sketch.fillet",
                 Tool::Chamfer => "sketch.chamfer",
                 Tool::Project => "sketch.project",
+                Tool::Intersect => "sketch.intersect",
                 Tool::Dimension => "sketch.dimension",
             },
             Self::ShapeMode(mode) => mode.id(),
@@ -878,6 +882,7 @@ impl Command {
             Self::CopyGeometry => "Copy selected sketch geometry",
             Self::CutGeometry => "Cut selected sketch geometry",
             Self::PasteGeometry => "Paste sketch geometry",
+            Self::IntersectBody => "Intersect the whole body of the highlighted face",
             Self::SketchTool(Tool::Select) => "Select tool",
             Self::SketchTool(Tool::Trim) => "Trim sketch curves",
             Self::SketchTool(Tool::Extend) => "Extend a line or arc",
@@ -889,6 +894,9 @@ impl Command {
             Self::SketchTool(Tool::Fillet) => "Fillet a sketch corner",
             Self::SketchTool(Tool::Chamfer) => "Chamfer a sketch corner",
             Self::SketchTool(Tool::Project) => "Project model geometry into the sketch",
+            Self::SketchTool(Tool::Intersect) => {
+                "Draw where a body, a face or a datum plane cuts the sketch plane"
+            }
             Self::SketchTool(Tool::Dimension) => "Smart dimension",
             Self::SketchTool(tool) => return format!("Draw {}", tool.label().to_lowercase()),
             Self::ShapeMode(mode) => return mode.title(),
@@ -1169,6 +1177,7 @@ impl Command {
             | Self::CopyGeometry
             | Self::CutGeometry
             | Self::PasteGeometry
+            | Self::IntersectBody
             | Self::SketchTool(_)
             | Self::ShapeMode(_) => Category::Sketch,
             Self::Constraint(_) => Category::Constraint,
@@ -1193,6 +1202,7 @@ impl Command {
             | Self::CopyGeometry
             | Self::CutGeometry
             | Self::PasteGeometry
+            | Self::IntersectBody
             | Self::SketchTool(_)
             | Self::ShapeMode(_)
             | Self::Constraint(_) => Scope::Sketch,
@@ -1256,6 +1266,7 @@ impl Command {
             Self::CopyGeometry => vec![command(Key::C)],
             Self::CutGeometry => vec![command(Key::X)],
             Self::PasteGeometry => vec![command(Key::V)],
+            Self::IntersectBody => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::Space)],
             Self::RenameFeature => vec![plain(Key::F2)],
             Self::GroupFeatures => vec![command(Key::G)],
             Self::Recompute => vec![plain(Key::F5)],
@@ -1397,6 +1408,7 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::Chamfer => Some(KeyboardShortcut::new(Modifiers::SHIFT, Key::B)),
         Tool::RectangularPattern | Tool::CircularPattern | Tool::TangentCircle => None,
         Tool::Project => Some(KeyboardShortcut::new(Modifiers::ALT, Key::P)),
+        Tool::Intersect => Some(KeyboardShortcut::new(Modifiers::ALT, Key::I)),
         Tool::Dimension => plain(Key::D),
     }
 }

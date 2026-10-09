@@ -662,6 +662,7 @@ impl Menus<'_, '_> {
                     Command::PasteGeometry,
                 ],
             );
+            self.item(ui, Command::IntersectBody);
             ui.separator();
             let (dimensions, geometric): (Vec<ConstraintTool>, Vec<ConstraintTool>) =
                 ConstraintTool::ALL
