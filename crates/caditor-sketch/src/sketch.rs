@@ -305,6 +305,9 @@ impl Sketch {
             Constraint::Midpoint { point, curve } => {
                 format!("{kind} of {} at {}", label(curve), label(point))
             }
+            Constraint::AxisDiameter { point, axis, .. } => {
+                format!("{kind} {} at {}", label(axis), label(point))
+            }
             Constraint::Symmetric {
                 first,
                 second,
@@ -333,6 +336,9 @@ impl Sketch {
     pub fn measured(&self, constraint: &Constraint) -> Option<f64> {
         let value = match *constraint {
             Constraint::Distance { from, to, .. } => self.distance_between(from, to)?,
+            Constraint::AxisDiameter { point, axis, .. } => {
+                2.0 * self.distance_to_line(self.point(point)?, axis)?
+            }
             Constraint::HorizontalDistance { from, to, .. } => {
                 (self.point(to)?.x - self.point(from)?.x).abs()
             }
@@ -817,6 +823,12 @@ impl Sketch {
                 }
                 _ => self.check_point_on_curve(constraint, from, to),
             },
+            Constraint::AxisDiameter { point, axis, .. } => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.expect(axis, &[Role::Line], "a line")?;
+                self.check_not_only_reference(&entities)?;
+                self.check_not_own_point(point, axis)
+            }
             Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => self
                 .expect(entity, &[Role::Circular], "a circle or an arc")
                 .map(|_| ()),

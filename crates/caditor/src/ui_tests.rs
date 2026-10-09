@@ -4317,6 +4317,65 @@ fn a_diameter_is_labelled_with_its_sign_and_sets_the_circle() {
 }
 
 #[test]
+fn the_smart_dimension_placed_across_a_construction_axis_holds_the_diameter_as_a_lathe_drawing_shows_it()
+ {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let axis = sketch.add_line(Point2::new(0.0, -20.0), Point2::new(0.0, 20.0));
+    sketch.set_construction(axis, true).unwrap();
+    let (start, end) = line_ends(&sketch, axis);
+    for (point, at) in [
+        (start, Point2::new(0.0, -20.0)),
+        (end, Point2::new(0.0, 20.0)),
+    ] {
+        sketch
+            .add_constraint(Constraint::Fix { point, at })
+            .unwrap();
+    }
+    let rim = sketch.add_point(Point2::new(10.0, 5.0));
+    let feature = edit_free_sketch(&mut harness, sketch);
+    harness.use_tool(Key::D);
+
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(10.0, 5.0),
+        sketch_entity(feature, rim),
+    );
+    harness.frame();
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(0.0, 15.0),
+        sketch_entity(feature, axis),
+    );
+    harness.frame();
+    let waiting = harness.sketch(feature).constraints().count();
+    harness.point_at(Point2::new(-8.0, 10.0));
+    let prompted = harness.shows_containing("here the diameter of");
+    harness.click_at(Point2::new(-8.0, 10.0));
+    harness.frame();
+    harness.frame();
+    let added = constraints_of_kind(harness.sketch(feature), "Diameter across");
+    let (constraint, _) = harness
+        .sketch(feature)
+        .constraints()
+        .last()
+        .map(|(id, constraint)| (id, constraint.clone()))
+        .unwrap();
+    harness.type_into_field(annotations::field_id(feature, constraint), "30");
+    harness.settle();
+
+    assert_eq!(waiting, 2);
+    assert!(prompted);
+    assert!(
+        matches!(added[..], [Constraint::AxisDiameter { point, axis: across, .. }] if point == rim && across == axis),
+        "{added:?}"
+    );
+    assert!(harness.shows("Ø 30"));
+    let moved = harness.shown(feature).point(rim).unwrap();
+    assert!((moved.x - 15.0).abs() < 1e-9, "{moved}");
+}
+
+#[test]
 fn fixing_a_line_locks_both_ends_where_they_are_shown() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

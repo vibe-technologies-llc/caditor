@@ -17,6 +17,7 @@ enum Direction {
 enum Subject {
     Direction(Direction, [EntityId; 2]),
     Size(EntityId),
+    Spacing([EntityId; 2]),
     Pair(&'static str, [EntityId; 2]),
     Single(&'static str, EntityId),
     Triple(&'static str, EntityId, [EntityId; 2]),
@@ -114,10 +115,13 @@ impl Sketch {
             | Constraint::Equal(a, b)
             | Constraint::Concentric(a, b)
             | Constraint::Collinear(a, b)
-            | Constraint::Distance { from: a, to: b, .. }
             | Constraint::HorizontalDistance { from: a, to: b, .. }
             | Constraint::VerticalDistance { from: a, to: b, .. }
             | Constraint::Angle { from: a, to: b, .. } => Subject::Pair(kind, ordered(a, b)),
+            Constraint::Distance { from: a, to: b, .. }
+            | Constraint::AxisDiameter {
+                point: a, axis: b, ..
+            } => Subject::Spacing(ordered(a, b)),
             Constraint::Midpoint { point, curve } => Subject::Pair(kind, [point, curve]),
             Constraint::Symmetric {
                 first,

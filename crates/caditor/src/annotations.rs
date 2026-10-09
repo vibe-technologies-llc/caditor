@@ -451,7 +451,9 @@ fn label_text(
     };
     match constraint {
         Constraint::Radius { .. } => format!("{RADIUS_PREFIX}{text}"),
-        Constraint::Diameter { .. } => format!("{DIAMETER_PREFIX}{text}"),
+        Constraint::Diameter { .. } | Constraint::AxisDiameter { .. } => {
+            format!("{DIAMETER_PREFIX}{text}")
+        }
         _ => text,
     }
 }

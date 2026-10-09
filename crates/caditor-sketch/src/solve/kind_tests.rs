@@ -488,6 +488,68 @@ fn a_diameter_sets_twice_the_radius() {
 }
 
 #[test]
+fn a_diameter_across_an_axis_holds_the_point_at_half_of_it_on_its_side() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let axis = sketch.add_line(Point2::new(0.0, -5.0), Point2::new(0.0, 5.0));
+    fix_line(&mut sketch, axis);
+    let right = sketch.add_point(Point2::new(7.0, 2.0));
+    let left = sketch.add_point(Point2::new(-3.0, 1.0));
+    let across = add(
+        &mut sketch,
+        Constraint::AxisDiameter {
+            point: right,
+            axis,
+            value: mm(24.0),
+        },
+    );
+    add(
+        &mut sketch,
+        Constraint::AxisDiameter {
+            point: left,
+            axis,
+            value: mm(10.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_close(at(&solved, right).x, 12.0);
+    assert_close(at(&solved, left).x, -5.0);
+    assert_eq!(solved.solution.degrees_of_freedom(), 2);
+    assert_close(
+        solved
+            .geometry
+            .measured(sketch.constraint(across).unwrap())
+            .unwrap(),
+        24.0,
+    );
+    assert_eq!(
+        sketch.restating(&Constraint::Distance {
+            from: axis,
+            to: right,
+            value: mm(12.0),
+        }),
+        Some(across)
+    );
+    assert!(matches!(
+        sketch.add_constraint(Constraint::AxisDiameter {
+            point: right,
+            axis: left,
+            value: mm(4.0),
+        }),
+        Err(SketchError::WrongKind { .. })
+    ));
+    assert!(matches!(
+        sketch.add_constraint(Constraint::AxisDiameter {
+            point: right,
+            axis,
+            value: mm(-4.0),
+        }),
+        Err(SketchError::DimensionValue { .. })
+    ));
+}
+
+#[test]
 fn a_point_keeps_its_side_of_a_circle_at_a_distance() {
     let mut sketch = Sketch::new(Plane::XY);
     let circle = sketch.add_circle(Point2::ZERO, 10.0);

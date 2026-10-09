@@ -49,6 +49,11 @@ pub enum Constraint {
         to: EntityId,
         value: Expression,
     },
+    AxisDiameter {
+        point: EntityId,
+        axis: EntityId,
+        value: Expression,
+    },
     Angle {
         from: EntityId,
         to: EntityId,
@@ -96,6 +101,7 @@ impl Constraint {
             Self::Distance { .. } => "Distance",
             Self::HorizontalDistance { .. } => "Horizontal distance",
             Self::VerticalDistance { .. } => "Vertical distance",
+            Self::AxisDiameter { .. } => "Diameter across",
             Self::Angle { .. } => "Angle",
             Self::Radius { .. } => "Radius",
             Self::Diameter { .. } => "Diameter",
@@ -127,6 +133,9 @@ impl Constraint {
             | Self::Distance { from: a, to: b, .. }
             | Self::HorizontalDistance { from: a, to: b, .. }
             | Self::VerticalDistance { from: a, to: b, .. }
+            | Self::AxisDiameter {
+                point: a, axis: b, ..
+            }
             | Self::Angle { from: a, to: b, .. } => vec![a, b],
             Self::Symmetric {
                 first,
@@ -141,6 +150,7 @@ impl Constraint {
             Self::Distance { value, .. }
             | Self::HorizontalDistance { value, .. }
             | Self::VerticalDistance { value, .. }
+            | Self::AxisDiameter { value, .. }
             | Self::Angle { value, .. }
             | Self::Radius { value, .. }
             | Self::Diameter { value, .. }
@@ -184,6 +194,7 @@ impl Constraint {
             }
             Self::Radius { .. } if value <= 0.0 => Err(DimensionError::NotPositive),
             Self::Diameter { .. } if value <= 0.0 => Err(DimensionError::DiameterNotPositive),
+            Self::AxisDiameter { .. } if value < 0.0 => Err(DimensionError::Negative),
             Self::ArcLength { .. } if value <= 0.0 => Err(DimensionError::ArcLengthNotPositive),
             Self::Sweep { .. } if value <= 0.0 || value >= FULL_TURN_DEGREES => {
                 Err(DimensionError::SweepOutsideTurn)
@@ -199,6 +210,7 @@ impl Constraint {
             Self::Distance { value, .. }
             | Self::HorizontalDistance { value, .. }
             | Self::VerticalDistance { value, .. }
+            | Self::AxisDiameter { value, .. }
             | Self::Angle { value, .. }
             | Self::Radius { value, .. }
             | Self::Diameter { value, .. }
@@ -254,6 +266,9 @@ impl Constraint {
             | Self::Distance { from: a, to: b, .. }
             | Self::HorizontalDistance { from: a, to: b, .. }
             | Self::VerticalDistance { from: a, to: b, .. }
+            | Self::AxisDiameter {
+                point: a, axis: b, ..
+            }
             | Self::Angle { from: a, to: b, .. } => {
                 *a = swap(*a);
                 *b = swap(*b);

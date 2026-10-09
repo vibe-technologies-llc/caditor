@@ -158,6 +158,11 @@ pub fn measured(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
             (None, Some(point)) => point_to_curve(sketch, point, from),
             (None, None) => curve_to_curve(sketch, from, to),
         },
+        Constraint::AxisDiameter { point, axis, .. } => {
+            let point = sketch.point(point)?;
+            let mirrored = 2.0 * LineSpan::of(sketch, axis)?.foot(point) - point;
+            Some(Measured::Points(point, mirrored))
+        }
         Constraint::HorizontalDistance { from, to, .. } => Some(Measured::Aligned {
             from: sketch.point(from)?,
             to: sketch.point(to)?,
@@ -850,6 +855,7 @@ pub fn glyphs_of(sketch: &Sketch, constraint: &Constraint) -> Vec<(EntityId, Gly
         Constraint::Distance { .. }
         | Constraint::HorizontalDistance { .. }
         | Constraint::VerticalDistance { .. }
+        | Constraint::AxisDiameter { .. }
         | Constraint::Angle { .. }
         | Constraint::Radius { .. }
         | Constraint::Diameter { .. }
