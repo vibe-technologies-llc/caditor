@@ -227,6 +227,13 @@ paths:
   points. Construction curves are dashed (`scene::curve_segments`) and coloured by constraint
   state like any curve, so dashes never carry a constraint state.
 
+- The edited sketch's control-point splines (open or closed) and conics show their control
+  polygon (`scene::control_polygon`, `Sketch::spline_control_points`): dashed like construction,
+  in the curve's state colour at the regular width, never picked, so the points that shape the
+  curve read as its handles. A fit-point spline shows none, its fit points being its handles.
+  Show or hide spline control polygons (`Command::ToggleControlPolygons`, View menu, palette, no
+  default key; `ViewAids::control_polygons_hidden`, shown by default) hides them for the session.
+
 ## Constraint states without colour
 
 - Each sketch entity has a `SketchState` (under or fully constrained, conflicting, redundant,

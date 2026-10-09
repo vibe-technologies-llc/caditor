@@ -182,6 +182,7 @@ pub enum Command {
     ToggleFirstDimensionScales,
     ToggleGlyphs,
     ToggleCentresOfMass,
+    ToggleControlPolygons,
     MinimizeWindow,
     MaximizeWindow,
     FullScreen,
@@ -520,6 +521,7 @@ plain_commands! {
     ToggleFirstDimensionScales,
     ToggleGlyphs,
     ToggleCentresOfMass,
+    ToggleControlPolygons,
     Measure,
     Interference,
     LargerInterface,
@@ -851,6 +853,7 @@ impl Command {
             Self::ToggleFirstDimensionScales => "sketch.toggle_first_dimension_scales",
             Self::ToggleGlyphs => "view.toggle_glyphs",
             Self::ToggleCentresOfMass => "view.toggle_centres_of_mass",
+            Self::ToggleControlPolygons => "view.toggle_control_polygons",
             Self::MinimizeWindow => "view.minimize_window",
             Self::MaximizeWindow => "view.maximize_window",
             Self::FullScreen => "view.full_screen",
@@ -1055,6 +1058,7 @@ impl Command {
             Self::ToggleFirstDimensionScales => "Scale the whole sketch on its first dimension",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
             Self::ToggleCentresOfMass => "Show or hide centres of mass",
+            Self::ToggleControlPolygons => "Show or hide spline control polygons",
             Self::MinimizeWindow => "Minimize the window",
             Self::MaximizeWindow => "Maximize or restore the window",
             Self::FullScreen => "Enter or leave full screen",
@@ -1197,6 +1201,7 @@ impl Command {
             | Self::CycleSelectionPriority
             | Self::ToggleGlyphs
             | Self::ToggleCentresOfMass
+            | Self::ToggleControlPolygons
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::FullScreen => Category::View,
@@ -1473,6 +1478,7 @@ impl Command {
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::ToggleCentresOfMass
+            | Self::ToggleControlPolygons
             | Self::MinimizeWindow
             | Self::MaximizeWindow
             | Self::SaveView

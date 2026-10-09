@@ -589,6 +589,11 @@ impl Menus<'_, '_> {
             self.choice(ui, Command::ToggleSelectThrough, self.select_through);
             self.choice(ui, Command::ToggleGlyphs, self.glyphs);
             self.choice(ui, Command::ToggleCentresOfMass, self.aids.centres_of_mass);
+            self.choice(
+                ui,
+                Command::ToggleControlPolygons,
+                !self.aids.control_polygons_hidden,
+            );
             ui.separator();
             self.item(ui, Command::FullScreen);
             ui.separator();

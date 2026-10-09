@@ -2206,6 +2206,9 @@ impl ViewportState {
                     .filter(|hovered| !matches!(hovered, Pickable::CentreOfMass(_)));
             }
         }
+        if commands.available(Command::ToggleControlPolygons) {
+            self.aids.control_polygons_hidden = !self.aids.control_polygons_hidden;
+        }
         if commands.available(Command::ToggleSnapping) {
             self.snapping = !self.snapping;
         }

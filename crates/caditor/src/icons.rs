@@ -196,6 +196,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleFirstDimensionScales => phosphor::RESIZE,
         Command::ToggleGlyphs => phosphor::SHAPES,
         Command::ToggleCentresOfMass => phosphor::TARGET,
+        Command::ToggleControlPolygons => phosphor::POLYGON,
         Command::MinimizeWindow => MINIMIZE,
         Command::MaximizeWindow => MAXIMIZE,
         Command::FullScreen => FULL_SCREEN,
