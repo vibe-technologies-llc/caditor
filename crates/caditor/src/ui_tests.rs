@@ -68,6 +68,7 @@ use crate::{
 mod feature_panels;
 mod import_jobs;
 mod pick_list;
+mod primitives;
 mod screenshots;
 mod selection_targets;
 mod sketch_breaks;

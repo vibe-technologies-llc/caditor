@@ -4,6 +4,7 @@ use caditor_sketch::EntityId;
 use crate::{
     document::{Document, FeatureId},
     hole::Hole,
+    primitive::Cap,
 };
 
 pub fn origin_feature(origin: FaceOrigin) -> FeatureId {
@@ -47,11 +48,11 @@ fn describe_made(document: &Document, origin: FaceOrigin) -> String {
         FaceOrigin::Side { entity, .. } if let Some(primitive) = feature.kind.primitive() => {
             format!("{name} {}", primitive.shape.side_name(entity))
         }
-        FaceOrigin::StartCap { .. } if feature.kind.primitive().is_some() => {
-            format!("{name} bottom face")
+        FaceOrigin::StartCap { .. } if let Some(primitive) = feature.kind.primitive() => {
+            format!("{name} {}", primitive.shape.cap_name(Cap::Start))
         }
-        FaceOrigin::EndCap { .. } if feature.kind.primitive().is_some() => {
-            format!("{name} top face")
+        FaceOrigin::EndCap { .. } if let Some(primitive) = feature.kind.primitive() => {
+            format!("{name} {}", primitive.shape.cap_name(Cap::End))
         }
         FaceOrigin::Side { entity, .. } if feature.kind.hole().is_some() => {
             let part = Hole::part_name(entity);

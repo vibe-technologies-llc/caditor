@@ -107,6 +107,9 @@ pub enum Command {
     NewCylinder,
     NewSphere,
     NewTorus,
+    NewCone,
+    NewWedge,
+    NewPrism,
     Fillet,
     Chamfer,
     Shell,
@@ -545,6 +548,9 @@ plain_commands! {
     NewCylinder,
     NewSphere,
     NewTorus,
+    NewCone,
+    NewWedge,
+    NewPrism,
     Fillet,
     Chamfer,
     Shell,
@@ -744,6 +750,9 @@ impl Command {
             Self::NewCylinder => "model.cylinder",
             Self::NewSphere => "model.sphere",
             Self::NewTorus => "model.torus",
+            Self::NewCone => "model.cone",
+            Self::NewWedge => "model.wedge",
+            Self::NewPrism => "model.prism",
             Self::Fillet => "model.fillet",
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
@@ -940,6 +949,9 @@ impl Command {
             Self::NewCylinder => "Cylinder",
             Self::NewSphere => "Sphere",
             Self::NewTorus => "Torus",
+            Self::NewCone => "Cone",
+            Self::NewWedge => "Wedge",
+            Self::NewPrism => "Prism",
             Self::Fillet => "Fillet",
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
@@ -1152,6 +1164,9 @@ impl Command {
             | Self::NewCylinder
             | Self::NewSphere
             | Self::NewTorus
+            | Self::NewCone
+            | Self::NewWedge
+            | Self::NewPrism
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
@@ -1439,7 +1454,10 @@ impl Command {
             | Self::SelectFree
             | Self::ToggleSketches
             | Self::ToggleDatums
-            | Self::ToggleBodies => Vec::new(),
+            | Self::ToggleBodies
+            | Self::NewCone
+            | Self::NewWedge
+            | Self::NewPrism => Vec::new(),
         }
     }
 

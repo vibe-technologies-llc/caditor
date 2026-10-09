@@ -264,6 +264,9 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
             PrimitiveKind::Cylinder => &["cylinder", "post", "primitive"],
             PrimitiveKind::Sphere => &["sphere", "ball", "primitive"],
             PrimitiveKind::Torus => &["torus", "ring", "primitive"],
+            PrimitiveKind::Cone => &["cone", "frustum", "primitive"],
+            PrimitiveKind::Wedge => &["wedge", "ramp", "primitive"],
+            PrimitiveKind::Prism => &["prism", "polygon", "primitive"],
         },
         FeatureKind::Combine(combine) => match combine.operation {
             CombineOperation::Join => &["combine", "join", "union"],

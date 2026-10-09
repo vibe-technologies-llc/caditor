@@ -40,6 +40,9 @@ const MODEL_PRIMITIVES: [&[Command]; 1] = [&[
     Command::NewCylinder,
     Command::NewSphere,
     Command::NewTorus,
+    Command::NewCone,
+    Command::NewWedge,
+    Command::NewPrism,
 ]];
 const MODEL_DATUMS: [&[Command]; 1] =
     [&[Command::DatumPlane, Command::DatumAxis, Command::DatumPoint]];

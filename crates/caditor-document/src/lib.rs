@@ -82,7 +82,10 @@ pub use crate::{
         ORIGINAL_INSTANCE, Pattern, PatternKind, instance_name, repeatable_on,
     },
     pieces::{Resolution, Unresolved},
-    primitive::{Primitive, PrimitiveAnchor, PrimitiveKind, PrimitiveShape},
+    primitive::{
+        Cap, MAX_PRISM_SIDES, MIN_PRISM_SIDES, Primitive, PrimitiveAnchor, PrimitiveKind,
+        PrimitiveShape, SizeRule,
+    },
     projection::{
         Outline, PROJECTED_SPLINE_POINTS, ProjectionSource, edge_outline, sketch_outline,
         vertex_outline,

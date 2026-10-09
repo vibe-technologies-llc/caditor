@@ -148,6 +148,9 @@ pub fn command(command: Command) -> &'static str {
         Command::NewCylinder => primitive(PrimitiveKind::Cylinder),
         Command::NewSphere => primitive(PrimitiveKind::Sphere),
         Command::NewTorus => primitive(PrimitiveKind::Torus),
+        Command::NewCone => primitive(PrimitiveKind::Cone),
+        Command::NewWedge => primitive(PrimitiveKind::Wedge),
+        Command::NewPrism => primitive(PrimitiveKind::Prism),
         Command::Combine => COMBINE,
         Command::Move => MOVE,
         Command::CopyBody => COPY_BODY,
@@ -395,6 +398,9 @@ pub fn primitive(kind: PrimitiveKind) -> &'static str {
         PrimitiveKind::Cylinder => phosphor::CYLINDER,
         PrimitiveKind::Sphere => phosphor::SPHERE,
         PrimitiveKind::Torus => phosphor::DISC,
+        PrimitiveKind::Cone => phosphor::TRAFFIC_CONE,
+        PrimitiveKind::Wedge => phosphor::TRIANGLE,
+        PrimitiveKind::Prism => phosphor::HEXAGON,
     }
 }
 

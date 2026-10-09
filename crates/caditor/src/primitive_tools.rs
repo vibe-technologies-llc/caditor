@@ -20,6 +20,10 @@ pub const DEFAULT_BOX: [f64; 3] = [20.0, 20.0, 10.0];
 pub const DEFAULT_CYLINDER: [f64; 2] = [10.0, 20.0];
 pub const DEFAULT_SPHERE: f64 = 20.0;
 pub const DEFAULT_TORUS: [f64; 2] = [30.0, 6.0];
+pub const DEFAULT_CONE: [f64; 3] = [20.0, 0.0, 20.0];
+pub const DEFAULT_WEDGE: [f64; 4] = [20.0, 20.0, 10.0, 0.0];
+pub const DEFAULT_PRISM_SIDES: u32 = 6;
+pub const DEFAULT_PRISM: [f64; 2] = [20.0, 10.0];
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Xy);
 const GONE: &str = "The feature no longer exists";
 const NOT_A_PLACE: &str = "Click a plane or flat face to place it on";
@@ -38,6 +42,9 @@ pub fn command(kind: PrimitiveKind) -> Command {
         PrimitiveKind::Cylinder => Command::NewCylinder,
         PrimitiveKind::Sphere => Command::NewSphere,
         PrimitiveKind::Torus => Command::NewTorus,
+        PrimitiveKind::Cone => Command::NewCone,
+        PrimitiveKind::Wedge => Command::NewWedge,
+        PrimitiveKind::Prism => Command::NewPrism,
     }
 }
 
@@ -74,12 +81,41 @@ pub fn default_shape(kind: PrimitiveKind, unit: LengthUnit) -> PrimitiveShape {
                 tube: length(tube),
             }
         }
+        PrimitiveKind::Cone => {
+            let [bottom, top, height] = DEFAULT_CONE;
+            PrimitiveShape::Cone {
+                bottom: length(bottom),
+                top: length(top),
+                height: length(height),
+            }
+        }
+        PrimitiveKind::Wedge => {
+            let [long, wide, high, top] = DEFAULT_WEDGE;
+            PrimitiveShape::Wedge {
+                length: length(long),
+                width: length(wide),
+                height: length(high),
+                top: length(top),
+            }
+        }
+        PrimitiveKind::Prism => {
+            let [diameter, height] = DEFAULT_PRISM;
+            PrimitiveShape::Prism {
+                sides: caditor_expression::Expression::Number(f64::from(DEFAULT_PRISM_SIDES)),
+                diameter: length(diameter),
+                height: length(height),
+            }
+        }
     }
 }
 
 pub fn default_anchor(kind: PrimitiveKind) -> PrimitiveAnchor {
     match kind {
-        PrimitiveKind::Box | PrimitiveKind::Cylinder => PrimitiveAnchor::BaseCentre,
+        PrimitiveKind::Box
+        | PrimitiveKind::Cylinder
+        | PrimitiveKind::Cone
+        | PrimitiveKind::Wedge
+        | PrimitiveKind::Prism => PrimitiveAnchor::BaseCentre,
         PrimitiveKind::Sphere | PrimitiveKind::Torus => PrimitiveAnchor::Centre,
     }
 }

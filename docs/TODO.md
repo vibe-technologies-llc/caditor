@@ -265,9 +265,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
   without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
   in part can be had. It is a feature of its own, naming the faces it splits.
-- [low · easy] Primitives are a box, cylinder, sphere and torus only: no cone or frustum (two
-  diameters, either may be zero, and a height), wedge (a box whose top is shorter along one side)
-  or prism of a typed number of sides, which today each take a sketch and an extrusion or revolve.
 - [low · medium] A primitive shows a typed size only once it is entered, not while typing as a
   fillet's does (the draft preview draws only a body that stood before the feature), and a pattern
   cannot repeat a primitive adding to or cutting a body as it repeats an extrusion's tool

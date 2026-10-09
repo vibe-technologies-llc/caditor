@@ -354,3 +354,207 @@ fn a_reference_to_a_side_survives_resizing() {
         "Box 1 front face"
     );
 }
+
+#[test]
+fn cones_wedges_and_prisms_have_their_volumes_bounds_and_named_faces() {
+    let count = |sides: f64| Expression::Number(sides);
+    let cases = [
+        (
+            PrimitiveShape::Cone {
+                bottom: mm(4.0),
+                top: mm(0.0),
+                height: mm(3.0),
+            },
+            PI * 4.0,
+            Point3::new(2.0, 2.0, 3.0),
+            vec!["Box 1 bottom face", "Box 1 wall"],
+        ),
+        (
+            PrimitiveShape::Cone {
+                bottom: mm(2.0),
+                top: mm(4.0),
+                height: mm(3.0),
+            },
+            7.0 * PI,
+            Point3::new(2.0, 2.0, 3.0),
+            vec!["Box 1 bottom face", "Box 1 top face", "Box 1 wall"],
+        ),
+        (
+            PrimitiveShape::Wedge {
+                length: mm(10.0),
+                width: mm(6.0),
+                height: mm(4.0),
+                top: mm(4.0),
+            },
+            (10.0 + 4.0) / 2.0 * 4.0 * 6.0,
+            Point3::new(5.0, 3.0, 4.0),
+            vec![
+                "Box 1 back face",
+                "Box 1 bottom face",
+                "Box 1 front face",
+                "Box 1 left face",
+                "Box 1 sloped face",
+                "Box 1 top face",
+            ],
+        ),
+        (
+            PrimitiveShape::Wedge {
+                length: mm(10.0),
+                width: mm(6.0),
+                height: mm(4.0),
+                top: mm(0.0),
+            },
+            10.0 * 4.0 / 2.0 * 6.0,
+            Point3::new(5.0, 3.0, 4.0),
+            vec![
+                "Box 1 back face",
+                "Box 1 bottom face",
+                "Box 1 front face",
+                "Box 1 left face",
+                "Box 1 sloped face",
+            ],
+        ),
+        (
+            PrimitiveShape::Prism {
+                sides: count(6.0),
+                diameter: mm(4.0),
+                height: mm(5.0),
+            },
+            3.0 * 3.0_f64.sqrt() / 2.0 * 4.0 * 5.0,
+            Point3::new(2.0, 3.0_f64.sqrt(), 5.0),
+            vec![
+                "Box 1 bottom face",
+                "Box 1 side face",
+                "Box 1 side face",
+                "Box 1 side face",
+                "Box 1 side face",
+                "Box 1 side face",
+                "Box 1 side face",
+                "Box 1 top face",
+            ],
+        ),
+    ];
+    for (shape, expected, high, faces) in cases {
+        let (document, feature) = single(primitive(shape.clone()));
+        let mut engine = Recompute::default();
+        let evaluation = evaluate(&document, &mut engine);
+
+        let solid = evaluation.body(feature).unwrap();
+        let found = volume(&evaluation, feature);
+        let mut names: Vec<String> = solid
+            .faces()
+            .map(|(_, face)| describe_origin(&document, face.origin()))
+            .collect();
+        names.sort();
+
+        assert!(
+            (found - expected).abs() < expected * 0.01,
+            "{shape:?}: {found} {expected}"
+        );
+        assert!(bounds(solid).0.z.abs() < 1e-6, "{shape:?}");
+        assert!(
+            (bounds(solid).1 - high).abs().max_element() < 1e-2,
+            "{shape:?}: {:?}",
+            bounds(solid).1
+        );
+        assert_eq!(names, faces, "{shape:?}");
+    }
+}
+
+#[test]
+fn a_cone_a_wedge_or_a_prism_out_of_shape_fails_alone_in_words() {
+    let cases = [
+        (
+            PrimitiveShape::Cone {
+                bottom: mm(0.0),
+                top: mm(0.0),
+                height: mm(3.0),
+            },
+            "cannot both be zero",
+        ),
+        (
+            PrimitiveShape::Cone {
+                bottom: mm(-1.0),
+                top: mm(2.0),
+                height: mm(3.0),
+            },
+            "cannot be negative",
+        ),
+        (
+            PrimitiveShape::Wedge {
+                length: mm(4.0),
+                width: mm(6.0),
+                height: mm(4.0),
+                top: mm(5.0),
+            },
+            "cannot be more than its length",
+        ),
+        (
+            PrimitiveShape::Prism {
+                sides: Expression::Number(2.5),
+                diameter: mm(4.0),
+                height: mm(5.0),
+            },
+            "whole number from 3 to 64",
+        ),
+        (
+            PrimitiveShape::Prism {
+                sides: Expression::Number(65.0),
+                diameter: mm(4.0),
+                height: mm(5.0),
+            },
+            "whole number from 3 to 64",
+        ),
+    ];
+    for (shape, reason) in cases {
+        let (document, feature) = single(primitive(shape.clone()));
+        let mut engine = Recompute::default();
+        let evaluation = evaluate(&document, &mut engine);
+
+        assert!(
+            failure(&evaluation, feature).reason.contains(reason),
+            "{shape:?}: {}",
+            failure(&evaluation, feature).reason
+        );
+    }
+}
+
+#[test]
+fn a_reversed_cone_or_wedge_grows_below_the_plane_with_its_base_on_it() {
+    for shape in [
+        PrimitiveShape::Cone {
+            bottom: mm(4.0),
+            top: mm(0.0),
+            height: mm(3.0),
+        },
+        PrimitiveShape::Wedge {
+            length: mm(10.0),
+            width: mm(6.0),
+            height: mm(4.0),
+            top: mm(0.0),
+        },
+    ] {
+        let mut placed = primitive(shape.clone());
+        placed.reversed = true;
+        let (document, feature) = single(placed);
+        let mut engine = Recompute::default();
+        let evaluation = evaluate(&document, &mut engine);
+
+        let solid = evaluation.body(feature).unwrap();
+        let (low, high) = bounds(solid);
+        let base = solid
+            .faces()
+            .find(|(_, face)| match face.surface() {
+                Surface::Plane(plane) => plane.frame().normal() * face.sense().sign() == Vector3::Z,
+                _ => false,
+            })
+            .map(|(_, face)| describe_origin(&document, face.origin()))
+            .unwrap();
+
+        assert!(
+            high.z.abs() < 1e-6 && low.z < -2.9,
+            "{shape:?}: {low} {high}"
+        );
+        assert!(base.ends_with("bottom face"), "{shape:?}: {base}");
+    }
+}

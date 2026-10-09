@@ -224,6 +224,22 @@ pub(crate) enum PrimitiveShapeRecord {
         diameter: String,
         tube: String,
     },
+    Cone {
+        bottom: String,
+        top: String,
+        height: String,
+    },
+    Wedge {
+        length: String,
+        width: String,
+        height: String,
+        top: String,
+    },
+    Prism {
+        sides: String,
+        diameter: String,
+        height: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -4396,6 +4412,35 @@ fn primitive_record(primitive: &Primitive) -> PrimitiveRecord {
                 diameter: text(diameter),
                 tube: text(tube),
             },
+            PrimitiveShape::Cone {
+                bottom,
+                top,
+                height,
+            } => PrimitiveShapeRecord::Cone {
+                bottom: text(bottom),
+                top: text(top),
+                height: text(height),
+            },
+            PrimitiveShape::Wedge {
+                length,
+                width,
+                height,
+                top,
+            } => PrimitiveShapeRecord::Wedge {
+                length: text(length),
+                width: text(width),
+                height: text(height),
+                top: text(top),
+            },
+            PrimitiveShape::Prism {
+                sides,
+                diameter,
+                height,
+            } => PrimitiveShapeRecord::Prism {
+                sides: text(sides),
+                diameter: text(diameter),
+                height: text(height),
+            },
         },
         plane: Lenient::Read(plane_reference_record(&primitive.plane)),
         at: primitive.at.each_ref().map(text),
@@ -4435,6 +4480,35 @@ fn restore_primitive(
         PrimitiveShapeRecord::Torus { diameter, tube } => PrimitiveShape::Torus {
             diameter: size(diameter, "diameter"),
             tube: restore_value(tube, "tube diameter", "2 mm", feature, issues),
+        },
+        PrimitiveShapeRecord::Cone {
+            bottom,
+            top,
+            height,
+        } => PrimitiveShape::Cone {
+            bottom: size(bottom, "bottom diameter"),
+            top: restore_value(top, "top diameter", "0 mm", feature, issues),
+            height: restore_value(height, "height", "10 mm", feature, issues),
+        },
+        PrimitiveShapeRecord::Wedge {
+            length,
+            width,
+            height,
+            top,
+        } => PrimitiveShape::Wedge {
+            length: size(length, "length"),
+            width: size(width, "width"),
+            height: size(height, "height"),
+            top: restore_value(top, "top length", "0 mm", feature, issues),
+        },
+        PrimitiveShapeRecord::Prism {
+            sides,
+            diameter,
+            height,
+        } => PrimitiveShape::Prism {
+            sides: restore_value(sides, "number of sides", "6", feature, issues),
+            diameter: restore_value(diameter, "diameter", "10 mm", feature, issues),
+            height: restore_value(height, "height", "10 mm", feature, issues),
         },
     };
     let plane = match &record.plane {

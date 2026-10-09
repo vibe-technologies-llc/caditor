@@ -257,21 +257,30 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 ### Primitive (`primitive.rs`)
 
 - `Primitive { shape, plane, at, anchor, reversed, operation }` makes a box (length, width,
-  height), cylinder (diameter, height), sphere (diameter) or torus (diameter across the middle of
-  the tube, tube diameter) without a sketch. Every size is a length expression above zero (and at
-  most `MAX_SIZE`), a torus's tube narrower than its diameter; `at` is two lengths of any sign
+  height), cylinder (diameter, height), sphere (diameter), torus (diameter across the middle of
+  the tube, tube diameter), cone (bottom and top diameters, height), wedge (length, width, height,
+  top length) or prism (number of sides, diameter across its corners, height) without a sketch.
+  Every size is a length expression above zero (and at most `MAX_SIZE`), as `PrimitiveShape::rules`
+  says, except a cone's diameters and a wedge's top length, which may be zero (`SizeRule::ZeroOrMore`)
+  but not both diameters, a top no longer than the wedge, and a prism's sides, a plain number
+  `MIN_PRISM_SIDES` to `MAX_PRISM_SIDES` (`SizeRule::Sides`); a torus's tube is narrower than
+  its diameter; `at` is two lengths of any sign
   along the plane's X and Y axes. `plane` is a `PlaneReference` resolved like a mirror's at the
   feature's place (its datum and face body count as used, its face is healed as "the face it
   stands on"), so a primitive on a face follows that face's own frame.
 - The shape's footprint box (a round shape's square around it) has a corner at `at`
   (`PrimitiveAnchor::Corner`), its base's middle there (`BaseCentre`), or its middle there, half
   above the plane (`Centre`); it grows along the plane's normal, or against it when `reversed`.
-- A box and a cylinder are a profile extruded by the kernel (`extrude`), a sphere and a torus one
-  revolved a full turn (`revolve`), with fixed entities so the faces are named from the feature:
-  a box's sides are entities 1 to 4 (front at the plane's -Y, then right, back, left), a round
-  shape's curve entity 1, and the caps are the start (bottom, on the plane) and end (top) caps.
-  `describe_origin` words them "Box 1 front face", "Cylinder 1 wall", "… bottom face", "… top
-  face", "Sphere 1 surface". Resizing or moving the shape keeps every name, so later references
+- A box, a cylinder and a prism are a profile extruded by the kernel (`extrude`), a sphere, a
+  torus and a cone one revolved a full turn (`revolve`), with fixed entities so the faces are
+  named from the feature: a box's sides are entities 1 to 4 (front at the plane's -Y, then right,
+  back, left), a prism's 1 to its count from the flat side at the front, a round shape's curve
+  entity 1, a cone's base and top lines 3 and 4 (left out when that diameter is zero, so a point
+  has no face), and the caps are the start (bottom, on the plane) and end (top) caps. A wedge is
+  its side profile (bottom 1, sloped 2 at +X, top 3, left 4, the top left out when zero)
+  extruded along the plane's Y, so its caps are the front and back faces
+  (`PrimitiveShape::cap_name`). `describe_origin` words them "Box 1 front face", "Cylinder 1
+  wall", "… bottom face", "… top face", "Wedge 1 sloped face", "Sphere 1 surface". Resizing or moving the shape keeps every name, so later references
   survive; switching the shape (`SetFeatureKind` allows it) changes them.
 - `operation` is a `BodyOperation` as a solid's: a new body of its own (`makes_body`), or joined
   to, cut from or intersected with the target body (kernel `boolean`), keeping the tool as the
