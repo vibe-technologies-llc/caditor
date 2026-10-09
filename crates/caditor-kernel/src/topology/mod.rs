@@ -3,6 +3,7 @@ mod classify;
 #[cfg(test)]
 mod classify_tests;
 mod crossing;
+mod isoparametric;
 mod lumps;
 mod mapping;
 #[cfg(test)]
@@ -21,6 +22,7 @@ pub use self::{
     builder::{BuildError, SolidBuilder},
     classify::{BoundaryClass, FaceContainment, PointClass, RayCrossing, SolidClassifier},
     crossing::{Crossing, CrossingCheck},
+    isoparametric::{Along, IsoparametricError, IsoparametricRun, MOST_ISOPARAMETRIC_LINES},
     mapping::TransformError,
     pcurve::{Pcurve, PcurveError, PcurveSample},
     validate::ValidationError,

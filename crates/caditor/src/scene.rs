@@ -1194,7 +1194,15 @@ impl Builder<'_> {
                 Some(_) => self.palette.body_edge,
                 None => self.palette.background_body_edge,
             };
-            self.silhouette(&mesh.mesh, silhouette_color, dashed, placement);
+            let silhouette = Silhouette {
+                mesh: Arc::clone(&mesh.mesh),
+                color: silhouette_color,
+                width: edge_width,
+                dashed,
+                dashed_where_hidden: shows_hidden_edges,
+                placement,
+            };
+            self.silhouettes.push(silhouette);
         }
         for edge in &mesh.edges {
             let pickable = Pickable::Edge {
@@ -1262,19 +1270,14 @@ impl Builder<'_> {
         }
     }
 
-    fn silhouette(
-        &mut self,
-        mesh: &Arc<ShadedMesh>,
-        color: Color,
-        dashed: bool,
-        placement: Option<RigidTransform>,
-    ) {
+    fn plain_silhouette(&mut self, mesh: &Arc<ShadedMesh>) {
         self.silhouettes.push(Silhouette {
             mesh: Arc::clone(mesh),
-            color,
+            color: self.palette.body_edge,
             width: self.palette.body_edge_width,
-            dashed,
-            placement,
+            dashed: false,
+            dashed_where_hidden: false,
+            placement: None,
         });
     }
 
@@ -1428,7 +1431,7 @@ impl Builder<'_> {
             faces,
             placement: None,
         });
-        self.silhouette(&mesh.mesh, self.palette.body_edge, false, None);
+        self.plain_silhouette(&mesh.mesh);
         for edge in &mesh.edges {
             self.scene
                 .lines
@@ -1574,7 +1577,7 @@ impl Builder<'_> {
                 faces,
                 placement: None,
             });
-            self.silhouette(&open.before.mesh, self.palette.body_edge, false, None);
+            self.plain_silhouette(&open.before.mesh);
         }
         for edge in &open.before.edges {
             let (color, width, pick) = match &chosen {

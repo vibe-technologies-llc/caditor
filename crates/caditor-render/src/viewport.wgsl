@@ -425,6 +425,15 @@ fn screen_dash_points(segment: Segment, vertex: u32) -> f32 {
 
 @vertex
 fn vs_silhouette(@builtin(vertex_index) vertex: u32, triangle: SilhouetteTriangle) -> Varyings {
+    return silhouette_stroke(vertex, triangle, silhouette.turn_y_dashed.w > 0.5);
+}
+
+@vertex
+fn vs_hidden_silhouette(@builtin(vertex_index) vertex: u32, triangle: SilhouetteTriangle) -> Varyings {
+    return silhouette_stroke(vertex, triangle, true);
+}
+
+fn silhouette_stroke(vertex: u32, triangle: SilhouetteTriangle, dashed: bool) -> Varyings {
     let first = silhouette_placed(triangle.first);
     let second = silhouette_placed(triangle.second);
     let third = silhouette_placed(triangle.third);
@@ -463,7 +472,7 @@ fn vs_silhouette(@builtin(vertex_index) vertex: u32, triangle: SilhouetteTriangl
     let stroke = Stroke(silhouette.offset_width.w, silhouette.turn_x_bias.w, BEHIND, silhouette.color.a >= OPAQUE_ALPHA);
     var out = stroked(vertex, segment, stroke);
     out.color = silhouette.color;
-    if silhouette.turn_y_dashed.w > 0.5 {
+    if dashed {
         out.dash_points = screen_dash_points(segment, vertex);
     }
     return out;

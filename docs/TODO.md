@@ -282,12 +282,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
   rest (a flat seat on a curved face), which moulded parts need.
 
-## Inspection and analysis
-
-- [low · medium] No isocurves with combs: the u and v parameter lines of the selected faces drawn
-  on the bodies, each with a curvature comb (`comb.rs`), to judge a spline face's flow; the
-  curvature map, zebra stripes and chrome reflection are done (`app.md`, "Face analysis").
-
 ## STEP import and export
 
 - [high · hard] A body whose faces meet only within the file's declared precision (CATIA and
@@ -353,13 +347,16 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
   distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
   at once, which only looks into the model and changes nothing. Measure works on what it shows.
-- [low · easy] Silhouettes of curved faces are not drawn again dashed where a face hides them in
-  shaded with hidden edges dashed, and never pick (the face beneath does).
 - [low · medium] Translucent lines keep square ends, so a translucent polyline still notches where
   its segments meet at an angle; joining them without blending twice needs mitred joins built
   from the neighbouring segments, which instances do not know.
-- [low · medium] On GL and other devices without texture view formats the multisample resolve
-  still averages in gamma space: a resolve of its own (a pass reading the samples) would fix it.
+- [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
+  formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
+  reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was
+  tried: it matches the view-format resolve on Vulkan, but wgpu 30's GL backend binds a
+  multisampled texture as `TEXTURE_2D` (`gles::Texture::get_info_from_desc` never chooses
+  `TEXTURE_2D_MULTISAMPLE`), so every sample reads as zero there and the frame comes out black. It
+  needs that fixed in wgpu, or a GL-only blit resolve into an sRGB texture.
 
 ## Interface performance
 

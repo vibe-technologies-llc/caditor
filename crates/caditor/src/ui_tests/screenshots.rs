@@ -362,6 +362,11 @@ fn screenshots() {
         model
             .workspace
             .viewport
+            .set_style(crate::display_style::DisplayStyle::ShadedWithHiddenEdges);
+        shoot(&mut model, &gpu, &out, "hidden-edges", look);
+        model
+            .workspace
+            .viewport
             .set_style(crate::display_style::DisplayStyle::default());
 
         let extrusion = model
@@ -403,6 +408,25 @@ fn screenshots() {
             .workspace
             .viewport
             .toggle_centres_of_mass_for_screenshots();
+        model.frame();
+
+        let faces: Vec<Pickable> = model
+            .built()
+            .picks
+            .pickables()
+            .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
+            .collect();
+        model.workspace.isocurves.toggle();
+        model.select(faces);
+        model.frame();
+        while model.workspace.isocurves.is_working() {
+            std::thread::yield_now();
+            model.frame();
+        }
+        model.frame();
+        shoot(&mut model, &gpu, &out, "isocurves", look);
+        model.workspace.isocurves.toggle();
+        model.select([]);
         model.frame();
 
         for (kind, scene) in [

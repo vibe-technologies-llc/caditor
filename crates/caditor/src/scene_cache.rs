@@ -12,6 +12,7 @@ use crate::{
     editing::Context,
     faceting::FacetLevel,
     interference_panel::Mark,
+    isocurves::IsocurveDrawing,
     manipulator::Drawn,
     scene::{self, BuiltScene, Highlight, SketchShapes, Sources},
     scene_palette::Contrast,
@@ -48,6 +49,7 @@ pub struct Overlay {
     pub problems: Vec<Point3>,
     pub interference: Vec<Mark>,
     pub comb: Option<Arc<CombDrawing>>,
+    pub isocurves: Option<Arc<IsocurveDrawing>>,
     pub manipulator: Option<Drawn>,
 }
 
@@ -70,6 +72,9 @@ impl Overlay {
         }
         if let Some(comb) = &self.comb {
             comb.add_to(&mut batch, self.contrast.palette());
+        }
+        if let Some(isocurves) = &self.isocurves {
+            isocurves.add_to(&mut batch, self.contrast.palette());
         }
         if let Some(manipulator) = &self.manipulator {
             manipulator.add_to(&mut batch, self.contrast.palette());

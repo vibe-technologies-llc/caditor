@@ -8448,12 +8448,23 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces
             .cloned()
             .collect::<Vec<_>>()
     };
+    let silhouettes_dashed_where_hidden = |harness: &mut Harness| {
+        harness
+            .built()
+            .scene
+            .silhouettes
+            .iter()
+            .map(|silhouette| silhouette.dashed_where_hidden)
+            .collect::<Vec<_>>()
+    };
     let before = hidden_lines(&mut harness).len();
+    let silhouettes_before = silhouettes_dashed_where_hidden(&mut harness);
 
     run_from_palette(&mut harness, "shaded with hidden edges dashed");
     harness.frame();
     let style = harness.workspace.viewport.style();
     let lines = hidden_lines(&mut harness);
+    let silhouettes = silhouettes_dashed_where_hidden(&mut harness);
     let faces = harness.built().scene.meshes.len();
     let edges_pickable = harness
         .built()
@@ -8465,9 +8476,13 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces
     run_from_palette(&mut harness, "shaded with edges");
     harness.frame();
     let after = hidden_lines(&mut harness).len();
+    let silhouettes_after = silhouettes_dashed_where_hidden(&mut harness);
 
     assert_eq!(style, DisplayStyle::ShadedWithHiddenEdges);
     assert_eq!(before, 0);
+    assert_eq!(silhouettes_before, vec![false]);
+    assert_eq!(silhouettes, vec![true]);
+    assert_eq!(silhouettes_after, vec![false]);
     assert!(!lines.is_empty());
     assert!(
         lines.iter().all(|line| line.pick.is_none()
@@ -16388,6 +16403,84 @@ fn the_curvature_comb_follows_a_selected_body_edge_and_reads_it_as_straight() {
     assert!(harness.shows_containing(": straight"));
     assert_eq!(comb_lines(&mut harness, look.teeth), 0);
     assert!(comb_lines(&mut harness, look.envelope) > 0);
+}
+
+fn worked_out_isocurves(harness: &mut Harness) {
+    let deadline = Instant::now() + RECOMPUTE_TIMEOUT;
+    harness.frame();
+    while harness.workspace.isocurves.is_working() {
+        assert!(
+            Instant::now() < deadline,
+            "the isocurves were not worked out"
+        );
+        std::thread::yield_now();
+        harness.frame();
+    }
+    harness.frame();
+}
+
+#[test]
+fn isocurves_draw_the_parameter_lines_of_the_chosen_faces_with_their_combs() {
+    use crate::{comb::DEFAULT_SCALE, isocurve_panel, isocurves, scene_palette::Contrast};
+
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_circle(Point2::new(0.0, 0.0), 10.0);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let faces: Vec<Pickable> = harness
+        .built()
+        .picks
+        .pickables()
+        .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
+        .collect();
+    let revision = harness.model.revision();
+    let look = Contrast::Standard.palette().comb;
+
+    run_from_palette(&mut harness, "isocurves");
+    harness.frame();
+    let nothing_chosen = harness.shows_containing(isocurve_panel::NOTHING_CHOSEN);
+    harness.select(faces.clone());
+    worked_out_isocurves(&mut harness);
+    let lines = comb_lines(&mut harness, look.isocurve);
+    let teeth = comb_lines(&mut harness, look.teeth);
+    let circles_combed = harness.shows_containing("U lines bend to a smallest radius of ≈ 10");
+    let rulings_straight = harness.shows_containing("V lines straight");
+
+    harness.workspace.isocurves.directions = isocurves::Directions::V;
+    worked_out_isocurves(&mut harness);
+    let only_rulings_teeth = comb_lines(&mut harness, look.teeth);
+    let only_rulings_lines = comb_lines(&mut harness, look.isocurve);
+
+    harness.workspace.isocurves.scale = DEFAULT_SCALE * 2.0;
+    harness.select([]);
+    harness.frame();
+    let kept = comb_lines(&mut harness, look.isocurve);
+
+    run_from_palette(&mut harness, "isocurves");
+    harness.frame();
+    harness.frame();
+
+    assert!(nothing_chosen);
+    assert_eq!(harness.workspace.isocurves.faces().len(), 0);
+    assert_eq!(faces.len(), 3);
+    assert!(lines > 0);
+    assert_eq!(
+        teeth,
+        isocurves::DEFAULT_LINES * (isocurves::DEFAULT_TEETH + 1)
+    );
+    assert!(circles_combed);
+    assert!(rulings_straight);
+    assert_eq!(only_rulings_teeth, 0);
+    assert!(only_rulings_lines > 0 && only_rulings_lines < lines);
+    assert_eq!(kept, only_rulings_lines);
+    assert!(!harness.workspace.isocurves.open);
+    assert_eq!(comb_lines(&mut harness, look.isocurve), 0);
+    assert_eq!(harness.model.revision(), revision);
 }
 
 fn painted_faces(harness: &mut Harness, colour: caditor_render::Color) -> usize {

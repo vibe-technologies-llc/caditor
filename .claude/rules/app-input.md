@@ -239,7 +239,9 @@ paths:
   `XRAY_FACE_ALPHA`, unpickable, edges on top). Every style that draws edges also gives each body
   a `Silhouette` in the edge colour and width (dashed with a troubled body's edges, the dimmed
   edge colour for background bodies, and for the body an opened feature shows), so the outline of
-  its curved faces is drawn as the view turns (`render.md`). It applies to bodies outside sketch editing, reaches the scene through
+  its curved faces is drawn as the view turns (`render.md`); with hidden edges dashed a coloured
+  body's silhouette is `dashed_where_hidden`, drawn again dashed where a face covers it, and like
+  the hidden edges never picks. It applies to bodies outside sketch editing, reaches the scene through
   `Sources::style` and `Revisions::style`, shapes image exports too and is kept for the session.
 
 ## Typed-point field

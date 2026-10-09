@@ -62,6 +62,8 @@ mod import_options;
 mod import_panel;
 mod interference;
 mod interference_panel;
+mod isocurve_panel;
+mod isocurves;
 mod layout;
 mod logging;
 mod logo;

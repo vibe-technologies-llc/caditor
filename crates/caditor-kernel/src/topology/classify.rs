@@ -219,6 +219,10 @@ impl<'a> SolidClassifier<'a> {
         Self::of_faces(solid, faces)
     }
 
+    pub(crate) fn of_face(solid: &'a Solid, face: FaceId) -> Option<Self> {
+        Some(Self::of_faces(solid, vec![face_data(solid, face)?]))
+    }
+
     fn of_faces(solid: &'a Solid, faces: Vec<FaceData>) -> Self {
         let bounds = faces.iter().map(|face| face.bounds).reduce(Aabb::union);
         Self {
@@ -758,8 +762,7 @@ impl Solid {
     }
 
     pub fn point_in_face(&self, face: FaceId, uv: Point2) -> Option<FaceContainment> {
-        let data = face_data(self, face)?;
-        SolidClassifier::of_faces(self, vec![data]).point_in_face(face, uv)
+        SolidClassifier::of_face(self, face)?.point_in_face(face, uv)
     }
 
     pub fn classify_boundary_point(&self, point: Point3, normal: Vector3) -> BoundaryClass {

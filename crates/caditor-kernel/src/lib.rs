@@ -91,9 +91,10 @@ pub use crate::{
         MeshQuality, PCURVE_TOLERANCE, SamplingTolerance, parallel, same_direction, same_point,
     },
     topology::{
-        BoundaryClass, BuildError, Coedge, CoedgeId, Crossing, CrossingCheck, Edge, EdgeId, Face,
-        FaceContainment, FaceId, Loop, LoopId, Pcurve, PcurveError, PcurveSample, PointClass,
-        RayCrossing, Shell, ShellId, Solid, SolidBuilder, SolidClassifier, TransformError,
-        ValidationError, Vertex, VertexId,
+        Along, BoundaryClass, BuildError, Coedge, CoedgeId, Crossing, CrossingCheck, Edge, EdgeId,
+        Face, FaceContainment, FaceId, IsoparametricError, IsoparametricRun, Loop, LoopId,
+        MOST_ISOPARAMETRIC_LINES, Pcurve, PcurveError, PcurveSample, PointClass, RayCrossing,
+        Shell, ShellId, Solid, SolidBuilder, SolidClassifier, TransformError, ValidationError,
+        Vertex, VertexId,
     },
 };

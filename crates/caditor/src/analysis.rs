@@ -49,6 +49,7 @@ pub enum AnalysisCommand {
     UseSelected,
     Reverse,
     Comb,
+    Isocurves,
 }
 
 all_variants!(
@@ -60,7 +61,8 @@ all_variants!(
     Chrome,
     UseSelected,
     Reverse,
-    Comb
+    Comb,
+    Isocurves
 );
 
 impl AnalysisCommand {
@@ -75,6 +77,7 @@ impl AnalysisCommand {
             Self::UseSelected => "view.analysis_pull_selected",
             Self::Reverse => "view.analysis_pull_reverse",
             Self::Comb => "view.curvature_comb",
+            Self::Isocurves => "view.isocurves",
         }
     }
 
@@ -89,6 +92,7 @@ impl AnalysisCommand {
             Self::UseSelected => "Pull or reach along the selected axis, edge or face",
             Self::Reverse => "Reverse the pull or reach direction",
             Self::Comb => "Show or hide the curvature comb",
+            Self::Isocurves => "Show or hide isocurves with combs",
         }
     }
 }
