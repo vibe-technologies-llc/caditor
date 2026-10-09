@@ -12,8 +12,8 @@ measure from. They have no volume and are not exported.
   where an axis meets a plane, with offsets.
 
 A datum follows what it was made from. Its panel shows what it is defined by and its offsets and
-angles, previewed in the view as you type them; {command:model.datum_use_selected} defines it
-again from the selection. Double-click a
+angles, previewed in the view as you type them; an open offset plane also has an arrow to drag
+its offset. {command:model.datum_use_selected} defines it again from the selection. Double-click a
 datum in the view to open it.
 
 See also [coordinate systems](coordinate-systems).

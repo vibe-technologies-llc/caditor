@@ -190,8 +190,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 - [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
   extrusion or revolution face becomes its offset surface (which needs a surface fitted within
-  tolerance), a fillet moved beside a plane that stays is refused rather than re-blended, and
-  there is no arrow in the view to drag the distance.
+  tolerance), and a fillet moved beside a plane that stays is refused rather than re-blended.
 - [high · hard] Bodies cannot be edited directly beyond offsetting faces: no moving, deleting or
   replacing a face and no deleting a fillet or chamfer by its faces. An imported STEP body has
   no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a

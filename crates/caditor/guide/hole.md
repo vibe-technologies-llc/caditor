@@ -4,10 +4,10 @@
 
 - With one flat face selected, it puts a hole on the face, on solid material away from its edges,
   in a hidden sketch. While it is open, drag the square at its centre to move it on the face, or
-  an arrow to move it along one direction. Its panel's **Placed on** row moves it too: **Choose in
-  the view** and click where the hole goes on any flat face, or type its **Position X** and
-  **Position Y** on the face. **Edit the sketch** under **Sketch** opens the hidden sketch to
-  dimension the point or add more holes.
+  an arrow to move it along one direction; the arrow at the bottom of a blind hole drags its
+  depth. Its panel's **Placed on** row moves it too: **Choose in the view** and click where the
+  hole goes on any flat face, or type its **Position X** and **Position Y** on the face. **Edit
+  the sketch** under **Sketch** opens the hidden sketch to dimension the point or add more holes.
 - With a sketch selected or being edited, it drills at each of its loose points and circles.
 
 The panel sets:

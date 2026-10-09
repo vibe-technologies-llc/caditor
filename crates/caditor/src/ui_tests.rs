@@ -9676,6 +9676,119 @@ fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
     assert!((again.y - 4.0).abs() < 1e-6, "{again:?}");
 }
 
+fn drag_length_arrow(harness: &mut Harness, along: f64) -> f64 {
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(Handle::Length, 0.0)
+        .expect("the distance arrow is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(Handle::Length, along)
+        .unwrap();
+    let step = harness.workspace.viewport.manipulator_step().unwrap();
+    drag_screen(harness, from, to);
+    harness.frame();
+    harness.settle();
+    step
+}
+
+fn length_value(harness: &Harness, expression: &caditor_expression::Expression) -> f64 {
+    harness
+        .model
+        .parameters()
+        .evaluate_expression(expression)
+        .unwrap()
+        .value
+}
+
+#[test]
+fn dragging_a_hole_s_depth_arrow_changes_its_blind_depth() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    harness.select([]);
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+
+    let step = drag_length_arrow(&mut harness, -4.0);
+    let caditor_document::HoleDepth::Blind(depth) = open_hole(&harness, hole).depth else {
+        panic!("the hole stays blind");
+    };
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Hole 1"));
+    assert!(
+        (length_value(&harness, &depth) - 6.0).abs() <= step,
+        "{depth:?} with steps of {step}"
+    );
+}
+
+#[test]
+fn dragging_an_offset_face_arrow_changes_its_distance() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.use_tool_with(Key::Q, Modifiers::ALT);
+    harness.settle();
+    harness.select([]);
+    let offset = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the offset face is open");
+
+    let step = drag_length_arrow(&mut harness, 3.0);
+    let distance = length_value(&harness, &offset_of(&harness, offset).distance);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Offset face 1"));
+    assert!(
+        (distance - 4.0).abs() <= step,
+        "{distance} with steps of {step}"
+    );
+    assert!(volume_about(
+        &harness,
+        plate,
+        40.0 * 40.0 * (10.0 + distance)
+    ));
+}
+
+#[test]
+fn dragging_a_datum_plane_s_arrow_changes_its_offset() {
+    let mut harness = Harness::new();
+    harness.select([]);
+    harness.click("Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the new plane is open");
+    let offset_of = |harness: &Harness| {
+        let Some(caditor_document::Datum::Plane(definition)) = harness
+            .document()
+            .feature(plane)
+            .and_then(|feature| feature.kind.datum())
+        else {
+            panic!("the plane stays a plane");
+        };
+        length_value(harness, &definition.offset)
+    };
+    let before = offset_of(&harness);
+
+    let step = drag_length_arrow(&mut harness, 5.0);
+    let offset = offset_of(&harness);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Plane 1"));
+    assert!(
+        (offset - before - 5.0).abs() <= step,
+        "{before} to {offset} with steps of {step}"
+    );
+}
+
 #[test]
 fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the_origin() {
     let mut harness = Harness::new();

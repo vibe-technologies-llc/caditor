@@ -404,6 +404,14 @@ paths:
   pointer's ray meets the sketch plane, in steps (Ctrl drags freely), previewed with Position X
   and Y beside the pointer and committed on release as one "Move <hole>" change; the handles
   follow the preview (`Model::draft_transaction`).
+- A distance arrow (`length_handles.rs`, `Handle::Length`, `Measured`) drags one length of an open
+  feature along a line, as an extrusion's reach arrow does (steps, Ctrl free, the readout, one
+  "Edit <feature>" change keeping a named value and refusing a driven one through
+  `manipulator::Held`): a blind hole's Depth, standing at the bottom of its first hole and pointing
+  down the bore (hit before the placement handles, which it joins as `Manipulator::Place`'s
+  second part), an offset face's Distance, at the middle of its first face when that face is flat
+  in the body before it, along its outward normal (zero skipped), and a datum plane's Offset at
+  the plane's origin along its normal.
 
 ## Thread
 

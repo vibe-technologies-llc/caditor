@@ -5,6 +5,7 @@ use caditor_document::{
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Ray};
+use caditor_kernel::{FaceId, Solid};
 use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
@@ -300,9 +301,13 @@ pub fn create_on_face(
 pub fn face_middle(model: &Model, face: FaceChoice, plane: &Plane) -> Option<Point2> {
     let body = bodies::shown(model.evaluation(), face.body)?;
     let id = bodies::find_face(body, face.face)?;
-    let segments: Vec<[Point2; 2]> = face_boundary(&body.solid, id)
+    middle_of(&body.solid, id, plane)
+}
+
+pub fn middle_of(solid: &Solid, id: FaceId, plane: &Plane) -> Option<Point2> {
+    let segments: Vec<[Point2; 2]> = face_boundary(solid, id)
         .into_iter()
-        .filter_map(|edge| body.solid.edge(edge))
+        .filter_map(|edge| solid.edge(edge))
         .flat_map(|edge| {
             let interval = edge.interval();
             let points: Vec<Point2> = (0..=FACE_SAMPLES)

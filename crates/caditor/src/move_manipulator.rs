@@ -43,6 +43,7 @@ pub enum Handle {
     TurnAbout,
     Reach(Reach),
     Place(PlaceGrip),
+    Length,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,7 +105,9 @@ impl Handle {
                 .into_iter()
                 .filter(|axis| *axis != normal)
                 .collect(),
-            Self::Turn(_) | Self::TurnAbout | Self::Reach(_) | Self::Place(_) => Vec::new(),
+            Self::Turn(_) | Self::TurnAbout | Self::Reach(_) | Self::Place(_) | Self::Length => {
+                Vec::new()
+            }
         }
     }
 
@@ -125,6 +128,7 @@ impl Handle {
                 format!("Drag to move the body in the {} plane", names.concat())
             }
             Self::Place(grip) => grip.words("it"),
+            Self::Length => "Drag to change the distance".to_owned(),
         }
     }
 }
@@ -336,7 +340,7 @@ impl MoveHandles {
                     .find_map(|axis| held(&move_panel::turn_caption(axis), axis.of(&movement.turn)))
             }
             Handle::TurnAbout => held(move_panel::ANGLE, &movement.about.axis_turn()?.angle),
-            Handle::Reach(_) | Handle::Place(_) => None,
+            Handle::Reach(_) | Handle::Place(_) | Handle::Length => None,
         }
     }
 
@@ -351,7 +355,8 @@ impl MoveHandles {
             | Handle::Turn(_)
             | Handle::TurnAbout
             | Handle::Reach(_)
-            | Handle::Place(_) => false,
+            | Handle::Place(_)
+            | Handle::Length => false,
         });
         let reach = HIT_POINTS * pixels_per_point;
         let arrows = MoveAxis::ALL.into_iter().filter_map(|axis| {
@@ -398,7 +403,7 @@ impl MoveHandles {
                 let index = (along.max(0.0) as usize).min(ring.len() - 1);
                 ring.get(index).copied()
             }
-            Handle::Reach(_) | Handle::Place(_) => None,
+            Handle::Reach(_) | Handle::Place(_) | Handle::Length => None,
         }
     }
 
@@ -788,7 +793,7 @@ fn point_on(
             let plane = Plane::new(origin, direction(frame, axis))?;
             Some(ray.at(ray.intersect_plane(&plane)?))
         }
-        Handle::Reach(_) | Handle::Place(_) => None,
+        Handle::Reach(_) | Handle::Place(_) | Handle::Length => None,
     }
 }
 

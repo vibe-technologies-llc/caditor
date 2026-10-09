@@ -5,6 +5,7 @@ use caditor_render::{Batch, View};
 
 use crate::{
     feature_tree,
+    length_handles::{LengthDrag, LengthHandles},
     model::Model,
     move_manipulator::{Handle, MoveDrag, MoveHandles},
     place_handles::{PlaceDrag, PlaceHandles},
@@ -89,7 +90,8 @@ pub fn keeping_names(
 pub enum Manipulator {
     Move(MoveHandles),
     Reach(ReachHandles),
-    Place(PlaceHandles),
+    Place(PlaceHandles, Option<LengthHandles>),
+    Length(LengthHandles),
 }
 
 impl Manipulator {
@@ -103,14 +105,21 @@ impl Manipulator {
         MoveHandles::of(model, open, view, pixels_per_point)
             .map(Self::Move)
             .or_else(|| ReachHandles::of(model, feature, view, pixels_per_point).map(Self::Reach))
-            .or_else(|| PlaceHandles::of(model, feature, view, pixels_per_point).map(Self::Place))
+            .or_else(|| {
+                let length = LengthHandles::of(model, feature, view, pixels_per_point);
+                match PlaceHandles::of(model, feature, view, pixels_per_point) {
+                    Some(place) => Some(Self::Place(place, length)),
+                    None => length.map(Self::Length),
+                }
+            })
     }
 
     pub fn feature(&self) -> FeatureId {
         match self {
             Self::Move(handles) => handles.feature,
             Self::Reach(handles) => handles.feature,
-            Self::Place(handles) => handles.feature,
+            Self::Place(handles, _) => handles.feature,
+            Self::Length(handles) => handles.feature,
         }
     }
 
@@ -119,7 +128,8 @@ impl Manipulator {
         match self {
             Self::Move(handles) => handles.step(),
             Self::Reach(handles) => handles.step(),
-            Self::Place(handles) => handles.step(),
+            Self::Place(handles, _) => handles.step(),
+            Self::Length(handles) => handles.step(),
         }
     }
 
@@ -127,7 +137,10 @@ impl Manipulator {
         match self {
             Self::Move(handles) => handles.hit(view, cursor, pixels_per_point),
             Self::Reach(handles) => handles.hit(view, cursor, pixels_per_point),
-            Self::Place(handles) => handles.hit(view, cursor, pixels_per_point),
+            Self::Place(handles, length) => length
+                .and_then(|length| length.hit(view, cursor, pixels_per_point))
+                .or_else(|| handles.hit(view, cursor, pixels_per_point)),
+            Self::Length(handles) => handles.hit(view, cursor, pixels_per_point),
         }
     }
 
@@ -136,7 +149,10 @@ impl Manipulator {
         match self {
             Self::Move(handles) => handles.grip(handle, along),
             Self::Reach(handles) => handles.grip(handle, along),
-            Self::Place(handles) => handles.grip(handle, along),
+            Self::Place(handles, length) => length
+                .and_then(|length| length.grip(handle, along))
+                .or_else(|| handles.grip(handle, along)),
+            Self::Length(handles) => handles.grip(handle, along),
         }
     }
 
@@ -144,14 +160,21 @@ impl Manipulator {
         match self {
             Self::Move(handles) => handles.driven(model, handle),
             Self::Reach(handles) => handles.driven(model, handle),
-            Self::Place(handles) => handles.driven(model, handle),
+            Self::Place(handles, length) => match handle {
+                Handle::Length => length.as_ref()?.driven(model, handle),
+                _ => handles.driven(model, handle),
+            },
+            Self::Length(handles) => handles.driven(model, handle),
         }
     }
 
     pub fn words(&self, model: &Model, handle: Handle) -> String {
         self.driven(model, handle).unwrap_or_else(|| match self {
-            Self::Place(handles) => handles.words(handle),
-            Self::Move(_) | Self::Reach(_) => handle.words(),
+            Self::Place(_, Some(length)) | Self::Length(length) if handle == Handle::Length => {
+                length.measured.words().to_owned()
+            }
+            Self::Place(handles, _) => handles.words(handle),
+            Self::Move(_) | Self::Reach(_) | Self::Length(_) => handle.words(),
         })
     }
 
@@ -174,7 +197,13 @@ impl Drawn {
         match &self.manipulator {
             Manipulator::Move(handles) => handles.add_to(batch, palette, self.highlighted),
             Manipulator::Reach(handles) => handles.add_to(batch, self.highlighted),
-            Manipulator::Place(handles) => handles.add_to(batch, self.highlighted),
+            Manipulator::Place(handles, length) => {
+                handles.add_to(batch, self.highlighted);
+                if let Some(length) = length {
+                    length.add_to(batch, self.highlighted);
+                }
+            }
+            Manipulator::Length(handles) => handles.add_to(batch, self.highlighted),
         }
     }
 }
@@ -184,6 +213,7 @@ enum Drag {
     Move(MoveDrag),
     Reach(ReachDrag),
     Place(PlaceDrag),
+    Length(LengthDrag),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -210,10 +240,16 @@ impl Manipulating {
             (Manipulator::Move(handles), _) => {
                 Drag::Move(MoveDrag::begin(model, handles, handle, ray)?)
             }
-            (Manipulator::Place(handles), Handle::Place(grip)) => {
+            (Manipulator::Place(handles, _), Handle::Place(grip)) => {
                 Drag::Place(PlaceDrag::begin(model, handles, grip, ray)?)
             }
-            (Manipulator::Reach(_) | Manipulator::Place(_), _) => return None,
+            (
+                Manipulator::Place(_, Some(handles)) | Manipulator::Length(handles),
+                Handle::Length,
+            ) => Drag::Length(LengthDrag::begin(model, handles, ray)?),
+            (Manipulator::Reach(_) | Manipulator::Place(..) | Manipulator::Length(_), _) => {
+                return None;
+            }
         };
         Some(Self {
             feature: manipulator.feature(),
@@ -227,6 +263,7 @@ impl Manipulating {
             Drag::Move(drag) => drag.follow(ray, free),
             Drag::Reach(drag) => drag.follow(ray, free),
             Drag::Place(drag) => drag.follow(ray, free),
+            Drag::Length(drag) => drag.follow(ray, free),
         }
     }
 
@@ -235,6 +272,7 @@ impl Manipulating {
             Drag::Move(drag) => drag.has_moved(),
             Drag::Reach(drag) => drag.has_moved(),
             Drag::Place(drag) => drag.has_moved(),
+            Drag::Length(drag) => drag.has_moved(),
         }
     }
 
@@ -243,6 +281,7 @@ impl Manipulating {
             Drag::Move(drag) => drag.transaction(model),
             Drag::Reach(drag) => drag.transaction(model, self.feature),
             Drag::Place(drag) => drag.transaction(model, self.feature),
+            Drag::Length(drag) => drag.transaction(model, self.feature),
         }
     }
 
@@ -251,6 +290,7 @@ impl Manipulating {
             Drag::Move(drag) => drag.readout(units),
             Drag::Reach(drag) => drag.readout(units),
             Drag::Place(drag) => drag.readout(units),
+            Drag::Length(drag) => drag.readout(units),
         }
     }
 }

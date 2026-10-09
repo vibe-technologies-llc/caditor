@@ -73,6 +73,7 @@ mod interference_panel;
 mod isocurve_panel;
 mod isocurves;
 mod layout;
+mod length_handles;
 mod logging;
 mod logo;
 mod manipulator;
