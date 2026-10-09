@@ -1,11 +1,15 @@
 use std::collections::BTreeSet;
 
 use caditor_geometry::Similarity;
-use caditor_kernel::{BooleanError, PatternCopy, PatternError, TransformError, pattern};
+use caditor_kernel::{
+    BooleanError, BooleanOperation, PatternCopy, PatternError, Solid, TransformError, boolean,
+    pattern, pattern_copies,
+};
 
 use crate::{
     datum::{PlaneReference, Resolver},
     document::{Feature, FeatureId},
+    pattern::{Seed, SeedWords, seed},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
     trouble,
@@ -18,15 +22,44 @@ pub struct Mirror {
     pub body: FeatureId,
     pub plane: PlaneReference,
     pub keep_original: bool,
+    pub mirrored: Vec<FeatureId>,
 }
 
+const MIRROR_WORDS: SeedWords = SeedWords {
+    feature: "mirror",
+    repeats: "mirrors",
+    places: "reflects it on",
+    repeated: "mirrored",
+    verb: "mirror",
+};
+
 impl Mirror {
+    pub fn new(body: FeatureId, plane: PlaneReference) -> Self {
+        Self {
+            body,
+            plane,
+            keep_original: true,
+            mirrored: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn mirroring(mut self, features: Vec<FeatureId>) -> Self {
+        self.mirrored = features;
+        self
+    }
+
+    pub fn mirrors_features(&self) -> bool {
+        !self.mirrored.is_empty()
+    }
+
     pub fn heap_size(&self) -> usize {
-        self.plane.heap_size()
+        self.plane.heap_size() + self.mirrored.len() * size_of::<FeatureId>()
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
         let mut used = BTreeSet::from([self.body]);
+        used.extend(self.mirrored.iter().copied());
         used.extend(self.plane.datum());
         used.extend(self.plane.body());
         used
@@ -109,6 +142,101 @@ impl Context<'_> {
             }
         }
     }
+
+    fn reflect_features(
+        &self,
+        definition: &Mirror,
+        solid: &Solid,
+        image: PatternCopy,
+        cancel: &CancelToken,
+    ) -> Result<SolidResult, Failure> {
+        let inputs = self.resolver.inputs;
+        let raw = self.resolver.feature.id().raw();
+        let copies = [image];
+        let mut body = solid.clone();
+        let mut cuts = Vec::new();
+        for &feature in &definition.mirrored {
+            let seed = seed(inputs, feature, definition.body, &MIRROR_WORDS)?;
+            for tool in &seed.tools {
+                if cancel.is_cancelled() {
+                    return Err(Failure::Cancelled);
+                }
+                let placed = pattern_copies(tool, &copies, raw)
+                    .map_err(|error| self.seed_placement_failure(&seed, &error))?;
+                let Some(placed) = placed else {
+                    continue;
+                };
+                body = boolean(&body, &placed, seed.operation).map_err(|error| {
+                    self.combine_failure(inputs, [&body, &placed], &seed, &error)
+                })?;
+                if seed.operation == BooleanOperation::Difference {
+                    cuts.push(placed);
+                }
+            }
+        }
+        Ok(SolidResult::new(definition.body, body).cutting(cuts))
+    }
+
+    fn seed_placement_failure(&self, seed: &Seed<'_>, error: &PatternError) -> Failure {
+        match error {
+            PatternError::Cancelled(_)
+            | PatternError::Placement {
+                error: TransformError::Cancelled(_),
+                ..
+            } => Failure::Cancelled,
+            PatternError::Placement {
+                error: TransformError::Geometry(_),
+                ..
+            } => self.error(
+                format!(
+                    "The mirror image of {} would lie farther than a kilometre from the origin, \
+                     the largest size caditor models.",
+                    seed.name
+                ),
+                "Choose a plane nearer the body.",
+            ),
+            error => {
+                log::warn!("{} could not be built: {error}", self.resolver.feature.name);
+                self.error(
+                    format!("The mirror image of {} could not be built.", seed.name),
+                    "Choose another plane, or move the plane slightly.",
+                )
+            }
+        }
+    }
+
+    fn combine_failure(
+        &self,
+        inputs: &Inputs<'_>,
+        operands: [&Solid; 2],
+        seed: &Seed<'_>,
+        error: &BooleanError,
+    ) -> Failure {
+        let name = &seed.name;
+        let body = &self.body_name;
+        let headline = match (error, seed.operation) {
+            (BooleanError::Cancelled(_), _) => return Failure::Cancelled,
+            (BooleanError::Empty, _) => {
+                return self.error(
+                    format!(
+                        "The mirror image of {name} would leave nothing of the body of {body}."
+                    ),
+                    "Choose another plane, or leave the feature out of the mirror.",
+                );
+            }
+            (_, BooleanOperation::Difference) => {
+                format!("The mirror image of {name} could not be cut into the body of {body}.")
+            }
+            (_, _) => {
+                format!("The mirror image of {name} could not be joined to the body of {body}.")
+            }
+        };
+        log::warn!("{} could not be built: {error}", self.resolver.feature.name);
+        let trouble =
+            trouble::boolean_trouble(inputs.document, operands, error, "Move the plane slightly");
+        self.error(trouble.reason(headline), &trouble.remedy)
+            .placed(trouble.place)
+    }
 }
 
 pub(crate) fn evaluate(
@@ -141,11 +269,16 @@ pub(crate) fn evaluate(
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
+    let image = PatternCopy {
+        index: MIRROR_IMAGE,
+        placement: reflection,
+    };
+    if definition.mirrors_features() {
+        return context
+            .reflect_features(definition, solid, image, cancel)
+            .map(FeatureResult::Solid);
+    }
     let result = if definition.keep_original {
-        let image = PatternCopy {
-            index: MIRROR_IMAGE,
-            placement: reflection,
-        };
         pattern(solid, &[image], feature.id().raw()).map_err(|error| {
             context
                 .pattern_failure(&error)
@@ -153,7 +286,7 @@ pub(crate) fn evaluate(
         })?
     } else {
         solid
-            .mapped(&reflection)
+            .mapped(&image.placement)
             .map_err(|error| context.transform_failure(&error))?
     };
     Ok(FeatureResult::Solid(SolidResult::new(

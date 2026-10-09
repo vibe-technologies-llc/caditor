@@ -1,10 +1,13 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Point3, Vector3};
+use caditor_expression::Expression;
+use caditor_geometry::{Point2, Point3, Vector3};
 use caditor_kernel::{FaceId, FaceName, Solid, Surface};
+use caditor_sketch::Sketch;
 
 use crate::{
-    combine_tests::{Pair, evaluate, pair, volume},
+    combine_tests::{Pair, evaluate, pair, rectangle, volume},
+    pattern_tests::{extrusion, failure, on_top, top},
     *,
 };
 
@@ -19,6 +22,7 @@ fn mirrored(pair: &mut Pair, plane: PlaneReference, keep_original: bool) -> Feat
             body: plate,
             plane,
             keep_original,
+            mirrored: Vec::new(),
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -188,6 +192,7 @@ fn a_mirror_across_an_axis_datum_is_refused() {
             body: pair.plate,
             plane: PlaneReference::Datum(axis),
             keep_original: false,
+            mirrored: Vec::new(),
         }),
     );
 
@@ -211,4 +216,157 @@ fn a_mirror_changes_its_body_without_hiding_the_result_and_is_dependent_on_it() 
     assert!(!feature.makes_body());
     assert_eq!(feature.body(), Some(pair.plate));
     assert_eq!(pair.document.dependents_of(&[pair.plate]), vec![mirror]);
+}
+
+struct Featured {
+    document: Document,
+    plate: FeatureId,
+    hole: FeatureId,
+    boss: FeatureId,
+    mirror: FeatureId,
+}
+
+fn hole_of(points: FeatureId, plate: FeatureId, diameter: &str) -> FeatureKind {
+    FeatureKind::Hole(Hole {
+        sketch: points,
+        body: plate,
+        diameter: Expression::parse(diameter, &|_| None).unwrap(),
+        depth: HoleDepth::ThroughAll,
+        style: HoleStyle::Plain,
+        reversed: false,
+        shape: HoleShape::Round,
+        standard: None,
+        sizing: HoleSizing::Typed,
+        bottom: HoleBottom::Flat,
+    })
+}
+
+fn featured(mirrored: impl FnOnce(&Featured) -> Vec<FeatureId>) -> Featured {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature(
+        "Outline",
+        FeatureKind::from(rectangle((-30.0, 0.0), (30.0, 10.0))),
+    );
+    let plate =
+        transaction.add_feature("Plate", extrusion(outline, "4 mm", BodyOperation::NewBody));
+    let mut points = Sketch::new(top());
+    points.add_point(Point2::new(-25.0, 5.0));
+    let points = transaction.add_feature("Hole sketch", FeatureKind::from(points));
+    let hole = transaction.add_feature("Hole 1", hole_of(points, plate, "2 mm"));
+    let boss_outline = transaction.add_feature(
+        "Boss outline",
+        FeatureKind::from(on_top((-22.0, 2.0), (-18.0, 8.0))),
+    );
+    let boss = transaction.add_feature(
+        "Boss",
+        extrusion(boss_outline, "2 mm", BodyOperation::Add(plate)),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut featured = Featured {
+        document,
+        plate,
+        hole,
+        boss,
+        mirror: FeatureId::from_raw(0),
+    };
+    let mirror = Mirror::new(plate, PlaneReference::Principal(PrincipalPlane::Yz))
+        .mirroring(mirrored(&featured));
+    let mut transaction = featured.document.transaction("Mirror");
+    featured.mirror = transaction.add_feature("Mirror 1", FeatureKind::Mirror(mirror));
+    featured.document.apply(transaction.finish()).unwrap();
+    featured
+}
+
+fn hole_area(diameter: f64) -> f64 {
+    std::f64::consts::PI * diameter * diameter / 4.0
+}
+
+fn assert_near_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
+    let found = volume(evaluation, body);
+    assert!(
+        (found - expected).abs() < 0.01 * expected,
+        "volume {found} instead of {expected}"
+    );
+}
+
+#[test]
+fn mirroring_features_reflects_their_hole_and_boss_and_follows_edits_to_them() {
+    let mut featured = featured(|featured| vec![featured.hole, featured.boss]);
+    let mut engine = Recompute::default();
+    let plate = 60.0 * 10.0 * 4.0;
+    let boss = 4.0 * 6.0 * 2.0;
+
+    let evaluation = evaluate(&featured.document, &mut engine);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_near_volume(
+        &evaluation,
+        featured.plate,
+        plate - 2.0 * hole_area(2.0) * 4.0 + 2.0 * boss,
+    );
+    assert_eq!(evaluation.cuts(featured.mirror).len(), 1);
+    let (low, high) = bounds(&evaluation, featured.plate);
+    assert!(near(low, [-30.0, 0.0, 0.0]), "{low:?}");
+    assert!(near(high, [30.0, 10.0, 6.0]), "{high:?}");
+    let solid = evaluation.body(featured.plate).unwrap();
+    let images: BTreeSet<[u32; 2]> = solid
+        .faces()
+        .filter_map(|(_, face)| face.origin()?.copy())
+        .filter(|copy| copy.pattern == featured.mirror.raw())
+        .map(|copy| copy.index)
+        .collect();
+    assert_eq!(images, BTreeSet::from([MIRROR_IMAGE]));
+    let used = featured
+        .document
+        .feature(featured.mirror)
+        .unwrap()
+        .kind
+        .features();
+    assert!(used.contains(&featured.hole) && used.contains(&featured.boss));
+
+    let points = featured
+        .document
+        .feature(featured.hole)
+        .unwrap()
+        .kind
+        .hole()
+        .unwrap()
+        .sketch;
+    featured
+        .document
+        .apply(Transaction::single(
+            "Widen",
+            Edit::SetFeatureKind {
+                id: featured.hole,
+                kind: hole_of(points, featured.plate, "4 mm"),
+            },
+        ))
+        .unwrap();
+    let widened = evaluate(&featured.document, &mut engine);
+
+    assert_eq!(widened.failed_count(), 0);
+    assert_near_volume(
+        &widened,
+        featured.plate,
+        plate - 2.0 * hole_area(4.0) * 4.0 + 2.0 * boss,
+    );
+}
+
+#[test]
+fn a_mirrored_feature_that_made_the_body_fails_the_mirror_naming_it() {
+    let featured = featured(|featured| vec![featured.plate]);
+    let evaluation = evaluate(&featured.document, &mut Recompute::default());
+
+    let error = failure(&evaluation, featured.mirror);
+    assert_eq!(
+        error.reason,
+        "Plate neither adds to nor removes from a body, so it cannot be mirrored."
+    );
+    assert_eq!(
+        error.remedy,
+        "Leave it out of the mirror, or mirror the whole body."
+    );
+    assert_eq!(error.fix, Some(FixTarget::Feature(featured.plate)));
+    assert_eq!(evaluation.failed_count(), 1);
 }

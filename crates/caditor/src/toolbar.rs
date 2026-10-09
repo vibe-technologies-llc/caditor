@@ -541,6 +541,10 @@ fn mirror_button(
     let source = &context.offers.mirror;
     let invoked = commands.invoke(Command::Mirror, source);
     let help = match source {
+        Ok(chosen) if !chosen.mirrored.is_empty() => {
+            let hover = mirror_tools::features_hover(model.document(), chosen);
+            Ok(commands.with_keys(Command::Mirror, &hover))
+        }
         Ok(_) => Ok(commands.with_keys(Command::Mirror, mirror_tools::DESCRIPTION)),
         Err(reason) => Err(format!(
             "{}. {reason}, then click here.",

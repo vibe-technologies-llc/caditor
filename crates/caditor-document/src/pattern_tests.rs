@@ -45,7 +45,7 @@ fn assert_volume(evaluation: &Evaluation, body: FeatureId, expected: f64) {
     );
 }
 
-fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
+pub(crate) fn failure(evaluation: &Evaluation, feature: FeatureId) -> FeatureError {
     match &evaluation.feature(feature).unwrap().state {
         FeatureState::Failed(error) => error.clone(),
         other => panic!("expected a failure, found {other:?}"),
@@ -599,17 +599,17 @@ struct Seeded {
     pattern: FeatureId,
 }
 
-fn top() -> Plane {
+pub(crate) fn top() -> Plane {
     Plane::from_frame(Point3::new(0.0, 0.0, 4.0), Vector3::Z, Vector3::X).unwrap()
 }
 
-fn on_top(min: (f64, f64), max: (f64, f64)) -> Sketch {
+pub(crate) fn on_top(min: (f64, f64), max: (f64, f64)) -> Sketch {
     let mut sketch = rectangle(min, max);
     sketch.set_plane(top());
     sketch
 }
 
-fn extrusion(sketch: FeatureId, height: &str, operation: BodyOperation) -> FeatureKind {
+pub(crate) fn extrusion(sketch: FeatureId, height: &str, operation: BodyOperation) -> FeatureKind {
     FeatureKind::Solid(SolidFeature::Extrude(Extrude {
         sketch,
         regions: RegionChoice::All,

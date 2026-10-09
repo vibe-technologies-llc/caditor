@@ -228,7 +228,11 @@ paths:
   stored text of its `angle` (unreadable: 0 deg); an axis that cannot be read loads turning about
   the body's centre, reported.
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as
-  the YZ plane, reported) and `keep_original`. A `scale` record holds `body`, the stored text of
+  the YZ plane, reported) and `keep_original`. One mirroring features rather than its whole body
+  is a `feature_mirror` record: `feature`, the `mirror` record it would be mirroring the body, and
+  `mirrored`, the ids of the features it reflects in tree order, since an older reader would
+  mirror the whole body; an inner record that is no mirror loads without them, reported, and a
+  repeated id is kept once. A `scale` record holds `body`, the stored text of
   `factor` (unreadable: 1) and of the three `center` lengths (unreadable: 0 mm).
 - A feature record carries `appearance` only when a body has one: `colour` as `#rrggbb`,
   `material`, `density` as stored text, the body's own `name`, `opacity` (a percent) and `faces`

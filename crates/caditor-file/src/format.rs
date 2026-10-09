@@ -194,6 +194,13 @@ pub(crate) enum FeatureKindRecord {
     PlaneConstruction(Box<PlaneConstructionRecord>),
     PointConstruction(Box<PointConstructionRecord>),
     OffsetFace(Box<OffsetFaceRecord>),
+    FeatureMirror(Box<FeatureMirrorRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FeatureMirrorRecord {
+    pub feature: FeatureKindRecord,
+    pub mirrored: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -271,7 +278,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 41] = [
+pub(crate) const FEATURE_KINDS: [&str; 42] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -313,6 +320,7 @@ pub(crate) const FEATURE_KINDS: [&str; 41] = [
     "plane_construction",
     "point_construction",
     "offset_face",
+    "feature_mirror",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1597,11 +1605,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 }
             }
         }
-        FeatureKind::Mirror(mirror) => FeatureKindRecord::Mirror(MirrorRecord {
-            body: mirror.body.raw(),
-            plane: Lenient::Read(plane_reference_record(&mirror.plane)),
-            keep_original: mirror.keep_original,
-        }),
+        FeatureKind::Mirror(mirror) => mirror_record(mirror),
         FeatureKind::Split(split) => FeatureKindRecord::Split(SplitRecord {
             body: split.body.raw(),
             plane: Lenient::Read(plane_reference_record(&split.plane)),
@@ -1933,6 +1937,25 @@ fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
         feature: record,
         repeated: pattern
             .repeated
+            .iter()
+            .map(|feature| feature.raw())
+            .collect(),
+    }))
+}
+
+fn mirror_record(mirror: &Mirror) -> FeatureKindRecord {
+    let record = FeatureKindRecord::Mirror(MirrorRecord {
+        body: mirror.body.raw(),
+        plane: Lenient::Read(plane_reference_record(&mirror.plane)),
+        keep_original: mirror.keep_original,
+    });
+    if !mirror.mirrors_features() {
+        return record;
+    }
+    FeatureKindRecord::FeatureMirror(Box::new(FeatureMirrorRecord {
+        feature: record,
+        mirrored: mirror
+            .mirrored
             .iter()
             .map(|feature| feature.raw())
             .collect(),
@@ -3173,6 +3196,26 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::FeatureMirror(mirroring) => {
+            let mut kind = restore_kind(&mirroring.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Mirror(mirror) => {
+                    let mut mirrored = Vec::new();
+                    for raw in &mirroring.mirrored {
+                        let feature = FeatureId::from_raw(*raw);
+                        if !mirrored.contains(&feature) {
+                            mirrored.push(feature);
+                        }
+                    }
+                    mirror.mirrored = mirrored;
+                }
+                _ => issues.push(format!(
+                    "“{name}” listed features to mirror, but it is not a mirror, so they were \
+                     left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::MoveAboutCentre(centred) => {
             let mut kind = restore_kind(&centred.feature, name, texts, issues);
             match &mut kind {
@@ -4199,6 +4242,7 @@ fn restore_mirror(record: &MirrorRecord, feature: &str, issues: &mut Vec<String>
         body: FeatureId::from_raw(record.body),
         plane,
         keep_original: record.keep_original,
+        mirrored: Vec::new(),
     }
 }
 

@@ -337,6 +337,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   replaces the body by the image (`Solid::mapped`), keeping every name; keeping the original runs
   the kernel `pattern` with the one image as copy `MIRROR_IMAGE`, so the image's faces are
   `FaceOrigin::Copy` of the mirror and `describe_origin` words them "<mirror> image of …".
+- With `mirrored` features (`Mirror::mirroring`, chosen as a pattern's repeated ones are, by
+  `repeatable_on`) it reflects their tools instead of the body, as a pattern of features repeats
+  them: each tool is placed as copy `MIRROR_IMAGE` (kernel `pattern_copies`) and cut from or
+  joined to the body as it stands, the originals staying; `keep_original` is then ignored. The
+  lookup (`pattern::seed`, worded through `SeedWords`) is shared with the pattern, so the same
+  failures name the feature with the fix on it, the mirrored features are in `features()` and an
+  edit to them recomputes the mirror. The cut images are the mirror's own `cuts`.
 - `Scale { body, factor, center }` resizes its body about a point (`Solid::mapped`), keeping every
   name. The factor is a plain number from `MIN_SCALE_FACTOR` to `MAX_SCALE_FACTOR`; the centre is
   three lengths. A result past `MAX_SIZE` or with an edge below the resolution fails it alone,

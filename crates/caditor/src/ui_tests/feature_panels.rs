@@ -5,12 +5,16 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_sketch::Sketch;
 use egui::{Id, Key, Modifiers};
 
-use super::{CAMERA_SETTLE, Harness, datum_of, datum_plane_of, extruded_plate, pattern_of};
+use super::{
+    CAMERA_SETTLE, Harness, datum_of, datum_plane_of, extruded_plate, pattern_of, rectangle,
+    volume_about,
+};
 use crate::{
     feature_fields::{
         self, ABOVE_ZERO, ABOVE_ZERO_OR_REVERSE, CHOOSE_IN_VIEW, MISSING_BODY, REVERSE_DIRECTION,
         TURN,
     },
+    mirror_panel,
     model::Action,
     reference_picking::Slot,
     selection::{Axis, Pickable, PrincipalPlane},
@@ -514,4 +518,77 @@ fn a_round_face_and_a_point_can_switch_from_holding_the_axis_to_touching_the_fac
     assert!(found.signed_distance(Point3::new(20.0, 0.0, 3.0)).abs() < 1e-9);
     assert!(harness.shows_containing("Tangent to"));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+fn mirrored_features(harness: &Harness, feature: FeatureId) -> Vec<FeatureId> {
+    harness
+        .document()
+        .feature(feature)
+        .and_then(|feature| feature.kind.mirror())
+        .map(|mirror| mirror.mirrored.clone())
+        .unwrap()
+}
+
+#[test]
+fn a_hole_chosen_in_the_tree_is_mirrored_onto_its_body_instead_of_the_whole_body() {
+    let mut harness = Harness::new();
+    let mut outline = Sketch::new(Plane::XY);
+    rectangle(
+        &mut outline,
+        Point2::new(-20.0, 0.0),
+        Point2::new(20.0, 40.0),
+    );
+    harness.add_sketch(outline);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let plate = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let top = Plane::from_frame(Point3::new(0.0, 0.0, 10.0), Vector3::Z, Vector3::X).unwrap();
+    let mut points = Sketch::new(top);
+    points.add_point(Point2::new(8.0, 20.0));
+    harness.add_sketch(points);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    let drilled = std::f64::consts::PI * 9.0 * 10.0;
+
+    harness.workspace.panels.selected = Some(hole);
+    harness.frame();
+    harness.frame();
+    harness.hover("Mirror body");
+    let described = harness.shows_containing("Mirror Hole 1 across the YZ plane");
+    harness.click("Mirror body");
+    harness.settle();
+    let mirror = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the mirror is open");
+
+    assert!(described);
+    assert_eq!(harness.model.undo_label(), Some("Create Mirror features 1"));
+    assert_eq!(mirrored_features(&harness, mirror), vec![hole]);
+    assert!(volume_about(&harness, plate, 16000.0 - 2.0 * drilled));
+    assert!(harness.shows(mirror_panel::MIRRORS));
+    assert!(!harness.shows(mirror_panel::KEEP_ORIGINAL));
+
+    harness.click_button("Stop mirroring Hole 1");
+    harness.settle();
+    assert!(mirrored_features(&harness, mirror).is_empty());
+    assert!(harness.shows(mirror_panel::WHOLE_BODY));
+    assert!(harness.shows(mirror_panel::KEEP_ORIGINAL));
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert_eq!(mirrored_features(&harness, mirror), vec![hole]);
+    assert!(volume_about(&harness, plate, 16000.0 - 2.0 * drilled));
 }

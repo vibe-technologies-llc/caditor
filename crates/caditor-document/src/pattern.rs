@@ -484,72 +484,95 @@ impl Context<'_> {
     }
 }
 
-struct Seed<'a> {
-    name: String,
-    operation: BooleanOperation,
-    tools: Vec<&'a Solid>,
+pub(crate) struct Seed<'a> {
+    pub name: String,
+    pub operation: BooleanOperation,
+    pub tools: Vec<&'a Solid>,
+}
+
+pub(crate) struct SeedWords {
+    pub feature: &'static str,
+    pub repeats: &'static str,
+    pub places: &'static str,
+    pub repeated: &'static str,
+    pub verb: &'static str,
+}
+
+const PATTERN_WORDS: SeedWords = SeedWords {
+    feature: "pattern",
+    repeats: "repeats",
+    places: "repeats it on",
+    repeated: "repeated",
+    verb: "pattern",
+};
+
+fn seed_error(seed: FeatureId, reason: String, remedy: &str) -> Failure {
+    Failure::Error(Box::new(FeatureError {
+        reason,
+        remedy: remedy.to_owned(),
+        fix: Some(FixTarget::Feature(seed)),
+        constraints: Vec::new(),
+        place: None,
+    }))
+}
+
+pub(crate) fn seed<'a>(
+    inputs: &'a Inputs<'_>,
+    seed: FeatureId,
+    body: FeatureId,
+    words: &SeedWords,
+) -> Result<Seed<'a>, Failure> {
+    let SeedWords {
+        feature,
+        repeats,
+        places,
+        repeated,
+        verb,
+    } = words;
+    let name = inputs.document.feature(seed).map_or_else(
+        || "a deleted feature".to_owned(),
+        |found| found.name.clone(),
+    );
+    let Some(result) = inputs.features.get(&seed).and_then(|result| result.solid()) else {
+        return Err(seed_error(
+            seed,
+            format!("It {repeats} {name}, whose shape is not available."),
+            &format!("Fix {name} first, or leave it out of the {feature}."),
+        ));
+    };
+    if result.body != body {
+        return Err(seed_error(
+            seed,
+            format!("{name} changes another body than the one this {feature} {places}."),
+            &format!("Leave it out of the {feature}, or {verb} the body it changes."),
+        ));
+    }
+    let (operation, parts) = match (result.cuts(), result.joins()) {
+        ([], []) => {
+            return Err(seed_error(
+                seed,
+                format!(
+                    "{name} neither adds to nor removes from a body, so it cannot be {repeated}."
+                ),
+                &format!("Leave it out of the {feature}, or {verb} the whole body."),
+            ));
+        }
+        ([], joins) => (BooleanOperation::Union, joins),
+        (cuts, _) => (BooleanOperation::Difference, cuts),
+    };
+    let tools = parts
+        .iter()
+        .filter_map(|part| part.solid())
+        .map(|part| &part.solid)
+        .collect();
+    Ok(Seed {
+        name,
+        operation,
+        tools,
+    })
 }
 
 impl Context<'_> {
-    fn seed_error(&self, seed: FeatureId, reason: String, remedy: &str) -> Failure {
-        Failure::Error(Box::new(FeatureError {
-            reason,
-            remedy: remedy.to_owned(),
-            fix: Some(FixTarget::Feature(seed)),
-            constraints: Vec::new(),
-            place: None,
-        }))
-    }
-
-    fn seed<'a>(
-        &self,
-        inputs: &'a Inputs<'_>,
-        seed: FeatureId,
-        body: FeatureId,
-    ) -> Result<Seed<'a>, Failure> {
-        let name = inputs.document.feature(seed).map_or_else(
-            || "a deleted feature".to_owned(),
-            |feature| feature.name.clone(),
-        );
-        let Some(result) = inputs.features.get(&seed).and_then(|result| result.solid()) else {
-            return Err(self.seed_error(
-                seed,
-                format!("It repeats {name}, whose shape is not available."),
-                &format!("Fix {name} first, or leave it out of the pattern."),
-            ));
-        };
-        if result.body != body {
-            return Err(self.seed_error(
-                seed,
-                format!("{name} changes another body than the one this pattern repeats it on."),
-                "Leave it out of the pattern, or pattern the body it changes.",
-            ));
-        }
-        let (operation, parts) = match (result.cuts(), result.joins()) {
-            ([], []) => {
-                return Err(self.seed_error(
-                    seed,
-                    format!(
-                        "{name} neither adds to nor removes from a body, so it cannot be repeated."
-                    ),
-                    "Leave it out of the pattern, or pattern the whole body.",
-                ));
-            }
-            ([], joins) => (BooleanOperation::Union, joins),
-            (cuts, _) => (BooleanOperation::Difference, cuts),
-        };
-        let tools = parts
-            .iter()
-            .filter_map(|part| part.solid())
-            .map(|part| &part.solid)
-            .collect();
-        Ok(Seed {
-            name,
-            operation,
-            tools,
-        })
-    }
-
     fn repeat(
         &self,
         definition: &Pattern,
@@ -562,7 +585,7 @@ impl Context<'_> {
         let mut body = solid.clone();
         let mut cuts = Vec::new();
         for &feature in &definition.repeated {
-            let seed = self.seed(inputs, feature, definition.body)?;
+            let seed = seed(inputs, feature, definition.body, &PATTERN_WORDS)?;
             let subject = Context {
                 resolver: Resolver {
                     feature: self.resolver.feature,

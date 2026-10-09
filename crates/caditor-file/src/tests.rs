@@ -3228,6 +3228,49 @@ fn a_pattern_repeating_features_is_a_kind_older_readers_report_and_reads_back() 
 }
 
 #[test]
+fn a_mirror_of_features_is_a_kind_older_readers_report_and_reads_back() {
+    use caditor_document::{HoleStyle, Mirror};
+    let (mut document, hole) = holed_model(HoleStyle::Plain, true);
+    let body = document.feature(hole).unwrap().kind.hole().unwrap().body;
+    let mut transaction = document.transaction("Mirror the hole");
+    let mirror = transaction.add_feature(
+        "Mirror 1",
+        FeatureKind::Mirror(
+            Mirror::new(body, PlaneReference::Principal(PrincipalPlane::Xz)).mirroring(vec![hole]),
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("feature_mirror", "mirror_of_features"));
+    let not_a_mirror = decode_text(&text.replace(
+        "\"feature_mirror\":{\"feature\":{\"mirror\":",
+        "\"feature_mirror\":{\"feature\":{\"remove\":",
+    ));
+    let kind = document.feature(mirror).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: mirror, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+
+    assert!(text.contains("\"feature_mirror\":{\"feature\":{\"mirror\":{\"body\":"));
+    assert!(text.contains(&format!("\"mirrored\":[{}]", hole.raw())));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(mirror).is_none());
+    assert!(!older.issues.is_empty());
+    assert!(
+        not_a_mirror
+            .issues
+            .iter()
+            .any(|issue| issue.contains("listed features to mirror, but it is not a mirror"))
+    );
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
 fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads_back() {
     use caditor_document::{Move, TurnCentre};
     let (mut document, base, _) = solid_model();
@@ -5727,6 +5770,7 @@ fn mirrored_model(plane: PlaneReference, keep_original: bool) -> (Document, Feat
             body: base,
             plane,
             keep_original,
+            mirrored: Vec::new(),
         }),
     );
     document.apply(transaction.finish()).unwrap();

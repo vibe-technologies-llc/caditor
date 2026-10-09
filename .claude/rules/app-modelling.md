@@ -291,6 +291,12 @@ paths:
   panel chooses a principal plane from a combo, or any plane or flat face made before it with Use
   selected, Choose in the view (slot `MirrorPlane`) or the palette's Mirror across selected, and
   has a Keep the original checkbox.
+- With rows chosen in the tree that a pattern would repeat (`pattern_tools::repeatable`), Mirror
+  body mirrors those features instead (`MirrorSource::mirrored`), named "Mirror features N", the
+  hover naming them ("Mirror Hole 1 across the YZ plane"). Its panel's Mirrors rows list them,
+  each with Stop mirroring, or read The whole body, and Mirror the chosen features takes the rows
+  chosen now, as a pattern's Repeats rows do; Keep the original is hidden while features are
+  mirrored. The open mirror shows its body and its reflected cuts like a pattern of holes.
 - Split body (Alt+K, Model menu, palette, a body's right-click menu; not on the ribbon, which it
   would widen past one row) takes the body the same way and creates a `Split` along the plane
   chosen as Mirror's is (the Bodies group's Split body too), and opens it; its panel mirrors Mirror's (combo, Use

@@ -132,11 +132,11 @@ fn a_body_mirrors_across_its_selected_flat_face_and_two_planes_are_refused() {
         })
         .expect("the bottom face is pickable");
 
-    let two_faces = mirror_tools::source(&harness.model, &selection_of([top, bottom]), &[]);
+    let two_faces = mirror_tools::source(&harness.model, &selection_of([top, bottom]), (&[], &[]));
     let datum_and_face = mirror_tools::source(
         &harness.model,
         &selection_of([top, Pickable::Plane(PrincipalPlane::Xz)]),
-        &[],
+        (&[], &[]),
     );
     harness.select([top]);
     harness.click("Mirror body");
