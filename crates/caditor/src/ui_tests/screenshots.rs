@@ -22,6 +22,7 @@ use super::{
 use crate::{
     app::Workspace,
     blend_tools, datum_tools,
+    drawing_export::{DrawingCommand, DrawingSource, Layout},
     editing::EditingCommand,
     export::ExportCommand,
     files::FileCommand,
@@ -846,6 +847,24 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
 
     model.command(FileCommand::ExportImage(ImageCommand::Show));
     shoot(&mut model, gpu, out, "image-export", look);
+    close_dialog(&mut model);
+
+    let sketches: Vec<FeatureId> = model
+        .document()
+        .features()
+        .filter(|feature| feature.kind.sketch().is_some())
+        .map(|feature| feature.id())
+        .collect();
+    model.command(FileCommand::ExportDrawing(DrawingSource::Sketches(
+        sketches,
+    )));
+    model.command(FileCommand::DrawingExport(DrawingCommand::Layout(
+        Layout::Nested,
+    )));
+    model.command(FileCommand::DrawingExport(DrawingCommand::Annotations(
+        true,
+    )));
+    shoot(&mut model, gpu, out, "drawing-export", look);
     close_dialog(&mut model);
 
     let outline = dir.path().join("outline.dxf");

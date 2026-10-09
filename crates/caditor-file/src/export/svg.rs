@@ -7,7 +7,7 @@ use caditor_geometry::Point2;
 
 use super::{
     ExportError,
-    figure::{Ellipse, Figure, Layer, Shape},
+    figure::{Anchor, Ellipse, Figure, Layer, Shape, Text},
 };
 
 const MARGIN: f64 = 1.0;
@@ -73,7 +73,9 @@ fn write_document(
                 Real(DASH),
                 Real(GAP)
             )?,
-            Layer::Outline | Layer::Holes => writeln!(text, r#"<g id="{}">"#, layer.name())?,
+            Layer::Outline | Layer::Holes | Layer::Dimensions | Layer::Labels => {
+                writeln!(text, r#"<g id="{}">"#, layer.name())?;
+            }
         }
         for (_, shape) in figure.shapes.iter().filter(|(on, _)| *on == layer) {
             write_shape(text, shape)?;
@@ -133,7 +135,49 @@ fn write_shape(text: &mut String, shape: &Shape) -> std::fmt::Result {
         Shape::Ellipse(ellipse) => write_ellipse(text, ellipse),
         Shape::Spline(spline) => write_polyline(text, &spline.polyline),
         Shape::Polyline(points) => write_polyline(text, points),
+        Shape::Text(label) => write_text(text, label),
+        Shape::Dimension(dimension) => {
+            for mark in &dimension.marks {
+                write_shape(text, mark)?;
+            }
+            write_text(text, &dimension.text)
+        }
     }
+}
+
+fn write_text(text: &mut String, label: &Text) -> std::fmt::Result {
+    let (anchor, baseline) = match label.anchor {
+        Anchor::Start => ("start", "auto"),
+        Anchor::Middle => ("middle", "central"),
+    };
+    let rotation = -label.upright_angle().to_degrees();
+    write!(
+        text,
+        r##"<text x="{x}" y="{y}" font-size="{}" font-family="sans-serif" text-anchor="{anchor}" dominant-baseline="{baseline}" fill="#000000" stroke="none""##,
+        Real(label.height),
+        x = Real(label.at.x),
+        y = Real(-label.at.y),
+    )?;
+    if rotation.abs() > 0.0 {
+        write!(
+            text,
+            r#" transform="rotate({} {} {})""#,
+            Real(rotation),
+            Real(label.at.x),
+            Real(-label.at.y)
+        )?;
+    }
+    write!(text, ">")?;
+    for character in label.content.chars() {
+        match character {
+            '&' => text.push_str("&amp;"),
+            '<' => text.push_str("&lt;"),
+            '>' => text.push_str("&gt;"),
+            character if character.is_control() => text.push(' '),
+            character => text.push(character),
+        }
+    }
+    writeln!(text, "</text>")
 }
 
 fn write_ellipse(text: &mut String, ellipse: &Ellipse) -> std::fmt::Result {

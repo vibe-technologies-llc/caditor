@@ -1389,6 +1389,8 @@ fn a_sketch_exports_to_a_dxf_that_reads_back_as_the_same_curves() {
             points: 1,
             construction: 0,
             construction_left_out: 1,
+            sketches: 1,
+            ..SketchExported::default()
         }
     );
     assert!(drawing.notes.is_empty(), "{:?}", drawing.notes);
@@ -1444,6 +1446,8 @@ fn construction_kept_goes_on_its_own_dashed_layer_and_reads_back_as_construction
             points: 1,
             construction: 1,
             construction_left_out: 0,
+            sketches: 1,
+            ..SketchExported::default()
         }
     );
     assert!(text.contains("  8\nConstruction\n  6\nDASHED\n"));
@@ -1528,6 +1532,8 @@ fn a_sketch_exports_to_an_svg_in_millimetres_with_y_pointing_down() {
             points: 1,
             construction: 0,
             construction_left_out: 1,
+            sketches: 1,
+            ..SketchExported::default()
         }
     );
     assert!(text.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg" width="#));
@@ -1630,6 +1636,7 @@ fn a_flat_face_exports_its_outline_and_holes_exactly_on_layers_of_their_own() {
             loops: 2,
             curves: 5,
             approximated: 0,
+            too_wide: 0,
         }
     );
     assert!(
@@ -1739,14 +1746,29 @@ fn several_faces_go_into_one_drawing_side_by_side() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("nest.dxf");
     let faces = [
-        (&plate, face_facing(&plate, Vector3::Z)),
-        (&other, face_facing(&other, Vector3::Z)),
+        NamedFace {
+            name: "Plate",
+            solid: &plate,
+            face: face_facing(&plate, Vector3::Z),
+        },
+        NamedFace {
+            name: "Block",
+            solid: &other,
+            face: face_facing(&other, Vector3::Z),
+        },
     ];
 
-    let exported = export_faces(&path, &faces, SketchFormat::Dxf, &CancelToken::never()).unwrap();
+    let exported = export_faces(
+        &path,
+        &faces,
+        SketchFormat::Dxf,
+        &DrawingSheet::default(),
+        &CancelToken::never(),
+    )
+    .unwrap();
 
-    let single = outline::face_figure(&plate, faces[0].1).unwrap().1;
-    let second = outline::face_figure(&other, faces[1].1).unwrap().1;
+    let single = outline::face_figure(&plate, faces[0].face).unwrap().1;
+    let second = outline::face_figure(&other, faces[1].face).unwrap().1;
     assert_eq!(exported.faces, 2);
     assert_eq!(exported.curves, single.curves + second.curves);
     assert_eq!(exported.loops, single.loops + second.loops);

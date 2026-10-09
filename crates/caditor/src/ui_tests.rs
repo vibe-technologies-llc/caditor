@@ -1746,6 +1746,7 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
     assert_eq!(availability(&harness), Some(Ok(())));
     harness.answer_dialog(Some(dir.path().join("outline")));
     run_from_palette(&mut harness, "export sketch");
+    harness.click("Export…");
     let written = dir.path().join("outline.dxf");
     harness.wait_until("the drawing is written", |_| written.exists());
     harness.wait_until("the export is announced", |harness| {
@@ -1761,6 +1762,7 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
     harness.answer_dialog(Some(cut.clone()));
     harness.key(Key::Escape, Modifiers::NONE);
     run_from_palette(&mut harness, "export sketch");
+    harness.click("Export…");
     harness.wait_until("the SVG is written", |_| cut.exists());
     let svg = std::fs::read_to_string(&cut).unwrap();
     assert!(svg.starts_with("<svg "));
@@ -1770,6 +1772,7 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
     std::fs::write(&written, b"precious").unwrap();
     harness.key(Key::Escape, Modifiers::NONE);
     run_from_palette(&mut harness, "export sketch");
+    harness.click("Export…");
     harness.wait_until("the replacement is confirmed", |harness| {
         harness.shows("Replace “outline.dxf”?")
     });
@@ -1796,6 +1799,7 @@ fn construction_geometry_is_exported_on_its_own_layer_once_kept_from_the_palette
     let kept = harness.files.keeps_drawing_construction();
     harness.answer_dialog(Some(dir.path().join("guided")));
     run_from_palette(&mut harness, "export sketch");
+    harness.click("Export…");
     let written = dir.path().join("guided.dxf");
     harness.wait_until("the drawing is written", |_| written.exists());
     harness.wait_until("the export is announced", |harness| {
@@ -1807,6 +1811,75 @@ fn construction_geometry_is_exported_on_its_own_layer_once_kept_from_the_palette
     assert!(kept);
     assert_eq!(drawing.curve_count(), 5);
     assert_eq!(drawing.construction.len(), 1);
+}
+
+#[test]
+fn chosen_sketches_nest_on_one_sheet_with_their_dimensions_and_names() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let mut frame = Sketch::new(Plane::XY);
+    rectangle(
+        &mut frame,
+        Point2::new(-50.0, -50.0),
+        Point2::new(-10.0, -30.0),
+    );
+    let mut washer = Sketch::new(Plane::XY);
+    let hole = washer.add_circle(Point2::new(200.0, 0.0), 5.0);
+    washer
+        .add_constraint(Constraint::Radius {
+            entity: hole,
+            value: Expression::Measure(5.0, Unit::Millimetre),
+        })
+        .unwrap();
+    let frame = harness.add_sketch(frame);
+    let washer = harness.add_sketch(washer);
+    harness.settle();
+    let names: Vec<String> = [frame, washer]
+        .map(|id| harness.document().feature(id).unwrap().name.clone())
+        .to_vec();
+    harness.workspace.panels.choose_all(&[frame, washer]);
+    harness.frame();
+    let written = dir.path().join("sheet.dxf");
+
+    harness.answer_dialog(Some(written.clone()));
+    run_from_palette(&mut harness, "export sketch");
+    let titled = harness.shows("Export sketches");
+    harness.click("Nested on a sheet");
+    harness.click("Dimensions and names");
+    harness.click("Export…");
+    harness.wait_until("the drawing is written", |_| written.exists());
+    harness.wait_until("the export is announced", |harness| {
+        harness.shows("Exported 5 objects of 2 sketches with 1 dimension to “sheet.dxf”.")
+    });
+    let text = std::fs::read_to_string(&written).unwrap();
+    let drawing =
+        caditor_file::read_dxf(&written, &caditor_document::CancelToken::never()).unwrap();
+    let lowest = drawing
+        .curves
+        .iter()
+        .flat_map(|curve| match curve {
+            caditor_file::DrawingCurve::Line { start, end } => vec![*start, *end],
+            caditor_file::DrawingCurve::Circle { center, radius } => {
+                vec![*center - Vector2::splat(*radius)]
+            }
+            _ => Vec::new(),
+        })
+        .fold(Point2::splat(f64::INFINITY), Point2::min);
+
+    assert!(titled);
+    assert!(!harness.shows("Export sketches"));
+    assert_eq!(drawing.curve_count(), 5);
+    assert!(lowest.x >= -1e-9 && lowest.y >= -1e-9, "{lowest:?}");
+    assert!(text.contains("\nDIMENSION\n"));
+    assert!(text.contains("  1\nR5\n"));
+    for name in &names {
+        assert!(text.contains(&format!("  1\n{name}\n")), "{name}");
+    }
+    assert!(
+        drawing.notes.iter().any(|note| note.contains("dimension")),
+        "{:?}",
+        drawing.notes
+    );
 }
 
 #[test]
@@ -1840,6 +1913,7 @@ fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
 
     harness.answer_dialog(Some(dir.path().join("plate")));
     run_from_palette(&mut harness, "export face");
+    harness.click("Export…");
     let written = dir.path().join("plate.dxf");
     harness.wait_until("the drawing is written", |_| written.exists());
     harness.wait_until("the export is announced", |harness| {
@@ -1865,6 +1939,7 @@ fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
     harness.frame();
     harness.answer_dialog(Some(dir.path().join("both")));
     run_from_palette(&mut harness, "export face");
+    harness.click("Export…");
     let both = dir.path().join("both.dxf");
     harness.wait_until("the drawing of both faces is written", |_| both.exists());
     harness.wait_until("the export of both is announced", |harness| {

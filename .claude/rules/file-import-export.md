@@ -142,17 +142,19 @@ paths:
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that
   outlasts edits); the export fails only when no body could be written. STEP does this through
   `write_step_keeping_what_can_be`.
-- Drawings: `export_sketch` and `export_face` turn their source into a `Figure` of 2D `Shape`s,
-  each on a `Layer` (`export/figure.rs`), which `export/dxf.rs` and `export/svg.rs` write;
-  `SketchFormat::of` picks DXF or SVG from the path. Both are written atomically, cancellation
-  checked before writing.
-- `export_sketch` writes the solved curves of one sketch in its own 2D coordinates on layer 0, and a
-  `POINT` for a point no curve uses. Construction curves are counted and left out
+- Drawings: `export_sketches` and `export_faces` turn each source (a `NamedSketch` or a
+  `NamedFace`) into a `Figure` of 2D `Shape`s, each on a `Layer` (`export/figure.rs`), arrange
+  them by a `DrawingSheet` (`export/sheet.rs`) and write it with `export/dxf.rs` or
+  `export/svg.rs`; `SketchFormat::of` picks DXF or SVG from the path. Both are written atomically,
+  cancellation checked between sources, while nesting and before writing. `export_sketch` and
+  `export_face` are the one-source, default-sheet forms.
+- A sketch writes its solved curves in its own 2D coordinates on layer 0, and a `POINT` for a point
+  no curve uses. Construction curves (`DrawingSheet::construction`) are counted and left out
   (`Construction::LeftOut`), or with `Construction::OnLayer` written on layer `Construction` in a
-  dashed linetype and counted in `SketchExported::construction`; a sketch with nothing to write
-  is `ExportError::NoCurves`. The DXF reads back through `parse_dxf` as the same curves, the
+  dashed linetype and counted in `SketchExported::construction`; sketches with nothing to write
+  are `ExportError::NoCurves`. The DXF reads back through `parse_dxf` as the same curves, the
   construction ones as construction.
-- `export_face` (`export/outline.rs`) writes a flat face's outer loop on layer `Outline` and its
+- A face (`export/outline.rs`) writes a flat face's outer loop on layer `Outline` and its
   inner loops on `Holes`, as seen from outside the body: the face's plane with its origin where the
   model origin projects onto it, up along Z for a face more upright than 45° and along Y otherwise,
   so a top face keeps the model's X and Y and a bottom one is mirrored. Lines, circles and arcs stay
@@ -163,20 +165,46 @@ paths:
   (`outline::fitted`, kept only when its middle between every two samples lies within that chord of
   the curve's), else as a polyline of them; either is counted in `FaceExported::approximated`. A
   curved face is `ExportError::FaceNotFlat`; outlining runs under `catch_unwind`.
-- `export_faces` writes several faces into one drawing: the first in its own frame as
-  `export_face` does, each next one shifted to the right of what is placed by a gap of a tenth of
-  the largest face (at least 10 mm), bottoms level, the counts summed (`FaceExported::faces`).
+- `SheetLayout::SideBySide` (the default) leaves the first source in its own frame and shifts each
+  next one to the right of what is placed by a gap of a tenth of the largest (at least 10 mm),
+  bottoms level, so one source is written exactly where it is. `SheetLayout::Nested(Nesting)`
+  packs the bounding rectangles bottom-left from the origin, largest area first: each goes to the
+  lowest, then leftmost, spot among the origin and the right and top edges of those placed (plus
+  the spacing) that keeps the spacing to every other and stays within the sheet width, and, when
+  `Nesting::turns`, also tries a quarter turn (`Motion`) and keeps the lower spot. A source wider
+  than the sheet either way goes alone above the others and is counted in `too_wide`.
+  `Nesting::new` refuses a width that is not positive or a negative spacing. It is deterministic
+  and roughly cubic in the number of sources.
+- `Annotations::Included` adds, for a sketch, a dimension per dimensional constraint
+  (`export/annotation.rs`, measured from the solved geometry, active or not; one touching a
+  left-out construction curve is skipped) on layer `Dimensions`: distances as a dimension line
+  parallel to the measured gap, offset away from the sketch's middle with extension lines (two
+  lines are measured from the end of one farther along the other, so the dimension sits outside),
+  horizontal and vertical distances along X or Y, radius and diameter as a leader through the
+  centre (`R`, `⌀`), angles as an arc at the lines' vertex, arc sweep and length as an arc beyond
+  the arc (`°`, `⌒`); values in millimetres to three decimals and degrees to two. Every source
+  gets its name as a label below it on layer `Labels` (nesting reserves the band). Text is
+  `sheet::text_height` high: a fiftieth of the largest source, at least 2.5 mm.
 - DXF is ASCII, version AC1015, millimetres (`$INSUNITS` 4), header and entities (layers are
   named by the entities), plus, only when the Construction layer is used, a TABLES section of the
   `CONTINUOUS` and `DASHED` linetypes and that layer (grey, dashed), each construction entity also
   naming `DASHED`, since `parse_dxf` takes a dashed linetype for construction: `LINE`, `CIRCLE`, `ARC` (a full sweep is a circle),
   `ELLIPSE` (a full one from 0 to 2π), clamped planar `SPLINE` with knots, weights when rational
-  (flag 12) and control points, open `LWPOLYLINE` and `POINT`.
+  (flag 12) and control points, open `LWPOLYLINE`, `POINT` and `TEXT` (labels left-aligned on the
+  baseline, dimension text centred, turned to read from below or the right). A dimension is a
+  `DIMENSION` entity with subclass markers (rotated linear, 3-point angular, radial or diametric,
+  style `STANDARD`, its text as the override and placed by the user flag) whose drawn lines, arcs
+  and text are an anonymous `*D<n>` block in a BLOCKS section, so readers that redraw dimensions
+  and readers that show the block agree, and `parse_dxf`, which expands blocks only through
+  `INSERT`, reads the file back as the same curves with the dimensions and labels counted in
+  notes. Text escapes `%` as `%%%`, `⌀` as `%%c`, `°` as `%%d`, other non-ASCII as `\U+XXXX`
+  and control characters as spaces.
 - SVG is in millimetres with y flipped (`-y`), a 1 mm margin in the viewBox, a 0.1 mm black
   hairline, `line`, `circle`, elliptical-arc `path`s (sweep flag 0, since the flip keeps the drawn
   direction; a rotation for an ellipse, a full one in two halves), splines and polylines as
-  `polyline`s and points as small filled circles. Shapes off layer 0 are grouped in a `g` whose `id`
-  is the layer's name; the Construction group is grey and dashed.
+  `polyline`s, points as small filled circles and text as sans-serif `text` (XML-escaped, rotated
+  like the DXF's). Shapes off layer 0 are grouped in a `g` whose `id` is the layer's name; the
+  Construction group is grey and dashed.
 - `export_png` writes 8-bit RGBA, straight alpha, sRGB chunk, through the pure-Rust `png` crate,
   atomically, streaming whatever `PixelRows` yields (bands of whole rows) into the encoder, so
   the image is never held whole; it checks the pixel count and cancellation between bands. Its

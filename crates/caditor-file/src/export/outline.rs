@@ -31,9 +31,7 @@ pub(super) fn face_figure(
     let mut figure = Figure::default();
     let mut exported = FaceExported {
         faces: 1,
-        loops: 0,
-        curves: 0,
-        approximated: 0,
+        ..FaceExported::default()
     };
     let mut written = BTreeSet::new();
     for (index, loop_id) in definition.loops().iter().enumerate() {

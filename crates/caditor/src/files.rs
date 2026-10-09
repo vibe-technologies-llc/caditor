@@ -15,13 +15,13 @@ use std::{
 
 use caditor_document::{CancelToken, Document, FeatureId, FeatureResult};
 use caditor_file::{
-    Closing, Construction, DXF_EXTENSION, Drawing, ExportError, ExportFormat, Exported,
-    FILE_EXTENSION, FaceExported, FileJournal, History, ImportError, LoadError, Loaded,
-    MESH_IMPORT_EXTENSIONS, ModelImport, PNG_EXTENSION, RecentChange, RecentFiles, Recovered,
-    STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings, SketchExported, SketchFormat,
-    describe_set_aside, journal_for, load_cancellable, load_version, read_dxf, scan,
+    Closing, Construction, DXF_EXTENSION, Drawing, DrawingSheet, ExportError, ExportFormat,
+    Exported, FILE_EXTENSION, FaceExported, FileJournal, History, ImportError, LoadError, Loaded,
+    MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch, PNG_EXTENSION, RecentChange,
+    RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings,
+    SheetLayout, SketchExported, SketchFormat, describe_set_aside, journal_for, load_cancellable,
+    load_version, read_dxf, scan,
 };
-use caditor_kernel::{FaceId, Solid};
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
 use egui::{Sides, Ui};
@@ -32,7 +32,10 @@ use crate::{
     bodies::{self, FaceKey},
     commands::{Command, CommandFrame, Offer, RecentSlot},
     dialog_parts,
-    drawing_export::{self, DrawingSource, FACE_HINT, NOT_A_FACE, NOT_A_SKETCH, SKETCH_HINT},
+    drawing_export::{
+        self, DrawingCommand, DrawingExporter, DrawingSource, FACE_HINT, NOT_A_FACE, NOT_A_SKETCH,
+        SKETCH_HINT,
+    },
     editing::{self, SketchEditing},
     export::{self, ExportCommand, Exporter, ThumbnailJob},
     history::{self, HistoryCommand, VersionHistory},
@@ -111,6 +114,7 @@ pub enum FileCommand {
     Export(ExportCommand),
     ExportImage(ImageCommand),
     ExportDrawing(DrawingSource),
+    DrawingExport(DrawingCommand),
     History(HistoryCommand),
     Import {
         into: Option<FeatureId>,
@@ -429,6 +433,7 @@ enum Event {
     FaceExported {
         path: PathBuf,
         face: String,
+        nested: bool,
         result: Result<FaceExported, ExportError>,
     },
     HistoryListed {
@@ -572,7 +577,7 @@ pub struct Files {
     queued_imports: VecDeque<Queued>,
     exporter: Exporter,
     image: ImageExporter,
-    drawing_export: Option<DrawingSource>,
+    drawing: DrawingExporter,
     drawing_construction: Construction,
     history: VersionHistory,
     picking: Option<(u64, Purpose)>,
@@ -611,7 +616,7 @@ impl Files {
             queued_imports: VecDeque::new(),
             exporter: Exporter::default(),
             image: ImageExporter::default(),
-            drawing_export: None,
+            drawing: DrawingExporter::default(),
             drawing_construction: Construction::LeftOut,
             history: VersionHistory::default(),
             picking: None,
@@ -679,6 +684,7 @@ impl Files {
             || self.showing_recovery()
             || self.exporter.is_open()
             || self.image.is_open()
+            || self.drawing.is_open()
             || self.history.is_open()
             || self.picking.is_some()
     }
@@ -702,6 +708,7 @@ impl Files {
     pub fn close_dialogs(&mut self, model: &Model) {
         self.exporter.perform(ExportCommand::Hide, model);
         self.image.perform(ImageCommand::Hide);
+        self.drawing.hide();
         self.history.close();
         self.report = None;
         self.arranging = None;
@@ -793,9 +800,7 @@ impl Files {
                         self.image.pick_cancelled()
                     }
                     (Replacement::Output(Output::Export { .. }), false) => {}
-                    (Replacement::Output(Output::Drawing { .. }), false) => {
-                        self.drawing_export = None;
-                    }
+                    (Replacement::Output(Output::Drawing { .. }), false) => {}
                 }
             }
             FileCommand::QuitAnyway => {
@@ -820,8 +825,13 @@ impl Files {
                 if self.picking.is_some() {
                     return;
                 }
-                self.drawing_export = Some(source);
-                self.pick(Purpose::Drawing, model);
+                self.drawing.show(source);
+            }
+            FileCommand::DrawingExport(command) => {
+                self.drawing.perform(command);
+                if command == DrawingCommand::Choose && self.drawing.source().is_some() {
+                    self.pick(Purpose::Drawing, model);
+                }
             }
             FileCommand::History(command) => self.history_command(command, model),
             FileCommand::Import { into } => {
@@ -1205,8 +1215,13 @@ impl Files {
                 sketch,
                 result,
             } => model.set_notice(drawing_export::finished(&path, &sketch, result)),
-            Event::FaceExported { path, face, result } => {
-                model.set_notice(drawing_export::face_finished(&path, &face, result));
+            Event::FaceExported {
+                path,
+                face,
+                nested,
+                result,
+            } => {
+                model.set_notice(drawing_export::face_finished(&path, &face, nested, result));
             }
             Event::HistoryListed { path, result } => self.history.listed(&path, result),
             Event::VersionLoaded {
@@ -1492,21 +1507,30 @@ impl Files {
     }
 
     fn export_drawing(&mut self, path: PathBuf, model: &mut Model) {
-        match self.drawing_export.take() {
-            Some(DrawingSource::Sketch(feature)) => self.export_sketch(path, feature, model),
-            Some(DrawingSource::Faces(choices)) => self.export_faces(path, &choices, model),
+        let sheet = self.drawing.sheet(self.drawing_construction);
+        match self.drawing.start() {
+            Some(DrawingSource::Sketches(features)) => {
+                self.export_sketches(path, &features, sheet, model);
+            }
+            Some(DrawingSource::Faces(choices)) => self.export_faces(path, &choices, sheet, model),
             None => {}
         }
     }
 
-    fn export_faces(&mut self, path: PathBuf, choices: &[FaceChoice], model: &mut Model) {
+    fn export_faces(
+        &mut self,
+        path: PathBuf,
+        choices: &[FaceChoice],
+        sheet: DrawingSheet,
+        model: &mut Model,
+    ) {
         let evaluation = model.evaluation();
-        let found: Option<Vec<(Arc<FeatureResult>, FaceKey)>> = choices
+        let found: Option<Vec<(Arc<FeatureResult>, FaceKey, String)>> = choices
             .iter()
             .map(|choice| {
-                drawing_export::face_name(model, *choice)?;
+                let name = drawing_export::face_name(model, *choice)?;
                 let result = evaluation.body_result(choice.body).map(Arc::clone)?;
-                Some((result, choice.face))
+                Some((result, choice.face, name))
             })
             .collect();
         let (Some(found), Some(face)) = (found, drawing_export::faces_name(model, choices)) else {
@@ -1520,58 +1544,87 @@ impl Files {
             _ => face,
         };
         let failed = (path.clone(), face.clone());
+        let nested = matches!(sheet.layout, SheetLayout::Nested(_));
         self.spawn(
             move || {
                 let format = SketchFormat::of(&path).unwrap_or_default();
-                let faces: Option<Vec<(&Solid, FaceId)>> = found
+                let faces: Option<Vec<NamedFace<'_>>> = found
                     .iter()
-                    .map(|(result, key)| {
+                    .map(|(result, key, name)| {
                         let body = result.solid()?;
-                        Some((&body.solid, bodies::find_face(body, *key)?))
+                        Some(NamedFace {
+                            name,
+                            solid: &body.solid,
+                            face: bodies::find_face(body, *key)?,
+                        })
                     })
                     .collect();
                 let result = match faces {
-                    Some(faces) => {
-                        caditor_file::export_faces(&path, &faces, format, &CancelToken::never())
-                    }
+                    Some(faces) => caditor_file::export_faces(
+                        &path,
+                        &faces,
+                        format,
+                        &sheet,
+                        &CancelToken::never(),
+                    ),
                     None => Err(ExportError::FaceMissing),
                 };
-                Event::FaceExported { path, face, result }
+                Event::FaceExported {
+                    path,
+                    face,
+                    nested,
+                    result,
+                }
             },
             move || Event::FaceExported {
                 path: failed.0,
                 face: failed.1,
+                nested,
                 result: Err(ExportError::Encoding),
             },
         );
     }
 
-    fn export_sketch(&mut self, path: PathBuf, feature: FeatureId, model: &mut Model) {
+    fn export_sketches(
+        &mut self,
+        path: PathBuf,
+        features: &[FeatureId],
+        sheet: DrawingSheet,
+        model: &mut Model,
+    ) {
         let document = model.document();
-        let Some(feature) = document.feature(feature) else {
-            model.set_notice(Notice::failure("The sketch no longer exists."));
-            return;
-        };
-        let name = feature.name.clone();
-        let Some(sketch) = model
-            .displayed_sketch(feature)
-            .map(|displayed| Sketch::clone(&displayed))
-        else {
-            model.set_notice(Notice::failure(format!(
-                "“{name}” has no solved geometry to export."
-            )));
-            return;
-        };
+        let mut sketches = Vec::with_capacity(features.len());
+        for feature in features {
+            let Some(feature) = document.feature(*feature) else {
+                model.set_notice(Notice::failure("The sketch no longer exists."));
+                return;
+            };
+            let Some(sketch) = model
+                .displayed_sketch(feature)
+                .map(|displayed| Sketch::clone(&displayed))
+            else {
+                model.set_notice(Notice::failure(format!(
+                    "“{}” has no solved geometry to export.",
+                    feature.name
+                )));
+                return;
+            };
+            sketches.push((feature.name.clone(), sketch));
+        }
+        let name = drawing_export::quoted_sketches(model, features);
         let failed = (path.clone(), name.clone());
-        let construction = self.drawing_construction;
         self.spawn(
             move || {
                 let format = SketchFormat::of(&path).unwrap_or_default();
-                let result = caditor_file::export_sketch(
+                let named: Vec<NamedSketch<'_>> = sketches
+                    .iter()
+                    .map(|(name, sketch)| NamedSketch { name, sketch })
+                    .collect();
+                let result = caditor_file::export_sketches(
                     &path,
-                    &sketch,
+                    &named,
                     format,
-                    construction,
+                    &sheet,
                     &CancelToken::never(),
                 );
                 Event::SketchExported {
@@ -1746,7 +1799,7 @@ impl Files {
                 }
             }
             (Purpose::Image, None) => self.image.pick_cancelled(),
-            (Purpose::Drawing, None) => self.drawing_export = None,
+            (Purpose::Drawing, None) => {}
             (Purpose::Export(_), None) => {}
             (Purpose::Import, None) => self.importing = None,
             (_, None) => self.after_save = None,
@@ -1812,36 +1865,9 @@ impl Files {
                     .pick_image_path(directory, ImageExporter::file_name(model), respond);
             }
             Purpose::Drawing => {
-                let (title, file_name) = match &self.drawing_export {
-                    Some(DrawingSource::Faces(choices)) => (
-                        if choices.len() == 1 {
-                            "Export face"
-                        } else {
-                            "Export faces"
-                        },
-                        choices.first().map_or_else(
-                            || drawing_export::file_name(&model.display_name()),
-                            |choice| {
-                                drawing_export::face_file_name(&drawing_export::body_name(
-                                    model, *choice,
-                                ))
-                            },
-                        ),
-                    ),
-                    Some(DrawingSource::Sketch(feature)) => (
-                        "Export sketch",
-                        drawing_export::file_name(
-                            &model.document().feature(*feature).map_or_else(
-                                || model.display_name(),
-                                |feature| feature.name.clone(),
-                            ),
-                        ),
-                    ),
-                    None => (
-                        "Export drawing",
-                        drawing_export::file_name(&model.display_name()),
-                    ),
-                };
+                let source = self.drawing.source();
+                let title = source.map_or("Export drawing", DrawingSource::title);
+                let file_name = drawing_export::source_file_name(model, source);
                 self.dialogs
                     .pick_drawing_path(title, directory, file_name, respond);
             }
@@ -2540,6 +2566,13 @@ pub fn show(
     } else if files.image.is_open() {
         command =
             image_export::dialog(&ctx, model, &files.image, view).map(FileCommand::ExportImage);
+    } else if files.drawing.is_open() {
+        command = drawing_export::dialog(
+            &ctx,
+            model,
+            &files.drawing,
+            files.keeps_drawing_construction(),
+        );
     } else if files.history.is_open() {
         command = history::dialog(&ctx, model, &files.history).map(FileCommand::History);
     }

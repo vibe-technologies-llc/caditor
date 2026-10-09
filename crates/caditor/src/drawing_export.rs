@@ -3,31 +3,198 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use caditor_document::FeatureId;
-use caditor_file::{ExportError, FaceExported, SketchExported, SketchFormat};
+use caditor_document::{Feature, FeatureId};
+use caditor_file::{
+    Annotations, Construction, DrawingSheet, ExportError, FaceExported, Nesting, SheetLayout,
+    SketchExported, SketchFormat,
+};
+use egui::Id;
 
 use crate::{
+    appearance::{SPACE_M, SPACE_S},
     bodies,
     commands::{Command, CommandFrame},
+    export,
     feature_tree::count,
+    field,
     files::FileCommand,
     model::{Action, Model, Notice, display_name},
+    modifying, preferences,
     selection::Selection,
     sketch_placement::{self, FaceChoice},
+    widgets::{self, DialogWidth},
 };
 
-pub const SKETCH_HINT: &str = "Save the curves of a sketch as a DXF or SVG drawing in millimetres";
+pub const SKETCH_HINT: &str = "Save the curves of one or more sketches as a DXF or SVG drawing in \
+                               millimetres, side by side or nested on a sheet";
 pub const NOT_A_SKETCH: &str = "Choose a sketch in the feature tree, or edit one, to export it";
 pub const NOT_SOLVED: &str = "The sketch has not been solved, so there is nothing to export yet";
 pub const FACE_HINT: &str = "Save the outlines and holes of the selected flat faces as a DXF or SVG \
-                             drawing in millimetres, side by side, for laser or CNC cutting";
+                             drawing in millimetres, side by side or nested on a sheet, for laser \
+                             or CNC cutting";
 pub const NOT_A_FACE: &str = "Select one or more flat faces of bodies to export their outlines";
 const CURVED: &str = "A selected face is curved; only flat faces export as drawings";
+const DEFAULT_SHEET_WIDTH: f64 = 600.0;
+const DEFAULT_SPACING: f64 = 5.0;
+const NOT_A_WIDTH: &str = "Enter a sheet width greater than zero";
+const NOT_A_SPACING: &str = "Enter a spacing of zero or more";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DrawingSource {
-    Sketch(FeatureId),
+    Sketches(Vec<FeatureId>),
     Faces(Vec<FaceChoice>),
+}
+
+impl DrawingSource {
+    pub fn title(&self) -> &'static str {
+        match self {
+            Self::Sketches(sketches) if sketches.len() == 1 => "Export sketch",
+            Self::Sketches(_) => "Export sketches",
+            Self::Faces(faces) if faces.len() == 1 => "Export face",
+            Self::Faces(_) => "Export faces",
+        }
+    }
+
+    fn parts(&self) -> usize {
+        match self {
+            Self::Sketches(sketches) => sketches.len(),
+            Self::Faces(faces) => faces.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Layout {
+    #[default]
+    SideBySide,
+    Nested,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DrawingCommand {
+    Hide,
+    Layout(Layout),
+    SheetWidth(f64),
+    Spacing(f64),
+    Turns(bool),
+    Annotations(bool),
+    Choose,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawingExporter {
+    open: bool,
+    source: Option<DrawingSource>,
+    layout: Layout,
+    sheet_width: f64,
+    spacing: f64,
+    turns: bool,
+    annotations: bool,
+}
+
+impl Default for DrawingExporter {
+    fn default() -> Self {
+        Self {
+            open: false,
+            source: None,
+            layout: Layout::default(),
+            sheet_width: DEFAULT_SHEET_WIDTH,
+            spacing: DEFAULT_SPACING,
+            turns: true,
+            annotations: false,
+        }
+    }
+}
+
+impl DrawingExporter {
+    pub fn is_open(&self) -> bool {
+        self.open
+    }
+
+    pub fn source(&self) -> Option<&DrawingSource> {
+        self.source.as_ref()
+    }
+
+    pub fn show(&mut self, source: DrawingSource) {
+        self.source = Some(source);
+        self.open = true;
+    }
+
+    pub fn hide(&mut self) {
+        self.open = false;
+        self.source = None;
+    }
+
+    pub fn perform(&mut self, command: DrawingCommand) {
+        match command {
+            DrawingCommand::Hide => self.hide(),
+            DrawingCommand::Layout(layout) => self.layout = layout,
+            DrawingCommand::SheetWidth(width) => self.sheet_width = width,
+            DrawingCommand::Spacing(spacing) => self.spacing = spacing,
+            DrawingCommand::Turns(turns) => self.turns = turns,
+            DrawingCommand::Annotations(annotations) => self.annotations = annotations,
+            DrawingCommand::Choose => {}
+        }
+    }
+
+    pub fn start(&mut self) -> Option<DrawingSource> {
+        self.open = false;
+        self.source.take()
+    }
+
+    pub fn sheet(&self, construction: Construction) -> DrawingSheet {
+        let layout = match self.layout {
+            Layout::SideBySide => None,
+            Layout::Nested => Nesting::new(self.sheet_width, self.spacing, self.turns),
+        };
+        DrawingSheet {
+            layout: layout.map_or(SheetLayout::SideBySide, SheetLayout::Nested),
+            annotations: if self.annotations {
+                Annotations::Included
+            } else {
+                Annotations::LeftOut
+            },
+            construction,
+        }
+    }
+}
+
+pub fn exportable_sketches(
+    model: &Model,
+    targets: &[&Feature],
+) -> Result<Vec<FeatureId>, &'static str> {
+    let sketches: Vec<&Feature> = targets
+        .iter()
+        .copied()
+        .filter(|feature| feature.kind.sketch().is_some())
+        .collect();
+    if sketches.is_empty() {
+        return Err(NOT_A_SKETCH);
+    }
+    if sketches
+        .iter()
+        .any(|feature| model.displayed_sketch(feature).is_none())
+    {
+        return Err(NOT_SOLVED);
+    }
+    Ok(sketches.iter().map(|feature| feature.id()).collect())
+}
+
+pub fn sketches_name(model: &Model, sketches: &[FeatureId]) -> String {
+    match sketches {
+        [only] => model
+            .document()
+            .feature(*only)
+            .map_or_else(|| model.display_name(), |feature| feature.name.clone()),
+        several => count(several.len(), "sketch", "sketches"),
+    }
+}
+
+pub fn quoted_sketches(model: &Model, sketches: &[FeatureId]) -> String {
+    match sketches {
+        [_] => format!("“{}”", sketches_name(model, sketches)),
+        several => sketches_name(model, several),
+    }
 }
 
 pub fn face_name(model: &Model, choice: FaceChoice) -> Option<String> {
@@ -89,6 +256,20 @@ pub fn face_commands(
     }
 }
 
+pub fn source_file_name(model: &Model, source: Option<&DrawingSource>) -> String {
+    match source {
+        Some(DrawingSource::Faces(choices)) => choices.first().map_or_else(
+            || file_name(&model.display_name()),
+            |choice| face_file_name(&body_name(model, *choice)),
+        ),
+        Some(DrawingSource::Sketches(sketches)) => match sketches.as_slice() {
+            [_] => file_name(&sketches_name(model, sketches)),
+            _ => file_name(&model.display_name()),
+        },
+        None => file_name(&model.display_name()),
+    }
+}
+
 pub fn file_name(name: &str) -> String {
     format!("{name}.{}", SketchFormat::default().extension())
 }
@@ -112,9 +293,14 @@ pub fn finished(path: &Path, sketch: &str, result: Result<SketchExported, Export
     match result {
         Ok(exported) => {
             let drawn = exported.curves + exported.points + exported.construction;
+            let dimensions = match exported.dimensions {
+                0 => String::new(),
+                dimensions => format!(" with {}", count(dimensions, "dimension", "dimensions")),
+            };
             let summary = format!(
-                "Exported {} of “{sketch}” to “{name}”.",
-                count(drawn, "object", "objects")
+                "Exported {} of {sketch}{dimensions} to “{name}”.{}",
+                count(drawn, "object", "objects"),
+                too_wide(exported.too_wide)
             );
             match (exported.construction_left_out, exported.construction) {
                 (0, 0) => Notice::info(summary),
@@ -135,26 +321,44 @@ pub fn finished(path: &Path, sketch: &str, result: Result<SketchExported, Export
         }
         Err(ExportError::Cancelled) => Notice::info("The export was cancelled."),
         Err(ExportError::NoCurves) => Notice::failure(format!(
-            "“{sketch}” has no curves or points to export. Construction geometry is left out \
-             unless File › Keep construction geometry in drawings is on."
+            "There are no curves or points to export in {sketch}. Construction geometry is left \
+             out unless File › Keep construction geometry in drawings is on."
         )),
         Err(error) => Notice::failure(format!("Could not export “{name}”: {error}.")),
     }
 }
 
-pub fn face_finished(path: &Path, face: &str, result: Result<FaceExported, ExportError>) -> Notice {
+fn too_wide(parts: usize) -> String {
+    match parts {
+        0 => String::new(),
+        parts => format!(
+            " {} wider than the sheet, so {} placed above the others; widen the sheet to nest {}.",
+            count(parts, "part is", "parts are"),
+            if parts == 1 { "it was" } else { "they were" },
+            if parts == 1 { "it" } else { "them" },
+        ),
+    }
+}
+
+pub fn face_finished(
+    path: &Path,
+    face: &str,
+    nested: bool,
+    result: Result<FaceExported, ExportError>,
+) -> Notice {
     let name = display_name(Some(path));
     match result {
         Ok(exported) => {
-            let side_by_side = if exported.faces > 1 {
-                ", side by side"
-            } else {
-                ""
+            let arranged = match (nested, exported.faces) {
+                (true, _) => ", nested on a sheet",
+                (false, 2..) => ", side by side",
+                (false, _) => "",
             };
             let summary = format!(
-                "Exported {} of {face} to “{name}”, in {}{side_by_side}.",
+                "Exported {} of {face} to “{name}”, in {}{arranged}.{}",
                 count(exported.curves, "curve", "curves"),
-                count(exported.loops, "loop", "loops")
+                count(exported.loops, "loop", "loops"),
+                too_wide(exported.too_wide)
             );
             match exported.approximated {
                 0 => Notice::info(summary),
@@ -168,6 +372,180 @@ pub fn face_finished(path: &Path, face: &str, result: Result<FaceExported, Expor
         Err(ExportError::Cancelled) => Notice::info("The export was cancelled."),
         Err(error) => Notice::failure(format!("Could not export “{name}”: {error}.")),
     }
+}
+
+pub fn dialog(
+    ctx: &egui::Context,
+    model: &Model,
+    exporter: &DrawingExporter,
+    keeps_construction: bool,
+) -> Option<FileCommand> {
+    let title = exporter
+        .source
+        .as_ref()
+        .map_or("Export drawing", DrawingSource::title);
+    let sketches = matches!(exporter.source, Some(DrawingSource::Sketches(_)));
+    let parts = exporter.source.as_ref().map_or(0, DrawingSource::parts);
+    let response = widgets::dialog(ctx, "export-drawing", title, DialogWidth::Medium, |ui| {
+        let mut command = None;
+        export::heading(ui, "Layout");
+        let layouts = [
+            (
+                Layout::SideBySide,
+                "Side by side",
+                "Each part in a row, bottoms level; a single sketch keeps its own coordinates",
+            ),
+            (
+                Layout::Nested,
+                "Nested on a sheet",
+                "Parts packed close together on a sheet of the width you set, to save material",
+            ),
+        ];
+        if let Some(layout) = preferences::choice(ui, &layouts, exporter.layout) {
+            command = Some(FileCommand::DrawingExport(DrawingCommand::Layout(layout)));
+        }
+        if exporter.layout == Layout::Nested {
+            ui.add_space(SPACE_S);
+            sheet_fields(ui, model, exporter, &mut command);
+        }
+        export::heading(ui, "Contents");
+        let mut annotations = exporter.annotations;
+        let hint = if sketches {
+            "Write each sketch's dimensions, in millimetres and degrees, on a Dimensions layer, and \
+             each sketch's name below it on a Labels layer"
+        } else {
+            "Write each face's name below it on a Labels layer"
+        };
+        let caption = if sketches {
+            "Dimensions and names"
+        } else {
+            "Names"
+        };
+        if ui
+            .checkbox(&mut annotations, caption)
+            .on_hover_text(hint)
+            .changed()
+        {
+            command = Some(FileCommand::DrawingExport(DrawingCommand::Annotations(
+                annotations,
+            )));
+        }
+        if sketches {
+            let mut keep = keeps_construction;
+            if ui
+                .checkbox(&mut keep, "Construction geometry")
+                .on_hover_text(
+                    "Write construction curves on a dashed Construction layer instead of leaving \
+                     them out",
+                )
+                .changed()
+            {
+                command = Some(FileCommand::KeepDrawingConstruction(keep));
+            }
+        }
+        ui.add_space(SPACE_M);
+        ui.label(widgets::muted(summary(exporter, parts), ui));
+        widgets::footer(ui, |ui| {
+            if ui.add(widgets::primary_button(ui, "Export…")).clicked() {
+                command = Some(FileCommand::DrawingExport(DrawingCommand::Choose));
+            }
+            if ui.add(widgets::button("Cancel")).clicked() {
+                command = Some(FileCommand::DrawingExport(DrawingCommand::Hide));
+            }
+        });
+        command
+    });
+    let closed = response
+        .should_close()
+        .then_some(FileCommand::DrawingExport(DrawingCommand::Hide));
+    response.inner.or(closed)
+}
+
+fn summary(exporter: &DrawingExporter, parts: usize) -> String {
+    let noun = match exporter.source {
+        Some(DrawingSource::Sketches(_)) => count(parts, "sketch", "sketches"),
+        _ => count(parts, "face", "faces"),
+    };
+    match (exporter.layout, parts) {
+        (Layout::SideBySide, 1) => format!("The drawing holds {noun}, in millimetres."),
+        (Layout::SideBySide, _) => {
+            format!("The drawing holds {noun} side by side, in millimetres.")
+        }
+        (Layout::Nested, _) => format!(
+            "The drawing holds {noun} nested from the sheet's lower left corner, in millimetres."
+        ),
+    }
+}
+
+fn sheet_fields(
+    ui: &mut egui::Ui,
+    model: &Model,
+    exporter: &DrawingExporter,
+    command: &mut Option<FileCommand>,
+) {
+    let mut errors = Vec::new();
+    widgets::properties(ui, "drawing-sheet", |ui| {
+        let lengths = [
+            (
+                "Sheet width",
+                exporter.sheet_width,
+                DrawingCommand::SheetWidth as fn(f64) -> DrawingCommand,
+                parse_width as fn(&Model, &str) -> Result<f64, String>,
+            ),
+            (
+                "Spacing",
+                exporter.spacing,
+                DrawingCommand::Spacing,
+                parse_spacing,
+            ),
+        ];
+        for (caption, stored, change, parse) in lengths {
+            widgets::property(ui, caption, |ui| {
+                let field = field::commit_field(
+                    ui,
+                    Id::new(("drawing-sheet", caption)),
+                    &modifying::length_text(model.length_unit(), stored),
+                    widgets::FIELD_WIDTH,
+                    false,
+                    |text| parse(model, text),
+                );
+                if let Some(length) = field.committed {
+                    *command = Some(FileCommand::DrawingExport(change(length)));
+                }
+                if let Some(error) = field.error {
+                    errors.push(error);
+                }
+            });
+        }
+        for error in &errors {
+            widgets::error_row(ui, error);
+        }
+    });
+    let mut turns = exporter.turns;
+    if ui
+        .checkbox(
+            &mut turns,
+            "Turn parts a quarter turn where that packs them closer",
+        )
+        .on_hover_text("Lay a part on its side when it fits lower on the sheet that way")
+        .changed()
+    {
+        *command = Some(FileCommand::DrawingExport(DrawingCommand::Turns(turns)));
+    }
+}
+
+pub fn parse_width(model: &Model, text: &str) -> Result<f64, String> {
+    let length = modifying::Value::typed(model, text)?.millimetres;
+    (length.is_finite() && length > 0.0)
+        .then_some(length)
+        .ok_or_else(|| NOT_A_WIDTH.to_owned())
+}
+
+pub fn parse_spacing(model: &Model, text: &str) -> Result<f64, String> {
+    let length = modifying::Value::typed(model, text)?.millimetres;
+    (length.is_finite() && length >= 0.0)
+        .then_some(length)
+        .ok_or_else(|| NOT_A_SPACING.to_owned())
 }
 
 #[cfg(test)]
@@ -197,10 +575,18 @@ mod tests {
     #[test]
     fn the_notice_counts_what_was_written_and_what_was_left_out() {
         let exported = SketchExported {
+            sketches: 1,
             curves: 3,
             points: 1,
-            construction: 0,
             construction_left_out: 2,
+            ..SketchExported::default()
+        };
+        let several = SketchExported {
+            sketches: 3,
+            curves: 12,
+            dimensions: 4,
+            too_wide: 1,
+            ..SketchExported::default()
         };
         let kept = SketchExported {
             construction: 2,
@@ -208,8 +594,9 @@ mod tests {
             ..exported
         };
 
-        let notice = finished(Path::new("/tmp/a.dxf"), "Sketch 1", Ok(exported));
-        let on_layer = finished(Path::new("/tmp/a.dxf"), "Sketch 1", Ok(kept));
+        let notice = finished(Path::new("/tmp/a.dxf"), "“Sketch 1”", Ok(exported));
+        let on_layer = finished(Path::new("/tmp/a.dxf"), "“Sketch 1”", Ok(kept));
+        let nested = finished(Path::new("/tmp/a.dxf"), "3 sketches", Ok(several));
 
         assert_eq!(
             notice.text,
@@ -224,12 +611,17 @@ mod tests {
         assert_eq!(
             finished(
                 Path::new("/tmp/a.dxf"),
-                "Sketch 1",
+                "“Sketch 1”",
                 Err(ExportError::NoCurves)
             )
             .text,
-            "“Sketch 1” has no curves or points to export. Construction geometry is left out \
-             unless File › Keep construction geometry in drawings is on."
+            "There are no curves or points to export in “Sketch 1”. Construction geometry is left \
+             out unless File › Keep construction geometry in drawings is on."
+        );
+        assert_eq!(
+            nested.text,
+            "Exported 12 objects of 3 sketches with 4 dimensions to “a.dxf”. 1 part is wider than \
+             the sheet, so it was placed above the others; widen the sheet to nest it."
         );
     }
 
@@ -241,25 +633,32 @@ mod tests {
             loops: 2,
             curves: 5,
             approximated: 0,
+            too_wide: 0,
         };
         let approximated = FaceExported {
             faces: 2,
             loops: 1,
             curves: 3,
             approximated: 1,
+            too_wide: 0,
         };
 
         assert_eq!(
-            face_finished(path, "“Top”", Ok(exact)).text,
+            face_finished(path, "“Top”", false, Ok(exact)).text,
             "Exported 5 curves of “Top” to “plate.dxf”, in 2 loops."
         );
         assert_eq!(
-            face_finished(path, "2 faces", Ok(approximated)).text,
+            face_finished(path, "2 faces", false, Ok(approximated)).text,
             "Exported 3 curves of 2 faces to “plate.dxf”, in 1 loop, side by side. 1 curve with \
              no exact form in a drawing was fitted within a micrometre."
         );
         assert_eq!(
-            face_finished(path, "“Top”", Err(ExportError::FaceNotFlat)).text,
+            face_finished(path, "2 faces", true, Ok(approximated)).text,
+            "Exported 3 curves of 2 faces to “plate.dxf”, in 1 loop, nested on a sheet. 1 curve \
+             with no exact form in a drawing was fitted within a micrometre."
+        );
+        assert_eq!(
+            face_finished(path, "“Top”", false, Err(ExportError::FaceNotFlat)).text,
             "Could not export “plate.dxf”: the face is curved; only flat faces export as drawings."
         );
     }
