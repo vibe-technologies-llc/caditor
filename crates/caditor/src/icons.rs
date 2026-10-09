@@ -105,6 +105,8 @@ pub const PARAMETERS: &str = phosphor::FUNCTION;
 pub const GO_TO: &str = phosphor::ARROW_RIGHT;
 pub const USES: &str = phosphor::ARROW_ELBOW_LEFT_UP;
 pub const USED_BY: &str = phosphor::ARROW_ELBOW_RIGHT_DOWN;
+pub const SWAP: &str = phosphor::ARROWS_DOWN_UP;
+pub const BODY_CENTRE: &str = phosphor::BOUNDING_BOX;
 pub const SHOW_PLACE: &str = phosphor::MAP_PIN;
 pub const DETACH: &str = phosphor::LINK_BREAK;
 pub const UNUSED: &str = phosphor::LINK_SIMPLE_BREAK;
@@ -302,6 +304,7 @@ pub fn command(command: Command) -> &'static str {
             blend(BlendKind::Chamfer)
         }
         Command::FlipChamfer => phosphor::ARROWS_LEFT_RIGHT,
+        Command::ReverseDirection => phosphor::ARROW_U_DOWN_LEFT,
         Command::FilterFeatures => SEARCH,
         Command::AddParameter => ADD,
         Command::DeleteParameter => DELETE,

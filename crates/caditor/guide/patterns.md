@@ -16,7 +16,9 @@ otherwise a principal axis is used.
 
 - **Direction**, an optional **Second direction**, or the **Axis**, each from a list or the
   selection.
-- The count and, for a linear pattern, **Spacing** between copies or the **Total length**.
+- The count and, for a linear pattern, **Spacing** between copies or the **Total length**, each
+  previewed as you type. {command:model.reverse_direction} reverses the first direction, or the
+  turn of a circular pattern.
 - **Instances**: a grid with one box per copy. Uncheck a box, or click a copy in the view, to
   leave it out.
 

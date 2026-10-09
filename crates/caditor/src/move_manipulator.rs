@@ -1,12 +1,20 @@
-use caditor_document::{FeatureId, FeatureKind, Move, MoveAxis, Pivot, Transaction, TurnCentre};
-use caditor_expression::Dimension;
+use caditor_document::{
+    Document, Edit, FeatureId, FeatureKind, Move, MoveAxis, Pivot, Transaction, TurnCentre,
+};
+use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{
     Plane, Point3, Ray, Rotation3, Vector2, Vector3, rotation_from_turns, turns_about_axes,
 };
 use caditor_render::{Batch, Color, Fill, Layer, Line, Stroke, View};
 
 use crate::{
-    canvas, model::Model, move_tools, scene, scene_palette::ScenePalette, selection::Axis,
+    canvas,
+    manipulator::{self, Held},
+    model::Model,
+    move_panel, scene,
+    scene_palette::ScenePalette,
+    selection::Axis,
+    solid_panel,
     units::Units,
 };
 
@@ -47,9 +55,16 @@ pub enum Reach {
 impl Reach {
     pub fn caption(self) -> &'static str {
         match self {
-            Self::Only | Self::Symmetric => "Distance",
-            Self::Forward => "Forward distance",
-            Self::Backward => "Backward distance",
+            Self::Only | Self::Symmetric => solid_panel::DISTANCE,
+            Self::Forward => solid_panel::FORWARD_DISTANCE,
+            Self::Backward => solid_panel::BACKWARD_DISTANCE,
+        }
+    }
+
+    pub fn field_caption(self) -> &'static str {
+        match self {
+            Self::Symmetric => solid_panel::TOTAL_DISTANCE,
+            Self::Only | Self::Forward | Self::Backward => self.caption(),
         }
     }
 }
@@ -278,6 +293,34 @@ impl MoveHandles {
         )
     }
 
+    pub fn driven(&self, model: &Model, handle: Handle) -> Option<String> {
+        let document = model.document();
+        let FeatureKind::Move(movement) = &document.feature(self.feature)?.kind else {
+            return None;
+        };
+        let held = |caption: &str, expression: &Expression| {
+            Held::of(document, self.feature, caption, expression).driven()
+        };
+        match handle {
+            Handle::Along(_) | Handle::Across(_) => handle.moves().into_iter().find_map(|axis| {
+                held(
+                    &move_panel::distance_caption(axis),
+                    axis.of(&movement.offset),
+                )
+            }),
+            Handle::Turn(turned) => {
+                let alone = evaluated(model, &movement.turn, Dimension::ANGLE)
+                    .is_some_and(|from| adds_alone(from, turned));
+                MoveAxis::ALL
+                    .into_iter()
+                    .filter(|axis| !alone || *axis == turned)
+                    .find_map(|axis| held(&move_panel::turn_caption(axis), axis.of(&movement.turn)))
+            }
+            Handle::TurnAbout => held(move_panel::ANGLE, &movement.about.axis_turn()?.angle),
+            Handle::Reach(_) => None,
+        }
+    }
+
     pub fn hit(&self, view: &View, cursor: Vector2, pixels_per_point: f64) -> Option<Handle> {
         let inside = Handle::ALL.into_iter().find(|handle| match handle {
             Handle::Across(normal) => self.square(*normal).is_some_and(|corners| {
@@ -494,24 +537,8 @@ impl MoveDrag {
             return None;
         };
         let parameters = model.parameters();
-        let from: Option<Vec<f64>> = MoveAxis::ALL
-            .into_iter()
-            .map(|axis| {
-                axis.of(&start.offset)
-                    .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
-                    .ok()
-            })
-            .collect();
-        let from = <[f64; 3]>::try_from(from?).ok()?;
-        let turns: Option<Vec<f64>> = MoveAxis::ALL
-            .into_iter()
-            .map(|axis| {
-                axis.of(&start.turn)
-                    .evaluate_as(Dimension::ANGLE, &|id| parameters.value(id))
-                    .ok()
-            })
-            .collect();
-        let from_turns = <[f64; 3]>::try_from(turns?).ok()?;
+        let from = evaluated(model, &start.offset, Dimension::LENGTH)?;
+        let from_turns = evaluated(model, &start.turn, Dimension::ANGLE)?;
         let from_angle = match start.about.axis_turn() {
             Some(turn) => turn
                 .angle
@@ -592,29 +619,53 @@ impl MoveDrag {
         self.offset != self.from || self.turns != self.from_turns || self.angle != self.from_angle
     }
 
-    pub fn movement(&self, units: Units) -> Move {
+    fn changes(&self, document: &Document, units: Units) -> (Move, Vec<Edit>) {
+        let held = |caption: &str, expression: &Expression| {
+            Held::of(document, self.feature, caption, expression)
+        };
         let mut movement = self.start.clone();
+        let mut named = Vec::new();
         for axis in self.handle.moves() {
             if let Some(value) = self.offset.get(axis.index()) {
-                *axis.of_mut(&mut movement.offset) = units.length.measured(*value);
+                let slot = axis.of_mut(&mut movement.offset);
+                held(&move_panel::distance_caption(axis), slot).set(
+                    slot,
+                    units.length.measured(*value),
+                    &mut named,
+                );
             }
         }
         for axis in MoveAxis::ALL {
             let (now, before) = (*axis.of(&self.turns), *axis.of(&self.from_turns));
             if (now - before).abs() > UNCHANGED_DEGREES {
-                *axis.of_mut(&mut movement.turn) = units.angle.measured(now);
+                let slot = axis.of_mut(&mut movement.turn);
+                held(&move_panel::turn_caption(axis), slot).set(
+                    slot,
+                    units.angle.measured(now),
+                    &mut named,
+                );
             }
         }
         if let TurnCentre::Axis(turn) = &mut movement.about
             && (self.angle - self.from_angle).abs() > UNCHANGED_DEGREES
         {
-            turn.angle = units.angle.measured(self.angle);
+            held(move_panel::ANGLE, &turn.angle).set(
+                &mut turn.angle,
+                units.angle.measured(self.angle),
+                &mut named,
+            );
         }
-        movement
+        (movement, named)
     }
 
     pub fn transaction(&self, model: &Model) -> Option<Transaction> {
-        move_tools::edit(model.document(), self.feature, self.movement(model.units()))
+        let (movement, named) = self.changes(model.document(), model.units());
+        manipulator::keeping_names(
+            model.document(),
+            self.feature,
+            FeatureKind::Move(movement),
+            named,
+        )
     }
 
     pub fn readout(&self, units: Units) -> String {
@@ -661,13 +712,30 @@ impl MoveDrag {
     }
 }
 
-fn turned(from: [f64; 3], axis: MoveAxis, degrees: f64) -> [f64; 3] {
+fn evaluated(model: &Model, values: &[Expression; 3], dimension: Dimension) -> Option<[f64; 3]> {
+    let parameters = model.parameters();
+    let evaluated: Option<Vec<f64>> = values
+        .iter()
+        .map(|value| {
+            value
+                .evaluate_as(dimension, &|id| parameters.value(id))
+                .ok()
+        })
+        .collect();
+    <[f64; 3]>::try_from(evaluated?).ok()
+}
+
+fn adds_alone(from: [f64; 3], axis: MoveAxis) -> bool {
     let applied_after: &[MoveAxis] = match axis {
         MoveAxis::X => &[MoveAxis::Y, MoveAxis::Z],
         MoveAxis::Y => &[MoveAxis::Z],
         MoveAxis::Z => &[],
     };
-    if applied_after.iter().all(|later| *later.of(&from) == 0.0) {
+    applied_after.iter().all(|later| *later.of(&from) == 0.0)
+}
+
+fn turned(from: [f64; 3], axis: MoveAxis, degrees: f64) -> [f64; 3] {
+    if adds_alone(from, axis) {
         let mut turns = from;
         *axis.of_mut(&mut turns) += degrees;
         return turns;

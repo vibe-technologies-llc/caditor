@@ -375,11 +375,11 @@ impl Panel<'_> {
             dimension,
             rule: Rule::Any,
         };
-        let committed =
-            feature_fields::expression_row(ui, self.model, caption, quantity, |parsed| {
+        let drafting =
+            feature_fields::expression_row_drafting(ui, self.model, caption, quantity, |parsed| {
                 self.change(rebuild(parsed))
             });
-        self.actions.extend(committed.map(Action::Apply));
+        self.actions.extend(drafting.into_actions(self.id()));
     }
 
     fn base_row(&mut self, ui: &mut Ui, plane: &DatumPlane) {

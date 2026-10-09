@@ -275,6 +275,13 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
     })
 }
 
+pub fn point_of(model: &Model, pickable: Pickable) -> Option<Point3> {
+    match subject_of(model, pickable)? {
+        Subject::Point(point) | Subject::CentreOfMass(point) => Some(point),
+        _ => None,
+    }
+}
+
 pub fn direction_of(model: &Model, pickable: Pickable) -> Option<Vector3> {
     let item = Item {
         name: String::new(),

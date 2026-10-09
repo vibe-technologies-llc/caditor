@@ -637,11 +637,14 @@ impl Panel<'_> {
             rule: field.rule,
         };
         let hole = self.hole;
-        let committed =
-            feature_fields::expression_row(ui, self.model, field.caption, quantity, |value| {
-                self.change(rebuild(hole, value))
-            });
-        self.actions.extend(committed.map(Action::Apply));
+        let drafting = feature_fields::expression_row_drafting(
+            ui,
+            self.model,
+            field.caption,
+            quantity,
+            |value| self.change(rebuild(hole, value)),
+        );
+        self.actions.extend(drafting.into_actions(self.id()));
     }
 
     fn body_row(&mut self, ui: &mut Ui) {
@@ -726,8 +729,12 @@ impl Panel<'_> {
                     dimension: Dimension::LENGTH,
                     rule: Rule::AboveZero,
                 };
-                let committed =
-                    feature_fields::expression_row(ui, self.model, &caption, quantity, |value| {
+                let drafting = feature_fields::expression_row_drafting(
+                    ui,
+                    self.model,
+                    &caption,
+                    quantity,
+                    |value| {
                         let mut changed = steps.to_vec();
                         if let Some(step) = changed.get_mut(index) {
                             if diameter {
@@ -737,8 +744,9 @@ impl Panel<'_> {
                             }
                         }
                         self.with_steps(changed)
-                    });
-                self.actions.extend(committed.map(Action::Apply));
+                    },
+                );
+                self.actions.extend(drafting.into_actions(self.id()));
             }
         }
         ui.label("");

@@ -250,6 +250,7 @@ pub struct Sources<'a> {
     pub aids: ViewAids,
     pub analyses: &'a Analyses,
     pub contrast: Contrast,
+    pub draft: Option<&'a Evaluation>,
 }
 
 impl BuiltScene {
@@ -455,6 +456,15 @@ fn control_polygon(sketch: &Sketch, id: EntityId, entity: &Entity) -> Vec<Segmen
     }
 }
 
+fn drafted(draft: Option<&Evaluation>, feature: FeatureId) -> Option<&Evaluation> {
+    draft.filter(|draft| {
+        !draft.is_pending(feature)
+            && draft
+                .feature(feature)
+                .is_some_and(|status| status.state == FeatureState::UpToDate)
+    })
+}
+
 pub fn build(
     sources: &Sources<'_>,
     highlight: &Highlight<'_>,
@@ -470,6 +480,7 @@ pub fn build(
         aids,
         analyses,
         contrast,
+        draft,
     } = *sources;
     let palette = contrast.palette();
     let editing = context.sketch;
@@ -541,7 +552,11 @@ pub fn build(
             for feature in document.active_features() {
                 let opened = context.solid == Some(feature.id());
                 if feature.kind.datum().is_some() && (opened || !feature.hidden) {
-                    builder.datum(evaluation, feature.id(), opened, reference_size);
+                    let shown = match drafted(draft, feature.id()) {
+                        Some(drafted) if opened => drafted,
+                        Some(_) | None => evaluation,
+                    };
+                    builder.datum(shown, feature.id(), opened, reference_size);
                 }
             }
         }
@@ -616,7 +631,10 @@ pub fn build(
         }
     }
     if editing.is_none() {
-        builder.threads(document, evaluation, context.solid);
+        let open_draft = context
+            .solid
+            .and_then(|open| Some((open, drafted(draft, open)?)));
+        builder.threads(document, evaluation, context.solid, open_draft);
     }
     match open_view {
         Some((open, OpenView::Before)) => builder.open_before(document, evaluation, open, true),
@@ -1799,8 +1817,26 @@ impl Builder<'_> {
         }
     }
 
-    fn threads(&mut self, document: &Document, evaluation: &Evaluation, open: Option<FeatureId>) {
-        for thread in placed_threads(document, evaluation) {
+    fn threads(
+        &mut self,
+        document: &Document,
+        evaluation: &Evaluation,
+        open: Option<FeatureId>,
+        draft: Option<(FeatureId, &Evaluation)>,
+    ) {
+        let placed = match draft {
+            Some((drafted, draft)) => placed_threads(document, evaluation)
+                .into_iter()
+                .filter(|thread| thread.feature != drafted)
+                .chain(
+                    placed_threads(document, draft)
+                        .into_iter()
+                        .filter(|thread| thread.feature == drafted),
+                )
+                .collect(),
+            None => placed_threads(document, evaluation),
+        };
+        for thread in placed {
             let opened = open == Some(thread.feature);
             let hidden = document
                 .feature(thread.feature)
@@ -2507,7 +2543,7 @@ fn axis_ends(ray: Ray, near: Point3, size: f64) -> [Point3; 2] {
 }
 
 fn datum_plane_corners(plane: Plane, size: f64) -> [Point3; 4] {
-    let centre = plane.origin() - plane.normal() * plane.signed_distance(Point3::ZERO);
+    let centre = Point3::ZERO - plane.normal() * plane.signed_distance(Point3::ZERO);
     let centred = Plane::from_frame(centre, plane.normal(), plane.x_axis()).unwrap_or(plane);
     plane_corners(centred, size * DATUM_PLANE_SCALE)
 }
@@ -2602,6 +2638,7 @@ mod tests {
                 aids: ViewAids::default(),
                 analyses: &Analyses::default(),
                 contrast,
+                draft: None,
             },
             highlight,
             Context {
@@ -2629,6 +2666,7 @@ mod tests {
                     aids: ViewAids::default(),
                     analyses: &Analyses::default(),
                     contrast: Contrast::default(),
+                    draft: None,
                 },
                 pickables,
             )
@@ -3331,6 +3369,7 @@ mod tests {
                 },
                 analyses: &Analyses::default(),
                 contrast: Contrast::default(),
+                draft: None,
             };
             let context = Context {
                 sketch: Some(feature),
@@ -3369,6 +3408,7 @@ mod tests {
             aids: ViewAids::default(),
             analyses: &Analyses::default(),
             contrast: Contrast::default(),
+            draft: None,
         };
         let built_at = |chord: f64| {
             build(
@@ -3415,6 +3455,7 @@ mod tests {
             aids: ViewAids::default(),
             analyses: &analyses,
             contrast: Contrast::default(),
+            draft: None,
         };
         let wanted = Faceting::within(1e-9);
 

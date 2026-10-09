@@ -1,18 +1,18 @@
 use caditor_document::{
-    Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, SolidFeature, SolidStart,
-    Transaction,
+    Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, ParameterValues, SolidFeature,
+    SolidStart, Transaction,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::{Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 
 use crate::{
+    manipulator::{self, Held},
     model::Model,
     move_manipulator::{
         ABOUT_AXIS, ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIGHLIGHTED, HIT_POINTS, Handle,
         Reach, segment_distance, step_for,
     },
-    solid_tools,
     units::Units,
 };
 
@@ -60,15 +60,14 @@ fn committed_extrude(model: &Model, feature: FeatureId) -> Option<&Extrude> {
     }
 }
 
-fn length(model: &Model, expression: &Expression) -> Option<f64> {
-    let parameters = model.parameters();
+fn length(parameters: &ParameterValues, expression: &Expression) -> Option<f64> {
     expression
         .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
         .ok()
 }
 
-fn reaches(model: &Model, extent: &ExtrudeExtent) -> [Option<(Reach, f64, f64)>; 2] {
-    let end_length = |end: &ExtrudeEnd| end.distance().and_then(|value| length(model, value));
+fn reaches(parameters: &ParameterValues, extent: &ExtrudeExtent) -> [Option<(Reach, f64, f64)>; 2] {
+    let end_length = |end: &ExtrudeEnd| end.distance().and_then(|value| length(parameters, value));
     match extent {
         ExtrudeExtent::OneSide { end, reversed } => {
             let sign = if *reversed { -1.0 } else { 1.0 };
@@ -78,7 +77,7 @@ fn reaches(model: &Model, extent: &ExtrudeExtent) -> [Option<(Reach, f64, f64)>;
             ]
         }
         ExtrudeExtent::Symmetric { distance } => [
-            length(model, distance).map(|value| (Reach::Symmetric, 1.0, value / 2.0)),
+            length(parameters, distance).map(|value| (Reach::Symmetric, 1.0, value / 2.0)),
             None,
         ],
         ExtrudeExtent::TwoSides { forward, backward } => [
@@ -89,28 +88,39 @@ fn reaches(model: &Model, extent: &ExtrudeExtent) -> [Option<(Reach, f64, f64)>;
 }
 
 fn distance_of(model: &Model, extent: &ExtrudeExtent, reach: Reach) -> Option<f64> {
-    let end_length = |end: &ExtrudeEnd| end.distance().and_then(|value| length(model, value));
+    let parameters = model.parameters();
+    let end_length = |end: &ExtrudeEnd| end.distance().and_then(|value| length(parameters, value));
     match (extent, reach) {
         (ExtrudeExtent::OneSide { end, .. }, Reach::Only) => end_length(end),
-        (ExtrudeExtent::Symmetric { distance }, Reach::Symmetric) => length(model, distance),
+        (ExtrudeExtent::Symmetric { distance }, Reach::Symmetric) => length(parameters, distance),
         (ExtrudeExtent::TwoSides { forward, .. }, Reach::Forward) => end_length(forward),
         (ExtrudeExtent::TwoSides { backward, .. }, Reach::Backward) => end_length(backward),
         _ => None,
     }
 }
 
-fn with_distance(extent: &ExtrudeExtent, reach: Reach, distance: Expression) -> ExtrudeExtent {
-    let mut changed = extent.clone();
-    match (&mut changed, reach) {
+fn slot_mut(extent: &mut ExtrudeExtent, reach: Reach) -> Option<&mut Expression> {
+    match (extent, reach) {
         (ExtrudeExtent::OneSide { end, .. }, Reach::Only)
         | (ExtrudeExtent::TwoSides { forward: end, .. }, Reach::Forward)
-        | (ExtrudeExtent::TwoSides { backward: end, .. }, Reach::Backward) => {
-            *end = ExtrudeEnd::Distance(distance);
-        }
-        (ExtrudeExtent::Symmetric { distance: total }, Reach::Symmetric) => *total = distance,
-        _ => {}
+        | (ExtrudeExtent::TwoSides { backward: end, .. }, Reach::Backward) => match end {
+            ExtrudeEnd::Distance(distance) => Some(distance),
+            _ => None,
+        },
+        (ExtrudeExtent::Symmetric { distance }, Reach::Symmetric) => Some(distance),
+        _ => None,
     }
-    changed
+}
+
+fn held(model: &Model, feature: FeatureId, extrude: &Extrude, reach: Reach) -> Option<Held> {
+    let mut extent = extrude.extent.clone();
+    let slot = slot_mut(&mut extent, reach)?;
+    Some(Held::of(
+        model.document(),
+        feature,
+        reach.field_caption(),
+        slot,
+    ))
 }
 
 impl ReachHandles {
@@ -124,9 +134,10 @@ impl ReachHandles {
         if extrude.direction.is_some() {
             return None;
         }
+        let parameters = model.shown_parameters(feature);
         let start = match &extrude.start {
             None => 0.0,
-            Some(SolidStart::Distance(distance)) => length(model, distance)?,
+            Some(SolidStart::Distance(distance)) => length(parameters, distance)?,
             Some(SolidStart::Plane(_)) => return None,
         };
         let document = model.document();
@@ -153,12 +164,25 @@ impl ReachHandles {
                 per_point,
             })
         };
-        let arrows = reaches(model, &extrude.extent).map(arrow);
+        let arrows = reaches(parameters, &extrude.extent).map(arrow);
         arrows.iter().any(Option::is_some).then_some(Self {
             feature,
             arrows,
             forward,
         })
+    }
+
+    pub fn driven(&self, model: &Model, handle: Handle) -> Option<String> {
+        let Handle::Reach(reach) = handle else {
+            return None;
+        };
+        held(
+            model,
+            self.feature,
+            committed_extrude(model, self.feature)?,
+            reach,
+        )?
+        .driven()
     }
 
     fn arrows(&self) -> impl Iterator<Item = &ReachArrow> {
@@ -275,11 +299,16 @@ impl ReachDrag {
 
     pub fn transaction(&self, model: &Model, feature: FeatureId) -> Option<Transaction> {
         let distance = model.units().length.measured(self.distance);
-        let extrude = Extrude {
-            extent: with_distance(&self.start.extent, self.reach, distance),
-            ..self.start.clone()
-        };
-        solid_tools::edit(model.document(), feature, SolidFeature::Extrude(extrude))
+        let held = held(model, feature, &self.start, self.reach)?;
+        let mut extrude = self.start.clone();
+        let mut named = Vec::new();
+        held.set(
+            slot_mut(&mut extrude.extent, self.reach)?,
+            distance,
+            &mut named,
+        );
+        let kind = FeatureKind::Solid(SolidFeature::Extrude(extrude));
+        manipulator::keeping_names(model.document(), feature, kind, named)
     }
 
     pub fn readout(&self, units: Units) -> String {
@@ -300,9 +329,13 @@ mod tests {
         let ten = Expression::number(10.0);
         let two = ExtrudeExtent::two_sides(ten.clone(), ten.clone());
 
-        let changed = with_distance(&two, Reach::Backward, Expression::number(4.0));
-        let unchanged = with_distance(&two, Reach::Only, Expression::number(4.0));
+        let mut changed = two.clone();
+        let mut unchanged = two.clone();
+        if let Some(slot) = slot_mut(&mut changed, Reach::Backward) {
+            *slot = Expression::number(4.0);
+        }
 
+        assert!(slot_mut(&mut unchanged, Reach::Only).is_none());
         assert_eq!(
             changed,
             ExtrudeExtent::two_sides(ten.clone(), Expression::number(4.0))

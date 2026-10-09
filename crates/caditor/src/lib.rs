@@ -115,6 +115,7 @@ mod reach_handles;
 mod reference_picking;
 mod reference_rows;
 mod removal;
+mod reversing;
 mod ribbon;
 mod samples;
 mod saved_views;

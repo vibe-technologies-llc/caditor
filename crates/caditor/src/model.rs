@@ -348,7 +348,7 @@ impl Model {
         };
         let pivot = self.move_pivot(draft.feature, drafted)?;
         let frame = self.move_frame(drafted)?;
-        let placement = drafted.placement(&self.parameters, pivot, Some(&frame))?;
+        let placement = drafted.placement(&draft.parameters, pivot, Some(&frame))?;
         Some((body, committed.inverse().then(&placement)))
     }
 
@@ -385,9 +385,11 @@ impl Model {
         self.drafts += 1;
         let previewed = !matches!(kind, FeatureKind::Move(_));
         let shown = self.shown_placement(feature);
+        let parameters = ParameterValues::evaluate(&document);
         self.draft = Some(DraftPreview {
             feature,
             kind,
+            parameters,
             transaction,
             revision,
             serial: self.drafts,
@@ -747,6 +749,25 @@ impl Model {
             .as_ref()
             .filter(|draft| draft.feature == feature)?;
         Some(&draft.kind)
+    }
+
+    pub fn shown_parameters(&self, feature: FeatureId) -> &ParameterValues {
+        self.draft
+            .as_ref()
+            .filter(|draft| draft.feature == feature)
+            .map_or(&self.parameters, |draft| &draft.parameters)
+    }
+
+    pub fn draft_evaluation_of(&self, feature: FeatureId) -> Option<&Evaluation> {
+        self.draft
+            .as_ref()
+            .filter(|draft| draft.feature == feature)?
+            .evaluation
+            .as_ref()
+    }
+
+    pub fn draft_generation(&self) -> u64 {
+        self.drafts
     }
 
     pub fn sketch_bounds(&self, sketch: &Feature) -> Option<Aabb> {
@@ -1469,6 +1490,7 @@ fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {
 struct DraftPreview {
     feature: FeatureId,
     kind: FeatureKind,
+    parameters: ParameterValues,
     transaction: Transaction,
     revision: u64,
     serial: u64,

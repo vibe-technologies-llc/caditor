@@ -54,6 +54,7 @@ pub fn of_bodies(
         aids: ViewAids::default(),
         analyses: &Analyses::default(),
         contrast: Contrast::default(),
+        draft: None,
     };
     let (width, height) = (f64::from(size.width), f64::from(size.height));
 

@@ -24,6 +24,10 @@ paths:
   keeps invalid text with its error inline until the stored value changes underneath it (an undo,
   say) while it is not being edited. Expression fields parse, evaluate and check the dimension
   before building a transaction; sketch dimensions go through `field::dimension_transaction`.
+- Focus arriving at a `commit_field` (a click, Tab, the palette or a panel's focus request) selects
+  its whole text (`field::select_all`; arrival is tracked per field in egui temp data rather than
+  egui's `gained_focus`, which a request made between frames never reports), so typing replaces the
+  value. Text left invalid keeps its cursor, so the mistake can be mended.
 - Feature values and sketch dimensions are `field::NamedField`s, so `name = expression` names the
   value (`app-modelling.md`).
 

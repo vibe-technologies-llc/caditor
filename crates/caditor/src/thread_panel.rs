@@ -7,9 +7,11 @@ use egui::{Id, Ui};
 
 use crate::{
     bodies,
-    feature_fields::{self, Choice, Quantity, Rule, Segment},
+    feature_fields::{self, Choice, Picker, Quantity, Rule, Segment},
     field,
     model::{Action, Model},
+    reference_picking::Slot,
+    selection::Selection,
     thread_tools, widgets,
 };
 
@@ -19,6 +21,7 @@ pub const START_FROM_OTHER_END: &str = "Start from the other end";
 const DEFAULT_DEPTH: f64 = 10.0;
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
 const GONE: &str = "A face that is no longer there";
+const FACE_HOVER: &str = "Thread the selected round face instead";
 
 fn side_words(side: ThreadSide) -> &'static str {
     match side {
@@ -29,6 +32,7 @@ fn side_words(side: ThreadSide) -> &'static str {
 
 struct Panel<'a> {
     model: &'a Model,
+    selection: &'a Selection,
     feature: &'a Feature,
     thread: &'a Thread,
     bore: Option<Bore>,
@@ -57,7 +61,7 @@ impl Panel<'_> {
         self.bore.map(|bore| bore.side)
     }
 
-    fn face_row(&self, ui: &mut Ui) {
+    fn face_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, "Face");
         let evaluation = self.model.evaluation();
         let seen = evaluation
@@ -80,11 +84,29 @@ impl Panel<'_> {
                 Resolution::Tied(_) | Resolution::Missing => GONE.to_owned(),
             },
         };
-        if text == GONE {
-            feature_fields::missing(ui, GONE);
-        } else {
-            ui.label(text);
-        }
+        let (model, selection, id, thread) = (self.model, self.selection, self.id(), self.thread);
+        let picker = Picker {
+            feature: id,
+            slot: Slot::ThreadFace,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                model,
+                selection,
+                (id, Slot::ThreadFace),
+                || thread_tools::face_change(model, selection, id, thread),
+            ),
+            hover: FACE_HOVER,
+        };
+        let mut picked = Vec::new();
+        ui.vertical(|ui| {
+            if text == GONE {
+                feature_fields::missing(ui, GONE);
+            } else {
+                ui.label(text);
+            }
+            feature_fields::reference_picker(ui, model, picker, &mut picked);
+        });
+        self.actions.extend(picked);
         ui.end_row();
         if let Some(side) = self.side() {
             widgets::caption(ui, "Side");
@@ -270,14 +292,14 @@ impl Panel<'_> {
             rule: Rule::AboveZero,
         };
         let thread = self.thread;
-        let committed =
-            feature_fields::expression_row(ui, self.model, "Depth", quantity, |value| {
+        let drafting =
+            feature_fields::expression_row_drafting(ui, self.model, "Depth", quantity, |value| {
                 self.change(Thread {
                     length: ThreadLength::Depth(value),
                     ..thread.clone()
                 })
             });
-        self.actions.extend(committed.map(Action::Apply));
+        self.actions.extend(drafting.into_actions(self.id()));
         if let Some(reversed) =
             feature_fields::reverse_row(ui, START_FROM_OTHER_END, self.thread.reversed)
         {
@@ -292,6 +314,7 @@ impl Panel<'_> {
 pub fn show(
     ui: &mut Ui,
     model: &Model,
+    selection: &Selection,
     actions: &mut Vec<Action>,
     feature: &Feature,
     thread: &Thread,
@@ -300,6 +323,7 @@ pub fn show(
     let bore = thread_tools::threaded_bore(model.evaluation(), id, thread);
     let mut panel = Panel {
         model,
+        selection,
         feature,
         thread,
         bore,

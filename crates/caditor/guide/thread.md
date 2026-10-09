@@ -7,6 +7,8 @@ and its designation goes into STEP, glTF and OBJ exports, as drawings and machin
 It starts as the ISO metric coarse size nearest the face, right-handed and as long as the face. The
 panel sets:
 
+- **Face**: the face threaded; **Use selected** (or **Choose in the view**) moves the thread to
+  another round face, keeping the size while it fits.
 - **Standard**, **Size** and **Class**; the side, internal or external, is read from the face.
 - **Hand**: right or left.
 - **Length**: the full face, or a depth, starting from either end.

@@ -25,7 +25,11 @@ In the open panel, click regions in the view to add or leave them out, and
   it when negative.
 - On one side and without an offset, Up to next follows a curved next face, or several faces at
   different heights, and Up to face takes a curved face.
-- While it is open, drag the arrow at the end in the view to change its distance.
+- While it is open, drag the arrow at the end in the view to change its distance. A named
+  distance keeps its name; one that follows other parameters does not drag (see
+  [parameters](parameters)).
+- {command:model.reverse_direction} sends a one-sided extrusion the other way, like the panel's
+  **Reverse direction**.
 
 **Start** begins at the sketch plane, an offset from it, or another face or plane. **Taper** angles
 the sides inward or outward.

@@ -34,18 +34,24 @@ pub fn selected_bodies(
     selection: &Selection,
     tree: &[FeatureId],
 ) -> Result<BodyPair, &'static str> {
-    let chosen = if tree.len() >= 2 {
-        tree.to_vec()
+    let document = model.document();
+    let standing = |id: &FeatureId| {
+        document
+            .active_features()
+            .any(|feature| feature.id() == *id)
+    };
+    let ordered: Vec<FeatureId> = if tree.len() >= 2 {
+        document
+            .active_features()
+            .map(|feature| feature.id())
+            .filter(|id| tree.contains(id))
+            .collect()
     } else {
         body_selection::bodies_in(selection)
+            .into_iter()
+            .filter(standing)
+            .collect()
     };
-    let document = model.document();
-    let mut ordered: Vec<FeatureId> = document
-        .active_features()
-        .map(|feature| feature.id())
-        .filter(|id| chosen.contains(id))
-        .collect();
-    ordered.dedup();
     match ordered.as_slice() {
         [target, tool] => {
             let evaluation = model.evaluation();

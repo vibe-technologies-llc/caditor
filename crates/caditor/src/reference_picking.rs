@@ -9,9 +9,9 @@ use crate::{
     model::{Action, Model, Notice},
     move_tools,
     pattern_tools::{self, Reference},
-    primitive_tools,
+    primitive_tools, scale_tools,
     selection::{Pickable, Selection},
-    solid_panel, split_tools,
+    solid_panel, split_tools, thread_tools,
 };
 
 pub const STOP_HINT: &str = "Esc: stop choosing";
@@ -46,6 +46,8 @@ pub enum Slot {
     FrameOrigin,
     FrameAxis,
     FramePlane,
+    ScaleCentre,
+    ThreadFace,
 }
 
 pub const MAX_HELD: usize = 2;
@@ -152,6 +154,12 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
                 .to_owned()
         }
         Slot::FrameAxis => format!("Click {AXIS} for its X axis"),
+        Slot::ScaleCentre => {
+            "Click a corner, round edge, sphere or torus, sketch point or datum point to scale \
+             about"
+                .to_owned()
+        }
+        Slot::ThreadFace => "Click the round face of a bore, shaft or boss to thread".to_owned(),
         Slot::FramePlane => "Click a plane or flat face for its XY plane".to_owned(),
         Slot::PrimitivePlace => {
             let noun = kind(model, picking.feature)
@@ -274,6 +282,12 @@ pub fn change(
         }
         (Slot::MateTarget, FeatureKind::Mate(mate)) => {
             mate_tools::target_change(model, selection, feature, mate)
+        }
+        (Slot::ScaleCentre, FeatureKind::Scale(scale)) => {
+            scale_tools::centre_change(model, selection, feature, scale)
+        }
+        (Slot::ThreadFace, FeatureKind::Thread(thread)) => {
+            thread_tools::face_change(model, selection, feature, thread)
         }
         _ => Err(format!("{} no longer takes this reference", owner.name)),
     }

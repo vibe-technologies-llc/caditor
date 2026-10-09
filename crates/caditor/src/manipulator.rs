@@ -1,14 +1,88 @@
-use caditor_document::{FeatureId, Transaction};
+use caditor_document::{Document, Edit, FeatureId, FeatureKind, ParameterOwner, Transaction};
+use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::{Ray, Vector2};
 use caditor_render::{Batch, View};
 
 use crate::{
+    feature_tree,
     model::Model,
     move_manipulator::{Handle, MoveDrag, MoveHandles},
     reach_handles::{ReachDrag, ReachHandles},
     scene_palette::ScenePalette,
     units::Units,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Held {
+    Typed,
+    Named(ParameterId),
+    Driven(String),
+}
+
+impl Held {
+    pub fn of(
+        document: &Document,
+        feature: FeatureId,
+        caption: &str,
+        expression: &Expression,
+    ) -> Self {
+        let owner = ParameterOwner::Feature {
+            feature,
+            value: caption.to_owned(),
+        };
+        let named = document.owned_parameter(&owner, expression);
+        let shown = named.map_or(expression, |parameter| &parameter.expression);
+        let used = shown.parameters();
+        if !used.is_empty() {
+            let names: Vec<String> = used
+                .into_iter()
+                .map(|id| {
+                    document.parameter(id).map_or_else(
+                        || "a deleted parameter".to_owned(),
+                        |used| used.name.clone(),
+                    )
+                })
+                .collect();
+            let names = feature_tree::in_words(&names);
+            return Self::Driven(format!(
+                "{caption} follows {names}; change {names} in Parameters"
+            ));
+        }
+        named.map_or(Self::Typed, |parameter| Self::Named(parameter.id()))
+    }
+
+    pub fn driven(self) -> Option<String> {
+        match self {
+            Self::Driven(words) => Some(words),
+            Self::Typed | Self::Named(_) => None,
+        }
+    }
+
+    pub fn set(self, slot: &mut Expression, value: Expression, edits: &mut Vec<Edit>) {
+        match self {
+            Self::Typed => *slot = value,
+            Self::Named(id) => edits.push(Edit::SetParameterExpression {
+                id,
+                expression: value,
+            }),
+            Self::Driven(_) => {}
+        }
+    }
+}
+
+pub fn keeping_names(
+    document: &Document,
+    feature: FeatureId,
+    kind: FeatureKind,
+    named: Vec<Edit>,
+) -> Option<Transaction> {
+    let owner = document.feature(feature)?;
+    let changed = (owner.kind != kind).then_some(Edit::SetFeatureKind { id: feature, kind });
+    Some(Transaction::new(
+        format!("Edit {}", owner.name),
+        changed.into_iter().chain(named).collect(),
+    ))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Manipulator {
@@ -59,6 +133,17 @@ impl Manipulator {
         }
     }
 
+    pub fn driven(&self, model: &Model, handle: Handle) -> Option<String> {
+        match self {
+            Self::Move(handles) => handles.driven(model, handle),
+            Self::Reach(handles) => handles.driven(model, handle),
+        }
+    }
+
+    pub fn words(&self, model: &Model, handle: Handle) -> String {
+        self.driven(model, handle).unwrap_or_else(|| handle.words())
+    }
+
     pub fn drawn(self, highlighted: Option<Handle>) -> Drawn {
         Drawn {
             manipulator: self,
@@ -102,6 +187,9 @@ impl Manipulating {
         handle: Handle,
         ray: Ray,
     ) -> Option<Self> {
+        if manipulator.driven(model, handle).is_some() {
+            return None;
+        }
         let drag = match (manipulator, handle) {
             (Manipulator::Reach(handles), Handle::Reach(reach)) => {
                 Drag::Reach(ReachDrag::begin(model, handles, reach, ray)?)

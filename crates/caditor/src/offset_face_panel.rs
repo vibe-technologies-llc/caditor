@@ -14,6 +14,7 @@ use crate::{
     model::{Action, Model},
     offset_face_tools,
     reference_rows::{ReferenceRows, RowCache},
+    selection::Selection,
     widgets,
 };
 
@@ -54,7 +55,6 @@ fn distance_row(
             )
         });
     actions.extend(drafting.into_actions(feature));
-    feature_fields::draft_failure_row(ui, model, feature);
 }
 
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
@@ -97,16 +97,18 @@ fn face_rows(
     ReferenceRows { summary, rows }
 }
 
-struct FacesRow<'a> {
-    model: &'a Model,
-    feature: &'a Feature,
-    offset: &'a OffsetFace,
-    opened: bool,
+pub struct FacesRow<'a> {
+    pub model: &'a Model,
+    pub selection: &'a Selection,
+    pub feature: &'a Feature,
+    pub offset: &'a OffsetFace,
+    pub opened: bool,
 }
 
 fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {
     let FacesRow {
         model,
+        selection,
         feature,
         offset,
         opened,
@@ -153,6 +155,10 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             "Click faces in the view to move them or leave them out again.",
             "Show the body as it is with this feature so you can click faces",
         ) {
+            if let Some(transaction) = offset_face_tools::with_selected_faces(model, id, selection)
+            {
+                actions.push(Action::Apply(transaction));
+            }
             actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
         }
     });
@@ -162,25 +168,17 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
     ui.end_row();
 }
 
-pub fn show(
-    ui: &mut Ui,
-    model: &Model,
-    cache: &mut RowCache,
-    actions: &mut Vec<Action>,
-    feature: &Feature,
-    offset: &OffsetFace,
-    opened: bool,
-) {
-    let id = feature.id();
-    let row = FacesRow {
+pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {
+    let FacesRow {
         model,
         feature,
         offset,
-        opened,
-    };
+        ..
+    } = *row;
+    let id = feature.id();
     widgets::properties(ui, ("offset-face-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
-        faces_row(ui, &row, cache, actions);
+        faces_row(ui, row, cache, actions);
         distance_row(ui, model, id, offset, actions);
         if let Some(tangent) = feature_fields::reverse_row(ui, TANGENT, offset.tangent) {
             actions.push(feature_fields::applied(

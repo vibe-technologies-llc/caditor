@@ -7,6 +7,10 @@ command; it starts at a factor of 1. The panel sets the **Factor**, a plain numb
 the **Centre**, its three coordinates measured in the world or in a
 [coordinate system](coordinate-systems).
 
+**Centre at** fills in those coordinates: **Use selected** (or **Choose in the view**) takes a
+selected corner, round edge, sphere, sketch point or datum point, and **Body centre** the middle of
+the body's box as it was before scaling.
+
 ## Scale model
 
 {command:model.scale_model} scales the whole model at once, by changing its values rather than

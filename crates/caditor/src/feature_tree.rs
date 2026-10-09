@@ -34,7 +34,7 @@ use crate::{
     pattern_panel,
     pattern_tools::{self, Reference},
     preferences::PreferencesCommand,
-    primitive_panel, principal_tree, removal, scale_panel,
+    primitive_panel, principal_tree, removal, reversing, scale_panel,
     selection::{Pickable, Selection},
     shell_panel,
     sketch_placement::{self, PlacementTarget},
@@ -970,27 +970,33 @@ fn body(
         FeatureKind::Shell(shell) => {
             shell_panel::show(
                 ui,
-                model,
+                &shell_panel::FacesRow {
+                    model,
+                    selection: row.selection,
+                    feature,
+                    shell,
+                    opened: row.edited,
+                },
                 &mut state.reference_rows,
                 actions,
-                feature,
-                shell,
-                row.edited,
             );
             body_display(ui, model, feature);
         }
         FeatureKind::Thread(thread) => {
-            thread_panel::show(ui, model, actions, feature, thread);
+            thread_panel::show(ui, model, row.selection, actions, feature, thread);
         }
         FeatureKind::OffsetFace(offset) => {
             offset_face_panel::show(
                 ui,
-                model,
+                &offset_face_panel::FacesRow {
+                    model,
+                    selection: row.selection,
+                    feature,
+                    offset,
+                    opened: row.edited,
+                },
                 &mut state.reference_rows,
                 actions,
-                feature,
-                offset,
-                row.edited,
             );
             body_display(ui, model, feature);
         }
@@ -1031,7 +1037,7 @@ fn body(
             body_display(ui, model, feature);
         }
         FeatureKind::Scale(scale) => {
-            scale_panel::show(ui, model, actions, feature, scale);
+            scale_panel::show(ui, model, row.selection, actions, feature, scale);
             body_display(ui, model, feature);
         }
         FeatureKind::Pattern(pattern) => {
@@ -1963,7 +1969,7 @@ fn dependent_rows(ui: &mut Ui, document: &Document, ids: &[FeatureId], dependent
     }
 }
 
-fn in_words(names: &[String]) -> String {
+pub fn in_words(names: &[String]) -> String {
     match names {
         [] => String::new(),
         [only] => only.clone(),
@@ -2243,7 +2249,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = chosen.open.or(current);
-    let changes: [(Command, FeatureChange<'_>); 16] = [
+    let changes: [(Command, FeatureChange<'_>); 17] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -2295,6 +2301,9 @@ fn feature_commands(
         }),
         (Command::FlipChamfer, &|feature| {
             blend_tools::flip_change(document, feature)
+        }),
+        (Command::ReverseDirection, &|feature| {
+            reversing::reverse_change(document, feature)
         }),
     ];
     for (command, change) in changes {

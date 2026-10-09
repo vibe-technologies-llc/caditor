@@ -9,4 +9,5 @@ menu or {command:palette}.
   ones.
 
 While it is open, click faces in the view to move them or leave them out; hovering a face listed in
-the panel lights it in the view.
+the panel lights it in the view. **Choose in the view** in the panel first adds the faces of the
+body selected then.

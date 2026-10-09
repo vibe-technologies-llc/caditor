@@ -39,6 +39,13 @@ A [parameter](parameters) name starts with a letter or `_` and holds letters, di
 cannot be a unit, a function or a constant, so `m` or `max` are refused. In a value field,
 `name = expression` names the value as a new parameter.
 
+## Typing in a panel
+
+Reaching a value field, by clicking it, with Tab or from {command:palette}, selects its whole
+text, so what you type replaces the value. In an open feature's panel the model previews the value
+as you type, before you press Enter; when the feature cannot be made with it, the reason shows
+under the field.
+
 ## Mistakes
 
 An expression that does not read, mixes lengths with angles, divides by zero or uses an unknown

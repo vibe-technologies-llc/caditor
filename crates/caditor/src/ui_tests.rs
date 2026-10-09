@@ -75,6 +75,7 @@ mod feature_tree_choice;
 mod import_jobs;
 mod paint_selection;
 mod palette_and_notices;
+mod panel_fields;
 mod parameter_files;
 mod pick_list;
 mod primitives;

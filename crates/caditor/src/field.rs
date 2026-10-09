@@ -3,7 +3,11 @@ use std::collections::BTreeSet;
 use caditor_document::{Document, Edit, FeatureId, ParameterOwner, ParameterValues, Transaction};
 use caditor_expression::{Dimension, Expression, Naming};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
-use egui::{Align, Id, Key, Margin, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
+use egui::{
+    Align, Id, Key, Margin, Response, Stroke, StrokeKind, TextEdit, Ui,
+    text::{CCursor, CCursorRange},
+    vec2,
+};
 
 use crate::{
     appearance::WIDGET_RADIUS,
@@ -69,6 +73,9 @@ pub fn commit_field<T>(
         response.request_focus();
         response.scroll_to_me(Some(Align::Center));
     }
+    if arrived(ui, id, response.has_focus()) && text == stored {
+        select_all(ui.ctx(), id, &text);
+    }
     let edited = response.changed().then(|| text.trim().to_owned());
     if response.changed() {
         draft = Some(Draft {
@@ -123,6 +130,31 @@ pub fn commit_field<T>(
         left,
         response,
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HeldFocus;
+
+fn arrived(ui: &Ui, id: Id, focused: bool) -> bool {
+    let key = id.with("held-focus");
+    let held = ui.data(|data| data.get_temp::<HeldFocus>(key).is_some());
+    match (focused, held) {
+        (true, false) => ui.data_mut(|data| {
+            data.insert_temp(key, HeldFocus);
+        }),
+        (false, true) => ui.data_mut(|data| data.remove::<HeldFocus>(key)),
+        (true, true) | (false, false) => {}
+    }
+    focused && !held
+}
+
+pub fn select_all(context: &egui::Context, id: Id, text: &str) {
+    let mut state = TextEdit::load_state(context, id).unwrap_or_default();
+    state.cursor.set_char_range(Some(CCursorRange::two(
+        CCursor::new(0),
+        CCursor::new(text.chars().count()),
+    )));
+    TextEdit::store_state(context, id, state);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

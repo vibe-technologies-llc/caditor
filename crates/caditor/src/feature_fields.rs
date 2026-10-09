@@ -111,16 +111,6 @@ pub struct Quantity<'a> {
     pub rule: Rule,
 }
 
-pub fn expression_row(
-    ui: &mut Ui,
-    model: &Model,
-    caption: &str,
-    quantity: Quantity<'_>,
-    change: impl Fn(Expression) -> Result<Transaction, String>,
-) -> Option<Transaction> {
-    expression_row_drafting(ui, model, caption, quantity, change).committed
-}
-
 pub struct Drafting {
     pub committed: Option<Transaction>,
     pub draft: Option<Option<Transaction>>,
@@ -202,6 +192,9 @@ pub fn expression_row_drafting(
     ui.end_row();
     if let Some(error) = error {
         widgets::error_row(ui, &error);
+    }
+    if ui.memory(|memory| memory.has_focus(quantity.id)) {
+        draft_failure_row(ui, model, quantity.feature);
     }
     Drafting { committed, draft }
 }
@@ -494,7 +487,7 @@ pub fn reference_row(
     removed
 }
 
-pub fn draft_failure_row(ui: &mut Ui, model: &Model, feature: FeatureId) {
+fn draft_failure_row(ui: &mut Ui, model: &Model, feature: FeatureId) {
     let Some(error) = model.draft_failure(feature) else {
         return;
     };

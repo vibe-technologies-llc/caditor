@@ -14,6 +14,8 @@ pub const KEEP_TOOL: &str = "Keep tool";
 pub const ALSO_COMBINES: &str = "Also with";
 pub const ADD_TOOL_BODY: &str = "Add another tool body";
 const NOT_A_BODY: &str = "A body that is no longer there";
+pub const SWAP: &str = "Swap target and tool";
+const SWAP_HOVER: &str = "Make the tool body the target and the target the tool, in one change";
 
 fn change(model: &Model, feature: FeatureId, combine: Combine) -> Result<Transaction, String> {
     let document = model.document();
@@ -154,6 +156,7 @@ pub fn show(
         operation_row(ui, model, feature, combine, actions);
         body_row(ui, model, feature, combine, Role::Target, actions);
         body_row(ui, model, feature, combine, Role::Tool, actions);
+        swap_row(ui, model, feature, combine, actions);
         more_tool_rows(ui, model, feature, combine, actions);
         keep_tool_row(ui, model, feature, combine, actions);
     });
@@ -231,6 +234,32 @@ fn more_tool_rows(
         },
     );
     actions.extend(chosen);
+    ui.end_row();
+}
+
+pub fn swapped(combine: &Combine) -> Combine {
+    Combine {
+        body: combine.tool,
+        tool: combine.body,
+        ..combine.clone()
+    }
+}
+
+fn swap_row(
+    ui: &mut Ui,
+    model: &Model,
+    feature: &Feature,
+    combine: &Combine,
+    actions: &mut Vec<Action>,
+) {
+    ui.label("");
+    let button = widgets::small_button(ui, icons::SWAP, SWAP);
+    if ui.add(button).on_hover_text(SWAP_HOVER).clicked() {
+        actions.push(feature_fields::applied(
+            &feature.name,
+            change(model, feature.id(), swapped(combine)),
+        ));
+    }
     ui.end_row();
 }
 

@@ -237,6 +237,7 @@ pub enum Command {
     ChamferTwoDistances,
     ChamferDistanceAngle,
     FlipChamfer,
+    ReverseDirection,
     FilterFeatures,
     AddParameter,
     DeleteParameter,
@@ -673,6 +674,7 @@ plain_commands! {
     ChamferTwoDistances,
     ChamferDistanceAngle,
     FlipChamfer,
+    ReverseDirection,
     FilterFeatures,
     AddParameter,
     DeleteParameter,
@@ -948,6 +950,7 @@ impl Command {
             Self::ChamferTwoDistances => "model.chamfer_two_distances",
             Self::ChamferDistanceAngle => "model.chamfer_distance_angle",
             Self::FlipChamfer => "model.flip_chamfer",
+            Self::ReverseDirection => "model.reverse_direction",
             Self::FilterFeatures => "model.filter_features",
             Self::AddParameter => "model.add_parameter",
             Self::DeleteParameter => "model.delete_parameter",
@@ -1166,6 +1169,7 @@ impl Command {
             Self::ChamferTwoDistances => "Chamfer by two distances",
             Self::ChamferDistanceAngle => "Chamfer by a distance and an angle",
             Self::FlipChamfer => "Flip the chamfer's faces",
+            Self::ReverseDirection => "Reverse the direction",
             Self::FilterFeatures => "Filter the feature tree",
             Self::AddParameter => "Add parameter",
             Self::DeleteParameter => "Delete parameter",
@@ -1405,6 +1409,7 @@ impl Command {
             | Self::ChamferTwoDistances
             | Self::ChamferDistanceAngle
             | Self::FlipChamfer
+            | Self::ReverseDirection
             | Self::FilterFeatures
             | Self::AddParameter
             | Self::DeleteParameter
@@ -1663,6 +1668,7 @@ impl Command {
             | Self::ChamferTwoDistances
             | Self::ChamferDistanceAngle
             | Self::FlipChamfer
+            | Self::ReverseDirection
             | Self::AddParameter
             | Self::DeleteParameter
             | Self::MoveParameterUp

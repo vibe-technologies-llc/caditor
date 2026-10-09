@@ -11,6 +11,7 @@ use crate::{
     field,
     model::{Action, Model},
     reference_rows::{ReferenceRows, RowCache},
+    selection::Selection,
     shell_tools, widgets,
 };
 
@@ -49,7 +50,6 @@ fn thickness_row(
             )
         });
     actions.extend(drafting.into_actions(feature));
-    feature_fields::draft_failure_row(ui, model, feature);
 }
 
 const NO_SHAPE_YET: &str = "A face of a body that has no shape yet";
@@ -88,16 +88,18 @@ fn face_rows(document: &Document, input: Option<&SolidResult>, shell: &Shell) ->
     ReferenceRows { summary, rows }
 }
 
-struct FacesRow<'a> {
-    model: &'a Model,
-    feature: &'a Feature,
-    shell: &'a Shell,
-    opened: bool,
+pub struct FacesRow<'a> {
+    pub model: &'a Model,
+    pub selection: &'a Selection,
+    pub feature: &'a Feature,
+    pub shell: &'a Shell,
+    pub opened: bool,
 }
 
 fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {
     let FacesRow {
         model,
+        selection,
         feature,
         shell,
         opened,
@@ -144,6 +146,9 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             "Click flat faces in the view to open them or close them again.",
             "Show the hollowed body so you can click faces to open them or close them again",
         ) {
+            if let Some(transaction) = shell_tools::with_selected_faces(model, id, selection) {
+                actions.push(Action::Apply(transaction));
+            }
             actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
         }
     });
@@ -153,25 +158,17 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
     ui.end_row();
 }
 
-pub fn show(
-    ui: &mut Ui,
-    model: &Model,
-    cache: &mut RowCache,
-    actions: &mut Vec<Action>,
-    feature: &Feature,
-    shell: &Shell,
-    opened: bool,
-) {
-    let id = feature.id();
-    let row = FacesRow {
+pub fn show(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {
+    let FacesRow {
         model,
         feature,
         shell,
-        opened,
-    };
+        ..
+    } = *row;
+    let id = feature.id();
     widgets::properties(ui, ("shell-properties", id), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
-        faces_row(ui, &row, cache, actions);
+        faces_row(ui, row, cache, actions);
         thickness_row(ui, model, id, shell, actions);
         feature_fields::feature_row(ui, model.document(), "Body", shell.body);
     });
