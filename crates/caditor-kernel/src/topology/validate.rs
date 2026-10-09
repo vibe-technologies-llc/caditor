@@ -7,7 +7,7 @@ use crate::{
     interrupt::{self, Interrupted},
     sense::Sense,
     surface::Surface,
-    tessellation::{MassProperties, TessellationError},
+    tessellation::{FaceTriangles, MassProperties, TessellationError},
     tolerance::{LINEAR_RESOLUTION, PCURVE_TOLERANCE, SamplingTolerance},
     topology::{
         CoedgeId, EdgeId, Face, FaceId, LoopId, ShellId, Solid, VertexId,
@@ -657,43 +657,54 @@ fn shell_meshes(
     tolerance: &SamplingTolerance,
 ) -> Result<BTreeMap<ShellId, ShellMesh>, TessellationError> {
     let mesh = solid.tessellate(tolerance)?;
-    let mut by_shell: BTreeMap<ShellId, (ShellMesh, BTreeSet<u32>)> = BTreeMap::new();
+    let mut faces_by_shell: BTreeMap<ShellId, Vec<&FaceTriangles>> = BTreeMap::new();
     for face in mesh.faces() {
-        let Some(shell) = solid.face(face.face).map(Face::shell) else {
-            continue;
+        if let Some(shell) = solid.face(face.face).map(Face::shell) {
+            faces_by_shell.entry(shell).or_default().push(face);
+        }
+    }
+    let mut cornered = vec![false; mesh.positions().len()];
+    let mut by_shell = BTreeMap::new();
+    for (shell, faces) in faces_by_shell {
+        let mut shell_mesh = ShellMesh {
+            triangles: Vec::new(),
+            faces: Vec::new(),
+            corners: Vec::new(),
         };
-        let (shell_mesh, corners) = by_shell.entry(shell).or_insert_with(|| {
-            let empty = ShellMesh {
-                triangles: Vec::new(),
-                faces: Vec::new(),
-                corners: Vec::new(),
-            };
-            (empty, BTreeSet::new())
-        });
-        let triangles = mesh
-            .triangles()
-            .get(face.triangles.clone())
-            .unwrap_or_default();
-        for triangle in triangles {
-            let (Some(points), Some(positions)) = (
-                mesh.corner_points(*triangle),
-                mesh.triangle_positions(*triangle),
-            ) else {
-                continue;
-            };
-            shell_mesh.triangles.push(points);
-            shell_mesh.faces.push(face.face);
-            for (position, point) in positions.into_iter().zip(points) {
-                if corners.insert(position) {
-                    shell_mesh.corners.push(point);
+        let mut corner_positions = Vec::new();
+        for face in faces {
+            let triangles = mesh
+                .triangles()
+                .get(face.triangles.clone())
+                .unwrap_or_default();
+            for triangle in triangles {
+                let (Some(points), Some(positions)) = (
+                    mesh.corner_points(*triangle),
+                    mesh.triangle_positions(*triangle),
+                ) else {
+                    continue;
+                };
+                shell_mesh.triangles.push(points);
+                shell_mesh.faces.push(face.face);
+                for (position, point) in positions.into_iter().zip(points) {
+                    if let Some(seen) = cornered.get_mut(position as usize)
+                        && !*seen
+                    {
+                        *seen = true;
+                        corner_positions.push(position);
+                        shell_mesh.corners.push(point);
+                    }
                 }
             }
         }
+        for position in corner_positions {
+            if let Some(seen) = cornered.get_mut(position as usize) {
+                *seen = false;
+            }
+        }
+        by_shell.insert(shell, shell_mesh);
     }
-    Ok(by_shell
-        .into_iter()
-        .map(|(shell, (shell_mesh, _))| (shell, shell_mesh))
-        .collect())
+    Ok(by_shell)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
