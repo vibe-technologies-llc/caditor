@@ -94,6 +94,9 @@ pub enum Command {
     MoveGeometry,
     SelectAll,
     SelectFree,
+    FindRelations,
+    DimensionFromDatum,
+    CheckSketch,
     CopyGeometry,
     CutGeometry,
     PasteGeometry,
@@ -599,6 +602,9 @@ plain_commands! {
     MoveGeometry,
     SelectAll,
     SelectFree,
+    FindRelations,
+    DimensionFromDatum,
+    CheckSketch,
     CopyGeometry,
     CutGeometry,
     PasteGeometry,
@@ -708,6 +714,9 @@ impl Command {
             Self::MoveGeometry => "sketch.move",
             Self::SelectAll => "sketch.select_all",
             Self::SelectFree => "sketch.select_free",
+            Self::FindRelations => "sketch.find_relations",
+            Self::DimensionFromDatum => "sketch.dimension_from_datum",
+            Self::CheckSketch => "sketch.check",
             Self::CopyGeometry => "sketch.copy",
             Self::CutGeometry => "sketch.cut",
             Self::PasteGeometry => "sketch.paste",
@@ -951,6 +960,9 @@ impl Command {
             Self::MoveGeometry => "Move selected sketch geometry",
             Self::SelectAll => "Select all sketch geometry",
             Self::SelectFree => "Select what is still free in the sketch",
+            Self::FindRelations => "Add the relations the drawing shows",
+            Self::DimensionFromDatum => "Dimension fully from a datum point",
+            Self::CheckSketch => "Check the sketch for flaws",
             Self::CopyGeometry => "Copy selected sketch geometry",
             Self::CutGeometry => "Cut selected sketch geometry",
             Self::PasteGeometry => "Paste sketch geometry",
@@ -1287,6 +1299,9 @@ impl Command {
             | Self::MoveGeometry
             | Self::SelectAll
             | Self::SelectFree
+            | Self::FindRelations
+            | Self::DimensionFromDatum
+            | Self::CheckSketch
             | Self::CopyGeometry
             | Self::CutGeometry
             | Self::PasteGeometry
@@ -1314,6 +1329,9 @@ impl Command {
             | Self::MoveGeometry
             | Self::SelectAll
             | Self::SelectFree
+            | Self::FindRelations
+            | Self::DimensionFromDatum
+            | Self::CheckSketch
             | Self::CopyGeometry
             | Self::CutGeometry
             | Self::PasteGeometry
@@ -1509,6 +1527,9 @@ impl Command {
             | Self::Mate
             | Self::UndoHistory
             | Self::SelectFree
+            | Self::FindRelations
+            | Self::DimensionFromDatum
+            | Self::CheckSketch
             | Self::ToggleSketches
             | Self::ToggleDatums
             | Self::ToggleBodies

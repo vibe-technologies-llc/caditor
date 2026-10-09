@@ -86,6 +86,7 @@ mod sketch_free;
 mod sketch_patterns;
 mod sketch_regions;
 mod sketch_tangent_circles;
+mod sketch_tidying;
 mod svg_import;
 mod templates;
 

@@ -238,6 +238,55 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   and says `NothingToBreak` or `NothingSelected` otherwise. Circles are refused like split, since
   breaking one would replace it with arcs.
 
+## Relations the geometry shows (`inference.rs`)
+
+- `Sketch::shown_relations` finds the relations a drawing already shows within a `Tolerance` (a
+  distance and an angle; `Tolerance::of` is `RELATIVE_DISTANCE` of `Sketch::extent` and
+  `ANGLE_DEGREES`), for the `RelationKind`s asked, in this order: coincident ends (curve ends, lone
+  points and the origin, never two ends of one curve), concentric circles and arcs, points mirrored
+  about an axis (the reference axes and construction lines; arc centres are left out, their ends
+  and an equal radius mirror the arc), horizontal and vertical lines, tangents (a line or arc
+  leaving a joint along another, a line or circle grazing a circle within both drawn curves),
+  perpendicular directions (one per pair of slanted direction groups, a joined pair preferred),
+  parallels and equal lengths and radii (each group chained to its first). Points are matched
+  through a grid of tolerance-sized cells, groups of directions and sizes are anchored at their
+  smallest, so a large import costs no pairwise scan of points. A candidate the sketch refuses
+  (`check_constraint`), restates or contradicts (`Relations`, which also records the candidates
+  found before it) is left out.
+- `Sketch::inferred_relations` keeps those that hold (`keep_holding`): the sketch is solved first
+  (`InferenceError::Unsolved` when it does not), then each kind is added as a stage on the solved
+  geometry of the one before, so a relation the earlier ones imply holds exactly and the rank
+  analysis names it redundant, and is dropped. A stage that conflicts drops the newest candidate
+  of each conflict and solves again; one whose solve moves any point or radius more than
+  `MOVE_LIMIT` tolerances (a relation that holds only nearly can pull a dependent set apart) is
+  tried one candidate at a time instead, each kept only when it solves, adds rank and stays within
+  the limit. What is kept comes back with the degrees of freedom left.
+
+- `Sketch::datum_dimensions` (`datum.rs`) dimensions what is still free from a datum point (the
+  origin or any point; `InferenceError::NotAPoint` otherwise) at the measured values, through the
+  same `keep_holding` in one stage, so only dimensions adding rank are kept: the datum's horizontal
+  and vertical distances from the origin (unless it is the origin or fixed), each circle's
+  diameter, arc's radius and ellipse's minor radius, then every other free point's horizontal and
+  vertical distance from the datum, nearest points first so a rectangle cornered on it gets its
+  width and height. An offset within the tolerance is held by `VerticalPoints` or
+  `HorizontalPoints` instead of a dimension of nothing. Fixed and reference geometry is left out.
+
+## Checking a sketch (`check.rs`)
+
+- `Sketch::flaws` names what the eye misses, within a `Tolerance`: curves of no length
+  (`Flaw::NoLength`: a line, arc length or radius, or every spline control point within the
+  distance), ends of different curves at most the distance apart and not joined
+  (`NearlyJoined`, with the gap; the two ends of a curve of no length count as joined, so its
+  fix is not named twice), and a line, circle or arc lying on another (`OVERLAP_SAMPLES` points
+  along it all within the distance of the other: `LiesOn`, the newer on the older when each lies
+  on the other) or sharing a stretch with it (two or more samples: `Overlaps`). Projected and
+  reference geometry is left out; curves are paired through a sweep over their boxes.
+- `Sketch::fix` gives each flaw's repair as entities to remove and constraints to add (`Fix`):
+  a `Coincident` for ends nearly joined; a curve of no length removed, its points no other curve
+  or constraint uses with it, and its two kept ends joined; a curve lying on another removed the
+  same way, each kept end not already joined to an end of the other held on it by `Coincident`.
+  A partial overlap has no fix (`Fix::is_empty`), since which piece to keep is the user's choice.
+
 ## Tangent circles (`tangent_circle.rs`)
 
 - `tangent_circle` draws a circle tangent to three of the sketch's lines, circles and arcs (an

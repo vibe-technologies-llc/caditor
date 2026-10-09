@@ -280,6 +280,7 @@ pub struct ViewportState {
     scrubbing: bool,
     primary: Option<PrimaryDrag>,
     hovered_in_tree: Option<Pickable>,
+    previewed: Vec<Pickable>,
     chosen_rows: Vec<FeatureId>,
     home_applied: bool,
     session: u64,
@@ -418,6 +419,7 @@ impl ViewportState {
             scrubbing: false,
             primary: None,
             hovered_in_tree: None,
+            previewed: Vec::new(),
             chosen_rows: Vec::new(),
             home_applied: false,
             session: 0,
@@ -606,6 +608,10 @@ impl ViewportState {
         self.hovered_in_tree = pickable;
     }
 
+    pub fn preview_entities(&mut self, previewed: Vec<Pickable>) {
+        self.previewed = previewed;
+    }
+
     pub fn show_chosen_rows(&mut self, rows: Vec<FeatureId>) {
         self.chosen_rows = rows;
     }
@@ -620,6 +626,7 @@ impl ViewportState {
     pub fn forget_document(&mut self) {
         self.selection.clear();
         self.chosen_rows.clear();
+        self.previewed.clear();
         self.hovered = None;
         self.hover_source = None;
         self.pending_click = None;
@@ -852,6 +859,8 @@ impl ViewportState {
                 entities if entities.is_empty() => vec![row],
                 entities => entities,
             }
+        } else if highlighted.is_none() && !self.previewed.is_empty() {
+            self.previewed.clone()
         } else {
             highlighted
                 .into_iter()

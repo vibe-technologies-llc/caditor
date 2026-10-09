@@ -140,6 +140,8 @@ mod status_bar;
 mod tangent_circling;
 mod thread_panel;
 mod thread_tools;
+mod tidy_panel;
+mod tidying;
 mod toolbar;
 mod tracking;
 mod tree_row;

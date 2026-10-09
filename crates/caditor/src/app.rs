@@ -71,6 +71,8 @@ use crate::{
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
     status_bar::{self, StatusContext},
+    tidy_panel,
+    tidying::Tidying,
     toolbar::{self, ToolbarContext},
     undo_history,
     viewport::ViewportState,
@@ -147,6 +149,7 @@ pub struct Workspace {
     pub analysis: AnalysisTool,
     pub comb: CombTool,
     pub isocurves: IsocurveTool,
+    pub tidying: Tidying,
     pub(crate) frame_failures: FrameFailures,
     fallback_fonts: FallbackFonts,
     applied_appearance: Option<Appearance>,
@@ -194,6 +197,7 @@ impl Workspace {
             analysis: AnalysisTool::default(),
             comb: CombTool::default(),
             isocurves: IsocurveTool::default(),
+            tidying: Tidying::default(),
             frame_failures: FrameFailures::default(),
             fallback_fonts: FallbackFonts::Off,
             applied_appearance: None,
@@ -227,6 +231,7 @@ impl Workspace {
         self.analysis = AnalysisTool::default();
         self.comb = CombTool::default();
         self.isocurves = IsocurveTool::default();
+        self.tidying = Tidying::default();
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
@@ -245,6 +250,7 @@ impl Workspace {
             self.interference.interference.forget();
             self.comb.forget();
             self.isocurves.forget();
+            self.tidying.close();
         }
     }
 
@@ -441,6 +447,7 @@ pub fn show(
         analysis,
         comb,
         isocurves,
+        tidying,
         keyboard_was_taken,
         deferred_commands,
         ..
@@ -530,6 +537,8 @@ pub fn show(
         panels,
         actions,
     );
+    tidy_panel::commands(editing, viewport.selection(), tidying, &mut commands);
+    tidying.refresh(model, editing.active().map(|active| active.feature));
     let status = StatusContext {
         files,
         offers,
@@ -561,7 +570,8 @@ pub fn show(
         + usize::from(interference.open)
         + usize::from(analysis.open)
         + usize::from(comb.open)
-        + usize::from(isocurves.open);
+        + usize::from(isocurves.open)
+        + usize::from(tidying.feature().is_some());
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
     panels::show(
         ui,
@@ -666,6 +676,9 @@ pub fn show(
         None
     };
     viewport.set_isocurves(lines);
+    let tidied = tidy_panel::show(ui, model, tidying, viewport.selection(), room);
+    actions.extend(tidied.actions);
+    viewport.preview_entities(tidied.previewed);
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
     canvas::set_contrast(ui.ctx(), contrast);

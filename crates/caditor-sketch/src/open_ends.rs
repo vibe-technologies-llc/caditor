@@ -66,7 +66,7 @@ impl Sketch {
     }
 }
 
-fn curve_ends(entity: &Entity) -> Vec<EntityId> {
+pub(crate) fn curve_ends(entity: &Entity) -> Vec<EntityId> {
     match entity {
         Entity::Line { start, end }
         | Entity::Arc { start, end, .. }
@@ -82,12 +82,12 @@ fn curve_ends(entity: &Entity) -> Vec<EntityId> {
 }
 
 #[derive(Default)]
-struct Classes {
+pub(crate) struct Classes {
     parents: BTreeMap<EntityId, EntityId>,
 }
 
 impl Classes {
-    fn root(&self, point: EntityId) -> EntityId {
+    pub(crate) fn root(&self, point: EntityId) -> EntityId {
         let mut current = point;
         for _ in 0..=self.parents.len() {
             match self.parents.get(&current) {
@@ -98,7 +98,7 @@ impl Classes {
         current
     }
 
-    fn join(&mut self, a: EntityId, b: EntityId) {
+    pub(crate) fn join(&mut self, a: EntityId, b: EntityId) {
         let (a, b) = (self.root(a), self.root(b));
         if a != b {
             self.parents.insert(a.max(b), a.min(b));

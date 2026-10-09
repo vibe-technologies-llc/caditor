@@ -152,14 +152,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
-- [medium · hard] No automatic constraining: a sketch drawn loosely or imported from DXF (which
-  only joins ends) is constrained by hand, one relation at a time. Find the relations the geometry
-  already shows within a tolerance (coincident ends, horizontal, vertical, parallel,
-  perpendicular, tangent, equal, concentric, symmetric about an axis) and add those that neither
-  restate nor contradict one in the sketch, then offer dimensions from a chosen datum point that
-  leave it fully constrained, each set previewed before it is added as one undoable change. A
-  check of the sketch would also name what the eye misses (ends a hair apart but not joined, a
-  curve lying twice on itself or another, curves of no length) and offer the fix.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
   points (or calibrated by a known distance), given an opacity, locked and traced, as a part
   copied from an existing object or a drawing needs.
