@@ -295,6 +295,7 @@ impl FeatureKind {
                 .as_ref()
                 .and_then(SketchAttachment::datum)
                 .into_iter()
+                .chain(sketch.projected_datums())
                 .collect(),
             Self::Solid(solid) => solid.end_datums(),
             Self::Datum(datum) => datum.plane_datums(),

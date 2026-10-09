@@ -32,8 +32,9 @@ pub const FINISH_LABEL: &str = "Finish sketch";
 pub const ARC_LABEL: &str = "Arc";
 pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
-pub const OFF_RIBBON: [Tool; 4] = [
+pub const OFF_RIBBON: [Tool; 5] = [
     Tool::Chamfer,
+    Tool::Intersect,
     Tool::RectangularPattern,
     Tool::CircularPattern,
     Tool::TangentCircle,

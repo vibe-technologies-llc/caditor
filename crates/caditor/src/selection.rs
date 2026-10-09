@@ -469,7 +469,7 @@ impl Pickable {
                         .is_some_and(|solid| bodies::find_edge(solid, edge).is_some())
             }
             Self::Datum(feature) => {
-                editing.is_none()
+                (editing.is_none() || context.intersecting)
                     && document
                         .feature(feature)
                         .is_some_and(|datum| datum.kind.datum().is_some())

@@ -4,7 +4,7 @@ use std::{
 };
 
 use caditor_document::{
-    DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
+    Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
     PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, SolidResult,
     body_parts, displayed_axis,
 };
@@ -480,6 +480,16 @@ pub fn build(
     match &edited {
         Some((feature, displayed)) => {
             builder.sketch_references(feature.id(), displayed.plane(), reference_size);
+            if context.intersecting {
+                let earlier = document
+                    .active_features()
+                    .take_while(|earlier| earlier.id() != feature.id());
+                for datum in earlier {
+                    if !datum.hidden && datum.kind.datum().is_some_and(Datum::is_plane) {
+                        builder.datum(evaluation, datum.id(), false, reference_size);
+                    }
+                }
+            }
         }
         None => {
             for plane in PrincipalPlane::ALL {

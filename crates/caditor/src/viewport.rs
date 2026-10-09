@@ -89,6 +89,8 @@ const CHOOSE_REGIONS_HINT: &str = "Esc: done";
 const CHOOSE_EDGES_PROMPT: &str = "Click edges to add them or leave them out";
 const PROJECT_PROMPT: &str =
     "Click an edge, corner or face of a body, or a curve of another sketch, to project it";
+const INTERSECT_PROMPT: &str = "Click a face to draw where the sketch cuts it, Shift-click for its \
+     whole body, or click a datum plane";
 const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
 const CHOOSE_MOVED_FACES_PROMPT: &str = "Click faces to move them or leave them out again";
 const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
@@ -1520,6 +1522,7 @@ impl ViewportState {
             | Tool::CircularPattern
             | Tool::TangentCircle
             | Tool::Project
+            | Tool::Intersect
             | Tool::Dimension => return None,
             _ => {}
         }
@@ -1829,7 +1832,7 @@ impl ViewportState {
         if !click.primary {
             return;
         }
-        if let Some(action) = pick_action(self.hovered, model, editing) {
+        if let Some(action) = pick_action(self.hovered, model, editing, click.toggle) {
             actions.extend(action);
             return;
         }
@@ -2203,6 +2206,22 @@ impl ViewportState {
             }
             return;
         }
+        let face = self
+            .keyboard_highlight
+            .or(self.hovered)
+            .filter(|target| matches!(target, Pickable::Face { .. }))
+            .filter(|_| {
+                editing
+                    .active()
+                    .is_some_and(|active| active.tool.intersects())
+            })
+            .ok_or(projecting::NO_FACE_HIGHLIGHTED);
+        if commands.invoke(Command::IntersectBody, &face)
+            && let Ok(face) = face
+        {
+            actions.extend(pick_action(Some(face), model, editing, true).unwrap_or_default());
+            return;
+        }
         let activation = self
             .keyboard_highlight
             .ok_or("Highlight an item first, with Highlight the next item in the view");
@@ -2229,7 +2248,7 @@ impl ViewportState {
             self.dimension_click(model, feature, Some(pickable), actions);
             return;
         }
-        match pick_action(Some(pickable), model, editing) {
+        match pick_action(Some(pickable), model, editing, false) {
             Some(action) => actions.extend(action),
             None if toggle => self.toggle_chosen(model, pickable),
             None => {
@@ -2264,16 +2283,13 @@ impl ViewportState {
             .scene
             .hits_through(&view, cursor, self.pixels_per_point);
         let filter = self.active_filter();
-        let projecting = editing
-            .active()
-            .filter(|active| active.tool.projects())
-            .map(|active| active.feature);
+        let projecting = editing.active().filter(|active| active.tool.projects());
         let listed: Vec<Pickable> = built
             .picks
             .listed(&hits, filter)
             .into_iter()
             .filter(|pickable| {
-                projecting.is_none_or(|sketch| projecting::projectable(*pickable, sketch))
+                projecting.is_none_or(|active| projecting::projectable(model, active, *pickable))
             })
             .collect();
         let rows = pick_list::rows(
@@ -2654,10 +2670,7 @@ impl ViewportState {
 
     fn step_highlight(&mut self, step: isize, model: &Model, editing: &SketchEditing) {
         let filter = self.active_filter();
-        let projecting = editing
-            .active()
-            .filter(|active| active.tool.projects())
-            .map(|active| active.feature);
+        let projecting = editing.active().filter(|active| active.tool.projects());
         let constraints: Vec<Pickable> = editing
             .feature()
             .filter(|_| projecting.is_none())
@@ -2681,7 +2694,7 @@ impl ViewportState {
             .copied()
             .filter(|pickable| filter.allows(*pickable))
             .filter(|pickable| {
-                projecting.is_none_or(|sketch| projecting::projectable(*pickable, sketch))
+                projecting.is_none_or(|active| projecting::projectable(model, active, *pickable))
             })
             .chain(constraints)
             .collect();
@@ -3348,6 +3361,11 @@ impl ViewportState {
             Some((prompt.to_owned(), CHOOSE_REGIONS_HINT.to_owned()))
         } else if editing
             .active()
+            .is_some_and(|active| active.tool.intersects())
+        {
+            Some((INTERSECT_PROMPT.to_owned(), key_hints.whole_body.clone()))
+        } else if editing
+            .active()
             .is_some_and(|active| active.tool.projects())
         {
             Some((PROJECT_PROMPT.to_owned(), key_hints.targets.clone()))
@@ -3444,8 +3462,8 @@ impl ViewportState {
                 Some(handle.words())
             } else if let Some(active) = projecting {
                 hovered
-                    .filter(|hovered| projecting::projectable(*hovered, active.feature))
-                    .and_then(|hovered| projecting::describe(model, active.feature, hovered))
+                    .filter(|hovered| projecting::projectable(model, active, *hovered))
+                    .and_then(|hovered| projecting::describe(model, active, hovered))
             } else if self.trimming.is_active() {
                 edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
             } else if self.modifying.is_active() {
@@ -3661,6 +3679,7 @@ fn pick_action(
     pickable: Option<Pickable>,
     model: &Model,
     editing: &SketchEditing,
+    whole: bool,
 ) -> Option<Vec<Action>> {
     if let Some(picking) = editing.picking() {
         return Some(
@@ -3670,9 +3689,9 @@ fn pick_action(
         );
     }
     if let Some(active) = editing.active().filter(|active| active.tool.projects()) {
-        let target = pickable.filter(|pickable| projecting::projectable(*pickable, active.feature));
+        let target = pickable.filter(|pickable| projecting::projectable(model, active, *pickable));
         return Some(match target {
-            Some(target) => match projecting::project(model, active.feature, target) {
+            Some(target) => match projecting::project(model, active, target, whole) {
                 Ok(transaction) => vec![Action::Apply(transaction)],
                 Err(reason) => vec![Action::Inform(Notice::info(format!("{reason}.")))],
             },
@@ -3754,6 +3773,7 @@ struct KeyHints {
     reverse: Option<String>,
     sides: Option<String>,
     targets: String,
+    whole_body: String,
     tools: Vec<(Tool, String)>,
 }
 
@@ -3784,10 +3804,15 @@ impl KeyHints {
         )])
         .collect::<Vec<_>>()
         .join("   ");
+        let whole_body = match commands.keys(Command::IntersectBody) {
+            Some(keys) => format!("{keys}: the whole body   {targets}"),
+            None => targets.clone(),
+        };
         Self {
             navigation,
             highlight,
             targets,
+            whole_body,
             fit: commands.with_keys(Command::FitView, "Frame the view around it"),
             reverse: commands
                 .keys(Command::ReverseArc)

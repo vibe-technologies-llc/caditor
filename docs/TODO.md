@@ -121,11 +121,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
-- [medium · medium] No Intersect: Project brings an existing edge, face outline or curve into the
-  sketch, but not the curves where a body, a face or a datum plane cuts the sketch plane, so the
-  outline of a cross-section (a wall seen through a bore, a casting at a given height) cannot be
-  drawn from the model. Intersect would add that outline as projected geometry, named from the
-  faces it cuts and following the model through recompute like any projection.
+- [low · easy] Intersect takes faces, bodies and datum planes but not the principal planes, which
+  are not drawn while a sketch is edited; a sketch on a tilted datum cannot draw where the XY
+  plane crosses it.
 - [medium · hard] Tools missing: ellipse and elliptical arc (a new entity kind across the solver,
   the kernel's 2D profile curves, which have no ellipse although its 3D curves do, and the file
   format), a conic curve (two ends and a point it passes, shaped by a rho value), a pattern of

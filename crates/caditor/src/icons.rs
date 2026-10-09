@@ -132,6 +132,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CopyGeometry => COPY,
         Command::CutGeometry => phosphor::SCISSORS,
         Command::PasteGeometry => phosphor::CLIPBOARD,
+        Command::IntersectBody => phosphor::INTERSECTION,
         Command::SketchTool(tool) => self::tool(tool),
         Command::ShapeMode(mode) => shape_mode(mode),
         Command::Constraint(tool) => constraint(tool),
@@ -296,6 +297,7 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::Fillet => blend(BlendKind::Fillet),
         Tool::Chamfer => blend(BlendKind::Chamfer),
         Tool::Project => phosphor::ARROW_FAT_LINES_DOWN,
+        Tool::Intersect => phosphor::INTERSECTION,
         Tool::Dimension => phosphor::MAGIC_WAND,
     }
 }

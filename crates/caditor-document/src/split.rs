@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use caditor_geometry::{Plane, Point2};
 use caditor_kernel::{
-    BooleanError, BooleanOperation, LINEAR_RESOLUTION, LinearExtent, Profile, ProfileCurve, Solid,
-    boolean, extrude,
+    BooleanError, BooleanOperation, LINEAR_RESOLUTION, LinearExtent, Profile, ProfileCurve,
+    ProfileError, Solid, SweepError, boolean, extrude,
 };
 
 use crate::{
@@ -151,9 +151,31 @@ fn half_space(
     flipped: bool,
     feature: &Feature,
 ) -> Result<Solid, Failure> {
-    let bounds = solid
-        .bounding_box()
-        .ok_or_else(|| context.unbuildable(&"the body has no extent"))?;
+    half_space_solid(solid, plane, flipped, feature.id().raw()).map_err(|error| match error {
+        HalfSpaceError::Misses => context.misses(),
+        other => context.unbuildable(&other),
+    })
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum HalfSpaceError {
+    #[error("the body has no extent")]
+    NoExtent,
+    #[error("the plane does not pass through the body")]
+    Misses,
+    #[error("its outline could not be drawn: {0}")]
+    Profile(ProfileError),
+    #[error("it could not be extruded: {0}")]
+    Sweep(SweepError),
+}
+
+pub(crate) fn half_space_solid(
+    solid: &Solid,
+    plane: &Plane,
+    flipped: bool,
+    feature: u64,
+) -> Result<Solid, HalfSpaceError> {
+    let bounds = solid.bounding_box().ok_or(HalfSpaceError::NoExtent)?;
     let margin = bounds.diagonal() * HALF_SPACE_REACH + HALF_SPACE_MARGIN;
     let local: Vec<[f64; 3]> = bounds
         .corners()
@@ -181,7 +203,7 @@ fn half_space(
     };
     let (low, high) = (least(2), most(2));
     if high <= LINEAR_RESOLUTION || low >= -LINEAR_RESOLUTION {
-        return Err(context.misses());
+        return Err(HalfSpaceError::Misses);
     }
     let corners = [
         Point2::new(least(0) - margin, least(1) - margin),
@@ -194,13 +216,12 @@ fn half_space(
         .zip(corners.iter().zip(corners.iter().cycle().skip(1)))
         .map(|(side, (start, end))| ProfileCurve::line(*side, *start, *end))
         .collect();
-    let profile = Profile::new(&curves).map_err(|error| context.unbuildable(&error))?;
+    let profile = Profile::new(&curves).map_err(HalfSpaceError::Profile)?;
     let extent = if flipped {
         LinearExtent::new(low - margin, 0.0)
     } else {
         LinearExtent::new(0.0, high + margin)
     }
-    .map_err(|error| context.unbuildable(&error))?;
-    extrude(plane, profile.regions(), extent, feature.id().raw())
-        .map_err(|error| context.unbuildable(&error))
+    .map_err(HalfSpaceError::Sweep)?;
+    extrude(plane, profile.regions(), extent, feature).map_err(HalfSpaceError::Sweep)
 }

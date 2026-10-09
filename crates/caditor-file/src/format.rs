@@ -882,6 +882,8 @@ pub(crate) enum ProjectionSourceRecord {
     Edge { body: u64, edge: EdgeRecord },
     Vertex { body: u64, vertex: String },
     SketchEntity { sketch: u64, entity: u64 },
+    Section { body: u64, edge: EdgeRecord },
+    DatumPlane { datum: u64, reach: f64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2490,6 +2492,14 @@ fn projection_source_record(source: &ProjectionSource) -> ProjectionSourceRecord
             sketch: sketch.raw(),
             entity: entity.raw(),
         },
+        ProjectionSource::Section { body, edge } => ProjectionSourceRecord::Section {
+            body: body.raw(),
+            edge: edge_record(edge),
+        },
+        ProjectionSource::DatumPlane { datum, reach } => ProjectionSourceRecord::DatumPlane {
+            datum: datum.raw(),
+            reach: *reach,
+        },
     }
 }
 
@@ -2506,6 +2516,14 @@ fn restore_projection_source(record: &ProjectionSourceRecord) -> Option<Projecti
         ProjectionSourceRecord::SketchEntity { sketch, entity } => ProjectionSource::SketchEntity {
             sketch: FeatureId::from_raw(*sketch),
             entity: EntityId::from_raw(*entity),
+        },
+        ProjectionSourceRecord::Section { body, edge } => ProjectionSource::Section {
+            body: FeatureId::from_raw(*body),
+            edge: restore_edge(edge)?,
+        },
+        ProjectionSourceRecord::DatumPlane { datum, reach } => ProjectionSource::DatumPlane {
+            datum: FeatureId::from_raw(*datum),
+            reach: Some(*reach).filter(|reach| reach.is_finite() && *reach > 0.0)?,
         },
     })
 }

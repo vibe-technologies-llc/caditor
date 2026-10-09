@@ -37,10 +37,11 @@ pub enum Tool {
     Fillet,
     Chamfer,
     Project,
+    Intersect,
     Dimension,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Dimension);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Intersect, Dimension);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -66,6 +67,7 @@ impl Tool {
             Self::Fillet => "Sketch fillet",
             Self::Chamfer => "Sketch chamfer",
             Self::Project => "Project",
+            Self::Intersect => "Intersect",
             Self::Dimension => "Smart dimension",
         }
     }
@@ -126,6 +128,11 @@ impl Tool {
                 "Click an edge, corner or face of a body, or a curve of another sketch, to bring \
                  it into this sketch; it follows the original as the model changes"
             }
+            Self::Intersect => {
+                "Click a face to draw where the sketch plane cuts it, Shift-click for the whole \
+                 body, or click a datum plane for the line it crosses the sketch in; the outline \
+                 follows the model as it changes"
+            }
             Self::Dimension => {
                 "Click the geometry to dimension: a line for its length, a circle or arc for its \
                  size, or two items for the distance or angle between them"
@@ -146,6 +153,7 @@ impl Tool {
             | Self::Fillet
             | Self::Chamfer
             | Self::Project
+            | Self::Intersect
             | Self::Dimension => false,
             Self::Point
             | Self::Line
@@ -182,7 +190,11 @@ impl Tool {
     }
 
     pub fn projects(self) -> bool {
-        self == Self::Project
+        matches!(self, Self::Project | Self::Intersect)
+    }
+
+    pub fn intersects(self) -> bool {
+        self == Self::Intersect
     }
 
     pub fn dimensions(self) -> bool {
@@ -221,6 +233,7 @@ pub struct Context {
     pub solid: Option<FeatureId>,
     pub choosing_plane: bool,
     pub projecting: bool,
+    pub intersecting: bool,
     pub selecting: bool,
     pub choosing_in_view: bool,
 }
@@ -267,6 +280,7 @@ impl SketchEditing {
             solid: self.solid,
             choosing_plane: self.choosing_plane,
             projecting: self.active.is_some_and(|active| active.tool.projects()),
+            intersecting: self.active.is_some_and(|active| active.tool.intersects()),
             selecting: self
                 .active
                 .is_some_and(|active| active.tool == Tool::Select),

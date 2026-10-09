@@ -279,7 +279,9 @@ paths:
   same flag and `set_sketch_constraint_active` is its own record.
 - A sketch record carries `projections` only when it has projected geometry: each the projected
   entity's `entity` and its `source` (`edge` with `body` and an edge record, `vertex` with `body`
-  and the vertex name's digest, or `sketch_entity` with `sketch` and `entity`). The projected flags
+  and the vertex name's digest, `sketch_entity` with `sketch` and `entity`, `section` with `body`
+  and an edge record, or `datum_plane` with `datum` and a finite positive `reach`). An older
+  reader lacking a source kind keeps its geometry as ordinary geometry, reported. The projected flags
   of the entity and its points are not stored; loading derives them from this list after the
   constraints, so stored constraints between projected geometry still load. An unreadable source
   leaves its geometry as ordinary geometry where it was saved, reported. The journal's
