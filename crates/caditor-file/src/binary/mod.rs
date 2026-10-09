@@ -32,7 +32,8 @@ const MAX_CONTENT: usize = 1 << 28;
 const MAX_JOINED_CONTENT: usize = 1 << 31;
 const HASHING_ALLOWANCE: usize = 4;
 const SALVAGE_REACH: usize = 64;
-const LEVEL: Level = Level::BALANCED;
+const SAVED_LEVEL: Level = Level::BALANCED;
+const RECOVERY_LEVEL: Level = Level::FAST;
 pub(crate) const MUST_UNDERSTAND: u8 = 1;
 const CONTINUED: u8 = 2;
 const CONTINUATION: u8 = 4;
@@ -398,8 +399,25 @@ pub(crate) fn push_packed(
     kind: ChunkKind,
     content: &[u8],
 ) -> Result<(), PackError> {
+    push_packed_at(bytes, kind, content, SAVED_LEVEL)
+}
+
+pub(crate) fn push_packed_for_recovery(
+    bytes: &mut Vec<u8>,
+    kind: ChunkKind,
+    content: &[u8],
+) -> Result<(), PackError> {
+    push_packed_at(bytes, kind, content, RECOVERY_LEVEL)
+}
+
+fn push_packed_at(
+    bytes: &mut Vec<u8>,
+    kind: ChunkKind,
+    content: &[u8],
+    level: Level,
+) -> Result<(), PackError> {
     push_slices(bytes, content, |slice, flags, bytes| {
-        let compressed = caditor_zstd::compress(slice, LEVEL)?;
+        let compressed = caditor_zstd::compress(slice, level)?;
         if compressed.len() < slice.len() {
             push_chunk(bytes, kind, Codec::Zstd, flags, slice.len(), &compressed)
         } else {
@@ -415,7 +433,7 @@ pub(crate) fn push_packed_after(
     newer: &[u8],
 ) -> Result<(), PackError> {
     push_slices(bytes, content, |slice, flags, bytes| {
-        let compressed = caditor_zstd::compress_after(slice, newer, LEVEL)?;
+        let compressed = caditor_zstd::compress_after(slice, newer, SAVED_LEVEL)?;
         push_chunk(
             bytes,
             kind,

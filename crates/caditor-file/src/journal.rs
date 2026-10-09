@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     binary::{
-        ChunkKind, EncodeError, FileDigest, JOURNAL_MAGIC, Piece, parse, push_packed, start_file,
-        value,
+        ChunkKind, EncodeError, FileDigest, JOURNAL_MAGIC, Piece, parse, push_packed_for_recovery,
+        start_file, value,
     },
     configurations::{ConfigurationsRecord, configurations_record},
     format::{
@@ -95,14 +95,14 @@ pub(crate) fn encode_journal(
         loaded_with_problems: head.loaded_with_problems,
     };
     let mut bytes = start_file(&JOURNAL_MAGIC, JOURNAL_VERSION);
-    push_packed(
+    push_packed_for_recovery(
         &mut bytes,
         ChunkKind::JournalHeader,
         &value::to_bytes(&header)?,
     )?;
     let snapshot = snapshot_record(base);
     if head.folded == 0 {
-        push_packed(
+        push_packed_for_recovery(
             &mut bytes,
             ChunkKind::Snapshot,
             &value::to_bytes(&snapshot)?,
@@ -112,7 +112,7 @@ pub(crate) fn encode_journal(
             snapshot,
             folded: u64::try_from(head.folded).unwrap_or(u64::MAX),
         };
-        push_packed(
+        push_packed_for_recovery(
             &mut bytes,
             ChunkKind::RebasedSnapshot,
             &value::to_bytes(&rebased)?,
@@ -131,15 +131,15 @@ pub(crate) fn encode_entry(entry: &Logged) -> Result<Vec<u8>, EncodeError> {
         Logged::Entry(JournalEntry::Undo(transaction)) => (ChunkKind::Undo, transaction),
         Logged::Entry(JournalEntry::Redo(transaction)) => (ChunkKind::Redo, transaction),
         Logged::UndoLast => {
-            push_packed(&mut bytes, ChunkKind::UndoLast, &[])?;
+            push_packed_for_recovery(&mut bytes, ChunkKind::UndoLast, &[])?;
             return Ok(bytes);
         }
         Logged::RedoNext => {
-            push_packed(&mut bytes, ChunkKind::RedoNext, &[])?;
+            push_packed_for_recovery(&mut bytes, ChunkKind::RedoNext, &[])?;
             return Ok(bytes);
         }
     };
-    push_packed(
+    push_packed_for_recovery(
         &mut bytes,
         kind,
         &value::to_bytes(&transaction_record(transaction))?,

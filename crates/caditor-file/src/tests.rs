@@ -2125,6 +2125,35 @@ fn an_edit_kind_this_version_does_not_know_stops_replay_at_its_line() {
     assert_eq!(recovered.issues.len(), 1);
 }
 
+#[test]
+fn a_journal_packed_at_the_saved_level_as_earlier_versions_wrote_it_recovers_the_same_session() {
+    let dir = TempDir::new().unwrap();
+    let storage = Storage::spawn(config(&dir), untitled(&sample()), || {}).unwrap();
+    let mut editor = Editor::new(sample());
+    record_session(&storage, &mut editor);
+    crash(storage);
+    let journal = fs::read_dir(dir.path().join("recovery"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let Inspection::Recoverable(written) = inspect(&journal).unwrap() else {
+        panic!("the journal should be recoverable");
+    };
+
+    let repacked = rewrite_journal(&fs::read(&journal).unwrap(), |_, json| json);
+    fs::write(&journal, repacked).unwrap();
+    let Inspection::Recoverable(earlier) = inspect(&journal).unwrap() else {
+        panic!("the repacked journal should be recoverable");
+    };
+
+    assert_eq!(earlier.changes(), written.changes());
+    assert_eq!(earlier.base, written.base);
+    assert_eq!(earlier.editor.document(), editor.document());
+    assert_eq!(history(&earlier.editor), history(&editor));
+}
+
 fn solid_model() -> (Document, FeatureId, FeatureId) {
     use caditor_document::{
         BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveAxis, RevolveExtent,

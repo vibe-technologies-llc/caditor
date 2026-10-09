@@ -36,6 +36,10 @@ paths:
   the head digest of the file last loaded or saved, so a recovered session still notices an outside
   change. The worker passes it as `SaveOptions::unless_changed_from` unless the request says
   `replace_outside_changes`, and reports `Report::ChangedOnDisk`.
+- Journal chunks are only read back after a crash, so they are packed at zstd `Level::FAST`
+  (`push_packed_for_recovery`), about four times quicker than the `Level::BALANCED` of a saved
+  model for some 30% more bytes. A zstd frame does not record its level, so journals packed at
+  either level (earlier versions used the saved one) read alike.
 - New edit kinds do not bump `JOURNAL_VERSION`: an older reader stops at the first entry it cannot
   read, keeping all before.
 - Lives at `.<name>.journal` next to the file, else under `recovery_dir` (untitled documents, or a
