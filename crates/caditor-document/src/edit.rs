@@ -608,6 +608,18 @@ impl TransactionBuilder<'_> {
         id
     }
 
+    pub fn add_copied_feature(&mut self, mut feature: Feature) -> FeatureId {
+        let id = FeatureId::from_raw(self.next_feature_id);
+        self.next_feature_id = self.next_feature_id.saturating_add(1);
+        feature.set_id(id);
+        self.edits.push(Edit::InsertFeature {
+            index: self.next_feature_index,
+            feature: Arc::new(feature),
+        });
+        self.next_feature_index += 1;
+        id
+    }
+
     pub fn edit(&mut self, edit: Edit) -> &mut Self {
         self.edits.push(edit);
         self

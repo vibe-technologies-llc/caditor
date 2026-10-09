@@ -24,7 +24,9 @@ mod model_scale;
 mod movement;
 mod offset_face;
 mod origins;
+mod parameter_import;
 mod parameter_list;
+mod paste;
 mod pattern;
 mod pieces;
 mod pool;
@@ -89,6 +91,13 @@ pub use crate::{
     movement::{AxisTurn, BodyPlacement, Move, MoveAxis, Pivot, TurnCentre},
     offset_face::OffsetFace,
     origins::complete_origins,
+    parameter_import::{
+        ImportOutcome, ImportRefusal, ImportRow, ImportedParameter, ParameterImport,
+    },
+    paste::{
+        Carried, CarriedParameter, CarriedParameters, CarryError, FeaturePaste, LeftOut,
+        PasteError, PasteOrigin, PasteRefusal, feature_parameters, literal,
+    },
     pattern::{
         CircularPattern, Instance, LinearDirection, LinearSpacing, MAX_PATTERN_INSTANCES,
         ORIGINAL_INSTANCE, Pattern, PatternKind, instance_name, repeatable_on,
@@ -180,7 +189,11 @@ mod offset_face_tests;
 #[cfg(test)]
 mod parallel_tests;
 #[cfg(test)]
+mod parameter_import_tests;
+#[cfg(test)]
 mod parameter_tests;
+#[cfg(test)]
+mod paste_tests;
 #[cfg(test)]
 mod pattern_tests;
 #[cfg(test)]

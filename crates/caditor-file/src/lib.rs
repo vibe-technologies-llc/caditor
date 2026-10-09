@@ -1,4 +1,5 @@
 mod binary;
+mod clipboard;
 mod export;
 mod format;
 #[cfg(feature = "fuzzing")]
@@ -9,6 +10,7 @@ mod load;
 mod lock;
 mod logs;
 mod os;
+mod parameters;
 mod paths;
 mod read;
 mod reason;
@@ -23,6 +25,11 @@ mod untrusted;
 
 pub use crate::{
     binary::{FileDigest, History, MAX_MODEL_RECORDS, SavedState, Version},
+    clipboard::{
+        CLIPBOARD_HEADER, CLIPBOARD_VERSION, ClipboardError, ClipboardKind, CopiedFeatures,
+        MAX_CLIPBOARD_TEXT, PastedGeometry, clipboard_kind, features_clipboard_text,
+        read_features_clipboard, read_sketch_clipboard, sketch_clipboard_text,
+    },
     export::{
         Annotations, Construction, DrawingExported, DrawingSheet, ExportBody, ExportError,
         ExportFormat, ExportThread, Exported, FaceExported, ImageExportError, Look, MeshOptions,
@@ -43,6 +50,10 @@ pub use crate::{
     journal::JournalEntry,
     load::{LoadError, Loaded, MAX_RECORDS, decode, history, load, load_cancellable, load_version},
     logs::{LOGS_KEPT, MAX_LOG_SIZE, SessionLog, ended_unexpectedly, mark_reported, prune_logs},
+    parameters::{
+        MAX_PARAMETER_ROWS, MAX_PARAMETERS_FILE, PARAMETERS_EXTENSION, ParameterFileError,
+        parameters_csv, parse_parameters, read_parameters, write_parameters,
+    },
     paths::{recovery_dir, state_dir},
     reason::{ReadFailure, WriteFailure},
     recent::{RECENT_LIMIT, RecentChange, RecentFiles},

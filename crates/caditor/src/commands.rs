@@ -71,6 +71,8 @@ pub enum Command {
     Import,
     Export,
     ExportImage,
+    ImportParameters,
+    ExportParameters,
     ExportSketch,
     ExportFace,
     KeepDrawingConstruction,
@@ -204,6 +206,8 @@ pub enum Command {
     MoveFeatureUp,
     MoveFeatureDown,
     DeleteFeature,
+    CopyFeatures,
+    PasteFeatures,
     SuppressFeature,
     RollToHere,
     RollToEnd,
@@ -498,6 +502,8 @@ plain_commands! {
     Import,
     Export,
     ExportImage,
+    ImportParameters,
+    ExportParameters,
     ExportSketch,
     ExportFace,
     KeepDrawingConstruction,
@@ -624,6 +630,8 @@ plain_commands! {
     MoveFeatureUp,
     MoveFeatureDown,
     DeleteFeature,
+    CopyFeatures,
+    PasteFeatures,
     SuppressFeature,
     RollToHere,
     RollToEnd,
@@ -691,6 +699,8 @@ impl Command {
             Self::Import => "file.import",
             Self::Export => "file.export",
             Self::ExportImage => "file.export_image",
+            Self::ImportParameters => "file.import_parameters",
+            Self::ExportParameters => "file.export_parameters",
             Self::ExportSketch => "file.export_sketch",
             Self::ExportFace => "file.export_face",
             Self::KeepDrawingConstruction => "file.keep_drawing_construction",
@@ -883,6 +893,8 @@ impl Command {
             Self::MoveFeatureUp => "model.move_feature_up",
             Self::MoveFeatureDown => "model.move_feature_down",
             Self::DeleteFeature => "model.delete_feature",
+            Self::CopyFeatures => "model.copy_features",
+            Self::PasteFeatures => "model.paste_features",
             Self::SuppressFeature => "model.suppress_feature",
             Self::RollToHere => "model.roll_to_here",
             Self::RollToEnd => "model.roll_to_end",
@@ -937,6 +949,8 @@ impl Command {
             Self::Import => "Import…",
             Self::Export => "Export…",
             Self::ExportImage => "Export image…",
+            Self::ImportParameters => "Import parameters…",
+            Self::ExportParameters => "Export parameters…",
             Self::ExportSketch => "Export sketch…",
             Self::ExportFace => "Export face…",
             Self::KeepDrawingConstruction => "Keep construction geometry in drawings",
@@ -1086,6 +1100,8 @@ impl Command {
             Self::MoveFeatureUp => "Move feature up",
             Self::MoveFeatureDown => "Move feature down",
             Self::DeleteFeature => "Delete feature",
+            Self::CopyFeatures => "Copy features",
+            Self::PasteFeatures => "Paste features",
             Self::SuppressFeature => "Suppress or unsuppress feature",
             Self::RollToHere => "Roll back to here",
             Self::RollToEnd => "Roll to end",
@@ -1140,6 +1156,8 @@ impl Command {
             | Self::Import
             | Self::Export
             | Self::ExportImage
+            | Self::ImportParameters
+            | Self::ExportParameters
             | Self::ExportSketch
             | Self::ExportFace
             | Self::KeepDrawingConstruction
@@ -1254,6 +1272,8 @@ impl Command {
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown
             | Self::DeleteFeature
+            | Self::CopyFeatures
+            | Self::PasteFeatures
             | Self::SuppressFeature
             | Self::RollToHere
             | Self::RollToEnd
@@ -1339,7 +1359,9 @@ impl Command {
             | Self::SketchTool(_)
             | Self::ShapeMode(_)
             | Self::Constraint(_) => Scope::Sketch,
-            Self::TogglePrincipal => Scope::OutsideSketch,
+            Self::TogglePrincipal | Self::CopyFeatures | Self::PasteFeatures => {
+                Scope::OutsideSketch
+            }
             _ => Scope::Anywhere,
         }
     }
@@ -1400,6 +1422,8 @@ impl Command {
             Self::CopyGeometry => vec![command(Key::C)],
             Self::CutGeometry => vec![command(Key::X)],
             Self::PasteGeometry => vec![command(Key::V)],
+            Self::CopyFeatures => vec![command(Key::C)],
+            Self::PasteFeatures => vec![command(Key::V)],
             Self::IntersectBody => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::Space)],
             Self::RenameFeature => vec![plain(Key::F2)],
             Self::GroupFeatures => vec![command(Key::G)],
@@ -1466,6 +1490,8 @@ impl Command {
             | Self::Analysis(_)
             | Self::NewFromTemplate
             | Self::SaveAsTemplate
+            | Self::ImportParameters
+            | Self::ExportParameters
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
             | Self::ClearRecent
@@ -1970,11 +1996,28 @@ impl Offer {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Clipboard {
+    #[default]
+    Unread,
+    Read(Option<String>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pasted<'a> {
+    Unread,
+    Text(&'a str),
+    Nothing,
+}
+
 pub struct CommandFrame<'a> {
     keymap: &'a Keymap,
     triggered: Vec<Command>,
     offers: Vec<Offer>,
     refused: Vec<(Command, String)>,
+    clipboard: Clipboard,
+    paste_asked: Option<Command>,
+    copied: Option<String>,
 }
 
 impl<'a> CommandFrame<'a> {
@@ -1984,7 +2027,40 @@ impl<'a> CommandFrame<'a> {
             triggered,
             offers: Vec::new(),
             refused: Vec::new(),
+            clipboard: Clipboard::Unread,
+            paste_asked: None,
+            copied: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_clipboard(mut self, clipboard: Clipboard) -> Self {
+        self.clipboard = clipboard;
+        self
+    }
+
+    pub fn pasted(&self) -> Pasted<'_> {
+        match &self.clipboard {
+            Clipboard::Unread => Pasted::Unread,
+            Clipboard::Read(Some(text)) => Pasted::Text(text),
+            Clipboard::Read(None) => Pasted::Nothing,
+        }
+    }
+
+    pub fn ask_for_paste(&mut self, command: Command) {
+        self.paste_asked = Some(command);
+    }
+
+    pub fn paste_asked(&self) -> Option<Command> {
+        self.paste_asked
+    }
+
+    pub fn copy(&mut self, text: String) {
+        self.copied = Some(text);
+    }
+
+    pub fn take_copied(&mut self) -> Option<String> {
+        self.copied.take()
     }
 
     pub fn keys(&self, command: Command) -> Option<String> {

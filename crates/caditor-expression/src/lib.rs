@@ -192,6 +192,25 @@ mod tests {
     }
 
     #[test]
+    fn substituting_replaces_every_parameter_at_once_so_swapped_ids_never_collide() {
+        let expression = parse("width * 2 + height").unwrap();
+
+        let swapped = expression
+            .substituting(&|id| match id {
+                WIDTH => Some(Expression::Parameter(HEIGHT)),
+                HEIGHT => Some(Expression::Parameter(WIDTH)),
+                _ => None,
+            })
+            .unwrap();
+        let inlined = expression
+            .substituting(&|id| (id == WIDTH).then(|| Expression::measure(3.0, Unit::Millimetre)))
+            .unwrap();
+
+        assert_eq!(swapped.to_text(&name_of), "height * 2 + width");
+        assert_eq!(inlined.to_text(&name_of), "3 mm * 2 + height");
+    }
+
+    #[test]
     fn literals_built_in_code_survive_storing_as_text() {
         let built = [
             Expression::number(-2.5),

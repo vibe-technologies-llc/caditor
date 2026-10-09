@@ -104,13 +104,17 @@ paths:
   Ctrl+V, the Sketch menu and the palette) work on the edited sketch's selected geometry through a
   `SketchClip` (`Sketch::clip`): the selected curves with their points and the lone points, their
   construction flags and every constraint among them (inactive ones staying inactive), never
-  reference geometry or a constraint reaching outside the copy. It lives in
-  `ViewportState::clipboard` with the sketch it came from, forgotten with the document. Paste is
-  one transaction (`Sketch::paste` on the working copy under fresh ids, a `Fix` moving with the
-  copy) centred under the pointer when it is on the sketch, else in place in another sketch or
-  shifted by a quarter of the copy's size in the same one, and selects what it pasted. Copying
-  also puts a line of text on the system clipboard, since egui-winit sends Ctrl+V as a paste
-  event only when the system clipboard holds text.
+  reference geometry or a constraint reaching outside the copy. Copying writes it to the system
+  clipboard as text (`caditor_file::sketch_clipboard_text`, `file-format.md`) with the parameters
+  its dimensions use, so another caditor pastes it too; the app keeps nothing else, the last text
+  copied standing in only when the system clipboard holds no text. Paste reads the clipboard's text
+  (`read_sketch_clipboard`): foreign, damaged or newer text, or features, are refused in a notice
+  saying so. It is one transaction (`Sketch::paste` on the working copy under fresh ids, a `Fix`
+  moving with the copy) centred under the pointer when it is on the sketch, else in place in
+  another sketch or shifted by a quarter of the copy's size when pasted into the sketch it came
+  from in the same model, and selects what it pasted. Dimensions keep parameters of the same name
+  in the target model, else take the copied value, and a notice says how many values became
+  numbers.
 - Double-clicking a curve (no tool active) selects its chain, the lines and arcs joined end to end
   that Offset would take (`Sketch::offset_chain_through`).
 - Select what is still free (`Command::SelectFree`, Sketch menu, palette, no default key;

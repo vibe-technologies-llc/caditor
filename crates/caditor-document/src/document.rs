@@ -997,6 +997,10 @@ pub struct Feature {
 }
 
 impl Feature {
+    pub(crate) fn set_id(&mut self, id: FeatureId) {
+        self.id = id;
+    }
+
     pub fn new(id: FeatureId, name: String, kind: FeatureKind) -> Self {
         Self {
             id,

@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use caditor_expression::ParameterId;
 use caditor_geometry::{Aabb2, Point2, Vector2};
 
 use crate::{
@@ -38,6 +39,14 @@ impl SketchClip {
 
     pub fn constraint_count(&self) -> usize {
         self.constraints.len()
+    }
+
+    pub fn parameters(&self) -> BTreeSet<ParameterId> {
+        self.constraints
+            .iter()
+            .filter_map(|(constraint, _)| constraint.dimension())
+            .flat_map(|value| value.parameters())
+            .collect()
     }
 
     pub fn centre(&self) -> Option<Point2> {
@@ -232,6 +241,7 @@ mod tests {
         assert_eq!(clip.constraint_count(), 3);
         assert_eq!(clip.centre(), Some(Point2::new(5.0, 0.0)));
         assert_eq!(clip.size(), 10.0);
+        assert!(clip.parameters().is_empty());
 
         let before = sketch.constraints().len();
         let pasted = sketch.paste(&clip, Vector2::new(0.0, 20.0)).unwrap();

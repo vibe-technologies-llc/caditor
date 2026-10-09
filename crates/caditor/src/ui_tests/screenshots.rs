@@ -923,6 +923,20 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     shoot(&mut model, gpu, out, "import-options", look);
     close_dialog(&mut model);
 
+    let table = dir.path().join("dimensions.csv");
+    std::fs::write(
+        &table,
+        "name,expression,note\nwidth,60 mm,\ndepth,width / 4,\nwall,2 mm,\n2nd,1 mm,\n",
+    )
+    .expect("the parameter table is written");
+    model.answer_dialog(Some(table));
+    model.command(FileCommand::ImportParameters);
+    model.wait_until("the parameter preview is shown", |harness| {
+        harness.shows("Import parameters from “dimensions.csv”")
+    });
+    shoot(&mut model, gpu, out, "parameter-import", look);
+    close_dialog(&mut model);
+
     let path = dir.path().join("plate.caditor");
     model.answer_dialog(Some(path.clone()));
     model.command(FileCommand::SaveAs);

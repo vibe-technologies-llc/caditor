@@ -322,6 +322,23 @@ paths:
   (`image::encode_png`), with a `png` content type and a package relationship of the OPC thumbnail
   type; one that cannot be encoded is left out with a log line, never failing the export.
 
+## Parameter files (`parameters.rs`)
+
+- Parameters export as CSV (RFC 4180, `PARAMETERS_EXTENSION`): a header row
+  `name,expression,value,note`, then one row per parameter in list order, CRLF line ends. The
+  expression is written with parameter names (`Expression::to_text`) and carries its own units;
+  `value` is the evaluated value for people reading the file (`error` when it does not evaluate)
+  and is ignored on reading. Cells holding a delimiter, quote, line break, surrounding spaces or a
+  leading `=`, `+`, `-` or `@` are quoted, so a spreadsheet never reads one as a formula. The file
+  is written with `write_atomically`.
+- Reading (`parse_parameters`) finds the `name` and `expression` columns by header, in any order
+  and case, an optional `note` (or `description`) column, and ignores the others; the delimiter is
+  the one of comma, semicolon or tab the header uses most, so spreadsheets saving with semicolons
+  read too. A byte-order mark, quoted cells over several lines and blank rows are accepted. A file
+  over `MAX_PARAMETERS_FILE`, not UTF-8, without both columns, with an unclosed quote (named by
+  line) or with more than `MAX_PARAMETER_ROWS` rows is refused as a whole; anything wrong in a
+  row is left to `plan_parameter_import` (`document.md`).
+
 ## Failures
 
 - Reading and writing a file fail as `ReadFailure` and `WriteFailure` (`reason.rs`), one variant per

@@ -388,8 +388,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   features, the parameter and expression syntax, or the file workflow, and no panel links to help on
   itself. A guide shipped with the app (and readable offline) with a page per tool, opened by F1 for
   the current tool or panel.
-- [medium · hard] No clipboard for features, and sketch geometry copies only within one caditor
-  (the system clipboard gets a line of text, not the geometry); no parameter import or export.
+- [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
+  copied feature (a fillet copied with its extrusion): face and edge names are digests over the
+  feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge
+  found again in the copy's recomputed result (by matching it in the original's) before the paste
+  is applied. Pasted features also take no group, and a copy from another model keeps none of its
+  references outside the copied set.
 - [low · hard] Themes are four fixed `Tokens` sets in `appearance.rs` (dark, light and their
   high-contrast variants) and the 3D view is dark in all of them. Add themes as data: a few shipped
   ones beyond dark and light, a choice of accent colour, a light 3D view (background, grid, edges

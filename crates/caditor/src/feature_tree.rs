@@ -20,7 +20,7 @@ use crate::{
     datum_panel,
     drawing_export::{self, DrawingSource},
     editing::{EditingCommand, SketchEditing},
-    feature_groups,
+    feature_clipboard, feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
     fonts, hole_panel, icons, import_panel, mate_panel, mirror_panel, mirror_tools,
@@ -2179,6 +2179,15 @@ pub fn commands(
     {
         actions.push(Action::Apply(transaction));
     }
+    feature_clipboard::commands(
+        model,
+        editing,
+        &targets,
+        detail.clone(),
+        state,
+        commands,
+        actions,
+    );
     let delete = delete_request(document, &targets);
     if commands.invoke_detailed(Command::DeleteFeature, detail, &delete)
         && let Ok(deletion) = delete
