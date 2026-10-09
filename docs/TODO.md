@@ -325,6 +325,18 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   tests that a body, a mix of faces and an assembly come back with exactly their colours and
   opacities. Then check files from those systems and have the import report say what it could not
   understand. `step-read.md` and `step-write.md` change in the same commit.
+- [high · hard] Importing a large STEP file is slow, and its bodies appear in the view one by one
+  over a long stretch instead of together. Nothing has been measured yet: start by timing a large
+  import in release stage by stage (reading and healing, the recompute of each body, tessellation,
+  the hand to the renderer, the GPU upload) on a real file such as a 5 MB guitar pickup assembly,
+  and let the numbers pick the work. The suspects already on the roadmap are the single-threaded,
+  uncached display meshing of each body (`Kernel performance`), the upload that takes in only
+  8 MiB of meshes and silhouettes a frame (`MESH_UPLOAD_BYTES_PER_FRAME`, in
+  `caditor-render/src/viewport.rs`), and bodies recomputed and shown one after another instead of
+  as one batch. Whatever the cause, an import shows progress and the model as soon as the first
+  bodies are ready, without the interface stalling, and a benchmark with a large STEP file keeps
+  the time from creeping back. Pair it with the indicator while the GPU takes in a body
+  (`Application`).
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
 
