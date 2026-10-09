@@ -167,6 +167,11 @@ paths:
     when its content grows past the window's height.
   - Icons and labels are separate text atoms, so tests find buttons by bare label, and compact ones
     by accessible name.
+  - Animated widgets repaint on a timer, never every frame: `widgets::spinner` draws egui's spinner
+    from the input time and asks for the next frame after `SPINNER_FRAME` (about 15 a second),
+    since egui's own `Spinner` requests a repaint every frame and would drive the whole app and
+    the 3D pass at the display's rate while a job runs (`conventions_tests.rs` refuses the raw
+    one).
 - `dialog_parts.rs` holds what dialogs share beyond the kit: `confirmation` and `confirm_footer`
   (warning callout, destructive action left, primary Cancel right), `undo_note`, `titled_modal`
   (no close button, for waits that cannot be cancelled) and `BodyRoom` (keeps the whole dialog

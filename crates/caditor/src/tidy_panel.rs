@@ -136,7 +136,7 @@ pub fn show(
                 }
                 Progress::Working => {
                     ui.horizontal(|ui| {
-                        ui.spinner();
+                        widgets::spinner(ui);
                         ui.label(WORKING);
                     });
                 }
@@ -353,7 +353,7 @@ fn found_proposal(
         }
         _ => {
             ui.horizontal(|ui| {
-                ui.spinner();
+                widgets::spinner(ui);
                 ui.label(WORKING);
             });
         }

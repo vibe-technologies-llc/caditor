@@ -592,7 +592,7 @@ pub fn activity(
     let running = exporter.running.as_ref().ok_or(NOT_EXPORTING);
     let mut cancel = commands.invoke(Command::CancelExport, &running);
     if let Ok(running) = running {
-        ui.spinner();
+        widgets::spinner(ui);
         match &running.progress {
             Some(progress) => {
                 let done = progress.done.load(Ordering::SeqCst);
