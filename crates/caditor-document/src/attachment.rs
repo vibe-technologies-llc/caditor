@@ -5,7 +5,7 @@ use caditor_kernel::{FaceId, FaceReference, ReferenceError, Solid, Surface};
 use caditor_sketch::{EntityId, Sketch};
 
 use crate::{
-    datum::DatumResult,
+    datum::{DatumResult, PrincipalPlane},
     document::{Feature, FeatureId},
     origins,
     projection::ProjectionSource,
@@ -79,27 +79,38 @@ pub fn face_plane(solid: &Solid, face: FaceId) -> Option<Plane> {
 pub enum SketchAttachment {
     Face(FaceAttachment),
     Datum(FeatureId),
+    Frame {
+        frame: FeatureId,
+        plane: PrincipalPlane,
+    },
 }
 
 impl SketchAttachment {
     pub fn body(&self) -> Option<FeatureId> {
         match self {
             Self::Face(attachment) => Some(attachment.body),
-            Self::Datum(_) => None,
+            Self::Datum(_) | Self::Frame { .. } => None,
         }
     }
 
     pub fn datum(&self) -> Option<FeatureId> {
         match self {
             Self::Datum(datum) => Some(*datum),
-            Self::Face(_) => None,
+            Self::Face(_) | Self::Frame { .. } => None,
+        }
+    }
+
+    pub fn frame(&self) -> Option<(FeatureId, PrincipalPlane)> {
+        match self {
+            Self::Frame { frame, plane } => Some((*frame, *plane)),
+            Self::Face(_) | Self::Datum(_) => None,
         }
     }
 
     pub fn face(&self) -> Option<&FaceAttachment> {
         match self {
             Self::Face(attachment) => Some(attachment),
-            Self::Datum(_) => None,
+            Self::Datum(_) | Self::Frame { .. } => None,
         }
     }
 }
@@ -190,6 +201,38 @@ pub(crate) fn attached_plane(
                     reason: format!("The plane this sketch lies on, {name}, is not available."),
                     remedy: format!("Fix {name} first, or place the sketch on another plane."),
                     fix: Some(FixTarget::Feature(*datum)),
+                    constraints: Vec::new(),
+                    place: None,
+                }))),
+            }
+        }
+        SketchAttachment::Frame { frame, plane } => {
+            let name = inputs
+                .document
+                .feature(*frame)
+                .map(|frame| frame.name.clone())
+                .unwrap_or_default();
+            match inputs.features.get(frame).map(AsRef::as_ref) {
+                Some(FeatureResult::Datum(DatumResult::Frame(placed))) => {
+                    plane.in_frame(placed).ok_or_else(|| {
+                        Failure::Error(Box::new(FeatureError {
+                            reason: format!(
+                                "The {} of {name} that this sketch lies on could not be placed.",
+                                plane.name()
+                            ),
+                            remedy: "Place the sketch on another plane.".to_owned(),
+                            fix: Some(FixTarget::Feature(feature.id())),
+                            constraints: Vec::new(),
+                            place: None,
+                        }))
+                    })
+                }
+                _ => Err(Failure::Error(Box::new(FeatureError {
+                    reason: format!(
+                        "The coordinate system this sketch lies on, {name}, is not available."
+                    ),
+                    remedy: format!("Fix {name} first, or place the sketch on another plane."),
+                    fix: Some(FixTarget::Feature(*frame)),
                     constraints: Vec::new(),
                     place: None,
                 }))),

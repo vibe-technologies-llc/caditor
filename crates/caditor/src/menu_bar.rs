@@ -44,8 +44,12 @@ const MODEL_PRIMITIVES: [&[Command]; 1] = [&[
     Command::NewWedge,
     Command::NewPrism,
 ]];
-const MODEL_DATUMS: [&[Command]; 1] =
-    [&[Command::DatumPlane, Command::DatumAxis, Command::DatumPoint]];
+const MODEL_DATUMS: [&[Command]; 1] = [&[
+    Command::DatumPlane,
+    Command::DatumAxis,
+    Command::DatumPoint,
+    Command::CoordinateSystem,
+]];
 const MODEL_BODIES: [&[Command]; 2] = [
     &[
         Command::Move,

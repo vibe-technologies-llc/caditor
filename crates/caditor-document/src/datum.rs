@@ -43,6 +43,11 @@ impl PrincipalPlane {
             Self::Yz => "YZ plane",
         }
     }
+
+    pub fn in_frame(self, frame: &Plane) -> Option<Plane> {
+        let placement = RigidTransform::from_frame(frame)?;
+        Some(self.plane().transformed(&placement))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -73,6 +78,11 @@ impl PrincipalAxis {
 
     pub fn ray(self) -> Option<Ray> {
         Ray::new(Point3::ZERO, self.direction())
+    }
+
+    pub fn in_frame(self, frame: &Plane) -> Option<Ray> {
+        let placement = RigidTransform::from_frame(frame)?;
+        Ray::new(frame.origin(), placement.apply_vector(self.direction()))
     }
 }
 
@@ -108,34 +118,45 @@ pub enum PlaneReference {
     Principal(PrincipalPlane),
     Datum(FeatureId),
     Face(FaceAttachment),
+    Frame {
+        frame: FeatureId,
+        plane: PrincipalPlane,
+    },
 }
 
 impl PlaneReference {
     pub fn heap_size(&self) -> usize {
         match self {
             Self::Face(attachment) => attachment.face.heap_size(),
-            Self::Principal(_) | Self::Datum(_) => 0,
+            Self::Principal(_) | Self::Datum(_) | Self::Frame { .. } => 0,
         }
     }
 
     pub fn datum(&self) -> Option<FeatureId> {
         match self {
             Self::Datum(feature) => Some(*feature),
-            Self::Principal(_) | Self::Face(_) => None,
+            Self::Principal(_) | Self::Face(_) | Self::Frame { .. } => None,
+        }
+    }
+
+    pub fn frame(&self) -> Option<FeatureId> {
+        match self {
+            Self::Frame { frame, .. } => Some(*frame),
+            Self::Principal(_) | Self::Datum(_) | Self::Face(_) => None,
         }
     }
 
     pub fn body(&self) -> Option<FeatureId> {
         match self {
             Self::Face(attachment) => Some(attachment.body),
-            Self::Principal(_) | Self::Datum(_) => None,
+            Self::Principal(_) | Self::Datum(_) | Self::Frame { .. } => None,
         }
     }
 
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Face(attachment) => attachment.origin_features(),
-            Self::Principal(_) | Self::Datum(_) => BTreeSet::new(),
+            Self::Principal(_) | Self::Datum(_) | Self::Frame { .. } => BTreeSet::new(),
         }
     }
 }
@@ -156,6 +177,10 @@ pub enum AxisReference {
         sketch: FeatureId,
         entity: EntityId,
     },
+    Frame {
+        frame: FeatureId,
+        axis: PrincipalAxis,
+    },
 }
 
 impl AxisReference {
@@ -163,30 +188,47 @@ impl AxisReference {
         match self {
             Self::Edge { .. } => size_of::<EdgeReference>(),
             Self::Face { face, .. } => face.heap_size(),
-            Self::Principal(_) | Self::Datum(_) | Self::Sketch { .. } => 0,
+            Self::Principal(_) | Self::Datum(_) | Self::Sketch { .. } | Self::Frame { .. } => 0,
         }
     }
 
     pub fn datum(&self) -> Option<FeatureId> {
         match self {
             Self::Datum(feature) => Some(*feature),
-            Self::Principal(_) | Self::Edge { .. } | Self::Face { .. } | Self::Sketch { .. } => {
-                None
-            }
+            Self::Principal(_)
+            | Self::Edge { .. }
+            | Self::Face { .. }
+            | Self::Sketch { .. }
+            | Self::Frame { .. } => None,
+        }
+    }
+
+    pub fn frame(&self) -> Option<FeatureId> {
+        match self {
+            Self::Frame { frame, .. } => Some(*frame),
+            Self::Principal(_)
+            | Self::Datum(_)
+            | Self::Edge { .. }
+            | Self::Face { .. }
+            | Self::Sketch { .. } => None,
         }
     }
 
     pub fn body(&self) -> Option<FeatureId> {
         match self {
             Self::Edge { body, .. } | Self::Face { body, .. } => Some(*body),
-            Self::Principal(_) | Self::Datum(_) | Self::Sketch { .. } => None,
+            Self::Principal(_) | Self::Datum(_) | Self::Sketch { .. } | Self::Frame { .. } => None,
         }
     }
 
     pub fn sketch(&self) -> Option<FeatureId> {
         match self {
             Self::Sketch { sketch, .. } => Some(*sketch),
-            Self::Principal(_) | Self::Datum(_) | Self::Edge { .. } | Self::Face { .. } => None,
+            Self::Principal(_)
+            | Self::Datum(_)
+            | Self::Edge { .. }
+            | Self::Face { .. }
+            | Self::Frame { .. } => None,
         }
     }
 
@@ -194,7 +236,9 @@ impl AxisReference {
         match self {
             Self::Edge { edge, .. } => origins::of_edge(edge),
             Self::Face { face, .. } => origins::of_face(face).into_iter().collect(),
-            Self::Principal(_) | Self::Datum(_) | Self::Sketch { .. } => BTreeSet::new(),
+            Self::Principal(_) | Self::Datum(_) | Self::Sketch { .. } | Self::Frame { .. } => {
+                BTreeSet::new()
+            }
         }
     }
 
@@ -380,12 +424,34 @@ pub enum DatumAxis {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct DatumFrame {
+    pub origin: PointReference,
+    pub x_axis: AxisReference,
+    pub plane: PlaneReference,
+    pub reverse_x: bool,
+    pub reverse_z: bool,
+}
+
+impl DatumFrame {
+    pub fn world() -> Self {
+        Self {
+            origin: PointReference::Origin,
+            x_axis: AxisReference::Principal(PrincipalAxis::X),
+            plane: PlaneReference::Principal(PrincipalPlane::Xy),
+            reverse_x: false,
+            reverse_z: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Datum {
     Plane(DatumPlane),
     PlaneThrough(PlaneThrough),
     Axis(DatumAxis),
     Point(DatumPoint),
     PointBy(PointBy),
+    Frame(Box<DatumFrame>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -393,6 +459,7 @@ pub enum DatumKind {
     Plane,
     Axis,
     Point,
+    Frame,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -400,27 +467,35 @@ pub enum DatumResult {
     Plane(Plane),
     Axis(Ray),
     Point(Point3),
+    Frame(Plane),
 }
 
 impl DatumResult {
     pub fn plane(&self) -> Option<Plane> {
         match self {
             Self::Plane(plane) => Some(*plane),
-            Self::Axis(_) | Self::Point(_) => None,
+            Self::Axis(_) | Self::Point(_) | Self::Frame(_) => None,
         }
     }
 
     pub fn axis(&self) -> Option<Ray> {
         match self {
             Self::Axis(axis) => Some(*axis),
-            Self::Plane(_) | Self::Point(_) => None,
+            Self::Plane(_) | Self::Point(_) | Self::Frame(_) => None,
         }
     }
 
     pub fn point(&self) -> Option<Point3> {
         match self {
             Self::Point(point) => Some(*point),
-            Self::Plane(_) | Self::Axis(_) => None,
+            Self::Plane(_) | Self::Axis(_) | Self::Frame(_) => None,
+        }
+    }
+
+    pub fn frame(&self) -> Option<Plane> {
+        match self {
+            Self::Frame(frame) => Some(*frame),
+            Self::Plane(_) | Self::Axis(_) | Self::Point(_) => None,
         }
     }
 }
@@ -435,7 +510,11 @@ impl Datum {
                         rotation.axis.heap_size() + rotation.angle.heap_size()
                     })
             }
-            Self::PlaneThrough(_) | Self::Axis(_) | Self::Point(_) | Self::PointBy(_) => self
+            Self::PlaneThrough(_)
+            | Self::Axis(_)
+            | Self::Point(_)
+            | Self::PointBy(_)
+            | Self::Frame(_) => self
                 .planes()
                 .into_iter()
                 .map(PlaneReference::heap_size)
@@ -452,6 +531,7 @@ impl Datum {
             DatumKind::Plane => "Plane",
             DatumKind::Axis => "Axis",
             DatumKind::Point => "Point",
+            DatumKind::Frame => "Coordinate system",
         }
     }
 
@@ -460,6 +540,7 @@ impl Datum {
             Self::Plane(_) | Self::PlaneThrough(_) => DatumKind::Plane,
             Self::Axis(_) => DatumKind::Axis,
             Self::Point(_) | Self::PointBy(_) => DatumKind::Point,
+            Self::Frame(_) => DatumKind::Frame,
         }
     }
 
@@ -468,6 +549,7 @@ impl Datum {
             Self::PlaneThrough(PlaneThrough::Tangent(tangent)) => Some(tangent.face.heap_size()),
             Self::PlaneThrough(PlaneThrough::SquareToCurve(_))
             | Self::PointBy(PointBy::Along(_)) => Some(size_of::<EdgeReference>()),
+            Self::Frame(_) => Some(size_of::<DatumFrame>()),
             _ => None,
         }
     }
@@ -492,6 +574,10 @@ impl Datum {
         self.kind() == DatumKind::Point
     }
 
+    pub fn is_frame(&self) -> bool {
+        self.kind() == DatumKind::Frame
+    }
+
     pub fn same_kind(&self, other: &Self) -> bool {
         self.kind() == other.kind()
     }
@@ -502,7 +588,7 @@ impl Datum {
                 .chain(plane.rotation.as_ref().map(|rotation| &rotation.angle))
                 .collect(),
             Self::Point(point) => point.offset.iter().collect(),
-            Self::PlaneThrough(_) | Self::Axis(_) | Self::PointBy(_) => self
+            Self::PlaneThrough(_) | Self::Axis(_) | Self::PointBy(_) | Self::Frame(_) => self
                 .station()
                 .map(|station| &station.distance)
                 .into_iter()
@@ -518,13 +604,14 @@ impl Datum {
             Self::Point(point) => point.offset.iter_mut().collect(),
             Self::PlaneThrough(PlaneThrough::SquareToCurve(station))
             | Self::PointBy(PointBy::Along(station)) => vec![&mut station.distance],
-            Self::PlaneThrough(_) | Self::Axis(_) | Self::PointBy(_) => Vec::new(),
+            Self::PlaneThrough(_) | Self::Axis(_) | Self::PointBy(_) | Self::Frame(_) => Vec::new(),
         }
     }
 
     fn planes(&self) -> Vec<&PlaneReference> {
         match self {
             Self::Plane(plane) => vec![&plane.base],
+            Self::Frame(frame) => vec![&frame.plane],
             Self::PlaneThrough(PlaneThrough::Midway(first, second))
             | Self::Axis(DatumAxis::Intersection(first, second)) => vec![first, second],
             Self::Axis(DatumAxis::NormalTo(plane, _))
@@ -552,6 +639,7 @@ impl Datum {
                 .map(|rotation| &rotation.axis)
                 .into_iter()
                 .collect(),
+            Self::Frame(frame) => vec![&frame.x_axis],
             Self::Axis(DatumAxis::Along(axis))
             | Self::PlaneThrough(
                 PlaneThrough::AxisAndPoint(axis, _) | PlaneThrough::NormalTo(axis, _),
@@ -578,6 +666,7 @@ impl Datum {
     pub fn points(&self) -> Vec<&PointReference> {
         match self {
             Self::Point(point) => vec![&point.base],
+            Self::Frame(frame) => vec![&frame.origin],
             Self::PlaneThrough(PlaneThrough::Points(points)) => points.iter().collect(),
             Self::PlaneThrough(
                 PlaneThrough::AxisAndPoint(_, point) | PlaneThrough::NormalTo(_, point),
@@ -642,6 +731,14 @@ impl Datum {
             .collect()
     }
 
+    pub fn frames(&self) -> BTreeSet<FeatureId> {
+        self.planes()
+            .into_iter()
+            .filter_map(PlaneReference::frame)
+            .chain(self.axes().into_iter().filter_map(AxisReference::frame))
+            .collect()
+    }
+
     pub fn bodies(&self) -> BTreeSet<FeatureId> {
         self.planes()
             .into_iter()
@@ -667,6 +764,7 @@ impl Datum {
         used.extend(self.point_datums());
         used.extend(self.point_sketches());
         used.extend(self.bodies());
+        used.extend(self.frames());
         used
     }
 
@@ -710,6 +808,9 @@ pub fn describe_plane(document: &Document, reference: &PlaneReference) -> String
         PlaneReference::Principal(plane) => format!("the {}", plane.name()),
         PlaneReference::Datum(feature) => feature_name(document, *feature),
         PlaneReference::Face(attachment) => describe_origin(document, attachment.face.origin()),
+        PlaneReference::Frame { frame, plane } => {
+            format!("the {} of {}", plane.name(), feature_name(document, *frame))
+        }
     }
 }
 
@@ -732,6 +833,9 @@ pub fn describe_axis(document: &Document, reference: &AxisReference) -> String {
                     |definition| definition.entity_label(*entity),
                 );
             format!("{label} of {}", feature_name(document, *sketch))
+        }
+        AxisReference::Frame { frame, axis } => {
+            format!("the {} of {}", axis.name(), feature_name(document, *frame))
         }
     }
 }
@@ -884,6 +988,37 @@ pub fn displayed_axis(
             let result = evaluation.feature(*sketch)?.result.as_deref()?.sketch()?;
             sketch_line(&result.geometry, *entity)
         }
+        AxisReference::Frame { frame, axis } => {
+            axis.in_frame(&displayed_frame(evaluation, *frame)?)
+        }
+    }
+}
+
+pub fn displayed_frame(evaluation: &Evaluation, frame: FeatureId) -> Option<Plane> {
+    evaluation
+        .feature(frame)?
+        .result
+        .as_deref()?
+        .datum()?
+        .frame()
+}
+
+pub fn displayed_plane(evaluation: &Evaluation, reference: &PlaneReference) -> Option<Plane> {
+    match reference {
+        PlaneReference::Principal(plane) => Some(plane.plane()),
+        PlaneReference::Datum(feature) => evaluation
+            .feature(*feature)?
+            .result
+            .as_deref()?
+            .datum()?
+            .plane(),
+        PlaneReference::Face(attachment) => {
+            let solid = evaluation.body(attachment.body)?;
+            attachment.resolve(solid).ok()
+        }
+        PlaneReference::Frame { frame, plane } => {
+            plane.in_frame(&displayed_frame(evaluation, *frame)?)
+        }
     }
 }
 
@@ -931,6 +1066,18 @@ impl Resolver<'_> {
         }
     }
 
+    pub(crate) fn frame(&self, feature: FeatureId) -> Result<Plane, Failure> {
+        self.datum(feature)?.frame().ok_or_else(|| {
+            self.own_error(
+                format!(
+                    "{} is not a coordinate system.",
+                    feature_name(self.inputs.document, feature)
+                ),
+                "Choose a coordinate system instead.",
+            )
+        })
+    }
+
     pub(crate) fn body(&self, body: FeatureId) -> Result<&Solid, Failure> {
         self.inputs
             .body(body)
@@ -966,6 +1113,18 @@ impl Resolver<'_> {
                         }
                     };
                     self.own_error(reason, "Choose another plane or flat face for it.")
+                })
+            }
+            PlaneReference::Frame { frame, plane } => {
+                plane.in_frame(&self.frame(*frame)?).ok_or_else(|| {
+                    self.own_error(
+                        format!(
+                            "The {} of {} could not be placed.",
+                            plane.name(),
+                            feature_name(self.inputs.document, *frame)
+                        ),
+                        "Choose another plane.",
+                    )
                 })
             }
         }
@@ -1049,6 +1208,18 @@ impl Resolver<'_> {
                             "The line of {name} it uses no longer exists or is no longer a line."
                         ),
                         "Choose another line or axis for it.",
+                    )
+                })
+            }
+            AxisReference::Frame { frame, axis } => {
+                axis.in_frame(&self.frame(*frame)?).ok_or_else(|| {
+                    self.own_error(
+                        format!(
+                            "The {} of {} could not be placed.",
+                            axis.name(),
+                            feature_name(document, *frame)
+                        ),
+                        "Choose another axis.",
                     )
                 })
             }
@@ -1475,6 +1646,9 @@ pub(crate) fn evaluate(
             DatumResult::Plane(moved)
         }
         Datum::Axis(axis) => DatumResult::Axis(axis_through(&resolver, axis)?),
+        Datum::Frame(frame) => {
+            DatumResult::Frame(datum_construction::coordinate_system(&resolver, frame)?)
+        }
     };
     Ok(FeatureResult::Datum(result))
 }

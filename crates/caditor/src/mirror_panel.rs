@@ -1,10 +1,8 @@
-use caditor_document::{
-    Feature, FeatureId, Mirror, PlaneReference, PrincipalPlane, Transaction, capitalized,
-    describe_plane,
-};
+use caditor_document::{Feature, FeatureId, Mirror, Transaction, capitalized, describe_plane};
 use egui::{Id, Ui};
 
 use crate::{
+    datum_tools,
     feature_fields::{self, Choice, Picker},
     icons, mirror_tools,
     model::{Action, Model},
@@ -51,18 +49,15 @@ impl Panel<'_> {
         widgets::caption(ui, "Mirror across");
         let chosen =
             feature_fields::combo(ui, Id::new(("mirror-plane", self.id())), current, || {
-                PrincipalPlane::ALL
+                datum_tools::listed_planes(document, self.id())
                     .into_iter()
-                    .map(|plane| {
-                        let reference = PlaneReference::Principal(plane);
-                        Choice {
-                            label: capitalized(&describe_plane(document, &reference)),
-                            selected: self.mirror.plane == reference,
-                            change: self.change(Mirror {
-                                plane: reference,
-                                ..self.mirror.clone()
-                            }),
-                        }
+                    .map(|reference| Choice {
+                        label: capitalized(&describe_plane(document, &reference)),
+                        selected: self.mirror.plane == reference,
+                        change: self.change(Mirror {
+                            plane: reference,
+                            ..self.mirror.clone()
+                        }),
                     })
                     .collect()
             });

@@ -204,6 +204,15 @@ fn datum_words(result: DatumResult, unit: LengthUnit) -> String {
         DatumResult::Point(point) => {
             format!("at {}", unit.spoken_position([point.x, point.y, point.z]))
         }
+        DatumResult::Frame(frame) => {
+            let origin = frame.origin();
+            format!(
+                "at {}, its X axis {} and its Z axis {}",
+                unit.spoken_position([origin.x, origin.y, origin.z]),
+                direction_words(frame.x_axis()),
+                direction_words(frame.normal())
+            )
+        }
     }
 }
 

@@ -9,8 +9,8 @@ use std::{
     thread,
 };
 
-use caditor_document::{DatumResult, FeatureId, FeatureResult, profile_curve};
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_document::{DatumResult, FeatureId, FeatureResult, displayed_frame, profile_curve};
+use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 use caditor_kernel::{
     Accuracy, AngleKind, Axis, Curve, EdgeForm, EdgeId, EdgeMeasure, Element, FaceForm, FaceId,
     Interval, LINEAR_RESOLUTION, MeasureError, Region, Separation, angle, axis_of, axis_separation,
@@ -215,7 +215,22 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
                 direction: ray.direction(),
             }),
             DatumResult::Point(point) => Subject::Point(point),
+            DatumResult::Frame(frame) => Subject::Point(frame.origin()),
         },
+        Pickable::FrameAxis { feature, axis } => {
+            let ray = axis.in_frame(&displayed_frame(evaluation, feature)?)?;
+            Subject::Axis(Axis {
+                origin: ray.origin(),
+                direction: ray.direction(),
+            })
+        }
+        Pickable::FramePlane { feature, plane } => {
+            let plane = plane.in_frame(&displayed_frame(evaluation, feature)?)?;
+            Subject::Plane {
+                origin: plane.origin(),
+                normal: plane.normal(),
+            }
+        }
         Pickable::CentreOfMass(body) => Subject::CentreOfMass(body_result(model, body)?),
         Pickable::SketchRegion { feature, region } => {
             let found = selection::sketch_regions(evaluation, feature)?
@@ -363,18 +378,66 @@ fn item_count(selection: &Selection) -> usize {
         .count()
 }
 
-fn read(items: &[Item]) -> Readout {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Relative {
+    to_local: RigidTransform,
+}
+
+impl Relative {
+    pub const WORLD: Self = Self {
+        to_local: RigidTransform::IDENTITY,
+    };
+
+    pub fn to(frame: &Plane) -> Option<Self> {
+        Some(Self {
+            to_local: RigidTransform::from_frame(frame)?.inverse(),
+        })
+    }
+
+    fn position(&self, point: Point3) -> Point3 {
+        self.to_local.apply_point(point)
+    }
+
+    fn direction(&self, direction: Vector3) -> Vector3 {
+        self.to_local.apply_vector(direction)
+    }
+
+    fn reading(&self, reading: Reading) -> Reading {
+        let value = match reading.value {
+            Value::Position(point) => Value::Position(self.position(point)),
+            Value::Direction(direction) => Value::Direction(self.direction(direction)),
+            value @ (Value::Length(_)
+            | Value::Area(_)
+            | Value::Angle(_)
+            | Value::SecondMoment(_)) => value,
+        };
+        Reading { value, ..reading }
+    }
+}
+
+fn read(items: &[Item], relative: Relative) -> Readout {
     if items.len() > 2 {
         return too_many();
     }
     let mut readout = Readout {
-        groups: items.iter().map(describe).collect(),
+        groups: items
+            .iter()
+            .map(|item| {
+                let mut group = describe(item);
+                group.readings = group
+                    .readings
+                    .into_iter()
+                    .map(|reading| relative.reading(reading))
+                    .collect();
+                group
+            })
+            .collect(),
         ..Readout::default()
     };
     if let [first, second] = items
         && let (Some(first), Some(second)) = (first.element(), second.element())
     {
-        match between(first, second) {
+        match between(first, second, relative) {
             Ok((group, line)) => {
                 readout.groups.push(group);
                 readout.line = line;
@@ -565,6 +628,7 @@ fn mesh_area(item: &Item, face: FaceId) -> Option<f64> {
 fn between(
     first: Element<'_>,
     second: Element<'_>,
+    relative: Relative,
 ) -> Result<(Group, Option<MeasuredLine>), MeasureError> {
     let closest = distance(first, second)?;
     let mut readings = vec![Reading::with(
@@ -572,7 +636,7 @@ fn between(
         Value::Length(closest.distance),
         closest.accuracy,
     )];
-    let offset = closest.offset();
+    let offset = relative.direction(closest.offset());
     readings.extend([
         Reading::with("Along X", Value::Length(offset.x.abs()), closest.accuracy),
         Reading::with("Along Y", Value::Length(offset.y.abs()), closest.accuracy),
@@ -670,8 +734,8 @@ fn plane_gap(first: Element<'_>, second: Element<'_>) -> Result<Option<Reading>,
     }))
 }
 
-fn measure(items: &[Item]) -> Readout {
-    panic::catch_unwind(AssertUnwindSafe(|| read(items))).unwrap_or_else(|_| {
+fn measure(items: &[Item], relative: Relative) -> Readout {
+    panic::catch_unwind(AssertUnwindSafe(|| read(items, relative))).unwrap_or_else(|_| {
         log::error!("measuring the selection panicked");
         Readout {
             groups: Vec::new(),
@@ -686,11 +750,13 @@ struct Basis {
     selection: u64,
     revision: u64,
     evaluation: u64,
+    relative: Relative,
 }
 
 struct Job {
     ticket: u64,
     items: Vec<Item>,
+    relative: Relative,
 }
 
 struct Worker {
@@ -709,7 +775,10 @@ impl Worker {
                     while let Ok(newer) = queue.try_recv() {
                         job = newer;
                     }
-                    if sender.send((job.ticket, measure(&job.items))).is_err() {
+                    if sender
+                        .send((job.ticket, measure(&job.items, job.relative)))
+                        .is_err()
+                    {
                         break;
                     }
                     wake();
@@ -741,18 +810,19 @@ pub struct Measurements {
 }
 
 impl Measurements {
-    pub fn refresh(&mut self, model: &Model, selection: &Selection) {
+    pub fn refresh(&mut self, model: &Model, selection: &Selection, relative: Relative) {
         let basis = Basis {
             selection: selection.generation(),
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
+            relative,
         };
         if self.basis.as_ref() != Some(&basis) {
             self.basis = Some(basis);
             self.restart();
             match item_count(selection) {
                 0 => self.arrive(self.ticket, Readout::default()),
-                1 | 2 => self.submit(model, items_of(model, selection)),
+                1 | 2 => self.submit(model, items_of(model, selection), relative),
                 _ => self.arrive(self.ticket, too_many()),
             }
         }
@@ -773,13 +843,14 @@ impl Measurements {
         }
     }
 
-    fn submit(&mut self, model: &Model, items: Vec<Item>) {
+    fn submit(&mut self, model: &Model, items: Vec<Item>, relative: Relative) {
         if self.worker.is_none() {
             self.worker = Worker::spawn(model.waker());
         }
         let job = Job {
             ticket: self.ticket,
             items,
+            relative,
         };
         let refused = match &self.worker {
             Some(worker) => worker.jobs.send(job).err().map(|refused| refused.0),
@@ -788,7 +859,7 @@ impl Measurements {
         if let Some(job) = refused {
             log::error!("no measure worker, so the selection is measured on the UI thread");
             self.worker = None;
-            self.arrive(job.ticket, measure(&job.items));
+            self.arrive(job.ticket, measure(&job.items, job.relative));
         }
     }
 
@@ -832,6 +903,7 @@ impl Measurements {
 pub struct MeasureTool {
     pub open: bool,
     pub measurements: Measurements,
+    pub relative_to: Option<FeatureId>,
 }
 
 impl MeasureTool {
@@ -858,7 +930,10 @@ mod tests {
 
     #[test]
     fn two_points_read_their_distance_and_offsets_along_each_axis() {
-        let readout = measure(&[point(1.0, 2.0, 3.0), point(4.0, 6.0, 3.0)]);
+        let readout = measure(
+            &[point(1.0, 2.0, 3.0), point(4.0, 6.0, 3.0)],
+            Relative::WORLD,
+        );
 
         let between = readout.groups.last().unwrap();
         assert_eq!(between.title, "Between them");
@@ -885,11 +960,14 @@ mod tests {
 
     #[test]
     fn three_items_are_not_read_but_asked_to_be_fewer() {
-        let readout = measure(&[
-            point(0.0, 0.0, 0.0),
-            point(1.0, 0.0, 0.0),
-            point(2.0, 0.0, 0.0),
-        ]);
+        let readout = measure(
+            &[
+                point(0.0, 0.0, 0.0),
+                point(1.0, 0.0, 0.0),
+                point(2.0, 0.0, 0.0),
+            ],
+            Relative::WORLD,
+        );
 
         assert!(readout.groups.is_empty());
         assert_eq!(readout.problem, Some(TOO_MANY));
@@ -898,8 +976,11 @@ mod tests {
 
     #[test]
     fn the_last_readout_stays_shown_as_stale_until_the_new_one_arrives() {
-        let first = measure(&[point(0.0, 0.0, 0.0)]);
-        let second = measure(&[point(1.0, 0.0, 0.0), point(2.0, 0.0, 0.0)]);
+        let first = measure(&[point(0.0, 0.0, 0.0)], Relative::WORLD);
+        let second = measure(
+            &[point(1.0, 0.0, 0.0), point(2.0, 0.0, 0.0)],
+            Relative::WORLD,
+        );
         let mut measurements = Measurements::default();
         measurements.restart();
         let started = measurements.ticket;
@@ -923,10 +1004,13 @@ mod tests {
 
     #[test]
     fn an_item_that_cannot_be_measured_says_so() {
-        let readout = measure(&[Item {
-            name: "Region".to_owned(),
-            subject: Subject::Unmeasurable,
-        }]);
+        let readout = measure(
+            &[Item {
+                name: "Region".to_owned(),
+                subject: Subject::Unmeasurable,
+            }],
+            Relative::WORLD,
+        );
 
         assert!(readout.groups[0].problem.is_some());
         assert!(readout.groups[0].readings.is_empty());

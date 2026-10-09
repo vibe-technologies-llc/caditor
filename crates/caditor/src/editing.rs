@@ -7,7 +7,7 @@ use crate::{
     reference_picking::Picking,
     selection::{Pickable, PrincipalPlane},
     shape_modes::{ShapeMode, ShapeModes},
-    sketch_placement::{self, FaceChoice},
+    sketch_placement::{self, DatumTarget, FaceChoice},
     variants::all_variants,
 };
 
@@ -221,7 +221,7 @@ pub struct ActiveSketch {
 pub enum EditingCommand {
     NewSketch(Option<PrincipalPlane>),
     NewSketchOnFace(FaceChoice),
-    NewSketchOnDatum(FeatureId),
+    NewSketchOnDatum(DatumTarget),
     CancelNewSketch,
     Enter(FeatureId),
     Finish,
@@ -413,7 +413,7 @@ impl SketchEditing {
         self.enter(feature, model.document());
     }
 
-    fn create_on_datum(&mut self, datum: FeatureId, model: &mut Model) {
+    fn create_on_datum(&mut self, datum: DatumTarget, model: &mut Model) {
         match sketch_placement::new_sketch_on_datum(model, datum) {
             Ok((transaction, feature)) => {
                 self.choosing_plane = false;

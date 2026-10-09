@@ -3562,6 +3562,7 @@ fn a_move_turning_about_its_body_centre_is_a_kind_older_readers_report_and_reads
             turn: std::array::from_fn(|_| transaction.parse("30 deg").unwrap()),
             copy: true,
             about: TurnCentre::Body,
+            frame: None,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -3593,6 +3594,7 @@ fn a_move_turning_about_an_axis_is_a_kind_older_readers_report_and_reads_back() 
                 axis: AxisReference::Principal(PrincipalAxis::Y),
                 angle: transaction.parse("45 deg").unwrap(),
             })),
+            frame: None,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -5826,6 +5828,7 @@ fn moves_are_saved_and_loaded() {
         "Move 1",
         FeatureKind::Move(Move {
             about: caditor_document::TurnCentre::Origin,
+            frame: None,
             body: base,
             offset: [
                 transaction.parse("depth * 2").unwrap(),
@@ -5844,6 +5847,7 @@ fn moves_are_saved_and_loaded() {
         "Copy 1",
         FeatureKind::Move(Move {
             about: caditor_document::TurnCentre::Origin,
+            frame: None,
             body: base,
             offset: [
                 transaction.parse("0 mm").unwrap(),
@@ -5885,6 +5889,7 @@ fn a_move_with_a_damaged_distance_loads_with_zero_and_says_so() {
         "Move 1",
         FeatureKind::Move(Move {
             about: caditor_document::TurnCentre::Origin,
+            frame: None,
             body: base,
             offset: [
                 transaction.parse("5 mm").unwrap(),
@@ -6348,6 +6353,7 @@ fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
             turn: ["0 deg", "0 deg", "0 deg"].map(|text| transaction.parse(text).unwrap()),
             copy: true,
             about: TurnCentre::Origin,
+            frame: None,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -7010,4 +7016,112 @@ fn an_unreadable_thread_size_or_class_takes_a_default_and_is_reported() {
     assert_eq!(restored.size.id(), "Tr 8x1.5");
     assert_eq!(restored.class.id(), "7H");
     assert_ne!(restored.size, ThreadSize::M8);
+}
+
+#[test]
+fn coordinate_systems_and_what_uses_them_are_kinds_older_readers_report_and_read_back() {
+    use caditor_document::{
+        AxisReference, Datum, DatumAxis, DatumFrame, DatumPlane, Move, PointReference,
+        PrincipalAxis, TurnCentre,
+    };
+    use caditor_kernel::VertexName;
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Coordinate systems");
+    let frame = transaction.add_feature(
+        "Coordinate system 1",
+        FeatureKind::Datum(Datum::Frame(Box::new(DatumFrame {
+            origin: PointReference::Vertex {
+                body: base,
+                vertex: VertexName::from_digest(0xc0),
+            },
+            x_axis: AxisReference::Principal(PrincipalAxis::Y),
+            plane: PlaneReference::Principal(PrincipalPlane::Xz),
+            reverse_x: true,
+            reverse_z: false,
+        }))),
+    );
+    transaction.add_feature(
+        "Axis 1",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::Along(AxisReference::Frame {
+            frame,
+            axis: PrincipalAxis::Z,
+        }))),
+    );
+    transaction.add_feature(
+        "Plane 1",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Frame {
+                frame,
+                plane: PrincipalPlane::Yz,
+            },
+            rotation: None,
+            offset: transaction.parse("3 mm").unwrap(),
+        })),
+    );
+    let sketch = transaction.add_feature(
+        "On the system",
+        FeatureKind::Sketch(caditor_document::SketchFeature {
+            sketch: Sketch::new(Plane::XY),
+            attachment: Some(SketchAttachment::Frame {
+                frame,
+                plane: PrincipalPlane::Xy,
+            }),
+            projections: Default::default(),
+        }),
+    );
+    let movement = transaction.add_feature(
+        "Move body 1",
+        FeatureKind::Move(Move {
+            body: base,
+            offset: std::array::from_fn(|_| transaction.parse("2 mm").unwrap()),
+            turn: std::array::from_fn(|_| transaction.parse("10 deg").unwrap()),
+            copy: false,
+            about: TurnCentre::Body,
+            frame: Some(frame),
+        }),
+    );
+    let add = transaction.finish();
+    document.apply(add.clone()).unwrap();
+    let placed = Transaction::single(
+        "Place",
+        Edit::SetSketchPlacement {
+            feature: sketch,
+            plane: Plane::XZ,
+            attachment: Some(SketchAttachment::Frame {
+                frame,
+                plane: PrincipalPlane::Xz,
+            }),
+        },
+    );
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&add)).unwrap());
+    let placement: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&placed)).unwrap());
+    let older = decode_text(
+        &text
+            .replace("coordinate_system", "coordinate_frame")
+            .replace("move_in_frame", "move_in_axes")
+            .replace("sketch_on_frame", "sketch_on_axes"),
+    );
+
+    assert!(
+        text.contains("\"coordinate_system\":{\"origin\":{\"vertex\":"),
+        "{text}"
+    );
+    assert!(text.contains("\"reverse_x\":true"));
+    assert!(text.contains("\"along\":{\"frame\":{\"axis\":\"z\",\"frame\":"));
+    assert!(text.contains("\"base\":{\"frame\":{\"frame\":"));
+    assert!(text.contains("\"move_in_frame\":{\"feature\":{\"move_about_centre\":"));
+    assert!(text.contains("\"sketch_on_frame\":{\"feature\":{\"sketch\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(add));
+    assert_eq!(format::restore_transaction(placement), Some(placed));
+    assert!(older.document.feature(frame).is_none());
+    assert!(older.document.feature(movement).is_none());
+    assert!(older.document.feature(sketch).is_none());
+    assert!(!older.issues.is_empty());
 }

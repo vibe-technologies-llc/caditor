@@ -308,6 +308,7 @@ fn a_thread_follows_its_face_when_a_later_feature_moves_the_body() {
         turn: [length("0 deg"), length("0 deg"), length("0 deg")],
         copy: false,
         about: TurnCentre::Origin,
+        frame: None,
     };
     transaction.add_feature("Move 1", FeatureKind::Move(movement));
     pair.document.apply(transaction.finish()).unwrap();

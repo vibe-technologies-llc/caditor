@@ -55,9 +55,9 @@ pub fn choices(model: &Model, feature: FeatureId, split: &Split) -> Vec<SplitAlo
             .is_some_and(|result| is_open_chain(&result.geometry))
     };
     let index = document.feature_index(feature).unwrap_or(0);
-    let planes = PrincipalPlane::ALL
+    let planes = datum_tools::listed_planes(document, feature)
         .into_iter()
-        .map(|plane| SplitAlong::Plane(PlaneReference::Principal(plane)));
+        .map(SplitAlong::Plane);
     let bodies = document
         .bodies_before(feature)
         .into_iter()

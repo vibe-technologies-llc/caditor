@@ -1,16 +1,16 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{DensityError, FeatureId};
+use caditor_document::{DensityError, FeatureId, displayed_frame};
 use caditor_expression::format_number;
 use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::{Accuracy, MassProperties, SecondMoment};
-use egui::{Label, ScrollArea, TextWrapMode, Ui};
+use egui::{ComboBox, Label, ScrollArea, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::{BodyMass, BodyMeshes, MassAccuracy},
-    field, icons, layout,
-    measure::{APPROXIMATELY, Freshness, MeasureTool, MeasuredLine, Readout, Value},
+    datum_tools, field, icons, layout,
+    measure::{APPROXIMATELY, Freshness, MeasureTool, MeasuredLine, Readout, Relative, Value},
     model::Model,
     selection::{Pickable, Selection},
     units::{LengthUnit, Units},
@@ -39,6 +39,70 @@ const GRAMS_PER_CUBIC_MILLIMETRE: f64 = 1e-3;
 const ALL_BODIES: &str = "Every body shown; select a face, edge or vertex for one body alone.";
 const INERTIA_DIGITS: i32 = 4;
 const NOT_EVERY_DENSITY: &str = "Not every body has a density";
+pub const RELATIVE_TO: &str = "Relative to";
+pub const WORLD: &str = "World";
+const RELATIVE_HOVER: &str = "Positions, directions and the distances along X, Y and Z are read \
+                              in this coordinate system";
+const WORLD_HOVER: &str = "Read from the origin along the principal axes";
+
+pub fn relative(model: &Model, tool: &MeasureTool) -> Result<Relative, String> {
+    let Some(frame) = tool.relative_to else {
+        return Ok(Relative::WORLD);
+    };
+    let name = model
+        .document()
+        .feature(frame)
+        .map(|feature| feature.name.clone());
+    match name {
+        None => Err(
+            "The chosen coordinate system no longer exists, so the readings are relative to the \
+             world"
+                .to_owned(),
+        ),
+        Some(name) => displayed_frame(model.evaluation(), frame)
+            .and_then(|placed| Relative::to(&placed))
+            .ok_or_else(|| {
+                format!("{name} has no result yet, so the readings are relative to the world")
+            }),
+    }
+}
+
+fn relative_row(ui: &mut Ui, model: &Model, relative_to: &mut Option<FeatureId>) {
+    let document = model.document();
+    let frames = datum_tools::frames_before(document, usize::MAX);
+    if frames.is_empty() && relative_to.is_none() {
+        return;
+    }
+    let name = |frame: FeatureId| {
+        document.feature(frame).map_or_else(
+            || "A deleted coordinate system".to_owned(),
+            |feature| feature.name.clone(),
+        )
+    };
+    let shown = relative_to.map_or_else(|| WORLD.to_owned(), name);
+    widgets::properties(ui, "measure-relative", |ui| {
+        widgets::property(ui, RELATIVE_TO, |ui| {
+            let combo = ComboBox::from_id_salt("measure-relative-to")
+                .selected_text(shown)
+                .show_ui(ui, |ui| {
+                    let world = widgets::menu_option(ui, relative_to.is_none(), WORLD)
+                        .on_hover_text(WORLD_HOVER);
+                    if world.clicked() {
+                        *relative_to = None;
+                    }
+                    for frame in frames {
+                        let chosen = *relative_to == Some(frame);
+                        if widgets::menu_option(ui, chosen, &name(frame)).clicked() {
+                            *relative_to = Some(frame);
+                        }
+                    }
+                });
+            widgets::tie_to_caption(ui, &combo.response);
+            combo.response.on_hover_text(RELATIVE_HOVER);
+        });
+    });
+    ui.add_space(SPACE_S);
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
@@ -506,7 +570,12 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
 }
 
 pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, room: f32) {
-    tool.measurements.refresh(context.model, context.selection);
+    let relative = relative(context.model, tool);
+    tool.measurements.refresh(
+        context.model,
+        context.selection,
+        relative.clone().unwrap_or(Relative::WORLD),
+    );
     let unit = context.model.units();
     let shown = tool.measurements.shown();
     let measuring = tool.measurements.is_measuring();
@@ -514,6 +583,7 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
         shown.map(|(readout, freshness)| (readout, readout_cards(readout, unit), freshness));
     let masses = mass_cards(context);
     let mut close = false;
+    let mut relative_to = tool.relative_to;
     egui::Panel::right("measure")
         .resizable(true)
         .default_size(PANEL_WIDTH)
@@ -542,6 +612,11 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
                 }
             });
             ui.add_space(SPACE_S);
+            relative_row(ui, context.model, &mut relative_to);
+            if let Err(problem) = &relative {
+                widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
+                ui.add_space(SPACE_M);
+            }
             ScrollArea::vertical().show(ui, |ui| {
                 if context.selection.is_empty() {
                     widgets::callout(ui, Tone::Info, |ui| ui.label(EMPTY_HINT));
@@ -557,6 +632,7 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
                 mass_section(ui, &masses);
             });
         });
+    tool.relative_to = relative_to;
     if close {
         tool.toggle();
     }

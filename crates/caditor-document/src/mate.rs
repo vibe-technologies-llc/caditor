@@ -125,6 +125,16 @@ impl Mate {
             .collect()
     }
 
+    pub fn frames(&self) -> BTreeSet<FeatureId> {
+        let mut frames: BTreeSet<FeatureId> = self
+            .axis_references()
+            .into_iter()
+            .filter_map(AxisReference::frame)
+            .collect();
+        frames.extend(self.faces().and_then(|faces| faces.target.frame()));
+        frames
+    }
+
     pub fn sketches(&self) -> BTreeSet<FeatureId> {
         self.axis_references()
             .into_iter()

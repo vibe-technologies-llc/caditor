@@ -40,7 +40,9 @@ fn moving_face(
 ) -> Option<(FeatureId, FaceReference)> {
     match datum_tools::plane_reference(model, pickable, index)? {
         PlaneReference::Face(attachment) => Some((attachment.body, attachment.face)),
-        PlaneReference::Principal(_) | PlaneReference::Datum(_) => None,
+        PlaneReference::Principal(_) | PlaneReference::Datum(_) | PlaneReference::Frame { .. } => {
+            None
+        }
     }
 }
 

@@ -184,9 +184,11 @@ paths:
   draws a right-hand panel. Measuring never changes the document.
 - `Measurements` resolves the selection on the UI thread into points, edges and faces (with their
   result's `Arc`), sketch curves (`profile_curve` lifted onto the sketch's solved plane), and the
-  principal and datum planes and axes (a plane reads through a point with its normal, an axis
+  principal and datum planes and axes, a coordinate system's axes and planes and its origin as a
+  point (a plane reads through a point with its normal, an axis
   through a point with its direction, a circle or arc its radius, diameter, centre and sweep), then measures on its own worker (newest job wins, a panic becomes a failed
-  reading) only when the selection, revision or evaluation changes. Until the current result
+  reading) only when the selection, revision, evaluation or the coordinate system read in
+  changes. Until the current result
   arrives the previous readout stays, dimmed (`Freshness::Stale`) under a Measuring header, so
   nothing jumps; the measured line in the view comes only from the current readout.
 - Selected sketch regions (`Pickable::SketchRegion`) gather into one item per sketch
@@ -208,6 +210,11 @@ paths:
   over the mesh's tetrahedra). Two or more bodies also get an "All N bodies" card first: summed
   volume and area, the centroid weighted by mass (by volume unless every body has a density), and
   the total mass and inertia about that centroid only when every body has a density.
+- Relative to (shown once the model holds a coordinate system, `MeasureTool::relative_to`, World
+  by default, kept for the session) reads every position and direction and the Along X, Y and Z
+  offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse); distances,
+  angles and the line in the view stay world geometry. A chosen system that is gone or has no
+  result is read as the world with a warning callout saying so (`measure_panel::relative`).
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
   label in `canvas::MEASURE`.
 - Show or hide centres of mass (`Command::ToggleCentresOfMass`, View menu, palette) is a view aid

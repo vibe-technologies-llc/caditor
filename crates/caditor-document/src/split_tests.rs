@@ -106,6 +106,7 @@ fn the_split_off_body_takes_later_features_of_its_own() {
         "Move 1",
         FeatureKind::Move(Move {
             about: TurnCentre::Origin,
+            frame: None,
             body: model.split,
             offset: [
                 Expression::parse_stored("-5 mm").unwrap(),

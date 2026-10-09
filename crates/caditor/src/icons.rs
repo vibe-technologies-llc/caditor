@@ -171,6 +171,7 @@ pub fn command(command: Command) -> &'static str {
         Command::DatumPlane => PLANE,
         Command::DatumAxis => AXIS,
         Command::DatumPoint => POINT,
+        Command::CoordinateSystem => COORDINATE_SYSTEM,
         Command::FitView => phosphor::FRAME_CORNERS,
         Command::Measure => MEASURE,
         Command::Interference => INTERFERENCE,
@@ -290,6 +291,7 @@ const CIRCULAR_PATTERN: &str = phosphor::SPINNER;
 const PLANE: &str = phosphor::PARALLELOGRAM;
 const AXIS: &str = phosphor::ARROW_LINE_UP_RIGHT;
 const POINT: &str = phosphor::CROSSHAIR_SIMPLE;
+const COORDINATE_SYSTEM: &str = phosphor::VECTOR_THREE;
 pub const SKETCH: &str = phosphor::PENCIL_LINE;
 const IMPORTED: &str = phosphor::CUBE;
 
@@ -439,6 +441,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Datum(Datum::Plane(_) | Datum::PlaneThrough(_)) => PLANE,
         FeatureKind::Datum(Datum::Axis(_)) => AXIS,
         FeatureKind::Datum(Datum::Point(_) | Datum::PointBy(_)) => POINT,
+        FeatureKind::Datum(Datum::Frame(_)) => COORDINATE_SYSTEM,
         FeatureKind::Import(_) => IMPORTED,
         FeatureKind::Remove(_) => REMOVE_BODY,
     }
@@ -447,8 +450,8 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
 pub fn pickable(pickable: Pickable, document: &Document) -> &'static str {
     match pickable {
         Pickable::Origin => ORIGIN,
-        Pickable::Axis(_) => AXIS,
-        Pickable::Plane(_) => PLANE,
+        Pickable::Axis(_) | Pickable::FrameAxis { .. } => AXIS,
+        Pickable::Plane(_) | Pickable::FramePlane { .. } => PLANE,
         Pickable::SketchEntity { .. } => SKETCH,
         Pickable::SketchConstraint { .. } => MEASURE,
         Pickable::SketchRegion { .. } | Pickable::Region { .. } => REGION,

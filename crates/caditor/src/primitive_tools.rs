@@ -1,6 +1,6 @@
 use caditor_document::{
     BodyOperation, Document, Edit, FeatureId, FeatureKind, PlaneReference, Primitive,
-    PrimitiveAnchor, PrimitiveKind, PrimitiveShape, PrincipalPlane, Transaction,
+    PrimitiveAnchor, PrimitiveKind, PrimitiveShape, PrincipalPlane, Transaction, displayed_frame,
 };
 use caditor_geometry::{Plane, Point2, Ray};
 
@@ -28,7 +28,7 @@ const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::
 const GONE: &str = "The feature no longer exists";
 const NOT_A_PLACE: &str = "Click a plane or flat face to place it on";
 const NO_PLANE: &str = "Select a plane or flat face made before this feature";
-const PLANE_UNAVAILABLE: &str = "The chosen datum plane has no result yet; fix it or recompute";
+const PLANE_UNAVAILABLE: &str = "The chosen plane has no result yet; fix it or recompute";
 const MISSED: &str = "The click does not meet that plane; look at it from another side";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -145,6 +145,18 @@ fn place_of(model: &Model, pickable: Pickable, index: usize) -> Result<Place, &'
                 face: None,
             })
         }
+        Pickable::FramePlane { feature, plane } => {
+            let reference = datum_tools::plane_reference(model, pickable, index)
+                .ok_or(datum_tools::DATUM_MADE_LATER)?;
+            let frame = displayed_frame(model.evaluation(), feature)
+                .and_then(|placed| plane.in_frame(&placed))
+                .ok_or(PLANE_UNAVAILABLE)?;
+            Ok(Place {
+                plane: reference,
+                frame,
+                face: None,
+            })
+        }
         pickable => {
             let choice = FaceChoice::of(pickable).ok_or(NOT_A_PLACE)?;
             let (attachment, frame) = sketch_placement::attachment_at(model, choice, index)?;
@@ -161,6 +173,14 @@ fn chosen_place(model: &Model, chosen: &ChosenPlane, index: usize) -> Result<Pla
     match (&chosen.plane, chosen.face) {
         (PlaneReference::Principal(plane), _) => place_of(model, Pickable::Plane(*plane), index),
         (PlaneReference::Datum(datum), _) => place_of(model, Pickable::Datum(*datum), index),
+        (PlaneReference::Frame { frame, plane }, _) => place_of(
+            model,
+            Pickable::FramePlane {
+                feature: *frame,
+                plane: *plane,
+            },
+            index,
+        ),
         (PlaneReference::Face(_), Some(face)) => place_of(model, face, index),
         (PlaneReference::Face(_), None) => Err(NO_PLANE),
     }
@@ -322,7 +342,10 @@ pub fn place_change(
     let mut chosen = selection.iter().filter(|pickable| {
         matches!(
             pickable,
-            Pickable::Plane(_) | Pickable::Datum(_) | Pickable::Face { .. }
+            Pickable::Plane(_)
+                | Pickable::Datum(_)
+                | Pickable::FramePlane { .. }
+                | Pickable::Face { .. }
         )
     });
     match (chosen.next(), chosen.next()) {

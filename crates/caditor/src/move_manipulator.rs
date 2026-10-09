@@ -114,6 +114,11 @@ pub struct Manipulator {
     reach: f64,
     forward: Vector3,
     turning: Turning,
+    frame: Plane,
+}
+
+fn direction(frame: &Plane, axis: MoveAxis) -> Vector3 {
+    axis.direction_in(Some(frame))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -139,6 +144,7 @@ impl Manipulator {
             movement.body
         };
         let parameters = model.parameters();
+        let frame = model.move_frame(movement)?;
         let shift = || {
             MoveAxis::ALL
                 .into_iter()
@@ -147,7 +153,7 @@ impl Manipulator {
                         .of(&movement.offset)
                         .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
                         .ok()?;
-                    Some(shift + axis.direction() * along)
+                    Some(shift + direction(&frame, axis) * along)
                 })
         };
         let (centre, turning) = match (&movement.about, model.move_pivot(feature, movement)) {
@@ -182,6 +188,7 @@ impl Manipulator {
             reach,
             forward: view.forward(),
             turning,
+            frame,
         })
     }
 
@@ -193,8 +200,12 @@ impl Manipulator {
         nice_step(self.per_point() * STEP_POINTS)
     }
 
+    fn direction(&self, axis: MoveAxis) -> Vector3 {
+        direction(&self.frame, axis)
+    }
+
     fn arrow(&self, axis: MoveAxis) -> Option<(Point3, Point3)> {
-        let direction = axis.direction();
+        let direction = self.direction(axis);
         (direction.dot(self.forward).abs() < END_ON).then(|| {
             (
                 self.origin + direction * GAP_POINTS * self.per_point(),
@@ -204,13 +215,13 @@ impl Manipulator {
     }
 
     fn square(&self, normal: MoveAxis) -> Option<[Point3; 4]> {
-        if normal.direction().dot(self.forward).abs() < EDGE_ON {
+        if self.direction(normal).dot(self.forward).abs() < EDGE_ON {
             return None;
         }
         let [first, second] = <[MoveAxis; 2]>::try_from(Handle::Across(normal).moves()).ok()?;
-        let corner = |a: f64, b: f64| {
-            self.origin + first.direction() * a * self.reach + second.direction() * b * self.reach
-        };
+        let (first, second) = (self.direction(first), self.direction(second));
+        let corner =
+            |a: f64, b: f64| self.origin + first * a * self.reach + second * b * self.reach;
         Some([
             corner(SQUARE_FROM, SQUARE_FROM),
             corner(SQUARE_TO, SQUARE_FROM),
@@ -221,11 +232,15 @@ impl Manipulator {
 
     fn ring(&self, handle: Handle) -> Option<Vec<Point3>> {
         let (normal, first, second) = match (handle, self.turning) {
-            (Handle::Turn(axis), Turning::Axes) => match axis {
-                MoveAxis::X => (Vector3::X, Vector3::Y, Vector3::Z),
-                MoveAxis::Y => (Vector3::Y, Vector3::Z, Vector3::X),
-                MoveAxis::Z => (Vector3::Z, Vector3::X, Vector3::Y),
-            },
+            (Handle::Turn(axis), Turning::Axes) => {
+                let [normal, first, second] = match axis {
+                    MoveAxis::X => [MoveAxis::X, MoveAxis::Y, MoveAxis::Z],
+                    MoveAxis::Y => [MoveAxis::Y, MoveAxis::Z, MoveAxis::X],
+                    MoveAxis::Z => [MoveAxis::Z, MoveAxis::X, MoveAxis::Y],
+                }
+                .map(|axis| self.direction(axis));
+                (normal, first, second)
+            }
             (Handle::TurnAbout, Turning::About(direction)) => {
                 let first = direction.any_orthonormal_vector();
                 (direction, first, direction.cross(first))
@@ -289,7 +304,7 @@ impl Manipulator {
         match handle {
             Handle::Along(axis) => {
                 let (from, tip) = self.arrow(axis)?;
-                Some(from.lerp(tip, 0.6) + axis.direction() * along)
+                Some(from.lerp(tip, 0.6) + self.direction(axis) * along)
             }
             Handle::Across(normal) => {
                 let corners = self.square(normal)?;
@@ -361,7 +376,7 @@ impl Drawn {
             };
             let handle = Handle::Along(axis);
             let colour = colour(handle, axis);
-            let direction = axis.direction();
+            let direction = manipulator.direction(axis);
             let head = HEAD_POINTS * manipulator.per_point();
             let base = tip - direction * head;
             batch.lines.push(Line {
@@ -433,6 +448,7 @@ pub struct Manipulating {
     about: Vector3,
     from_angle: f64,
     angle: f64,
+    frame: Plane,
 }
 
 impl Manipulating {
@@ -472,7 +488,7 @@ impl Manipulating {
             None => 0.0,
         };
         let about = manipulator.turning.about();
-        let grabbed = point_on(handle, manipulator.origin, about, ray)?;
+        let grabbed = point_on(handle, &manipulator.frame, manipulator.origin, about, ray)?;
         Some(Self {
             feature: manipulator.feature,
             handle,
@@ -487,6 +503,7 @@ impl Manipulating {
             about,
             from_angle,
             angle: from_angle,
+            frame: manipulator.frame,
         })
     }
 
@@ -505,7 +522,7 @@ impl Manipulating {
     }
 
     pub fn follow(&mut self, ray: Ray, free: bool) -> bool {
-        let Some(at) = point_on(self.handle, self.origin, self.about, ray) else {
+        let Some(at) = point_on(self.handle, &self.frame, self.origin, self.about, ray) else {
             return false;
         };
         if self.handle == Handle::TurnAbout {
@@ -515,7 +532,7 @@ impl Manipulating {
             return changed;
         }
         if let Handle::Turn(axis) = self.handle {
-            let angle = self.swept(axis.direction(), at, free);
+            let angle = self.swept(direction(&self.frame, axis), at, free);
             let turns = turned(self.from_turns, axis, angle);
             let changed = turns != self.turns;
             self.turns = turns;
@@ -524,7 +541,7 @@ impl Manipulating {
         let moved = at - self.grabbed;
         let mut offset = self.from;
         for axis in self.handle.moves() {
-            let along = moved.dot(axis.direction());
+            let along = moved.dot(direction(&self.frame, axis));
             let rounded = if free {
                 along
             } else {
@@ -628,22 +645,24 @@ fn turned(from: [f64; 3], axis: MoveAxis, degrees: f64) -> [f64; 3] {
     turns_about_axes(turn * start).map(f64::to_degrees)
 }
 
-fn point_on(handle: Handle, origin: Point3, about: Vector3, ray: Ray) -> Option<Point3> {
+fn point_on(
+    handle: Handle,
+    frame: &Plane,
+    origin: Point3,
+    about: Vector3,
+    ray: Ray,
+) -> Option<Point3> {
     match handle {
         Handle::TurnAbout => {
             let plane = Plane::new(origin, about)?;
             Some(ray.at(ray.intersect_plane(&plane)?))
         }
         Handle::Along(axis) => {
-            let along = ray.closest_along_line(origin, axis.direction())?;
-            Some(origin + axis.direction() * along)
+            let along = ray.closest_along_line(origin, direction(frame, axis))?;
+            Some(origin + direction(frame, axis) * along)
         }
-        Handle::Turn(axis) => {
-            let plane = Plane::new(origin, axis.direction())?;
-            Some(ray.at(ray.intersect_plane(&plane)?))
-        }
-        Handle::Across(normal) => {
-            let plane = Plane::new(origin, normal.direction())?;
+        Handle::Turn(axis) | Handle::Across(axis) => {
+            let plane = Plane::new(origin, direction(frame, axis))?;
             Some(ray.at(ray.intersect_plane(&plane)?))
         }
     }
@@ -669,6 +688,7 @@ mod tests {
             reach: ARROW_POINTS * view.units_per_pixel_at(depth),
             forward: view.forward(),
             turning: Turning::Axes,
+            frame: Plane::XY,
         }
     }
 
@@ -720,9 +740,23 @@ mod tests {
     fn a_point_on_a_handle_follows_the_ray_along_its_axis_or_plane() {
         let ray = Ray::new(Point3::new(7.0, 3.0, 50.0), Vector3::NEG_Z).unwrap();
 
-        let along = point_on(Handle::Along(MoveAxis::X), Point3::ZERO, Vector3::Z, ray).unwrap();
+        let along = point_on(
+            Handle::Along(MoveAxis::X),
+            &Plane::XY,
+            Point3::ZERO,
+            Vector3::Z,
+            ray,
+        )
+        .unwrap();
         assert!(along.distance(Point3::new(7.0, 0.0, 0.0)) < 1e-9);
-        let across = point_on(Handle::Across(MoveAxis::Z), Point3::ZERO, Vector3::Z, ray).unwrap();
+        let across = point_on(
+            Handle::Across(MoveAxis::Z),
+            &Plane::XY,
+            Point3::ZERO,
+            Vector3::Z,
+            ray,
+        )
+        .unwrap();
         assert!(across.distance(Point3::new(7.0, 3.0, 0.0)) < 1e-9);
     }
 

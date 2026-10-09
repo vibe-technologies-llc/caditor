@@ -89,6 +89,7 @@ pub fn create(
             turn: std::array::from_fn(|_| solid_tools::degrees(0.0)),
             copy,
             about: TurnCentre::Body,
+            frame: None,
         }),
     );
     (transaction.finish(), feature)

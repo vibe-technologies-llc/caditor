@@ -84,7 +84,9 @@ pub fn owner(pickable: Pickable) -> Option<FeatureId> {
     match pickable {
         Pickable::SketchEntity { feature, .. }
         | Pickable::SketchRegion { feature, .. }
-        | Pickable::Datum(feature) => Some(feature),
+        | Pickable::Datum(feature)
+        | Pickable::FrameAxis { feature, .. }
+        | Pickable::FramePlane { feature, .. } => Some(feature),
         Pickable::Face { body, .. }
         | Pickable::Edge { body, .. }
         | Pickable::Vertex { body, .. }
@@ -106,6 +108,8 @@ pub fn principal(pickable: Pickable) -> Option<PrincipalGeometry> {
         Pickable::Plane(plane) => Some(PrincipalGeometry::Plane(plane)),
         Pickable::SketchEntity { .. }
         | Pickable::Datum(_)
+        | Pickable::FrameAxis { .. }
+        | Pickable::FramePlane { .. }
         | Pickable::CentreOfMass(_)
         | Pickable::Face { .. }
         | Pickable::Edge { .. }

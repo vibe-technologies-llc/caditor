@@ -2,7 +2,8 @@ use caditor_document::{Datum, FeatureId, FeatureKind, PatternKind, SolidFeature,
 use egui::{Context, Id};
 
 use crate::{
-    datum_panel, datum_tools,
+    datum_panel::{self, FramePart},
+    datum_tools,
     editing::EditingCommand,
     mate_tools, mirror_tools,
     model::{Action, Model, Notice},
@@ -39,6 +40,9 @@ pub enum Slot {
     PrimitivePlace,
     MateMoving,
     MateTarget,
+    FrameOrigin,
+    FrameAxis,
+    FramePlane,
 }
 
 pub const MAX_HELD: usize = 2;
@@ -132,6 +136,13 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::SplitPlane => {
             "Click a plane, flat face, sketch curve or another body to split along".to_owned()
         }
+        Slot::FrameOrigin => {
+            "Click a corner, round edge, sphere or torus, sketch point or datum point for its \
+             origin"
+                .to_owned()
+        }
+        Slot::FrameAxis => format!("Click {AXIS} for its X axis"),
+        Slot::FramePlane => "Click a plane or flat face for its XY plane".to_owned(),
         Slot::PrimitivePlace => {
             let noun = kind(model, picking.feature)
                 .and_then(FeatureKind::primitive)
@@ -161,7 +172,9 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
                  that meet"
                     .to_owned()
             }
-            Some(Datum::Plane(_)) | None => "Click a plane or flat face to start from".to_owned(),
+            Some(Datum::Plane(_) | Datum::Frame(_)) | None => {
+                "Click a plane or flat face to start from".to_owned()
+            }
         },
     }
 }
@@ -222,6 +235,15 @@ pub fn change(
         (Slot::DatumRotation, FeatureKind::Datum(datum)) => {
             datum_panel::rotation_change(model, selection, feature, datum)
         }
+        (Slot::FrameOrigin, FeatureKind::Datum(datum)) => {
+            datum_panel::frame_change(model, selection, feature, datum, FramePart::Origin)
+        }
+        (Slot::FrameAxis, FeatureKind::Datum(datum)) => {
+            datum_panel::frame_change(model, selection, feature, datum, FramePart::XAxis)
+        }
+        (Slot::FramePlane, FeatureKind::Datum(datum)) => {
+            datum_panel::frame_change(model, selection, feature, datum, FramePart::Plane)
+        }
         (Slot::MoveAxis, FeatureKind::Move(movement)) => {
             move_tools::axis_change(model, selection, feature, movement)
         }
@@ -250,7 +272,7 @@ fn may_hold(model: &Model, picking: Picking, pickable: Pickable) -> bool {
         Some(Datum::Axis(_)) => picking.held_count() == 0 && (plane() || point()),
         Some(Datum::PlaneThrough(_)) => plane() || axis() || point(),
         Some(Datum::PointBy(_)) => plane() || axis() || point(),
-        Some(Datum::Plane(_) | Datum::Point(_)) | None => false,
+        Some(Datum::Plane(_) | Datum::Point(_) | Datum::Frame(_)) | None => false,
     }
 }
 

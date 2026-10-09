@@ -5,8 +5,8 @@ use std::{
 
 use caditor_document::{
     Datum, DatumResult, Document, Evaluation, Feature, FeatureId, FeatureResult, FeatureState,
-    PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature, SolidResult,
-    body_parts, datum_outline, displayed_axis, placed_threads,
+    PrincipalAxis, PrincipalGeometry, RegionChoice, RevolveAxis, SketchRegion, SolidFeature,
+    SolidResult, body_parts, datum_outline, displayed_axis, displayed_frame, placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
 use caditor_kernel::{RegionKey, RegionMesh, RegionReference, resolve_regions};
@@ -65,6 +65,10 @@ const UNCHECKED: Color = opaque(canvas::WARNING);
 const HIGHLIGHT_FILL_ALPHA: f32 = 0.22;
 const HOVERED_REGION_ALPHA: f32 = 0.4;
 const DATUM_PLANE_SCALE: f64 = 0.75;
+const FRAME_AXIS_SCALE: f64 = 0.3;
+const FRAME_SQUARE_FROM: f64 = 0.2;
+const FRAME_SQUARE_TO: f64 = 0.45;
+const FRAME_ORIGIN_DIAMETER: f32 = 7.0;
 const OPENED_DATUM_EXTRA_WIDTH: f32 = 1.0;
 
 const GUIDE_WIDTH: f32 = 1.0;
@@ -934,7 +938,88 @@ impl Builder<'_> {
                     pick: self.picks.register(pickable, PickPriority::Point),
                 });
             }
+            Some(DatumResult::Frame(frame)) => {
+                self.frame(feature, &frame, (failed, extra), size);
+                self.scene.markers.push(Marker {
+                    position: frame.origin(),
+                    color,
+                    diameter: FRAME_ORIGIN_DIAMETER
+                        + extra
+                        + self.emphasis(pickable) * HIGHLIGHT_EXTRA_DIAMETER,
+                    layer: Layer::Reference,
+                    pick: self.picks.register(pickable, PickPriority::Point),
+                });
+            }
             None => {}
+        }
+    }
+
+    fn frame(
+        &mut self,
+        feature: FeatureId,
+        frame: &Plane,
+        (failed, extra): (bool, f32),
+        size: f64,
+    ) {
+        let length = size * FRAME_AXIS_SCALE;
+        for plane in PrincipalPlane::ALL {
+            let Some(corners) = frame_square(frame, plane, length) else {
+                continue;
+            };
+            let pickable = Pickable::FramePlane { feature, plane };
+            let (edge, fill) = if failed {
+                (
+                    self.palette.failed_datum_edge,
+                    self.palette.failed_datum_fill,
+                )
+            } else {
+                (self.palette.datum_edge, self.palette.datum_fill)
+            };
+            let color = self.highlight.color(&self.palette.lines, pickable, edge);
+            let width = PLANE_EDGE_WIDTH + extra + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH;
+            let pick = self.picks.register(pickable, PickPriority::Surface);
+            let next = corners.iter().cycle().skip(1);
+            let outline: Vec<Line> = corners
+                .iter()
+                .zip(next)
+                .map(|(start, end)| Line {
+                    start: *start,
+                    end: *end,
+                    color,
+                    width,
+                    layer: Layer::Reference,
+                    pick,
+                    stroke: Stroke::Solid,
+                })
+                .collect();
+            self.scene.lines.extend(outline);
+            self.scene.fills.push(Fill::convex(
+                &corners,
+                self.highlight
+                    .fill_color(&self.palette.lines, pickable, fill),
+                Layer::Reference,
+                pick,
+            ));
+        }
+        for axis in PrincipalAxis::ALL {
+            let Some(ray) = axis.in_frame(frame) else {
+                continue;
+            };
+            let pickable = Pickable::FrameAxis { feature, axis };
+            let base = if failed {
+                self.palette.failed_datum_edge
+            } else {
+                self.palette.axis(Axis::of(axis))
+            };
+            self.scene.lines.push(Line {
+                start: ray.origin(),
+                end: ray.at(length),
+                color: self.highlight.color(&self.palette.lines, pickable, base),
+                width: AXIS_WIDTH + extra + self.emphasis(pickable) * HIGHLIGHT_EXTRA_WIDTH,
+                layer: Layer::Reference,
+                pick: self.picks.register(pickable, PickPriority::Curve),
+                stroke: Stroke::Solid,
+            });
         }
     }
 
@@ -2151,6 +2236,14 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .into_iter()
             .collect(),
         Pickable::Datum(feature) => datum_points(evaluation, feature, reference_size),
+        Pickable::FrameAxis { feature, axis } => displayed_frame(evaluation, feature)
+            .and_then(|frame| axis.in_frame(&frame))
+            .map(|ray| vec![ray.origin(), ray.at(reference_size * FRAME_AXIS_SCALE)])
+            .unwrap_or_default(),
+        Pickable::FramePlane { feature, plane } => displayed_frame(evaluation, feature)
+            .and_then(|frame| frame_square(&frame, plane, reference_size * FRAME_AXIS_SCALE))
+            .map(|corners| corners.to_vec())
+            .unwrap_or_default(),
         Pickable::CentreOfMass(body) => bodies
             .get(body)
             .map(|mesh| mesh.mass.properties.centroid)
@@ -2260,8 +2353,31 @@ fn datum_points(evaluation: &Evaluation, feature: FeatureId, size: f64) -> Vec<P
         Some(DatumResult::Plane(plane)) => datum_plane_corners(plane, size).to_vec(),
         Some(DatumResult::Axis(ray)) => axis_ends(ray, Point3::ZERO, size).to_vec(),
         Some(DatumResult::Point(point)) => vec![point],
+        Some(DatumResult::Frame(frame)) => {
+            let length = size * FRAME_AXIS_SCALE;
+            std::iter::once(frame.origin())
+                .chain(
+                    PrincipalAxis::ALL
+                        .into_iter()
+                        .filter_map(|axis| Some(axis.in_frame(&frame)?.at(length))),
+                )
+                .collect()
+        }
         None => Vec::new(),
     }
+}
+
+fn frame_square(frame: &Plane, plane: PrincipalPlane, length: f64) -> Option<[Point3; 4]> {
+    let placed = plane.in_frame(frame)?;
+    let corner = |a: f64, b: f64| {
+        frame.origin() + placed.x_axis() * a * length + placed.y_axis() * b * length
+    };
+    Some([
+        corner(FRAME_SQUARE_FROM, FRAME_SQUARE_FROM),
+        corner(FRAME_SQUARE_TO, FRAME_SQUARE_FROM),
+        corner(FRAME_SQUARE_TO, FRAME_SQUARE_TO),
+        corner(FRAME_SQUARE_FROM, FRAME_SQUARE_TO),
+    ])
 }
 
 fn plane_corners(plane: Plane, size: f64) -> [Point3; 4] {

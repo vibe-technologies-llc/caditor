@@ -386,6 +386,18 @@ impl SolidFeature {
             .collect()
     }
 
+    pub fn frames(&self) -> BTreeSet<FeatureId> {
+        self.targets()
+            .into_iter()
+            .filter_map(PlaneReference::frame)
+            .chain(
+                self.axis()
+                    .and_then(RevolveAxis::model)
+                    .and_then(AxisReference::frame),
+            )
+            .collect()
+    }
+
     pub fn end_datums(&self) -> BTreeSet<FeatureId> {
         self.targets()
             .into_iter()
