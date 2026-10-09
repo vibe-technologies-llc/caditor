@@ -9,6 +9,7 @@ paths:
   - "crates/caditor/src/pick_list.rs"
   - "crates/caditor/src/saved_views.rs"
   - "crates/caditor/src/selection_sets.rs"
+  - "crates/caditor/src/paint_selection.rs"
   - "crates/caditor/src/app.rs"
   - "crates/caditor/src/feature_tree.rs"
 ---
@@ -202,6 +203,15 @@ paths:
   makes those drags, and the edited sketch's, draw a freehand outline instead
   (`sketch_drag::ScreenArea::Lasso`, a point every `LASSO_STEP` points, closed back to its start)
   that takes what lies wholly inside it, like a window; everything else about box selection holds.
+- Select faces by painting over them (`Command::TogglePaintSelection`, View menu, palette; kept for
+  the session in `ViewportState::paint`, not saved) makes those model drags a brush
+  (`PrimaryDrag::Paint`, `paint_selection.rs`) while the filter takes faces (Everything, Faces or
+  Bodies; other filters keep the box): the drag replaces the selection (Shift or Ctrl adds) and
+  each pointer move adds the faces under the stroke as it goes, sampled every
+  `BRUSH_STEP_POINTS` (at most `MAX_BRUSH_SAMPLES` a move) through `Scene::hits_through` on the
+  CPU, so no GPU pick is awaited. Each sample takes the nearest face, or every face under it with
+  Select through; the Bodies filter takes the whole body (`whole_body_of`). Escape mid-drag puts
+  back the selection the drag started from. Sketch drags keep the box or lasso.
 - Select all (`select.all`), Select tangent edges and Select edges around faces
   (`body_selection.rs`) work on the shown bodies outside sketch editing and refuse inside one.
   Select all takes every face, edge or vertex by the selection filter, or by the kind already

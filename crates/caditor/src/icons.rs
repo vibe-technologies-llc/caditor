@@ -176,6 +176,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleSnapping => phosphor::MAGNET,
         Command::ToggleGridSnapping => phosphor::GRID_FOUR,
         Command::ToggleLasso => phosphor::LASSO,
+        Command::TogglePaintSelection => phosphor::PAINT_BRUSH,
         Command::ToggleSelectThrough => phosphor::SELECTION_BACKGROUND,
         Command::CycleSelectionPriority => phosphor::FUNNEL,
         Command::ToggleTypedDimensions => phosphor::RULER,

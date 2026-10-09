@@ -81,6 +81,7 @@ mod offset_face_tools;
 mod offsetting;
 mod onboarding;
 mod overlay;
+mod paint_selection;
 mod palette;
 mod panels;
 mod parameter_table;

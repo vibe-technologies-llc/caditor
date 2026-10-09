@@ -164,6 +164,7 @@ pub enum Command {
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
+    TogglePaintSelection,
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
@@ -497,6 +498,7 @@ plain_commands! {
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
+    TogglePaintSelection,
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
@@ -802,6 +804,7 @@ impl Command {
             Self::ToggleSnapping => "view.toggle_snapping",
             Self::ToggleGridSnapping => "view.toggle_grid_snapping",
             Self::ToggleLasso => "view.toggle_lasso",
+            Self::TogglePaintSelection => "view.toggle_paint_selection",
             Self::ToggleSelectThrough => "view.toggle_select_through",
             Self::CycleSelectionPriority => "select.priority",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
@@ -992,6 +995,7 @@ impl Command {
             Self::ToggleSnapping => "Turn snapping on or off",
             Self::ToggleGridSnapping => "Snap to the grid",
             Self::ToggleLasso => "Select with a lasso",
+            Self::TogglePaintSelection => "Select faces by painting over them",
             Self::ToggleSelectThrough => "Select through to what is hidden",
             Self::CycleSelectionPriority => "Cycle the selection priority: body, face, edge",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
@@ -1128,6 +1132,7 @@ impl Command {
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
             | Self::ToggleLasso
+            | Self::TogglePaintSelection
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::ToggleGlyphs
@@ -1389,6 +1394,7 @@ impl Command {
             | Self::ToggleGridSnapping
             | Self::AutomaticProjection
             | Self::ToggleLasso
+            | Self::TogglePaintSelection
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::ToggleCentresOfMass

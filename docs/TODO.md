@@ -397,7 +397,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
 - [low · medium] Lighting and the MSAA resolve happen in gamma space.
-- [low · medium] Dragging a brush over faces to select them (paint selection).
 
 ## Interface performance
 

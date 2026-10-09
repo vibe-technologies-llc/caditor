@@ -467,6 +467,7 @@ pub fn show(
         snapping: viewport.snapping(),
         grid_snapping: viewport.grid_snapping(),
         lasso: viewport.lasso(),
+        paint: viewport.paint(),
         select_through: viewport.select_through(),
         automatic_projection: viewport.projection() == ProjectionMode::Automatic,
         typed_dimensions: viewport.typed_dimensions(),
