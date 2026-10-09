@@ -176,6 +176,7 @@ fn srgb_view_format(format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> 
 struct Uniform {
     buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    written: Vec<u8>,
 }
 
 impl Uniform {
@@ -199,7 +200,19 @@ impl Uniform {
                 resource: buffer.as_entire_binding(),
             }],
         });
-        Self { buffer, bind_group }
+        Self {
+            buffer,
+            bind_group,
+            written: Vec::new(),
+        }
+    }
+
+    fn write(&mut self, queue: &wgpu::Queue, bytes: &Bytes) {
+        if self.written != bytes.as_slice() {
+            queue.write_buffer(&self.buffer, 0, bytes.as_slice());
+            self.written.clear();
+            self.written.extend_from_slice(bytes.as_slice());
+        }
     }
 }
 
@@ -456,6 +469,7 @@ impl Facing {
 #[derive(Default)]
 struct FillOrder {
     sorted_for: Option<Facing>,
+    spans: Vec<FillSpan>,
     draws: Vec<FillDraw>,
 }
 
@@ -1131,7 +1145,7 @@ impl ViewportRenderer {
             (self.shading, plan.reflection, &plan.section),
             (transform, Strokes::Finished),
         );
-        queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
+        self.view_uniform.write(queue, &self.staging);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("image tile"),
@@ -1331,7 +1345,7 @@ impl ViewportRenderer {
             (self.shading, scene.reflection, &scene.section),
             (WHOLE_VIEW, Strokes::Finished),
         );
-        queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
+        self.view_uniform.write(queue, &self.staging);
         let prepared = viewport.pick_at.map(|cursor| {
             (
                 cursor,
@@ -1353,11 +1367,11 @@ impl ViewportRenderer {
                 (self.shading, scene.reflection, &scene.section),
                 (transform, Strokes::Bare),
             );
-            queue.write_buffer(&self.pick_view_uniform.buffer, 0, self.staging.as_slice());
+            self.pick_view_uniform.write(queue, &self.staging);
         }
         if let Some(grid) = &scene.grid {
             grid_uniform(&mut self.staging, grid, view);
-            queue.write_buffer(&self.grid_uniform.buffer, 0, self.staging.as_slice());
+            self.grid_uniform.write(queue, &self.staging);
         }
 
         let anchor = anchored.anchor;
@@ -1448,23 +1462,23 @@ impl ViewportRenderer {
     }
 
     fn order_fills(&mut self, facing: Facing, changed: bool) {
-        if !changed && self.fill_order.sorted_for == Some(facing) {
+        let order = &mut self.fill_order;
+        if !changed && order.sorted_for == Some(facing) {
             return;
         }
-        let mut spans: Vec<FillSpan> = self
-            .batches
-            .iter()
-            .flat_map(|batch| batch.fill_spans.iter().cloned())
-            .collect();
-        sort_back_to_front(&mut spans, facing);
+        order.spans.clear();
+        order.spans.extend(
+            self.batches
+                .iter()
+                .flat_map(|batch| batch.fill_spans.iter().cloned()),
+        );
+        sort_back_to_front(&mut order.spans, facing);
+        coalesce(&order.spans, &mut order.draws);
+        order.sorted_for = Some(facing);
         #[cfg(test)]
         {
             self.work.sorts += 1;
         }
-        self.fill_order = FillOrder {
-            sorted_for: Some(facing),
-            draws: coalesced(spans),
-        };
     }
 
     #[cfg(test)]
@@ -1571,8 +1585,8 @@ fn sort_back_to_front(spans: &mut [FillSpan], facing: Facing) {
     });
 }
 
-fn coalesced(spans: Vec<FillSpan>) -> Vec<FillDraw> {
-    let mut draws: Vec<FillDraw> = Vec::with_capacity(spans.len());
+fn coalesce(spans: &[FillSpan], draws: &mut Vec<FillDraw>) {
+    draws.clear();
     for span in spans {
         match draws.last_mut() {
             Some(draw)
@@ -1584,12 +1598,11 @@ fn coalesced(spans: Vec<FillSpan>) -> Vec<FillDraw> {
             }
             _ => draws.push(FillDraw {
                 slot: span.slot,
-                vertices: span.vertices,
+                vertices: span.vertices.clone(),
                 behind_faces: span.behind_faces,
             }),
         }
     }
-    draws
 }
 
 struct Layouts<'a> {
@@ -2344,6 +2357,11 @@ mod tests {
             span(0, 0, -10.0, Layer::Model),
         ];
 
+        let coalesced = |spans: Vec<FillSpan>| {
+            let mut draws = Vec::new();
+            coalesce(&spans, &mut draws);
+            draws
+        };
         let draws = |spans| {
             coalesced(spans)
                 .into_iter()
