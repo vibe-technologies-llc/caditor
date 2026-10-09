@@ -326,10 +326,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Drawing import and export
 
-- [low · medium] SVG import does not read `<style>` sheets, so an element hidden or dashed through a
-  class is imported as drawn, and a `symbol` placed by a `use` ignores its own viewBox and the
-  use's width and height. Text is left out with a note rather than imported as outlines, and
-  markers are not drawn.
+- [low · medium] SVG import leaves text out with a note rather than importing it as outlines. The
+  only font in the workspace, Inter, is bundled by the `caditor` crate (`assets/fonts`), out of
+  `caditor-file`'s reach, and turning text into outlines also needs a font parser (`ttf-parser` is
+  already in the lock file through egui) plus text layout: `tspan`, per-glyph x and y lists,
+  `text-anchor`, font size and family through the cascade. Decide whether the app hands the font
+  to the import or `caditor-file` bundles its own.
 - [low · medium] Drawing export nests bounding rectangles, so an L-shaped or ring part never takes
   a smaller part into its hollow, and turns only by quarter turns. Its dimensions are placed by a
   fixed offset from the sketch's middle without the canvas's lanes or obstacle avoidance, so

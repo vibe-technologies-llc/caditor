@@ -62,7 +62,8 @@ paths:
   level and overflows the stack on hostile depth: iterative, namespaces resolved, attribute values
   decoded (the five named entities, character references and the DOCTYPE's own text entities,
   which Illustrator uses for `xmlns`; an entity holding markup, nested past `MAX_ENTITY_DEPTH` or
-  expanding past `MAX_ENTITY_WORK` is damage), text content never decoded. Past
+  expanding past `MAX_ENTITY_WORK` is damage), text content kept only inside `style` elements
+  (text decoded like attributes, CDATA as is). Past
   `MAX_DRAWING_ELEMENTS` elements the file is `ImportError::TooManyElements`. Damage ends reading
   where it is found: the elements before it are kept with their open ancestors and a note names
   the line; damage before the root element is `DamagedAt`.
@@ -88,21 +89,44 @@ paths:
   are read; zero-sized shapes draw nothing.
 - `transform` lists (`matrix`, `translate`, `scale`, `rotate` about a point, `skewX`, `skewY`)
   compose down the tree; one that cannot be read is ignored and counted. `use` places its target
-  (`href` or `xlink:href`, by id) at x and y, a `symbol` drawn as a group without its own viewBox;
-  a target that is the use's own ancestor or already being placed, uses nested past
+  (`href` or `xlink:href`, by id) at x and y; a `symbol` is fitted like a nested `svg`, its viewBox
+  and `preserveAspectRatio` (default `xMidYMid meet`) into the use's width and height (else its
+  own, else 100%), and draws nothing when either is zero; a target that is the use's own ancestor or already being placed, uses nested past
   `MAX_USE_DEPTH` and elements nested past `MAX_NESTING` are left out with a note. Inside a use
   every element and shape is charged against `MAX_EXPANDED_OBJECTS` (`TooManyCopies`), and each
   element's properties and local shapes are decoded once and shared by its instances.
 - Layers: below the root (or below a single group that wraps everything, repeatedly) each group or
   nested `svg` is a layer named by its `inkscape:label`, else its `id`, else `Group <n>`; shapes
   outside them are on `Ungrouped`. Layers are interned like DXF's, names compared without case.
-- `display: none` and `visibility: hidden` (attribute or `style`) leave elements out with a note;
-  `stroke-dasharray` (inherited) makes curves construction geometry, as a dashed DXF linetype does;
-  a `clip-path` or `mask` is ignored and counted, the shape imported whole. A `switch` draws its
+- Style (`style.rs`, `css.rs`): each property is cascaded as SVG does, from the `style` attribute,
+  the document's `<style>` sheets (CSS, or no `type`) and the presentation attribute: the highest
+  `!important`, then inline over sheet, then specificity (ids, classes, element), then the later
+  rule wins, and a presentation attribute only when no declaration names the property. Sheets
+  read simple selectors only (an element name or `*`, classes, one id, grouped with commas);
+  a selector with a combinator, pseudo-class or attribute test is ignored and counted in a note,
+  at-rules (`@media` included) are skipped, comments and `<!--` `-->` dropped. Rules are indexed by
+  id, first class or element; past `MAX_STYLE_RULES` they are ignored with a note, and past
+  `MAX_MATCHING_WORK` selector tests the rest of the elements keep their own attributes only, with
+  a note, so a hostile sheet cannot make matching quadratic.
+- `display: none` and `visibility: hidden` leave elements out with a note; an element whose stroke
+  and fill are both set to `none` somewhere in its cascade (not by the defaults, since a bare
+  `line` with no stroke is still wanted) is left out and counted; `stroke-dasharray` (inherited)
+  makes curves construction geometry, as a dashed DXF linetype does; a `clip-path` or `mask` is
+  ignored and counted, the shape imported whole.
+- Markers (`marker-start`, `marker-mid`, `marker-end` and the `marker` shorthand, inherited) are
+  drawn on `path`, `line`, `polyline` and `polygon` at every vertex the outline records
+  (`path::Vertex`: each move, segment end and close, with the directions in and out, arcs by their
+  tangents): the marker's viewBox fitted into `markerWidth` by `markerHeight` (default 3), `refX`
+  and `refY` put on the vertex, scaled by the stroke width unless `markerUnits` is
+  `userSpaceOnUse`, and turned by `orient` (an angle in deg, rad, grad or turn, `auto` along the
+  bisector of the directions, `auto-start-reverse`). Marker content inherits from the marker's own
+  ancestors, never the path, is charged against `MAX_EXPANDED_OBJECTS` like a use, and a marker
+  drawn inside itself is left out as reusing itself. Markers are drawn even on an element left
+  out for having neither stroke nor fill, as browsers draw them; overflow clipping is not
+  applied. A `switch` draws its
   first child without conditions. `text`, `image` and `foreignObject` are counted as left out,
   other unknown SVG elements named in a note, definitions, styles and metadata skipped silently,
-  and elements of other namespaces (Inkscape's, Sodipodi's) ignored. `<style>` sheets are not
-  read. Shapes whose numbers overflow are left out and counted; the curve, point and empty limits
+  and elements of other namespaces (Inkscape's, Sodipodi's) ignored. Shapes whose numbers overflow are left out and counted; the curve, point and empty limits
   are DXF's.
 
 ## STEP import (`import/model.rs`)

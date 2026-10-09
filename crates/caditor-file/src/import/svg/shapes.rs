@@ -17,7 +17,7 @@ pub(super) enum Axis {
 }
 
 impl Axis {
-    fn reference(self, viewport: Vector2) -> f64 {
+    pub fn reference(self, viewport: Vector2) -> f64 {
         match self {
             Self::Horizontal => viewport.x,
             Self::Vertical => viewport.y,
@@ -38,18 +38,45 @@ pub(super) fn nested_viewport(node: Node<'_, '_>, parent: Vector2) -> (Matrix, V
     let y = length(node, "y", Axis::Vertical, parent).unwrap_or(0.0);
     let width = length(node, "width", Axis::Horizontal, parent).unwrap_or(parent.x);
     let height = length(node, "height", Axis::Vertical, parent).unwrap_or(parent.y);
-    let placed = Matrix::translation(x, y);
+    let (fitted, viewport) = fitted(node, Vector2::new(width, height));
+    (fitted.then(&Matrix::translation(x, y)), viewport)
+}
+
+pub(super) fn symbol_viewport(
+    used: Node<'_, '_>,
+    symbol: Node<'_, '_>,
+    parent: Vector2,
+) -> Option<(Matrix, Vector2)> {
+    let side = |name: &str, axis: Axis, fallback: f64| {
+        length(used, name, axis, parent)
+            .or_else(|| length(symbol, name, axis, parent))
+            .unwrap_or(fallback)
+    };
+    let size = Vector2::new(
+        side("width", Axis::Horizontal, parent.x),
+        side("height", Axis::Vertical, parent.y),
+    );
+    let drawn = size.min_element() > 0.0;
+    if !drawn {
+        return None;
+    }
+    let x = length(symbol, "x", Axis::Horizontal, parent).unwrap_or(0.0);
+    let y = length(symbol, "y", Axis::Vertical, parent).unwrap_or(0.0);
+    let (fitted, viewport) = fitted(symbol, size);
+    Some((fitted.then(&Matrix::translation(x, y)), viewport))
+}
+
+pub(super) fn fitted(node: Node<'_, '_>, size: Vector2) -> (Matrix, Vector2) {
     let Some(view_box) = ViewBox::of(node) else {
-        return (placed, Vector2::new(width, height));
+        return (Matrix::IDENTITY, size);
     };
     let fit = Fit::of(node);
-    let factors = fit.scale(Vector2::new(width, height) / view_box.size);
-    let spare = Vector2::new(width, height) - view_box.size * factors;
+    let factors = fit.scale(size / view_box.size);
+    let spare = size - view_box.size * factors;
     let shift = spare * alignment(node);
     let matrix = Matrix::translation(-view_box.origin.x, -view_box.origin.y)
         .then(&Matrix::scale(factors.x, factors.y))
-        .then(&Matrix::translation(shift.x, shift.y))
-        .then(&placed);
+        .then(&Matrix::translation(shift.x, shift.y));
     (matrix, view_box.size)
 }
 
@@ -81,7 +108,11 @@ pub(super) fn outline_of(node: Node<'_, '_>, viewport: Vector2) -> Outline {
     let mut outline = Outline::default();
     match node.name() {
         "path" => return path_outline(node.attribute("d").unwrap_or_default()),
-        "line" => outline.line(at("x1", "y1"), at("x2", "y2")),
+        "line" => {
+            let from = at("x1", "y1");
+            outline.move_to(from);
+            outline.line_through(from, at("x2", "y2"));
+        }
         "circle" => {
             if let Some(radius) = get("r", Axis::Diagonal).filter(|radius| *radius > 0.0) {
                 outline.ellipse(
@@ -170,15 +201,18 @@ fn points(outline: &mut Outline, node: Node<'_, '_>, closed: bool) {
     let (pairs, remainder) = values.as_chunks::<2>();
     outline.damaged = !complete || !remainder.is_empty();
     let corners: Vec<Point2> = pairs.iter().map(|[x, y]| Point2::new(*x, *y)).collect();
+    if let Some(first) = corners.first() {
+        outline.move_to(*first);
+    }
     for pair in corners.windows(2) {
         if let [from, to] = pair {
-            outline.line(*from, *to);
+            outline.line_through(*from, *to);
         }
     }
     if closed
         && corners.len() > 2
         && let (Some(first), Some(last)) = (corners.first(), corners.last())
     {
-        outline.line(*last, *first);
+        outline.line_through(*last, *first);
     }
 }

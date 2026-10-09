@@ -1,3 +1,4 @@
+mod css;
 mod path;
 mod shapes;
 mod sizing;
@@ -11,7 +12,7 @@ use std::{
     rc::Rc,
 };
 
-use caditor_geometry::Vector2;
+use caditor_geometry::{Point2, Vector2};
 
 pub(super) use crate::import::svg::text::looks_like_svg;
 use crate::{
@@ -21,10 +22,11 @@ use crate::{
         dxf::{capitalized, counted, flatten::flatten, geometry::Shape, list, were},
         model::unpacked,
         svg::{
-            path::Outline,
-            shapes::{Axis, length, nested_viewport, outline_of},
+            css::{MAX_STYLE_RULES, StyleSheet, without_comments},
+            path::{Outline, Vertex},
+            shapes::{Axis, fitted, length, nested_viewport, outline_of, symbol_viewport},
             sizing::{Sizing, sizing},
-            style::Properties,
+            style::{Inherited, Properties},
             syntax::Matrix,
             text::{LATIN_1_NOTE, decoded, is_packed},
             xml::{Node, Tree, XmlError, parse},
@@ -43,6 +45,8 @@ const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
 const XLINK_NAMESPACE: &str = "http://www.w3.org/1999/xlink";
 const INKSCAPE_NAMESPACE: &str = "http://www.inkscape.org/namespaces/inkscape";
 const UNGROUPED: &str = "Ungrouped";
+const MARKED: [&str; 4] = ["path", "line", "polyline", "polygon"];
+const STRAIGHT_BACK: f64 = 1e-12;
 const CONDITIONS: [&str; 3] = ["requiredFeatures", "requiredExtensions", "systemLanguage"];
 const NOT_DRAWN: [&str; 30] = [
     "defs",
@@ -114,7 +118,9 @@ fn read_tree(tree: &Tree<'_>, mut notes: Vec<String>) -> Result<Drawing, ImportE
     }
     let sizing = sizing(root);
     notes.extend(sizing.note.clone());
-    let mut walker = Walker::new(tree, namespace);
+    let style_text = style_text(tree, namespace);
+    let sheet = StyleSheet::parse(&style_text);
+    let mut walker = Walker::new(tree, namespace, &sheet);
     walker.walk(root, &sizing)?;
     let mut drawing = flatten(
         &walker.shapes,
@@ -135,6 +141,27 @@ fn read_tree(tree: &Tree<'_>, mut notes: Vec<String>) -> Result<Drawing, ImportE
         (Err(ImportError::Empty { .. }), Some(line)) => Err(ImportError::DamagedAt(line)),
         (reported, _) => reported,
     }
+}
+
+fn style_text(tree: &Tree<'_>, namespace: Option<&str>) -> String {
+    let mut text = String::new();
+    for node in tree.nodes() {
+        let is_css = node
+            .attribute("type")
+            .map(str::trim)
+            .is_none_or(|kind| kind.is_empty() || kind.eq_ignore_ascii_case("text/css"));
+        if node.name() == "style" && node.namespace() == namespace && is_css {
+            without_comments(node.text(), &mut text);
+        }
+    }
+    text
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MarkerPosition {
+    Start,
+    Middle,
+    End,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,12 +200,11 @@ impl Kind {
 }
 
 #[derive(Debug, Clone)]
-struct Context {
+struct Context<'a> {
     matrix: Matrix,
     viewport: Vector2,
     layer: Rc<str>,
-    dashed: bool,
-    visible: bool,
+    style: Inherited<'a>,
     depth: usize,
 }
 
@@ -188,6 +214,7 @@ struct Tally {
     unsupported: usize,
     unsupported_names: BTreeSet<String>,
     hidden: usize,
+    unpainted: usize,
     clipped: usize,
     damaged: usize,
     unreadable_transforms: usize,
@@ -198,9 +225,11 @@ struct Tally {
 
 struct Walker<'a, 't> {
     namespace: Option<&'a str>,
+    sheet: &'a StyleSheet<'a>,
     ids: UntrustedMap<&'a str, Node<'a, 't>>,
     layer_parent: usize,
-    properties: BTreeMap<usize, Properties>,
+    properties: BTreeMap<usize, Properties<'a>>,
+    marker_styles: BTreeMap<usize, Option<Inherited<'a>>>,
     outlines: BTreeMap<usize, Rc<Outline>>,
     referencing: Vec<usize>,
     shapes: Vec<Shape>,
@@ -216,7 +245,7 @@ struct Walker<'a, 't> {
 }
 
 impl<'a, 't> Walker<'a, 't> {
-    fn new(tree: &'a Tree<'t>, namespace: Option<&'a str>) -> Self {
+    fn new(tree: &'a Tree<'t>, namespace: Option<&'a str>, sheet: &'a StyleSheet<'a>) -> Self {
         let mut ids = UntrustedMap::new();
         for node in tree.nodes() {
             if let Some(id) = node.attribute("id") {
@@ -226,9 +255,11 @@ impl<'a, 't> Walker<'a, 't> {
         let root = tree.root();
         let mut walker = Self {
             namespace,
+            sheet,
             ids,
             layer_parent: 0,
             properties: BTreeMap::new(),
+            marker_styles: BTreeMap::new(),
             outlines: BTreeMap::new(),
             referencing: Vec::new(),
             shapes: Vec::new(),
@@ -256,12 +287,16 @@ impl<'a, 't> Walker<'a, 't> {
         self.is_svg(node).then(|| Kind::of(node.name()))
     }
 
-    fn find_layer_parent(&self, root: Node<'a, 't>) -> Node<'a, 't> {
+    fn find_layer_parent(&mut self, root: Node<'a, 't>) -> Node<'a, 't> {
         let mut parent = root;
         for _ in 0..MAX_NESTING {
-            let mut drawn = parent.children().filter(|child| {
-                self.kind(*child).is_some_and(Kind::is_geometry) && !Properties::of(*child).hidden
-            });
+            let children: Vec<Node<'a, 't>> = parent
+                .children()
+                .filter(|child| self.kind(*child).is_some_and(Kind::is_geometry))
+                .collect();
+            let mut drawn = children
+                .into_iter()
+                .filter(|child| !self.properties(*child).hidden);
             match (drawn.next(), drawn.next()) {
                 (Some(only), None) if self.kind(only) == Some(Kind::Group) => parent = only,
                 _ => break,
@@ -277,21 +312,21 @@ impl<'a, 't> Walker<'a, 't> {
             matrix: transform.then(&Matrix::scale(sizing.millimetres.x, sizing.millimetres.y)),
             viewport: sizing.viewport,
             layer: Rc::from(UNGROUPED),
-            dashed: properties.dashed.unwrap_or(false),
-            visible: properties.visibility.unwrap_or(true),
+            style: Inherited::default().under(&properties),
             depth: 1,
         };
         self.children(root, &context)
     }
 
-    fn properties(&mut self, node: Node<'_, '_>) -> Properties {
+    fn properties(&mut self, node: Node<'a, 't>) -> Properties<'a> {
+        let sheet = self.sheet;
         *self
             .properties
             .entry(node.id())
-            .or_insert_with(|| Properties::of(node))
+            .or_insert_with(|| Properties::of(node, sheet))
     }
 
-    fn transform(&mut self, properties: Properties) -> Matrix {
+    fn transform(&mut self, properties: Properties<'a>) -> Matrix {
         properties.transform.unwrap_or_else(|| {
             self.tally.unreadable_transforms += 1;
             Matrix::IDENTITY
@@ -309,7 +344,7 @@ impl<'a, 't> Walker<'a, 't> {
         Ok(())
     }
 
-    fn children(&mut self, node: Node<'a, 't>, context: &Context) -> Result<(), ImportError> {
+    fn children(&mut self, node: Node<'a, 't>, context: &Context<'a>) -> Result<(), ImportError> {
         let is_switch = self.is_svg(node) && node.name() == "switch";
         if is_switch {
             let mut elements = node.children().filter(|child| self.is_svg(*child));
@@ -372,7 +407,7 @@ impl<'a, 't> Walker<'a, 't> {
         }
     }
 
-    fn visit(&mut self, node: Node<'a, 't>, context: &Context) -> Result<(), ImportError> {
+    fn visit(&mut self, node: Node<'a, 't>, context: &Context<'a>) -> Result<(), ImportError> {
         let Some(kind) = self.kind(node) else {
             return Ok(());
         };
@@ -408,8 +443,7 @@ impl<'a, 't> Walker<'a, 't> {
         let transform = self.transform(properties);
         let mut inner = Context {
             matrix: transform.then(&context.matrix),
-            dashed: properties.dashed.unwrap_or(context.dashed),
-            visible: properties.visibility.unwrap_or(context.visible),
+            style: context.style.under(&properties),
             depth: context.depth + 1,
             ..context.clone()
         };
@@ -426,7 +460,7 @@ impl<'a, 't> Walker<'a, 't> {
         }
     }
 
-    fn used(&mut self, node: Node<'a, 't>, mut context: Context) -> Result<(), ImportError> {
+    fn used(&mut self, node: Node<'a, 't>, mut context: Context<'a>) -> Result<(), ImportError> {
         let target = node
             .attribute("href")
             .or_else(|| node.attribute_in(XLINK_NAMESPACE, "href"))
@@ -450,7 +484,7 @@ impl<'a, 't> Walker<'a, 't> {
         self.referencing.push(target.id());
         let is_symbol = self.is_svg(target) && target.name() == "symbol";
         let result = if is_symbol {
-            self.symbol(target, &context)
+            self.symbol(target, node, &context)
         } else {
             self.visit(target, &context)
         };
@@ -458,7 +492,12 @@ impl<'a, 't> Walker<'a, 't> {
         result
     }
 
-    fn symbol(&mut self, node: Node<'a, 't>, context: &Context) -> Result<(), ImportError> {
+    fn symbol(
+        &mut self,
+        node: Node<'a, 't>,
+        used: Node<'a, 't>,
+        context: &Context<'a>,
+    ) -> Result<(), ImportError> {
         self.charge(1)?;
         let properties = self.properties(node);
         if properties.hidden {
@@ -466,18 +505,21 @@ impl<'a, 't> Walker<'a, 't> {
             return Ok(());
         }
         let transform = self.transform(properties);
+        let Some((fitted, viewport)) = symbol_viewport(used, node, context.viewport) else {
+            return Ok(());
+        };
         let inner = Context {
-            matrix: transform.then(&context.matrix),
-            dashed: properties.dashed.unwrap_or(context.dashed),
-            visible: properties.visibility.unwrap_or(context.visible),
+            matrix: transform.then(&fitted).then(&context.matrix),
+            viewport,
+            style: context.style.under(&properties),
             depth: context.depth + 1,
             ..context.clone()
         };
         self.children(node, &inner)
     }
 
-    fn drawn(&mut self, node: Node<'a, 't>, context: &Context) -> Result<(), ImportError> {
-        if !context.visible {
+    fn drawn(&mut self, node: Node<'a, 't>, context: &Context<'a>) -> Result<(), ImportError> {
+        if !context.style.visible {
             self.tally.hidden += 1;
             return Ok(());
         }
@@ -492,18 +534,131 @@ impl<'a, 't> Walker<'a, 't> {
         if outline.damaged {
             self.tally.damaged += 1;
         }
-        self.charge(outline.shapes.len())?;
-        let room = MAX_READ_CURVES.saturating_sub(self.shapes.len());
-        let beyond = outline.shapes.len().saturating_sub(room);
-        self.beyond_the_limit = self.beyond_the_limit.saturating_add(beyond);
-        let affine = context.matrix.affine();
-        for shape in outline.shapes.iter().take(room) {
-            self.push(shape.transformed(&affine), context)?;
+        if context.style.unpainted() {
+            self.tally.unpainted += 1;
+        } else {
+            self.charge(outline.shapes.len())?;
+            let room = MAX_READ_CURVES.saturating_sub(self.shapes.len());
+            let beyond = outline.shapes.len().saturating_sub(room);
+            self.beyond_the_limit = self.beyond_the_limit.saturating_add(beyond);
+            let affine = context.matrix.affine();
+            for shape in outline.shapes.iter().take(room) {
+                self.push(shape.transformed(&affine), context)?;
+            }
+        }
+        if MARKED.contains(&node.name()) && context.style.markers.any() {
+            self.markers(&outline.vertices, context)?;
         }
         Ok(())
     }
 
-    fn push(&mut self, shape: Shape, context: &Context) -> Result<(), ImportError> {
+    fn markers(&mut self, vertices: &[Vertex], context: &Context<'a>) -> Result<(), ImportError> {
+        let last = vertices.len().saturating_sub(1);
+        let markers = context.style.markers;
+        for (index, vertex) in vertices.iter().enumerate() {
+            let placed = [
+                (index == 0, markers.start, MarkerPosition::Start),
+                (
+                    index != 0 && index != last,
+                    markers.middle,
+                    MarkerPosition::Middle,
+                ),
+                (index == last, markers.end, MarkerPosition::End),
+            ];
+            for (applies, id, position) in placed {
+                if let (true, Some(id)) = (applies, id) {
+                    self.marker(id, vertex, position, context)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn marker(
+        &mut self,
+        id: &str,
+        vertex: &Vertex,
+        position: MarkerPosition,
+        context: &Context<'a>,
+    ) -> Result<(), ImportError> {
+        let target = self
+            .ids
+            .get(id)
+            .copied()
+            .filter(|node| self.is_svg(*node) && node.name() == "marker");
+        let Some(marker) = target else {
+            self.tally.missing += 1;
+            return Ok(());
+        };
+        let style = self.marker_style(marker);
+        let Some(style) = style.filter(|_| {
+            !self.referencing.contains(&marker.id()) && self.referencing.len() < MAX_USE_DEPTH
+        }) else {
+            self.tally.too_deep += 1;
+            return Ok(());
+        };
+        let viewport = context.viewport;
+        let width = length(marker, "markerWidth", Axis::Horizontal, viewport).unwrap_or(3.0);
+        let height = length(marker, "markerHeight", Axis::Vertical, viewport).unwrap_or(3.0);
+        if width <= 0.0 || height <= 0.0 {
+            return Ok(());
+        }
+        let (fitted, inner_viewport) = fitted(marker, Vector2::new(width, height));
+        let reference = fitted.apply(Point2::new(
+            length(marker, "refX", Axis::Horizontal, inner_viewport).unwrap_or(0.0),
+            length(marker, "refY", Axis::Vertical, inner_viewport).unwrap_or(0.0),
+        ));
+        let user_space = marker
+            .attribute("markerUnits")
+            .is_some_and(|units| units.trim() == "userSpaceOnUse");
+        let scale = if user_space {
+            1.0
+        } else {
+            context.style.stroke_width.map_or(1.0, |stroke_width| {
+                stroke_width.pixels(Axis::Diagonal.reference(viewport))
+            })
+        };
+        let angle = orientation(marker.attribute("orient"), vertex, position);
+        let matrix = fitted
+            .then(&Matrix::translation(-reference.x, -reference.y))
+            .then(&Matrix::scale(scale, scale))
+            .then(&Matrix::rotation(angle))
+            .then(&Matrix::translation(vertex.at.x, vertex.at.y))
+            .then(&context.matrix);
+        self.referencing.push(marker.id());
+        let inner = Context {
+            matrix,
+            viewport: inner_viewport,
+            style,
+            depth: context.depth + 1,
+            ..context.clone()
+        };
+        let result = self.charge(1).and_then(|()| self.children(marker, &inner));
+        self.referencing.pop();
+        result
+    }
+
+    fn marker_style(&mut self, marker: Node<'a, 't>) -> Option<Inherited<'a>> {
+        if let Some(style) = self.marker_styles.get(&marker.id()) {
+            return *style;
+        }
+        let lineage: Vec<Node<'a, 't>> = marker.ancestors().take(MAX_NESTING + 1).collect();
+        let style = if lineage.len() > MAX_NESTING {
+            None
+        } else {
+            let mut style = Inherited::default();
+            for ancestor in lineage.into_iter().rev() {
+                let properties = self.properties(ancestor);
+                style = style.under(&properties);
+            }
+            style.markers = Default::default();
+            Some(style)
+        };
+        self.marker_styles.insert(marker.id(), style);
+        style
+    }
+
+    fn push(&mut self, shape: Shape, context: &Context<'a>) -> Result<(), ImportError> {
         if !is_finite(&shape) {
             self.tally.unusable += 1;
             return Ok(());
@@ -513,7 +668,7 @@ impl<'a, 't> Walker<'a, 't> {
             return Err(ImportError::TooDetailed);
         }
         let layer = self.layer_index(&context.layer);
-        if context.dashed {
+        if context.style.dashed {
             self.construction.insert(self.shapes.len());
         }
         self.shapes.push(shape);
@@ -578,6 +733,12 @@ impl<'a, 't> Walker<'a, 't> {
             "left out.",
         );
         count(
+            tally.unpainted,
+            "element drawn with neither stroke nor fill",
+            "elements drawn with neither stroke nor fill",
+            "left out.",
+        );
+        count(
             tally.clipped,
             "element with a clip path or mask",
             "elements with a clip path or mask",
@@ -613,6 +774,30 @@ impl<'a, 't> Walker<'a, 't> {
             "shapes with numbers too large to draw",
             "left out.",
         );
+        let sheet = self.sheet;
+        if sheet.unread_selectors > 0 {
+            drawing.notes.push(format!(
+                "{} in the drawing's style sheet {} ignored, because caditor reads only selectors \
+                 of an element name, class or id.",
+                capitalized(&counted(sheet.unread_selectors, "rule", "rules")),
+                were(sheet.unread_selectors)
+            ));
+        }
+        if sheet.beyond_the_limit > 0 {
+            drawing.notes.push(format!(
+                "Only the first {MAX_STYLE_RULES} rules of the drawing's style sheet were read; {} \
+                 more {} ignored.",
+                sheet.beyond_the_limit,
+                were(sheet.beyond_the_limit)
+            ));
+        }
+        if sheet.exhausted() {
+            drawing.notes.push(
+                "The drawing's style sheet is too large to match against every element, so later \
+                 elements were styled by their own attributes only."
+                    .to_owned(),
+            );
+        }
         if self.beyond_the_limit > 0 {
             drawing.notes.push(format!(
                 "Only the first {MAX_READ_CURVES} curves were read, more than a sketch can hold; \
@@ -628,6 +813,44 @@ impl<'a, 't> Walker<'a, 't> {
         }
         Ok(drawing)
     }
+}
+
+fn orientation(orient: Option<&str>, vertex: &Vertex, position: MarkerPosition) -> f64 {
+    let orient = orient.unwrap_or_default().trim();
+    let reversed = match orient {
+        "auto" => false,
+        "auto-start-reverse" => position == MarkerPosition::Start,
+        angle => return degrees(angle).unwrap_or(0.0),
+    };
+    let heading = |direction: Vector2| direction.y.atan2(direction.x).to_degrees();
+    let angle = match (vertex.incoming, vertex.outgoing) {
+        (Some(incoming), Some(outgoing)) => {
+            let between = incoming.normalize_or_zero() + outgoing.normalize_or_zero();
+            if between.length_squared() > STRAIGHT_BACK {
+                heading(between)
+            } else {
+                heading(incoming)
+            }
+        }
+        (Some(direction), None) | (None, Some(direction)) => heading(direction),
+        (None, None) => 0.0,
+    };
+    if reversed { angle + 180.0 } else { angle }
+}
+
+fn degrees(text: &str) -> Option<f64> {
+    let units = [
+        ("deg", 1.0),
+        ("grad", 0.9),
+        ("rad", 180.0 / std::f64::consts::PI),
+        ("turn", 360.0),
+        ("", 1.0),
+    ];
+    units.into_iter().find_map(|(unit, factor)| {
+        let number = text.strip_suffix(unit)?.trim_end();
+        let value: f64 = number.parse().ok()?;
+        value.is_finite().then_some(value * factor)
+    })
 }
 
 fn is_finite(shape: &Shape) -> bool {
