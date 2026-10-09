@@ -1,8 +1,9 @@
 # Selecting
 
 Click a face, edge, vertex, sketch curve or datum to select it. Shift-click or Ctrl-click adds or
-removes items. Click empty space to clear the selection. Hover shows what a click would take, with
-its name.
+removes items. Click empty space to clear the selection; with nothing selected, a click on empty
+space or Escape also lets go of the rows chosen in the [feature tree](feature-tree). Hover shows
+what a click would take, with its name.
 
 ## Boxes, lassos and painting
 

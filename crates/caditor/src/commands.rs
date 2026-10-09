@@ -242,7 +242,8 @@ pub enum Command {
     MoveParameterUp,
     MoveParameterDown,
     ParameterNote,
-    ShowFirstFailed,
+    ShowNextFailed,
+    ShowPreviousFailed,
     UpdateReferences,
     ReplaceImport,
     ReloadImport,
@@ -676,7 +677,8 @@ plain_commands! {
     MoveParameterUp,
     MoveParameterDown,
     ParameterNote,
-    ShowFirstFailed,
+    ShowNextFailed,
+    ShowPreviousFailed,
     UpdateReferences,
     ReplaceImport,
     ReloadImport,
@@ -949,7 +951,8 @@ impl Command {
             Self::MoveParameterUp => "model.move_parameter_up",
             Self::MoveParameterDown => "model.move_parameter_down",
             Self::ParameterNote => "model.parameter_note",
-            Self::ShowFirstFailed => "model.first_failed",
+            Self::ShowNextFailed => "model.first_failed",
+            Self::ShowPreviousFailed => "model.previous_failed",
             Self::UpdateReferences => "model.update_references",
             Self::ReplaceImport => "file.replace_import",
             Self::ReloadImport => "file.reload_import",
@@ -1165,7 +1168,8 @@ impl Command {
             Self::MoveParameterUp => "Move parameter up",
             Self::MoveParameterDown => "Move parameter down",
             Self::ParameterNote => "Add or edit the parameter's note",
-            Self::ShowFirstFailed => "Go to the first failed feature",
+            Self::ShowNextFailed => "Go to the next failed feature",
+            Self::ShowPreviousFailed => "Go to the previous failed feature",
             Self::UpdateReferences => "Update references",
             Self::ReplaceImport => "Replace import from file…",
             Self::ReloadImport => "Reload import from its file",
@@ -1355,7 +1359,8 @@ impl Command {
             | Self::MoveParameterUp
             | Self::MoveParameterDown
             | Self::ParameterNote
-            | Self::ShowFirstFailed
+            | Self::ShowNextFailed
+            | Self::ShowPreviousFailed
             | Self::UpdateReferences
             | Self::ReplaceImport
             | Self::ReloadImport => Category::Model,
@@ -1487,7 +1492,8 @@ impl Command {
             Self::GroupFeatures => vec![command(Key::G)],
             Self::Recompute => vec![plain(Key::F5)],
             Self::EditFeature => vec![plain(Key::E)],
-            Self::ShowFirstFailed => vec![plain(Key::F8)],
+            Self::ShowNextFailed => vec![plain(Key::F8)],
+            Self::ShowPreviousFailed => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::F8)],
             Self::Guide => vec![plain(Key::F1)],
             Self::FilterFeatures => vec![command(Key::F)],
             Self::RollbackUp => vec![KeyboardShortcut::new(Modifiers::ALT, Key::ArrowUp)],

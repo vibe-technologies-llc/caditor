@@ -9,7 +9,8 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Evaluation, FeatureId, FeatureKind, FeatureResult, FeatureState, SolidResult,
+    Document, Evaluation, FeatureId, FeatureKind, FeatureResult, FeatureState, Resolution,
+    SolidResult,
 };
 pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3, RigidTransform};
@@ -22,7 +23,9 @@ use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
 use crate::{
     blend_tools::{self, ChosenEdges},
     model::Waker,
-    offset_face_tools, shell_tools,
+    offset_face_tools,
+    selection::Pickable,
+    shell_tools,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -839,6 +842,21 @@ pub fn describe_vertex(document: &Document, body: &SolidResult, key: VertexKey) 
         [only] => format!("Vertex of {only}"),
         [rest @ .., last] => format!("Vertex where {} and {last} meet", rest.join(", ")),
     }
+}
+
+pub fn face_pickables(
+    feature: FeatureId,
+    solid: &Solid,
+    resolution: Option<&Resolution<FaceId>>,
+) -> Vec<Pickable> {
+    let Some(found) = resolution.map(Resolution::found) else {
+        return Vec::new();
+    };
+    face_keys(solid)
+        .into_iter()
+        .filter(|(face, _)| found.contains(face))
+        .map(|(_, face)| Pickable::ShellFace { feature, face })
+        .collect()
 }
 
 pub fn face_origin(body: &SolidResult, key: FaceKey) -> Option<FaceOrigin> {

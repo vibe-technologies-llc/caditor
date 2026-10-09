@@ -142,7 +142,8 @@ paths:
 ## Keyboard-only operation
 
 - Every command is in the palette, including those with no button: recompute and its cancel,
-  going to the first failed feature (selects its row), adding a parameter and deleting the one
+  going to the next or previous failed feature after the tree's primary row, wrapping (selects its
+  row), adding a parameter and deleting the one
   whose field last had focus (`PanelState::parameter`), each recent model (an `Offer`'s detail
   carries the file name), recovering unsaved work, cancelling an export, dismissing the notice and
   dismissing or hiding the current tip (offered while the palette covers it).
@@ -154,7 +155,10 @@ paths:
   tree's row, so a row only being looked at is never changed. Each feature row has a "⋯" menu with
   what its right-click menu holds.
 - Tree order and the rollback bar are commands too (move, suppress, update references, roll back
-  to here, roll to end, move the bar one row), so nothing needs a drag. Edit feature refuses a
+  to here, roll to end, move the bar one row), so nothing needs a drag. Edit feature takes the
+  tree's primary row, else the feature of the one item selected in the view (a face's origin, an
+  edge's latest face origin, a datum, coordinate system or sketch curve or region's own;
+  `viewport::feature_of`, which double-clicking also uses), else the open feature; it refuses a
   suppressed or rolled-back feature with the reason.
 - Window commands (minimize, maximize or restore, full screen) are egui viewport commands
   (`window_frame::commands`); closing the window is Quit.

@@ -254,6 +254,11 @@ paths:
   faces, by two distances, by a distance and an angle, Flip the chamfer's faces;
   `blend_tools::form_change`, `flip_change`), refused in words on anything but a chamfer and the
   flip on an equal one.
+- Hovering a row of the edges, opened faces or moved faces listed in an open fillet's, chamfer's,
+  shell's or offset face's panel lights that edge or face (its pieces when split) in the view as
+  hovered (`widgets::removable_row_hovered`, `RowCache::preview`, handed to
+  `ViewportState::preview_entities` by the app each frame), so a row in words is matched to the
+  geometry.
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's
   list stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or
   the revision changes.
@@ -513,7 +518,11 @@ paths:
 - Sketches, datums and body-making features can be hidden (a body through its feature); hidden
   ones are not drawn, picked, kept selected or counted in fitting, except the edited sketch and
   open datum. Extrude and Revolve hide their sketch in the same transaction. Every hide control
-  is also a command. Hide everything but the selection (`visibility::hide_others`) hides in one
+  is also a command. Hide selection and Hide everything but the selection take the rows chosen in
+  the tree as well as the view's selection (`visibility::hideable_rows`: a row that can be hidden
+  stands for itself, any other for the body it changes), and Hide or show feature toggles every
+  chosen row, else the open feature (`toggle_rows`: hides them all while any is shown). Hide
+  everything but the selection (`visibility::hide_others`) hides in one
   transaction every other shown hideable feature and principal item, except the edited sketch.
 - Hide or show every sketch, datum or body (`Command::ToggleSketches`, `ToggleDatums`,
   `ToggleBodies`, View menu, palette, no default key; `visibility::toggle_kind`) is one

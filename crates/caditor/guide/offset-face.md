@@ -8,4 +8,5 @@ menu or {command:palette}.
 - **Move the faces tangent to these too** takes the faces that continue smoothly from the chosen
   ones.
 
-While it is open, click faces in the view to move them or leave them out.
+While it is open, click faces in the view to move them or leave them out; hovering a face listed in
+the panel lights it in the view.

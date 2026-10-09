@@ -230,9 +230,19 @@ pub fn instance_toggle(ui: &mut Ui, kept: bool, name: &str, hover: &str) -> Resp
 }
 
 pub fn removable_row(ui: &mut Ui, text: RichText, hover: &str) -> bool {
+    removable_row_hovered(ui, text, hover).removed
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemovableRow {
+    pub removed: bool,
+    pub hovered: bool,
+}
+
+pub fn removable_row_hovered(ui: &mut Ui, text: RichText, hover: &str) -> RemovableRow {
     let button_side = ui.spacing().interact_size.y;
     let gap = ui.spacing().item_spacing.x;
-    ui.horizontal_top(|ui| {
+    let row = ui.horizontal_top(|ui| {
         let room = (ui.available_width() - button_side - gap).max(button_side);
         ui.allocate_ui_with_layout(vec2(room, 0.0), Layout::top_down(Align::Min), |ui| {
             ui.set_min_width(room);
@@ -240,8 +250,11 @@ pub fn removable_row(ui: &mut Ui, text: RichText, hover: &str) -> bool {
             ui.add(Label::new(text).wrap());
         });
         icon_button(ui, icons::REMOVE, hover).clicked()
-    })
-    .inner
+    });
+    RemovableRow {
+        removed: row.inner,
+        hovered: row.response.contains_pointer(),
+    }
 }
 
 pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Named<Button<'static>> {

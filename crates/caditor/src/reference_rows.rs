@@ -5,6 +5,8 @@ use std::{
 
 use caditor_document::{FeatureId, FeatureResult};
 
+use crate::selection::Pickable;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReferenceRows {
     pub summary: String,
@@ -33,9 +35,18 @@ impl Entry {
 #[derive(Debug, Clone, Default)]
 pub struct RowCache {
     entries: BTreeMap<FeatureId, Entry>,
+    previewed: Vec<Pickable>,
 }
 
 impl RowCache {
+    pub fn preview(&mut self, pickables: Vec<Pickable>) {
+        self.previewed = pickables;
+    }
+
+    pub fn take_previewed(&mut self) -> Vec<Pickable> {
+        std::mem::take(&mut self.previewed)
+    }
+
     pub fn begin_frame(&mut self) {
         self.entries
             .retain(|_, entry| std::mem::take(&mut entry.used));

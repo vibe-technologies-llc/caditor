@@ -102,7 +102,8 @@ const MODEL_PARAMETERS: [&[Command]; 1] = [&[
 const MODEL_RECOMPUTE: [&[Command]; 1] = [&[
     Command::Recompute,
     Command::CancelRecompute,
-    Command::ShowFirstFailed,
+    Command::ShowNextFailed,
+    Command::ShowPreviousFailed,
     Command::UpdateReferences,
 ]];
 

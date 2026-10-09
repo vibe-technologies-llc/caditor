@@ -114,6 +114,7 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
     let id = feature.id();
     widgets::caption(ui, "Faces to move");
     let evaluation = model.evaluation();
+    let mut previewed = Vec::new();
     let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
         face_rows(model.document(), bodies::input(evaluation, id), offset)
     });
@@ -125,7 +126,19 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
         }
         for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
-            if widgets::removable_row(ui, text, "Leave this face out") {
+            let row = widgets::removable_row_hovered(ui, text, "Leave this face out");
+            if row.hovered && opened {
+                previewed = bodies::input(evaluation, id)
+                    .map(|input| {
+                        bodies::face_pickables(
+                            id,
+                            &input.solid,
+                            offset.resolutions(&input.solid).get(index),
+                        )
+                    })
+                    .unwrap_or_default();
+            }
+            if row.removed {
                 let mut changed = offset.clone();
                 changed.faces.remove(index);
                 actions.push(feature_fields::applied(
@@ -143,6 +156,9 @@ fn faces_row(ui: &mut Ui, row: &FacesRow<'_>, cache: &mut RowCache, actions: &mu
             actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
         }
     });
+    if !previewed.is_empty() {
+        cache.preview(previewed);
+    }
     ui.end_row();
 }
 

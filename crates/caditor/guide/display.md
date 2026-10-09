@@ -15,10 +15,11 @@ The style is kept while caditor runs and also shapes exported images.
 
 ## Hiding and showing
 
-- {command:view.hide_selection} hides the features owning the selection, and the eye on a row of
-  the [feature tree](feature-tree) hides or shows that feature.
-- {command:view.hide_others} hides everything but the selection, and {command:view.show_all}
-  brings everything back.
+- {command:view.hide_selection} hides the features owning the selection and the rows chosen in
+  the [feature tree](feature-tree), a modifying feature's row standing for its body. The eye on a
+  row hides or shows that feature, and {command:view.toggle_visibility} every chosen row.
+- {command:view.hide_others} hides everything but the selection and the chosen rows, and
+  {command:view.show_all} brings everything back.
 - {command:view.toggle_sketches}, {command:view.toggle_datums} and {command:view.toggle_bodies}
   hide or show every item of a kind at once.
 - {command:view.toggle_principal} hides the principal planes, axes and origin.

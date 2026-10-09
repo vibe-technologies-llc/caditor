@@ -41,7 +41,7 @@ use crate::{
     sketch_status::{self, SketchSummary},
     sketch_tools, solid_panel, solid_tools, split_panel, split_tools, thread_panel,
     tree_row::{self, Look},
-    visibility,
+    viewport, visibility,
     widgets::{self, DialogWidth, Tone},
 };
 
@@ -95,7 +95,16 @@ const AUTOSCROLL_EDGE: f32 = 24.0;
 const AUTOSCROLL_RATE: f32 = 0.5;
 const FILTER_FROM_FEATURES: usize = 6;
 const GROUP_INDENT: f32 = SPACE_L;
-pub const FILTER_HINT: &str = "Filter features by name or kind";
+pub const FILTER_HINT: &str = "Filter features by name, kind or state";
+const FAILED_WORD: &str = "failed";
+const OUTDATED_WORD: &str = "outdated";
+const SUPPRESSED_WORD: &str = "suppressed";
+const HIDDEN_WORD: &str = "hidden";
+const MAX_LISTED_RELATIONS: usize = 12;
+const USES_LABEL: &str = "Uses";
+const USED_BY_LABEL: &str = "Used by";
+const UNSUPPRESS_LABEL: &str = "Unsuppress";
+const ROLL_FORWARD_LABEL: &str = "Roll forward to here";
 const NOTHING_TO_FILTER: &str = "The model has no features to filter yet";
 pub const CLEAR_FILTER_LABEL: &str = "Clear the filter";
 
@@ -142,6 +151,8 @@ fn rows(
     let bar = document.bar_index();
     let chosen = state.chosen();
     let mut placed = Vec::with_capacity(count + 1);
+    let mut drawn = Vec::with_capacity(count);
+    let mut range_to = None;
     let mut previous_group: Option<&str> = None;
     let mut folded: Option<Rect> = None;
     for (index, feature) in document.features().enumerate() {
@@ -149,7 +160,7 @@ fn rows(
             placed.push((TreeRow::Bar, rollback_bar(ui, document, state)));
         }
         let id = feature.id();
-        if filtering && !kept_by_filter(state, editing, feature, &query) {
+        if filtering && !kept_by_filter(model, state, editing, feature, &query) {
             continue;
         }
         let group = feature.group.as_deref().filter(|_| !filtering);
@@ -175,19 +186,24 @@ fn rows(
             rolled_back: index >= bar,
             grouped: group.is_some(),
         };
+        drawn.push(id);
         let rect = ui
             .push_id(("feature", id), |ui| {
                 if let Some(rect) = off_screen_row(ui, model, state, &row) {
                     return rect;
                 }
-                let rect = feature_row(ui, model, state, actions, &row);
+                let shown = feature_row(ui, model, state, actions, &row);
                 if is_plain(ui, model, state, &row) {
-                    state.plain_row_height = Some(rect.height());
+                    state.plain_row_height = Some(shown.rect.height());
                 }
-                rect
+                range_to = shown.range_to.or(range_to);
+                shown.rect
             })
             .inner;
         placed.push((TreeRow::Feature(id), rect));
+    }
+    if let Some(end) = range_to {
+        choose_range(state, &drawn, end);
     }
     if filtering {
         if placed.is_empty() {
@@ -228,6 +244,7 @@ fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
 }
 
 fn kept_by_filter(
+    model: &Model,
     state: &PanelState,
     editing: &SketchEditing,
     feature: &Feature,
@@ -235,6 +252,9 @@ fn kept_by_filter(
 ) -> bool {
     let id = feature.id();
     feature.name.to_lowercase().contains(query)
+        || state_words(model, feature)
+            .iter()
+            .any(|word| word.contains(query))
         || feature
             .group
             .as_deref()
@@ -250,6 +270,21 @@ fn kept_by_filter(
         || state
             .renaming
             .is_some_and(|renaming| renaming.feature == id)
+}
+
+fn state_words(model: &Model, feature: &Feature) -> Vec<&'static str> {
+    let computed = model
+        .evaluation()
+        .feature(feature.id())
+        .map(|status| &status.state);
+    let failed = matches!(computed, Some(FeatureState::Failed(_))).then_some(FAILED_WORD);
+    let outdated = matches!(computed, Some(FeatureState::Outdated)).then_some(OUTDATED_WORD);
+    let suppressed = feature.suppressed.then_some(SUPPRESSED_WORD);
+    let hidden = feature.hidden.then_some(HIDDEN_WORD);
+    [failed, outdated, suppressed, hidden]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
@@ -302,7 +337,7 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
 
 fn no_match(ui: &mut Ui, state: &mut PanelState) {
     let text = format!(
-        "No feature is named like “{}” or is of that kind.",
+        "No feature is named like “{}” or is of that kind or state.",
         state.tree_filter.trim()
     );
     let clear = tree_row::content(ui, |ui| {
@@ -578,13 +613,18 @@ fn is_plain(ui: &Ui, model: &Model, state: &PanelState, row: &Row<'_>) -> bool {
         && !state.wants_focus(Focus::Feature(id))
 }
 
+struct ShownRow {
+    rect: Rect,
+    range_to: Option<FeatureId>,
+}
+
 fn feature_row(
     ui: &mut Ui,
     model: &Model,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     row: &Row<'_>,
-) -> Rect {
+) -> ShownRow {
     let document = model.document();
     let feature = row.feature;
     let id = feature.id();
@@ -643,7 +683,7 @@ fn feature_row(
             (toggle.clicked(), name)
         },
         |ui| {
-            tree_row::slot(ui, |ui| more_menu(ui, document, state, actions, row));
+            tree_row::slot(ui, |ui| more_menu(ui, model, state, actions, row));
             tree_row::slot(ui, |ui| visibility_button(ui, row, actions));
             tree_row::slot(ui, |ui| {
                 if row.active() || row.edited {
@@ -657,19 +697,25 @@ fn feature_row(
         },
     );
     let row_rect = shown.rect;
+    if ui.rect_contains_pointer(row_rect) {
+        state.hovered_row = Some(id);
+    }
     let (toggled, name) = shown.leading;
     if toggled {
         collapsing.toggle(ui);
     }
-    match name {
+    let range_to = match name {
         Name::Shown(name) => {
             if name.has_focus() {
                 tree_row::focus_outline(ui, row_rect);
             }
-            respond(ui, document, state, actions, row, &mut collapsing, name);
+            respond(ui, model, state, actions, row, &mut collapsing, name)
         }
-        Name::Renaming(field) => finish_renaming(ui, state, actions, id, field),
-    }
+        Name::Renaming(field) => {
+            finish_renaming(ui, state, actions, id, field);
+            None
+        }
+    };
 
     let state_shown = status.map(|status| &status.state);
     let healing = status
@@ -684,7 +730,7 @@ fn feature_row(
         let below = tree_row::indented(ui, |ui| {
             match state_shown {
                 Some(FeatureState::Failed(error)) => {
-                    failure(ui, document, state, actions, error);
+                    failure(ui, document, state, actions, row, error);
                 }
                 Some(FeatureState::Outdated) => outdated(ui, actions),
                 Some(
@@ -697,7 +743,12 @@ fn feature_row(
             }
             collapsing.show_body_unindented(ui, |ui| {
                 widgets::card(ui, |ui| {
-                    body(ui, model, state, actions, row);
+                    if row.active() {
+                        body(ui, model, state, actions, row);
+                    } else {
+                        inactive_note(ui, document, actions, row);
+                        ui.add_enabled_ui(false, |ui| body(ui, model, state, actions, row));
+                    }
                     if row.edited {
                         guide_panel::help_link(ui, Page::of_feature(&row.feature.kind));
                     }
@@ -713,7 +764,43 @@ fn feature_row(
         ui.scroll_to_rect(row_rect, None);
     }
     collapsing.store(ui.ctx());
-    row_rect
+    ShownRow {
+        rect: row_rect,
+        range_to,
+    }
+}
+
+fn inactive_note(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, row: &Row<'_>) {
+    let feature = row.feature;
+    let Err(reason) = editable(document, feature) else {
+        return;
+    };
+    ui.horizontal_wrapped(|ui| {
+        let muted = appearance::tokens(ui).text_muted;
+        let glyph = if feature.suppressed {
+            icons::SUPPRESS
+        } else {
+            icons::ROLLED_BACK
+        };
+        widgets::icon_label(ui, glyph, muted);
+        ui.label(widgets::muted(format!("{reason}."), ui));
+    });
+    ui.horizontal_wrapped(|ui| {
+        if feature.suppressed {
+            let button = widgets::small_button(ui, icons::UNSUPPRESS, UNSUPPRESS_LABEL);
+            if ui.add(button).clicked() {
+                actions.push(Action::Apply(unsuppress(document, feature.id())));
+            }
+        }
+        if row.rolled_back
+            && let Ok(transaction) = roll_to_here(document, feature)
+        {
+            let button = widgets::small_button(ui, icons::ROLL_TO_HERE, ROLL_FORWARD_LABEL);
+            if ui.add(button).clicked() {
+                actions.push(Action::Apply(transaction));
+            }
+        }
+    });
 }
 
 fn outdated(ui: &mut Ui, actions: &mut Vec<Action>) {
@@ -747,17 +834,19 @@ fn healed(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, healing: 
 
 fn respond(
     ui: &mut Ui,
-    document: &Document,
+    model: &Model,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     row: &Row<'_>,
     collapsing: &mut CollapsingState,
     name: Response,
-) {
+) -> Option<FeatureId> {
+    let document = model.document();
     let id = row.feature.id();
     let (modifiers, enter) = ui.input(|input| (input.modifiers, input.key_pressed(Key::Enter)));
+    let mut range_to = None;
     if name.clicked() {
-        choose(state, document, id, modifiers);
+        range_to = choose(state, id, modifiers);
     } else if name.gained_focus() {
         state.choose_only(id);
     }
@@ -772,8 +861,9 @@ fn respond(
         open_feature(ui, document, actions, row, collapsing);
     }
     name.context_menu(|ui| {
-        widgets::fitted_menu(ui, |ui| context_menu(ui, document, state, actions, row));
+        widgets::fitted_menu(ui, |ui| context_menu(ui, model, state, actions, row));
     });
+    range_to
 }
 
 fn open_feature(
@@ -797,26 +887,43 @@ fn open_feature(
     }
 }
 
-fn choose(state: &mut PanelState, document: &Document, id: FeatureId, modifiers: Modifiers) {
+fn choose(state: &mut PanelState, id: FeatureId, modifiers: Modifiers) -> Option<FeatureId> {
     if modifiers.command {
         state.toggle_chosen(id);
-        return;
+        return None;
     }
-    let anchor = state
-        .selected
-        .and_then(|anchor| document.feature_index(anchor));
-    match (modifiers.shift, anchor, document.feature_index(id)) {
-        (true, Some(anchor), Some(end)) => {
-            let (first, last) = (anchor.min(end), anchor.max(end));
-            let range = document
-                .features()
+    if modifiers.shift && state.selected.is_some() {
+        return Some(id);
+    }
+    state.choose_only(id);
+    None
+}
+
+pub fn choose_among(
+    state: &mut PanelState,
+    shown: &[FeatureId],
+    id: FeatureId,
+    modifiers: Modifiers,
+) {
+    if let Some(end) = choose(state, id, modifiers) {
+        choose_range(state, shown, end);
+    }
+}
+
+fn choose_range(state: &mut PanelState, shown: &[FeatureId], end: FeatureId) {
+    let place = |wanted: FeatureId| shown.iter().position(|row| *row == wanted);
+    match (state.selected.and_then(place), place(end)) {
+        (Some(anchor), Some(last)) => {
+            let first = anchor.min(last);
+            let range = shown
+                .iter()
                 .skip(first)
-                .take(last - first + 1)
-                .map(Feature::id)
+                .take(anchor.max(last) - first + 1)
+                .copied()
                 .collect();
             state.choose_range(range);
         }
-        _ => state.choose_only(id),
+        _ => state.choose_only(end),
     }
 }
 
@@ -1066,7 +1173,7 @@ fn status_icon(ui: &mut Ui, row: &Row<'_>, status: Option<&FeatureStatus>) {
 
 fn more_menu(
     ui: &mut Ui,
-    document: &Document,
+    model: &Model,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     row: &Row<'_>,
@@ -1076,7 +1183,7 @@ fn more_menu(
         &format!("More actions for {}", row.feature.name),
     );
     Popup::menu(&response).show(|ui| {
-        widgets::fitted_menu(ui, |ui| context_menu(ui, document, state, actions, row));
+        widgets::fitted_menu(ui, |ui| context_menu(ui, model, state, actions, row));
     });
 }
 
@@ -1225,11 +1332,12 @@ fn menu_entry<T>(ui: &mut Ui, glyph: &str, label: &str, outcome: &Result<T, Stri
 
 fn context_menu(
     ui: &mut Ui,
-    document: &Document,
+    model: &Model,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
     row: &Row<'_>,
 ) {
+    let document = model.document();
     let feature = row.feature;
     if let Some(command) = edit_command(feature, row.edited) {
         let editable = if row.edited {
@@ -1249,19 +1357,22 @@ fn context_menu(
         start_renaming(state, feature);
         ui.close();
     }
-    if let Ok(transaction) = visibility::toggle(feature) {
-        let (glyph, label) = if feature.hidden {
-            (icons::SHOW, "Show")
-        } else {
+    let chosen = state.chosen();
+    let targets = targets(document, &chosen, Some(feature));
+    let ids: Vec<FeatureId> = targets.iter().map(|target| target.id()).collect();
+    if visibility::toggle(feature).is_ok()
+        && let Ok(toggle) = visibility::toggle_rows(document, &ids)
+    {
+        let (glyph, label) = if toggle.hiding {
             (icons::HIDE, "Hide")
+        } else {
+            (icons::SHOW, "Show")
         };
         if widgets::menu_item(ui, glyph, label, None).clicked() {
-            actions.push(Action::Apply(transaction));
+            actions.push(Action::Apply(toggle.transaction));
             ui.close();
         }
     }
-    let chosen = state.chosen();
-    let targets = targets(document, &chosen, Some(feature));
     let (glyph, label) = suppress_title(&targets);
     let suppression = suppress_change(document, &targets);
     if menu_entry(ui, glyph, label, &suppression)
@@ -1277,8 +1388,7 @@ fn context_menu(
             actions.push(Action::Apply(transaction));
         }
     }
-    let grouped: Vec<FeatureId> = targets.iter().map(|target| target.id()).collect();
-    let grouping = feature_groups::grouping(document, &grouped);
+    let grouping = feature_groups::grouping(document, &ids);
     if menu_entry(
         ui,
         icons::command(Command::GroupFeatures),
@@ -1327,6 +1437,32 @@ fn context_menu(
         actions.push(Action::File(FileCommand::ReloadImport(feature.id())));
         ui.close();
     }
+    if widgets::menu_item(
+        ui,
+        icons::command(Command::CopyFeatures),
+        &Command::CopyFeatures.title(),
+        None,
+    )
+    .clicked()
+    {
+        if !chosen.contains(&feature.id()) {
+            state.choose_only(feature.id());
+        }
+        state.requested.push(Command::CopyFeatures);
+        ui.close();
+    }
+    let update = reference_update(model, &targets);
+    if menu_entry(
+        ui,
+        icons::command(Command::UpdateReferences),
+        UPDATE_REFERENCES_LABEL,
+        &update,
+    ) && let Ok(transaction) = update
+    {
+        actions.push(Action::Apply(transaction));
+    }
+    ui.separator();
+    relations(ui, document, state, feature);
     ui.separator();
     let here = roll_to_here(document, feature);
     let here_label = format!("{} here", roll_verb(document, feature));
@@ -1353,6 +1489,75 @@ fn context_menu(
         && let Ok(deletion) = delete
     {
         deletion.perform(state, actions);
+    }
+}
+
+fn relations(ui: &mut Ui, document: &Document, state: &mut PanelState, feature: &Feature) {
+    let used = feature.kind.dependencies();
+    let uses: Vec<&Feature> = document
+        .features()
+        .filter(|other| used.contains(&other.id()))
+        .collect();
+    let used_by: Vec<&Feature> = document
+        .features()
+        .filter(|other| other.kind.dependencies().contains(&feature.id()))
+        .collect();
+    let name = &feature.name;
+    relation_menu(
+        ui,
+        state,
+        (icons::USES, USES_LABEL),
+        &uses,
+        &format!("{name} uses no other feature"),
+    );
+    relation_menu(
+        ui,
+        state,
+        (icons::USED_BY, USED_BY_LABEL),
+        &used_by,
+        &format!("No feature uses {name}"),
+    );
+}
+
+fn relation_menu(
+    ui: &mut Ui,
+    state: &mut PanelState,
+    (glyph, title): (&str, &str),
+    related: &[&Feature],
+    none: &str,
+) {
+    let muted = appearance::tokens(ui).text_muted;
+    let submenu = ui
+        .add_enabled_ui(!related.is_empty(), |ui| {
+            ui.menu_button(
+                (widgets::icon(glyph).color(muted), title.to_owned()),
+                |ui| {
+                    widgets::fitted_menu(ui, |ui| related_rows(ui, state, related));
+                },
+            )
+        })
+        .inner;
+    let response = widgets::named(submenu.response, title);
+    if related.is_empty() {
+        response.on_disabled_hover_text(none);
+    }
+}
+
+fn related_rows(ui: &mut Ui, state: &mut PanelState, related: &[&Feature]) {
+    for feature in related.iter().take(MAX_LISTED_RELATIONS) {
+        let id = feature.id();
+        let response = widgets::menu_item(ui, icons::feature(&feature.kind), &feature.name, None)
+            .on_hover_text(format!("Choose {} in the tree", feature.name));
+        if response.clicked() {
+            state.choose_only(id);
+            state.reveal(id);
+            state.request_focus(Focus::Feature(id));
+            ui.close();
+        }
+    }
+    let more = related.len().saturating_sub(MAX_LISTED_RELATIONS);
+    if more > 0 {
+        ui.label(widgets::muted(format!("and {more} more"), ui));
     }
 }
 
@@ -1945,10 +2150,26 @@ fn invoke_on<T>(
     }
 }
 
+struct Chosen<'a> {
+    current: Option<&'a Feature>,
+    open: Option<&'a Feature>,
+    to_edit: Option<&'a Feature>,
+    rows: &'a [FeatureId],
+    targets: &'a [&'a Feature],
+}
+
+fn selected_feature<'a>(model: &'a Model, selection: &Selection) -> Option<&'a Feature> {
+    let mut picked = selection.iter();
+    let only = picked.next()?;
+    if picked.next().is_some() {
+        return None;
+    }
+    model.document().feature(viewport::feature_of(only, model)?)
+}
+
 fn feature_commands(
     context: &CommandContext<'_>,
-    current: Option<&Feature>,
-    open_feature: Option<&Feature>,
+    chosen: &Chosen<'_>,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
@@ -1957,7 +2178,8 @@ fn feature_commands(
         selection,
         editing,
     } = *context;
-    if let Some(command) = invoke_on(commands, Command::EditFeature, current, |feature| {
+    let current = chosen.current;
+    if let Some(command) = invoke_on(commands, Command::EditFeature, chosen.to_edit, |feature| {
         edit_change(model.document(), editing, feature)
     }) {
         actions.push(Action::Editing(command));
@@ -1966,22 +2188,26 @@ fn feature_commands(
     if commands.invoke(Command::CloseFeature, &open) {
         actions.push(Action::Editing(EditingCommand::CloseSolid));
     }
-    if let Some(transaction) = invoke_on(
-        commands,
-        Command::ToggleVisibility,
-        current,
-        visibility::toggle,
-    ) {
-        actions.push(Action::Apply(transaction));
-    }
     let document = model.document();
-    let hide = visibility::hide_selection(document, selection, editing.feature());
+    let toggled: Vec<FeatureId> = chosen.targets.iter().map(|target| target.id()).collect();
+    let toggle = if toggled.is_empty() {
+        Err(NO_FEATURE_CHOSEN.to_owned())
+    } else {
+        visibility::toggle_rows(document, &toggled)
+    };
+    let detail = (!chosen.targets.is_empty()).then(|| described(chosen.targets));
+    if commands.invoke_detailed(Command::ToggleVisibility, detail, &toggle)
+        && let Ok(toggle) = toggle
+    {
+        actions.push(Action::Apply(toggle.transaction));
+    }
+    let hide = visibility::hide_selection(document, selection, chosen.rows, editing.feature());
     if commands.invoke(Command::HideSelection, &hide)
         && let Ok(transaction) = hide
     {
         actions.push(Action::Apply(transaction));
     }
-    let others = visibility::hide_others(document, selection, editing.feature());
+    let others = visibility::hide_others(document, selection, chosen.rows, editing.feature());
     if commands.invoke(Command::HideOthers, &others)
         && let Ok(transaction) = others
     {
@@ -2016,7 +2242,7 @@ fn feature_commands(
     }) {
         actions.push(Action::Apply(transaction));
     }
-    let target = open_feature.or(current);
+    let target = chosen.open.or(current);
     let changes: [(Command, FeatureChange<'_>); 16] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
@@ -2095,7 +2321,21 @@ pub fn commands(
         .solid()
         .or(editing.feature())
         .and_then(|id| document.feature(id));
-    feature_commands(context, current, open, commands, actions);
+    let rows = state.chosen();
+    let targets = targets(document, &rows, current);
+    let to_edit = state
+        .selected
+        .and_then(|id| document.feature(id))
+        .or_else(|| selected_feature(model, selection))
+        .or(open);
+    let chosen = Chosen {
+        current,
+        open,
+        to_edit,
+        rows: &rows,
+        targets: &targets,
+    };
+    feature_commands(context, &chosen, commands, actions);
     let filterable = document
         .features()
         .next()
@@ -2122,7 +2362,6 @@ pub fn commands(
             actions.push(Action::Apply(transaction));
         }
     }
-    let targets = targets(document, &state.chosen(), current);
     let detail = (!targets.is_empty()).then(|| described(&targets));
     let suppression = suppress_change(document, &targets);
     if commands.invoke_detailed(Command::SuppressFeature, detail.clone(), &suppression)
@@ -2239,6 +2478,7 @@ fn failure(
     document: &Document,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
+    row: &Row<'_>,
     error: &FeatureError,
 ) {
     widgets::callout(ui, Tone::Error, |ui| {
@@ -2261,6 +2501,10 @@ fn failure(
             }
             return;
         }
+        if matches!(target, FixTarget::Feature(id) if id == row.feature.id()) {
+            edit_itself(ui, document, actions, row);
+            return;
+        }
         let (glyph, label) = match target {
             FixTarget::Dimension { .. } => (icons::EDIT, "Edit the dimension".to_owned()),
             _ => (icons::GO_TO, fix_label(document, target)),
@@ -2270,6 +2514,22 @@ fn failure(
             state.request_focus(target.into());
         }
     });
+}
+
+fn edit_itself(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, row: &Row<'_>) {
+    if row.edited {
+        return;
+    }
+    let Some(command) = edit_command(row.feature, false) else {
+        return;
+    };
+    let button = widgets::small_button(ui, icons::EDIT, &edit_title(row.feature, false));
+    if ui.add(button).clicked() {
+        actions.push(match editable(document, row.feature) {
+            Ok(()) => Action::Editing(command),
+            Err(reason) => Action::Inform(Notice::info(reason)),
+        });
+    }
 }
 
 fn fix_label(document: &Document, target: FixTarget) -> String {

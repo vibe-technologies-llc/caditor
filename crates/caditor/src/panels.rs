@@ -9,7 +9,7 @@ use egui::Id;
 use crate::{
     appearance::{SPACE_L, SPACE_S},
     bodies_tree,
-    commands::CommandFrame,
+    commands::{Command, CommandFrame},
     editing::SketchEditing,
     feature_tree, icons,
     layout::{self, MIN_SIDE_WIDTH, PanelLayout},
@@ -112,7 +112,9 @@ pub struct PanelState {
     pub noting: Option<NoteDraft>,
     pub painting: Option<Painting>,
     pub parameter: Option<ParameterId>,
+    pub hovered_row: Option<FeatureId>,
     pub hovered_in_tree: Option<Pickable>,
+    pub requested: Vec<Command>,
     pub chosen_in_tree: Option<Pickable>,
     pub selected_in_tree: Option<Vec<Pickable>>,
     pub in_view: BTreeSet<FeatureId>,
@@ -230,6 +232,11 @@ impl PanelState {
 
     pub fn choose_range(&mut self, features: Vec<FeatureId>) {
         self.also_selected = features;
+    }
+
+    pub fn choose_nothing(&mut self) {
+        self.selected = None;
+        self.also_selected.clear();
     }
 
     pub fn request_focus(&mut self, target: Focus) {
