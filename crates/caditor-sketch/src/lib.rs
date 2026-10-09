@@ -9,6 +9,7 @@ mod entity;
 mod fillet;
 mod fit;
 mod id;
+mod inference;
 mod intersect;
 mod mirror;
 mod offset;
@@ -32,6 +33,7 @@ pub use crate::{
     fillet::{Bevel, ChamferSize, Corner, FilletError, Rounding},
     fit::FittedSpline,
     id::{ConstraintId, EntityId, Reference},
+    inference::{ANGLE_DEGREES, InferenceError, Kept, RELATIVE_DISTANCE, RelationKind, Tolerance},
     mirror::{MirrorError, MirrorImage},
     offset::{Chain, OffsetError, Outline, Side},
     pattern::{

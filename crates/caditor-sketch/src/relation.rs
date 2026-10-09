@@ -67,19 +67,22 @@ impl Relations {
         let opposed = Opposed::of(constraint)?.opposite();
         self.opposed.get(&opposed).copied()
     }
+
+    pub(crate) fn record(&mut self, sketch: &Sketch, id: ConstraintId, constraint: &Constraint) {
+        self.subjects
+            .entry(sketch.subject(constraint))
+            .or_insert(id);
+        if let Some(opposed) = Opposed::of(constraint) {
+            self.opposed.entry(opposed).or_insert(id);
+        }
+    }
 }
 
 impl Sketch {
     pub fn relations(&self) -> Relations {
         let mut relations = Relations::default();
         for (id, constraint) in self.active_constraints() {
-            relations
-                .subjects
-                .entry(self.subject(constraint))
-                .or_insert(id);
-            if let Some(opposed) = Opposed::of(constraint) {
-                relations.opposed.entry(opposed).or_insert(id);
-            }
+            relations.record(self, id, constraint);
         }
         relations
     }
