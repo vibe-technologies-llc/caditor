@@ -787,6 +787,7 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
             };
             axis.into_iter()
                 .chain(start_anchor(revolve.start.as_ref()))
+                .chain(revolve.extent.target().and_then(plane_anchor))
                 .collect()
         }
         FeatureKind::Primitive(primitive) => plane_anchor(&primitive.plane).into_iter().collect(),

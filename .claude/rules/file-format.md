@@ -316,6 +316,9 @@ paths:
   would fail on the crossing profile or turn both sides; an inner record that is no revolve loads
   turning the whole profile, reported. `cut_several` wraps it when the revolve also cuts other
   bodies.
+- A revolve turning up to a face or plane is a `revolve_up_to` record: `feature`, the record it
+  would be turning a full turn (any revolve record, wrappers included), `target` (a plane
+  reference) and `reversed` only when set; an unreadable target loads as a full turn, reported.
 - An extrusion with an end up to a curved face is a `surface_ends` record: `feature`, the
   record it would be with those ends through all (which `offset_ends` may wrap), and `forward` and
   `backward` as `offset_ends` names them, each the face's attachment record only when that end

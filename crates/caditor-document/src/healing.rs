@@ -15,7 +15,10 @@ use crate::{
     movement::TurnCentre,
     pattern::PatternKind,
     recompute::Inputs,
-    solid::{ExtrudeEnd, ExtrudeExtent, RegionChoice, RevolveAxis, SolidFeature, SolidStart},
+    solid::{
+        ExtrudeEnd, ExtrudeExtent, RegionChoice, RevolveAxis, RevolveExtent, SolidFeature,
+        SolidStart,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -382,6 +385,9 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
             visitor.regions(revolve.sketch, &mut revolve.regions);
             if let RevolveAxis::Model(axis) = &mut revolve.axis {
                 visit_axis(axis, "axis", visitor);
+            }
+            if let RevolveExtent::UpTo { target, .. } = &mut revolve.extent {
+                visit_plane(target, "the face it turns up to", visitor);
             }
             if let Some(SolidStart::Plane(target)) = &mut revolve.start {
                 visit_plane(target, "the face it starts from", visitor);

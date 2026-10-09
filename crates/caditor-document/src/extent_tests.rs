@@ -1276,3 +1276,87 @@ fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face(
             .contains(&rod)
     );
 }
+
+#[test]
+fn a_revolve_turns_up_to_the_first_face_or_plane_through_its_axis_it_reaches() {
+    let mut document = Document::default();
+    let section = add(
+        &mut document,
+        "Section",
+        FeatureKind::from(rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0))),
+    );
+    let slanted = add(
+        &mut document,
+        "Slanted",
+        datum_plane(
+            PlaneReference::Principal(PrincipalPlane::Xz),
+            Some(PlaneRotation {
+                axis: AxisReference::Principal(PrincipalAxis::Z),
+                angle: degrees(30.0),
+            }),
+            0.0,
+        ),
+    );
+    let revolve = |target: PlaneReference, reversed: bool| {
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch: section,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+            extent: RevolveExtent::up_to(target, reversed),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            side: None,
+            wall: None,
+        }))
+    };
+    let square = add(
+        &mut document,
+        "Square",
+        revolve(PlaneReference::Principal(PrincipalPlane::Yz), false),
+    );
+    let forward = add(
+        &mut document,
+        "Forward",
+        revolve(PlaneReference::Datum(slanted), false),
+    );
+    let backward = add(
+        &mut document,
+        "Backward",
+        revolve(PlaneReference::Datum(slanted), true),
+    );
+    let across = add(
+        &mut document,
+        "Across",
+        revolve(PlaneReference::Principal(PrincipalPlane::Xy), false),
+    );
+    let holding = add(
+        &mut document,
+        "Holding",
+        revolve(PlaneReference::Principal(PrincipalPlane::Xz), false),
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let full = PI * (16.0 - 4.0) * 3.0;
+    assert!((volume(&evaluation, square) - full / 4.0).abs() < 1e-3 * full);
+    let (one, other) = (volume(&evaluation, forward), volume(&evaluation, backward));
+    assert!((one + other - full / 2.0).abs() < 1e-3 * full);
+    assert!((one.min(other) - full / 12.0).abs() < 1e-3 * full);
+    assert_eq!(
+        failure(&evaluation, across).reason,
+        "The XY plane does not hold the revolution axis, so the revolution cannot end on it."
+    );
+    assert_eq!(
+        failure(&evaluation, holding).reason,
+        "The XZ plane holds the profile of Section, so the revolution would not turn."
+    );
+    assert!(
+        document
+            .feature(forward)
+            .unwrap()
+            .kind
+            .planes_used()
+            .contains(&slanted)
+    );
+}

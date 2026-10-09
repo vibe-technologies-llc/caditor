@@ -1,12 +1,13 @@
 use std::{
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
+    f64::consts::PI,
     panic::{self, AssertUnwindSafe},
     sync::{Arc, OnceLock},
 };
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
-use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Ray, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
     FaceOrigin, GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE,
@@ -259,12 +260,32 @@ pub enum RevolveExtent {
         forward: Expression,
         backward: Expression,
     },
+    UpTo {
+        target: Box<PlaneReference>,
+        reversed: bool,
+    },
 }
 
 impl RevolveExtent {
+    pub fn up_to(target: PlaneReference, reversed: bool) -> Self {
+        Self::UpTo {
+            target: Box::new(target),
+            reversed,
+        }
+    }
+
+    pub fn target(&self) -> Option<&PlaneReference> {
+        match self {
+            Self::UpTo { target, .. } => Some(target),
+            Self::Full | Self::OneSide { .. } | Self::Symmetric { .. } | Self::TwoSides { .. } => {
+                None
+            }
+        }
+    }
+
     fn expressions(&self) -> Vec<&Expression> {
         match self {
-            Self::Full => Vec::new(),
+            Self::Full | Self::UpTo { .. } => Vec::new(),
             Self::OneSide { angle, .. } | Self::Symmetric { angle } => vec![angle],
             Self::TwoSides { forward, backward } => vec![forward, backward],
         }
@@ -472,7 +493,7 @@ impl SolidFeature {
     fn targets(&self) -> Vec<&PlaneReference> {
         let ends = match self {
             Self::Extrude(extrude) => extrude.extent.targets(),
-            Self::Revolve(_) => Vec::new(),
+            Self::Revolve(revolve) => revolve.extent.target().into_iter().collect(),
         };
         ends.into_iter()
             .chain(self.start().and_then(SolidStart::target))
@@ -1006,7 +1027,6 @@ pub(crate) fn evaluate(
                     model_axis(&context, feature, inputs, &plane, reference)?
                 }
             };
-            let extent = angular_extent(&context, &definition.extent, inputs.parameters)?;
             let kept;
             let turned: &[Region] = match (definition.side, &definition.wall) {
                 (Some(_), Some(_)) => {
@@ -1023,6 +1043,19 @@ pub(crate) fn evaluate(
                     &kept
                 }
                 (None, _) => &regions,
+            };
+            let extent = match &definition.extent {
+                RevolveExtent::UpTo { target, reversed } => {
+                    let turn = Turn {
+                        context: &context,
+                        inputs,
+                        plane: &started,
+                        axis,
+                        regions: turned,
+                    };
+                    turn.up_to(target, *reversed)?
+                }
+                other => angular_extent(&context, other, inputs.parameters)?,
             };
             revolve(&started, turned, axis, extent, raw)
         }
@@ -2394,6 +2427,78 @@ impl Stopping<'_> {
     }
 }
 
+const HOLDS_PROFILE: f64 = 1e-9;
+
+struct Turn<'a> {
+    context: &'a Context<'a>,
+    inputs: &'a Inputs<'a>,
+    plane: &'a Plane,
+    axis: Axis2,
+    regions: &'a [Region],
+}
+
+impl Turn<'_> {
+    fn error(&self, reason: String, remedy: String) -> Failure {
+        self.context.error(reason, remedy, self.context.own())
+    }
+
+    fn up_to(&self, target: &PlaneReference, reversed: bool) -> Result<AngularExtent, Failure> {
+        let found = resolve_target(
+            self.context,
+            self.inputs,
+            target,
+            "this revolution turns up to",
+            "Select a flat face or plane through the axis and use it for the end, or enter an \
+             angle.",
+        )?;
+        let name = capitalized(&describe_plane(self.inputs.document, target));
+        let origin = self.plane.to_world(self.axis.origin());
+        let direction = self
+            .plane
+            .to_world(self.axis.origin() + self.axis.direction())
+            - origin;
+        let through_axis =
+            Ray::new(origin, direction).is_some_and(|axis| tolerance::along_plane(axis, &found));
+        if !through_axis {
+            return Err(self.error(
+                format!(
+                    "{name} does not hold the revolution axis, so the revolution cannot end on it."
+                ),
+                "Choose a face or plane through the axis, or enter an angle.".to_owned(),
+            ));
+        }
+        let unturnable = || {
+            self.error(
+                format!(
+                    "{name} holds the profile of {}, so the revolution would not turn.",
+                    self.context.sketch_name
+                ),
+                "Choose another face or plane through the axis, or enter an angle.".to_owned(),
+            )
+        };
+        let centre = self
+            .regions
+            .iter()
+            .filter_map(Region::bounds)
+            .reduce(Aabb2::union)
+            .map(|bounds| self.plane.to_world(bounds.center()))
+            .ok_or_else(unturnable)?;
+        let axis = direction.normalize();
+        let outward = (centre - origin) - axis * (centre - origin).dot(axis);
+        let radial = outward.try_normalize().ok_or_else(unturnable)?;
+        let normal = found.normal();
+        let first = (-normal.dot(radial))
+            .atan2(normal.dot(axis.cross(radial)))
+            .rem_euclid(PI);
+        if first <= HOLDS_PROFILE || PI - first <= HOLDS_PROFILE {
+            return Err(unturnable());
+        }
+        let angle = if reversed { first - PI } else { first };
+        AngularExtent::one_side(angle)
+            .map_err(|error| sweep_failure(self.context, "revolution", &error))
+    }
+}
+
 fn angular_extent(
     context: &Context<'_>,
     extent: &RevolveExtent,
@@ -2405,7 +2510,7 @@ fn angular_extent(
             .map(f64::to_radians)
     };
     let built = match extent {
-        RevolveExtent::Full => Ok(AngularExtent::full()),
+        RevolveExtent::Full | RevolveExtent::UpTo { .. } => Ok(AngularExtent::full()),
         RevolveExtent::OneSide {
             angle: value,
             reversed,

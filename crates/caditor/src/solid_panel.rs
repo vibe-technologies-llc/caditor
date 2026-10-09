@@ -40,6 +40,7 @@ pub const END_OFFSET: &str = "Past the face";
 const FORWARD_END_OFFSET: &str = "Forward past face";
 const BACKWARD_END_OFFSET: &str = "Backward past face";
 pub const TAPER: &str = "Taper";
+pub const TURN_UP_TO: &str = "Up to face";
 pub const THIN_WALL: &str = "Thin wall";
 pub const WALL_THICKNESS: &str = "Thickness";
 const FILL_SOLID: &str = "Fill the closed regions of the sketch";
@@ -650,7 +651,9 @@ impl Panel<'_> {
         let current = turn_name(&revolve.extent);
         self.combo(ui, "revolve-extent", current, |panel| {
             let angle = match &revolve.extent {
-                RevolveExtent::Full => solid_tools::degrees(DEFAULT_PARTIAL_ANGLE),
+                RevolveExtent::Full | RevolveExtent::UpTo { .. } => {
+                    solid_tools::degrees(DEFAULT_PARTIAL_ANGLE)
+                }
                 RevolveExtent::OneSide { angle, .. }
                 | RevolveExtent::Symmetric { angle }
                 | RevolveExtent::TwoSides { forward: angle, .. } => angle.clone(),
@@ -659,9 +662,10 @@ impl Panel<'_> {
                 RevolveExtent::TwoSides { .. } => revolve.extent.clone(),
                 RevolveExtent::Full
                 | RevolveExtent::OneSide { .. }
-                | RevolveExtent::Symmetric { .. } => panel.two_angles(&angle),
+                | RevolveExtent::Symmetric { .. }
+                | RevolveExtent::UpTo { .. } => panel.two_angles(&angle),
             };
-            [
+            let mut choices: Vec<Choice> = [
                 RevolveExtent::Full,
                 RevolveExtent::OneSide {
                     angle: angle.clone(),
@@ -681,7 +685,21 @@ impl Panel<'_> {
                     }))
                     .map(Action::Apply),
             })
-            .collect()
+            .collect();
+            let up_to =
+                match revolve_target_change(panel.model, panel.selection, panel.id(), revolve) {
+                    Ok(transaction) => Ok(Action::Apply(transaction)),
+                    Err(_) => Ok(Action::Editing(EditingCommand::Pick(Picking::new(
+                        panel.id(),
+                        Slot::RevolveTarget,
+                    )))),
+                };
+            choices.push(Choice {
+                label: TURN_UP_TO.to_owned(),
+                selected: current == TURN_UP_TO,
+                change: up_to,
+            });
+            choices
         });
         ui.end_row();
     }
@@ -874,8 +892,22 @@ impl Panel<'_> {
         if revolve.wall.is_none() {
             self.side_rows(ui, revolve);
         }
+        if revolve.extent.target().is_none() {
+            self.revolve_target_row(ui, revolve, None);
+        }
         match &revolve.extent {
             RevolveExtent::Full => {}
+            RevolveExtent::UpTo { target, reversed } => {
+                self.revolve_target_row(ui, revolve, Some(target));
+                if let Some(flipped) = feature_fields::reverse_row(ui, REVERSE_DIRECTION, *reversed)
+                {
+                    let flipped = SolidFeature::Revolve(Revolve {
+                        extent: RevolveExtent::up_to((**target).clone(), flipped),
+                        ..revolve.clone()
+                    });
+                    self.apply(flipped);
+                }
+            }
             RevolveExtent::OneSide { angle, reversed } => {
                 let reversed = *reversed;
                 self.expression(
@@ -957,6 +989,33 @@ impl Panel<'_> {
             }
         }
         self.start_rows(ui, revolve.start.as_ref());
+    }
+
+    fn revolve_target_row(
+        &mut self,
+        ui: &mut Ui,
+        revolve: &Revolve,
+        target: Option<&PlaneReference>,
+    ) {
+        let id = self.id();
+        let shown = match target {
+            Some(target) => Shown::Named(capitalized(&describe_plane(self.document(), target))),
+            None if self.picking(ui, Slot::RevolveTarget) => Shown::NoneChosen,
+            None => return,
+        };
+        let picker = Picker {
+            feature: id,
+            slot: Slot::RevolveTarget,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (id, Slot::RevolveTarget),
+                || revolve_target_change(self.model, self.selection, id, revolve),
+            ),
+            hover: "Turn up to the selected face or plane through the axis instead",
+        };
+        feature_fields::reference_row(ui, self.model, "Up to", shown, picker, None, self.actions);
     }
 
     fn operation_rows(&mut self, ui: &mut Ui) {
@@ -1319,6 +1378,28 @@ pub fn up_to_selected_change(
     change(model, feature, with_extent_of(extrude, extent))
 }
 
+pub fn revolve_target_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    revolve: &Revolve,
+) -> Result<Transaction, String> {
+    let target = selected_target(model, selection, feature)?;
+    let reversed = matches!(revolve.extent, RevolveExtent::UpTo { reversed: true, .. });
+    let extent = RevolveExtent::up_to(target, reversed);
+    if extent == revolve.extent {
+        return Err("The revolution already turns up to the selected face or plane".to_owned());
+    }
+    change(
+        model,
+        feature,
+        SolidFeature::Revolve(Revolve {
+            extent,
+            ..revolve.clone()
+        }),
+    )
+}
+
 pub fn start_change(
     model: &Model,
     selection: &Selection,
@@ -1453,6 +1534,7 @@ fn extent_name(extent: &ExtrudeExtent) -> &'static str {
 
 fn turn_name(extent: &RevolveExtent) -> &'static str {
     match extent {
+        RevolveExtent::UpTo { .. } => TURN_UP_TO,
         RevolveExtent::Full => "Full turn",
         RevolveExtent::OneSide { .. } => "One side",
         RevolveExtent::Symmetric { .. } => "Symmetric",

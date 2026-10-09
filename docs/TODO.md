@@ -199,8 +199,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] An end up to the next face or a curved face follows curved or several faces
   only on one side and without an offset (two sides or an offset need one flat face). An end
   cannot end on a whole body (where the profile last leaves it); an extrusion runs only square
-  to its sketch, never along a chosen edge, axis or sketch line; and a revolve turns only by
-  angles, never up to a face or plane. A hole stops at the next face only where that face is flat.
+  to its sketch, never along a chosen edge, axis or sketch line; a revolve turns up to a face or
+  plane only when it holds the axis, never up to a curved face or the next face it meets; and a
+  hole stops at the next face only where that face is flat.
 - [medium · hard] Blends: only line and circle edges along planes, parallel cylinders and coaxial
   surfaces; no ellipse, spline or intersection edges, not even a straight edge beside a spline
   extrusion face; ends at steps and T-junctions refused; no variable radius, two-distance or

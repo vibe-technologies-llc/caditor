@@ -219,7 +219,10 @@ paths:
   previewed with the distance beside the pointer, committed on release as one edit setting that
   distance to a measured value of at least one step. The arrows follow a typed distance's preview
   (`Model::draft_kind`); an extrusion starting at a face or plane has none.
-- A revolve can also take two angles, refusing a pair that turns more than a full turn. Its
+- A revolve can also take two angles, refusing a pair that turns more than a full turn, or turn
+  Up to face (`solid_panel::TURN_UP_TO`): the selected flat face or plane, taken like an
+  extrusion's end, else choosing one in the view (`Slot::RevolveTarget`), shown as Up to with
+  Reverse direction. Its
   Profile switch (Whole, One side) keeps one side of the axis, starting from the side holding
   more of the chosen regions' area (`solid_panel::larger_side`), with Keep the other side of the
   axis to swap.

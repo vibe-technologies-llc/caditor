@@ -302,6 +302,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   all: they are in `bodies_used` and `Feature::bodies`, their results are `SolidResult::others`
   (like a split's), Through all reaches past all of them, the target and repeats are skipped, and
   a body the tool removes entirely fails the feature naming it.
+- `RevolveExtent::UpTo { target, reversed }` turns up to a flat face or plane (a boxed
+  `PlaneReference`, resolved, counted and healed like an extrusion's end) that holds the
+  revolution axis: the profile turns, forward or reversed, until its half-plane first lies in the
+  target's plane (`Turn` in `solid.rs`, from the chosen regions' middle), so a face is taken as
+  its whole plane. A target not holding the axis, or holding the profile itself, fails in words.
 - A `RevolveAxis` is a line or axis of its own sketch (a sketch line used as axis cannot be
   deleted; `AxisNotALine`) or an `AxisReference` to a model axis lying in the sketch plane.
 - A revolve's `side` (`AxisSide`, left or right of the axis's direction in the sketch plane; none

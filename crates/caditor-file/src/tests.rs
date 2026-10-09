@@ -5202,6 +5202,52 @@ fn extents_to_faces_planes_and_the_next_face_and_two_angles_are_saved_and_loaded
 }
 
 #[test]
+fn a_revolve_up_to_a_plane_is_a_kind_older_readers_report() {
+    use caditor_document::{
+        BodyOperation, PlaneReference, PrincipalPlane, RegionChoice, Revolve, RevolveAxis,
+        RevolveExtent, SolidFeature,
+    };
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XZ)));
+    let turned = transaction.add_feature(
+        "Turned",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+            extent: RevolveExtent::up_to(PlaneReference::Principal(PrincipalPlane::Yz), true),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            side: None,
+            wall: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("revolve_up_to", "revolve_up_too"));
+    let damaged = decode_text(&text.replacen("\"principal\":", "\"principle\":", 1));
+
+    assert!(text.contains("\"revolve_up_to\":{\"feature\":{\"revolve\":"));
+    assert!(text.contains("\"reversed\":true"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(turned).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    let kind = document.feature(turned).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: turned, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
 fn ends_up_to_curved_faces_are_a_kind_older_readers_report() {
     use caditor_document::{
         BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, RegionChoice,

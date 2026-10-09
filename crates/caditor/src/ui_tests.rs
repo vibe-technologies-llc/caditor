@@ -13930,6 +13930,44 @@ fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
+#[test]
+fn a_revolve_turns_up_to_a_plane_through_its_axis_chosen_in_its_panel() {
+    let mut harness = Harness::new();
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(&mut section, Point2::new(2.0, 0.0), Point2::new(4.0, 3.0));
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = open_solid(&harness);
+
+    choose(&mut harness, "Full turn", crate::solid_panel::TURN_UP_TO);
+    let asks_for_a_plane =
+        harness.shows("Click a flat face or plane through the axis to turn up to.");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([Pickable::Plane(caditor_document::PrincipalPlane::Yz)]);
+    choose(&mut harness, "Full turn", crate::solid_panel::TURN_UP_TO);
+    let turned = match harness.solid(revolve) {
+        SolidFeature::Revolve(revolve) => revolve.extent.clone(),
+        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+    };
+    let volume = harness.body_volume(revolve);
+
+    assert!(asks_for_a_plane);
+    assert_eq!(
+        turned,
+        caditor_document::RevolveExtent::up_to(
+            caditor_document::PlaneReference::Principal(caditor_document::PrincipalPlane::Yz),
+            false
+        )
+    );
+    let quarter = std::f64::consts::PI * (16.0 - 4.0) * 3.0 / 4.0;
+    assert!((volume - quarter).abs() < 0.01 * quarter, "{volume}");
+    assert!(harness.shows("Up to"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
 fn extent_of(harness: &Harness, feature: FeatureId) -> ExtrudeExtent {
     match harness.solid(feature) {
         SolidFeature::Extrude(extrude) => extrude.extent.clone(),
