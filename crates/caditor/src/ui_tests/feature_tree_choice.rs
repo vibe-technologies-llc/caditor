@@ -394,3 +394,32 @@ fn edit_feature_opens_the_feature_of_the_one_thing_selected_when_no_row_is_chose
     assert_eq!(opened, Some(extrude));
     assert_eq!(harness.editing(), Some(base));
 }
+
+#[test]
+fn the_tree_works_out_its_offers_once_until_the_model_or_the_choice_changes() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    harness.workspace.panels.choose_only(extrude);
+    harness.frame();
+    let built = harness.workspace.panels.tree_offers.builds();
+
+    harness.frame();
+    harness.frame();
+
+    assert_eq!(harness.workspace.panels.tree_offers.builds(), built);
+    assert!(offer(&harness, Command::DeleteFeature).availability.is_ok());
+    assert!(offer(&harness, Command::RollbackUp).availability.is_ok());
+
+    harness.perform(Action::Apply(
+        harness
+            .document()
+            .roll_to(caditor_document::RollbackBar::Before(extrude), "Roll back"),
+    ));
+    harness.settle();
+
+    assert!(harness.workspace.panels.tree_offers.builds() > built);
+    assert!(
+        offer(&harness, Command::RollToEnd).availability.is_ok(),
+        "the offers follow the rollback bar"
+    );
+}

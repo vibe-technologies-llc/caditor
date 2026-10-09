@@ -182,8 +182,10 @@ fn no_source_file_or_manifest_holds_a_comment() {
     assert!(commented.is_empty(), "comments in {commented:#?}");
 }
 
-const RAW_WIDGETS: [&str; 5] = [
+const RAW_WIDGETS: [&str; 7] = [
     "ui.button(",
+    "ui.spinner(",
+    "Spinner::new(",
     "ui.small_button(",
     "Button::new(",
     "Button::selectable(",
@@ -224,6 +226,8 @@ fn buttons_outside_the_widget_kit_come_from_it() {
 
     assert!(raw.is_empty(), "use the widgets.rs kit instead of {raw:#?}");
     assert_eq!(raw_widget_at("ToolButton::new(glyph)"), None);
+    assert_eq!(raw_widget_at("widgets::spinner(ui);"), None);
+    assert_eq!(raw_widget_at("ui.spinner();"), Some("ui.spinner("));
     assert_eq!(
         raw_widget_at("egui::Button::new(text)"),
         Some("Button::new(")

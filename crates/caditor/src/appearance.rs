@@ -258,6 +258,7 @@ pub fn visuals(dark: bool, high_contrast: bool) -> Visuals {
     visuals.selection.bg_fill = tokens.accent_subtle;
     visuals.selection.stroke = Stroke::new(FOCUS_WIDTH, tokens.accent_text);
     visuals.slider_trailing_fill = true;
+    visuals.text_cursor.blink = false;
     visuals.indent_has_left_vline = false;
     visuals.disabled_alpha = if high_contrast {
         HIGH_CONTRAST_DISABLED_ALPHA
@@ -617,6 +618,13 @@ pub mod tests {
                 tokens_for(&built),
                 Tokens::of(dark, high_contrast)
             ));
+        }
+    }
+
+    #[test]
+    fn the_text_caret_is_solid_in_every_theme_so_an_idle_field_never_wakes_the_app() {
+        for (dark, high_contrast) in CASES {
+            assert!(!visuals(dark, high_contrast).text_cursor.blink);
         }
     }
 

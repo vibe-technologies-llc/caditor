@@ -74,6 +74,7 @@ mod dimension_labels;
 mod feature_panels;
 mod feature_tree_choice;
 mod files_and_history;
+mod frame_costs;
 mod import_jobs;
 mod large_interface;
 mod paint_selection;
@@ -369,6 +370,18 @@ impl Harness {
     }
 
     fn frame(&mut self) {
+        let shapes = self.pass();
+        self.texts.clear();
+        self.text_clips.clear();
+        self.text_colors.clear();
+        for clipped in shapes {
+            let ClippedShape { shape, clip_rect } = clipped;
+            collect_texts(shape, &mut self.texts, &mut self.text_colors);
+            self.text_clips.resize(self.texts.len(), clip_rect);
+        }
+    }
+
+    fn pass(&mut self) -> Vec<ClippedShape> {
         self.time += FRAME_SECONDS;
         if let Some((forced, _)) = self.forced_hover
             && self
@@ -455,14 +468,7 @@ impl Harness {
             .viewport
             .build_scene(&self.model, &self.workspace.editing);
         self.answer_pick();
-        self.texts.clear();
-        self.text_clips.clear();
-        self.text_colors.clear();
-        for clipped in output.shapes {
-            let ClippedShape { shape, clip_rect } = clipped;
-            collect_texts(shape, &mut self.texts, &mut self.text_colors);
-            self.text_clips.resize(self.texts.len(), clip_rect);
-        }
+        output.shapes
     }
 
     fn render_image(&mut self) {

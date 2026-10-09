@@ -255,7 +255,7 @@ fn recompute_status(
 ) {
     match model.status() {
         RecomputeStatus::Running { since } if since.elapsed() >= SHOW_PROGRESS_AFTER => {
-            ui.spinner();
+            widgets::spinner(ui);
             let text = match model.progress() {
                 Some(progress) if progress.total > 0 => recomputing_text(&progress),
                 Some(_) | None => "Recomputing…".to_owned(),

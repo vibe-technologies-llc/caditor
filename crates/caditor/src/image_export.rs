@@ -430,7 +430,7 @@ pub fn activity(
     let running = exporter.exporting().ok_or(NOT_EXPORTING);
     let mut cancel = commands.invoke(Command::CancelImageExport, &running);
     if let Ok(path) = running {
-        ui.spinner();
+        widgets::spinner(ui);
         ui.label(format!("Exporting “{}”…", display_name(Some(path))));
         cancel |= ui
             .add(widgets::button("Cancel"))

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{f64::consts::TAU, ops::RangeInclusive, sync::Arc, time::Duration};
 
 use egui::{
     Align, Align2, AtomExt, Button, Color32, CornerRadius, CursorIcon, FocusDirection, Frame,
@@ -7,6 +7,7 @@ use egui::{
     Vec2, Widget, WidgetInfo, WidgetText, WidgetType,
     accesskit::{Live, Role},
     collapsing_header::CollapsingState,
+    emath::lerp,
     pos2, vec2,
 };
 
@@ -38,6 +39,11 @@ const TOOL_LABEL_GAP: f32 = 2.0;
 const SELECTED_WIDTH: f32 = 1.0;
 pub const COMPACT_TOOL_GAP: f32 = 2.0;
 const FOCUS_GAP: f32 = 2.0;
+pub const SPINNER_FRAME: Duration = Duration::from_millis(66);
+const SPINNER_STROKE: f32 = 3.0;
+const SPINNER_INSET: f32 = 2.0;
+const SPINNER_SWEEP_DEGREES: f64 = 240.0;
+const SPINNER_POINTS: RangeInclusive<u32> = 8..=128;
 const SWATCH_INSET: f32 = 3.0;
 const SECTION_BAND_MARGIN: Margin = Margin::symmetric(2, 2);
 const SWATCH_CHOSEN_WIDTH: f32 = 2.0;
@@ -107,6 +113,32 @@ pub fn icon(glyph: &str) -> RichText {
 
 pub fn muted(text: impl Into<String>, ui: &Ui) -> RichText {
     RichText::new(text).color(appearance::tokens(ui).text_muted)
+}
+
+pub fn spinner(ui: &mut Ui) -> Response {
+    let size = ui.style().spacing.interact_size.y;
+    let (rect, response) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
+    response.widget_info(|| WidgetInfo::new(WidgetType::ProgressIndicator));
+    if ui.is_rect_visible(rect) {
+        ui.ctx().request_repaint_after(SPINNER_FRAME);
+        let color = ui.visuals().strong_text_color();
+        let radius = rect.height().min(rect.width()) / 2.0 - SPINNER_INSET;
+        let count = (radius.round() as u32).clamp(*SPINNER_POINTS.start(), *SPINNER_POINTS.end());
+        let time = ui.input(|input| input.time);
+        let start = time * TAU;
+        let end = start + SPINNER_SWEEP_DEGREES.to_radians() * time.sin();
+        let points = (0..count)
+            .map(|index| {
+                let (sin, cos) = lerp(start..=end, f64::from(index) / f64::from(count)).sin_cos();
+                rect.center() + radius * vec2(cos as f32, sin as f32)
+            })
+            .collect();
+        ui.painter().add(egui::Shape::line(
+            points,
+            Stroke::new(SPINNER_STROKE, color),
+        ));
+    }
+    response
 }
 
 pub fn icon_label(ui: &mut Ui, glyph: &str, color: Color32) -> Response {
@@ -1869,6 +1901,34 @@ mod tests {
     use egui::{Context, RawInput, Rect, pos2};
 
     use super::*;
+
+    #[test]
+    fn a_spinner_asks_for_its_next_frame_on_a_timer_rather_than_at_once() {
+        let context = Context::default();
+        context.set_fonts(fonts::definitions_with(&[]));
+        let input = || RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 100.0))),
+            ..RawInput::default()
+        };
+        for _ in 0..3 {
+            context.run_ui(input(), |_| {}).textures_delta.clear();
+        }
+
+        let mut output = context.run_ui(input(), |ui| {
+            spinner(ui);
+        });
+        output.textures_delta.clear();
+
+        let delay = output
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map(|viewport| viewport.repaint_delay)
+            .unwrap();
+        assert!(
+            delay > Duration::ZERO && delay <= SPINNER_FRAME,
+            "{delay:?}"
+        );
+    }
 
     fn pills_in_a_wrapped_row(width: f32, texts: [&str; 2]) -> (Vec<Rect>, Vec<Rect>, Rect) {
         let context = Context::default();

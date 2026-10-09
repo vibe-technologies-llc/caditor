@@ -40,3 +40,9 @@ paths:
   folder is an 8.3 short name (`C:\Users\RUNNER~1\...`) that resolving spells out in full, so a test
   comparing `Model::path` with a file it wrote builds that file under `canonical(&dir)`, never
   `dir.path()`; the comparison then holds on Linux and fails only on Windows CI.
+- `Harness::pass` runs one frame without the text bookkeeping `frame` adds, so the ignored
+  `app_frame_costs_while_editing_a_large_sketch_and_with_a_row_chosen` (`ui_tests/frame_costs.rs`)
+  times the whole app pass (`app::show`, actions, scene build, pick answer) over `large_sketch`
+  idle, with the pointer moving and with the line tool, and over the plate with a tree row
+  chosen; `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times the scene alone,
+  a whole-body hover with the Bodies filter included.

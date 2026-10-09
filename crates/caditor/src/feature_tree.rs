@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_document::{
     BlendKind, CombineOperation, Datum, Document, Edit, Feature, FeatureError, FeatureId,
@@ -41,6 +41,7 @@ use crate::{
     sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools, solid_panel, solid_tools, split_panel, split_tools, thread_panel,
     tree_row::{self, Look},
+    units::Units,
     viewport, visibility,
     widgets::{self, DialogWidth, Tone},
 };
@@ -1610,17 +1611,18 @@ fn related_rows(ui: &mut Ui, state: &mut PanelState, related: &[&Feature]) {
 
 fn group_commands(
     document: &Document,
-    current: Option<&Feature>,
-    targets: &[&Feature],
+    choice: &Chosen<'_>,
     detail: Option<String>,
     state: &mut PanelState,
+    offers: &mut TreeOffers,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let grouped: Vec<FeatureId> = targets.iter().map(|feature| feature.id()).collect();
-    let grouping = feature_groups::grouping(document, &grouped);
-    if commands.invoke_detailed(Command::GroupFeatures, detail, &grouping)
-        && let Ok(transaction) = grouping
+    let grouped: Vec<FeatureId> = choice.targets.iter().map(|feature| feature.id()).collect();
+    if let Some(transaction) =
+        offer_change(offers, commands, Command::GroupFeatures, detail, || {
+            feature_groups::grouping(document, &grouped)
+        })
     {
         actions.push(Action::Apply(transaction));
         if let Some(first) = grouped
@@ -1631,7 +1633,7 @@ fn group_commands(
             feature_groups::start_renaming(state, first);
         }
     }
-    let member = current.ok_or(NO_FEATURE_CHOSEN).and_then(|feature| {
+    let member = choice.current.ok_or(NO_FEATURE_CHOSEN).and_then(|feature| {
         feature
             .group
             .as_ref()
@@ -1639,12 +1641,17 @@ fn group_commands(
             .ok_or(feature_groups::NOT_IN_A_GROUP)
     });
     let group_detail = member.ok().and_then(|feature| feature.group.clone());
-    let ungrouping = member
-        .map_err(str::to_owned)
-        .and_then(|feature| feature_groups::ungrouping(document, feature.id()));
-    if commands.invoke_detailed(Command::Ungroup, group_detail.clone(), &ungrouping)
-        && let Ok(transaction) = ungrouping
-    {
+    if let Some(transaction) = offer_change(
+        offers,
+        commands,
+        Command::Ungroup,
+        group_detail.clone(),
+        || {
+            member
+                .map_err(str::to_owned)
+                .and_then(|feature| feature_groups::ungrouping(document, feature.id()))
+        },
+    ) {
         actions.push(Action::Apply(transaction));
     }
     if commands.invoke_detailed(Command::RenameGroup, group_detail, &member)
@@ -2035,6 +2042,7 @@ pub fn current_feature<'a>(
 }
 
 type FeatureChange<'a> = &'a dyn Fn(&Feature) -> Result<Transaction, String>;
+type FeatureRoll = fn(&Document) -> Result<Transaction, String>;
 
 pub struct CommandContext<'a> {
     pub model: &'a Model,
@@ -2182,6 +2190,120 @@ fn pattern_change(
     pattern_tools::selected_change(model, selection, feature.id(), pattern, reference)
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct OfferBasis {
+    revision: u64,
+    evaluation: u64,
+    draft: u64,
+    units: Units,
+    selection: u64,
+    current: Option<FeatureId>,
+    open: Option<FeatureId>,
+    to_edit: Option<FeatureId>,
+    rows: Vec<FeatureId>,
+    edited: Option<FeatureId>,
+    opened: Option<FeatureId>,
+    tool_active: bool,
+}
+
+impl OfferBasis {
+    fn of(context: &CommandContext<'_>, chosen: &Chosen<'_>) -> Self {
+        let CommandContext {
+            model,
+            selection,
+            editing,
+        } = *context;
+        Self {
+            revision: model.revision(),
+            evaluation: model.evaluation_generation(),
+            draft: model.draft_generation(),
+            units: model.units(),
+            selection: selection.generation(),
+            current: chosen.current.map(Feature::id),
+            open: chosen.open.map(Feature::id),
+            to_edit: chosen.to_edit.map(Feature::id),
+            rows: chosen.rows.to_vec(),
+            edited: editing.feature(),
+            opened: editing.solid(),
+            tool_active: editing.active().is_some(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TreeOffers {
+    basis: Option<OfferBasis>,
+    changes: BTreeMap<Command, Result<Transaction, String>>,
+    deletions: BTreeMap<Command, Result<Deletion, String>>,
+    #[cfg(test)]
+    builds: usize,
+}
+
+impl TreeOffers {
+    fn follow(&mut self, basis: OfferBasis) {
+        if self.basis.as_ref() != Some(&basis) {
+            self.changes.clear();
+            self.deletions.clear();
+            self.basis = Some(basis);
+        }
+    }
+
+    fn change(
+        &mut self,
+        command: Command,
+        build: impl FnOnce() -> Result<Transaction, String>,
+    ) -> &Result<Transaction, String> {
+        self.changes.entry(command).or_insert_with(|| {
+            #[cfg(test)]
+            {
+                self.builds += 1;
+            }
+            build()
+        })
+    }
+
+    fn deletion(
+        &mut self,
+        command: Command,
+        build: impl FnOnce() -> Result<Deletion, String>,
+    ) -> &Result<Deletion, String> {
+        self.deletions.entry(command).or_insert_with(build)
+    }
+
+    #[cfg(test)]
+    pub fn builds(&self) -> usize {
+        self.builds
+    }
+}
+
+fn offer_change(
+    offers: &mut TreeOffers,
+    commands: &mut CommandFrame<'_>,
+    command: Command,
+    detail: Option<String>,
+    build: impl FnOnce() -> Result<Transaction, String>,
+) -> Option<Transaction> {
+    let offered = offers.change(command, build);
+    if commands.invoke_detailed(command, detail, offered) {
+        offered.as_ref().ok().cloned()
+    } else {
+        None
+    }
+}
+
+fn offer_change_on(
+    offers: &mut TreeOffers,
+    commands: &mut CommandFrame<'_>,
+    command: Command,
+    feature: Option<&Feature>,
+    change: impl FnOnce(&Feature) -> Result<Transaction, String>,
+) -> Option<Transaction> {
+    let detail = feature.map(|feature| feature.name.clone());
+    offer_change(offers, commands, command, detail, || {
+        feature.map_or_else(|| Err(NO_FEATURE_CHOSEN.to_owned()), change)
+    })
+}
+
 fn invoke_on<T>(
     commands: &mut CommandFrame<'_>,
     command: Command,
@@ -2217,6 +2339,7 @@ fn selected_feature<'a>(model: &'a Model, selection: &Selection) -> Option<&'a F
 fn feature_commands(
     context: &CommandContext<'_>,
     chosen: &Chosen<'_>,
+    offers: &mut TreeOffers,
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
@@ -2244,34 +2367,32 @@ fn feature_commands(
         actions.push(Action::Editing(EditingCommand::CancelSolid));
     }
     let document = model.document();
-    let toggled: Vec<FeatureId> = chosen.targets.iter().map(|target| target.id()).collect();
-    let toggle = if toggled.is_empty() {
-        Err(NO_FEATURE_CHOSEN.to_owned())
-    } else {
-        visibility::toggle_rows(document, &toggled)
-    };
     let detail = (!chosen.targets.is_empty()).then(|| described(chosen.targets));
-    if commands.invoke_detailed(Command::ToggleVisibility, detail, &toggle)
-        && let Ok(toggle) = toggle
-    {
-        actions.push(Action::Apply(toggle.transaction));
-    }
-    let hide = visibility::hide_selection(document, selection, chosen.rows, editing.feature());
-    if commands.invoke(Command::HideSelection, &hide)
-        && let Ok(transaction) = hide
-    {
-        actions.push(Action::Apply(transaction));
-    }
-    let others = visibility::hide_others(document, selection, chosen.rows, editing.feature());
-    if commands.invoke(Command::HideOthers, &others)
-        && let Ok(transaction) = others
+    if let Some(transaction) =
+        offer_change(offers, commands, Command::ToggleVisibility, detail, || {
+            let toggled: Vec<FeatureId> = chosen.targets.iter().map(|target| target.id()).collect();
+            if toggled.is_empty() {
+                Err(NO_FEATURE_CHOSEN.to_owned())
+            } else {
+                visibility::toggle_rows(document, &toggled).map(|toggle| toggle.transaction)
+            }
+        })
     {
         actions.push(Action::Apply(transaction));
     }
-    let show = visibility::show_all(document);
-    if commands.invoke(Command::ShowAll, &show)
-        && let Ok(transaction) = show
-    {
+    if let Some(transaction) = offer_change(offers, commands, Command::HideSelection, None, || {
+        visibility::hide_selection(document, selection, chosen.rows, editing.feature())
+    }) {
+        actions.push(Action::Apply(transaction));
+    }
+    if let Some(transaction) = offer_change(offers, commands, Command::HideOthers, None, || {
+        visibility::hide_others(document, selection, chosen.rows, editing.feature())
+    }) {
+        actions.push(Action::Apply(transaction));
+    }
+    if let Some(transaction) = offer_change(offers, commands, Command::ShowAll, None, || {
+        visibility::show_all(document)
+    }) {
         actions.push(Action::Apply(transaction));
     }
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
@@ -2285,16 +2406,19 @@ fn feature_commands(
     .into_iter()
     .zip(visibility::Kind::ALL)
     {
-        let toggle = visibility::toggle_kind(document, kind, editing.feature());
-        if commands.invoke(command, &toggle)
-            && let Ok(transaction) = toggle
-        {
+        if let Some(transaction) = offer_change(offers, commands, command, None, || {
+            visibility::toggle_kind(document, kind, editing.feature())
+        }) {
             actions.push(Action::Apply(transaction));
         }
     }
-    if let Some(transaction) = invoke_on(commands, Command::DetachSketch, current, |feature| {
-        detach_change(model, feature)
-    }) {
+    if let Some(transaction) = offer_change_on(
+        offers,
+        commands,
+        Command::DetachSketch,
+        current,
+        |feature| detach_change(model, feature),
+    ) {
         actions.push(Action::Apply(transaction));
     }
     let target = chosen.open.or(current);
@@ -2356,7 +2480,7 @@ fn feature_commands(
         }),
     ];
     for (command, change) in changes {
-        if let Some(transaction) = invoke_on(commands, command, target, change) {
+        if let Some(transaction) = offer_change_on(offers, commands, command, target, change) {
             actions.push(Action::Apply(transaction));
         }
     }
@@ -2386,14 +2510,16 @@ pub fn commands(
         .and_then(|id| document.feature(id))
         .or_else(|| selected_feature(model, selection))
         .or(open);
-    let chosen = Chosen {
+    let choice = Chosen {
         current,
         open,
         to_edit,
         rows: &rows,
         targets: &targets,
     };
-    feature_commands(context, &chosen, commands, actions);
+    let mut offers = std::mem::take(&mut state.tree_offers);
+    offers.follow(OfferBasis::of(context, &choice));
+    feature_commands(context, &choice, &mut offers, commands, actions);
     let filterable = document
         .features()
         .next()
@@ -2410,29 +2536,33 @@ pub fn commands(
         start_renaming(state, feature);
     }
     for direction in Direction::BOTH {
-        let transaction = current.map_or_else(
-            || Err(NO_FEATURE_CHOSEN.to_owned()),
-            |feature| direction.transaction(document, feature),
-        );
-        if commands.invoke(direction.command(), &transaction)
-            && let Ok(transaction) = transaction
+        if let Some(transaction) =
+            offer_change(&mut offers, commands, direction.command(), None, || {
+                current.map_or_else(
+                    || Err(NO_FEATURE_CHOSEN.to_owned()),
+                    |feature| direction.transaction(document, feature),
+                )
+            })
         {
             actions.push(Action::Apply(transaction));
         }
     }
     let detail = (!targets.is_empty()).then(|| described(&targets));
-    let suppression = suppress_change(document, &targets);
-    if commands.invoke_detailed(Command::SuppressFeature, detail.clone(), &suppression)
-        && let Ok(transaction) = suppression
-    {
+    if let Some(transaction) = offer_change(
+        &mut offers,
+        commands,
+        Command::SuppressFeature,
+        detail.clone(),
+        || suppress_change(document, &targets),
+    ) {
         actions.push(Action::Apply(transaction));
     }
     group_commands(
         document,
-        current,
-        &targets,
+        &choice,
         detail.clone(),
         state,
+        &mut offers,
         commands,
         actions,
     );
@@ -2474,27 +2604,34 @@ pub fn commands(
     {
         actions.push(Action::File(FileCommand::ReloadImport(feature.id())));
     }
-    if let Some(transaction) = invoke_on(commands, Command::RollToHere, current, |feature| {
-        roll_to_here(document, feature)
-    }) {
+    if let Some(transaction) = offer_change_on(
+        &mut offers,
+        commands,
+        Command::RollToHere,
+        current,
+        |feature| roll_to_here(document, feature),
+    ) {
         actions.push(Action::Apply(transaction));
     }
-    let rolls = [
-        (Command::RollToEnd, roll_to_end(document)),
-        (Command::RollbackUp, step_bar(document, true)),
-        (Command::RollbackDown, step_bar(document, false)),
+    let rolls: [(Command, FeatureRoll); 3] = [
+        (Command::RollToEnd, roll_to_end),
+        (Command::RollbackUp, |document| step_bar(document, true)),
+        (Command::RollbackDown, |document| step_bar(document, false)),
     ];
     for (command, roll) in rolls {
-        if commands.invoke(command, &roll)
-            && let Ok(transaction) = roll
+        if let Some(transaction) =
+            offer_change(&mut offers, commands, command, None, || roll(document))
         {
             actions.push(Action::Apply(transaction));
         }
     }
-    let update = reference_update(model, &targets);
-    if commands.invoke_detailed(Command::UpdateReferences, detail.clone(), &update)
-        && let Ok(transaction) = update
-    {
+    if let Some(transaction) = offer_change(
+        &mut offers,
+        commands,
+        Command::UpdateReferences,
+        detail.clone(),
+        || reference_update(model, &targets),
+    ) {
         actions.push(Action::Apply(transaction));
     }
     feature_clipboard::commands(
@@ -2506,29 +2643,33 @@ pub fn commands(
         commands,
         actions,
     );
-    let delete = delete_request(document, &targets);
-    if commands.invoke_detailed(Command::DeleteFeature, detail, &delete)
+    let delete = offers.deletion(Command::DeleteFeature, || {
+        delete_request(document, &targets)
+    });
+    if commands.invoke_detailed(Command::DeleteFeature, detail, delete)
         && let Ok(deletion) = delete
     {
-        deletion.perform(state, actions);
+        deletion.clone().perform(state, actions);
     }
     if editing.active().is_none() {
-        let chosen = state.chosen();
-        let selected = if chosen.is_empty() {
-            Err(NOTHING_SELECTED.to_owned())
-        } else {
-            let features: Vec<&Feature> = document
-                .features()
-                .filter(|feature| chosen.contains(&feature.id()))
-                .collect();
-            delete_request(document, &features)
-        };
-        if commands.invoke(Command::DeleteSelection, &selected)
+        let selected = offers.deletion(Command::DeleteSelection, || {
+            if rows.is_empty() {
+                Err(NOTHING_SELECTED.to_owned())
+            } else {
+                let features: Vec<&Feature> = document
+                    .features()
+                    .filter(|feature| rows.contains(&feature.id()))
+                    .collect();
+                delete_request(document, &features)
+            }
+        });
+        if commands.invoke(Command::DeleteSelection, selected)
             && let Ok(deletion) = selected
         {
-            deletion.perform(state, actions);
+            deletion.clone().perform(state, actions);
         }
     }
+    state.tree_offers = offers;
 }
 
 fn failure(

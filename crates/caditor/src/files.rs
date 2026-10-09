@@ -3040,11 +3040,11 @@ pub fn activity(
         ));
     }
     if model.is_saving() {
-        ui.spinner();
+        widgets::spinner(ui);
         ui.label("Saving…");
     }
     if files.is_picking() {
-        ui.spinner();
+        widgets::spinner(ui);
         ui.label("Waiting for the file dialog…");
         let stop = ui.add(widgets::button("Stop waiting")).on_hover_text(
             "The file dialog may be behind this window. Stop waiting to use caditor again; what \
@@ -3072,7 +3072,7 @@ fn import_activity(
         .ok_or(NOT_IMPORTING);
     let mut cancel = commands.invoke(Command::CancelImport, &running);
     if let Ok(path) = running {
-        ui.spinner();
+        widgets::spinner(ui);
         ui.label(format!("Importing “{}”…", display_name(Some(path))));
         cancel |= ui
             .add(widgets::button("Cancel"))
@@ -3228,7 +3228,7 @@ fn opening(ctx: &egui::Context, path: &Path, origin: Origin) -> Option<FileComma
     };
     let response = widgets::dialog(ctx, "opening", &title, DialogWidth::Medium, |ui| {
         ui.horizontal(|ui| {
-            ui.spinner();
+            widgets::spinner(ui);
             ui.label(widgets::muted(doing, ui));
         });
         widgets::footer(ui, |ui| {
@@ -3294,7 +3294,7 @@ fn closing(ctx: &egui::Context, since: Instant) -> Option<FileCommand> {
     }
     dialog_parts::titled_modal(ctx, "closing", "Closing…", |ui| {
         ui.horizontal(|ui| {
-            ui.spinner();
+            widgets::spinner(ui);
             ui.label(widgets::muted("Finishing writing to disk…", ui));
         });
         if waited < QUIT_ANYWAY_AFTER {

@@ -162,7 +162,7 @@ pub fn dialog(
         match listing {
             Listing::Loading => {
                 ui.horizontal(|ui| {
-                    ui.spinner();
+                    widgets::spinner(ui);
                     ui.label("Reading the saved versions…");
                 });
             }
@@ -235,7 +235,7 @@ fn versions(
                             } else if history.restoring == Some(version.index)
                                 || history.keeping == Some(version.index)
                             {
-                                ui.spinner();
+                                widgets::spinner(ui);
                             } else {
                                 let idle = history.restoring.is_none() && history.keeping.is_none();
                                 if ui
