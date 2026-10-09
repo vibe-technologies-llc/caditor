@@ -22,6 +22,7 @@ mod comb_panel;
 mod combine_panel;
 mod combine_tools;
 mod commands;
+mod configurations;
 mod constraint_trial;
 #[cfg(test)]
 mod conventions_tests;

@@ -26,6 +26,7 @@ paths:
   - "crates/caditor/src/scale_tools.rs"
   - "crates/caditor/src/scale_panel.rs"
   - "crates/caditor/src/scale_model.rs"
+  - "crates/caditor/src/configurations.rs"
   - "crates/caditor/src/datum_tools.rs"
   - "crates/caditor/src/datum_panel.rs"
   - "crates/caditor/src/pattern_tools.rs"
@@ -433,6 +434,23 @@ paths:
   lost their standard size and which threads to check; a refusal (no factor, a length, zero or
   less, 1, a centre a feature's principal geometry does not hold) stays in the dialog as an error
   callout and nothing is applied.
+
+## Configurations
+
+- Configurations… (`Command::Configurations`, the Model menu's Bodies group and the palette, no
+  default key) opens a modal (`Workspace::configurations`, dropped with the session) holding the
+  model's configurations (`document.md`) as a table: a row per configuration (a radio that
+  switches to it, its name, the active one strong, then Rename, Duplicate and Delete), a column per
+  configured value still in the model (named by `value_name`: the parameter, "<feature>
+  suppressed", "<body> colour", each with Stop configuring). A parameter's cell is a
+  `commit_field` taking an expression like the Parameters panel; a suppression a checkbox; a
+  colour a combo of the body colour swatches. Editing a cell of the active row edits the model
+  itself. Add configuration copies the live values (the first becomes active) and Configure a
+  value lists the parameters, features and bodies not yet configured. Every change is one
+  undoable transaction checked first; a refusal stays in the dialog as an error callout.
+- Typing in the palette lists each configuration as "Switch to <name>"
+  (`Choice::Configuration`, `Palette::take_configuration`), the active one unavailable; Enter
+  applies `configurations::switching`, so switching is reachable from the keyboard.
 
 ## Patterns
 

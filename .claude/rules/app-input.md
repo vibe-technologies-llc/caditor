@@ -110,9 +110,11 @@ paths:
   (selecting the row and scrolling the tree to it, `Focus::Feature`) and parameters (focusing the
   value field, `Focus::ParameterValue`), saved views (going to the view, `Choice::View`,
   `Palette::take_view`) and selection sets (selecting the set, `Choice::SelectionSet`,
-  `Palette::take_selection_set`); the focus reaches the panels the next frame
+  `Palette::take_selection_set`) and configurations (switching to it, `Choice::Configuration`,
+  `Palette::take_configuration`); the focus reaches the panels the next frame
   (`Palette::take_focus`, `PanelState::request_focus`). Groups (Recent only while nothing is typed,
-  Commands, Features, Parameters, Views, Selection sets) are ordered by best match.
+  Commands, Features, Parameters, Views, Selection sets, Configurations) are ordered by best
+  match.
 - A fixed detail line under the list says what Enter does, or why the highlighted entry is not
   available, distinguishing "unavailable now" from "only works while a sketch is edited". The
   chosen command is triggered on the next frame.

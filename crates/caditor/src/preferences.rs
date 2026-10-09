@@ -430,6 +430,8 @@ pub enum PreferencesCommand {
     CloseSelectionSets,
     ShowScaleModel,
     CloseScaleModel,
+    ShowConfigurations,
+    CloseConfigurations,
     SelectSet(usize),
     Tab(PreferencesTab),
     Change(PreferenceChange),
