@@ -133,6 +133,7 @@ pub enum Command {
     HighlightNext,
     HighlightPrevious,
     ActivateHighlighted,
+    ListUnderPointer,
     HideSelection,
     HideOthers,
     LookAtFace,
@@ -501,6 +502,7 @@ plain_commands! {
     HighlightNext,
     HighlightPrevious,
     ActivateHighlighted,
+    ListUnderPointer,
     HideSelection,
     HideOthers,
     LookAtFace,
@@ -752,6 +754,7 @@ impl Command {
             Self::HighlightNext => "view.highlight_next",
             Self::HighlightPrevious => "view.highlight_previous",
             Self::ActivateHighlighted => "view.activate_highlighted",
+            Self::ListUnderPointer => "view.list_under_pointer",
             Self::HideSelection => "view.hide_selection",
             Self::HideOthers => "view.hide_others",
             Self::LookAtFace => "view.look_at_face",
@@ -930,6 +933,7 @@ impl Command {
             Self::HighlightNext => "Highlight the next item in the view",
             Self::HighlightPrevious => "Highlight the previous item in the view",
             Self::ActivateHighlighted => "Select the highlighted item",
+            Self::ListUnderPointer => "List everything under the pointer",
             Self::HideSelection => "Hide selection",
             Self::HideOthers => "Hide everything but the selection",
             Self::LookAtFace => "Look straight at the selected face",
@@ -1069,6 +1073,7 @@ impl Command {
             | Self::HighlightNext
             | Self::HighlightPrevious
             | Self::ActivateHighlighted
+            | Self::ListUnderPointer
             | Self::HideSelection
             | Self::HideOthers
             | Self::LookAtFace
@@ -1231,6 +1236,7 @@ impl Command {
             Self::HighlightNext => vec![plain(Key::N)],
             Self::HighlightPrevious => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::N)],
             Self::ActivateHighlighted => vec![plain(Key::Space)],
+            Self::ListUnderPointer => vec![alt(Key::W)],
             Self::HideSelection => vec![plain(Key::H)],
             Self::HideOthers => vec![alt_shift(Key::H)],
             Self::LookAtFace => vec![alt(Key::V)],

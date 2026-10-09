@@ -104,6 +104,23 @@ impl ShadedMesh {
         self.indices.len() / 3
     }
 
+    pub(crate) fn face_triangles(&self) -> impl Iterator<Item = (usize, [Point3; 3])> + '_ {
+        self.indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .filter_map(|corners| {
+                let vertex = |index: u32| self.vertices.get(index as usize);
+                let [first, second, third] = corners.map(vertex);
+                let (first, second, third) = (first?, second?, third?);
+                let world = |corner: &GpuVertex| self.origin + corner.position.as_dvec3();
+                Some((
+                    first.face as usize,
+                    [world(first), world(second), world(third)],
+                ))
+            })
+    }
+
     pub fn divide(&self, classify: impl Fn([Corner; 3]) -> u8) -> Division {
         let mut pieces: Vec<Piece> = Vec::new();
         let mut piece_of: BTreeMap<(u32, u8), u32> = BTreeMap::new();

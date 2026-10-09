@@ -36,6 +36,7 @@ use crate::{
     modifying::{Hint, Modifying, Outcome},
     move_manipulator::{Handle, Manipulating, Manipulator},
     offset_face_tools, pattern_tools,
+    pick_list::{self, PickList},
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
     projecting, reference_picking, saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
@@ -123,6 +124,8 @@ const PROBLEM_LABEL_LIFT: f32 = 9.0;
 const PLACE_SHARE: f64 = 0.2;
 const MIN_PLACE_REACH: f64 = 1.0;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
+const LIST_NOT_WITH_TOOL: &str =
+    "This tool picks its own targets: press Esc to go back to Select first";
 const NO_TARGET_HIGHLIGHTED: &str =
     "Highlight a piece or an end first, with Highlight the next item in the view";
 
@@ -241,6 +244,9 @@ pub struct ViewportState {
     bodies: BodyMeshes,
     navigation: Navigation,
     keyboard_highlight: Option<Pickable>,
+    pick_list: Option<PickList>,
+    list_hold: bool,
+    last_cursor: Option<Vector2>,
     typed_point: TypedPoint,
     moving: Option<Moving>,
     transforming: Option<Transforming>,
@@ -372,6 +378,9 @@ impl ViewportState {
             bodies: BodyMeshes::default(),
             navigation: Navigation::default(),
             keyboard_highlight: None,
+            pick_list: None,
+            list_hold: false,
+            last_cursor: None,
             typed_point: TypedPoint::default(),
             moving: None,
             transforming: None,
@@ -574,6 +583,9 @@ impl ViewportState {
         self.pointer_hit = None;
         self.last_pick = None;
         self.keyboard_highlight = None;
+        self.pick_list = None;
+        self.list_hold = false;
+        self.last_cursor = None;
         self.scenes = SceneCache::default();
         self.description.forget();
         self.drawing = Drawing::default();
@@ -697,6 +709,8 @@ impl ViewportState {
             self.navigate(ui, &response, rect);
             self.drag_primary(ui, &response, model, editing, actions);
             self.click(ui, &response, model, editing, actions);
+            self.hold_to_list(ui, &response, model, editing, actions);
+            self.show_pick_list(ui, model, editing, actions);
             if keys_free {
                 self.handle_keys(ui, model, editing, actions);
             }
@@ -1035,6 +1049,18 @@ impl ViewportState {
     }
 
     #[cfg(test)]
+    pub fn listed(&self) -> Option<Vec<String>> {
+        self.pick_list
+            .as_ref()
+            .map(|list| list.rows().iter().map(|row| row.words.clone()).collect())
+    }
+
+    #[cfg(test)]
+    pub fn listed_highlight(&self) -> Option<Pickable> {
+        self.pick_list.as_ref().and_then(PickList::highlighted)
+    }
+
+    #[cfg(test)]
     pub fn screen_position(&self, plane: Plane, point: Point2) -> Option<egui::Pos2> {
         let pixel = self.view()?.project(plane.to_world(point))? / f64::from(self.pixels_per_point);
         Some(self.rect?.min + egui::Vec2::new(pixel.x as f32, pixel.y as f32))
@@ -1087,7 +1113,11 @@ impl ViewportState {
     }
 
     fn highlighted(&self) -> Option<Pickable> {
-        self.keyboard_highlight.or(self.hovered)
+        self.pick_list
+            .as_ref()
+            .and_then(PickList::highlighted)
+            .or(self.keyboard_highlight)
+            .or(self.hovered)
     }
 
     fn track_cursor(&mut self, ui: &egui::Ui, response: &Response, rect: Rect) {
@@ -1113,6 +1143,7 @@ impl ViewportState {
             self.modifying.clear_highlight();
         }
         self.cursor = inside.map(|position| self.to_pixels(position - rect.min));
+        self.last_cursor = self.cursor.or(self.last_cursor);
         if self.cursor.is_none() {
             self.hovered = None;
             self.hover_source = None;
@@ -1704,6 +1735,12 @@ impl ViewportState {
         editing: &SketchEditing,
         actions: &mut Vec<Action>,
     ) {
+        if self.list_hold {
+            if !ui.input(|input| input.pointer.primary_down()) {
+                self.list_hold = false;
+            }
+            return;
+        }
         let drawing = editing
             .active()
             .is_some_and(|active| active.tool.draws() || active.tool.modifies());
@@ -2118,6 +2155,13 @@ impl ViewportState {
                 }
             }
         }
+        let listing = self.list_availability();
+        if commands.invoke(Command::ListUnderPointer, &listing) && listing.is_ok() {
+            let centre = self.view().map(|view| view.size() / 2.0);
+            if let Some(cursor) = self.cursor.or(self.last_cursor).or(centre) {
+                self.open_pick_list(model, editing, cursor, actions);
+            }
+        }
         if let Some(active) = editing.active() {
             let reversible = self.drawing.reversible();
             if commands.invoke(Command::ReverseArc, &reversible) {
@@ -2165,17 +2209,161 @@ impl ViewportState {
         if commands.invoke(Command::ActivateHighlighted, &activation)
             && let Some(highlight) = self.keyboard_highlight
         {
-            if let Some(placed) = self.place_at_highlight(model, editing, highlight) {
-                actions.extend(placed);
-                return;
+            self.choose(model, editing, highlight, true, actions);
+        }
+    }
+
+    fn choose(
+        &mut self,
+        model: &Model,
+        editing: &SketchEditing,
+        pickable: Pickable,
+        toggle: bool,
+        actions: &mut Vec<Action>,
+    ) {
+        if let Some(placed) = self.place_at_highlight(model, editing, pickable) {
+            actions.extend(placed);
+            return;
+        }
+        if let Some(feature) = self.dimensioning {
+            self.dimension_click(model, feature, Some(pickable), actions);
+            return;
+        }
+        match pick_action(Some(pickable), model, editing) {
+            Some(action) => actions.extend(action),
+            None if toggle => self.toggle_chosen(model, pickable),
+            None => {
+                let chosen = self.whole_body_of(model, pickable);
+                self.selection.replace_with_all(chosen);
             }
-            if let Some(feature) = self.dimensioning {
-                self.dimension_click(model, feature, Some(highlight), actions);
-                return;
-            }
-            match pick_action(Some(highlight), model, editing) {
-                Some(action) => actions.extend(action),
-                None => self.toggle_chosen(model, highlight),
+        }
+    }
+
+    fn list_availability(&self) -> Result<(), &'static str> {
+        if self.trimming.is_active() || self.modifying.is_active() {
+            Err(LIST_NOT_WITH_TOOL)
+        } else if !self.scenes.has_pickables() {
+            Err(NOTHING_TO_HIGHLIGHT)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn open_pick_list(
+        &mut self,
+        model: &Model,
+        editing: &SketchEditing,
+        cursor: Vector2,
+        actions: &mut Vec<Action>,
+    ) {
+        let (Some(built), Some(view), Some(rect)) = (self.scenes.built(), self.view(), self.rect)
+        else {
+            return;
+        };
+        let hits = built
+            .scene
+            .hits_through(&view, cursor, self.pixels_per_point);
+        let filter = self.active_filter();
+        let projecting = editing
+            .active()
+            .filter(|active| active.tool.projects())
+            .map(|active| active.feature);
+        let listed: Vec<Pickable> = built
+            .picks
+            .listed(&hits, filter)
+            .into_iter()
+            .filter(|pickable| {
+                projecting.is_none_or(|sketch| projecting::projectable(*pickable, sketch))
+            })
+            .collect();
+        let rows = pick_list::rows(
+            model.document(),
+            model.evaluation(),
+            listed,
+            filter == SelectionFilter::Bodies,
+        );
+        if rows.is_empty() {
+            actions.push(Action::Inform(Notice::info(format!(
+                "{}.",
+                pick_list::NOTHING_UNDER
+            ))));
+            return;
+        }
+        let at = cursor / f64::from(self.pixels_per_point);
+        let pointer = rect.min + vec2(at.x as f32, at.y as f32);
+        self.keyboard_highlight = None;
+        self.pick_list = Some(PickList::new(pointer, rows, model.revision()));
+    }
+
+    fn hold_to_list(
+        &mut self,
+        ui: &egui::Ui,
+        response: &Response,
+        model: &Model,
+        editing: &SketchEditing,
+        actions: &mut Vec<Action>,
+    ) {
+        let tool_takes_presses = editing
+            .active()
+            .is_some_and(|active| active.tool.draws() || active.tool.modifies());
+        if self.pick_list.is_some()
+            || self.primary.is_some()
+            || self.manipulator_hover.is_some()
+            || tool_takes_presses
+            || self.list_availability().is_err()
+        {
+            return;
+        }
+        let Some(press) = self.press else {
+            return;
+        };
+        let (down, still, held_for, alt) = ui.input(|input| {
+            let pointer = &input.pointer;
+            (
+                pointer.primary_down(),
+                pointer.could_any_button_be_click(),
+                pointer.press_start_time().map(|start| input.time - start),
+                input.modifiers.alt,
+            )
+        });
+        let navigating = self.navigation.input_mode == InputMode::Laptop && alt;
+        let Some(held_for) = held_for else {
+            return;
+        };
+        if !down || !still || navigating || !response.is_pointer_button_down_on() {
+            return;
+        }
+        let wait = pick_list::HOLD_TO_LIST.as_secs_f64() - held_for;
+        if wait > 0.0 {
+            ui.ctx()
+                .request_repaint_after(Duration::from_secs_f64(wait));
+            return;
+        }
+        self.press = None;
+        self.list_hold = true;
+        self.open_pick_list(model, editing, press.cursor, actions);
+    }
+
+    fn show_pick_list(
+        &mut self,
+        ui: &egui::Ui,
+        model: &Model,
+        editing: &SketchEditing,
+        actions: &mut Vec<Action>,
+    ) {
+        let Some(list) = self.pick_list.as_mut() else {
+            return;
+        };
+        if list.opened() != model.revision() {
+            self.pick_list = None;
+            return;
+        }
+        match list.show(ui.ctx(), model.document()) {
+            pick_list::Outcome::Open => {}
+            pick_list::Outcome::Closed => self.pick_list = None,
+            pick_list::Outcome::Chosen { pickable, toggle } => {
+                self.pick_list = None;
+                self.choose(model, editing, pickable, toggle, actions);
             }
         }
     }
@@ -2826,6 +3014,9 @@ impl ViewportState {
 
     fn escape(&mut self, editing: &SketchEditing, actions: &mut Vec<Action>) {
         let active = editing.active();
+        if self.pick_list.take().is_some() {
+            return;
+        }
         if let Some(primary) = self.primary.take() {
             match primary {
                 PrimaryDrag::Grab(_) => actions.push(Action::Drag(DragCommand::Cancel)),

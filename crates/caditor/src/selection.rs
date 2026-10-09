@@ -212,7 +212,7 @@ pub fn swept_regions<'a>(
     Some((sketch, sketch_regions(evaluation, sketch)?))
 }
 
-fn body_name(document: &Document, body: FeatureId) -> &str {
+pub fn body_name(document: &Document, body: FeatureId) -> &str {
     document
         .feature(body)
         .map_or("A deleted body", |feature| feature.name.as_str())
