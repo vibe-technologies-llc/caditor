@@ -24,6 +24,10 @@ The view shows the model. The view cube in its corner turns it and Fit all under
 everything; see [moving around the view](navigation) and [display styles](display). Tips appear at
 the bottom while you learn; [Preferences](preferences) brings dismissed ones back.
 
+While the graphics card is still taking in bodies, a large model or a body you just changed shows
+up late. A small "Loading to the graphics card" note under the view cube and a spinner in the
+status bar say that more is coming, and both go as soon as the last body is in.
+
 ## Side panels
 
 Measure, Check interference, the face analyses, the curvature comb, isocurves, Constrain
@@ -34,7 +38,7 @@ open at that width from then on, also the next time caditor starts.
 ## The status bar
 
 From the left: the recompute (with Cancel while it runs, or the failed features), file work such
-as saving or exporting, and the latest message. On the right: what is selected, the length unit
+as saving or exporting or loading bodies to the graphics card, and the latest message. On the right: what is selected, the length unit
 (click it for [Preferences](preferences)) and the interface size when it is not 100%. Hovering a
 button there names its keys.
 

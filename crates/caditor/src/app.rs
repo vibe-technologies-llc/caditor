@@ -623,6 +623,7 @@ pub fn show(
         &mut commands,
     );
     let status = StatusContext {
+        uploading: viewport.is_uploading(),
         files,
         offers,
         appearance: &preferences.appearance,
@@ -1827,6 +1828,9 @@ impl Session {
             PickPoll::Failed => self.workspace.viewport.pick_was_not_issued(),
         }
         self.workspace.viewport.advance(elapsed);
+        self.workspace
+            .viewport
+            .set_uploading(self.renderer.is_uploading());
 
         let mut actions = Vec::new();
         let workspace = &mut self.workspace;

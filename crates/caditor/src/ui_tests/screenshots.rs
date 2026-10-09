@@ -325,6 +325,11 @@ fn screenshots() {
 
         let mut empty = Harness::styled(look, dir.path(), false);
         shoot(&mut empty, &gpu, &out, "empty", look);
+        empty.workspace.viewport.set_uploading(true);
+        empty.frame();
+        shoot(&mut empty, &gpu, &out, "uploading", look);
+        empty.workspace.viewport.set_uploading(false);
+        empty.frame();
         combine_nearly_touching_blocks(&mut empty);
         empty.key(Key::F8, Modifiers::NONE);
         empty.frame();

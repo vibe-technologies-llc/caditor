@@ -162,6 +162,7 @@ mod typed_point;
 mod ui_tests;
 mod undo_history;
 mod units;
+mod upload_badge;
 mod variants;
 mod view_aids;
 mod view_cube;

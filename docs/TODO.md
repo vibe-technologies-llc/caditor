@@ -454,15 +454,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the window); it needs an exported xdg-foreign handle, which winit does not offer and the raw
   Wayland connection would need `unsafe` to reach (a third `unsafe` crate, as `windows.md` keeps
   for Win32). X11 names the window already.
-- [medium · easy] Nothing shows that the GPU is still taking in a body. While the renderer uploads
-  meshes, silhouettes and their style textures in slices (`Renderer::is_uploading`), a large body
-  appears late, or an edited one keeps its old result drawn, with no sign that more is coming; the
-  app reads `is_uploading` only to schedule the next frame and to pick again once it ends. Show a
-  spinner (`widgets::spinner`, which repaints on a timer) with "Loading to the graphics card" in
-  the status bar and a quiet badge in the corner of the view while it is true, gone the moment the
-  uploads finish, with the same text for a screen reader. It must not drive extra repaints beyond
-  the frames the uploads already ask for, and a UI test holds that it shows during an upload and
-  not otherwise.
 - [medium · hard] Version history shows when a version was saved and after which change, but no
   preview of what it holds.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another

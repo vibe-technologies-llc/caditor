@@ -137,7 +137,7 @@ paths:
   `PICK_CHECK` from `about_to_wait` (`Renderer::is_pick_answered`) and a frame follows once it is
   answered; an exported image's tiles advance on the wake its writer sends for each buffer it
   returns. Neither draws frames while it waits. While the renderer is uploading meshes
-  (`Renderer::is_uploading`) a frame follows each frame, and the frame that sees the uploads
+  (`Renderer::is_uploading`) a frame follows each frame, the interface shows it (`app-look.md`), and the frame that sees the uploads
   finished asks for a pick again (`ViewportState::pick_again`), since picks made meanwhile could
   not pick the replaced bodies. Every request goes through `Session::request_redraw`, never straight to the window.
   Animated widgets (`widgets::spinner`) and progress readouts repaint on a timer

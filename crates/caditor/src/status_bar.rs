@@ -17,6 +17,7 @@ use crate::{
     panels::{Focus, PanelState},
     preferences::{Appearance, PreferenceChange, PreferencesCommand},
     selection::SelectionFilter,
+    upload_badge,
     widgets::{self, Named, Tone},
 };
 
@@ -68,6 +69,7 @@ struct TrailingRoom {
 }
 
 pub struct StatusContext<'a> {
+    pub uploading: bool,
     pub files: &'a Files,
     pub offers: &'a Offers,
     pub appearance: &'a Appearance,
@@ -109,6 +111,10 @@ pub fn show(
             recompute_status(ui, model, panels, &hovers, actions);
             divided(ui, |ui| {
                 files::activity(ui, model, context.files, commands, actions);
+                if context.uploading {
+                    widgets::spinner(ui);
+                    ui.label(upload_badge::TEXT);
+                }
             });
             let fixed = widgets::remembered_width(ui, trailing_id) + selection_icon_room(ui);
             let available = ui.available_width();

@@ -46,3 +46,7 @@ paths:
   idle, with the pointer moving and with the line tool, and over the plate with a tree row
   chosen; `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times the scene alone,
   a whole-body hover with the Bodies filter included.
+- The renderer's upload state reaches the interface through `ViewportState::set_uploading`, which
+  a test calls itself; `Harness::repaint_after` is the repaint delay egui reported for the last
+  frame (`Duration::MAX` when nothing asked), so a test can hold that a widget's timer runs only
+  while it is shown.

@@ -66,6 +66,7 @@ use crate::{
     snapshot, solid_tools, toggles,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
+    upload_badge,
     view_aids::ViewAids,
     view_cube::{self, CubeAction, CubeTexts},
     view_history::{Gesture, ViewHistory},
@@ -333,6 +334,7 @@ pub struct ViewportState {
     measured: Option<(MeasuredLine, String)>,
     problems: Vec<Problem>,
     interference: Vec<Mark>,
+    uploading: bool,
     comb: Option<Arc<CombDrawing>>,
     isocurves: Option<Arc<IsocurveDrawing>>,
     framed_place: Option<Point3>,
@@ -525,6 +527,7 @@ impl ViewportState {
             measured: None,
             problems: Vec::new(),
             interference: Vec::new(),
+            uploading: false,
             comb: None,
             isocurves: None,
             framed_place: None,
@@ -587,6 +590,14 @@ impl ViewportState {
 
     pub fn aids(&self) -> ViewAids {
         self.aids
+    }
+
+    pub fn set_uploading(&mut self, uploading: bool) {
+        self.uploading = uploading;
+    }
+
+    pub fn is_uploading(&self) -> bool {
+        self.uploading
     }
 
     pub fn set_section(&mut self, section: Vec<SectionPlane>) {
@@ -3971,6 +3982,9 @@ impl ViewportState {
             None => {}
         }
         view_cube::show_axis_triad(ui, rect, orientation);
+        if self.uploading {
+            upload_badge::show(ui, rect);
+        }
 
         let painter = ui.painter();
         if let Some(PrimaryDrag::Box { area, .. } | PrimaryDrag::ModelBox { area }) = &self.primary

@@ -105,6 +105,7 @@ mod sketch_tidying;
 mod svg_import;
 mod templates;
 mod typed_values;
+mod upload_indicator;
 mod user_guide;
 mod view_menu;
 mod view_navigation;
@@ -261,6 +262,7 @@ struct Harness {
     painted: Option<Painted>,
     hovered_files: Vec<egui::HoveredFile>,
     clipboard: Option<String>,
+    repaint_after: Duration,
 }
 
 struct Painted {
@@ -351,6 +353,7 @@ impl Harness {
             painted: None,
             hovered_files: Vec::new(),
             clipboard: None,
+            repaint_after: Duration::MAX,
         };
         harness.settle();
         harness
@@ -439,6 +442,7 @@ impl Harness {
             }
         }
         if let Some(root) = output.viewport_output.get_mut(&ViewportId::ROOT) {
+            self.repaint_after = root.repaint_delay;
             if root.commands.contains(&ViewportCommand::RequestPaste)
                 && let Some(text) = self.clipboard.clone()
             {

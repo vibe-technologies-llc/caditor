@@ -241,6 +241,14 @@ paths:
   `ToolGroup`), so the sketch bar still fits one row at 1400 points. A group's corner menu lists
   its tools, then the ways of the one shown (the spline's), and the group handles the ways'
   commands of all its tools.
+- While the renderer is still uploading (`Renderer::is_uploading`, set each frame on
+  `ViewportState::set_uploading` before the interface runs), the view shows `upload_badge`: an
+  `icons::UPLOADING` and "Loading to the graphics card" in `canvas::MUTED` on the canvas backdrop,
+  right-aligned under the view cube's buttons, and the status bar's file activity ends with a
+  `widgets::spinner` and the same text (`StatusContext::uploading`). The badge is announced to
+  screen readers as a label of the same text and draws no timer of its own, and the spinner is
+  shown only in frames the uploads already ask for, so the last upload frame is followed by one
+  with neither and no repaint request (`ui_tests/upload_indicator.rs`).
 - The status bar (`status_bar.rs`) runs recompute | file activity | notice, then right-aligned
   selection | unit | size. Recompute is progress (the feature running, and for how long once past
   two seconds, from `Progress`) with Cancel, Up to date, or a failed
