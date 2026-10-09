@@ -12,12 +12,21 @@ pub const MAX_UNDO_BYTES: usize = 256 * 1024 * 1024;
 struct Step {
     transaction: Transaction,
     size: usize,
+    serial: u64,
 }
 
 #[derive(Debug, Clone, Default)]
 struct Steps {
     steps: VecDeque<Step>,
     bytes: usize,
+    dropped: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UndoMark {
+    newest: Option<u64>,
+    next: u64,
+    dropped: u64,
 }
 
 impl Steps {
@@ -33,28 +42,40 @@ impl Steps {
         self.steps.back().map(|step| &step.transaction)
     }
 
-    fn push(&mut self, transaction: Transaction) {
-        self.push_within(transaction, MAX_UNDO_BYTES);
+    fn serials(&self) -> impl Iterator<Item = (u64, &Transaction)> {
+        self.steps
+            .iter()
+            .rev()
+            .map(|step| (step.serial, &step.transaction))
     }
 
-    fn push_within(&mut self, transaction: Transaction, budget: usize) {
+    fn push(&mut self, transaction: Transaction, serial: u64) {
+        self.push_within(transaction, serial, MAX_UNDO_BYTES);
+    }
+
+    fn push_within(&mut self, transaction: Transaction, serial: u64, budget: usize) {
         let size = transaction.approximate_size();
         self.bytes = self.bytes.saturating_add(size);
-        self.steps.push_back(Step { transaction, size });
+        self.steps.push_back(Step {
+            transaction,
+            size,
+            serial,
+        });
         while self.steps.len() > MAX_UNDO_STEPS || (self.bytes > budget && self.steps.len() > 1) {
             self.pop_front();
         }
     }
 
-    fn pop(&mut self) -> Option<Transaction> {
+    fn pop(&mut self) -> Option<(Transaction, u64)> {
         let step = self.steps.pop_back()?;
         self.bytes = self.bytes.saturating_sub(step.size);
-        Some(step.transaction)
+        Some((step.transaction, step.serial))
     }
 
     fn pop_front(&mut self) {
         if let Some(step) = self.steps.pop_front() {
             self.bytes = self.bytes.saturating_sub(step.size);
+            self.dropped += 1;
         }
     }
 
@@ -70,6 +91,7 @@ pub struct Editor {
     undo: Steps,
     redo: Steps,
     revision: u64,
+    next_serial: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +187,37 @@ impl Editor {
         self.redo.last()
     }
 
+    pub fn undo_mark(&self) -> UndoMark {
+        UndoMark {
+            newest: self.undo.steps.back().map(|step| step.serial),
+            next: self.next_serial,
+            dropped: self.undo.dropped,
+        }
+    }
+
+    pub fn undo_steps_since(&self, mark: UndoMark) -> Option<Vec<&Transaction>> {
+        let mut since = Vec::new();
+        let mut older = self.undo.serials();
+        loop {
+            match older.next() {
+                Some((serial, transaction)) if serial >= mark.next => since.push(transaction),
+                Some((serial, _)) => return (Some(serial) == mark.newest).then_some(since),
+                None => {
+                    let whole = mark.newest.is_none() && self.undo.dropped == mark.dropped;
+                    return whole.then_some(since);
+                }
+            }
+        }
+    }
+
+    fn push_undo(&mut self, inverse: Transaction) {
+        let serial = self.next_serial;
+        self.next_serial += 1;
+        self.undo.push(inverse, serial);
+        self.redo.clear();
+        self.revision += 1;
+    }
+
     pub fn apply(&mut self, transaction: Transaction) -> Result<bool, EditError> {
         if transaction.is_empty() {
             return Ok(false);
@@ -175,9 +228,7 @@ impl Editor {
             return Ok(false);
         }
         self.document = applied;
-        self.undo.push(inverse);
-        self.redo.clear();
-        self.revision += 1;
+        self.push_undo(inverse);
         Ok(true)
     }
 
@@ -196,9 +247,7 @@ impl Editor {
             return Ok(Transaction::new(prepared.transaction.label(), Vec::new()));
         }
         self.document = prepared.document;
-        self.undo.push(prepared.inverse);
-        self.redo.clear();
-        self.revision += 1;
+        self.push_undo(prepared.inverse);
         Ok(prepared.transaction)
     }
 
@@ -223,17 +272,17 @@ impl Editor {
         from: &mut Steps,
         to: &mut Steps,
     ) -> Result<Option<String>, EditError> {
-        let Some(transaction) = from.pop() else {
+        let Some((transaction, serial)) = from.pop() else {
             return Ok(None);
         };
         match document.apply(transaction.clone()) {
             Ok(inverse) => {
                 let label = inverse.label().to_owned();
-                to.push(inverse);
+                to.push(inverse, serial);
                 Ok(Some(label))
             }
             Err(error) => {
-                from.push(transaction);
+                from.push(transaction, serial);
                 Err(error)
             }
         }
@@ -347,14 +396,14 @@ mod tests {
         let mut steps = Steps::default();
         let budget = (5 << 20) + (64 << 10);
 
-        steps.push_within(import_of(1 << 20), budget);
-        steps.push_within(import_of(2 << 20), budget);
+        steps.push_within(import_of(1 << 20), 0, budget);
+        steps.push_within(import_of(2 << 20), 1, budget);
         let both = labels(&steps);
-        steps.push_within(import_of(3 << 20), budget);
+        steps.push_within(import_of(3 << 20), 2, budget);
         let last_two = labels(&steps);
-        steps.push_within(import_of(8 << 20), budget);
+        steps.push_within(import_of(8 << 20), 3, budget);
         let oversized = labels(&steps);
-        let popped = steps.pop().map(|step| step.label().to_owned());
+        let popped = steps.pop().map(|(step, _)| step.label().to_owned());
 
         assert_eq!(both, ["Import 1048576", "Import 2097152"]);
         assert_eq!(last_two, ["Import 2097152", "Import 3145728"]);
@@ -502,6 +551,71 @@ mod tests {
         assert_eq!(editor.revision(), revision);
         assert_eq!(editor.undo_label(), None);
         assert_eq!(editor.redo_label(), Some("Set width"));
+    }
+
+    fn labels_since(editor: &Editor, mark: UndoMark) -> Option<Vec<String>> {
+        editor
+            .undo_steps_since(mark)
+            .map(|steps| steps.iter().map(|step| step.label().to_owned()).collect())
+    }
+
+    #[test]
+    fn the_steps_since_a_mark_are_the_newer_ones_kept_through_undo_and_redo() {
+        let (mut editor, width) = editor_with_parameter();
+        editor.apply(set_width(width, 4.0)).unwrap();
+        let mark = editor.undo_mark();
+        editor.apply(set_width(width, 5.0)).unwrap();
+        editor
+            .apply(add_parameter(editor.document(), "height"))
+            .unwrap();
+
+        let both = labels_since(&editor, mark);
+        editor.undo().unwrap();
+        let one = labels_since(&editor, mark);
+        editor.redo().unwrap();
+        let again = labels_since(&editor, mark);
+
+        assert_eq!(
+            both,
+            Some(vec!["Add height".to_owned(), "Set width".to_owned()])
+        );
+        assert_eq!(one, Some(vec!["Set width".to_owned()]));
+        assert_eq!(again, both);
+    }
+
+    #[test]
+    fn undoing_past_a_mark_breaks_it_even_after_redoing_or_new_steps() {
+        let (mut editor, width) = editor_with_parameter();
+        editor.apply(set_width(width, 4.0)).unwrap();
+        let mark = editor.undo_mark();
+
+        editor.undo().unwrap();
+        let undone_past = labels_since(&editor, mark);
+        editor.redo().unwrap();
+        let redone = labels_since(&editor, mark);
+        editor.undo().unwrap();
+        editor.apply(set_width(width, 6.0)).unwrap();
+        let replaced = labels_since(&editor, mark);
+
+        assert_eq!(undone_past, None);
+        assert_eq!(redone, Some(Vec::new()));
+        assert_eq!(replaced, None);
+    }
+
+    #[test]
+    fn a_mark_on_an_empty_history_breaks_once_steps_since_it_are_dropped() {
+        let (mut editor, width) = editor_with_parameter();
+        let mark = editor.undo_mark();
+        editor.apply(set_width(width, 4.0)).unwrap();
+        let kept = labels_since(&editor, mark).map(|labels| labels.len());
+
+        for value in 0..MAX_UNDO_STEPS {
+            editor.apply(set_width(width, value as f64 + 10.0)).unwrap();
+        }
+        let dropped = labels_since(&editor, mark);
+
+        assert_eq!(kept, Some(1));
+        assert_eq!(dropped, None);
     }
 
     #[test]

@@ -121,6 +121,27 @@ paths:
   Edit says why.
 - Starting values are the `DEFAULT_*` constants of each `*_tools.rs`.
 
+## Cancelling an open feature
+
+- Escape, Enter and the checkmark keep an open feature's changes and close it. Cancel
+  (`Command::CancelFeature`, no default key; the palette, Model › Features, the open row's cross
+  left of its checkmark, primary rightmost as in dialogs, and its row menu) closes it and takes
+  back what was done since it opened, through `EditingCommand::CancelSolid`.
+- Opening records `editing::Opened`: the feature, the `UndoMark` of the undo history when the
+  batch of actions that opened it began (`app::perform` hands it to `SketchEditing::perform_after`,
+  so a tool's `Apply` before its `OpenSolid`, and a Choose in the view adding the selected edges,
+  count as part of the opening), and whether a step of that batch inserted the feature (`added`:
+  the tool made it, so Cancel removes it, worded "Cancel the new <name>" rather than "Cancel the
+  changes to <name>"). Opening the feature already open keeps the record.
+- `SketchEditing::cancelling` checks before anything is undone: `Model::undo_steps_since` the
+  mark must still lead back to it (`Editor::undo_steps_since`, `document.md`), else
+  `CancelRefusal::HistoryChanged` (Undo went back past the opening, or the steps were dropped);
+  every step since must touch only the feature and parameters it owns (`Transaction::touched`,
+  owners read from the document or the step's own edits), the step that added it excepted, else
+  `ChangedElsewhere` naming the step. A refusal is a notice and leaves the feature open and the
+  model as it is. Otherwise it performs that many `Action::Undo`, ordinary journaled undo steps,
+  so Redo brings them all back, and closes the feature; with nothing changed it only closes.
+
 ## Feature panels
 
 - Every panel runs in one order: its shape switch (Extent, Shape) or, for a shell or datum, a

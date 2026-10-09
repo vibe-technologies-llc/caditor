@@ -192,7 +192,8 @@ paths:
 ## Measure
 
 - The Measure command toggles `MeasureTool` in the `Workspace`; while open, `measure_panel.rs`
-  draws a right-hand panel. Measuring never changes the document.
+  draws a right-hand panel. Measuring never changes the document; only a reading's New parameter
+  from this value does, as an ordinary change.
 - `Measurements` resolves the selection on the UI thread into points, edges and faces (with their
   result's `Arc`), sketch curves (`profile_curve` lifted onto the sketch's solved plane), and the
   principal and datum planes and axes, a coordinate system's axes and planes and its origin as a
@@ -220,6 +221,17 @@ paths:
   along the model axes and the principal moments (`MassProperties::second_moment`). Two or more bodies also get an "All N bodies" card first: summed
   volume and area, the centroid weighted by mass (by volume unless every body has a density), and
   the total mass and inertia about that centroid only when every body has a density.
+- Every row of the reading and mass cards (not Interference's, which share `show_card`) has a menu
+  on its "⋯" button (named "More for <label>", so Tab and Enter reach it) and on a right-click of
+  its value (`measure_panel::row_menu`): Copy value puts the text as shown, unit and any ≈
+  included, on the clipboard (`egui::Context::copy_text`, as Copy all does) with a notice; New
+  parameter from this value, offered for a reading's `Value::Length`, `Angle` and `Area` only (a
+  position, direction or second moment is no one value the expression language holds), adds a
+  parameter through `parameter_table::add_with` in one transaction: named after the reading's
+  label (`parameter_stem`, "Along X" giving `along_x1`, the first free number), holding the value
+  in the model's unit as `LengthUnit::measured`, `AngleUnit::measured` or
+  `measured_area_expression` (`mm²` and the like, rounded to the model's precision), with its
+  name field focused for renaming and a notice saying so.
 - Relative to (shown once the model holds a coordinate system, `MeasureTool::relative_to`, World
   by default, kept for the session) reads every position and direction and the Along X, Y and Z
   offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse); distances,

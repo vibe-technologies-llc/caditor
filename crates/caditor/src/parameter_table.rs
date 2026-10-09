@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use caditor_document::{
     Document, Edit, MAX_PARAMETER_NOTE_CHARS, Parameter, ParameterOwner, ParameterUser, Transaction,
 };
-use caditor_expression::ParameterId;
+use caditor_expression::{Expression, ParameterId, check_name};
 use egui::{Grid, Id, Label, Rect, TextEdit, Ui, Vec2, vec2};
 
 use crate::{
@@ -46,6 +46,17 @@ pub const SAVE_NOTE_LABEL: &str = "Save note";
 const CANCEL_NOTE_LABEL: &str = "Cancel";
 const NOTE_FIELD: &str = "parameter-note-field";
 const NOTE_ROWS: usize = 4;
+const FILTER_FROM_PARAMETERS: usize = 6;
+const FILTER_FIELD: &str = "parameter-filter";
+pub const FILTER_HINT: &str = "Filter parameters by name, expression or owner";
+const NO_MATCH: &str = "No parameter matches the filter.";
+pub const CLEAR_FILTER_LABEL: &str = "Clear the filter";
+const NO_PARAMETERS: &str = "The model has no parameters";
+const ALL_USED: &str = "Every parameter is in use: a dimension, a feature or another parameter \
+                        refers to each one";
+const DELETE_UNUSED_HOVER: &str = "Delete every parameter nothing refers to, in one change that \
+                                   Undo takes back";
+const MAX_NAMED_DELETED: usize = 4;
 const NOTE_EXPLANATION: &str = "What the parameter is for, where its value comes from, or what \
                                 to keep in mind when changing it. It shows when hovering the \
                                 note icon beside its value. Leave it empty to remove the note.";
@@ -61,31 +72,170 @@ pub fn show(ui: &mut Ui, model: &Model, state: &mut PanelState, actions: &mut Ve
         });
         return;
     }
+    let query = filter_field(ui, state, document.parameters().len());
     let widths = FieldWidths::fitting(ui.available_width(), CONTROL_HEIGHT);
     let (named, own): (Vec<&Parameter>, Vec<&Parameter>) = document
         .parameters()
         .iter()
+        .filter(|parameter| kept_by_filter(ui, document, state, parameter, &query))
         .partition(|parameter| parameter.is_model_parameter());
+    if own.is_empty() && named.is_empty() {
+        widgets::empty_state(ui, icons::SEARCH, NO_MATCH, |ui| {
+            let button = widgets::small_button(ui, icons::CLOSE, CLEAR_FILTER_LABEL);
+            if ui.add(button).clicked() {
+                state.parameter_filter.clear();
+            }
+        });
+    }
     if !own.is_empty() {
         table(ui, "parameters", model, state, actions, &own, widths);
     }
-    if named.is_empty() {
+    if !named.is_empty() {
+        if !own.is_empty() {
+            ui.add_space(SPACE_M);
+        }
+        ui.label(widgets::strong(MODEL_PARAMETERS))
+            .on_hover_text(MODEL_PARAMETERS_EXPLANATION);
+        table(
+            ui,
+            "model-parameters",
+            model,
+            state,
+            actions,
+            &named,
+            widths,
+        );
+    }
+    delete_unused_button(ui, model, state, actions);
+}
+
+fn filter_field(ui: &mut Ui, state: &mut PanelState, count: usize) -> String {
+    let id = Id::new(FILTER_FIELD);
+    let focused = ui.memory(|memory| memory.has_focus(id));
+    if count < FILTER_FROM_PARAMETERS && state.parameter_filter.is_empty() && !focused {
+        return String::new();
+    }
+    ui.horizontal(|ui| {
+        let muted = appearance::tokens(ui).text_muted;
+        widgets::icon_label(ui, icons::SEARCH, muted);
+        widgets::text_field(ui, |ui| {
+            ui.add(
+                TextEdit::singleline(&mut state.parameter_filter)
+                    .id(id)
+                    .hint_text(FILTER_HINT)
+                    .desired_width(f32::INFINITY),
+            )
+        });
+    });
+    ui.add_space(SPACE_XS);
+    state.parameter_filter.trim().to_lowercase()
+}
+
+fn kept_by_filter(
+    ui: &Ui,
+    document: &Document,
+    state: &PanelState,
+    parameter: &Parameter,
+    query: &str,
+) -> bool {
+    let id = parameter.id();
+    let fields = [Focus::ParameterName(id), Focus::ParameterValue(id)];
+    let matches = |text: &str| text.to_lowercase().contains(query);
+    query.is_empty()
+        || matches(&parameter.name)
+        || matches(&document.expression_text(&parameter.expression))
+        || parameter
+            .owner
+            .as_ref()
+            .and_then(|owner| document.owner_text(owner))
+            .is_some_and(|owner| matches(&owner))
+        || fields.into_iter().any(|focus| {
+            state.wants_focus(focus) || ui.memory(|memory| memory.has_focus(focus.field_id()))
+        })
+}
+
+struct UnusedDeletion {
+    transaction: Transaction,
+    names: Vec<String>,
+}
+
+impl UnusedDeletion {
+    fn of(document: &Document, used: &BTreeSet<ParameterId>) -> Result<Self, &'static str> {
+        if document.parameters().is_empty() {
+            return Err(NO_PARAMETERS);
+        }
+        let unused: Vec<&Parameter> = document
+            .parameters()
+            .iter()
+            .filter(|parameter| !used.contains(&parameter.id()))
+            .collect();
+        if unused.is_empty() {
+            return Err(ALL_USED);
+        }
+        let names: Vec<String> = unused
+            .iter()
+            .map(|parameter| parameter.name.clone())
+            .collect();
+        let edits = unused
+            .iter()
+            .map(|parameter| Edit::RemoveParameter { id: parameter.id() })
+            .collect();
+        Ok(Self {
+            transaction: Transaction::new(delete_unused_label(names.len()), edits),
+            names,
+        })
+    }
+
+    fn perform(self, actions: &mut Vec<Action>) {
+        let count = self.names.len();
+        let named: Vec<&str> = self
+            .names
+            .iter()
+            .take(MAX_NAMED_DELETED)
+            .map(String::as_str)
+            .collect();
+        let more = count.saturating_sub(MAX_NAMED_DELETED);
+        let listed = match (named.split_last(), more) {
+            (Some((only, [])), 0) => (*only).to_owned(),
+            (Some((last, first)), 0) => format!("{} and {last}", first.join(", ")),
+            (_, more) => format!("{} and {more} more", named.join(", ")),
+        };
+        let what = if count == 1 {
+            "the unused parameter"
+        } else {
+            "the unused parameters"
+        };
+        actions.push(Action::Apply(self.transaction));
+        actions.push(Action::Inform(Notice::info(format!(
+            "Deleted {what} {listed}. Undo brings them back."
+        ))));
+    }
+}
+
+pub fn delete_unused_label(count: usize) -> String {
+    if count == 1 {
+        "Delete 1 unused parameter".to_owned()
+    } else {
+        format!("Delete {count} unused parameters")
+    }
+}
+
+fn delete_unused_button(
+    ui: &mut Ui,
+    model: &Model,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+) {
+    let document = model.document();
+    let Ok(deletion) = UnusedDeletion::of(document, state.parameter_uses.of(model)) else {
         return;
+    };
+    ui.add_space(SPACE_S);
+    let label = delete_unused_label(deletion.names.len());
+    let button = widgets::small_button(ui, icons::command(Command::DeleteUnusedParameters), &label);
+    if ui.add(button).on_hover_text(DELETE_UNUSED_HOVER).clicked() {
+        deletion.perform(actions);
     }
-    if !own.is_empty() {
-        ui.add_space(SPACE_M);
-    }
-    ui.label(widgets::strong(MODEL_PARAMETERS))
-        .on_hover_text(MODEL_PARAMETERS_EXPLANATION);
-    table(
-        ui,
-        "model-parameters",
-        model,
-        state,
-        actions,
-        &named,
-        widths,
-    );
 }
 
 fn table(
@@ -110,7 +260,7 @@ fn table(
                 let error = row(ui, model, state, actions, parameter, widths);
                 ui.end_row();
                 if let Some(owner) = &parameter.owner {
-                    owner_row(ui, model.document(), parameter, owner, widths);
+                    owner_row(ui, model.document(), state, parameter, owner, widths);
                 }
                 if let Some(error) = error {
                     widgets::error_row(ui, &error);
@@ -122,28 +272,51 @@ fn table(
 fn owner_row(
     ui: &mut Ui,
     document: &Document,
+    state: &mut PanelState,
     parameter: &Parameter,
     owner: &ParameterOwner,
     widths: FieldWidths,
 ) {
-    let shown = document.owner_text(owner);
-    let hover = match &shown {
-        Some(text) => format!(
-            "{} is the value of {text}. Edit it here, or in its field as {} = value.",
-            parameter.name, parameter.name
-        ),
-        None => format!(
-            "{}. {} is kept as a value of its own.",
-            OWNER_GONE, parameter.name
-        ),
-    };
-    let text = shown.unwrap_or_else(|| OWNER_GONE.to_owned());
     ui.scope(|ui| {
         ui.set_max_width(widths.name);
-        ui.add(Label::new(widgets::muted(text, ui)).truncate())
-            .on_hover_text(hover);
+        match document.owner_text(owner) {
+            Some(text) => {
+                let hover = format!(
+                    "{} is the value of {text}. Edit it here, or in its field as {} = value. \
+                     Click to go to it.",
+                    parameter.name, parameter.name
+                );
+                if widgets::link(ui, &text, None)
+                    .on_hover_text(hover)
+                    .clicked()
+                {
+                    go_to_owner(state, owner);
+                }
+            }
+            None => {
+                let hover = format!(
+                    "{}. {} is kept as a value of its own.",
+                    OWNER_GONE, parameter.name
+                );
+                ui.add(Label::new(widgets::muted(OWNER_GONE, ui)).truncate())
+                    .on_hover_text(hover);
+            }
+        }
     });
     ui.end_row();
+}
+
+fn go_to_owner(state: &mut PanelState, owner: &ParameterOwner) {
+    let feature = owner.feature();
+    state.choose_only(feature);
+    state.reveal(feature);
+    state.request_focus(match *owner {
+        ParameterOwner::Feature { feature, .. } => Focus::Feature(feature),
+        ParameterOwner::Dimension { sketch, constraint } => Focus::Dimension {
+            feature: sketch,
+            constraint,
+        },
+    });
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -166,17 +339,26 @@ impl FieldWidths {
 }
 
 pub fn add(model: &Model, state: &mut PanelState, actions: &mut Vec<Action>) {
+    let expression = model
+        .length_unit()
+        .default_length(NEW_PARAMETER_MILLIMETRES);
+    add_with(model, state, actions, NEW_PARAMETER_NAME, expression);
+}
+
+pub fn add_with(
+    model: &Model,
+    state: &mut PanelState,
+    actions: &mut Vec<Action>,
+    stem: &str,
+    expression: Expression,
+) -> String {
     let document = model.document();
-    let name = unused_name(document);
+    let name = unused_name(document, stem);
     let mut transaction = document.transaction(format!("Add {name}"));
-    let id = transaction.add_parameter(
-        name,
-        model
-            .length_unit()
-            .default_length(NEW_PARAMETER_MILLIMETRES),
-    );
+    let id = transaction.add_parameter(name.clone(), expression);
     actions.push(Action::Apply(transaction.finish()));
     state.request_focus(Focus::ParameterName(id));
+    name
 }
 
 fn row(
@@ -712,6 +894,16 @@ pub fn commands(
         state.parameter = None;
         Deletion::of(document, parameter, used).perform(document, actions);
     }
+    let unused = UnusedDeletion::of(document, state.parameter_uses.of(model));
+    let detail = unused
+        .as_ref()
+        .ok()
+        .map(|deletion| delete_unused_label(deletion.names.len()));
+    if commands.invoke_detailed(Command::DeleteUnusedParameters, detail, &unused)
+        && let Ok(deletion) = unused
+    {
+        deletion.perform(actions);
+    }
 }
 
 fn delete_transaction(parameter: &Parameter) -> Transaction {
@@ -771,11 +963,16 @@ fn delete_button(
     }
 }
 
-fn unused_name(document: &Document) -> String {
-    (1..)
-        .map(|number| format!("{NEW_PARAMETER_NAME}{number}"))
+fn unused_name(document: &Document, stem: &str) -> String {
+    let stem = if check_name(&format!("{stem}1")).is_ok() {
+        stem
+    } else {
+        NEW_PARAMETER_NAME
+    };
+    (1..=document.parameters().len() + 1)
+        .map(|number| format!("{stem}{number}"))
         .find(|name| document.parameter_named(name).is_none())
-        .unwrap_or_else(|| NEW_PARAMETER_NAME.to_owned())
+        .unwrap_or_else(|| stem.to_owned())
 }
 
 #[cfg(test)]

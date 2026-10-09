@@ -72,6 +72,7 @@ const MODEL_FEATURES: [&[Command]; 4] = [
     &[
         Command::EditFeature,
         Command::CloseFeature,
+        Command::CancelFeature,
         Command::RenameFeature,
         Command::MoveFeatureUp,
         Command::MoveFeatureDown,
@@ -98,6 +99,7 @@ const MODEL_PARAMETERS: [&[Command]; 1] = [&[
     Command::MoveParameterDown,
     Command::ParameterNote,
     Command::DeleteParameter,
+    Command::DeleteUnusedParameters,
 ]];
 const MODEL_RECOMPUTE: [&[Command]; 1] = [&[
     Command::Recompute,

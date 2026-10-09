@@ -191,6 +191,13 @@ impl LengthUnit {
         )
     }
 
+    pub fn measured_area_expression(self, square_millimetres: f64) -> Expression {
+        let square = self.millimetres().powi(2);
+        let step = MODEL_LENGTH_STEP_IN_MILLIMETRES.powi(2) / square;
+        let value = rounded_to_decimals(square_millimetres / square, decimals_for(step));
+        Expression::WithUnit(Box::new(Expression::number(value)), self.unit(), 2)
+    }
+
     pub fn default_length(self, millimetres: f64) -> Expression {
         let value = millimetres / self.millimetres();
         if self == Self::Millimetre || value == 0.0 || !value.is_finite() {

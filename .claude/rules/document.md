@@ -20,6 +20,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Editor::apply` drops a transaction that leaves the content as it was (`same_content`, which
   ignores ID counters and decides whether a model is unsaved): no undo step, redo history kept, no
   revision bump, not journaled, not recomputed.
+- Each undo step carries a serial from a per-editor counter, kept as the step moves between the
+  undo and redo stacks. `Editor::undo_mark` notes the newest step, the next serial and how many
+  steps the byte and step bounds dropped; `undo_steps_since` gives the undo steps made since the
+  mark, newest first, or none once the stack no longer leads back to it (the noted step undone or
+  dropped, steps since it dropped). The app's Cancel of an open feature relies on it.
 - Large changes can be prepared off the UI thread: `Editor::base` hands out the document with the
   revision, `Base::prepare` applies a transaction to that copy, `Editor::commit` swaps it in only
   if the revision is unchanged, else `Stale`.

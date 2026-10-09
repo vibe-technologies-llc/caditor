@@ -284,6 +284,7 @@ pub fn command(command: Command) -> &'static str {
         Command::RollbackDown => ROLLBACK_DOWN,
         Command::EditFeature => EDIT,
         Command::CloseFeature => DONE,
+        Command::CancelFeature => CLOSE,
         Command::DetachSketch => phosphor::LINK_BREAK,
         Command::ClearChosenRegions => phosphor::SELECTION_SLASH,
         Command::PlaceSketch
@@ -304,6 +305,7 @@ pub fn command(command: Command) -> &'static str {
         Command::FilterFeatures => SEARCH,
         Command::AddParameter => ADD,
         Command::DeleteParameter => DELETE,
+        Command::DeleteUnusedParameters => UNUSED,
         Command::MoveParameterUp => MOVE_UP,
         Command::MoveParameterDown => MOVE_DOWN,
         Command::ParameterNote => EDIT_NOTE,

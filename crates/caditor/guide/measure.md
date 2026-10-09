@@ -28,4 +28,9 @@ directions along its axes instead of the world's.
 Values marked ≈ are approximate, with a note saying why. **Copy all** puts every reading on the
 clipboard as text.
 
+Each reading has a menu, on its "⋯" button or a right-click: **Copy value** copies that reading as
+shown, with its unit, and for a length, angle or area **New parameter from this value** adds a
+[parameter](parameters) holding it in the model's unit, named after the reading (`distance1`),
+and puts the cursor in its name to rename it. It is one change Undo takes back.
+
 To find bodies that overlap, see [Check interference](interference).

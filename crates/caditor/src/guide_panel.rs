@@ -1,7 +1,4 @@
-use egui::{
-    Align, Id, Label, Layout, Response, RichText, ScrollArea, Sense, TextEdit, TextStyle, Ui,
-    WidgetInfo, WidgetType,
-};
+use egui::{Align, Id, Label, Layout, Response, RichText, ScrollArea, TextEdit, TextStyle, Ui};
 
 use crate::{
     appearance::{self, SPACE_L, SPACE_M, SPACE_S},
@@ -20,7 +17,6 @@ pub const SEARCH_HINT: &str = "Search the guide";
 const PANEL_WIDTH: f32 = 340.0;
 const MIN_PANEL_WIDTH: f32 = 240.0;
 const NEXT: &str = "Next:";
-const UNDERLINE_WIDTH: f32 = 1.0;
 const PAGE_TITLE_SIZE: f32 = 20.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -172,23 +168,7 @@ fn search_field(ui: &mut Ui, state: &mut Guide) {
 }
 
 fn link(ui: &mut Ui, text: &str, style: Option<TextStyle>) -> Response {
-    let tokens = appearance::tokens(ui);
-    let mut rich = RichText::new(text).color(tokens.accent_text).underline();
-    if let Some(style) = style {
-        rich = rich.text_style(style);
-    }
-    let response = ui.add(Label::new(rich).selectable(false).sense(Sense::click()));
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Link, true, text));
-    if response.hovered() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        let stroke = egui::Stroke::new(UNDERLINE_WIDTH * 2.0, tokens.accent_text);
-        ui.painter()
-            .hline(response.rect.x_range(), response.rect.bottom(), stroke);
-    }
-    if response.has_focus() {
-        widgets::paint_focus_ring(ui, response.rect);
-    }
-    response
+    widgets::link(ui, text, style)
 }
 
 fn page_link(ui: &mut Ui, page: Page) -> bool {
