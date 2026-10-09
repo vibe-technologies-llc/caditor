@@ -24,3 +24,7 @@ paths:
 - Slow file work is staged with test-only seams on `Files`: `read_models_with` swaps the reader an
   import thread calls and `load_models_with` the loader an open thread calls
   (`ui_tests/import_jobs.rs` blocks either until released or cancelled).
+- Opening a model resolves its path (`dunce::canonicalize`), and a Windows runner's temporary
+  folder is an 8.3 short name (`C:\Users\RUNNER~1\...`) that resolving spells out in full, so a test
+  comparing `Model::path` with a file it wrote builds that file under `canonical(&dir)`, never
+  `dir.path()`; the comparison then holds on Linux and fails only on Windows CI.
