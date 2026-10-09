@@ -1,16 +1,18 @@
 use caditor_document::{
     Document, Edit, FeatureId, FeatureKind, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing,
-    HoleStandard, HoleStep, HoleStyle, SketchFeature, TappedThread, Transaction, hole_centres,
+    HoleStandard, HoleStep, HoleStyle, SketchAttachment, SketchFeature, TappedThread, Transaction,
+    hole_centres,
 };
 use caditor_expression::{Expression, Unit};
-use caditor_geometry::{Plane, Point2};
-use caditor_sketch::Sketch;
+use caditor_geometry::{Plane, Point2, Ray};
+use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
     bodies,
     body_selection::face_boundary,
     editing::{self, EditingCommand, SketchEditing},
     model::{Action, Model, Notice},
+    scene,
     selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
     solid_tools,
@@ -41,6 +43,11 @@ const NO_POINTS: &str = "Place points or circles in the sketch where the holes g
 const NO_BODY: &str = "Make a body to drill into first";
 const NOTHING_TO_DRILL: &str =
     "Select one flat face of a body to drill it, or the points of a sketch";
+const GONE: &str = "The hole no longer exists";
+const NOT_ONE_POINT: &str = "The hole's sketch holds more than one free point; edit the sketch to \
+                             move its points";
+const NO_FACE: &str = "Select one flat face of a body to drill the hole there";
+const MISSED: &str = "The click missed the face's plane";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HoleSource {
@@ -283,8 +290,9 @@ pub fn create_on_face(
         new_hole(placed, face.body, model.length_unit()),
     );
     let told = format!(
-        "{name} is drilled in the middle of the face, as far from its edges as it can be. Edit \
-         {sketch_name} to move or dimension its point, or add more points for more holes."
+        "{name} is drilled in the middle of the face, as far from its edges as it can be. Type \
+         its Position or choose another spot in the view from its panel; edit {sketch_name} to \
+         dimension its point or add more points for more holes."
     );
     Ok((transaction.finish(), feature, told))
 }
@@ -420,6 +428,132 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
                 "{TITLE}: {reason}."
             )))],
         },
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LonePoint {
+    pub entity: EntityId,
+    pub at: Point2,
+}
+
+pub fn lone_point(document: &Document, hole: &Hole) -> Option<LonePoint> {
+    let sketch = document.feature(hole.sketch)?.kind.sketch()?;
+    if sketch.constraints().len() > 0 {
+        return None;
+    }
+    let mut entities = sketch.entities();
+    match (entities.next(), entities.next()) {
+        (Some((entity, Entity::Point(at))), None) => Some(LonePoint { entity, at: *at }),
+        _ => None,
+    }
+}
+
+pub fn moved(
+    document: &Document,
+    feature: FeatureId,
+    hole: &Hole,
+    at: Point2,
+) -> Result<Transaction, String> {
+    let name = &document.feature(feature).ok_or(GONE)?.name;
+    let point = lone_point(document, hole).ok_or(NOT_ONE_POINT)?;
+    Ok(Transaction::single(
+        format!("Move {name}"),
+        Edit::SetSketchEntity {
+            feature: hole.sketch,
+            id: point.entity,
+            entity: Entity::Point(at),
+        },
+    ))
+}
+
+fn placed(
+    model: &Model,
+    feature: FeatureId,
+    hole: &Hole,
+    face: FaceChoice,
+    ray: Option<Ray>,
+) -> Result<Transaction, String> {
+    let document = model.document();
+    let name = &document.feature(feature).ok_or(GONE)?.name;
+    let point = lone_point(document, hole).ok_or(NOT_ONE_POINT)?;
+    let index = document.feature_index(hole.sketch).ok_or(GONE)?;
+    let (attachment, plane) = sketch_placement::attachment_at(model, face, index)?;
+    let current = document
+        .feature(hole.sketch)
+        .and_then(|sketch| sketch.kind.attachment())
+        .and_then(|attachment| attachment.face());
+    let stays = current == Some(&attachment);
+    let frame = if stays {
+        scene::sketch_plane(document, model.evaluation(), hole.sketch).unwrap_or(plane)
+    } else {
+        plane
+    };
+    let at = match ray {
+        Some(ray) => frame.to_local(ray.at(ray.intersect_plane(&frame).ok_or(MISSED)?)),
+        None => face_middle(model, face, &frame).ok_or(sketch_placement::NOT_FLAT)?,
+    };
+    let mut transaction = document.transaction(format!("Move {name}"));
+    if !stays {
+        transaction.edit(Edit::SetSketchPlacement {
+            feature: hole.sketch,
+            plane,
+            attachment: Some(SketchAttachment::Face(attachment)),
+        });
+    }
+    transaction.edit(Edit::SetSketchEntity {
+        feature: hole.sketch,
+        id: point.entity,
+        entity: Entity::Point(at),
+    });
+    if hole.body != face.body {
+        transaction.edit(Edit::SetFeatureKind {
+            id: feature,
+            kind: FeatureKind::Hole(Hole {
+                body: face.body,
+                ..hole.clone()
+            }),
+        });
+    }
+    let transaction = transaction.finish();
+    document
+        .check(&transaction)
+        .map_err(|_| "The hole cannot stand on that face".to_owned())?;
+    Ok(transaction)
+}
+
+pub fn place_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    hole: &Hole,
+) -> Result<Transaction, String> {
+    let face = sketch_placement::selected_face(selection).ok_or(NO_FACE)?;
+    placed(model, feature, hole, face, None)
+}
+
+pub fn place_click(
+    model: &Model,
+    feature: FeatureId,
+    pickable: Pickable,
+    ray: Option<Ray>,
+) -> Vec<Action> {
+    let Some(hole) = model
+        .document()
+        .feature(feature)
+        .and_then(|owner| owner.kind.hole())
+    else {
+        return vec![Action::Editing(EditingCommand::StopPicking)];
+    };
+    let result = FaceChoice::of(pickable)
+        .ok_or_else(|| NO_FACE.to_owned())
+        .and_then(|face| placed(model, feature, hole, face, ray));
+    match result {
+        Ok(transaction) => vec![
+            Action::Apply(transaction),
+            Action::Editing(EditingCommand::StopPicking),
+        ],
+        Err(reason) => vec![Action::Inform(Notice::warning(reason))],
     }
 }
 

@@ -356,7 +356,7 @@ paths:
   geometry selected, which wins over the face) creates in one transaction a hidden sketch on that face holding one point and the hole: the
   point inside the face farthest from its edges and holes (`deepest_point`, a refined grid search
   over the sampled loops, ties going to the middle of its bounds), so an L- or U-shaped or holed face
-  is drilled on material, with a notice saying how to move the point
+  is drilled on material, with a notice saying how to move it from the panel
   (`hole_tools::create_on_face`). Otherwise it takes the sketch the way Extrude does (edited,
   selected, or with nothing selected the opened or last one; else `NOTHING_TO_DRILL`) and needs at least one free point or circle in it (`hole_centres`);
   its body is the one the sketch is attached to, else the one whose faces are selected, else the
@@ -379,8 +379,18 @@ paths:
   extrusion's Past the face field, key `end-offset`, kept when switching between them), for a
   blind round hole Drill point (a switch giving the
   bottom a 118° cone, with its Drill point angle field, key `drill-point-angle`), Reverse direction, and the Sketch and Body rows (the body
-  a list of `bodies_before`). A size sets exact millimetre values; typing any hole, counterbore or
+  a list of `bodies_before`; the Sketch row's Edit the sketch enters it, hidden or not). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.
+- While the hole's sketch holds one point and no constraint (`hole_tools::lone_point`, as a hole
+  made on a face starts), the panel opens with Placed on (the face the sketch lies on, with Use
+  selected or Choose in the view, `Slot::HolePlace`) and Position X and Y (key `hole-position`,
+  the point in the sketch plane, previewed while typed, committed as one "Move <hole>"
+  `SetSketchEntity`, `hole_tools::moved`). A click on a flat face while choosing
+  (`hole_tools::place_click`, routed by `pick_action` with the pointer's ray) puts the point where
+  the ray meets the face's plane, the keyboard highlight or Use selected at the face's middle; a
+  face other than the sketch's re-attaches the sketch there (`SetSketchPlacement`) and moves the
+  hole to that face's body, all in one change. A sketch with more points or constraints is moved
+  by editing it.
 
 ## Thread
 

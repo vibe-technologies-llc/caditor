@@ -19394,6 +19394,75 @@ fn a_chamfer_face_selected_for_extrude_grows_out_along_its_slant() {
 }
 
 #[test]
+fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let sketch = open_hole(&harness, hole).sketch;
+    let point_of = |harness: &Harness| {
+        harness
+            .sketch(sketch)
+            .entities()
+            .find_map(|(_, entity)| match entity {
+                Entity::Point(at) => Some(*at),
+                _ => None,
+            })
+            .expect("the hole's sketch holds its point")
+    };
+
+    assert!(harness.shows(crate::hole_panel::PLACED_ON));
+    assert!(harness.shows(crate::hole_panel::POSITION_CAPTIONS[0]));
+    assert_eq!(point_of(&harness), Point2::new(20.0, 20.0));
+
+    harness.type_into_field(Id::new(("hole-position", hole, 0_usize)), "8 mm");
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert_eq!(point_of(&harness), Point2::new(8.0, 20.0));
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 9.0 * 10.0
+    ));
+
+    harness.select([]);
+    harness.click("Choose in the view");
+    harness.settle();
+
+    assert_eq!(
+        harness
+            .workspace
+            .editing
+            .picking()
+            .map(|picking| picking.slot),
+        Some(crate::reference_picking::Slot::HolePlace)
+    );
+
+    let plane = crate::scene::sketch_plane(harness.document(), harness.model.evaluation(), sketch)
+        .expect("the sketch has a plane");
+    harness.click_pickable(plane, Point2::new(30.0, 12.0), top);
+    harness.settle();
+
+    assert_eq!(harness.workspace.editing.picking(), None);
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert!(point_of(&harness).distance(Point2::new(30.0, 12.0)) < 0.01);
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 9.0 * 10.0
+    ));
+
+    harness.click(crate::hole_panel::EDIT_SKETCH);
+    harness.settle();
+
+    assert_eq!(harness.workspace.editing.feature(), Some(sketch));
+}
+
+#[test]
 fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_from_its_panel() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);

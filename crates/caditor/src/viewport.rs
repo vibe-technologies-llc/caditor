@@ -33,7 +33,7 @@ use crate::{
     drawing::{Drawing, Ended, Preview},
     editing::{self, EditingCommand, SketchEditing, Tool},
     faceting::FacetLevel,
-    feature_tree,
+    feature_tree, hole_tools,
     interference_panel::{Mark, MarkKind},
     isocurves::IsocurveDrawing,
     manipulator::{Manipulating, Manipulator},
@@ -4671,6 +4671,15 @@ fn pick_action(
         return Some(
             pickable
                 .map(|pickable| primitive_tools::place_click(model, picking.feature, pickable, ray))
+                .unwrap_or_default(),
+        );
+    }
+    if let Some(picking) = editing.picking()
+        && picking.slot == Slot::HolePlace
+    {
+        return Some(
+            pickable
+                .map(|pickable| hole_tools::place_click(model, picking.feature, pickable, ray))
                 .unwrap_or_default(),
         );
     }

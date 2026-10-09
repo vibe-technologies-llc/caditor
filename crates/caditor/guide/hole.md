@@ -3,7 +3,10 @@
 {command:model.hole} drills holes at the free points and circles of a sketch.
 
 - With one flat face selected, it puts a hole on the face, on solid material away from its edges,
-  in a hidden sketch; open the sketch to move or dimension the point.
+  in a hidden sketch. Its panel's **Placed on** row moves it: **Choose in the view** and click
+  where the hole goes on any flat face, or type its **Position X** and **Position Y** on the face.
+  **Edit the sketch** under **Sketch** opens the hidden sketch to dimension the point or add more
+  holes.
 - With a sketch selected or being edited, it drills at each of its loose points and circles.
 
 The panel sets:

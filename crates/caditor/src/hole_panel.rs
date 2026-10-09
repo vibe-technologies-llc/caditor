@@ -4,7 +4,7 @@ use caditor_document::{
     Transaction, capitalized, circle_sizes, describe_plane, hole_thread, pitch_text,
 };
 use caditor_expression::{Dimension, Expression};
-use egui::{Id, Ui};
+use egui::{Id, Label, Ui};
 
 use crate::{
     editing::EditingCommand,
@@ -15,6 +15,7 @@ use crate::{
     model::{Action, Model},
     reference_picking::{self, Picking, Slot},
     selection::Selection,
+    sketch_placement,
     solid_panel::{self, END_OFFSET},
     widgets,
 };
@@ -45,6 +46,13 @@ pub const THROUGH_ALL: &str = "Through all";
 pub const UP_TO_NEXT: &str = "Up to next";
 pub const UP_TO_FACE: &str = "Up to face";
 const DEFAULT_THREAD_DEPTH: f64 = 10.0;
+pub const PLACED_ON: &str = "Placed on";
+pub const POSITION_CAPTIONS: [&str; 2] = ["Position X", "Position Y"];
+pub const EDIT_SKETCH: &str = "Edit the sketch";
+const EDIT_SKETCH_HOVER: &str = "Show and edit the sketch holding the hole's points, to \
+                                 dimension them or add more holes";
+const PLACE_HOVER: &str = "Drill the hole on the selected flat face instead, at its middle";
+const NOT_ON_A_FACE: &str = "Not on a face";
 
 fn depth_label(depth: &HoleDepth) -> &'static str {
     match depth {
@@ -681,6 +689,91 @@ impl Panel<'_> {
         ui.end_row();
     }
 
+    fn placement_rows(&mut self, ui: &mut Ui) {
+        let document = self.model.document();
+        let Some(point) = hole_tools::lone_point(document, self.hole) else {
+            return;
+        };
+        let id = self.id();
+        widgets::caption(ui, PLACED_ON);
+        let picker = Picker {
+            feature: id,
+            slot: Slot::HolePlace,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (id, Slot::HolePlace),
+                || hole_tools::place_change(self.model, self.selection, id, self.hole),
+            ),
+            hover: PLACE_HOVER,
+        };
+        let text = document
+            .feature(self.hole.sketch)
+            .and_then(|sketch| sketch.kind.attachment())
+            .map_or_else(
+                || NOT_ON_A_FACE.to_owned(),
+                |attachment| capitalized(&sketch_placement::describe(document, attachment)),
+            );
+        ui.vertical(|ui| {
+            ui.add(Label::new(text).wrap());
+            feature_fields::reference_picker(ui, self.model, picker, self.actions);
+        });
+        ui.end_row();
+        let unit = self.model.length_unit();
+        for (index, caption) in POSITION_CAPTIONS.into_iter().enumerate() {
+            let along = if index == 0 { point.at.x } else { point.at.y };
+            let expression = unit.measured(along);
+            let quantity = Quantity {
+                feature: id,
+                id: Id::new(("hole-position", id, index)),
+                expression: &expression,
+                dimension: Dimension::LENGTH,
+                rule: Rule::Any,
+            };
+            let parameters = self.model.parameters();
+            let drafting = feature_fields::expression_row_drafting(
+                ui,
+                self.model,
+                caption,
+                quantity,
+                |value| {
+                    let millimetres = parameters
+                        .evaluate_expression(&value)
+                        .map_err(|error| field::sentence(&error.to_string()))?
+                        .value;
+                    let mut at = point.at;
+                    if index == 0 {
+                        at.x = millimetres;
+                    } else {
+                        at.y = millimetres;
+                    }
+                    hole_tools::moved(document, id, self.hole, at)
+                        .and_then(|transaction| field::checked(document, transaction))
+                },
+            );
+            self.actions.extend(drafting.into_actions(id));
+        }
+    }
+
+    fn sketch_row(&mut self, ui: &mut Ui) {
+        let document = self.model.document();
+        let sketch = self.hole.sketch;
+        widgets::caption(ui, "Sketch");
+        ui.vertical(|ui| match feature_fields::feature_name(document, sketch) {
+            Some(name) => {
+                ui.label(name);
+                let button = widgets::small_button(ui, icons::EDIT, EDIT_SKETCH);
+                if ui.add(button).on_hover_text(EDIT_SKETCH_HOVER).clicked() {
+                    self.actions
+                        .push(Action::Editing(EditingCommand::Enter(sketch)));
+                }
+            }
+            None => feature_fields::missing(ui, feature_fields::MISSING_BODY),
+        });
+        ui.end_row();
+    }
+
     fn millimetres_of(&self, length: &Expression) -> Option<f64> {
         self.model
             .parameters()
@@ -909,6 +1002,7 @@ pub fn show(
     };
     widgets::properties(ui, ("hole-properties", feature.id()), |ui| {
         feature_fields::description_row(ui, DESCRIPTION);
+        panel.placement_rows(ui);
         panel.size_row(ui);
         if let Some(standard) = hole.standard {
             panel.fit_row(ui, standard);
@@ -961,7 +1055,7 @@ pub fn show(
                 panel.change(flipped),
             ));
         }
-        feature_fields::feature_row(ui, model.document(), "Sketch", hole.sketch);
+        panel.sketch_row(ui);
         panel.body_row(ui);
     });
 }
