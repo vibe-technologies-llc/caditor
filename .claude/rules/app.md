@@ -177,7 +177,8 @@ paths:
 ## Offers
 
 - `offers.rs` works out what the selection offers the toolbar and status bar only when the
-  selection, the model revision, its evaluation or the length unit changes, not every frame. It
+  selection, the model revision, its evaluation, the length unit or the edited sketch and opened
+  feature change, not every frame (the Hole tool's start is one of the offers). It
   describes only the first `MAX_DESCRIBED` items and counts the rest (the status bar's tooltip
   ends "and N more"), since describing an item can scan its body.
 - A lone selected face, edge or sketch region, or a lone body chosen in the tree with nothing
@@ -187,7 +188,9 @@ paths:
   areas and sizes read the converted body (a face's area falls back to its mesh triangles,
   marked ≈, until then).
 - `Selection::generation` is globally unique per content change, so caches key on it rather than
-  cloning and comparing the set: the offers, Measure, the panels' Use selected offers
+  cloning and comparing the set: the offers, the scene cache's highlight key, the check that
+  clears the tree's selected row when the view's selection changes, Measure, the panels' Use
+  selected offers
   (`feature_fields::offered_change`, kept per feature and slot in egui's memory), and the
   viewport's check that the selection is still available (`retain_available`, rerun only when the
   selection, revision, evaluation or editing context changed).

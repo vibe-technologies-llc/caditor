@@ -16,7 +16,7 @@ use crate::{
     manipulator::Drawn,
     scene::{self, BuiltScene, Highlight, SketchShapes, Sources},
     scene_palette::Contrast,
-    selection::{Pickable, Selection},
+    selection::Pickable,
     view_aids::ViewAids,
 };
 
@@ -93,14 +93,14 @@ struct Content {
 
 #[derive(Debug, Clone, PartialEq)]
 struct Highlighted {
-    selection: Selection,
+    selection: u64,
     hovered: Vec<Pickable>,
     chosen_rows: Vec<FeatureId>,
 }
 
 impl Highlighted {
     fn is(&self, highlight: &Highlight<'_>) -> bool {
-        self.selection == *highlight.selection
+        self.selection == highlight.selection.generation()
             && self.hovered == highlight.hovered
             && self.chosen_rows == highlight.chosen_rows
     }
@@ -181,7 +181,7 @@ impl SceneCache {
         self.highlightable = None;
         self.built = Some(built);
         self.highlighted = Some(Highlighted {
-            selection: inputs.highlight.selection.clone(),
+            selection: inputs.highlight.selection.generation(),
             hovered: inputs.highlight.hovered.to_vec(),
             chosen_rows: inputs.highlight.chosen_rows.to_vec(),
         });

@@ -521,8 +521,12 @@ pub fn show(
     } = workspace;
     let chosen_rows = panels.chosen();
     let tree_bodies = body_selection::tree_bodies(model.document(), &chosen_rows);
-    let offers =
-        selection_offers.refresh(model, viewport.selection(), (&tree_bodies, &chosen_rows));
+    let offers = selection_offers.refresh(
+        model,
+        viewport.selection(),
+        editing,
+        (&tree_bodies, &chosen_rows),
+    );
     let situation = Situation {
         editing_sketch: editing.active().is_some(),
         drawing: viewport.is_drawing(),
@@ -789,9 +793,9 @@ pub fn show(
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
     canvas::set_contrast(ui.ctx(), contrast);
-    let selected_before = viewport.selection().clone();
+    let selection_before = viewport.selection().generation();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
-    if viewport.selection() != &selected_before && !viewport.selection().is_empty() {
+    if viewport.selection().generation() != selection_before && !viewport.selection().is_empty() {
         panels.selected = None;
     }
     if viewport.take_tree_dismissal() {

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_file::Settings;
 use caditor_geometry::Vector3;
@@ -2267,6 +2267,7 @@ pub struct CommandFrame<'a> {
     triggered: Vec<Command>,
     showing_state: Vec<Command>,
     offers: Vec<Offer>,
+    offered: BTreeSet<Command>,
     refused: Vec<(Command, String)>,
     clipboard: Clipboard,
     paste_asked: Option<Command>,
@@ -2280,6 +2281,7 @@ impl<'a> CommandFrame<'a> {
             triggered,
             showing_state: Vec::new(),
             offers: Vec::new(),
+            offered: BTreeSet::new(),
             refused: Vec::new(),
             clipboard: Clipboard::Unread,
             paste_asked: None,
@@ -2356,7 +2358,9 @@ impl<'a> CommandFrame<'a> {
         if triggered && let Err(reason) = &availability {
             self.refused.push((command, reason.clone()));
         }
-        self.offers.retain(|offer| offer.command != command);
+        if !self.offered.insert(command) {
+            self.offers.retain(|offer| offer.command != command);
+        }
         let ready = availability.is_ok();
         self.offers.push(Offer {
             command,

@@ -727,14 +727,35 @@ pub fn select_free(
         sketch
             .entities()
             .map(|(id, _)| id)
-            .filter(|id| !id.is_reference() && !projected.contains(id))
-            .filter(|id| solution.entity_state(*id) != Some(EntityState::FullyConstrained)),
+            .filter(|id| is_free(*id, projected, solution)),
     );
     if free.is_empty() {
         Err(NOTHING_FREE)
     } else {
         Ok(free)
     }
+}
+
+pub fn can_select_free(
+    sketch: &Sketch,
+    projected: &BTreeSet<EntityId>,
+    solution: Option<&SketchSolution>,
+) -> Result<(), &'static str> {
+    let solution = solution.ok_or(NOT_SOLVED)?;
+    if sketch
+        .entities()
+        .any(|(id, _)| is_free(id, projected, solution))
+    {
+        Ok(())
+    } else {
+        Err(NOTHING_FREE)
+    }
+}
+
+fn is_free(id: EntityId, projected: &BTreeSet<EntityId>, solution: &SketchSolution) -> bool {
+    !id.is_reference()
+        && !projected.contains(&id)
+        && solution.entity_state(id) != Some(EntityState::FullyConstrained)
 }
 
 pub fn can_select_all(sketch: &Sketch) -> Result<(), &'static str> {
@@ -796,6 +817,24 @@ mod tests {
     fn ends(sketch: &Sketch, line: EntityId) -> (EntityId, EntityId) {
         let points = sketch.entity(line).unwrap().points();
         (points[0], points[1])
+    }
+
+    #[test]
+    fn the_cheap_availability_checks_agree_with_the_selections_they_stand_for() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let nothing = BTreeSet::new();
+
+        assert_eq!(can_select_all(&sketch), select_all(&sketch).map(|_| ()));
+        assert_eq!(
+            can_select_free(&sketch, &nothing, None),
+            select_free(&sketch, &nothing, None).map(|_| ())
+        );
+        assert_eq!(can_select_free(&sketch, &nothing, None), Err(NOT_SOLVED));
+
+        sketch.add_line(Point2::ZERO, Point2::new(10.0, 0.0));
+
+        assert_eq!(can_select_all(&sketch), select_all(&sketch).map(|_| ()));
+        assert_eq!(can_select_all(&sketch), Ok(()));
     }
 
     #[test]

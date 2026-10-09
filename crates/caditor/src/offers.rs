@@ -3,6 +3,8 @@ use caditor_document::{AxisReference, Datum, DatumAxis, FeatureId};
 use crate::{
     combine_tools::{self, BodyPair},
     datum_tools,
+    editing::SketchEditing,
+    hole_tools::{self, HoleStart},
     mate_tools::{self, MateSource},
     measure,
     mirror_tools::{self, MirrorSource},
@@ -30,6 +32,8 @@ struct Basis {
     evaluation: u64,
     unit: LengthUnit,
     meshing: bool,
+    edited: Option<FeatureId>,
+    opened: Option<FeatureId>,
 }
 
 pub type Chosen<'a> = (&'a [FeatureId], &'a [FeatureId]);
@@ -53,6 +57,7 @@ pub struct Offers {
     pub pattern: Result<PatternSource, &'static str>,
     pub thread: Result<ThreadSource, &'static str>,
     pub mate: Result<MateSource, &'static str>,
+    pub hole: Result<HoleStart, &'static str>,
     pub described: Vec<String>,
     pub selected: usize,
     pub size: Option<String>,
@@ -67,7 +72,12 @@ fn size_of(model: &Model, selection: &Selection, tree: &[FeatureId]) -> Option<S
 }
 
 impl Offers {
-    fn of(model: &Model, selection: &Selection, (tree, rows): Chosen<'_>) -> Self {
+    fn of(
+        model: &Model,
+        selection: &Selection,
+        editing: &SketchEditing,
+        (tree, rows): Chosen<'_>,
+    ) -> Self {
         let document = model.document();
         let evaluation = model.evaluation();
         let end = document.bar_index();
@@ -96,6 +106,7 @@ impl Offers {
             scale: scale_tools::selected_body(model, selection, tree),
             thread: thread_tools::selected_face(model, selection),
             mate: mate_tools::source(model, selection),
+            hole: hole_tools::start(model, selection, editing),
             described: selection
                 .iter()
                 .take(MAX_DESCRIBED)
@@ -115,7 +126,13 @@ pub struct SelectionOffers {
 }
 
 impl SelectionOffers {
-    pub fn refresh(&mut self, model: &Model, selection: &Selection, chosen: Chosen<'_>) -> &Offers {
+    pub fn refresh(
+        &mut self,
+        model: &Model,
+        selection: &Selection,
+        editing: &SketchEditing,
+        chosen: Chosen<'_>,
+    ) -> &Offers {
         let (tree, rows) = chosen;
         let basis = Basis {
             selection: selection.generation(),
@@ -125,6 +142,8 @@ impl SelectionOffers {
             evaluation: model.evaluation_generation(),
             unit: model.length_unit(),
             meshing: model.bodies_pending(),
+            edited: editing.feature(),
+            opened: editing.solid(),
         };
         let (_, offers) = match self.current.take() {
             Some((known, offers)) if known == basis => self.current.insert((known, offers)),
@@ -134,7 +153,7 @@ impl SelectionOffers {
                     self.computations += 1;
                 }
                 self.current
-                    .insert((basis, Offers::of(model, selection, chosen)))
+                    .insert((basis, Offers::of(model, selection, editing, chosen)))
             }
         };
         offers

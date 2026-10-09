@@ -1,4 +1,4 @@
-use std::f64::consts::TAU;
+use std::{cell::LazyCell, f64::consts::TAU};
 
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{ArcGeometry, Constraint, EllipseGeometry, Entity, EntityId, Sketch};
@@ -247,24 +247,28 @@ pub fn resolve(
         nearest_within(candidates, screen, pointer, ignored, tolerance)
             .map(|(_, candidate)| candidate)
     };
+    let near_curves = LazyCell::new(|| curves(sketch, pointer.sketch));
     nearest(pending_snaps(pending), POINT_TOLERANCE)
         .or_else(|| nearest(accepted_points(sketch, accept), POINT_TOLERANCE))
         .or_else(|| match accept {
             Accept::Anything => nearest(midpoints(sketch), POINT_TOLERANCE)
                 .or_else(|| nearest(centres(sketch, ignored), POINT_TOLERANCE))
-                .or_else(|| nearest(intersections(sketch, screen, pointer), POINT_TOLERANCE))
+                .or_else(|| {
+                    nearest(
+                        intersections(sketch, near_curves.as_slice(), screen, pointer),
+                        POINT_TOLERANCE,
+                    )
+                })
                 .or_else(|| nearest(quadrants(sketch), POINT_TOLERANCE)),
             Accept::Points | Accept::OnCircle { .. } => None,
         })
         .or_else(|| match accept {
-            Accept::Anything => {
-                nearest(curves(sketch, pointer.sketch), CURVE_TOLERANCE).or_else(|| {
-                    nearest(
-                        extensions(sketch, extended, pointer.sketch),
-                        CURVE_TOLERANCE,
-                    )
-                })
-            }
+            Accept::Anything => nearest(near_curves.to_vec(), CURVE_TOLERANCE).or_else(|| {
+                nearest(
+                    extensions(sketch, extended, pointer.sketch),
+                    CURVE_TOLERANCE,
+                )
+            }),
             Accept::Points => None,
             Accept::OnCircle { center, radius } => {
                 nearest(crossings(sketch, center, radius), CURVE_TOLERANCE)
@@ -310,9 +314,9 @@ pub fn held(
         Accept::Anything => {
             point_like.extend(midpoints(sketch));
             point_like.extend(centres(sketch, lookup.ignored));
-            point_like.extend(intersections(sketch, screen, pointer));
-            point_like.extend(quadrants(sketch));
             let mut curve_like = curves(sketch, pointer.sketch);
+            point_like.extend(intersections(sketch, &curve_like, screen, pointer));
+            point_like.extend(quadrants(sketch));
             curve_like.extend(extensions(sketch, lookup.extended, pointer.sketch));
             curve_like
         }
@@ -526,9 +530,14 @@ fn hits(first: Geometry, second: Geometry) -> Vec<Point2> {
     }
 }
 
-fn intersections(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Vec<Snapped> {
-    let mut near: Vec<(f64, EntityId, Option<Geometry>)> = curves(sketch, pointer.sketch)
-        .into_iter()
+fn intersections(
+    sketch: &Sketch,
+    curves: &[Snapped],
+    screen: &impl Screen,
+    pointer: Pointer,
+) -> Vec<Snapped> {
+    let mut near: Vec<(f64, EntityId, Option<Geometry>)> = curves
+        .iter()
         .filter_map(|candidate| {
             let Target::Curve(id) = candidate.target else {
                 return None;

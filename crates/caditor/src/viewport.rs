@@ -3040,9 +3040,9 @@ impl ViewportState {
                 self.typed_point.open();
             }
         }
-        let everything = sketch_drag::select_all(&sketch);
+        let everything = sketch_drag::can_select_all(&sketch);
         if commands.invoke(Command::SelectAll, &everything)
-            && let Ok(everything) = everything
+            && let Ok(everything) = sketch_drag::select_all(&sketch)
         {
             self.add_to_selection(feature, everything, false);
         }
@@ -3051,9 +3051,10 @@ impl ViewportState {
             .sketch()
             .map(|definition| definition.projected().collect())
             .unwrap_or_default();
-        let free = sketch_drag::select_free(&sketch, &projected, model.settled_solution(feature));
+        let solution = model.settled_solution(feature);
+        let free = sketch_drag::can_select_free(&sketch, &projected, solution);
         if commands.invoke(Command::SelectFree, &free)
-            && let Ok(free) = free
+            && let Ok(free) = sketch_drag::select_free(&sketch, &projected, solution)
         {
             self.add_to_selection(feature, free, false);
         }
