@@ -489,12 +489,6 @@ Linux is the primary platform and Windows the only other one; macOS is not a goa
 - [low · medium · blocked by: the project's decision to publish no maintainer identity] The MSI
   and `caditor.exe` are not code-signed, so SmartScreen warns on first run; signing needs a
   certificate tied to an identity.
-- [low · easy] On Windows,
-  Microsoft Defender's real-time scanning slows the atomic saves, the recovery journal's frequent
-  syncs and version history writes in the folders models live in. Remind the user, once and
-  dismissibly (a callout on first save to a folder, repeatable from Preferences and the user guide),
-  that they can exclude their models' working folder from Defender, saying what that trades away and
-  how to do it; never change Defender settings ourselves.
 - [low · medium] Linux has only the `.tar.zst` with its installer: no AppImage, `.deb` or `.rpm`, so
   caditor is not in software centres and installs never update themselves.
 - [low · medium · blocked by: the project's decision to publish no maintainer identity or repository

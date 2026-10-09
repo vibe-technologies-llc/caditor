@@ -43,6 +43,7 @@ pub const HELP: &str = phosphor::QUESTION;
 pub const BACK: &str = phosphor::ARROW_LEFT;
 pub const CONTENTS: &str = phosphor::LIST_BULLETS;
 pub const BULLET: &str = phosphor::DOT;
+pub const DEFENDER: &str = phosphor::SHIELD_CHECK;
 pub const SELECTION: &str = phosphor::SELECTION;
 pub const UNIT: &str = phosphor::RULER;
 pub const RECENT: &str = phosphor::CLOCK;

@@ -5,6 +5,7 @@ use egui::{Id, KeyboardShortcut, Label, ThemePreference, Ui};
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
     commands::{self, Command, Keymap},
+    defender,
     dialog_parts::{self, BodyRoom},
     files::templates::{self, Templates},
     graphics::{self, CurveQuality, FrameLimit, Graphics, Hardware},
@@ -404,6 +405,7 @@ pub enum PreferenceChange {
     DismissHint(Hint),
     ShowHints(bool),
     RestoreHints,
+    DefenderReminded,
     Defaults(PreferencesTab),
 }
 
@@ -430,6 +432,7 @@ pub enum PreferencesCommand {
     CloseSelectionSets,
     ShowScaleModel,
     CloseScaleModel,
+    ShowDefenderReminder,
     SelectSet(usize),
     Tab(PreferencesTab),
     Change(PreferenceChange),
@@ -569,6 +572,7 @@ impl Preferences {
                 self.onboarding.dismissed.insert(hint);
             }
             PreferenceChange::ShowHints(shown) => self.onboarding.hints = shown,
+            PreferenceChange::DefenderReminded => self.onboarding.defender_reminded = true,
             PreferenceChange::RestoreHints => {
                 self.onboarding.hints = true;
                 self.onboarding.dismissed.clear();
@@ -813,6 +817,32 @@ fn general(
     new_models(ui, preferences, templates, command);
     keyboard(ui, command);
     tips(ui, preferences, command);
+    if defender::ON_WINDOWS {
+        saving_on_windows(ui, command);
+    }
+}
+
+fn saving_on_windows(ui: &mut Ui, command: &mut Option<PreferencesCommand>) {
+    let note = "Excluding your models' folder from Microsoft Defender's scanning makes saving \
+                faster; the reminder explains what that trades away.";
+    section(
+        ui,
+        "Saving on Windows",
+        "saving-on-windows",
+        Some(note.to_owned()),
+        |ui| {
+            widgets::property(ui, "Microsoft Defender", |ui| {
+                let button = widgets::small_button(ui, icons::DEFENDER, defender::SHOW_AGAIN);
+                if ui
+                    .add(button)
+                    .on_hover_text("Close Preferences and show the reminder over the view")
+                    .clicked()
+                {
+                    *command = Some(PreferencesCommand::ShowDefenderReminder);
+                }
+            });
+        },
+    );
 }
 
 fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {

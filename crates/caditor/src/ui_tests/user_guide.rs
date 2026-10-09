@@ -1,7 +1,7 @@
 use egui::{Key, Modifiers, Pos2};
 
 use super::Harness;
-use crate::{guide::Page, guide_panel};
+use crate::{defender, guide::Page, guide_panel, model::Action, preferences::PreferencesCommand};
 
 const LINK_INSET: f32 = 3.0;
 
@@ -75,4 +75,24 @@ fn panels_link_to_their_page_and_the_guide_searches_every_page() {
     click_link(&mut harness, "Expressions");
 
     assert_eq!(harness.workspace.guide.page(), Some(Page::Expressions));
+}
+
+#[test]
+fn the_defender_reminder_shows_when_asked_and_leads_to_its_page() {
+    let mut harness = Harness::new();
+    harness.workspace.preferences.onboarding.defender_reminded = false;
+
+    harness.perform(Action::Preferences(
+        PreferencesCommand::ShowDefenderReminder,
+    ));
+    harness.frame();
+
+    assert!(harness.shows(defender::TITLE));
+
+    harness.click(defender::READ_MORE);
+    harness.frame();
+
+    assert!(!harness.shows(defender::TITLE));
+    assert_eq!(harness.workspace.guide.page(), Some(Page::WindowsDefender));
+    assert!(harness.workspace.preferences.onboarding.defender_reminded);
 }

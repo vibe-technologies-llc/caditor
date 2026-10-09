@@ -507,6 +507,12 @@ fn guide_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     model.click_button(crate::guide_panel::CONTENTS);
     shoot(model, gpu, out, "guide-contents", look);
     model.workspace.guide.open = false;
+    model.perform(Action::Preferences(
+        PreferencesCommand::ShowDefenderReminder,
+    ));
+    shoot(model, gpu, out, "defender-reminder", look);
+    model.click(crate::defender::GOT_IT);
+    model.frame();
 }
 
 fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {

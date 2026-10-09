@@ -4,6 +4,7 @@ paths:
   - "crates/caditor-file/src/os/**"
   - "crates/caditor/src/portal/windows.rs"
   - "crates/caditor/build.rs"
+  - "crates/caditor/src/defender.rs"
   - "packaging/windows/**"
   - ".github/install-windows-packaging.sh"
 ---
@@ -66,6 +67,13 @@ so call sites stay platform-free.
   `TaskDialogIndirect`, which unmanifested test binaries cannot load.
 - `crash.rs` flushes the journal and ends the log on a console close and when Windows ends the
   session; the periodic journal flush bounds loss otherwise.
+- After the first save on Windows (`Files::saved_folder`), `defender.rs` shows once a card over
+  the view, like a tip and taking a tip's place, saying that Microsoft Defender's real-time scanning
+  slows the atomic saves, the journal and the kept versions, how to exclude the models' folder in
+  Windows Security and what that trades away; Read in the guide opens the `windows-defender` page.
+  Either choice records `onboarding.defender_reminded`. Preferences › General › Saving on Windows
+  (Windows only, `defender::ON_WINDOWS`) shows it again (`PreferencesCommand::ShowDefenderReminder`).
+  caditor never reads or changes Defender's settings.
 - Windows prefers Direct3D 12, then Vulkan, then OpenGL (`caditor-render` `BACKEND_ORDER`).
 - The window gets a class name, a drop shadow while undecorated and a taskbar icon. The built-in
   title bar drags with `StartDrag`, so Aero Snap works; Snap Layouts on the maximize button do not.

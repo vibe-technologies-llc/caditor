@@ -29,6 +29,7 @@ mod conventions_tests;
 pub mod crash;
 mod datum_panel;
 mod datum_tools;
+mod defender;
 mod dialog_parts;
 mod dimensioning;
 mod display;

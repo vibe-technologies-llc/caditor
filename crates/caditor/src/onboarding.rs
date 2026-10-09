@@ -26,6 +26,7 @@ use crate::{
 const WELCOMED_KEY: &str = "onboarding.welcomed";
 const HINTS_KEY: &str = "onboarding.hints";
 const DISMISSED_KEY: &str = "onboarding.dismissed_hints";
+const DEFENDER_KEY: &str = "onboarding.defender_reminded";
 const TIP_TITLE: &str = "Tip";
 const DISMISS_TIP: &str = "Dismiss the tip";
 const RECENT_TITLE: &str = "Recent files";
@@ -115,6 +116,7 @@ pub struct Onboarding {
     pub welcomed: bool,
     pub hints: bool,
     pub dismissed: BTreeSet<Hint>,
+    pub defender_reminded: bool,
 }
 
 impl Default for Onboarding {
@@ -123,6 +125,7 @@ impl Default for Onboarding {
             welcomed: false,
             hints: true,
             dismissed: BTreeSet::new(),
+            defender_reminded: false,
         }
     }
 }
@@ -138,12 +141,14 @@ impl Onboarding {
                 .iter()
                 .filter_map(|id| Hint::from_id(id))
                 .collect(),
+            defender_reminded: settings.flag(DEFENDER_KEY).unwrap_or(false),
         }
     }
 
     pub fn write(&self, settings: &mut Settings) {
         settings.set_flag(WELCOMED_KEY, self.welcomed);
         settings.set_flag(HINTS_KEY, self.hints);
+        settings.set_flag(DEFENDER_KEY, self.defender_reminded);
         let known: Vec<String> = self
             .dismissed
             .iter()
@@ -164,6 +169,7 @@ impl Onboarding {
             welcomed: true,
             hints: false,
             dismissed: BTreeSet::new(),
+            defender_reminded: true,
         }
     }
 }
