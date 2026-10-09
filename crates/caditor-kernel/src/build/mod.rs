@@ -15,7 +15,7 @@ use thiserror::Error;
 
 pub use self::{
     extrude::extrude,
-    reach::{Heights, NextFace, ReachError, heights, next_face},
+    reach::{Heights, NextFace, ReachError, StopError, Stopped, heights, next_face, stop_at_body},
     revolve::revolve,
     taper::{MAX_TAPER_DEGREES, extrude_tapered},
 };

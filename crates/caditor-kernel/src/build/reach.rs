@@ -1,7 +1,10 @@
+use std::collections::BTreeSet;
+
 use caditor_geometry::{Aabb2, Plane, Point2};
 use thiserror::Error;
 
 use crate::{
+    boolean::{BooleanError, BooleanOperation, boolean},
     build::{
         LinearBound, SweepError,
         extrude::{Level, span},
@@ -9,8 +12,9 @@ use crate::{
     interrupt::{self, Interrupted},
     profile::Region,
     surface::Surface,
+    tessellation::TessellationError,
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance, same_direction},
-    topology::{FaceId, RayCrossing, Solid},
+    topology::{FaceId, PointClass, RayCrossing, ShellId, Solid},
 };
 
 const RAY_SAMPLES: usize = 256;
@@ -20,6 +24,7 @@ const MAX_VERTEX_RAYS: usize = 1024;
 const VERTEX_NUDGE: f64 = 2e-4;
 const NUDGES: [(f64, f64); 4] = [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)];
 const RAY_START: f64 = 4.0 * LINEAR_RESOLUTION;
+const MAX_START_PROBES: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Heights {
@@ -216,4 +221,97 @@ pub fn next_face(
             groups.iter().map(|(face, _, _)| *face).collect(),
         )),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum StopError {
+    #[error("no region is chosen")]
+    NoRegions,
+    #[error("the profile starts partly inside the body and partly outside it")]
+    Straddles,
+    #[error("the body lies wholly inside the sweep")]
+    Enclosed,
+    #[error("part of the profile passes the body without stopping")]
+    PassesBeside,
+    #[error("nothing of the sweep lies before the body")]
+    Nothing,
+    #[error(transparent)]
+    Boolean(#[from] BooleanError),
+    #[error(transparent)]
+    Tessellation(#[from] TessellationError),
+    #[error(transparent)]
+    Cancelled(#[from] Interrupted),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Stopped {
+    pub solid: Solid,
+    pub entering: bool,
+}
+
+pub fn stop_at_body(
+    tool: &Solid,
+    body: &Solid,
+    plane: &Plane,
+    regions: &[Region],
+    reversed: bool,
+    far: f64,
+) -> Result<Stopped, StopError> {
+    let direction = if reversed {
+        -plane.normal()
+    } else {
+        plane.normal()
+    };
+    let origins = ray_origins(regions);
+    if origins.is_empty() {
+        return Err(StopError::NoRegions);
+    }
+    let stride = origins.len().div_ceil(MAX_START_PROBES).max(1);
+    let classifier = body.classifier();
+    let (mut inside, mut outside) = (0_usize, 0_usize);
+    for origin in origins.into_iter().step_by(stride) {
+        interrupt::check()?;
+        match classifier.classify(plane.to_world(origin) + direction * RAY_START) {
+            PointClass::Inside => inside += 1,
+            PointClass::Outside => outside += 1,
+            PointClass::OnBoundary(_) | PointClass::Undecided => {}
+        }
+    }
+    let entering = match (inside, outside) {
+        (0, 0) => return Err(StopError::Straddles),
+        (0, _) => true,
+        (_, 0) => false,
+        _ => return Err(StopError::Straddles),
+    };
+    let operation = if entering {
+        BooleanOperation::Difference
+    } else {
+        BooleanOperation::Intersection
+    };
+    let piece = match boolean(tool, body, operation) {
+        Ok(piece) => piece,
+        Err(BooleanError::Empty) => return Err(StopError::Nothing),
+        Err(error) => return Err(error.into()),
+    };
+    let spans = piece.shell_spans(plane.origin(), direction)?;
+    if spans.values().any(|span| span.void) {
+        return Err(StopError::Enclosed);
+    }
+    let kept: BTreeSet<ShellId> = spans
+        .iter()
+        .filter(|(_, span)| span.least <= RAY_START)
+        .map(|(shell, _)| *shell)
+        .collect();
+    if kept
+        .iter()
+        .filter_map(|shell| spans.get(shell))
+        .any(|span| span.most >= far - RAY_START)
+    {
+        return Err(StopError::PassesBeside);
+    }
+    if kept.is_empty() {
+        return Err(StopError::Nothing);
+    }
+    let solid = piece.keeping_shells(&kept).ok_or(StopError::Nothing)?;
+    Ok(Stopped { solid, entering })
 }

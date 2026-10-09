@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     collections::{BTreeMap, BTreeSet},
     panic::{self, AssertUnwindSafe},
     sync::{Arc, OnceLock},
@@ -10,9 +11,9 @@ use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
     GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, Mesh,
     MeshQuality, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, Region, RegionMesh,
-    RegionReference, SamplingTolerance, Selection, Solid, SweepError, TessellationError, VertexId,
-    VertexName, WallError, WallSide, boolean, extrude_tapered, heights, next_face, resolve_regions,
-    revolve, vertex_names, wall_regions,
+    RegionReference, SamplingTolerance, Selection, Solid, StopError, SweepError, TessellationError,
+    VertexId, VertexName, WallError, WallSide, boolean, extrude_tapered, heights, next_face,
+    resolve_regions, revolve, stop_at_body, vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -926,6 +927,7 @@ pub(crate) fn evaluate(
         Some(start) => start_plane(&context, inputs, solid.shape(), plane, start)?,
         None => plane,
     };
+    let mut stopped = None;
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
             let plane = started;
@@ -936,8 +938,10 @@ pub(crate) fn evaluate(
                 other_bodies: &definition.other_bodies,
                 plane,
                 regions: &regions,
+                stop: Cell::new(None),
             };
-            let extent = ends.extent(&definition.extent)?;
+            let (extent, stop) = ends.extent(&definition.extent)?;
+            stopped = stop;
             let taper = match definition.taper.as_deref() {
                 Some(angle) => taper_angle(&context, angle, inputs.parameters)?,
                 None => 0.0,
@@ -952,7 +956,8 @@ pub(crate) fn evaluate(
                 }
             };
             let extent = angular_extent(&context, &definition.extent, inputs.parameters)?;
-            let regions = match (definition.side, &definition.wall) {
+            let kept;
+            let turned: &[Region] = match (definition.side, &definition.wall) {
                 (Some(_), Some(_)) => {
                     return Err(context.error(
                         "A thin wall follows the whole of its curves, so it cannot keep one side \
@@ -962,13 +967,29 @@ pub(crate) fn evaluate(
                         context.own(),
                     ));
                 }
-                (Some(side), None) => one_side(&context, sketch, &regions, axis, side)?,
-                (None, _) => regions,
+                (Some(side), None) => {
+                    kept = one_side(&context, sketch, &regions, axis, side)?;
+                    &kept
+                }
+                (None, _) => &regions,
             };
-            revolve(&started, &regions, axis, extent, raw)
+            revolve(&started, turned, axis, extent, raw)
         }
     }
     .map_err(|error| sweep_failure(&context, solid.shape(), &error))?;
+    let tool = match stopped {
+        Some(stop) => {
+            let stopping = Stopping {
+                context: &context,
+                inputs,
+                operation: solid.operation(),
+                plane: &started,
+                regions: &regions,
+            };
+            stopping.trim(tool, stop)?
+        }
+        None => tool,
+    };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -1741,6 +1762,14 @@ struct Ends<'a> {
     other_bodies: &'a [FeatureId],
     plane: Plane,
     regions: &'a [Region],
+    stop: Cell<Option<StopAt>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct StopAt {
+    body: FeatureId,
+    far: f64,
+    reversed: bool,
 }
 
 impl Ends<'_> {
@@ -1748,7 +1777,7 @@ impl Ends<'_> {
         self.context.error(reason, remedy, self.context.own())
     }
 
-    fn extent(&self, extent: &ExtrudeExtent) -> Result<LinearExtent, Failure> {
+    fn extent(&self, extent: &ExtrudeExtent) -> Result<(LinearExtent, Option<StopAt>), Failure> {
         let built = match extent {
             ExtrudeExtent::OneSide { end, reversed } => LinearExtent::between(
                 LinearBound::Offset(0.0),
@@ -1767,13 +1796,25 @@ impl Ends<'_> {
                 self.bound(forward, Side::Forward)?,
             ),
         };
-        built.map_err(|error| match error {
+        let built = built.map_err(|error| match error {
             SweepError::ZeroLength => self.error(
                 "The extrusion has no length.".to_owned(),
                 "Enter distances that do not cancel each other out.".to_owned(),
             ),
             other => sweep_failure(self.context, "extrusion", &other),
-        })
+        })?;
+        let stop = self.stop.get();
+        if stop.is_some() && !matches!(extent, ExtrudeExtent::OneSide { .. }) {
+            return Err(self.error(
+                format!(
+                    "The profile of {} first meets curved or several faces, and an extrusion to \
+                     two sides can only stop at one flat face.",
+                    self.context.sketch_name
+                ),
+                "Choose One side, or use Up to face or a distance on that side.".to_owned(),
+            ));
+        }
+        Ok((built, stop))
     }
 
     fn length(&self, expression: &Expression, what: &str) -> Result<f64, Failure> {
@@ -1932,8 +1973,22 @@ impl Ends<'_> {
             ));
         };
         let solid = self.body(body)?;
-        let found = next_face(solid, &self.plane, self.regions, side.reversed())
-            .map_err(|error| self.next_failure(solid, body, side, &error))?;
+        let found = match next_face(solid, &self.plane, self.regions, side.reversed()) {
+            Ok(found) => found,
+            Err(ReachError::Curved(_) | ReachError::SeveralFaces(_)) if offset == 0.0 => {
+                return self.stop_at(body, side);
+            }
+            Err(error @ (ReachError::Curved(_) | ReachError::SeveralFaces(_))) => {
+                let Failure::Error(found) = self.next_failure(solid, body, side, &error) else {
+                    return Err(Failure::Cancelled);
+                };
+                return Err(self.error(
+                    format!("{} So the end cannot be offset from it.", found.reason),
+                    "Clear the end offset, or use Up to face with a flat face or plane.".to_owned(),
+                ));
+            }
+            Err(error) => return Err(self.next_failure(solid, body, side, &error)),
+        };
         let body_name = feature_name(self.inputs, body);
         let sketch = &self.context.sketch_name;
         match (self.operation, found.entering) {
@@ -1960,6 +2015,27 @@ impl Ends<'_> {
                 self.offset_end(found.plane, side, offset, &face)
             }
         }
+    }
+
+    fn stop_at(&self, body: FeatureId, side: Side) -> Result<LinearBound, Failure> {
+        let bounds = self.body(body)?.bounding_box();
+        let direction = self.plane.normal() * side.sign();
+        let farthest = bounds.map_or(f64::NEG_INFINITY, |bounds| {
+            bounds
+                .corners()
+                .iter()
+                .map(|corner| (*corner - self.plane.origin()).dot(direction))
+                .fold(f64::NEG_INFINITY, f64::max)
+        });
+        let margin =
+            bounds.map_or(0.0, |bounds| bounds.diagonal()) * THROUGH_ALL_REACH + THROUGH_ALL_MARGIN;
+        let far = (farthest + margin).min(MAX_SIZE);
+        self.stop.set(Some(StopAt {
+            body,
+            far,
+            reversed: side.reversed(),
+        }));
+        Ok(LinearBound::Offset(side.sign() * far))
     }
 
     fn next_failure(
@@ -2086,6 +2162,106 @@ impl Ends<'_> {
             ));
         }
         Ok(())
+    }
+}
+
+struct Stopping<'a> {
+    context: &'a Context<'a>,
+    inputs: &'a Inputs<'a>,
+    operation: BodyOperation,
+    plane: &'a Plane,
+    regions: &'a [Region],
+}
+
+impl Stopping<'_> {
+    fn error(&self, reason: String, remedy: String) -> Failure {
+        self.context.error(reason, remedy, self.context.own())
+    }
+
+    fn trim(&self, tool: Solid, stop: StopAt) -> Result<Solid, Failure> {
+        let body = self
+            .inputs
+            .body(stop.body)
+            .ok_or_else(|| self.inputs.missing_body(stop.body))?;
+        let body_name = feature_name(self.inputs, stop.body);
+        let sketch = &self.context.sketch_name;
+        let stopped = stop_at_body(
+            &tool,
+            body,
+            self.plane,
+            self.regions,
+            stop.reversed,
+            stop.far,
+        )
+        .map_err(|error| match error {
+            StopError::Cancelled(_) => Failure::Cancelled,
+            StopError::NoRegions => self.error(
+                "No region of the sketch is chosen.".to_owned(),
+                "Choose at least one region.".to_owned(),
+            ),
+            StopError::Straddles => self.error(
+                format!(
+                    "The profile of {sketch} starts partly inside the body of {body_name} and \
+                         partly outside it, so there is no one next face to stop at."
+                ),
+                "Use Up to face or a distance, or move the sketch.".to_owned(),
+            ),
+            StopError::Enclosed => self.error(
+                format!(
+                    "The body of {body_name} lies wholly within the extrusion, so it has no \
+                         next face to stop at."
+                ),
+                "Use Up to face or enter a distance.".to_owned(),
+            ),
+            StopError::PassesBeside => self.error(
+                format!(
+                    "Part of the profile of {sketch} passes beside the body of {body_name}, \
+                         so there is no one next face to stop at."
+                ),
+                "Use Up to face to choose where it stops, or keep the profile within the \
+                     outline of the body."
+                    .to_owned(),
+            ),
+            StopError::Nothing | StopError::Tessellation(_) => {
+                log::warn!(
+                    "{} could not stop at the next faces: {error}",
+                    self.context.feature.name
+                );
+                self.error(
+                    format!(
+                        "The extrusion could not be stopped where it meets the body of \
+                             {body_name}."
+                    ),
+                    "Use Up to face or enter a distance.".to_owned(),
+                )
+            }
+            StopError::Boolean(error) => boolean_failure(
+                self.context,
+                self.inputs,
+                [&tool, body],
+                stop.body,
+                self.operation,
+                &error,
+            ),
+        })?;
+        match (self.operation, stopped.entering) {
+            (BodyOperation::Add(_), false) => Err(self.error(
+                format!(
+                    "The profile of {sketch} starts inside the body of {body_name}, so extruding \
+                     it up to the next face adds nothing."
+                ),
+                "Choose Remove from body, or place the sketch outside the body.".to_owned(),
+            )),
+            (BodyOperation::Remove(_), true) => Err(self.error(
+                format!(
+                    "The profile of {sketch} first meets the body of {body_name} where it enters \
+                     it, so extruding up to that face removes nothing."
+                ),
+                "Place the sketch on or inside the body, or use Through all or Up to face."
+                    .to_owned(),
+            )),
+            _ => Ok(stopped.solid),
+        }
     }
 }
 

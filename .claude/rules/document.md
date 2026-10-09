@@ -279,7 +279,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
     and `THROUGH_ALL_MARGIN`, so the result does not depend on how far; a body wholly behind fails.
   - Up to next needs a target body and ends on the plane of the first face the profile meets
     (kernel `next_face`); an addition starting inside the body, or a cut first entering it, would
-    change nothing and fails.
+    change nothing and fails. When the first faces met are curved or several, a one-sided
+    extrusion with no end offset is swept as far as through all and cut back where it first meets
+    the target body (kernel `stop_at_body`, `Stopping` in `solid.rs`), so it follows a cylinder or
+    a step; two sides or an offset still need one flat face and fail in words.
   - Up to face ends on the face's plane extended past the face, which must lie beyond the whole
     profile on its side.
   - Either up-to end may carry an `offset` (a signed length expression, boxed like the target to

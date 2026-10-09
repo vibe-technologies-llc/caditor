@@ -1417,3 +1417,70 @@ fn a_plan_without_labels_names_no_curves() {
     assert!(matches!(&error, SweepError::Invalid { .. }), "{error:?}");
     assert_eq!(error.entities(), Vec::<u64>::new());
 }
+
+fn rod() -> Solid {
+    let yz = Plane::from_frame(Point3::new(-10.0, 0.0, 10.0), Vector3::X, Vector3::Y).unwrap();
+    extrude(
+        &yz,
+        &regions(&[circle(1, (0.0, 0.0), 5.0)]),
+        one_side(20.0),
+        1,
+    )
+    .unwrap()
+}
+
+fn under_the_rod(width: f64) -> f64 {
+    let half = width / 2.0;
+    2.0 * (half / 2.0 * (25.0 - half * half).sqrt() + 12.5 * (half / 5.0).asin())
+}
+
+#[test]
+fn a_sweep_stops_where_it_first_meets_a_curved_body_from_outside_or_from_inside() {
+    let rod = rod();
+    let strip = regions(&rectangle(2, (1.0, -1.0), (2.0, 1.0)));
+    let from_below = extrude(&Plane::XY, &strip, one_side(30.0), 2).unwrap();
+    let from_axis = extrude(&sketch_at(10.0), &strip, one_side(30.0), 2).unwrap();
+
+    let below = stop_at_body(&from_below, &rod, &Plane::XY, &strip, false, 30.0).unwrap();
+    let inside = stop_at_body(&from_axis, &rod, &sketch_at(10.0), &strip, false, 30.0).unwrap();
+
+    assert!(below.entering);
+    below.solid.validate().unwrap();
+    assert_eq!(below.solid.shells().count(), 1);
+    let expected = 20.0 - under_the_rod(2.0);
+    let found = fine_mesh(&below.solid).mass_properties().volume;
+    assert!(
+        (found - expected).abs() < 1e-3 * expected,
+        "{found} {expected}"
+    );
+    assert!(!inside.entering);
+    inside.solid.validate().unwrap();
+    let expected = under_the_rod(2.0);
+    let found = fine_mesh(&inside.solid).mass_properties().volume;
+    assert!(
+        (found - expected).abs() < 1e-3 * expected,
+        "{found} {expected}"
+    );
+}
+
+#[test]
+fn a_sweep_passing_beside_a_curved_body_or_starting_half_inside_it_does_not_stop() {
+    let rod = rod();
+    let wide = regions(&rectangle(2, (1.0, -8.0), (2.0, 8.0)));
+    let wide_tool = extrude(&Plane::XY, &wide, one_side(30.0), 2).unwrap();
+    let straddling = regions(&rectangle(2, (1.0, 3.0), (2.0, 7.0)));
+    let straddling_tool = extrude(&sketch_at(10.0), &straddling, one_side(30.0), 2).unwrap();
+
+    let beside = stop_at_body(&wide_tool, &rod, &Plane::XY, &wide, false, 30.0);
+    let half_inside = stop_at_body(
+        &straddling_tool,
+        &rod,
+        &sketch_at(10.0),
+        &straddling,
+        false,
+        30.0,
+    );
+
+    assert_eq!(beside, Err(StopError::PassesBeside));
+    assert_eq!(half_inside, Err(StopError::Straddles));
+}

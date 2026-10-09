@@ -37,7 +37,8 @@ pub use crate::{
     bspline::{BSpline, MAX_SPLINE_DEGREE},
     build::{
         AngularExtent, Axis2, Heights, LinearBound, LinearExtent, MAX_TAPER_DEGREES, NextFace,
-        ReachError, SweepError, extrude, extrude_tapered, heights, next_face, revolve,
+        ReachError, StopError, Stopped, SweepError, extrude, extrude_tapered, heights, next_face,
+        revolve, stop_at_body,
     },
     coordinates::Coordinates,
     curve::{

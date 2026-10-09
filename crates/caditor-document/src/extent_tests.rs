@@ -418,21 +418,116 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "The profile of Inner sketch starts inside the body of Plate, so extruding it up to the \
          next face adds nothing."
     );
-    let several = failure(&evaluation, stepped);
+    assert!(matches!(
+        evaluation.feature(stepped).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    assert!((volume(&evaluation, model.plate) - (16_000.0 + 4_000.0 + 750.0)).abs() < 1e-6);
+}
+
+fn rod() -> FeatureKind {
+    let across = Plane::from_frame(Point3::new(-10.0, 0.0, 20.0), Vector3::X, Vector3::Y).unwrap();
+    FeatureKind::from(circle(across, (0.0, 0.0), 5.0))
+}
+
+fn under_the_rod(width: f64) -> f64 {
+    let half = width / 2.0;
+    2.0 * (half / 2.0 * (25.0 - half * half).sqrt() + 12.5 * (half / 5.0).asin())
+}
+
+#[test]
+fn up_to_a_curved_next_face_follows_the_face() {
+    let mut document = Document::default();
+    let rod_sketch = add(&mut document, "Rod sketch", rod());
+    let rod = add(
+        &mut document,
+        "Rod",
+        extrusion(
+            rod_sketch,
+            ExtrudeExtent::one_side(millimetres(20.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let strip = add(
+        &mut document,
+        "Strip sketch",
+        FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
+    );
+    let stand = add(
+        &mut document,
+        "Stand",
+        extrusion(
+            strip,
+            one_side(ExtrudeEnd::up_to_next(), false),
+            BodyOperation::Add(rod),
+        ),
+    );
+    let groove = add(
+        &mut document,
+        "Groove sketch",
+        FeatureKind::from(rectangle(at(20.0), (-6.0, -1.0), (-4.0, 1.0))),
+    );
+    let groove_cut = add(
+        &mut document,
+        "Groove",
+        extrusion(
+            groove,
+            one_side(ExtrudeEnd::up_to_next(), false),
+            BodyOperation::Remove(rod),
+        ),
+    );
+    let offset = add(
+        &mut document,
+        "Offset",
+        extrusion(
+            strip,
+            one_side(
+                ExtrudeEnd::up_to_next().with_offset(Some(millimetres(1.0))),
+                false,
+            ),
+            BodyOperation::Add(rod),
+        ),
+    );
+    let both = add(
+        &mut document,
+        "Both ways",
+        extrusion(
+            strip,
+            ExtrudeExtent::TwoSides {
+                forward: ExtrudeEnd::up_to_next(),
+                backward: ExtrudeEnd::Distance(millimetres(2.0)),
+            },
+            BodyOperation::Add(rod),
+        ),
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert!(matches!(
+        evaluation.feature(stand).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    assert!(matches!(
+        evaluation.feature(groove_cut).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    let added = 40.0 - under_the_rod(2.0);
+    let removed = 2.0 * under_the_rod(2.0);
+    let expected = 500.0 * PI + added - removed;
+    let found = volume(&evaluation, rod);
     assert!(
-        several
-            .reason
-            .starts_with("The profile of Across sketch meets several faces of Plate first: "),
-        "{}",
-        several.reason
+        (found - expected).abs() < 2e-3 * expected,
+        "{found} {expected}"
     );
-    assert!(several.reason.contains("Step start face"));
-    assert!(several.reason.contains("Plate start face"));
     assert_eq!(
-        several.remedy,
-        "Use Up to face to choose which one it stops at."
+        failure(&evaluation, offset).remedy,
+        "Clear the end offset, or use Up to face with a flat face or plane."
     );
-    assert!((volume(&evaluation, model.plate) - (16_000.0 + 4_000.0)).abs() < 1e-6);
+    assert_eq!(
+        failure(&evaluation, both).reason,
+        "The profile of Strip sketch first meets curved or several faces, and an extrusion to two \
+         sides can only stop at one flat face."
+    );
 }
 
 #[test]

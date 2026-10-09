@@ -61,6 +61,13 @@ paths:
   (coplanar fragments are one face): several groups are `SeveralFaces`, one curved face `Curved`,
   else the plane with its outward normal and whether the rays enter. Undecided rays are skipped;
   none decided is `Undecided`, every ray missing `Nothing`, some `Partly`.
+- `stop_at_body(tool, body, plane, regions, reversed, far)` cuts a sweep made to `far` back to
+  where it first meets a body, whatever the faces there: it classifies up to `MAX_START_PROBES`
+  points just ahead of the profile (all outside: entering, all inside: leaving, else `Straddles`),
+  takes the difference with the body when entering or the intersection when leaving, and keeps the
+  shells whose mesh reaches back to the start plane (`Solid::shell_spans`, `keeping_shells`, which
+  renumbers the kept topology and keeps every name). A void shell is `Enclosed`, a kept shell
+  reaching `far` `PassesBeside`, nothing kept `Nothing`.
 
 # Booleans (`boolean/`)
 
