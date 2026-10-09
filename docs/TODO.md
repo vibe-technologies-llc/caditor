@@ -365,8 +365,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of
   that to upload for a sketch of 24,000 curves in a release build. A batch per feature, with pick
-  ids of its own, would limit both to what changed. Face styles are likewise rewritten whole on
-  every highlight change.
+  ids of its own, would limit both to what changed.
 - [low · medium] Vertex records repeat per-layer data and both ends of shared segments, and
   resizing recreates the MSAA targets per pixel: they must match the surface they resolve into, so
   keeping larger ones would need a resolve pass of their own.

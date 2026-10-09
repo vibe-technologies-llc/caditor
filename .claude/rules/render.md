@@ -108,7 +108,10 @@ paths:
   `ShadedMesh::origin` and `face_triangles` (world corners with their face) let the app's reach
   analysis and `through.rs` work on the triangles without a copy of the mesh.
 - Per-face styles live in an `Rg32Uint` texture (`StyleLayout`) read by face index in the vertex
-  shader, rewritten only when they differ, so hover and selection cost nothing in geometry.
+  shader, so hover and selection cost nothing in geometry. A restyle writes only the texture rows
+  whose styles changed, each as one span from its first to its last changed face, and updates the
+  kept copy in place (`changed_spans`); past `MAX_STYLE_SPANS` such rows, or when the face count
+  changes, the whole texture is written.
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
   picking alike (everything but `Layer::Front`). A face without a pick id writes id 0 with its
   depth in the pick pass, not discarded. Enhanced shading scales highlight and rim with the face

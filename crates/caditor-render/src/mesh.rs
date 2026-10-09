@@ -889,15 +889,92 @@ impl GpuMesh {
     }
 
     fn write_face_styles(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, faces: &[FaceStyle]) {
+        let spans = match self.written.as_mut() {
+            Some(written) if written.len() == faces.len() => {
+                changed_spans(written, faces, self.layout)
+            }
+            _ => None,
+        };
+        let target = StyleTarget {
+            texture: &self.styles,
+            layout: self.layout,
+            faces,
+        };
+        match spans {
+            Some(spans) => {
+                for span in spans {
+                    target.write(queue, bytes, span);
+                }
+            }
+            None => {
+                target.write_whole(queue, bytes);
+                let written = self.written.get_or_insert_with(Vec::new);
+                written.clear();
+                written.extend_from_slice(faces);
+            }
+        }
+    }
+}
+
+const MAX_STYLE_SPANS: usize = 16;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StyleSpan {
+    row: u32,
+    columns: Range<u32>,
+}
+
+fn changed_spans(
+    written: &mut [FaceStyle],
+    faces: &[FaceStyle],
+    layout: StyleLayout,
+) -> Option<Vec<StyleSpan>> {
+    let columns = layout.columns.max(1) as usize;
+    let mut spans: Vec<StyleSpan> = Vec::new();
+    for (index, (old, new)) in written
+        .iter_mut()
+        .zip(faces)
+        .enumerate()
+        .take(layout.texels())
+    {
+        if old == new {
+            continue;
+        }
+        *old = *new;
+        let row = u32::try_from(index / columns).unwrap_or(u32::MAX);
+        let column = u32::try_from(index % columns).unwrap_or(u32::MAX);
+        match spans.last_mut() {
+            Some(span) if span.row == row => span.columns.end = column + 1,
+            _ => spans.push(StyleSpan {
+                row,
+                columns: column..column + 1,
+            }),
+        }
+    }
+    (spans.len() <= MAX_STYLE_SPANS).then_some(spans)
+}
+
+struct StyleTarget<'a> {
+    texture: &'a wgpu::Texture,
+    layout: StyleLayout,
+    faces: &'a [FaceStyle],
+}
+
+impl StyleTarget<'_> {
+    fn pack(&self, bytes: &mut Bytes, faces: Range<usize>) {
         bytes.clear();
-        for face in 0..self.layout.texels() {
-            let style = faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
+        for face in faces {
+            let style = self.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
             bytes
                 .u32(pack_color(style.color))
                 .u32(PickId::raw(style.pick));
         }
+    }
+
+    fn write_whole(&self, queue: &wgpu::Queue, bytes: &mut Bytes) {
+        self.pack(bytes, 0..self.layout.texels());
         queue.write_texture(
-            self.styles.as_image_copy(),
+            self.texture.as_image_copy(),
             bytes.as_slice(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
@@ -906,7 +983,38 @@ impl GpuMesh {
             },
             self.layout.extent(),
         );
-        self.written = Some(faces.to_vec());
+    }
+
+    fn write(&self, queue: &wgpu::Queue, bytes: &mut Bytes, span: StyleSpan) {
+        let first = span.row as usize * self.layout.columns as usize;
+        let width = span.columns.end.saturating_sub(span.columns.start);
+        self.pack(
+            bytes,
+            first + span.columns.start as usize..first + span.columns.end as usize,
+        );
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: span.columns.start,
+                    y: span.row,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytes.as_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width.saturating_mul(STYLE_TEXEL_BYTES)),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 }
 
@@ -1212,6 +1320,48 @@ mod tests {
         assert_eq!(wrapped.texels(), 3072);
         assert_eq!(beyond.faces, 64 * 64);
         assert_eq!(StyleLayout::new(0, 0).faces, 1);
+    }
+
+    #[test]
+    fn only_rows_whose_styles_changed_are_written_and_many_scattered_changes_write_everything() {
+        let style = |red: u8| FaceStyle {
+            color: Color::from_rgb8(red, 0, 0),
+            pick: None,
+        };
+        let layout = StyleLayout::new(40, 10);
+        let before: Vec<FaceStyle> = (0..40).map(|_| style(0)).collect();
+        let mut after = before.clone();
+        for face in [3, 5, 6, 25] {
+            after[face] = style(9);
+        }
+        let mut written = before.clone();
+        let scattered: Vec<FaceStyle> = (0..40).map(|face| style(face as u8)).collect();
+        let tall = StyleLayout {
+            columns: 1,
+            rows: 40,
+            faces: 40,
+        };
+
+        let spans = changed_spans(&mut written, &after, layout);
+        let unchanged = changed_spans(&mut written.clone(), &after, layout);
+        let everywhere = changed_spans(&mut before.clone(), &scattered, tall);
+
+        assert_eq!(
+            spans,
+            Some(vec![
+                StyleSpan {
+                    row: 0,
+                    columns: 3..7,
+                },
+                StyleSpan {
+                    row: 2,
+                    columns: 5..6,
+                },
+            ])
+        );
+        assert_eq!(written, after);
+        assert_eq!(unchanged, Some(Vec::new()));
+        assert_eq!(everywhere, None);
     }
 
     #[test]
