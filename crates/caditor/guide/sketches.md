@@ -18,7 +18,11 @@ sketch in the tree, or one of its curves, to edit it again later. {command:sketc
 Escape ends editing.
 
 - Pick a tool from the sketch ribbon, by its key, or from {command:palette}. Escape steps back one
-  stage at a time and then returns to Select.
+  stage at a time and then returns to Select; holding it down takes only one step.
+- While a shape is half drawn, Backspace or Delete takes back the last point.
+- Changing how a shape is drawn halfway keeps its first point when it means the same in the new
+  way, such as a rectangle's first corner or a circle's or polygon's centre; otherwise finish or
+  cancel the shape first.
 - With Select, drag a point or curve to move it; drag across empty space to box-select.
   Double-click a curve to select the chain it belongs to.
 - Delete removes the selection, curves and constraints alike.

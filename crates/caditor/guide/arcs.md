@@ -8,7 +8,7 @@ each keeps its own key.
 - {command:sketch.three_point_arc}: click the start and the end, then a point the arc passes
   through.
 - {command:sketch.tangent_arc}: start on the end of a line, arc or spline; the arc leaves along
-  that curve's direction and stays tangent to it. Arcs chain one after another until Escape.
+  that curve's direction and stays tangent to it. Arcs chain one after another until Enter or Escape.
 
 {command:sketch.reverse_arc} sends the arc being drawn the other way round. The radius and sweep
 show beside the pointer.

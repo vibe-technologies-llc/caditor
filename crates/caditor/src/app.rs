@@ -31,7 +31,7 @@ use crate::{
     commands::{self, Clipboard, Command, CommandFrame, Offer, Situation},
     configurations::{self, ConfigurationsDraft},
     constraint_trial, defender, drawing_export, drop_target,
-    editing::SketchEditing,
+    editing::{EditingCommand, SketchEditing},
     feature_tree,
     files::{self, FileCommand, Files},
     font_fallbacks::FallbackFonts,
@@ -1197,6 +1197,11 @@ pub fn perform(
     for action in actions {
         match action {
             Action::File(command) => files.perform(command, model),
+            Action::Editing(EditingCommand::SetMode(mode))
+                if let Some(reason) = workspace.viewport.refuses_mode(mode) =>
+            {
+                model.perform(Action::Inform(Notice::info(reason)));
+            }
             Action::Editing(command) => workspace.editing.perform(command, model),
             Action::Preferences(command) => workspace.preferences_command(command, model, files),
             Action::Filter(filter) => workspace.viewport.set_filter(filter),

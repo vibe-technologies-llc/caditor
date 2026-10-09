@@ -15,7 +15,7 @@ for example `width / 2` or `30 deg`.
 Clicking two points, or a lone line, waits for a third click that places the dimension: above or
 below gives the horizontal distance, beside them the vertical one, elsewhere the aligned one. For
 an arc, placing it inside gives its sweep and beyond it its length. Enter adds the dimension of a
-single pick, and Escape lets go of the picks.
+single pick, and Escape lets go of the picks; changing to another tool lets go of them too.
 
 The Dimension group of the ribbon also has each dimension on its own: Distance, Horizontal
 distance, Vertical distance, Angle, Radius and Diameter.

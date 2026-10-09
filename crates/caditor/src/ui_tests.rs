@@ -87,6 +87,7 @@ mod sketch_conics;
 mod sketch_ellipses;
 mod sketch_first_dimension;
 mod sketch_free;
+mod sketch_keys;
 mod sketch_patterns;
 mod sketch_regions;
 mod sketch_tangent_circles;
@@ -5045,7 +5046,7 @@ fn one_press_drag_release_draws_a_whole_line_rectangle_or_circle() {
     let (start, end) = sketch.line_endpoints(line).unwrap();
     assert!(near(start, Point2::new(10.0, 10.0)), "{start}");
     assert!(near(end, Point2::new(40.0, 25.0)), "{end}");
-    assert!(harness.shows("Click to end the line, Escape to stop"));
+    assert!(harness.shows("Click to end the line, Enter or Escape to stop"));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.key(Key::Escape, Modifiers::NONE);
 
@@ -5513,7 +5514,7 @@ fn a_press_that_slips_a_few_pixels_is_still_one_click_where_it_is_released() {
     harness.frame();
 
     assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 0);
-    assert!(harness.shows("Click to end the line, Escape to stop"));
+    assert!(harness.shows("Click to end the line, Enter or Escape to stop"));
 }
 
 #[test]
@@ -5525,7 +5526,7 @@ fn drawing_a_line_adds_its_points_and_the_line_in_one_undoable_step() {
     assert!(harness.shows("Click the start of the line"));
 
     harness.click_at(Point2::new(10.0, 10.0));
-    assert!(harness.shows("Click to end the line, Escape to stop"));
+    assert!(harness.shows("Click to end the line, Enter or Escape to stop"));
     harness.click_at(Point2::new(40.0, 25.0));
 
     let sketch = harness.sketch(feature);
@@ -6072,7 +6073,7 @@ fn backspace_and_undo_step_a_line_chain_back_one_line_at_a_time() {
     harness.frame();
     harness.frame();
     assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 1);
-    assert!(harness.shows("Click to end the line, Escape to stop"));
+    assert!(harness.shows("Click to end the line, Enter or Escape to stop"));
 
     harness.click_at(Point2::new(60.0, 30.0));
     let sketch = harness.sketch(feature);
@@ -6089,13 +6090,13 @@ fn backspace_and_undo_step_a_line_chain_back_one_line_at_a_time() {
     harness.frame();
     harness.frame();
     assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 1);
-    assert!(harness.shows("Click to end the line, Escape to stop"));
+    assert!(harness.shows("Click to end the line, Enter or Escape to stop"));
 
     harness.key(Key::Z, Modifiers::COMMAND);
     harness.frame();
     harness.frame();
     assert_eq!(entities_of_kind(harness.sketch(feature), "Line").len(), 0);
-    assert!(harness.shows("Click to end the line, Escape to stop"));
+    assert!(harness.shows("Click to end the line, Enter or Escape to stop"));
 
     harness.click_at(Point2::new(30.0, 10.0));
     let sketch = harness.sketch(feature);
@@ -6517,7 +6518,7 @@ fn tangent_arcs_continue_smoothly_from_a_line_and_from_each_other() {
     type_point(&mut harness, "20, 0");
     type_point(&mut harness, "30, 10");
     type_point(&mut harness, "40, 20");
-    assert!(harness.shows("Click where the arc ends, Escape to stop"));
+    assert!(harness.shows("Click where the arc ends, Enter or Escape to stop"));
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();
     harness.settle();
@@ -6769,6 +6770,11 @@ fn pressing_a_shape_key_again_cycles_its_ways_of_drawing_and_each_is_remembered(
     harness.use_tool(Key::U);
     harness.click_at(Point2::new(10.0, 10.0));
     assert!(harness.workspace.viewport.is_drawing());
+    harness.use_tool(Key::U);
+    assert!(harness.workspace.viewport.is_drawing());
+    assert!(harness.shows("Click the centre of the slot's other end"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
     harness.use_tool(Key::U);
     assert!(!harness.workspace.viewport.is_drawing());
     assert!(harness.shows("Click the slot's centre"));

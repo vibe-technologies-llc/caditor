@@ -10,7 +10,7 @@ again to go to the next, or choose one from the Curve button's menu:
   smoothly back to the first point, so the spline bounds a region that extrudes.
 
 Press Enter, or click the last point again, to finish; clicking the first point closes an open
-spline. The length and angle of the leg from the last point show as you draw, and each point can be
+spline. Enter with too few points placed says how many the spline still needs. The length and angle of the leg from the last point show as you draw, and each point can be
 levelled with the one before, like a line.
 
 ## Shaping a spline

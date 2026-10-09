@@ -3,9 +3,9 @@
 {command:sketch.line} draws connected lines, one click per corner. Each new line starts where the
 last ended, joined to it.
 
-- Press Escape, or click the last point again, to stop.
+- Press Enter or Escape, or click the last point again, to stop.
 - Clicking the chain's first point closes the outline and stops.
-- Backspace takes back the last segment while it is the newest change.
+- Backspace or Delete takes back the last segment while it is the newest change.
 - Press and drag to draw a single line in one movement.
 
 While drawing, the line snaps to horizontal, vertical, parallel and perpendicular directions and to

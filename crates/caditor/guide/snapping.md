@@ -22,7 +22,8 @@ above it, shows a dashed guide and lines the new point up with it.
 - Hold Ctrl to place a point exactly under the pointer, with no snapping or guides.
 - Hold Alt to step along the grid: the point lands on the nearest grid crossing unless something to
   snap to is nearer.
-- {command:view.toggle_snapping} turns snapping off for good; Alt still snaps.
+- {command:view.toggle_snapping} turns snapping off for good; Alt still snaps, and the hint
+  below the prompt says snapping is off.
 - {command:view.toggle_grid_snapping} puts free points on the grid's crossings.
 
 Dragging geometry with Select snaps the same way.

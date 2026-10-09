@@ -1,4 +1,7 @@
-use std::f64::consts::{PI, TAU};
+use std::{
+    f64::consts::{PI, TAU},
+    mem::discriminant,
+};
 
 use caditor_document::{FeatureId, Transaction, TransactionBuilder};
 use caditor_expression::Expression;
@@ -32,6 +35,8 @@ const HELD_TOLERANCE: f64 = 1e-9;
 const TYPED_TOLERANCE: f64 = 1e-6;
 const MIN_CLOSED_SPLINE_POINTS: usize = 3;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
+pub const LINE_CHAIN_PROMPT: &str = "Click to end the line, Enter or Escape to stop";
+pub const TANGENT_ARC_CHAIN_PROMPT: &str = "Click where the arc ends, Enter or Escape to stop";
 const CANCEL_CONIC: &str = "Esc: cancel the conic";
 const NOT_A_CONIC: &str = "Only a conic takes a rho; choose the Conic tool first";
 const RHO_OUT_OF_RANGE: &str = "Rho must lie between 0.01 and 0.99: below 0.5 the conic is part \
@@ -76,6 +81,8 @@ pub enum Refusal {
     EllipticalArcSweep,
     ConicEnds,
     ConicApex,
+    SplinePoints,
+    ClosedSplinePoints,
 }
 
 impl Refusal {
@@ -128,8 +135,21 @@ impl Refusal {
                 "A conic needs its apex off the line between its ends, where the tangents at its \
                  ends meet"
             }
+            Self::SplinePoints => {
+                "A spline needs at least two points: place another before pressing Enter"
+            }
+            Self::ClosedSplinePoints => {
+                "A closed spline needs at least three points: place more before pressing Enter"
+            }
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Ended {
+    Drawn(Transaction),
+    Stopped,
+    Refused(Refusal),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,6 +313,51 @@ impl Shape {
             | Self::Ellipse
             | Self::EllipticalArc
             | Self::Conic => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FirstPoint {
+    Centre,
+    Corner,
+    OnCircle,
+}
+
+impl FirstPoint {
+    fn of(shape: Shape) -> Option<Self> {
+        match shape {
+            Shape::Rectangle(RectangleMode::Center)
+            | Shape::Circle(CircleMode::Center)
+            | Shape::Arc
+            | Shape::Slot(SlotMode::Center | SlotMode::Arc)
+            | Shape::Polygon(PolygonMode::Corner | PolygonMode::SideMiddle)
+            | Shape::Ellipse
+            | Shape::EllipticalArc => Some(Self::Centre),
+            Shape::Rectangle(RectangleMode::Corners | RectangleMode::ThreePoints)
+            | Shape::Polygon(PolygonMode::Side) => Some(Self::Corner),
+            Shape::Circle(CircleMode::TwoPoints | CircleMode::ThreePoints) => Some(Self::OnCircle),
+            Shape::Point
+            | Shape::Line
+            | Shape::ThreePointArc
+            | Shape::TangentArc
+            | Shape::Slot(SlotMode::Ends)
+            | Shape::Spline(_)
+            | Shape::Conic => None,
+        }
+    }
+}
+
+fn carries_points(from: Shape, to: Shape, placed: usize) -> bool {
+    match (from, to) {
+        (Shape::Spline(from), Shape::Spline(to)) => {
+            from.passes_its_points() == to.passes_its_points()
+                || (placed == 1 && !from.closes() && !to.closes())
+        }
+        (Shape::ThreePointArc | Shape::Conic, Shape::ThreePointArc | Shape::Conic) => placed <= 2,
+        _ => {
+            placed == 1
+                && FirstPoint::of(from).is_some_and(|first| FirstPoint::of(to) == Some(first))
         }
     }
 }
@@ -639,6 +704,7 @@ struct Carried {
     tangent: Option<Tangent>,
     chain: Vec<ChainStep>,
     chain_start: Vec<EntityId>,
+    typed: Vec<TypedMark>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -704,6 +770,7 @@ impl Drawing {
                 self.tangent = carried.tangent;
                 self.chain = carried.chain;
                 self.chain_start = carried.chain_start;
+                self.typed = carried.typed;
             }
         }
         self.construction = active.is_some_and(|active| active.construction);
@@ -735,22 +802,49 @@ impl Drawing {
     ) -> Option<Carried> {
         let (feature, from) = self.context?;
         let (next_feature, to) = context?;
-        let [start] = self.placed.as_slice() else {
+        if feature != next_feature {
             return None;
-        };
-        let tangent = match (from, to) {
-            (Shape::Line, Shape::TangentArc) => {
-                Some(continuing(sketch?, point_target(start.snap)?)?)
+        }
+        if let [start] = self.placed.as_slice() {
+            let tangent = match (from, to) {
+                (Shape::Line, Shape::TangentArc) => {
+                    Some(Some(continuing(sketch?, point_target(start.snap)?)?))
+                }
+                (Shape::TangentArc, Shape::Line) => Some(None),
+                _ => None,
+            };
+            if let Some(tangent) = tangent {
+                return Some(Carried {
+                    placed: vec![*start],
+                    tangent,
+                    chain: self.chain.clone(),
+                    chain_start: self.chain_start.clone(),
+                    typed: Vec::new(),
+                });
             }
-            (Shape::TangentArc, Shape::Line) => None,
-            _ => return None,
-        };
-        (feature == next_feature).then(|| Carried {
-            placed: vec![*start],
-            tangent,
-            chain: self.chain.clone(),
-            chain_start: self.chain_start.clone(),
+        }
+        carries_points(from, to, self.placed.len()).then(|| Carried {
+            placed: self.placed.clone(),
+            tangent: None,
+            chain: Vec::new(),
+            chain_start: Vec::new(),
+            typed: self.typed.clone(),
         })
+    }
+
+    pub fn refuses_mode(&self, mode: ShapeMode) -> Option<String> {
+        let (_, from) = self.context?;
+        let to = Shape::drawn(mode)?;
+        let changes_way = from != to && discriminant(&from) == discriminant(&to);
+        (changes_way && self.in_progress() && !carries_points(from, to, self.placed.len())).then(
+            || {
+                let name = match from {
+                    Shape::Polygon(_) => shapes::polygon_name(self.sides.0),
+                    shape => shape.name().to_owned(),
+                };
+                format!("Finish or cancel the {name} first, then change how it is drawn")
+            },
+        )
     }
 
     fn step_back_or_cancel(&mut self, sketch: Option<&Sketch>) {
@@ -1663,8 +1757,38 @@ impl Drawing {
         )
     }
 
-    pub fn finish(&mut self, model: &Model) -> Option<Transaction> {
-        self.finish_spline(model, false)
+    pub fn finish(&mut self, model: &Model) -> Option<Ended> {
+        let (_, shape) = self.context?;
+        if !self.in_progress() {
+            return None;
+        }
+        match shape {
+            Shape::Line | Shape::TangentArc => {
+                self.cancel();
+                Some(Ended::Stopped)
+            }
+            Shape::Spline(mode) => {
+                let kind = mode.kind(false);
+                if self.placed.len() < kind.fewest_points() {
+                    return Some(Ended::Refused(if kind.is_closed() {
+                        Refusal::ClosedSplinePoints
+                    } else {
+                        Refusal::SplinePoints
+                    }));
+                }
+                self.finish_spline(model, false).map(Ended::Drawn)
+            }
+            Shape::Point
+            | Shape::Rectangle(_)
+            | Shape::Circle(_)
+            | Shape::Arc
+            | Shape::ThreePointArc
+            | Shape::Slot(_)
+            | Shape::Polygon(_)
+            | Shape::Ellipse
+            | Shape::EllipticalArc
+            | Shape::Conic => None,
+        }
     }
 
     fn closes_at(&self, pending: usize) -> bool {
@@ -1989,8 +2113,8 @@ impl Drawing {
             (Shape::Point, _) => prompt("Click to place a point", BACK_TO_SELECT),
             (Shape::Line, 0) => prompt("Click the start of the line", BACK_TO_SELECT),
             (Shape::Line, _) => prompt(
-                "Click to end the line, Escape to stop",
-                "Click the start to close, or the last point again to stop   Backspace: step back",
+                LINE_CHAIN_PROMPT,
+                "Click the start to close, or the last point again to stop",
             ),
             (Shape::Rectangle(RectangleMode::Corners), 0) => {
                 prompt("Click the rectangle's first corner", BACK_TO_SELECT)
@@ -2053,7 +2177,7 @@ impl Drawing {
                 BACK_TO_SELECT,
             ),
             (Shape::TangentArc, _) => prompt(
-                "Click where the arc ends, Escape to stop",
+                TANGENT_ARC_CHAIN_PROMPT,
                 "Click the start to close, or the last point again to stop",
             ),
             (Shape::Slot(SlotMode::Ends), 0) => {
@@ -2137,10 +2261,10 @@ impl Drawing {
                     "Click the next control point"
                 },
                 if mode.closes() {
-                    "Enter: close the loop   Backspace: remove the last point   Esc: cancel"
+                    "Enter: close the loop   Esc: cancel"
                 } else {
-                    "Enter or double-click: finish   Click the first point: close the loop   \
-                     Backspace: remove the last point   Esc: cancel"
+                    "Enter or double-click: finish   Click the first point: close the loop   Esc: \
+                     cancel"
                 },
             ),
         }

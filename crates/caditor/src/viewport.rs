@@ -29,7 +29,7 @@ use crate::{
     display::Displayed,
     display_style::DisplayStyle,
     drag_solver::DragCommand,
-    drawing::{Drawing, Preview},
+    drawing::{Drawing, Ended, Preview},
     editing::{self, EditingCommand, SketchEditing, Tool},
     faceting::FacetLevel,
     feature_tree,
@@ -85,6 +85,9 @@ const ISOMETRIC_NOT_CHANGED: &str = "The Isometric view has not been changed";
 const NOT_IN_A_SKETCH: &str = "Edit a sketch to look straight at it";
 pub const DRAG_BLOCKED: &str = "The constraints do not allow it there";
 pub const DRAG_CONFLICT: &str = "Nothing moves while constraints conflict";
+pub const PROJECTED_STAYS: &str =
+    "Projected geometry follows the model geometry it comes from; change the model instead";
+pub const REFERENCE_STAYS: &str = "The origin and axes stay put";
 const READOUT_GAP: f32 = 4.0;
 const NOTHING_TO_COPY: &str = "Select sketch geometry to copy";
 const NOTHING_TO_PASTE: &str = "Nothing was pasted: copy or cut sketch geometry first.";
@@ -124,6 +127,8 @@ const KEYBOARD_PAN_FRACTION: f64 = 0.1;
 const KEYBOARD_ZOOM_FACTOR: f64 = 1.25;
 const TYPED_POINT_OFFSET: f32 = 64.0;
 const FREE_PLACEMENT_HINT: &str = "Ctrl: place freely";
+const SNAPPING_OFF_HINT: &str = "Snapping off";
+const TAKE_BACK_HINT: &str = "Backspace: take back the last point";
 const HELD_SNAP_HINT: &str = "Alt: snap to the grid or nearby geometry";
 const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
 const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes toward the pointer   \
@@ -221,6 +226,25 @@ enum PrimaryDrag {
         feature: FeatureId,
     },
     Manipulate(Manipulating),
+    Unmovable {
+        feature: FeatureId,
+        held: Unmovable,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unmovable {
+    Projected,
+    Reference,
+}
+
+impl Unmovable {
+    fn reason(self) -> &'static str {
+        match self {
+            Self::Projected => PROJECTED_STAYS,
+            Self::Reference => REFERENCE_STAYS,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -733,6 +757,10 @@ impl ViewportState {
 
     pub fn is_drawing(&self) -> bool {
         self.drawing.in_progress()
+    }
+
+    pub fn refuses_mode(&self, mode: ShapeMode) -> Option<String> {
+        self.drawing.refuses_mode(mode)
     }
 
     pub fn is_animating(&self) -> bool {
@@ -1482,7 +1510,9 @@ impl ViewportState {
                 self.primary = None;
                 self.trimming.cancel_path();
             }
-            Some(PrimaryDrag::Pull { feature }) if Some(*feature) != edited => {
+            Some(PrimaryDrag::Pull { feature } | PrimaryDrag::Unmovable { feature, .. })
+                if Some(*feature) != edited =>
+            {
                 self.primary = None;
             }
             Some(PrimaryDrag::Grab(grab)) => {
@@ -1505,7 +1535,10 @@ impl ViewportState {
                     self.paint_faces(model, editing, &samples);
                 }
             }
-            Some(PrimaryDrag::Trim { .. } | PrimaryDrag::Pull { .. }) | None => {}
+            Some(
+                PrimaryDrag::Trim { .. } | PrimaryDrag::Pull { .. } | PrimaryDrag::Unmovable { .. },
+            )
+            | None => {}
         }
         if released {
             self.press = None;
@@ -1541,7 +1574,10 @@ impl ViewportState {
                         }),
                     }
                 }
-                Some(PrimaryDrag::Grab(_) | PrimaryDrag::Paint(_)) | None => {}
+                Some(
+                    PrimaryDrag::Grab(_) | PrimaryDrag::Paint(_) | PrimaryDrag::Unmovable { .. },
+                )
+                | None => {}
             }
         }
     }
@@ -1697,9 +1733,21 @@ impl ViewportState {
             Some(Pickable::SketchEntity {
                 feature: owner,
                 entity,
-            }) if owner == feature && !entity.is_reference() && !projected(entity) => Some(entity),
+            }) if owner == feature => Some(entity),
             _ => None,
         };
+        let held = grabbed.and_then(|entity| {
+            if entity.is_reference() {
+                Some(Unmovable::Reference)
+            } else if projected(entity) {
+                Some(Unmovable::Projected)
+            } else {
+                None
+            }
+        });
+        if let Some(held) = held {
+            return Some(PrimaryDrag::Unmovable { feature, held });
+        }
         let Some(grabbed) = grabbed else {
             let at = press.cursor / f64::from(self.pixels_per_point);
             return Some(PrimaryDrag::Box {
@@ -1860,9 +1908,7 @@ impl ViewportState {
             .filter(|active| active.tool.dimensions())
             .map(|active| active.feature);
         if dimensioning != self.dimensioning {
-            if dimensioning.is_some() {
-                self.selection.clear();
-            }
+            self.selection.clear();
             self.dimensioning = dimensioning;
         }
         let selected = editing
@@ -3312,9 +3358,9 @@ impl ViewportState {
     ) {
         let (escape, finish, back) = ui.input(|input| {
             (
-                input.key_pressed(Key::Escape),
+                pressed_without_repeat(input, Key::Escape),
                 input.key_pressed(Key::Enter),
-                input.key_pressed(Key::Backspace),
+                input.key_pressed(Key::Backspace) || input.key_pressed(Key::Delete),
             )
         });
         if escape {
@@ -3329,8 +3375,14 @@ impl ViewportState {
                     None => Outcome::Nothing,
                 };
                 self.modify(editing, outcome, actions);
-            } else if let Some(transaction) = self.drawing.finish(model) {
-                actions.push(Action::Apply(transaction));
+            } else if let Some(ended) = self.drawing.finish(model) {
+                match ended {
+                    Ended::Drawn(transaction) => actions.push(Action::Apply(transaction)),
+                    Ended::Stopped => {}
+                    Ended::Refused(refusal) => {
+                        actions.push(Action::Inform(Notice::info(refusal.reason())));
+                    }
+                }
             } else if let Some((feature, picks)) = self.picked_dimension(model) {
                 match dimensioning::dimension(model, feature, &picks, None) {
                     Ok(added) => self.dimension_added(feature, added, actions),
@@ -3382,7 +3434,8 @@ impl ViewportState {
                 PrimaryDrag::Paint(painting) => self.selection = painting.before,
                 PrimaryDrag::Box { .. }
                 | PrimaryDrag::ModelBox { .. }
-                | PrimaryDrag::Pull { .. } => {}
+                | PrimaryDrag::Pull { .. }
+                | PrimaryDrag::Unmovable { .. } => {}
             }
         } else if editing.is_choosing_plane() {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
@@ -3587,18 +3640,24 @@ impl ViewportState {
             );
             canvas::announce(ui, shown, "drawing size", &size, None);
         }
-        if model.drag_blocked()
-            && let Some(cursor) = self.cursor
-        {
-            let position = rect.min
-                + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
-            let cue = editing
+        let unmovable = match &self.primary {
+            Some(PrimaryDrag::Unmovable { held, .. }) => Some(held.reason().to_owned()),
+            _ => None,
+        };
+        let blocked = model.drag_blocked().then(|| {
+            editing
                 .feature()
                 .and_then(|feature| model.sketch_conflict(feature))
                 .map_or_else(
                     || DRAG_BLOCKED.to_owned(),
                     |conflict| format!("{DRAG_CONFLICT}: {conflict}"),
-                );
+                )
+        });
+        if let Some(cue) = unmovable.or(blocked)
+            && let Some(cursor) = self.cursor
+        {
+            let position = rect.min
+                + egui::Vec2::new(cursor.x as f32, cursor.y as f32) / self.pixels_per_point;
             let shown = canvas::label(
                 painter,
                 position + SNAP_LABEL_OFFSET,
@@ -3758,6 +3817,16 @@ impl ViewportState {
                         })
                         .map(|sides| format!("{sides}   "))
                         .unwrap_or_default();
+                    let take_back = if self.drawing.in_progress() {
+                        format!("   {TAKE_BACK_HINT}")
+                    } else {
+                        String::new()
+                    };
+                    let placement = if self.snapping {
+                        FREE_PLACEMENT_HINT
+                    } else {
+                        SNAPPING_OFF_HINT
+                    };
                     let typed_sides = if self.drawing.can_type_sides() {
                         format!("   {TYPED_SIDES_HINT}")
                     } else if self.drawing.can_type_rho() {
@@ -3768,7 +3837,7 @@ impl ViewportState {
                     (
                         prompt.text,
                         format!(
-                            "{mode}{reverse}{sides}{}   {FREE_PLACEMENT_HINT}   {HELD_SNAP_HINT}   {TYPE_POINT_HINT}{typed_sides}",
+                            "{mode}{reverse}{sides}{}{take_back}   {placement}   {HELD_SNAP_HINT}   {TYPE_POINT_HINT}{typed_sides}",
                             prompt.keys
                         ),
                     )
@@ -3864,6 +3933,20 @@ impl ViewportState {
             );
         }
     }
+}
+
+fn pressed_without_repeat(input: &egui::InputState, pressed: Key) -> bool {
+    input.events.iter().any(|event| {
+        matches!(
+            event,
+            egui::Event::Key {
+                key,
+                pressed: true,
+                repeat: false,
+                ..
+            } if *key == pressed
+        )
+    })
 }
 
 fn top_band(rect: Rect) -> Rect {

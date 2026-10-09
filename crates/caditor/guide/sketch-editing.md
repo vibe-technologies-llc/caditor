@@ -8,7 +8,8 @@
 - {command:sketch.scale} scales it by a factor the same way.
 
 Constraints still hold, so geometry tied to the rest may not go all the way. With one dimension
-selected, Move places its label instead.
+selected, Move places its label instead. Projected geometry, the origin and the axes never move:
+dragging them says so beside the pointer.
 
 ## Splitting and breaking
 

@@ -50,7 +50,10 @@ paths:
   never cut.
 - Clicks and primary drags select with the Select tool; a drawing tool (`Tool::draws`) draws, and
   the modify tools (`Tool::modifies`) act on what is under the pointer. Escape backs out one step
-  at a time in the order of `ViewportState::escape`.
+  at a time in the order of `ViewportState::escape`, counting only presses that are not key
+  repeats (`pressed_without_repeat`), so a held Escape takes one step and never walks on to
+  finishing the sketch. The Select and Finish tooltips (`SELECT_KEY`, `FINISH_KEYS`) say when
+  Escape reaches them.
 - Default keys come from `Command::default_shortcuts`, not from here.
 
 ## Dragging and box selection
@@ -83,6 +86,9 @@ paths:
   where the last good frame put it. In a sketch whose constraints conflict it says `DRAG_CONFLICT`
   with the conflict named (`Model::sketch_conflict`, the first two constraints and how many
   more), and the notice when the drag ends names them too.
+- A primary drag starting on projected geometry or on the origin or axes of the edited sketch
+  moves nothing and draws no box: it is `PrimaryDrag::Unmovable`, which says why beside the
+  pointer where `DRAG_BLOCKED` goes (`PROJECTED_STAYS`, `REFERENCE_STAYS`) until release.
 - A primary drag elsewhere draws a box: left to right a window taking what lies inside (curves
   faceted as drawn, `app.md`), right to left a crossing box taking what it touches; with Select
   with a lasso on, a freehand outline taking what lies inside it (`app-input.md`). It replaces
@@ -134,7 +140,16 @@ paths:
 ## Drawing tools
 
 - `drawing.rs` holds the tools' state and `shapes.rs` their geometry. The drawing is keyed by a
-  `Shape` (tool plus way of drawing), so changing either drops a shape in progress. Each finished
+  `Shape` (tool plus way of drawing). Changing either carries the points placed so far when they
+  mean the same in the new shape (`carries_points`): a lone first point that is a centre
+  (rectangle by centre, circle by centre, arc, slot by centre, arc slot, polygon by corner or side
+  middle, ellipse, elliptical arc), a corner (rectangle by corners or three points, polygon by
+  side) or a point on a circle (circle by two or three points) in any shape whose first point is
+  the same; a three-point arc's and a conic's start and end; and every spline point between ways
+  that both place control points or both fit points (a lone first point between the two open
+  ways). Anything else drops a shape in progress on a tool change, while a change of way within
+  the same tool (`Drawing::refuses_mode`, checked in `app::perform` before `SetMode` applies) is
+  refused in a notice telling to finish or cancel the shape first, keeping it. Each finished
   shape is one transaction, settled first like any sketch transaction; inferred constraints are
   checked with `Sketch::check_constraint` on a shadow sketch and skipped if refused.
 - A shape with no size gets a `Refusal` (a notice for a click, the field error for a typed point).
@@ -151,17 +166,23 @@ paths:
   (`Drawing::place_freely`). It also stops a tangent arc from starting, which needs a snapped
   point. Snapping on or off for good (`Command::ToggleSnapping`, View menu and palette, kept for the
   session in `ViewportState::snapping`) has the same effect as holding Ctrl all the time, except
-  that holding Alt still snaps. Ctrl wins when both are held (AltGr arrives as Ctrl+Alt on
+  that holding Alt still snaps; while it is off the drawing prompt says "Snapping off" before the
+  Alt hint instead of naming Ctrl. Ctrl wins when both are held (AltGr arrives as Ctrl+Alt on
   Windows).
 - The pointer is on the sketch only within `MAX_LENGTH` of the origin, so an edge-on view cannot
   place a point at an enormous distance.
-- Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last
-  point, or a line closing the outline on the chain's first point. Splines finish on Enter or a
-  click on the last point, and close (periodic, `SplineKind`) on a click on the first once three
-  are placed ("Close the spline"; a typed point there does the same). Each continuing segment records its anchor (`ChainStep`);
-  Backspace undoes the last segment when it is the newest undo step, and when the anchor's point
-  is gone (undo, a deletion) the chain steps back to the newest anchor still there rather than
-  ending.
+- Lines and tangent arcs chain, each joined to the last end by `Coincident`, until Enter,
+  Escape, a click on the last point, or a line closing the outline on the chain's first point
+  (`Drawing::finish` gives `Ended::Stopped`). Splines finish on Enter or a click on the last
+  point, and close (periodic, `SplineKind`) on a click on the first once three are placed ("Close
+  the spline"; a typed point there does the same); Enter with fewer points than the spline's kind
+  needs keeps them and is refused in a notice (`Refusal::SplinePoints`,
+  `ClosedSplinePoints`). Backspace or Delete (both kept from commands mid-shape,
+  `KEPT_WHILE_DRAWING`) takes back the last point, and `ViewportState::prompt` adds one hint
+  for it to every shape in progress (`TAKE_BACK_HINT`). Each continuing segment records its
+  anchor (`ChainStep`); taking back undoes the last segment when it is the newest undo step, and
+  when the anchor's point is gone (undo, a deletion) the chain steps back to the newest anchor
+  still there rather than ending.
 - An arc runs the way the pointer swept round its centre; a typed end goes the shorter way
   (`Sweep::aim`), and Reverse the arc sends either the other way. The end is projected onto the
   circle through the start and keeps its snap only if the target lies on that circle.
@@ -496,7 +517,8 @@ paths:
   test is conservative: a circle counts only when its centre and radius are both determined.
 - Smart dimension (`Tool::Dimension`, `dimensioning.rs`, first in the sketch bar's Dimension group,
   Sketch › Dimensions and the palette) takes the geometry clicked after it, not the selection: the
-  selection is cleared when it starts and then holds its picks. A click on a sketch item picks it (a
+  selection is cleared when it starts, then holds its picks, and is cleared again when it ends
+  (another tool or sketch, or leaving the sketch), so no pick stays selected. A click on a sketch item picks it (a
   picked one again lets it go); `dimensioning::fitting` chooses the dimension: a line's length, a
   circle's diameter and an arc's radius for one pick, the angle between two lines that are not
   parallel, and otherwise the distance between the two picks (origin and axes included). A second
