@@ -3131,8 +3131,8 @@ fn a_version_can_be_kept_from_the_history_and_stays_marked_in_the_file() {
     assert_eq!(harness.model.undo_label().map(str::to_owned), undo_label);
 
     harness.click("Stop keeping");
-    harness.wait_until("the version is no longer kept", |harness| {
-        !harness.shows("Stop keeping")
+    harness.wait_until("the versions are listed again, none kept", |harness| {
+        harness.count_shown("Keep") == 2
     });
     assert!(!harness.shows("Kept"));
     assert!(!harness.shows(icons::KEPT_VERSION));
