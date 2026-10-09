@@ -80,7 +80,10 @@ paths:
 - The ignored `frame_costs_of_drawing_a_large_scene` test times the UI thread's share of a frame
   for a scene of lines, markers, fills and four 245,000-triangle meshes with their silhouettes: idle, with the camera
   moving, hovering with a pick and a face restyled every frame, with the batch replaced every
-  frame, and with new meshes shown every 20 frames, uploaded whole and under the budget.
+  frame, with new meshes shown every 20 frames, uploaded whole and under the budget, and with the
+  meshes switched to zebra or also drawn see-through every 20 frames; and 2,000 small placed
+  meshes with silhouettes, idle and with the camera moving. Each reports the time spent waiting
+  for the GPU apart from the UI thread's.
 - A `MeshInstance` may carry a `placement` (a `RigidTransform`) drawing the mesh moved and turned
   without a new upload: the placement uniform, rewritten only when the placement or the eye moved,
   holds the turned axes and the placed centre relative to the eye (worked out in f64), and

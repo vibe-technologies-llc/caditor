@@ -1,6 +1,10 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+use std::{
+    borrow::Cow,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
 };
 
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
@@ -1095,7 +1099,7 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read_once_an
     let answered = (0..5_000).any(|_| {
         let answered = renderer.picking().is_answered(&device);
         if !answered {
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            std::thread::sleep(Duration::from_millis(1));
         }
         answered
     });
@@ -3314,16 +3318,182 @@ fn hovered(scene: &Scene, frame: u32) -> Scene {
     hovered
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Activity {
-    Idle,
-    CameraMoving,
-    Hovering,
-    BatchReplaced,
-    MeshesShown,
+const MESHES_SHOWN_EVERY: u32 = 20;
+const BENCH_FRAMES: u32 = 100;
+const BENCH_WARM_UP: u32 = 30;
+const BENCH_SIZE: SurfaceSize = SurfaceSize {
+    width: 1600,
+    height: 1000,
+};
+const SMALL_MESHES_ACROSS: u32 = 50;
+const SMALL_MESHES: u32 = SMALL_MESHES_ACROSS * 40;
+
+struct BenchFrame<'a> {
+    scene: Cow<'a, Scene>,
+    viewpoint: Viewpoint,
+    pick_at: Option<DVec2>,
 }
 
-const MESHES_SHOWN_EVERY: u32 = 20;
+struct Bench<'a> {
+    device: &'a wgpu::Device,
+    queue: &'a wgpu::Queue,
+    target: wgpu::TextureView,
+    linear: wgpu::TextureView,
+}
+
+impl<'a> Bench<'a> {
+    fn new(device: &'a wgpu::Device, queue: &'a wgpu::Queue) -> Self {
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("timing target"),
+            size: wgpu::Extent3d {
+                width: BENCH_SIZE.width,
+                height: BENCH_SIZE.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[FORMAT.add_srgb_suffix()],
+        });
+        Self {
+            device,
+            queue,
+            target: target.create_view(&wgpu::TextureViewDescriptor::default()),
+            linear: target.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(FORMAT.add_srgb_suffix()),
+                ..Default::default()
+            }),
+        }
+    }
+
+    fn time<'s>(
+        &self,
+        name: &str,
+        upload_bytes: Option<u64>,
+        frames: impl Fn(u32) -> BenchFrame<'s>,
+    ) {
+        let (device, queue) = (self.device, self.queue);
+        let mut renderer = viewport_renderer(device, 4);
+        if let Some(bytes) = upload_bytes {
+            renderer.set_mesh_upload_bytes(bytes);
+        }
+        let mut elapsed = Duration::ZERO;
+        let mut worst = Duration::ZERO;
+        let mut waited = Duration::ZERO;
+        let mut uploading_frames = 0;
+        for frame in 0..BENCH_FRAMES + BENCH_WARM_UP {
+            let shown = frames(frame);
+            let view = View::new(
+                shown.viewpoint,
+                f64::from(BENCH_SIZE.width),
+                f64::from(BENCH_SIZE.height),
+            );
+
+            let started = Instant::now();
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+            renderer.draw(
+                device,
+                queue,
+                &mut encoder,
+                &SurfaceTarget {
+                    view: &self.target,
+                    linear_view: Some(&self.linear),
+                    width: BENCH_SIZE.width,
+                    height: BENCH_SIZE.height,
+                },
+                Some(&ViewportFrame {
+                    rect: ViewportRect {
+                        x: 0.0,
+                        y: 0.0,
+                        width: BENCH_SIZE.width as f32,
+                        height: BENCH_SIZE.height as f32,
+                    },
+                    view: &view,
+                    scene: &shown.scene,
+                    pick_at: shown.pick_at,
+                    pixels_per_point: 1.0,
+                }),
+            );
+            queue.submit([encoder.finish()]);
+            renderer.picking().after_submit();
+            let submitted = Instant::now();
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            let polled = Instant::now();
+            if shown.pick_at.is_some() {
+                assert!(matches!(
+                    renderer.picking().poll(device),
+                    crate::PickPoll::Ready(_)
+                ));
+            }
+            let spent = (submitted - started) + polled.elapsed();
+
+            if frame >= BENCH_WARM_UP {
+                elapsed += spent;
+                worst = worst.max(spent);
+                waited += polled - submitted;
+                uploading_frames += u32::from(renderer.is_uploading());
+            }
+        }
+        eprintln!(
+            "{name}: {:?} per frame on the UI thread, {worst:?} at worst, {:?} waiting for the GPU, {uploading_frames} frames still uploading",
+            elapsed / BENCH_FRAMES,
+            waited / BENCH_FRAMES
+        );
+    }
+}
+
+fn turned(viewpoint: Viewpoint, frame: u32) -> Viewpoint {
+    Viewpoint::looking_from(
+        Vector3::new(f64::from(frame) * 0.001, 0.0, 1.0),
+        viewpoint.target,
+        viewpoint.distance,
+    )
+    .unwrap()
+}
+
+fn small_meshes() -> Scene {
+    let meshes: Vec<MeshInstance> = (0..SMALL_MESHES)
+        .map(|index| {
+            let at = Vector3::new(
+                f64::from(index % SMALL_MESHES_ACROSS) * 12.0,
+                f64::from(index / SMALL_MESHES_ACROSS) * 12.0,
+                0.0,
+            );
+            MeshInstance {
+                mesh: Arc::new(cylinder(4.0, 10.0, 16)),
+                faces: vec![FaceStyle {
+                    color: Color::from_rgb8(160, 164, 172),
+                    pick: PickId::from_index(index as usize),
+                }],
+                placement: RigidTransform::translation(at),
+            }
+        })
+        .collect();
+    let silhouettes = silhouettes_of(&meshes)
+        .into_iter()
+        .zip(&meshes)
+        .map(|(silhouette, instance)| Silhouette {
+            placement: instance.placement,
+            ..silhouette
+        })
+        .collect();
+    Scene {
+        silhouettes,
+        meshes,
+        ..Scene::default()
+    }
+}
+
+fn alternating<'a>(first: &'a Scene, second: &'a Scene, frame: u32) -> &'a Scene {
+    if (frame / MESHES_SHOWN_EVERY) % 2 == 1 {
+        second
+    } else {
+        first
+    }
+}
 
 #[test]
 #[ignore = "a timing benchmark: cargo test --release -p caditor-render frame_costs -- --ignored --nocapture"]
@@ -3331,31 +3501,8 @@ fn frame_costs_of_drawing_a_large_scene() {
     let Some((device, queue)) = gpu() else {
         return;
     };
-    const FRAMES: u32 = 100;
-    const WARM_UP: u32 = 30;
-    let size = SurfaceSize {
-        width: 1600,
-        height: 1000,
-    };
-    let target = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("timing target"),
-        size: wgpu::Extent3d {
-            width: size.width,
-            height: size.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[FORMAT.add_srgb_suffix()],
-    });
-    let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
-    let linear_view = target.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(FORMAT.add_srgb_suffix()),
-        ..Default::default()
-    });
+    let bench = Bench::new(&device, &queue);
+
     let meshes = large_meshes();
     let scene = Scene {
         silhouettes: silhouettes_of(&meshes),
@@ -3383,113 +3530,95 @@ fn frame_costs_of_drawing_a_large_scene() {
         meshes: reshown_meshes,
         ..scene.clone()
     };
+    let zebra = Scene {
+        meshes: Vec::new(),
+        reflective_meshes: scene.meshes.clone(),
+        reflection: Reflection::Zebra {
+            along: Vector3::Z,
+            stripes: 12,
+        },
+        ..scene.clone()
+    };
+    let see_through_meshes = scene
+        .meshes
+        .iter()
+        .map(|instance| MeshInstance {
+            faces: instance
+                .faces
+                .iter()
+                .map(|style| FaceStyle {
+                    color: style.color.with_alpha(0.4),
+                    ..*style
+                })
+                .collect(),
+            ..instance.clone()
+        })
+        .collect();
+    let see_through = Scene {
+        translucent_meshes: see_through_meshes,
+        ..scene.clone()
+    };
     let viewpoint =
         Viewpoint::looking_from(Vector3::Z, Point3::new(300.0, 300.0, 0.0), 800.0).unwrap();
-    let time = |name: &str, activity: Activity, upload_bytes: Option<u64>| {
-        let mut renderer = viewport_renderer(&device, 4);
-        if let Some(bytes) = upload_bytes {
-            renderer.set_mesh_upload_bytes(bytes);
-        }
-        let mut elapsed = std::time::Duration::ZERO;
-        let mut worst = std::time::Duration::ZERO;
-        let mut uploading_frames = 0;
-        for frame in 0..FRAMES + WARM_UP {
-            let turned = if activity == Activity::CameraMoving {
-                Viewpoint::looking_from(
-                    Vector3::new(f64::from(frame) * 0.001, 0.0, 1.0),
-                    viewpoint.target,
-                    viewpoint.distance,
-                )
-                .unwrap()
-            } else {
-                viewpoint
-            };
-            let view = View::new(turned, f64::from(size.width), f64::from(size.height));
-            let hover = hovered(&scene, frame);
-            let shown = match activity {
-                Activity::Hovering => &hover,
-                Activity::BatchReplaced if frame % 2 == 1 => &replaced,
-                Activity::MeshesShown if (frame / MESHES_SHOWN_EVERY) % 2 == 1 => &reshown,
-                _ => &scene,
-            };
-            let pick_at = (activity == Activity::Hovering).then(|| {
-                DVec2::new(
-                    200.0 + f64::from(frame * 7 % 1200),
-                    300.0 + f64::from(frame * 3 % 400),
-                )
-            });
-            let started = std::time::Instant::now();
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-            renderer.draw(
-                &device,
-                &queue,
-                &mut encoder,
-                &SurfaceTarget {
-                    view: &target_view,
-                    linear_view: Some(&linear_view),
-                    width: size.width,
-                    height: size.height,
-                },
-                Some(&ViewportFrame {
-                    rect: ViewportRect {
-                        x: 0.0,
-                        y: 0.0,
-                        width: size.width as f32,
-                        height: size.height as f32,
-                    },
-                    view: &view,
-                    scene: shown,
-                    pick_at,
-                    pixels_per_point: 1.0,
-                }),
-            );
-            queue.submit([encoder.finish()]);
-            renderer.picking().after_submit();
-            let spent = started.elapsed();
-            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-            let polled = std::time::Instant::now();
-            if pick_at.is_some() {
-                assert!(matches!(
-                    renderer.picking().poll(&device),
-                    crate::PickPoll::Ready(_)
-                ));
-            }
-            let spent = spent + polled.elapsed();
-            if frame >= WARM_UP {
-                elapsed += spent;
-                worst = worst.max(spent);
-                uploading_frames += u32::from(renderer.is_uploading());
-            }
-        }
-        eprintln!(
-            "{name}: {:?} per frame on the UI thread, {worst:?} at worst, {uploading_frames} frames still uploading",
-            elapsed / FRAMES
-        );
+    let still = |scene| BenchFrame {
+        scene: Cow::Borrowed(scene),
+        viewpoint,
+        pick_at: None,
     };
 
-    time("large scene, idle", Activity::Idle, None);
-    time("large scene, camera moving", Activity::CameraMoving, None);
-    time(
-        "large scene, hovering and picking",
-        Activity::Hovering,
-        None,
-    );
-    time(
-        "large scene, batch replaced every frame",
-        Activity::BatchReplaced,
-        None,
-    );
-    time(
+    bench.time("large scene, idle", None, |_| still(&scene));
+    bench.time("large scene, camera moving", None, |frame| BenchFrame {
+        viewpoint: turned(viewpoint, frame),
+        ..still(&scene)
+    });
+    bench.time("large scene, hovering and picking", None, |frame| {
+        BenchFrame {
+            scene: Cow::Owned(hovered(&scene, frame)),
+            viewpoint,
+            pick_at: Some(DVec2::new(
+                200.0 + f64::from(frame * 7 % 1200),
+                300.0 + f64::from(frame * 3 % 400),
+            )),
+        }
+    });
+    bench.time("large scene, batch replaced every frame", None, |frame| {
+        still(if frame % 2 == 1 { &replaced } else { &scene })
+    });
+    bench.time(
         "large scene, new meshes shown every 20 frames, uploaded whole",
-        Activity::MeshesShown,
         Some(u64::MAX),
+        |frame| still(alternating(&scene, &reshown, frame)),
     );
-    time(
+    bench.time(
         "large scene, new meshes shown every 20 frames",
-        Activity::MeshesShown,
         None,
+        |frame| still(alternating(&scene, &reshown, frame)),
     );
+    bench.time(
+        "large scene, meshes switched to zebra every 20 frames",
+        None,
+        |frame| still(alternating(&scene, &zebra, frame)),
+    );
+    bench.time(
+        "large scene, meshes also drawn see-through every 20 frames",
+        None,
+        |frame| still(alternating(&scene, &see_through, frame)),
+    );
+
+    let small = small_meshes();
+    let small_view =
+        Viewpoint::looking_from(Vector3::Z, Point3::new(300.0, 240.0, 0.0), 900.0).unwrap();
+    let small_frame = |viewpoint| BenchFrame {
+        scene: Cow::Borrowed(&small),
+        viewpoint,
+        pick_at: None,
+    };
+    bench.time("2,000 small meshes, idle", None, |_| {
+        small_frame(small_view)
+    });
+    bench.time("2,000 small meshes, camera moving", None, |frame| {
+        small_frame(turned(small_view, frame))
+    });
 }
 
 fn styled_box(color: Color, first_pick: usize) -> MeshInstance {
