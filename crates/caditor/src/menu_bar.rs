@@ -629,7 +629,13 @@ impl Menus<'_, '_> {
             self.items(ui, drawing.into_iter().map(Command::SketchTool));
             ui.separator();
             submenu(ui, icons::tool(Tool::Rectangle), WAYS_TO_DRAW, |ui| {
-                for tool in [Tool::Rectangle, Tool::Circle, Tool::Polygon, Tool::Slot] {
+                for tool in [
+                    Tool::Rectangle,
+                    Tool::Circle,
+                    Tool::Polygon,
+                    Tool::Slot,
+                    Tool::BlendCurve,
+                ] {
                     if tool != Tool::Rectangle {
                         ui.separator();
                     }

@@ -685,6 +685,7 @@ impl Command {
                 Tool::Chamfer => "sketch.chamfer",
                 Tool::Project => "sketch.project",
                 Tool::Dimension => "sketch.dimension",
+                Tool::BlendCurve => "sketch.blend_curve",
             },
             Self::ShapeMode(mode) => mode.id(),
             Self::Filter(filter) => filter.id(),
@@ -1398,6 +1399,7 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         Tool::RectangularPattern | Tool::CircularPattern | Tool::TangentCircle => None,
         Tool::Project => Some(KeyboardShortcut::new(Modifiers::ALT, Key::P)),
         Tool::Dimension => plain(Key::D),
+        Tool::BlendCurve => Some(KeyboardShortcut::new(Modifiers::ALT, Key::B)),
     }
 }
 

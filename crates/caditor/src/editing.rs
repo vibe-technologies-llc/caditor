@@ -38,9 +38,10 @@ pub enum Tool {
     Chamfer,
     Project,
     Dimension,
+    BlendCurve,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Dimension);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Dimension, BlendCurve);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -67,6 +68,7 @@ impl Tool {
             Self::Chamfer => "Sketch chamfer",
             Self::Project => "Project",
             Self::Dimension => "Smart dimension",
+            Self::BlendCurve => "Blend curve",
         }
     }
 
@@ -130,6 +132,10 @@ impl Tool {
                 "Click the geometry to dimension: a line for its length, a circle or arc for its \
                  size, or two items for the distance or angle between them"
             }
+            Self::BlendCurve => {
+                "Join the ends of two lines, arcs or splines with a spline tangent to both, or \
+                 also matching their curvature, kept smooth as they change"
+            }
         }
     }
 
@@ -146,7 +152,8 @@ impl Tool {
             | Self::Fillet
             | Self::Chamfer
             | Self::Project
-            | Self::Dimension => false,
+            | Self::Dimension
+            | Self::BlendCurve => false,
             Self::Point
             | Self::Line
             | Self::Rectangle
@@ -178,6 +185,7 @@ impl Tool {
                 | Self::TangentCircle
                 | Self::Fillet
                 | Self::Chamfer
+                | Self::BlendCurve
         )
     }
 

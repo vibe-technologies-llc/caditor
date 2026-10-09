@@ -23,6 +23,7 @@ paths:
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
   - "crates/caditor/src/dimensioning.rs"
+  - "crates/caditor/src/blend_curving.rs"
 ---
 
 # Sketch editing in the app
@@ -165,8 +166,12 @@ paths:
   (`ShapeMode`), a switch within the tool rather than a tool and key per way, so the ribbon and
   keymap stay small and a shape is always found under its one key. Arcs stay separate tools,
   grouped on the ribbon under one Arc button (`app-look.md`).
+- Blend curve keeps its two ways the same way: tangent (G1) and curvature-continuous (G2)
+  (`ShapeMode::Blend`, `ShapeModes::blend`), listed with the shapes under Sketch › Ways to draw
+  shapes; the modify tool reads the way each frame and its prompt leads with it.
 - Running the tool's command while it is active steps to its next way, round to the first;
-  clicking its ribbon button only chooses the tool. Every way is also its own command
+  clicking its ribbon button only chooses the tool. Off-ribbon tools with ways (Blend curve) step
+  the same way from their command (`sketch_toolbar::off_ribbon_tool`). Every way is also its own command
   (`Command::ShapeMode`, id `sketch.<shape>.<way>`, no default key), offered in the palette, the
   button's corner menu and Sketch › Ways to draw shapes.
 - `SketchEditing` remembers the last way per shape (`ShapeModes`) while caditor runs, across
@@ -253,6 +258,15 @@ paths:
   excircle. With two chosen the typed-point field ("Radius", opens on a digit) draws the circle
   of that radius nearest the pointer instead, previewed while the text parses and kept as typed
   with parameters. Each draw is one undoable "Draw tangent circle" transaction.
+- Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+B, Sketch menu and palette, not on the
+  sketch bar, `sketch_toolbar::OFF_RIBBON`) joins two curve ends with a spline (`sketch.md`, Blend
+  curves). It takes the end of a line, arc or spline (projected ones included) nearest the
+  pointer on the curve under it, or a point selected when it starts that ends exactly one curve;
+  the highlight commands step through every such end and Space or Enter chooses. Clicking the
+  chosen end again lets it go, Escape lets go of the highlight and then the chosen end. With one
+  end chosen the second under the pointer or highlighted previews the spline and its control
+  points live and says in words what it would draw or why not; a click or Activate draws it in one
+  undoable "Draw blend curve" transaction, refused in a notice otherwise.
 - Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes a corner (a
   selected one, else the curve end under the pointer, `Sketch::corner_at`, refused in words when
   it is no corner); then the pointer sets the radius (`radius_through`). The chosen corner is

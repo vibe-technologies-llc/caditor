@@ -7,6 +7,7 @@ mod annotation_layout;
 mod annotations;
 mod app;
 mod appearance;
+mod blend_curving;
 mod blend_panel;
 mod blend_tools;
 mod bodies;

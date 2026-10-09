@@ -7,7 +7,7 @@ use crate::{
     analysis::AnalysisCommand,
     commands::{CameraMove, Command},
     editing::Tool,
-    shape_modes::{CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode},
+    shape_modes::{BlendMode, CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode},
     sketch_tools::ConstraintTool,
 };
 
@@ -288,6 +288,7 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::Chamfer => blend(BlendKind::Chamfer),
         Tool::Project => phosphor::ARROW_FAT_LINES_DOWN,
         Tool::Dimension => phosphor::MAGIC_WAND,
+        Tool::BlendCurve => phosphor::PATH,
     }
 }
 
@@ -305,6 +306,8 @@ pub fn shape_mode(mode: ShapeMode) -> &'static str {
         ShapeMode::Slot(SlotMode::Ends) => tool(Tool::Slot),
         ShapeMode::Slot(SlotMode::Center) => phosphor::ARROWS_LEFT_RIGHT,
         ShapeMode::Slot(SlotMode::Arc) => phosphor::MAGNET,
+        ShapeMode::Blend(BlendMode::Tangent) => tool(Tool::BlendCurve),
+        ShapeMode::Blend(BlendMode::Curvature) => phosphor::WAVE_SINE,
     }
 }
 

@@ -116,22 +116,21 @@ enum Shape {
     Spline,
 }
 
-impl From<ShapeMode> for Shape {
-    fn from(mode: ShapeMode) -> Self {
+impl Shape {
+    fn drawn(mode: ShapeMode) -> Option<Self> {
         match mode {
-            ShapeMode::Rectangle(mode) => Self::Rectangle(mode),
-            ShapeMode::Circle(mode) => Self::Circle(mode),
-            ShapeMode::Polygon(mode) => Self::Polygon(mode),
-            ShapeMode::Slot(mode) => Self::Slot(mode),
+            ShapeMode::Rectangle(mode) => Some(Self::Rectangle(mode)),
+            ShapeMode::Circle(mode) => Some(Self::Circle(mode)),
+            ShapeMode::Polygon(mode) => Some(Self::Polygon(mode)),
+            ShapeMode::Slot(mode) => Some(Self::Slot(mode)),
+            ShapeMode::Blend(_) => None,
         }
     }
-}
 
-impl Shape {
     fn of(tool: Tool, modes: ShapeModes) -> Option<Self> {
         match tool {
             Tool::Rectangle | Tool::Circle | Tool::Polygon | Tool::Slot => {
-                modes.of(tool).map(Self::from)
+                modes.of(tool).and_then(Self::drawn)
             }
             Tool::Point => Some(Self::Point),
             Tool::Line => Some(Self::Line),
@@ -150,7 +149,8 @@ impl Shape {
             | Tool::Fillet
             | Tool::Chamfer
             | Tool::Project
-            | Tool::Dimension => None,
+            | Tool::Dimension
+            | Tool::BlendCurve => None,
         }
     }
 

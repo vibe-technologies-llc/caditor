@@ -1489,7 +1489,8 @@ impl ViewportState {
             | Tool::CircularPattern
             | Tool::TangentCircle
             | Tool::Project
-            | Tool::Dimension => return None,
+            | Tool::Dimension
+            | Tool::BlendCurve => return None,
             _ => {}
         }
         let projected = |entity: EntityId| {
@@ -1666,8 +1667,12 @@ impl ViewportState {
             .feature()
             .map(|feature| sketch_tools::selected_entities(&self.selection, feature))
             .unwrap_or_default();
-        self.modifying
-            .sync(editing.active(), displayed.as_deref(), &selected);
+        self.modifying.sync(
+            editing.active(),
+            editing.modes(),
+            displayed.as_deref(),
+            &selected,
+        );
         let scale = f64::from(self.pixels_per_point);
         let pointer = self
             .cursor
@@ -3173,6 +3178,10 @@ impl ViewportState {
                 let keys = match prompt.hint {
                     Hint::Targets => key_hints.targets.clone(),
                     Hint::Keys(keys) => keys.to_owned(),
+                };
+                let keys = match self.modifying.mode(editing.modes()) {
+                    Some(mode) => format!("{}   {keys}", key_hints.mode(mode)),
+                    None => keys,
                 };
                 (prompt.text.to_owned(), keys)
             })
