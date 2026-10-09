@@ -2008,6 +2008,8 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let turned = transaction.add_feature(
@@ -2024,6 +2026,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -2059,6 +2062,8 @@ fn a_cut_through_several_bodies_is_saved_as_its_own_record_kind_and_loaded() {
             operation,
             start: None,
             other_bodies,
+            taper: None,
+            wall: None,
         }))
     };
     let second = transaction.add_feature("Second", extrusion(BodyOperation::NewBody, Vec::new()));
@@ -3788,6 +3793,7 @@ fn datum_model() -> (Document, FeatureId, FeatureId) {
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -4512,6 +4518,7 @@ fn a_revolve_whose_axis_line_is_gone_loads_turning_about_the_vertical_axis() {
                 start: None,
                 other_bodies: Vec::new(),
                 side: None,
+                wall: None,
             },
         )),
     );
@@ -4991,6 +4998,8 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             operation: BodyOperation::Remove(base),
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         }))
     };
     let through = transaction.add_feature(
@@ -5037,6 +5046,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -5096,6 +5106,8 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             operation: BodyOperation::NewBody,
             start: Some(SolidStart::Plane(PlaneReference::Datum(level))),
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let lifted = transaction.add_feature(
@@ -5109,6 +5121,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             start: Some(SolidStart::Distance(transaction.parse("3 mm").unwrap())),
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         })),
     );
     let placed = transaction.add_feature(
@@ -5125,6 +5138,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             start: Some(SolidStart::Plane(PlaneReference::Datum(level))),
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -5173,6 +5187,7 @@ fn a_revolution_keeping_one_side_of_its_axis_is_a_kind_older_readers_report() {
             start: None,
             other_bodies: Vec::new(),
             side: Some(AxisSide::Left),
+            wall: None,
         })),
     );
     let right = transaction.add_feature(
@@ -5189,6 +5204,7 @@ fn a_revolution_keeping_one_side_of_its_axis_is_a_kind_older_readers_report() {
             start: Some(SolidStart::Distance(transaction.parse("3 mm").unwrap())),
             other_bodies: Vec::new(),
             side: Some(AxisSide::Right),
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -5212,6 +5228,111 @@ fn a_revolution_keeping_one_side_of_its_axis_is_a_kind_older_readers_report() {
         let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
         let record = through_binary(&text);
         assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
+    use caditor_document::{
+        BodyOperation, Extrude, ExtrudeExtent, RegionChoice, Revolve, RevolveAxis, RevolveExtent,
+        SolidFeature, Wall,
+    };
+    use caditor_kernel::WallSide;
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
+    let tapered = transaction.add_feature(
+        "Tapered",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(transaction.parse("10 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: Some(Box::new(transaction.parse("-3 deg").unwrap())),
+            wall: Some(Box::new(Wall {
+                thickness: transaction.parse("1.5 mm").unwrap(),
+                side: WallSide::Outside,
+            })),
+        })),
+    );
+    let cup = transaction.add_feature(
+        "Cup",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+            extent: RevolveExtent::Full,
+            operation: BodyOperation::Add(tapered),
+            start: None,
+            other_bodies: Vec::new(),
+            side: None,
+            wall: Some(Box::new(Wall {
+                thickness: transaction.parse("2 mm").unwrap(),
+                side: WallSide::Centred,
+            })),
+        })),
+    );
+    let plain = transaction.add_feature(
+        "Plain",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(transaction.parse("4 mm").unwrap(), true),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("shaped_sweep", "shaped_swept"));
+
+    assert!(text.contains("\"shaped_sweep\":{\"feature\":{\"extrude\":"));
+    assert!(text.contains("\"shaped_sweep\":{\"feature\":{\"revolve\":"));
+    assert!(text.contains("\"side\":\"outside\""));
+    assert!(text.contains("\"side\":\"centred\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(tapered).is_none());
+    assert!(older.document.feature(cup).is_none());
+    assert!(older.document.feature(plain).is_some());
+    assert!(!older.issues.is_empty());
+    for feature in [tapered, cup] {
+        let kind = document.feature(feature).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+
+    let damaged = decode_text(&text.replacen("\"side\":\"outside\"", "\"side\":\"aside\"", 1));
+    let Some(FeatureKind::Solid(SolidFeature::Extrude(extrude))) = damaged
+        .document
+        .feature(tapered)
+        .map(|feature| &feature.kind)
+    else {
+        panic!("the tapered extrusion loads");
+    };
+    assert_eq!(
+        extrude.wall.as_ref().map(|wall| wall.side),
+        Some(WallSide::Centred)
+    );
+    assert_eq!(extrude.taper, document_taper(&document, tapered));
+    assert_eq!(damaged.issues.len(), 1);
+}
+
+fn document_taper(document: &Document, feature: FeatureId) -> Option<Box<Expression>> {
+    match document.feature(feature).map(|feature| &feature.kind) {
+        Some(FeatureKind::Solid(caditor_document::SolidFeature::Extrude(extrude))) => {
+            extrude.taper.clone()
+        }
+        _ => None,
     }
 }
 
@@ -5409,6 +5530,8 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -5711,6 +5834,8 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                     Expression::Parameter(lift),
                 )),
                 other_bodies: Vec::new(),
+                taper: None,
+                wall: None,
             },
         )),
     );
@@ -5729,6 +5854,8 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                     transaction.parse("-1.5 mm").unwrap(),
                 )),
                 other_bodies: Vec::new(),
+                taper: None,
+                wall: None,
             },
         )),
     );
@@ -5745,6 +5872,8 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 operation: caditor_document::BodyOperation::NewBody,
                 start: None,
                 other_bodies: Vec::new(),
+                taper: None,
+                wall: None,
             },
         )),
     );
@@ -5793,6 +5922,8 @@ fn combines_are_saved_and_loaded() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let combine = transaction.add_feature(
@@ -5838,6 +5969,8 @@ fn a_combine_with_several_tools_or_a_kept_tool_is_a_kind_older_readers_report_an
                 operation: BodyOperation::NewBody,
                 start: None,
                 other_bodies: Vec::new(),
+                taper: None,
+                wall: None,
             })),
         )
     };

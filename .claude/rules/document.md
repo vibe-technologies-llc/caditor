@@ -274,6 +274,15 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `REVOLUTION_AXIS_ENTITY`, worded "the revolution axis"), the regions whose anchor lies on that
   side inside a chosen region are selected as one, and they are revolved, so a profile crossing
   the axis or lying on both sides turns, and a side holding nothing fails in words.
+- An `Extrude`'s optional `taper` (an angle, boxed with the wall to keep `FeatureKind` small) goes
+  to the kernel's `extrude_tapered`; at or past `MAX_TAPER_DEGREES` it fails before the kernel, and
+  every taper refusal (a spline, a slanted end, the profile closing) names the extrusion and says
+  what to change. An `Extrude`'s or `Revolve`'s optional `wall` (`Wall`: a thickness expression
+  and the kernel's `WallSide`) sweeps `wall_regions` of every non-construction curve of the sketch
+  instead of its regions, so the region choice is ignored and an open sketch works; a wall's
+  failures are worded per `WallError` (the curves, the feature, what to change), and a revolve
+  keeping one side of its axis with a wall fails in words. Both count among the feature's
+  expressions (parameters, inlining).
 - A feature whose body others change keeps making a new body.
 
 ### Blend and shell (`blend.rs`, `shell.rs`)

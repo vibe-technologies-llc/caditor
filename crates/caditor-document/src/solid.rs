@@ -8,10 +8,11 @@ use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
-    GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, Mesh, MeshQuality,
-    OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, Region, RegionMesh, RegionReference,
-    SamplingTolerance, Selection, Solid, SweepError, TessellationError, VertexId, VertexName,
-    boolean, extrude, heights, next_face, resolve_regions, revolve, vertex_names,
+    GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, Mesh,
+    MeshQuality, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, Region, RegionMesh,
+    RegionReference, SamplingTolerance, Selection, Solid, SweepError, TessellationError, VertexId,
+    VertexName, WallError, WallSide, boolean, extrude_tapered, heights, next_face, resolve_regions,
+    revolve, vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -204,6 +205,12 @@ impl SolidStart {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Wall {
+    pub thickness: Expression,
+    pub side: WallSide,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Extrude {
     pub sketch: FeatureId,
     pub regions: RegionChoice,
@@ -211,6 +218,8 @@ pub struct Extrude {
     pub operation: BodyOperation,
     pub start: Option<SolidStart>,
     pub other_bodies: Vec<FeatureId>,
+    pub taper: Option<Box<Expression>>,
+    pub wall: Option<Box<Wall>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -274,6 +283,7 @@ pub struct Revolve {
     pub start: Option<SolidStart>,
     pub other_bodies: Vec<FeatureId>,
     pub side: Option<AxisSide>,
+    pub wall: Option<Box<Wall>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -356,6 +366,20 @@ impl SolidFeature {
         }
     }
 
+    pub fn wall(&self) -> Option<&Wall> {
+        match self {
+            Self::Extrude(extrude) => extrude.wall.as_deref(),
+            Self::Revolve(revolve) => revolve.wall.as_deref(),
+        }
+    }
+
+    pub fn taper(&self) -> Option<&Expression> {
+        match self {
+            Self::Extrude(extrude) => extrude.taper.as_deref(),
+            Self::Revolve(_) => None,
+        }
+    }
+
     fn targets(&self) -> Vec<&PlaneReference> {
         let ends = match self {
             Self::Extrude(extrude) => extrude.extent.targets(),
@@ -424,11 +448,14 @@ impl SolidFeature {
             Self::Extrude(extrude) => {
                 let mut expressions = extrude.extent.expressions();
                 expressions.extend(self.start().and_then(SolidStart::distance));
+                expressions.extend(self.taper());
+                expressions.extend(self.wall().map(|wall| &wall.thickness));
                 expressions
             }
             Self::Revolve(revolve) => {
                 let mut expressions = revolve.extent.expressions();
                 expressions.extend(self.start().and_then(SolidStart::distance));
+                expressions.extend(self.wall().map(|wall| &wall.thickness));
                 expressions
             }
         }
@@ -818,7 +845,10 @@ pub(crate) fn evaluate(
         sketch_id,
         sketch: &sketch.geometry,
     };
-    let regions = chosen_regions(&context, sketch, solid.regions())?;
+    let regions = match solid.wall() {
+        Some(wall) => walled_regions(&context, &sketch.geometry, wall, inputs.parameters)?,
+        None => chosen_regions(&context, sketch, solid.regions())?,
+    };
     if cancel.is_cancelled() {
         return Err(Failure::Cancelled);
     }
@@ -840,7 +870,11 @@ pub(crate) fn evaluate(
                 regions: &regions,
             };
             let extent = ends.extent(&definition.extent)?;
-            extrude(&plane, &regions, extent, raw)
+            let taper = match definition.taper.as_deref() {
+                Some(angle) => taper_angle(&context, angle, inputs.parameters)?,
+                None => 0.0,
+            };
+            extrude_tapered(&plane, &regions, extent, taper, raw)
         }
         SolidFeature::Revolve(definition) => {
             let axis = match &definition.axis {
@@ -850,9 +884,18 @@ pub(crate) fn evaluate(
                 }
             };
             let extent = angular_extent(&context, &definition.extent, inputs.parameters)?;
-            let regions = match definition.side {
-                Some(side) => one_side(&context, sketch, &regions, axis, side)?,
-                None => regions,
+            let regions = match (definition.side, &definition.wall) {
+                (Some(_), Some(_)) => {
+                    return Err(context.error(
+                        "A thin wall follows the whole of its curves, so it cannot keep one side \
+                         of the revolution axis."
+                            .to_owned(),
+                        "Turn the whole profile, or turn off the thin wall.".to_owned(),
+                        context.own(),
+                    ));
+                }
+                (Some(side), None) => one_side(&context, sketch, &regions, axis, side)?,
+                (None, _) => regions,
             };
             revolve(&started, &regions, axis, extent, raw)
         }
@@ -1072,6 +1115,127 @@ fn chosen_regions(
         .map_err(|error| profile_failure(context, &error))
 }
 
+fn walled_regions(
+    context: &Context<'_>,
+    sketch: &Sketch,
+    wall: &Wall,
+    parameters: &ParameterValues,
+) -> Result<Vec<Region>, Failure> {
+    const WHAT: &str = "wall thickness";
+    let thickness = evaluate_value(
+        context,
+        &wall.thickness,
+        Dimension::LENGTH,
+        WHAT,
+        parameters,
+    )
+    .and_then(|value| positive(context, value, WHAT))
+    .and_then(|value| within_reach(context, value, WHAT))?;
+    wall_regions(&profile_curves(sketch), thickness, wall.side)
+        .map_err(|error| wall_failure(context, &error))
+}
+
+fn taper_angle(
+    context: &Context<'_>,
+    angle: &Expression,
+    parameters: &ParameterValues,
+) -> Result<f64, Failure> {
+    let degrees = evaluate_value(context, angle, Dimension::ANGLE, "taper angle", parameters)?;
+    if degrees.abs() >= MAX_TAPER_DEGREES {
+        return Err(steep_taper(context));
+    }
+    Ok(degrees.to_radians())
+}
+
+fn steep_taper(context: &Context<'_>) -> Failure {
+    context.error(
+        format!(
+            "The taper of {} is {MAX_TAPER_DEGREES}° or steeper.",
+            context.feature.name
+        ),
+        format!("Enter a taper angle between -{MAX_TAPER_DEGREES}° and {MAX_TAPER_DEGREES}°."),
+        context.own(),
+    )
+}
+
+fn wall_failure(context: &Context<'_>, error: &WallError) -> Failure {
+    let sketch = &context.sketch_name;
+    let feature = &context.feature.name;
+    let curves = context.curves(&error.entities());
+    match error {
+        WallError::Cancelled(_) => Failure::Cancelled,
+        WallError::Curve(error) => profile_failure(context, error),
+        WallError::NoCurves => context.error(
+            format!("{sketch} has no curves for the thin wall to follow."),
+            format!("Draw the lines and arcs of the wall in {sketch}."),
+            context.in_sketch(),
+        ),
+        WallError::NonFinite | WallError::NotPositive => context.error(
+            "The wall thickness must be more than zero.".to_owned(),
+            "Enter a wall thickness above zero.".to_owned(),
+            context.own(),
+        ),
+        WallError::BeyondMaximum => context.error(
+            format!(
+                "The wall thickness cannot be more than {} m.",
+                MAX_SIZE / 1_000.0
+            ),
+            "Enter a thinner wall.".to_owned(),
+            context.own(),
+        ),
+        WallError::Spline { .. } => context.error(
+            format!(
+                "In {sketch}, {curves} cannot be given a wall; a thin wall follows only lines, \
+                 arcs and circles."
+            ),
+            format!("Draw it with lines and arcs in {sketch}, or turn off the thin wall."),
+            context.in_sketch(),
+        ),
+        WallError::Branches { .. } => context.error(
+            format!(
+                "In {sketch}, {curves} meet at one point, so the thin wall cannot tell which way \
+                 to follow."
+            ),
+            format!(
+                "Leave only two curves meeting at each point in {sketch}, or make the others \
+                 construction geometry."
+            ),
+            context.in_sketch(),
+        ),
+        WallError::Folds { .. } => context.error(
+            format!("In {sketch}, {curves} turn straight back on each other."),
+            format!("Open up that corner in {sketch}."),
+            context.in_sketch(),
+        ),
+        WallError::TooThick { .. } => context.error(
+            format!("The wall of {feature} is too thick for {curves} of {sketch}."),
+            "Enter a thinner wall, or place it on the other side of the curves.".to_owned(),
+            context.own(),
+        ),
+        WallError::Apart { .. } => context.error(
+            format!("The sides of the wall of {feature} do not meet where {curves} meet."),
+            format!("Enter a thinner wall, or change that corner in {sketch}."),
+            context.own(),
+        ),
+        WallError::CrossesItself => context.error(
+            format!("The wall of {feature} runs into itself."),
+            format!(
+                "Enter a thinner wall, place it on the other side, or move the curves of \
+                 {sketch} apart."
+            ),
+            context.own(),
+        ),
+        WallError::Geometry(_) => {
+            log::warn!("{feature} could not be built: {error}");
+            context.error(
+                format!("The thin wall of {sketch} could not be built."),
+                format!("Undo the last change, or simplify the curves of {sketch}."),
+                context.own(),
+            )
+        }
+    }
+}
+
 const MAX_NAMED_GAPS: usize = 2;
 
 fn open_gaps(context: &Context<'_>, open_ends: &[OpenEnd]) -> Option<String> {
@@ -1279,6 +1443,39 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
                 ),
                 format!("Change {which} in {sketch}, or leave that region out."),
                 context.in_sketch(),
+            )
+        }
+        SweepError::TaperTooSteep => steep_taper(context),
+        SweepError::TaperedSpline { entities } => context.error(
+            format!(
+                "In {sketch}, {} cannot be tapered; a taper follows only lines, arcs and circles.",
+                context.curves(entities)
+            ),
+            format!("Draw it with lines and arcs in {sketch}, or set the taper to 0°."),
+            context.in_sketch(),
+        ),
+        SweepError::TaperedTiltedEnd => context.error(
+            format!(
+                "A tapered {shape} must end on faces or planes parallel to {sketch}, and an end \
+                 of {} is slanted.",
+                context.feature.name
+            ),
+            "Enter a distance, choose a parallel face or plane, or set the taper to 0°.".to_owned(),
+            context.own(),
+        ),
+        SweepError::TaperCloses { entities } => {
+            let at = if entities.is_empty() {
+                String::new()
+            } else {
+                format!(" at {}", context.curves(entities))
+            };
+            context.error(
+                format!(
+                    "The taper of {} closes the profile of {sketch}{at} before the {shape} ends.",
+                    context.feature.name
+                ),
+                format!("Make the taper angle smaller or the {shape} shorter."),
+                context.own(),
             )
         }
         SweepError::Unassembled | SweepError::Geometry(_) | SweepError::Invalid { .. } => {

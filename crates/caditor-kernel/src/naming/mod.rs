@@ -19,6 +19,7 @@ const CORNER_FACE: u8 = 0x05;
 const SHELL_FACE: u8 = 0x06;
 const IMPORTED_FACE: u8 = 0x07;
 const PATTERN_FACE: u8 = 0x08;
+const SIDE_BEHIND_FACE: u8 = 0x09;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
@@ -45,6 +46,13 @@ impl FaceName {
 
     pub fn side(feature: u64, piece: &PieceId) -> Self {
         let mut digest = Digest::new(SIDE_FACE);
+        digest.u64(feature);
+        piece.write(&mut digest);
+        Self(digest.finish())
+    }
+
+    pub fn side_behind(feature: u64, piece: &PieceId) -> Self {
+        let mut digest = Digest::new(SIDE_BEHIND_FACE);
         digest.u64(feature);
         piece.write(&mut digest);
         Self(digest.finish())

@@ -188,7 +188,14 @@ paths:
 - An extrusion's and a revolve's panel ends with a Start row (`solid_panel::start_rows`): the sketch
   plane with a Start offset field (key `start`, zero clears it), or Face or plane, taken like an
   end (`solid_panel::start_change`, slot `Slot::StartPlane`) and shown as Starts at with a button
-  that goes back to the sketch plane.
+  that goes back to the sketch plane. An extrusion's then has a Taper field (key `taper`, an angle
+  below `MAX_TAPER_DEGREES` either way, `Rule::Taper`; zero clears it).
+- Below Regions, a Fill switch (Solid, Thin wall) turns the sweep into a wall of the sketch's
+  curves (`solid_tools::with_wall`, starting at `DEFAULT_WALL_THICKNESS` centred; a revolve's
+  Profile switch is hidden and its side cleared), with a Thickness field (key `wall-thickness`) and
+  a Wall switch (Inside, Outside, Centred); Regions then only says the wall follows every curve.
+  A new extrusion or revolve of every region of a sketch whose curves enclose nothing starts as a
+  thin wall, and such a sketch, unused, is one Extrude guesses (`solid_tools::is_open_profile`).
 - A revolve can also take two angles, refusing a pair that turns more than a full turn. Its
   Profile switch (Whole, One side) keeps one side of the axis, starting from the side holding
   more of the chosen regions' area (`solid_panel::larger_side`), with Keep the other side of the

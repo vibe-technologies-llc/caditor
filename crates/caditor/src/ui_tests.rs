@@ -75,6 +75,7 @@ mod primitives;
 mod screenshots;
 mod selection_sets;
 mod selection_targets;
+mod shaped_sweeps;
 mod sketch_blend_curves;
 mod sketch_breaks;
 mod sketch_chamfers;
@@ -9525,6 +9526,8 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
             operation: BodyOperation::Remove(plate),
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     transaction.edit(Edit::MoveFeature {
@@ -9573,6 +9576,8 @@ fn add_peg(harness: &mut Harness) -> FeatureId {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -9649,6 +9654,8 @@ fn add_post(harness: &mut Harness) -> FeatureId {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -9749,6 +9756,8 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
                 operation: BodyOperation::NewBody,
                 start: None,
                 other_bodies: Vec::new(),
+                taper: None,
+                wall: None,
             })),
         ));
     }
@@ -16354,6 +16363,8 @@ fn add_block(harness: &mut Harness, name: &str, corners: [Point2; 2], height: &s
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -17711,6 +17722,8 @@ fn chosen_plate() -> (Document, FeatureId, FeatureId) {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

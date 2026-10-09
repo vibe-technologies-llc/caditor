@@ -79,6 +79,8 @@ fn model() -> Model {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let mut marks = Sketch::new(Plane::XZ);
@@ -320,6 +322,8 @@ fn a_datum_point_takes_the_centre_of_a_round_edge() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

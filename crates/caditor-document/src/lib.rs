@@ -117,7 +117,7 @@ pub use crate::{
     solid::{
         AxisSide, BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice,
         Revolve, RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart,
-        body_part, body_parts, profile_curve, sketch_regions,
+        Wall, body_part, body_parts, profile_curve, sketch_regions,
     },
     split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
     thread::{
@@ -201,6 +201,8 @@ mod solid_tests;
 mod split_tests;
 #[cfg(test)]
 mod start_tests;
+#[cfg(test)]
+mod taper_tests;
 #[cfg(test)]
 mod thread_tests;
 #[cfg(test)]

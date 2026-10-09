@@ -50,6 +50,8 @@ fn extrusion(sketch: FeatureId, start: Option<SolidStart>) -> FeatureKind {
         operation: BodyOperation::NewBody,
         start,
         other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
     }))
 }
 
@@ -63,6 +65,7 @@ fn revolution(sketch: FeatureId, start: Option<SolidStart>) -> FeatureKind {
         start,
         other_bodies: Vec::new(),
         side: None,
+        wall: None,
     }))
 }
 
@@ -143,6 +146,8 @@ fn an_extrusion_starting_from_a_face_follows_the_face_when_its_body_changes() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -279,6 +284,7 @@ fn a_start_plane_is_reported_by_the_parameters_and_references_it_uses() {
         start: Some(SolidStart::Distance(Expression::Parameter(lift))),
         other_bodies: Vec::new(),
         side: None,
+        wall: None,
     });
 
     assert!(solid.uses_parameter(lift));

@@ -115,6 +115,8 @@ fn deleting_a_used_parameter_writes_its_expression_into_every_use() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

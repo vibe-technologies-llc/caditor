@@ -116,6 +116,8 @@ fn block() -> Block {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -342,6 +344,7 @@ fn a_revolve_turns_about_a_datum_axis_in_its_sketch_plane() {
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         }))
     };
     let ring = add(
@@ -462,6 +465,7 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         })),
     );
     let strip = add(
@@ -479,6 +483,8 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
             operation: BodyOperation::Remove(base),
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());

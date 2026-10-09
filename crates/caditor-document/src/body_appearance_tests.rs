@@ -316,6 +316,8 @@ fn a_face_colour_follows_the_face_into_every_fragment_a_later_cut_leaves() {
             operation: BodyOperation::Remove(pair.plate),
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     pair.document.apply(transaction.finish()).unwrap();

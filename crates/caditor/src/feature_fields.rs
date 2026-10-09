@@ -3,6 +3,7 @@ use caditor_document::{
     ParameterOwner, Transaction,
 };
 use caditor_expression::{Dimension, Expression};
+use caditor_kernel::MAX_TAPER_DEGREES;
 use egui::{ComboBox, Id, Label, RichText, Ui, WidgetText};
 
 use crate::{
@@ -45,6 +46,7 @@ pub enum Rule {
     Count,
     Sides,
     ConeAngle,
+    Taper,
 }
 
 impl Rule {
@@ -81,6 +83,13 @@ impl Rule {
                 ));
             }
             Self::ConeAngle => None,
+            Self::Taper if value.abs() >= MAX_TAPER_DEGREES => {
+                return Err(format!(
+                    "Enter an angle between -{MAX_TAPER_DEGREES}° and {MAX_TAPER_DEGREES}°; a \
+                     positive taper draws the sides in"
+                ));
+            }
+            Self::Taper => None,
         };
         refusal.map_or(Ok(()), |refusal| Err(refusal.to_owned()))
     }

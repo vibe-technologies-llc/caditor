@@ -19,14 +19,14 @@ use caditor_document::{
     PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
     Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
     SolidFeature, SolidStart, Split, SplitAlong, TappedThread, Thread, ThreadFamily, ThreadHand,
-    ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, group_name, material_name,
+    ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name,
     view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
 use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
-    RegionKey, RegionReference, Side, Solid, VertexName,
+    RegionKey, RegionReference, Side, Solid, VertexName, WallSide,
 };
 use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
@@ -232,6 +232,7 @@ pub(crate) enum FeatureKindRecord {
     CoordinateSystem(Box<CoordinateSystemRecord>),
     MoveInFrame(Box<MoveInFrameRecord>),
     SketchOnFrame(Box<SketchOnFrameRecord>),
+    ShapedSweep(Box<ShapedSweepRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -436,6 +437,29 @@ pub(crate) enum AxisSideRecord {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum WallSideRecord {
+    Inside,
+    Outside,
+    Centred,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct WallRecord {
+    pub thickness: String,
+    pub side: WallSideRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ShapedSweepRecord {
+    pub feature: FeatureKindRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub taper: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall: Option<Lenient<WallRecord>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct RevolveOneSideRecord {
     pub feature: FeatureKindRecord,
@@ -444,7 +468,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 50] = [
+pub(crate) const FEATURE_KINDS: [&str; 51] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -495,6 +519,7 @@ pub(crate) const FEATURE_KINDS: [&str; 50] = [
     "move_in_frame",
     "sketch_on_frame",
     "datum_construction",
+    "shaped_sweep",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1684,6 +1709,35 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             feature: feature_kind_record(&FeatureKind::Combine(alone)),
             more_tools: combine.more_tools.iter().map(|tool| tool.raw()).collect(),
             keep_tool: combine.keep_tool,
+        }));
+    }
+    if let FeatureKind::Solid(solid) = kind
+        && (solid.taper().is_some() || solid.wall().is_some())
+    {
+        let plain = match solid {
+            SolidFeature::Extrude(extrude) => SolidFeature::Extrude(Extrude {
+                taper: None,
+                wall: None,
+                ..extrude.clone()
+            }),
+            SolidFeature::Revolve(revolve) => SolidFeature::Revolve(Revolve {
+                wall: None,
+                ..revolve.clone()
+            }),
+        };
+        return FeatureKindRecord::ShapedSweep(Box::new(ShapedSweepRecord {
+            feature: feature_kind_record(&FeatureKind::Solid(plain)),
+            taper: solid.taper().map(Expression::to_stored_text),
+            wall: solid.wall().map(|wall| {
+                Lenient::Read(WallRecord {
+                    thickness: wall.thickness.to_stored_text(),
+                    side: match wall.side {
+                        WallSide::Inside => WallSideRecord::Inside,
+                        WallSide::Outside => WallSideRecord::Outside,
+                        WallSide::Centred => WallSideRecord::Centred,
+                    },
+                })
+            }),
         }));
     }
     if let FeatureKind::Solid(solid) = kind
@@ -3797,6 +3851,37 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::ShapedSweep(shaped) => {
+            let mut kind = restore_kind(&shaped.feature, name, texts, issues);
+            let taper = shaped
+                .taper
+                .as_deref()
+                .map(|text| restore_value(text, "taper angle", "0 deg", name, issues));
+            let wall = shaped
+                .wall
+                .as_ref()
+                .map(|record| restore_wall(record, name, issues));
+            match &mut kind {
+                FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
+                    extrude.taper = taper.map(Box::new);
+                    extrude.wall = wall.map(Box::new);
+                }
+                FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
+                    revolve.wall = wall.map(Box::new);
+                    if taper.is_some() {
+                        issues.push(format!(
+                            "“{name}” had a taper, but a revolution cannot taper, so it was left \
+                             out."
+                        ));
+                    }
+                }
+                _ => issues.push(format!(
+                    "“{name}” had a taper or a thin wall, but it is not an extrusion or a \
+                     revolution, so they were left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::RevolveOneSide(one_side) => {
             let mut kind = restore_kind(&one_side.feature, name, texts, issues);
             match &mut kind {
@@ -3867,6 +3952,8 @@ fn restore_kind(
                     SolidStart::Distance(restore_value(text, "start offset", "0 mm", name, issues))
                 }),
                 other_bodies: Vec::new(),
+                taper: None,
+                wall: None,
             }))
         }
         FeatureKindRecord::ExtrudeTo(extrude) => {
@@ -3904,6 +3991,8 @@ fn restore_kind(
                     SolidStart::Distance(restore_value(text, "start offset", "0 mm", name, issues))
                 }),
                 other_bodies: Vec::new(),
+                taper: None,
+                wall: None,
             }))
         }
         FeatureKindRecord::ExtrudeFrom(extrude) => {
@@ -3944,6 +4033,8 @@ fn restore_kind(
                 operation: restore_operation(extrude.operation),
                 start: restore_start(&extrude.start, name, issues),
                 other_bodies: Vec::new(),
+                taper: None,
+                wall: None,
             }))
         }
         FeatureKindRecord::RevolveFrom(revolve) => {
@@ -3979,6 +4070,7 @@ fn restore_kind(
                 start: restore_start(&revolve.start, name, issues),
                 other_bodies: Vec::new(),
                 side: None,
+                wall: None,
             }))
         }
         FeatureKindRecord::Revolve(revolve) => {
@@ -4007,6 +4099,7 @@ fn restore_kind(
                 start: None,
                 other_bodies: Vec::new(),
                 side: None,
+                wall: None,
             }))
         }
         FeatureKindRecord::RevolveTwoAngles(revolve) => {
@@ -4030,6 +4123,7 @@ fn restore_kind(
                 start: None,
                 other_bodies: Vec::new(),
                 side: None,
+                wall: None,
             }))
         }
         FeatureKindRecord::Fillet(record) => {
@@ -5413,6 +5507,29 @@ pub(crate) fn restore_edge(record: &EdgeRecord) -> Option<EdgeReference> {
         )
         .with_origins(sides.map(|(_, origin)| origin)),
     )
+}
+
+fn restore_wall(record: &Lenient<WallRecord>, feature: &str, issues: &mut Vec<String>) -> Wall {
+    match record {
+        Lenient::Read(record) => Wall {
+            thickness: restore_value(&record.thickness, "wall thickness", "1 mm", feature, issues),
+            side: match record.side {
+                WallSideRecord::Inside => WallSide::Inside,
+                WallSideRecord::Outside => WallSide::Outside,
+                WallSideRecord::Centred => WallSide::Centred,
+            },
+        },
+        Lenient::Unreadable(_) => {
+            issues.push(format!(
+                "The thin wall of “{feature}” could not be read, so it was set to 1 mm, centred \
+                 on its curves."
+            ));
+            Wall {
+                thickness: Expression::parse_stored("1 mm").unwrap_or(Expression::Number(1.0)),
+                side: WallSide::Centred,
+            }
+        }
+    }
 }
 
 fn restore_value(

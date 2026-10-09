@@ -492,6 +492,8 @@ fn a_drawing_whose_only_outline_is_a_hatch_extrudes_into_a_solid() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

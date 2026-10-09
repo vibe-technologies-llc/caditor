@@ -81,6 +81,8 @@ fn model() -> Model {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -275,6 +277,8 @@ fn a_corner_whose_walls_cannot_meet_is_named_by_its_faces() {
             operation,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         }))
     };
     let length = transaction.parse("20 mm").unwrap();

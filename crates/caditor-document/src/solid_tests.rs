@@ -34,6 +34,8 @@ pub(crate) fn extrude(
         operation,
         start: None,
         other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
     }))
 }
 
@@ -84,6 +86,8 @@ fn model() -> Model {
             operation: BodyOperation::Remove(base),
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     let lug = transaction.add_feature(
@@ -284,6 +288,7 @@ fn a_revolve_uses_a_sketch_axis_and_keeps_it() {
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -314,6 +319,7 @@ fn a_revolve_axis_must_be_a_line_of_its_own_sketch() {
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         }))
     };
     let mut transaction = document.transaction("Revolve");
@@ -569,6 +575,8 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
             operation: BodyOperation::NewBody,
             start: None,
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -610,6 +618,8 @@ fn extruded(extent: ExtrudeExtent) -> FeatureKind {
         operation: BodyOperation::NewBody,
         start: None,
         other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
     }))
 }
 
@@ -623,6 +633,7 @@ fn revolved(extent: RevolveExtent) -> FeatureKind {
         start: None,
         other_bodies: Vec::new(),
         side: None,
+        wall: None,
     }))
 }
 
@@ -1190,6 +1201,7 @@ fn a_revolve_turns_about_a_construction_centreline_and_undoing_its_deletion_keep
             start: None,
             other_bodies: Vec::new(),
             side: None,
+            wall: None,
         })),
         section,
     );
@@ -1291,6 +1303,8 @@ fn extrusion_with_start(start: Option<&str>) -> (Document, FeatureId) {
             operation: BodyOperation::NewBody,
             start: start.map(|text| SolidStart::Distance(Expression::parse_stored(text).unwrap())),
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1362,6 +1376,8 @@ fn a_start_offset_follows_the_parameter_it_uses() {
             operation: BodyOperation::NewBody,
             start: Some(SolidStart::Distance(Expression::Parameter(lift))),
             other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

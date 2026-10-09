@@ -48,6 +48,8 @@ fn extrude(sketch: FeatureId, height: Expression) -> FeatureKind {
         operation: BodyOperation::NewBody,
         start: None,
         other_bodies: Vec::new(),
+        taper: None,
+        wall: None,
     }))
 }
 
@@ -61,6 +63,7 @@ fn revolve(sketch: FeatureId) -> FeatureKind {
         start: None,
         other_bodies: Vec::new(),
         side: None,
+        wall: None,
     }))
 }
 

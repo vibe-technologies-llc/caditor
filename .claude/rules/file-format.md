@@ -301,6 +301,13 @@ paths:
   would fail on the crossing profile or turn both sides; an inner record that is no revolve loads
   turning the whole profile, reported. `cut_several` wraps it when the revolve also cuts other
   bodies.
+- A tapered or thin-walled extrusion, or a thin-walled revolve, is a `shaped_sweep` record:
+  `feature`, the record it would be without them (which `cut_several` or `revolve_one_side` may
+  wrap), `taper` (stored text, only when set; unreadable: 0 deg, reported) and `wall` (`thickness`
+  as stored text, unreadable: 1 mm, reported, and `side`: `inside`, `outside`, `centred`; an
+  unreadable wall loads as 1 mm centred, reported), since an older reader would sweep the plain
+  profile; an inner record that is no extrusion or revolve loads without them, reported, as does
+  a revolve's taper.
 - A `split` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as the
   YZ plane, reported) and `flipped` only when set. A split along another body or a sketch's curve
   is a `split_along` record (`body`, `along` as `{"body": id}` or `{"sketch": id}`, `flipped` only
