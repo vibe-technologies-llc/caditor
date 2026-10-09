@@ -238,6 +238,7 @@ fn hole_of(points: FeatureId, plate: FeatureId, diameter: &str) -> FeatureKind {
         standard: None,
         sizing: HoleSizing::Typed,
         bottom: HoleBottom::Flat,
+        thread: TappedThread::default(),
     })
 }
 

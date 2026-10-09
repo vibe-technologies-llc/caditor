@@ -1,6 +1,9 @@
 use caditor_expression::Dimension;
 use caditor_geometry::{Plane, Point3, Ray, Vector3};
-use caditor_kernel::{Curve, EdgeId, FaceId, Interval, LINEAR_RESOLUTION, ReferenceError, Surface};
+use caditor_kernel::{
+    Curve, Edge, EdgeId, EdgeReference, FaceId, FaceReference, Interval, LINEAR_RESOLUTION,
+    MeshQuality, ReferenceError, Surface,
+};
 
 use crate::{
     datum::{
@@ -8,6 +11,7 @@ use crate::{
         capitalized, describe_axis, describe_plane, face_axis, feature_name,
     },
     describe::describe_origin,
+    document::FeatureId,
     recompute::Failure,
     tolerance,
 };
@@ -36,14 +40,15 @@ fn parameter_at_length(curve: &Curve, interval: Interval, along: f64) -> f64 {
     }
 }
 
-fn station_point(
-    resolver: &Resolver<'_>,
-    station: &CurveStation,
-) -> Result<(Point3, Vector3), Failure> {
+fn resolved_edge<'a>(
+    resolver: &'a Resolver<'_>,
+    body: FeatureId,
+    reference: &EdgeReference,
+) -> Result<&'a Edge, Failure> {
     let document = resolver.inputs.document;
-    let solid = resolver.body(station.body)?;
-    let name = feature_name(document, station.body);
-    let edge: EdgeId = match station.edge.resolve(solid) {
+    let solid = resolver.body(body)?;
+    let name = feature_name(document, body);
+    let edge: EdgeId = match reference.resolve(solid) {
         Ok(found) => found,
         Err(ReferenceError::Ambiguous(_)) => {
             return Err(resolver.own_error(
@@ -58,12 +63,20 @@ fn station_point(
             ));
         }
     };
-    let definition = solid.edge(edge).ok_or_else(|| {
+    solid.edge(edge).ok_or_else(|| {
         resolver.own_error(
             format!("The edge it follows is no longer part of {name}."),
             "Choose another edge for it.",
         )
-    })?;
+    })
+}
+
+fn station_point(
+    resolver: &Resolver<'_>,
+    station: &CurveStation,
+) -> Result<(Point3, Vector3), Failure> {
+    let name = feature_name(resolver.inputs.document, station.body);
+    let definition = resolved_edge(resolver, station.body, &station.edge)?;
     let distance = resolver.value(&station.distance, "distance", Dimension::LENGTH)?;
     let interval = definition.interval();
     let curve = definition.curve();
@@ -168,6 +181,207 @@ pub(crate) fn tangent_plane(
         resolver.own_error(
             format!("The plane could not be placed against {described}."),
             "Choose another point to pick the side.",
+        )
+    })
+}
+
+fn edge_middle(
+    resolver: &Resolver<'_>,
+    body: FeatureId,
+    reference: &EdgeReference,
+) -> Result<Point3, Failure> {
+    let definition = resolved_edge(resolver, body, reference)?;
+    let interval = definition.interval();
+    let curve = definition.curve();
+    let half = 0.5 * curve.length(interval);
+    Ok(curve.point(interval.clamp(parameter_at_length(curve, interval, half))))
+}
+
+fn resolved_faces(
+    resolver: &Resolver<'_>,
+    body: FeatureId,
+    reference: &FaceReference,
+) -> Result<Vec<FaceId>, Failure> {
+    let document = resolver.inputs.document;
+    let solid = resolver.body(body)?;
+    let described = describe_origin(document, reference.origin());
+    let pieces = match reference.resolve(solid) {
+        Ok(found) => vec![found],
+        Err(ReferenceError::Ambiguous(pieces)) => pieces,
+        Err(ReferenceError::Missing) => Vec::new(),
+    };
+    if pieces.is_empty() {
+        return Err(resolver.own_error(
+            format!(
+                "{} is no longer part of {}.",
+                capitalized(&described),
+                feature_name(document, body)
+            ),
+            "Choose another face for it.",
+        ));
+    }
+    Ok(pieces)
+}
+
+fn face_centre(
+    resolver: &Resolver<'_>,
+    body: FeatureId,
+    reference: &FaceReference,
+) -> Result<Point3, Failure> {
+    let solid = resolver.body(body)?;
+    let faces = resolved_faces(resolver, body, reference)?;
+    let described = describe_origin(resolver.inputs.document, reference.origin());
+    let unfound = || {
+        resolver.own_error(
+            format!("The centre of {described} could not be found."),
+            "Choose another face, or place the point at a corner or along an edge.",
+        )
+    };
+    let mesh = solid
+        .tessellate(&solid.tolerance_for(&MeshQuality::SMOOTH))
+        .map_err(|_| unfound())?;
+    let mut area = 0.0;
+    let mut moment = Vector3::ZERO;
+    for group in mesh
+        .faces()
+        .iter()
+        .filter(|group| faces.contains(&group.face))
+    {
+        for triangle in mesh
+            .triangles()
+            .get(group.triangles.clone())
+            .unwrap_or_default()
+        {
+            let corners = mesh
+                .triangle_positions(*triangle)
+                .map(|corners| corners.map(|corner| mesh.position(corner)));
+            let Some([Some(a), Some(b), Some(c)]) = corners else {
+                continue;
+            };
+            let piece = 0.5 * (b - a).cross(c - a).length();
+            area += piece;
+            moment +=
+                ((a - Point3::ZERO) + (b - Point3::ZERO) + (c - Point3::ZERO)) * (piece / 3.0);
+        }
+    }
+    let centre = Point3::ZERO + moment / area;
+    if area > f64::MIN_POSITIVE && centre.is_finite() {
+        Ok(centre)
+    } else {
+        Err(unfound())
+    }
+}
+
+struct Foot {
+    point: Point3,
+    normal: Vector3,
+    described: String,
+}
+
+fn face_foot(resolver: &Resolver<'_>, tangent: &FaceTangent) -> Result<Foot, Failure> {
+    let solid = resolver.body(tangent.body)?;
+    let faces = resolved_faces(resolver, tangent.body, &tangent.face)?;
+    let described = describe_origin(resolver.inputs.document, tangent.face.origin());
+    let Some(face) = faces.first().and_then(|face| solid.face(*face)) else {
+        return Err(resolver.own_error(
+            format!("{} is no longer part of the body.", capitalized(&described)),
+            "Choose another face for it.",
+        ));
+    };
+    let surface = face.surface();
+    if matches!(surface, Surface::Plane(_)) {
+        return Err(resolver.own_error(
+            format!(
+                "{} is flat, so it has no single point to touch.",
+                capitalized(&described)
+            ),
+            "Choose a curved face, or base a plane on this face instead.",
+        ));
+    }
+    let toward = resolver.point(&tangent.toward)?;
+    let even = |what: &str| {
+        resolver.own_error(
+            format!(
+                "The chosen point lies {what} of {described}, so every side of it is equally \
+                 near."
+            ),
+            "Choose a point off the middle of the face.",
+        )
+    };
+    let axis_gap = |origin: Point3, direction: Vector3| {
+        let offset = toward - origin;
+        (offset - direction * offset.dot(direction)).length()
+    };
+    match surface {
+        Surface::Sphere(sphere) if toward.distance(sphere.center()) <= LINEAR_RESOLUTION => {
+            return Err(even("at the centre"));
+        }
+        Surface::Cylinder(_) | Surface::Cone(_) | Surface::Torus(_) => {
+            if let Some(axis) = faces.first().and_then(|face| face_axis(solid, *face))
+                && axis_gap(axis.origin(), axis.direction()) <= LINEAR_RESOLUTION
+            {
+                return Err(even("on the axis"));
+            }
+        }
+        _ => {}
+    }
+    let foot = surface.project(toward, None);
+    let point = surface.point(foot.x, foot.y);
+    let normal = surface
+        .normal(foot.x, foot.y)
+        .filter(|normal| normal.is_finite() && normal.length() > f64::EPSILON)
+        .ok_or_else(|| {
+            resolver.own_error(
+                format!(
+                    "{} has no surface direction nearest the chosen point.",
+                    capitalized(&described)
+                ),
+                "Choose a point nearer another part of the face.",
+            )
+        })?
+        .normalize();
+    let away = toward - point;
+    let outward = normal * face.sense().sign();
+    let normal = if away.length() <= LINEAR_RESOLUTION || away.dot(outward) >= 0.0 {
+        outward
+    } else {
+        -outward
+    };
+    if !point.is_finite() {
+        return Err(resolver.own_error(
+            format!("The point of {described} nearest the chosen point could not be found."),
+            "Choose another point.",
+        ));
+    }
+    Ok(Foot {
+        point,
+        normal,
+        described,
+    })
+}
+
+pub(crate) fn tangent_plane_at(
+    resolver: &Resolver<'_>,
+    tangent: &FaceTangent,
+) -> Result<Plane, Failure> {
+    let foot = face_foot(resolver, tangent)?;
+    Plane::new(foot.point, foot.normal).ok_or_else(|| {
+        resolver.own_error(
+            format!("The plane could not be placed against {}.", foot.described),
+            "Choose another point.",
+        )
+    })
+}
+
+pub(crate) fn square_to_face(
+    resolver: &Resolver<'_>,
+    tangent: &FaceTangent,
+) -> Result<Ray, Failure> {
+    let foot = face_foot(resolver, tangent)?;
+    Ray::new(foot.point, foot.normal).ok_or_else(|| {
+        resolver.own_error(
+            format!("The axis could not be placed square to {}.", foot.described),
+            "Choose another point.",
         )
     })
 }
@@ -303,6 +517,8 @@ pub(crate) fn point_by(resolver: &Resolver<'_>, by: &PointBy) -> Result<Point3, 
         PointBy::AxisAndPlane(axis, plane) => line_meets_plane(resolver, axis, plane)?,
         PointBy::ThreePlanes(planes) => planes_meet(resolver, planes)?,
         PointBy::Along(station) => station_point(resolver, station)?.0,
+        PointBy::EdgeMiddle { body, edge } => edge_middle(resolver, *body, edge)?,
+        PointBy::FaceCentre { body, face } => face_centre(resolver, *body, face)?,
     };
     if point.is_finite() {
         Ok(point)

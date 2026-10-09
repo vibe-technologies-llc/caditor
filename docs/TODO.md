@@ -196,10 +196,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] Mirror reflects a whole body or chosen features (extrusions, revolves, holes), but
   not chosen faces: reflecting a set of faces (a pocket's walls and floor of an imported body
   with no features) across a plane, kept linked to the faces it copies, is missing.
-- [low · medium] A tapped hole's cosmetic thread always runs its whole bore, class 6H and
-  right-handed, and a pattern's copies of a tapped hole are not threaded: choosing the class,
-  hand and depth in the Hole panel and threading the copies are missing. 3MF exports carry no
-  thread, since naming one needs object metadata in a namespace of caditor's own.
+- [low · medium] 3MF exports carry no cosmetic thread: naming one needs object metadata
+  (`metadatagroup`) under a name in a namespace of caditor's own, and that namespace's URI, kept
+  for good once files carry it, has not been chosen.
 - [medium · hard] The whole model cannot be scaled: no command or feature resizes every body, sketch
   and datum by a factor (uniform, about the origin or a chosen point) as one undoable change.
   Scaling must keep references and names stable, and say what happens to dimensions and parameters
@@ -256,10 +255,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
   without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
   in part can be had. It is a feature of its own, naming the faces it splits.
-- [low · medium] A primitive shows a typed size only once it is entered, not while typing as a
-  fillet's does (the draft preview draws only a body that stood before the feature), and a pattern
-  cannot repeat a primitive adding to or cutting a body as it repeats an extrusion's tool
-  (`repeatable_on`).
 - [low · medium] Expressions cannot read a measured value (a distance or angle taken from the
   geometry): parameters evaluate before and apart from recompute, so a measured one would need
   recompute to evaluate parameters in tree order beside the features, the measured reference
@@ -271,10 +266,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   scale's centre and an imported body's placement still read from the world origin and axes, and
   a coordinate system's origin cannot be chosen where a point is wanted (no `PointReference` names
   it), so a datum point or plane through it needs a point of its own.
-- [low · medium] Datums on curved faces: a plane is tangent only to a cylinder or cone, never to a
-  sphere, torus or spline face at a point; no axis stands square to a curved face at a point on
-  it; and a datum point cannot sit at the middle of an edge or the centre of a face, only at a
-  distance along an edge.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
   axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
   surfaces do not have).

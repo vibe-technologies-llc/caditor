@@ -729,3 +729,190 @@ fn constructed_points_and_planes_report_what_they_use() {
     assert!(kind.bodies_used().contains(&parts.block));
     assert!(kind.datum().unwrap().is_point());
 }
+
+fn sphere_at(document: &mut Document, x: f64) -> FeatureId {
+    let mut transaction = document.transaction("Ball");
+    let ball = transaction.add_feature(
+        "Ball",
+        FeatureKind::Primitive(Primitive {
+            shape: PrimitiveShape::Sphere {
+                diameter: millimetres(10.0),
+            },
+            plane: principal(PrincipalPlane::Xy),
+            at: [millimetres(x), millimetres(0.0)],
+            anchor: PrimitiveAnchor::Centre,
+            reversed: false,
+            operation: BodyOperation::NewBody,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    ball
+}
+
+fn at_face(body: FeatureId, face: FaceReference, toward: FeatureId) -> Box<FaceTangent> {
+    Box::new(FaceTangent {
+        body,
+        face,
+        toward: PointReference::Datum(toward),
+    })
+}
+
+fn near(first: Point3, second: Point3, within: f64) -> bool {
+    first.distance(second) < within
+}
+
+#[test]
+fn a_plane_touches_a_sphere_or_torus_and_an_axis_stands_square_to_it_nearest_a_point() {
+    let mut parts = parts();
+    let ball = sphere_at(&mut parts.document, 50.0);
+    let evaluation = evaluate(&parts.document);
+    let skin = face_where(evaluation.body(ball).unwrap(), |surface| {
+        matches!(surface, Surface::Sphere(_))
+    });
+    let tube = face_where(evaluation.body(parts.ring).unwrap(), |surface| {
+        matches!(surface, Surface::Torus(_))
+    });
+    let above = add(&mut parts.document, "Above", offset_point(50.0, 0.0, 20.0));
+    let outside = add(&mut parts.document, "Outside", offset_point(30.0, 0.0, 5.0));
+    let centre = add(&mut parts.document, "Centre", offset_point(50.0, 0.0, 0.0));
+    let on_ball = add(
+        &mut parts.document,
+        "On ball",
+        Datum::PlaneThrough(PlaneThrough::TangentAt(at_face(ball, skin.clone(), above))),
+    );
+    let on_ring = add(
+        &mut parts.document,
+        "On ring",
+        Datum::PlaneThrough(PlaneThrough::TangentAt(at_face(parts.ring, tube, outside))),
+    );
+    let upright = add(
+        &mut parts.document,
+        "Upright",
+        Datum::Axis(DatumAxis::SquareToFace(at_face(ball, skin.clone(), above))),
+    );
+    let even = add(
+        &mut parts.document,
+        "Even",
+        Datum::Axis(DatumAxis::SquareToFace(at_face(ball, skin, centre))),
+    );
+
+    let evaluation = evaluate(&parts.document);
+    let ball_plane = result(&evaluation, on_ball).plane().unwrap();
+    let ring_plane = result(&evaluation, on_ring).plane().unwrap();
+    let axis = result(&evaluation, upright).axis().unwrap();
+
+    assert!((ball_plane.normal() - Vector3::Z).length() < 1e-6);
+    assert!(
+        ball_plane
+            .signed_distance(Point3::new(50.0, 0.0, 5.0))
+            .abs()
+            < 1e-6
+    );
+    assert!((ring_plane.normal() - Vector3::X).length() < 1e-6);
+    assert!(
+        ring_plane
+            .signed_distance(Point3::new(21.0, 0.0, 5.0))
+            .abs()
+            < 1e-6
+    );
+    assert!(near(axis.origin(), Point3::new(50.0, 0.0, 5.0), 1e-6));
+    assert!((axis.direction() - Vector3::Z).length() < 1e-6);
+    assert_eq!(
+        failure(&evaluation, even).reason,
+        "The chosen point lies at the centre of Ball surface, so every side of it is equally \
+         near."
+    );
+    assert!(
+        parts
+            .document
+            .feature(upright)
+            .unwrap()
+            .kind
+            .bodies_used()
+            .contains(&ball)
+    );
+}
+
+#[test]
+fn a_tangent_plane_at_a_point_refuses_a_flat_face() {
+    let mut parts = parts();
+    let evaluation = evaluate(&parts.document);
+    let side = face_where(evaluation.body(parts.block).unwrap(), |surface| {
+        matches!(surface, Surface::Plane(_))
+    });
+    let toward = add(&mut parts.document, "Toward", offset_point(0.0, 0.0, 20.0));
+    let flat = add(
+        &mut parts.document,
+        "Flat",
+        Datum::PlaneThrough(PlaneThrough::TangentAt(at_face(parts.block, side, toward))),
+    );
+
+    let evaluation = evaluate(&parts.document);
+
+    assert!(
+        failure(&evaluation, flat)
+            .reason
+            .ends_with("is flat, so it has no single point to touch."),
+        "{}",
+        failure(&evaluation, flat).reason
+    );
+}
+
+#[test]
+fn a_point_sits_at_the_middle_of_an_edge_or_the_centre_of_a_face() {
+    let mut parts = parts();
+    let evaluation = evaluate(&parts.document);
+    let block = evaluation.body(parts.block).unwrap();
+    let bottom = edge_between(
+        block,
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(10.0, 0.0, 0.0),
+    );
+    let top = face_where(block, |surface| match surface {
+        Surface::Plane(plane) => plane.frame().origin().z > 3.0,
+        _ => false,
+    });
+    let wall = face_where(evaluation.body(parts.pin).unwrap(), |surface| {
+        matches!(surface, Surface::Cylinder(_))
+    });
+    let middle = add(
+        &mut parts.document,
+        "Middle",
+        Datum::PointBy(PointBy::EdgeMiddle {
+            body: parts.block,
+            edge: Box::new(bottom),
+        }),
+    );
+    let centre = add(
+        &mut parts.document,
+        "Centre",
+        Datum::PointBy(PointBy::FaceCentre {
+            body: parts.block,
+            face: top,
+        }),
+    );
+    let round = add(
+        &mut parts.document,
+        "Round",
+        Datum::PointBy(PointBy::FaceCentre {
+            body: parts.pin,
+            face: wall,
+        }),
+    );
+
+    let evaluation = evaluate(&parts.document);
+    let point = |feature| result(&evaluation, feature).point().unwrap();
+
+    assert!(near(point(middle), Point3::new(5.0, 0.0, 0.0), 1e-9));
+    assert!(near(point(centre), Point3::new(5.0, 4.0, 4.0), 1e-6));
+    assert!(near(point(round), Point3::new(30.0, -2.0, 3.0), 1e-3));
+    assert!(
+        parts
+            .document
+            .feature(centre)
+            .unwrap()
+            .kind
+            .bodies_used()
+            .contains(&parts.block)
+    );
+}

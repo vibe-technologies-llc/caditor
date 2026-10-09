@@ -21,7 +21,7 @@ const PICK_HOVER: &str = "Mirror across the selected plane or flat face instead"
 pub const MIRRORS: &str = "Mirrors";
 pub const WHOLE_BODY: &str = "The whole body";
 pub const MIRROR_CHOSEN: &str = "Mirror the chosen features";
-const MIRROR_CHOSEN_HINT: &str = "Choose extrusions, revolves or holes of this body above the \
+const MIRROR_CHOSEN_HINT: &str = "Choose extrusions, revolves, holes or primitives of this body above the \
                                   mirror in the tree (Ctrl+click), then mirror them instead of \
                                   the whole body";
 

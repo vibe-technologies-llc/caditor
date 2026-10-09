@@ -1,6 +1,6 @@
 use caditor_document::{
     Document, Edit, FeatureId, FeatureKind, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing,
-    HoleStandard, HoleStep, HoleStyle, SketchFeature, Transaction, hole_centres,
+    HoleStandard, HoleStep, HoleStyle, SketchFeature, TappedThread, Transaction, hole_centres,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2};
@@ -254,6 +254,7 @@ fn new_hole(sketch: FeatureId, body: FeatureId, unit: LengthUnit) -> FeatureKind
         standard: None,
         sizing: HoleSizing::Typed,
         bottom: HoleBottom::Flat,
+        thread: TappedThread::default(),
     })
 }
 

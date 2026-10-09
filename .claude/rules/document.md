@@ -328,7 +328,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   survive; switching the shape (`SetFeatureKind` allows it) changes them.
 - `operation` is a `BodyOperation` as a solid's: a new body of its own (`makes_body`), or joined
   to, cut from or intersected with the target body (kernel `boolean`), keeping the tool as the
-  result's `joins` or `cuts`. A failure names the shape and the body in words (`trouble.rs`), the
+  result's `joins` or `cuts`, so a pattern or mirror of features repeats one that adds or cuts as
+  it repeats an extrusion's tool. A failure names the shape and the body in words (`trouble.rs`), the
   feature failing alone.
 
 ### Hole (`hole.rs`)
@@ -426,8 +427,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (names kept) and lands on the body a combine joined it into; a face no longer found there is
   not placed. Failed threads are not placed. A tapped round hole (`hole_thread`: a `standard`
   with a tapped or fine fit, its size found in the metric tables) places one thread per wall face
-  (`Hole::is_wall`, grouped by entity so a split bore is one thread) over the whole wall, class 6H,
-  right-handed; a pattern's copies of the hole are not threaded.
+  (`Hole::is_wall`, grouped by copy and entity so a split bore is one thread), the copies a
+  pattern or mirror makes of the hole (`FaceOrigin::Copy` of its walls) included, as its
+  `TappedThread` says: the class (none is the family's first internal class, 6H), the hand, and
+  the whole wall or a depth (a length expression, a parameter user like the hole's sizes) from the
+  bore's open end, one past the wall stopping at its end. The hole fails alone, in words, when the
+  class is not an internal one of the family or the depth is not a length above zero.
 
 ### Move (`movement.rs`)
 
@@ -545,8 +550,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 - Repeats the whole body as it stands before the pattern and unions the copies (kernel `pattern`).
   Boxed in `FeatureKind`, which it would otherwise double in size.
-- With `repeated` features (`Pattern::repeating`; `repeatable_on` says which: an extrusion or
-  revolve adding to or removing from a body, or a hole) it repeats their tools instead: for each,
+- With `repeated` features (`Pattern::repeating`; `repeatable_on` says which: an extrusion,
+  revolve or primitive adding to or removing from a body, or a hole) it repeats their tools instead: for each,
   in tree order, the tools kept with its result (`SolidResult::cuts` of a removal or a hole,
   `joins` of an addition) are placed at every copy and unioned without the original (kernel
   `pattern_copies`), then cut from or joined to the body as it stands, so the original feature is
@@ -654,6 +659,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   or all three sharing a line fail) and `Along` a `CurveStation`. The stations' bodies and edge
   origins count as used like an axis edge's, their distance is a parameter user, and healing
   matches their edges and faces like any reference.
+- Curved faces at a point (a `FaceTangent`'s face and `toward` point, `face_foot`): the point of
+  the face's surface nearest the point (`Surface::project`) and the face's outward normal there,
+  turned to face the point's side. `PlaneThrough::TangentAt` touches the face there and
+  `DatumAxis::SquareToFace` stands square to it there, on any curved face (sphere, torus, spline,
+  revolution, extrusion, cylinder, cone); a flat face, a point at a sphere's centre or on the axis
+  of a round face (every side equally near) fail alone in words. `PointBy::EdgeMiddle` sits halfway
+  along an edge by arc length, and `PointBy::FaceCentre` at the area centroid of a face (every
+  piece of a split one), taken from the body tessellated at `MeshQuality::SMOOTH`, so a curved
+  face's centre may lie off the face, as a cylinder's lies on its axis. Their bodies and the
+  origins of their edges and faces count as used and healing matches them.
 - Whether geometry lies on a line or plane, runs along a plane or is parallel is decided in one
   place (`tolerance.rs`) for revolve axes, datums, attachments, patterns and blend pieces, so noisy
   imported geometry is accepted or refused the same way everywhere.

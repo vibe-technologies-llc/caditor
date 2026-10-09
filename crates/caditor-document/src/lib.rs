@@ -74,7 +74,8 @@ pub use crate::{
     healing::Healing,
     hole::{
         CircleSize, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStep, HoleStyle,
-        MAX_CONE_ANGLE, MAX_HOLE_STEPS, MAX_HOLES, centres as hole_centres, circle_sizes,
+        MAX_CONE_ANGLE, MAX_HOLE_STEPS, MAX_HOLES, TappedThread, centres as hole_centres,
+        circle_sizes,
     },
     hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,

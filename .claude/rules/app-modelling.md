@@ -53,14 +53,17 @@ paths:
   outside the rounded surface, and hidden ones stay hidden since unpicked faces still write depth
   in the pick pass. A failed or pending blend and a shell show the body before them instead
   (`OpenView::Before`).
-- Typing in an open fillet's or chamfer's size field or a move's fields previews the value before
-  it is entered: `commit_field` reports the text as edited (`FieldResponse::edited`) and
+- Typing in an open fillet's or chamfer's size field, an offset face's distance, a primitive's
+  sizes and position or a move's fields previews the value before it is entered: `commit_field` reports the text as edited (`FieldResponse::edited`) and
   `feature_fields::expression_row_drafting` turns valid text into `Action::Preview` with the
   transaction it would commit, never applied. `Model` applies it to a copy of the document
   (`DraftPreview`, dropped when the feature closes, the text turns invalid, Escape or leaving the
   field without a change; a new one whenever the feature's kind or the transaction differs, since
-  editing a named value changes only its parameter). A blend's copy is computed as a draft (`document-recompute.md`) and its
-  body drawn in the result's place once meshed (`BodyMeshes::draft`, `OpenDraft`); a move is not
+  editing a named value changes only its parameter). Any other feature's copy is computed as a
+  draft (`document-recompute.md`) and the draft's state of the body the feature makes or changes
+  (`Feature::body`, `Model::draft_body_result`) is drawn in that body's place once meshed
+  (`BodyMeshes::draft`, `OpenDraft`), a body made by the feature itself included; a removal's
+  tools are the draft's (`Model::draft_cuts`). A move is not
   recomputed: `Model::draft_placement` (the draft's `Move::placement` after undoing the one shown)
   places the drawn body (`MeshInstance::placement`, its edges and vertices moved on the CPU).
   Entering the value commits as before, and the draft stays shown (held) until the model has
@@ -240,7 +243,8 @@ paths:
 - The panel has the Shape switch (switching takes the new shape's default sizes), Placed on with
   Use selected or Choose in the view (the same slot), Position X and Y (key `primitive-field`,
   `("at", index)`), Starts at (Corner, Base centre, Centre), the sizes (`("size", index)`, each
-  checked by its `SizeRule`: `Rule::AboveZero`, `ZeroOrMore`, or `Sides` for a plain count),
+  checked by its `SizeRule`: `Rule::AboveZero`, `ZeroOrMore`, or `Sides` for a plain count;
+  typing a size or position previews it, as Preview while open says),
   Reverse direction (left out for Centre, where it changes nothing), and Result with Body as an
   extrusion's. Switching Result between joining (New body, Add) and cutting (Remove, Intersect)
   on a face reverses the direction to match (`primitive_tools::with_operation`), so a cut goes
@@ -260,7 +264,9 @@ paths:
   blind hole of 6 mm by 10 mm, hides the sketch and opens the panel: Size (Custom or a metric
   screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, and Insert from M2 to M8, the size's
   `fits`; with the thread named for the tapped ones, a Pitch row of the size's fine pitches when it
-  has several, and for an insert a note giving the insert's length and least wall), Style
+  has several, and for an insert a note giving the insert's length and least wall), for a tapped
+  round hole Thread class (a combo of the internal classes), Thread hand (Right, Left) and Thread
+  length (Whole bore, To a depth with its Thread depth field, key `thread-depth`), Style
   (Plain, Counterbore, Countersink, Stepped; switching takes the size's head dimensions, else the
   defaults; Stepped starts from the counterbore and a step midway to the hole, and lists Step n
   diameter and depth with Add a step, a step midway between the last and the hole as deep as the
@@ -388,8 +394,8 @@ paths:
 
 ## Patterns
 
-- With rows chosen in the tree that are all extrusions, revolves or holes adding to or removing
-  from one body (`pattern_tools::repeatable`, from the tree's raw rows, which the offers carry
+- With rows chosen in the tree that are all extrusions, revolves, holes or primitives adding to
+  or removing from one body (`pattern_tools::repeatable`, from the tree's raw rows, which the offers carry
   beside its bodies), Linear and Circular pattern repeat those features instead of the body, the
   hover naming them ("Repeat Hole 1 along …"), with a default spacing of twice their tools'
   extent along the direction. The panel's Repeats rows list them, each with Stop repeating (the
@@ -451,14 +457,21 @@ paths:
   nothing else stands square to it at 0 mm along (`PlaneThrough::SquareToCurve`); Point with two
   axes or straight edges selected sits where they cross, with an axis and a plane where they meet,
   with three planes where they meet, with one edge that is not round at 0 mm along it
-  (`PointBy::Along`) and with one sphere or torus face at its centre. Combinations keeping an
-  older meaning (an axis and a plane turn a plane; one round edge is a centre) keep it.
+  (`PointBy::Along`) and with one sphere or torus face at its centre, with any other one face at
+  its centre (`PointBy::FaceCentre`). A curved face and a point that give no other form
+  (`datum_tools::face_tangent`: a curved face giving no axis, such as a sphere, spline or
+  extruded face, for Plane; any curved face but a sphere for Axis) make Plane touch the face nearest the point (`PlaneThrough::TangentAt`) and Axis stand
+  square to it there (`DatumAxis::SquareToFace`). Combinations keeping an older meaning (an axis
+  and a plane turn a plane; one round edge is a centre; a round face and a point are a plane
+  through its axis; a sphere and a point an axis through both) keep it.
 - A plane through references, a point and the new axis forms show a Defined by (or At) row
   re-chosen from the selection, refused while nothing is selected; a plane through an axis and a
   point switches between Contains it and Square to it, and for a round face's axis also Tangent to
-  it (`PlaneThrough::Tangent`, the point picking the side), going back keeping the face and point;
-  a plane square to an edge and a point along an edge have a Distance along field; a point at a
-  round edge's centre switches to Along it; a point has Offset X, Y and Z fields. Choosing again
+  it (`PlaneThrough::Tangent` for a cylinder or cone, the point picking the side, else
+  `TangentAt`), going back keeping the face and point; a plane square to an edge and a point
+  along an edge have a Distance along field; a point at an edge switches between Its centre (a
+  round edge's), Along it and Its middle (`PointBy::EdgeMiddle`); a point has Offset X, Y and Z
+  fields. Choosing again
   from the selection keeps the form a panel was switched to and its distance (`keeping_plane_mode`,
   `keeping_point_mode`).
   Choosing them in the view holds up to two clicks (`Picking::pending`) until the selection makes

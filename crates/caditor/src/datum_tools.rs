@@ -1,11 +1,11 @@
 use caditor_document::{
     AxisReference, CurveStation, Datum, DatumAxis, DatumFrame, DatumKind, DatumPlane, DatumPoint,
-    DatumResult, Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult,
-    PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointReference, PrincipalAxis,
-    PrincipalPlane, Transaction,
+    DatumResult, Document, Edit, Evaluation, FaceTangent, Feature, FeatureId, FeatureKind,
+    FeatureResult, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointReference,
+    PrincipalAxis, PrincipalPlane, Transaction,
 };
 use caditor_geometry::Vector3;
-use caditor_kernel::{EdgeReference, FaceReference, vertex_names};
+use caditor_kernel::{EdgeReference, FaceReference, Surface, vertex_names};
 
 use crate::{
     bodies,
@@ -304,6 +304,61 @@ pub fn point_reference(model: &Model, pickable: Pickable, index: usize) -> Optio
     }
 }
 
+fn face_before(
+    model: &Model,
+    body: FeatureId,
+    face: bodies::FaceKey,
+    index: usize,
+) -> Option<(FaceReference, Surface)> {
+    let shown = bodies::shown(model.evaluation(), body)?;
+    let reference = FaceReference::capture(&shown.solid, bodies::find_face(shown, face)?)?;
+    let state = sketch_placement::body_state_before(model, body, index).ok()?;
+    let id = reference.resolve(state).ok()?;
+    let surface = state.face(id)?.surface().clone();
+    Some((FaceReference::capture(state, id)?, surface))
+}
+
+pub fn face_surface(
+    model: &Model,
+    body: FeatureId,
+    face: &FaceReference,
+    index: usize,
+) -> Option<Surface> {
+    let state = sketch_placement::body_state_before(model, body, index).ok()?;
+    Some(state.face(face.resolve(state).ok()?)?.surface().clone())
+}
+
+fn face_tangent(model: &Model, selection: &Selection, index: usize) -> Option<FaceTangent> {
+    let picked = selection.in_pick_order();
+    let [first, second] = picked.as_slice() else {
+        return None;
+    };
+    [(*first, *second), (*second, *first)]
+        .into_iter()
+        .find_map(|(face, other)| {
+            let Pickable::Face { body, face } = face else {
+                return None;
+            };
+            let (reference, surface) = face_before(model, body, face, index)?;
+            if matches!(surface, Surface::Plane(_)) {
+                return None;
+            }
+            Some(FaceTangent {
+                body,
+                face: reference,
+                toward: point_reference(model, other, index)?,
+            })
+        })
+}
+
+fn face_centre(model: &Model, pickable: Pickable, index: usize) -> Option<PointBy> {
+    let Pickable::Face { body, face } = pickable else {
+        return None;
+    };
+    let (face, _) = face_before(model, body, face, index)?;
+    Some(PointBy::FaceCentre { body, face })
+}
+
 fn curve_station(model: &Model, pickable: Pickable, index: usize) -> Option<CurveStation> {
     let Pickable::Edge { body, edge } = pickable else {
         return None;
@@ -393,9 +448,26 @@ fn why_unusable(model: &Model, pickable: Pickable, index: usize) -> Option<&'sta
 
 pub const PLANE_CHOICES: &str = "Select a plane or flat face to offset (and an axis to turn about), \
                              three points, two planes to lie midway between, an axis and a point, \
-                             two lines in one plane, or a round or curved edge to stand square to";
+                             two lines in one plane, a round or curved edge to stand square to, \
+                             or a curved face and a point to touch it nearest";
 
 pub fn plane_from_selection(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<Datum, &'static str> {
+    match (
+        plane_by_references(model, selection, index),
+        face_tangent(model, selection, index),
+    ) {
+        (Err(_), Some(tangent)) => Ok(Datum::PlaneThrough(PlaneThrough::TangentAt(Box::new(
+            tangent,
+        )))),
+        (chosen, _) => chosen,
+    }
+}
+
+fn plane_by_references(
     model: &Model,
     selection: &Selection,
     index: usize,
@@ -477,6 +549,20 @@ pub fn axis_from_selection(
     selection: &Selection,
     index: usize,
 ) -> Result<DatumAxis, &'static str> {
+    match (
+        axis_by_references(model, selection, index),
+        face_tangent(model, selection, index),
+    ) {
+        (Err(_), Some(tangent)) => Ok(DatumAxis::SquareToFace(Box::new(tangent))),
+        (chosen, _) => chosen,
+    }
+}
+
+fn axis_by_references(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<DatumAxis, &'static str> {
     let Chosen {
         planes,
         axes,
@@ -493,14 +579,16 @@ pub fn axis_from_selection(
         ([plane], [], [point]) => Ok(DatumAxis::NormalTo(plane.clone(), point.clone())),
         _ => Err(
             "Select one axis, straight edge or round face, two planes or flat faces that cross, \
-             two points, or a plane and a point to stand square on",
+             two points, a plane and a point to stand square on, or a curved face and a point to \
+             stand square to it nearest",
         ),
     }
 }
 
 pub const POINT_CHOICES: &str = "Select one corner, round edge, sphere or torus, sketch point or \
-                                 datum point to place it at, a straight or curved edge to measure \
-                                 along, two lines that cross, a line and a plane, or three planes";
+                                 datum point to place it at, a face to sit at its centre, a \
+                                 straight or curved edge to measure along, two lines that cross, \
+                                 a line and a plane, or three planes";
 
 pub fn point_from_selection(
     model: &Model,
@@ -519,6 +607,9 @@ pub fn point_from_selection(
             && let Some(centre) = point_reference(model, pickable, index)
         {
             return Ok(placed(centre));
+        }
+        if let Some(centre) = face_centre(model, pickable, index) {
+            return Ok(Datum::PointBy(centre));
         }
         if matches!(pickable, Pickable::Edge { .. })
             && point_reference(model, pickable, index).is_none()

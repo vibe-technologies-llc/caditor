@@ -392,6 +392,7 @@ pub enum PlaneThrough {
     Tangent(Box<FaceTangent>),
     SquareToCurve(Box<CurveStation>),
     Lines(AxisReference, AxisReference),
+    TangentAt(Box<FaceTangent>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -400,6 +401,14 @@ pub enum PointBy {
     AxisAndPlane(AxisReference, PlaneReference),
     ThreePlanes([PlaneReference; 3]),
     Along(Box<CurveStation>),
+    EdgeMiddle {
+        body: FeatureId,
+        edge: Box<EdgeReference>,
+    },
+    FaceCentre {
+        body: FeatureId,
+        face: FaceReference,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -421,6 +430,7 @@ pub enum DatumAxis {
     Intersection(PlaneReference, PlaneReference),
     Points(PointReference, PointReference),
     NormalTo(PlaneReference, PointReference),
+    SquareToFace(Box<FaceTangent>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -546,10 +556,30 @@ impl Datum {
 
     fn held_references_heap_size(&self) -> Option<usize> {
         match self {
-            Self::PlaneThrough(PlaneThrough::Tangent(tangent)) => Some(tangent.face.heap_size()),
+            Self::PlaneThrough(
+                PlaneThrough::Tangent(tangent) | PlaneThrough::TangentAt(tangent),
+            )
+            | Self::Axis(DatumAxis::SquareToFace(tangent)) => Some(tangent.face.heap_size()),
+            Self::PointBy(PointBy::FaceCentre { face, .. }) => Some(face.heap_size()),
             Self::PlaneThrough(PlaneThrough::SquareToCurve(_))
-            | Self::PointBy(PointBy::Along(_)) => Some(size_of::<EdgeReference>()),
+            | Self::PointBy(PointBy::Along(_) | PointBy::EdgeMiddle { .. }) => {
+                Some(size_of::<EdgeReference>())
+            }
             Self::Frame(_) => Some(size_of::<DatumFrame>()),
+            _ => None,
+        }
+    }
+
+    fn held_edge(&self) -> Option<(FeatureId, &EdgeReference)> {
+        match self {
+            Self::PointBy(PointBy::EdgeMiddle { body, edge }) => Some((*body, edge)),
+            _ => None,
+        }
+    }
+
+    fn held_face(&self) -> Option<(FeatureId, &FaceReference)> {
+        match self {
+            Self::PointBy(PointBy::FaceCentre { body, face }) => Some((*body, face)),
             _ => None,
         }
     }
@@ -623,10 +653,18 @@ impl Datum {
                 | PlaneThrough::NormalTo(..)
                 | PlaneThrough::Tangent(_)
                 | PlaneThrough::SquareToCurve(_)
-                | PlaneThrough::Lines(..),
+                | PlaneThrough::Lines(..)
+                | PlaneThrough::TangentAt(_),
             )
-            | Self::Axis(DatumAxis::Along(_) | DatumAxis::Points(..))
-            | Self::PointBy(PointBy::LinesCross(..) | PointBy::Along(_))
+            | Self::Axis(
+                DatumAxis::Along(_) | DatumAxis::Points(..) | DatumAxis::SquareToFace(_),
+            )
+            | Self::PointBy(
+                PointBy::LinesCross(..)
+                | PointBy::Along(_)
+                | PointBy::EdgeMiddle { .. }
+                | PointBy::FaceCentre { .. },
+            )
             | Self::Point(_) => Vec::new(),
         }
     }
@@ -650,15 +688,24 @@ impl Datum {
             Self::PlaneThrough(PlaneThrough::Lines(first, second))
             | Self::PointBy(PointBy::LinesCross(first, second)) => vec![first, second],
             Self::Axis(
-                DatumAxis::Intersection(..) | DatumAxis::Points(..) | DatumAxis::NormalTo(..),
+                DatumAxis::Intersection(..)
+                | DatumAxis::Points(..)
+                | DatumAxis::NormalTo(..)
+                | DatumAxis::SquareToFace(_),
             )
             | Self::PlaneThrough(
                 PlaneThrough::Points(_)
                 | PlaneThrough::Midway(..)
                 | PlaneThrough::Tangent(_)
-                | PlaneThrough::SquareToCurve(_),
+                | PlaneThrough::SquareToCurve(_)
+                | PlaneThrough::TangentAt(_),
             )
-            | Self::PointBy(PointBy::ThreePlanes(_) | PointBy::Along(_))
+            | Self::PointBy(
+                PointBy::ThreePlanes(_)
+                | PointBy::Along(_)
+                | PointBy::EdgeMiddle { .. }
+                | PointBy::FaceCentre { .. },
+            )
             | Self::Point(_) => Vec::new(),
         }
     }
@@ -673,7 +720,10 @@ impl Datum {
             )
             | Self::Axis(DatumAxis::NormalTo(_, point)) => vec![point],
             Self::Axis(DatumAxis::Points(first, second)) => vec![first, second],
-            Self::PlaneThrough(PlaneThrough::Tangent(tangent)) => vec![&tangent.toward],
+            Self::PlaneThrough(
+                PlaneThrough::Tangent(tangent) | PlaneThrough::TangentAt(tangent),
+            )
+            | Self::Axis(DatumAxis::SquareToFace(tangent)) => vec![&tangent.toward],
             Self::Plane(_)
             | Self::PlaneThrough(
                 PlaneThrough::Midway(..) | PlaneThrough::SquareToCurve(_) | PlaneThrough::Lines(..),
@@ -747,12 +797,17 @@ impl Datum {
             .chain(self.points().into_iter().filter_map(PointReference::body))
             .chain(self.station().map(|station| station.body))
             .chain(self.tangent().map(|tangent| tangent.body))
+            .chain(self.held_edge().map(|(body, _)| body))
+            .chain(self.held_face().map(|(body, _)| body))
             .collect()
     }
 
     fn tangent(&self) -> Option<&FaceTangent> {
         match self {
-            Self::PlaneThrough(PlaneThrough::Tangent(tangent)) => Some(tangent),
+            Self::PlaneThrough(
+                PlaneThrough::Tangent(tangent) | PlaneThrough::TangentAt(tangent),
+            )
+            | Self::Axis(DatumAxis::SquareToFace(tangent)) => Some(tangent),
             _ => None,
         }
     }
@@ -791,6 +846,16 @@ impl Datum {
                 self.tangent()
                     .into_iter()
                     .flat_map(|tangent| origins::of_face(&tangent.face)),
+            )
+            .chain(
+                self.held_edge()
+                    .into_iter()
+                    .flat_map(|(_, edge)| origins::of_edge(edge)),
+            )
+            .chain(
+                self.held_face()
+                    .into_iter()
+                    .flat_map(|(_, face)| origins::of_face(face)),
             )
             .collect()
     }
@@ -1502,6 +1567,7 @@ fn plane_through(resolver: &Resolver<'_>, through: &PlaneThrough) -> Result<Plan
             })
         }
         PlaneThrough::Tangent(tangent) => datum_construction::tangent_plane(resolver, tangent),
+        PlaneThrough::TangentAt(tangent) => datum_construction::tangent_plane_at(resolver, tangent),
         PlaneThrough::SquareToCurve(station) => {
             datum_construction::square_to_curve(resolver, station)
         }
@@ -1548,6 +1614,7 @@ fn axis_through(resolver: &Resolver<'_>, axis: &DatumAxis) -> Result<Ray, Failur
                 )
             })
         }
+        DatumAxis::SquareToFace(tangent) => datum_construction::square_to_face(resolver, tangent),
         DatumAxis::NormalTo(plane, point) => {
             let square = resolver.plane(plane)?;
             Ray::new(resolver.point(point)?, square.normal()).ok_or_else(|| {

@@ -520,6 +520,148 @@ fn a_round_face_and_a_point_can_switch_from_holding_the_axis_to_touching_the_fac
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
+#[test]
+fn a_round_face_and_a_point_give_an_axis_square_to_the_face_nearest_the_point() {
+    let mut harness = Harness::new();
+    let mut disc = Sketch::new(Plane::XY);
+    disc.add_circle(Point2::new(30.0, 0.0), 10.0);
+    harness.add_sketch(disc);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let side = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            pickable
+                .describe(harness.document(), harness.model.evaluation())
+                .contains("side")
+        })
+        .expect("the round side is pickable");
+
+    harness.select([side, Pickable::Origin]);
+    harness.click("Axis");
+    harness.settle();
+    let axis = harness.workspace.editing.solid().expect("the axis is open");
+
+    assert!(matches!(
+        datum_of(&harness, axis),
+        Datum::Axis(DatumAxis::SquareToFace(_))
+    ));
+    let found = result_of(&harness, axis).axis().unwrap();
+    assert!(found.origin().distance(Point3::new(20.0, 0.0, 0.0)) < 1e-6);
+    assert!((found.direction() + Vector3::X).length() < 1e-6);
+    assert!(harness.shows_containing("Square to"));
+}
+
+#[test]
+fn a_sphere_and_a_point_give_a_plane_touching_the_sphere_nearest_the_point() {
+    use caditor_document::{DatumPoint, PointReference};
+
+    let mut harness = Harness::new();
+    harness.select([]);
+    super::run_from_palette(&mut harness, "Sphere");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let unit = harness.model.length_unit();
+    let (above, point) = crate::datum_tools::create(
+        harness.document(),
+        Datum::Point(DatumPoint {
+            base: PointReference::Origin,
+            offset: [0.0, 0.0, 30.0].map(|value| unit.default_length(value)),
+        }),
+    );
+    harness.perform(Action::Apply(above));
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let surface = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            matches!(pickable, Pickable::Face { .. })
+                && pickable
+                    .describe(harness.document(), harness.model.evaluation())
+                    .contains("surface")
+        })
+        .expect("the sphere is pickable");
+
+    harness.select([surface, Pickable::Datum(point)]);
+    harness.click("Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the plane is open");
+
+    assert!(matches!(
+        datum_of(&harness, plane),
+        Datum::PlaneThrough(PlaneThrough::TangentAt(_))
+    ));
+    let found = result_of(&harness, plane).plane().unwrap();
+    assert!((found.normal() - Vector3::Z).length() < 1e-6);
+    assert!(found.signed_distance(Point3::new(0.0, 0.0, 10.0)).abs() < 1e-6);
+    assert!(harness.shows_containing("Tangent to"));
+}
+
+#[test]
+fn a_point_sits_at_a_selected_faces_centre_or_an_edges_middle() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let along_x = plate_edge(&harness, plate, Point3::new(20.0, 0.0, 0.0));
+
+    harness.select([top]);
+    harness.click("Point");
+    harness.settle();
+    let centre = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the point is open");
+
+    assert!(matches!(
+        datum_of(&harness, centre),
+        Datum::PointBy(PointBy::FaceCentre { .. })
+    ));
+    let found = result_of(&harness, centre).point().unwrap();
+    assert!((found.x - 20.0).abs() < 1e-6 && (found.y - 20.0).abs() < 1e-6);
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([along_x]);
+    harness.click("Point");
+    harness.settle();
+    let middle = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the point is open");
+    harness.select([]);
+    harness.frame();
+    if !harness.shows(crate::datum_panel::MIDDLE_OF_EDGE) {
+        harness.click("Along it");
+        harness.frame();
+    }
+    harness.click(crate::datum_panel::MIDDLE_OF_EDGE);
+    harness.settle();
+
+    assert!(matches!(
+        datum_of(&harness, middle),
+        Datum::PointBy(PointBy::EdgeMiddle { .. })
+    ));
+    let found = result_of(&harness, middle).point().unwrap();
+    assert!(found.distance(Point3::new(20.0, 0.0, 0.0)) < 1e-9);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
 fn mirrored_features(harness: &Harness, feature: FeatureId) -> Vec<FeatureId> {
     harness
         .document()
@@ -591,4 +733,48 @@ fn a_hole_chosen_in_the_tree_is_mirrored_onto_its_body_instead_of_the_whole_body
     harness.settle();
     assert_eq!(mirrored_features(&harness, mirror), vec![hole]);
     assert!(volume_about(&harness, plate, 16000.0 - 2.0 * drilled));
+}
+
+#[test]
+fn a_tapped_holes_thread_takes_its_hand_and_depth_from_the_hole_panel() {
+    use caditor_document::{HoleFit, HoleStandard, MetricSize, ThreadHand, placed_threads};
+
+    use crate::hole_panel::{TO_A_DEPTH, WHOLE_BORE};
+
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let tapped = crate::hole_tools::with_standard(
+        &super::open_hole(&harness, hole),
+        HoleStandard {
+            size: MetricSize::M6,
+            fit: HoleFit::Tapped,
+        },
+        crate::units::LengthUnit::Millimetre,
+    );
+    let change = crate::hole_tools::edit(harness.document(), hole, tapped).unwrap();
+    harness.perform(Action::Apply(change));
+    harness.settle();
+
+    assert!(harness.shows(crate::hole_panel::THREAD_CLASS));
+    assert!(harness.shows("6H"));
+
+    super::choose(&mut harness, "Right", "Left");
+    super::choose(&mut harness, WHOLE_BORE, TO_A_DEPTH);
+    harness.type_into_field(Id::new(("hole-field", "thread-depth", hole)), "4 mm");
+    harness.settle();
+
+    let thread = super::open_hole(&harness, hole).thread;
+    assert_eq!(thread.hand, ThreadHand::Left);
+    assert_eq!(
+        thread.depth.map(|depth| depth.to_stored_text()).as_deref(),
+        Some("4 mm")
+    );
+    let placed = placed_threads(harness.document(), harness.model.evaluation());
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0].designation, "M6-6H-LH");
+    assert!((placed[0].placement.length - 4.0).abs() < 1e-6);
 }

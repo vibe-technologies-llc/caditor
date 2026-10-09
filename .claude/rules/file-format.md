@@ -212,7 +212,10 @@ paths:
   `tapped_fine_2`, `tapped_fine_3` or `heat_set_insert`); a standard
   this version does not know loads as none, keeping the typed sizes, reported; so do the fits added
   later (`tapped_fine_2`, `tapped_fine_3`, `heat_set_insert`) in older readers, and a fit its size
-  does not offer. A hole sized by its circles is a `hole_by_circles` record of the same fields,
+  does not offer. A tapped thread other than the default carries `thread` (`class` when not the
+  first, `left_handed` when set, `depth` text when not the whole wall); losing it changes no solid,
+  only the cosmetic thread, so it is a field an older reader drops. An unknown class loads as the
+  first, reported, and an unreadable depth as 10 mm. A hole sized by its circles is a `hole_by_circles` record of the same fields,
   since an older reader would drill the typed diameter at every circle, and one also scaling its
   counterbore or countersink by them a `hole_scaled_by_circles` record. A stepped hole is a
   `stepped_hole` record: `feature`, the hole record of its sizing whose style is a counterbore of
@@ -247,7 +250,11 @@ paths:
   (`lines_cross`, two axis references; `axis_and_plane`; `three_planes`; `along`, a station like
   `square_to_curve`'s), each a kind of its own so an older reader reports it. An unreadable
   reference loads as the XY plane or a point at the origin, reported, and an unreadable distance
-  as 0 mm.
+  as 0 mm. The datums at curved faces, edge middles and face centres are `datum_construction`
+  records (`tangent_at` and `square_to_face`, each `body`, `face` and `toward`; `edge_middle` with
+  `body` and an `edge` record; `face_centre` with `body` and a `face` record), a kind of its own
+  added later so an older reader reports it rather than calling the feature damaged; an unreadable
+  reference loads as the XY plane, the Z axis or a point at the origin, reported.
 - A `move` feature record holds `body` and the stored text of its three distances (`offset`) and
   three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported. A copying move is a
   `copy` record of the same fields, since an older reader taking it for a move would move the
@@ -315,8 +322,8 @@ paths:
   metric coarse), `size` (`M8`, `M8x1`, `1/2`, `Tr 20x4`; unknown loads as the size nearest 8 mm),
   `class` (absent for the one internal class of ISO 228; unknown loads as the standard's first
   internal class), `left_handed` and `reversed` only when set and `depth` (stored text; absent
-  for the whole face, unreadable 10 mm), each fallback reported. A tapped hole's thread is not
-  stored: it comes from the hole's `standard`.
+  for the whole face, unreadable 10 mm), each fallback reported. A tapped hole's thread is not a
+  `thread` record: it comes from the hole's `standard` and its `thread` field.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
   One with more tool bodies or keeping its tool is a `combine_tools` record: `feature`, the
   `combine` record it would be with the first tool alone, `more_tools` (ids, only when there are

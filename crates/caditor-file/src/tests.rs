@@ -4093,6 +4093,72 @@ fn constructed_planes_and_points_are_kinds_older_readers_report_and_read_back() 
 }
 
 #[test]
+fn datums_on_curved_faces_edge_middles_and_face_centres_are_a_kind_older_readers_report() {
+    use caditor_document::{Datum, DatumAxis, FaceTangent, PlaneThrough, PointBy, PointReference};
+    use caditor_kernel::{EdgeName, EdgeReference, FaceName, FaceReference, VertexName};
+    let (mut document, base, _) = solid_model();
+    let face = || FaceReference::new(FaceName::from_digest(0xfa), None, Vec::new());
+    let tangent = || {
+        Box::new(FaceTangent {
+            body: base,
+            face: face(),
+            toward: PointReference::Origin,
+        })
+    };
+    let mut transaction = document.transaction("Datums");
+    transaction.add_feature(
+        "Plane 1",
+        FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::TangentAt(tangent()))),
+    );
+    transaction.add_feature(
+        "Axis 1",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::SquareToFace(tangent()))),
+    );
+    transaction.add_feature(
+        "Point 1",
+        FeatureKind::Datum(Datum::PointBy(PointBy::EdgeMiddle {
+            body: base,
+            edge: Box::new(EdgeReference::new(
+                EdgeName::from_digest(0xed),
+                [FaceName::from_digest(1), FaceName::from_digest(2)],
+                [VertexName::from_digest(3), VertexName::from_digest(4)],
+            )),
+        })),
+    );
+    transaction.add_feature(
+        "Point 2",
+        FeatureKind::Datum(Datum::PointBy(PointBy::FaceCentre {
+            body: base,
+            face: face(),
+        })),
+    );
+    let add = transaction.finish();
+    document.apply(add.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("datum_construction", "datum_built"));
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&add)).unwrap());
+
+    assert!(
+        text.contains("\"datum_construction\":{\"tangent_at\":{"),
+        "{text}"
+    );
+    assert!(text.contains("\"datum_construction\":{\"square_to_face\":{"));
+    assert!(text.contains("\"datum_construction\":{\"edge_middle\":{"));
+    assert!(text.contains("\"datum_construction\":{\"face_centre\":{"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(older.issues.len(), 4);
+    assert!(issues_mention(
+        &older,
+        "a kind this version of caditor does not know"
+    ));
+    assert_eq!(format::restore_transaction(journaled), Some(add));
+}
+
+#[test]
 fn an_unreadable_constructed_datum_falls_back_and_is_reported() {
     use caditor_document::Datum;
     let (document, _) = constructed_datums_model();
@@ -5942,6 +6008,7 @@ fn holed_model(style: caditor_document::HoleStyle, through: bool) -> (Document, 
             standard: None,
             sizing: caditor_document::HoleSizing::Typed,
             bottom: caditor_document::HoleBottom::Flat,
+            thread: caditor_document::TappedThread::default(),
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -6783,6 +6850,72 @@ fn a_slotted_hole_of_a_standard_size_is_saved_journaled_and_loaded() {
     };
     assert_eq!(read.standard, None);
     assert!(matches!(read.shape, HoleShape::Slot { .. }));
+}
+
+#[test]
+fn a_tapped_holes_thread_class_hand_and_depth_are_saved_journaled_and_loaded() {
+    use caditor_document::{
+        HoleFit, HoleStandard, HoleStyle, MetricSize, TappedThread, ThreadFamily, ThreadHand,
+    };
+    let (mut document, hole) = holed_model(HoleStyle::Plain, false);
+    let FeatureKind::Hole(definition) = document.feature(hole).unwrap().kind.clone() else {
+        panic!("a hole");
+    };
+    let tapped = caditor_document::Hole {
+        standard: Some(HoleStandard {
+            size: MetricSize::M6,
+            fit: HoleFit::Tapped,
+        }),
+        ..definition
+    };
+    document
+        .apply(Transaction::single(
+            "Tap",
+            Edit::SetFeatureKind {
+                id: hole,
+                kind: FeatureKind::Hole(tapped.clone()),
+            },
+        ))
+        .unwrap();
+    let plain = encode(&document).unwrap();
+    let change = Transaction::single(
+        "Thread",
+        Edit::SetFeatureKind {
+            id: hole,
+            kind: FeatureKind::Hole(caditor_document::Hole {
+                thread: TappedThread {
+                    class: ThreadFamily::MetricCoarse.class_from_id("5H"),
+                    hand: ThreadHand::Left,
+                    depth: Some(Expression::parse_stored("3 mm").unwrap()),
+                },
+                ..tapped
+            }),
+        },
+    );
+    document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+
+    assert!(!plain.contains("\"thread\""));
+    assert!(text.contains("\"thread\":{"), "{text}");
+    assert!(text.contains("\"class\":\"5H\""));
+    assert!(text.contains("\"left_handed\":true"));
+    assert!(text.contains("\"depth\":\"3 mm\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+
+    let unknown = decode_text(&text.replace("\"5H\"", "\"9Q\""));
+
+    assert!(issues_mention(&unknown, "(9Q) could not be read"));
+    let FeatureKind::Hole(read) = &unknown.document.feature(hole).unwrap().kind else {
+        panic!("a hole");
+    };
+    assert_eq!(read.thread.class, None);
+    assert_eq!(read.thread.hand, ThreadHand::Left);
 }
 
 #[test]

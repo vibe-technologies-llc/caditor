@@ -70,7 +70,11 @@ pub fn repeatable_on(kind: &FeatureKind) -> Option<FeatureId> {
     if let Some(hole) = kind.hole() {
         return Some(hole.body);
     }
-    match kind.solid()?.operation() {
+    let operation = match kind.primitive() {
+        Some(primitive) => primitive.operation,
+        None => kind.solid()?.operation(),
+    };
+    match operation {
         BodyOperation::Add(body) | BodyOperation::Remove(body) => Some(body),
         BodyOperation::NewBody | BodyOperation::Intersect(_) => None,
     }

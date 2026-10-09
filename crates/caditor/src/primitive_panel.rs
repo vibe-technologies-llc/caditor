@@ -152,11 +152,11 @@ impl Panel<'_> {
             dimension,
             rule,
         };
-        let committed =
-            feature_fields::expression_row(ui, self.model, caption, quantity, |value| {
+        let drafting =
+            feature_fields::expression_row_drafting(ui, self.model, caption, quantity, |value| {
                 primitive_tools::change(self.model, self.id(), changed(value))
             });
-        self.actions.extend(committed.map(Action::Apply));
+        self.actions.extend(drafting.into_actions(self.id()));
     }
 
     fn position_rows(&mut self, ui: &mut Ui) {

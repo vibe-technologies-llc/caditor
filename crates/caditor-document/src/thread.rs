@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
 use caditor_geometry::{Point3, Vector3};
-use caditor_kernel::{FaceId, FaceOrigin, FaceReference, Solid, Surface};
+use caditor_kernel::{FaceCopy, FaceId, FaceOrigin, FaceReference, Solid, Surface};
 
 use crate::{
     describe::{describe_origin, edge_faces},
@@ -16,6 +16,7 @@ use crate::{
         Inputs,
     },
     thread_standard::{ThreadClass, ThreadDesignation, ThreadHand, ThreadSide, ThreadSize},
+    values::ParameterValues,
 };
 
 const EDGE_SAMPLES: usize = 16;
@@ -522,7 +523,12 @@ pub fn placed_threads(document: &Document, evaluation: &Evaluation) -> Vec<Place
         {
             placed.extend(place_thread(feature.id(), thread, evaluated, &standing));
         } else if let Some(hole) = feature.kind.hole() {
-            placed.extend(hole_threads(feature.id(), hole, &standing));
+            placed.extend(hole_threads(
+                feature.id(),
+                hole,
+                &standing,
+                &evaluation.parameters,
+            ));
         }
     }
     placed
@@ -564,32 +570,48 @@ pub fn hole_thread(hole: &Hole) -> Option<ThreadDesignation> {
     let size = ThreadSize::of_hole(hole.standard?)?;
     Some(ThreadDesignation {
         size,
-        class: size.family().default_class(ThreadSide::Internal),
-        hand: ThreadHand::Right,
+        class: hole
+            .thread
+            .class
+            .unwrap_or_else(|| size.family().default_class(ThreadSide::Internal)),
+        hand: hole.thread.hand,
     })
+}
+
+fn hole_wall(feature: FeatureId, origin: FaceOrigin) -> Option<(Option<FaceCopy>, u64)> {
+    let FaceOrigin::Side {
+        feature: maker,
+        entity,
+    } = origin.original()
+    else {
+        return None;
+    };
+    (maker == feature.raw() && Hole::is_wall(entity)).then_some((origin.copy(), entity))
 }
 
 fn hole_threads(
     feature: FeatureId,
     hole: &Hole,
     standing: &[(FeatureId, &Solid)],
+    parameters: &ParameterValues,
 ) -> Vec<PlacedThread> {
     let Some(designation) = hole_thread(hole) else {
         return Vec::new();
     };
+    let depth = match &hole.thread.depth {
+        None => None,
+        Some(depth) => match depth.evaluate_as(Dimension::LENGTH, &|id| parameters.value(id)) {
+            Ok(value) if value.is_finite() && value > 0.0 => Some(value),
+            Ok(_) | Err(_) => return Vec::new(),
+        },
+    };
     let text = designation.text();
     let mut placed = Vec::new();
     for (body, solid) in standing {
-        let mut walls: BTreeMap<u64, Vec<FaceId>> = BTreeMap::new();
+        let mut walls: BTreeMap<(Option<FaceCopy>, u64), Vec<FaceId>> = BTreeMap::new();
         for (id, face) in solid.faces() {
-            if let Some(FaceOrigin::Side {
-                feature: maker,
-                entity,
-            }) = face.origin()
-                && maker == feature.raw()
-                && Hole::is_wall(entity)
-            {
-                walls.entry(entity).or_default().push(id);
+            if let Some(wall) = face.origin().and_then(|origin| hole_wall(feature, origin)) {
+                walls.entry(wall).or_default().push(id);
             }
         }
         for faces in walls.values() {
@@ -601,7 +623,7 @@ fn hole_threads(
                 body: *body,
                 designation: text.clone(),
                 side: bore.side,
-                placement: bore.placement(None, false, designation.size.drawn_diameter(bore.side)),
+                placement: bore.placement(depth, false, designation.size.drawn_diameter(bore.side)),
             });
         }
     }
