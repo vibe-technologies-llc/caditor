@@ -120,6 +120,7 @@ pub(crate) enum PlanPcurve {
     Fitted,
     Straight(Point2, Point2),
     Given(Pcurve),
+    Settled(Pcurve),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -151,6 +152,14 @@ impl PlanCoedge {
             edge,
             sense,
             pcurve: PlanPcurve::Given(pcurve),
+        }
+    }
+
+    pub fn settled(edge: usize, sense: Sense, pcurve: Pcurve) -> Self {
+        Self {
+            edge,
+            sense,
+            pcurve: PlanPcurve::Settled(pcurve),
         }
     }
 }
@@ -496,9 +505,9 @@ impl Plan {
                     .ok_or(PlanError::Unassembled)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let given = resolved
-            .iter()
-            .any(|(_, coedge)| matches!(coedge.pcurve, PlanPcurve::Given(_)));
+        let given = resolved.iter().any(|(_, coedge)| {
+            matches!(coedge.pcurve, PlanPcurve::Given(_) | PlanPcurve::Settled(_))
+        });
         let straight = resolved
             .iter()
             .all(|(_, coedge)| matches!(coedge.pcurve, PlanPcurve::Straight(..)));
@@ -515,7 +524,7 @@ impl Plan {
             let edge = self.edges.get(coedge.edge).ok_or(PlanError::Unassembled)?;
             let hint = with_pcurves.last().map(|(_, _, pcurve)| pcurve.end());
             let pcurve = match &coedge.pcurve {
-                PlanPcurve::Given(pcurve) => Ok(pcurve.clone()),
+                PlanPcurve::Given(pcurve) | PlanPcurve::Settled(pcurve) => Ok(pcurve.clone()),
                 PlanPcurve::Straight(at_start, at_end) => {
                     straight_pcurve(edge.interval, coedge.sense, *at_start, *at_end)
                 }
@@ -530,7 +539,12 @@ impl Plan {
             .map_err(|error| BuildError::pcurve(id, error))?;
             with_pcurves.push((id, coedge.sense, pcurve));
         }
-        builder.add_loop_with_pcurves(face_id, with_pcurves)?;
+        let settled: Vec<bool> = coedges
+            .iter()
+            .map(|coedge| matches!(coedge.pcurve, PlanPcurve::Settled(_)))
+            .collect();
+        let face_loop = builder.add_loop_with_pcurves(face_id, with_pcurves)?;
+        builder.settle(face_loop, &settled);
         Ok(())
     }
 }

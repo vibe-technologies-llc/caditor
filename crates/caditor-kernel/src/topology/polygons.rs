@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use caditor_geometry::{Aabb, Point2, Point3};
 
 use crate::box_tree::BoxTree;
@@ -5,9 +7,35 @@ use crate::box_tree::BoxTree;
 const RELATIVE_SLACK: f64 = 1e-9;
 const SCANNED_SEGMENTS: usize = 32;
 
+#[derive(Debug, Clone)]
+struct Ring {
+    segments: Vec<[Point2; 2]>,
+    bounds: Aabb,
+    tree: OnceLock<BoxTree>,
+}
+
+impl Ring {
+    fn crossings(&self, point: Point2, toward: &Aabb, slack: f64) -> usize {
+        if self.segments.len() <= SCANNED_SEGMENTS {
+            return self
+                .segments
+                .iter()
+                .filter(|[a, b]| crosses(*a, *b, point))
+                .count();
+        }
+        self.tree
+            .get_or_init(|| BoxTree::new(self.segments.iter().map(|[a, b]| flat_box(*a, *b))))
+            .overlapping(toward, slack)
+            .into_iter()
+            .filter_map(|index| self.segments.get(index))
+            .filter(|[a, b]| crosses(*a, *b, point))
+            .count()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PolygonIndex {
-    segments: Vec<[Point2; 2]>,
+    rings: Vec<Ring>,
     tree: BoxTree,
     reach: f64,
     slack: f64,
@@ -24,23 +52,26 @@ pub(crate) fn crosses(a: Point2, b: Point2, point: Point2) -> bool {
 
 impl PolygonIndex {
     pub fn new<'p>(polygons: impl IntoIterator<Item = &'p [Point2]>) -> Self {
-        let segments: Vec<[Point2; 2]> = polygons
+        let rings: Vec<Ring> = polygons
             .into_iter()
-            .flat_map(|polygon| {
-                polygon
+            .filter_map(|polygon| {
+                let segments: Vec<[Point2; 2]> = polygon
                     .iter()
                     .zip(polygon.iter().cycle().skip(1))
                     .map(|(a, b)| [*a, *b])
+                    .collect();
+                let bounds = segments
+                    .iter()
+                    .map(|[a, b]| flat_box(*a, *b))
+                    .reduce(Aabb::union)?;
+                Some(Ring {
+                    segments,
+                    bounds,
+                    tree: OnceLock::new(),
+                })
             })
             .collect();
-        if segments.len() <= SCANNED_SEGMENTS {
-            return Self {
-                segments,
-                ..Self::default()
-            };
-        }
-        let boxes: Vec<Aabb> = segments.iter().map(|[a, b]| flat_box(*a, *b)).collect();
-        let extent = boxes.iter().copied().reduce(Aabb::union);
+        let extent = rings.iter().map(|ring| ring.bounds).reduce(Aabb::union);
         let reach = extent.map_or(0.0, |extent| extent.max().x);
         let slack = extent.map_or(0.0, |extent| {
             let size = (extent.max() - extent.min()).max_element();
@@ -48,30 +79,21 @@ impl PolygonIndex {
             RELATIVE_SLACK * (1.0 + size + magnitude)
         });
         Self {
-            segments,
-            tree: BoxTree::new(boxes),
+            tree: BoxTree::new(rings.iter().map(|ring| ring.bounds)),
+            rings,
             reach,
             slack,
         }
     }
 
     pub fn contains(&self, point: Point2) -> bool {
-        if self.segments.len() <= SCANNED_SEGMENTS {
-            return self
-                .segments
-                .iter()
-                .filter(|[a, b]| crosses(*a, *b, point))
-                .count()
-                % 2
-                == 1;
-        }
         let toward = flat_box(point, Point2::new(self.reach.max(point.x), point.y));
         self.tree
             .overlapping(&toward, self.slack)
             .into_iter()
-            .filter_map(|index| self.segments.get(index))
-            .filter(|[a, b]| crosses(*a, *b, point))
-            .count()
+            .filter_map(|index| self.rings.get(index))
+            .map(|ring| ring.crossings(point, &toward, self.slack))
+            .sum::<usize>()
             % 2
             == 1
     }

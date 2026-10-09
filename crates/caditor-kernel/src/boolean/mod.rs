@@ -1,4 +1,7 @@
+mod apart;
 mod assemble;
+#[cfg(test)]
+mod carry_tests;
 mod faces;
 mod heal;
 mod imprint;
@@ -203,6 +206,7 @@ struct FaceBounds {
 struct Input<'a> {
     first: &'a Solid,
     second: &'a Solid,
+    carrying: bool,
     classifiers: [SolidClassifier<'a>; 2],
     faces: [Vec<FaceBounds>; 2],
     trees: [BoxTree; 2],
@@ -277,19 +281,29 @@ fn widened(surface: &Surface, uv: Aabb2) -> Aabb2 {
     Aabb2::from_points([low, high]).unwrap_or(uv)
 }
 
+fn uv_box(solid: &Solid, face: &Face) -> Option<Aabb2> {
+    let uv = Aabb2::from_points(
+        face.loops()
+            .iter()
+            .filter_map(|loop_id| solid.face_loop(*loop_id))
+            .flat_map(|face_loop| face_loop.coedges().iter())
+            .filter_map(|coedge| solid.coedge(*coedge))
+            .flat_map(|coedge| coedge.pcurve().samples().iter().map(|sample| sample.uv)),
+    )?;
+    Some(widened(face.surface(), uv))
+}
+
+fn face_box(solid: &Solid, id: FaceId) -> Option<Aabb> {
+    let face = solid.face(id)?;
+    let uv = uv_box(solid, face)?;
+    Some(patch_bounds(face.surface(), uv).expanded(TOLERANCE))
+}
+
 fn face_bounds(solid: &Solid) -> Vec<FaceBounds> {
     solid
         .faces()
         .filter_map(|(id, face)| {
-            let uv = Aabb2::from_points(
-                face.loops()
-                    .iter()
-                    .filter_map(|loop_id| solid.face_loop(*loop_id))
-                    .flat_map(|face_loop| face_loop.coedges().iter())
-                    .filter_map(|coedge| solid.coedge(*coedge))
-                    .flat_map(|coedge| coedge.pcurve().samples().iter().map(|sample| sample.uv)),
-            )?;
-            let uv = widened(face.surface(), uv);
+            let uv = uv_box(solid, face)?;
             Some(FaceBounds {
                 id,
                 uv,
@@ -301,10 +315,15 @@ fn face_bounds(solid: &Solid) -> Vec<FaceBounds> {
 
 impl<'a> Input<'a> {
     fn new(first: &'a Solid, second: &'a Solid) -> Self {
+        Self::with_carrying(first, second, true)
+    }
+
+    fn with_carrying(first: &'a Solid, second: &'a Solid, carrying: bool) -> Self {
         let (first_faces, second_faces) = (face_bounds(first), face_bounds(second));
         Self {
             first,
             second,
+            carrying,
             classifiers: [first.classifier(), second.classifier()],
             positions: [
                 bounds_positions(&first_faces),
@@ -385,17 +404,23 @@ fn combine(
     operation: BooleanOperation,
 ) -> Result<Solid, BooleanError> {
     interrupt::check()?;
-    let input = Input::new(first, second);
-    let mut arrangement = imprint::imprint(&input)?;
+    if let Some(result) = apart::combine_apart(first, second, operation) {
+        return result;
+    }
+    run(&Input::new(first, second), operation)
+}
+
+fn run(input: &Input, operation: BooleanOperation) -> Result<Solid, BooleanError> {
+    let mut arrangement = imprint::imprint(input)?;
     interrupt::check()?;
-    let split = faces::split(&input, &arrangement)?;
+    let split = faces::split(input, &arrangement)?;
     interrupt::check()?;
-    let kept = select::select(&input, &arrangement, split, operation)?;
+    let kept = select::select(input, &arrangement, split, operation)?;
     if kept.is_empty() {
         return Err(BooleanError::Empty);
     }
     interrupt::check()?;
     let healed = heal::heal(&mut arrangement, kept)?;
     interrupt::check()?;
-    assemble::assemble(&arrangement, healed)
+    assemble::assemble(input, &arrangement, healed)
 }

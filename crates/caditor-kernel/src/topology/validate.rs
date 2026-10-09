@@ -151,12 +151,16 @@ impl ValidationError {
 type Checked<T> = Result<T, ValidationError>;
 
 pub(crate) fn validate(solid: &Solid) -> Checked<()> {
+    validate_settled(solid, &BTreeSet::new())
+}
+
+pub(crate) fn validate_settled(solid: &Solid, settled: &BTreeSet<CoedgeId>) -> Checked<()> {
     structure(solid)?;
     vertices_used(solid)?;
     edges(solid)?;
     edge_uses(solid)?;
     loop_chains(solid)?;
-    coedge_geometry(solid)?;
+    coedge_geometry(solid, settled)?;
     seams(solid)?;
     face_domains(solid)?;
     shells(solid)?;
@@ -296,8 +300,8 @@ fn same_parameter(a: f64, b: f64) -> bool {
     (a - b).abs() <= PARAMETER_MATCH * (1.0 + a.abs().max(b.abs()))
 }
 
-fn coedge_geometry(solid: &Solid) -> Checked<()> {
-    for (id, coedge) in solid.coedges() {
+fn coedge_geometry(solid: &Solid, settled: &BTreeSet<CoedgeId>) -> Checked<()> {
+    for (id, coedge) in solid.coedges().filter(|(id, _)| !settled.contains(id)) {
         interrupt::check()?;
         let edge = solid
             .edge(coedge.edge())
