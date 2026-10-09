@@ -420,7 +420,7 @@ jobs:
           if [ "${{ matrix.dictionary }}" != none ]; then
             dictionary=(-dict="dictionaries/${{ matrix.dictionary }}.dict")
           fi
-          cargo fuzz run "${{ matrix.target }}" \
+          cargo fuzz run --target x86_64-unknown-linux-gnu "${{ matrix.target }}" \
             "corpus/${{ matrix.target }}" "seeds/${{ matrix.seeds }}" -- \
             "${dictionary[@]}" \
             -max_total_time="$FUZZ_SECONDS" -rss_limit_mb=2048 -timeout=10

@@ -59,7 +59,8 @@ paths:
 ## Fuzzing
 
 - `fuzz/` is its own cargo workspace for `cargo fuzz` on nightly, one target per file in
-  `fuzz/fuzz_targets`. Byte targets feed parsers and loaders (expression, DXF, SVG, model files, journal,
+  `fuzz/fuzz_targets`. CI runs them with `--target x86_64-unknown-linux-gnu`, since the released
+  cargo-fuzz binary is built for musl and otherwise builds for musl, which AddressSanitizer refuses. Byte targets feed parsers and loaders (expression, DXF, SVG, model files, journal,
   zstd, STEP, preferences, recent files); `model_sealed` and the resealed journal target recompute
   chunk checksums so the decoders behind them are reached, while `journal_torn` leaves a damaged
   tail torn.
