@@ -22,7 +22,7 @@ use crate::{
     history::ResultHistory,
     hole, import, mirror, movement, offset_face, pattern,
     presenting::{Glimpse, Presentation, SettledBody},
-    projection, removal, scaling, shell,
+    primitive, projection, removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
     split,
     values::ParameterValues,
@@ -1285,6 +1285,9 @@ impl Evaluator for ModelEvaluator {
                 offset_face::evaluate(feature, definition, inputs, cancel)
             }
             FeatureKind::Hole(definition) => hole::evaluate(feature, definition, inputs, cancel),
+            FeatureKind::Primitive(definition) => {
+                primitive::evaluate(feature, definition, inputs, cancel)
+            }
             FeatureKind::Move(definition) => {
                 movement::evaluate(feature, definition, inputs, cancel)
             }

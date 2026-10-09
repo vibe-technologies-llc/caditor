@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use caditor_document::{FeatureId, FeatureKind, SavedView, Transaction};
-use caditor_geometry::{Aabb, Plane, Point2, Point3, Rotation3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
 use caditor_render::{
     Camera, PickResult, ProjectionMode, Scene, SurfaceSize, View, Viewpoint, ViewportRect,
     grid_minor_spacing,
@@ -38,7 +38,9 @@ use crate::{
     offset_face_tools, pattern_tools,
     pick_list::{self, PickList},
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
-    projecting, reference_picking, saved_views,
+    primitive_tools, projecting,
+    reference_picking::{self, Slot},
+    saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
@@ -102,6 +104,8 @@ const CHOOSE_MIRROR_PROMPT: &str =
 const CHOOSE_SPLIT_PROMPT: &str =
     "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
 const CHOOSE_HOLE_PROMPT: &str = "Choose the hole's style and sizes in the feature's panel";
+const CHOOSE_PRIMITIVE_PROMPT: &str =
+    "Enter the sizes and position in the feature's panel, or choose in the view where it goes";
 const CHOOSE_REFERENCES_PROMPT: &str = "Select planes, faces, axes or edges for the feature's panel, or choose them in the view from it";
 const SNAP_LABEL_OFFSET: egui::Vec2 = vec2(14.0, 10.0);
 const KEYBOARD_ORBIT_FRACTION: f64 = 1.0 / 12.0;
@@ -1832,7 +1836,10 @@ impl ViewportState {
         if !click.primary {
             return;
         }
-        if let Some(action) = pick_action(self.hovered, model, editing, click.toggle) {
+        let ray = self
+            .cursor
+            .and_then(|cursor| self.view()?.ray_through(cursor));
+        if let Some(action) = pick_action(self.hovered, ray, model, editing, click.toggle) {
             actions.extend(action);
             return;
         }
@@ -2219,7 +2226,7 @@ impl ViewportState {
         if commands.invoke(Command::IntersectBody, &face)
             && let Ok(face) = face
         {
-            actions.extend(pick_action(Some(face), model, editing, true).unwrap_or_default());
+            actions.extend(pick_action(Some(face), None, model, editing, true).unwrap_or_default());
             return;
         }
         let activation = self
@@ -2248,7 +2255,7 @@ impl ViewportState {
             self.dimension_click(model, feature, Some(pickable), actions);
             return;
         }
-        match pick_action(Some(pickable), model, editing, false) {
+        match pick_action(Some(pickable), None, model, editing, false) {
             Some(action) => actions.extend(action),
             None if toggle => self.toggle_chosen(model, pickable),
             None => {
@@ -3355,6 +3362,7 @@ impl ViewportState {
                 Some(FeatureKind::Mirror(_)) => CHOOSE_MIRROR_PROMPT,
                 Some(FeatureKind::Split(_)) => CHOOSE_SPLIT_PROMPT,
                 Some(FeatureKind::Hole(_)) => CHOOSE_HOLE_PROMPT,
+                Some(FeatureKind::Primitive(_)) => CHOOSE_PRIMITIVE_PROMPT,
                 Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,
                 _ => CHOOSE_REGIONS_PROMPT,
             };
@@ -3677,10 +3685,20 @@ fn open_command(pickable: Option<Pickable>, model: &Model) -> Option<EditingComm
 
 fn pick_action(
     pickable: Option<Pickable>,
+    ray: Option<Ray>,
     model: &Model,
     editing: &SketchEditing,
     whole: bool,
 ) -> Option<Vec<Action>> {
+    if let Some(picking) = editing.picking()
+        && picking.slot == Slot::PrimitivePlace
+    {
+        return Some(
+            pickable
+                .map(|pickable| primitive_tools::place_click(model, picking.feature, pickable, ray))
+                .unwrap_or_default(),
+        );
+    }
     if let Some(picking) = editing.picking() {
         return Some(
             pickable

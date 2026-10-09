@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use caditor_document::{
     BlendKind, CombineOperation, Datum, Document, Edit, Feature, FeatureError, FeatureId,
-    FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, PatternKind, RollbackBar,
-    SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
+    FeatureKind, FeatureState, FeatureStatus, FixTarget, Healing, PatternKind, PrimitiveKind,
+    RollbackBar, SketchFeature, SolidFeature, SolidResult, Transaction, TreeRow,
 };
 use caditor_expression::Expression;
 use caditor_sketch::{Constraint, ConstraintId, Redundancy, Sketch, SketchSolution};
@@ -30,7 +30,7 @@ use crate::{
     pattern_panel,
     pattern_tools::{self, Reference},
     preferences::PreferencesCommand,
-    principal_tree, removal, scale_panel,
+    primitive_panel, principal_tree, removal, scale_panel,
     selection::{Pickable, Selection},
     shell_panel,
     sketch_placement::{self, PlacementTarget},
@@ -259,6 +259,12 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         },
         FeatureKind::Shell(_) => &["shell", "hollow"],
         FeatureKind::OffsetFace(_) => &["offset", "face", "press", "pull", "move face"],
+        FeatureKind::Primitive(primitive) => match primitive.shape.kind() {
+            PrimitiveKind::Box => &["box", "block", "cube", "primitive"],
+            PrimitiveKind::Cylinder => &["cylinder", "post", "primitive"],
+            PrimitiveKind::Sphere => &["sphere", "ball", "primitive"],
+            PrimitiveKind::Torus => &["torus", "ring", "primitive"],
+        },
         FeatureKind::Combine(combine) => match combine.operation {
             CombineOperation::Join => &["combine", "join", "union"],
             CombineOperation::Cut => &["combine", "cut", "subtract", "difference"],
@@ -861,6 +867,10 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::Primitive(primitive) => {
+            primitive_panel::show(ui, model, row.selection, actions, feature, primitive);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Combine(combine) => {
             combine_panel::show(ui, model, actions, feature, combine);
             body_display(ui, model, feature);
@@ -954,6 +964,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
+        | FeatureKind::Primitive(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Mirror(_)
@@ -1066,6 +1077,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
+            | FeatureKind::Primitive(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mirror(_)
@@ -1082,6 +1094,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
             | FeatureKind::OffsetFace(_)
+            | FeatureKind::Primitive(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mirror(_)

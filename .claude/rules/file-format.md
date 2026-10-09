@@ -264,6 +264,11 @@ paths:
 - An `offset_face` feature record holds `body`, `distance` (stored text; unreadable: 1 mm,
   reported), `faces` (face records; an unreadable one is left out, reported as left where it is)
   and `tangent` only when set.
+- A `primitive` feature record holds `shape` (`box` with `length`, `width`, `height`; `cylinder`
+  with `diameter`, `height`; `sphere` with `diameter`; `torus` with `diameter`, `tube`, each stored
+  text; unreadable: 10 mm, a tube 2 mm, reported), `plane` (a plane reference; unreadable: the XY
+  plane, reported), `at` (two stored texts; unreadable: 0 mm, reported), `anchor` (`corner`,
+  `base_centre`, `centre`), `operation` as an extrusion's, and `reversed` only when set.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
   One with more tool bodies or keeping its tool is a `combine_tools` record: `feature`, the
   `combine` record it would be with the first tool alone, `more_tools` (ids, only when there are

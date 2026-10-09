@@ -90,6 +90,8 @@ mod patterning;
 mod pick_list;
 mod portal;
 mod preferences;
+mod primitive_panel;
+mod primitive_tools;
 mod principal_tree;
 mod projecting;
 mod reference_picking;

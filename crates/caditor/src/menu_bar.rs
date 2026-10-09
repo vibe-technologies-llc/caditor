@@ -35,6 +35,12 @@ const SKETCH_ONLY: &str = "Only while a sketch is being edited";
 const NOT_HERE: &str = "Not available right now";
 const NOT_SAVED: &str = "Save the model to start keeping its versions";
 const MODEL_PATTERNS: [&[Command]; 1] = [&[Command::LinearPattern, Command::CircularPattern]];
+const MODEL_PRIMITIVES: [&[Command]; 1] = [&[
+    Command::NewBox,
+    Command::NewCylinder,
+    Command::NewSphere,
+    Command::NewTorus,
+]];
 const MODEL_DATUMS: [&[Command]; 1] =
     [&[Command::DatumPlane, Command::DatumAxis, Command::DatumPoint]];
 const MODEL_BODIES: [&[Command]; 2] = [
@@ -586,6 +592,7 @@ impl Menus<'_, '_> {
                     Command::Hole,
                 ],
             );
+            self.group(ui, Command::NewBox, "Primitives", &MODEL_PRIMITIVES);
             ui.separator();
             self.items(
                 ui,

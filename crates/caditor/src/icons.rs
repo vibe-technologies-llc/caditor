@@ -1,6 +1,6 @@
 use caditor_document::{
-    BlendKind, CombineOperation, Datum, Document, FeatureKind, PatternKind, PrincipalGeometry,
-    SolidFeature,
+    BlendKind, CombineOperation, Datum, Document, FeatureKind, PatternKind, PrimitiveKind,
+    PrincipalGeometry, SolidFeature,
 };
 use egui_phosphor::regular as phosphor;
 
@@ -143,6 +143,10 @@ pub fn command(command: Command) -> &'static str {
         Command::Chamfer => blend(BlendKind::Chamfer),
         Command::Shell => SHELL,
         Command::OffsetFace => OFFSET_FACE,
+        Command::NewBox => primitive(PrimitiveKind::Box),
+        Command::NewCylinder => primitive(PrimitiveKind::Cylinder),
+        Command::NewSphere => primitive(PrimitiveKind::Sphere),
+        Command::NewTorus => primitive(PrimitiveKind::Torus),
         Command::Combine => COMBINE,
         Command::Move => MOVE,
         Command::CopyBody => COPY_BODY,
@@ -380,6 +384,15 @@ pub fn combine(operation: CombineOperation) -> &'static str {
     }
 }
 
+pub fn primitive(kind: PrimitiveKind) -> &'static str {
+    match kind {
+        PrimitiveKind::Box => phosphor::CUBE,
+        PrimitiveKind::Cylinder => phosphor::CYLINDER,
+        PrimitiveKind::Sphere => phosphor::SPHERE,
+        PrimitiveKind::Torus => phosphor::DISC,
+    }
+}
+
 pub fn feature(kind: &FeatureKind) -> &'static str {
     match kind {
         FeatureKind::Sketch(_) => SKETCH,
@@ -388,6 +401,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Blend(blend) => self::blend(blend.kind),
         FeatureKind::Shell(_) => SHELL,
         FeatureKind::OffsetFace(_) => OFFSET_FACE,
+        FeatureKind::Primitive(primitive) => self::primitive(primitive.shape.kind()),
         FeatureKind::Combine(combine) => self::combine(combine.operation),
         FeatureKind::Move(movement) if movement.copy => COPY_BODY,
         FeatureKind::Move(_) => MOVE,
