@@ -214,7 +214,10 @@ paths:
   tool loses what lies beyond the face's surface, the region a revolved profile of the surface
   bounds (the solid of the cylinder, cone or sphere, or for a torus seen from outside its tube
   the corner of the quadrant the face faces, a revolved spandrel, so the tube's other quarters
-  keep their material). A concave tool also loses what lies beyond each round face beside the end
+  keep their material). The quadrant is read from the torus face's own normal at the middle of
+  its uv box (`facing`), never from the direction of the cut, which runs level along a rim; a
+  face facing no one quadrant (leaning less than `LEANING` either way) is cut by the whole
+  tube's outside instead. A concave tool also loses what lies beyond each round face beside the end
   (`beside_ends`: a neighbour of an end face and of a blended face, a rim's fillet the notch runs
   out under), anchored at the corner those three share, and its feet may cross the edges to those
   faces without being `TooLarge`; an end beside a face that is neither flat nor round keeps

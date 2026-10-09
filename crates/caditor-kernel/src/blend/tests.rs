@@ -1206,3 +1206,95 @@ fn a_notch_through_a_rounded_rim_has_its_floor_edges_rounded_up_to_the_wall() {
         "added {added}"
     );
 }
+
+fn farthest_from_axis(solid: &Solid) -> f64 {
+    solid
+        .tessellate(&SamplingTolerance::new(1e-3, 0.05).unwrap())
+        .unwrap()
+        .positions()
+        .iter()
+        .map(|point| (point.x * point.x + point.y * point.y).sqrt())
+        .fold(0.0, f64::max)
+}
+
+#[test]
+fn a_notch_fillet_climbing_onto_a_rounded_rim_stays_inside_the_puck() {
+    for (radius, floor) in [(2.5, 11.0), (1.5, 12.5), (2.0, 10.5)] {
+        let puck = swept(
+            Plane::XY,
+            &[ProfileCurve::circle(1, Point2::new(0.0, 0.0), 40.0)],
+            15.0,
+        );
+        let rim = edge_through(&puck, (-40.0, 0.0, 15.0));
+        let rounded_rim = run(&puck, &[rim], fillet(3.0));
+        let notch = block_at((-10.0, 30.0, floor), (20.0, 20.0, 10.0), 2);
+        let notched = boolean(&rounded_rim, &notch, BooleanOperation::Difference).unwrap();
+        let before = volume(&notched);
+        let sides = [
+            edge_through(&notched, (-10.0, 34.0, floor)),
+            edge_through(&notched, (10.0, 34.0, floor)),
+        ];
+
+        let rounded = blend(&notched, &sides, fillet(radius), 50)
+            .unwrap_or_else(|error| panic!("radius {radius} floor {floor}: {error}"));
+        let added = volume(&rounded) - before;
+        let length = (40.0_f64.powi(2) - 100.0).sqrt() - 30.0;
+        let expected = 2.0 * spandrel(radius) * length;
+
+        check(
+            &format!("radius {radius} floor {floor}"),
+            &rounded,
+            before + added,
+        );
+        assert!(
+            farthest_from_axis(&rounded) <= 40.0 + 1e-3,
+            "radius {radius} floor {floor}: reaches {}",
+            farthest_from_axis(&rounded)
+        );
+        assert!(
+            (added - expected).abs() < 0.05 * expected,
+            "radius {radius} floor {floor}: added {added} instead of about {expected}"
+        );
+    }
+}
+
+#[test]
+fn a_notch_chamfer_running_out_under_a_rounded_rim_stays_inside_the_puck() {
+    for (size, floor) in [(1.5, 11.0), (2.5, 11.0), (1.5, 12.5), (2.0, 10.5)] {
+        let puck = swept(
+            Plane::XY,
+            &[ProfileCurve::circle(1, Point2::new(0.0, 0.0), 40.0)],
+            15.0,
+        );
+        let rim = edge_through(&puck, (-40.0, 0.0, 15.0));
+        let rounded_rim = run(&puck, &[rim], fillet(3.0));
+        let notch = block_at((-10.0, 30.0, floor), (20.0, 20.0, 10.0), 2);
+        let notched = boolean(&rounded_rim, &notch, BooleanOperation::Difference).unwrap();
+        let before = volume(&notched);
+        let sides = [
+            edge_through(&notched, (-10.0, 34.0, floor)),
+            edge_through(&notched, (10.0, 34.0, floor)),
+        ];
+
+        let bevelled = blend(&notched, &sides, BlendShape::Chamfer { distance: size }, 50)
+            .unwrap_or_else(|error| panic!("size {size} floor {floor}: {error}"));
+        let added = volume(&bevelled) - before;
+        let length = (40.0_f64.powi(2) - 100.0).sqrt() - 30.0;
+        let expected = size * size * length;
+
+        check(
+            &format!("size {size} floor {floor}"),
+            &bevelled,
+            before + added,
+        );
+        assert!(
+            farthest_from_axis(&bevelled) <= 40.0 + 1e-3,
+            "size {size} floor {floor}: reaches {}",
+            farthest_from_axis(&bevelled)
+        );
+        assert!(
+            (added - expected).abs() < 0.05 * expected,
+            "size {size} floor {floor}: added {added} instead of about {expected}"
+        );
+    }
+}

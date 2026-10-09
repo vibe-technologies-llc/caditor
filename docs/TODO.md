@@ -217,6 +217,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   takes no taper, up to next or curved face; a revolve turns up to a face or plane only when it
   holds the axis, never up to a curved face or the next face it meets; and a hole stops at the
   next face only where that face is flat.
+- [medium · hard] A concave fillet running out under a rounded rim whose fill reaches nearly to
+  the rim's tangent with the top face (a 3 mm fillet on a notch floor 3.5 mm under a puck's top
+  with a 3 mm rim) fails as a face that could not be divided; smaller ones and chamfers work
+  (`blend::tests::a_notch_fillet_climbing_onto_a_rounded_rim_stays_inside_the_puck`).
 - [medium · hard] Blends: only line and circle edges along planes, parallel cylinders and coaxial
   surfaces; no ellipse, spline or intersection edges, not even a straight edge beside a spline
   extrusion face; ends at steps and T-junctions refused; no variable radius; a round corner only

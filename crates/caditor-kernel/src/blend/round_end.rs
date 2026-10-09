@@ -29,6 +29,7 @@ pub(super) enum Round {
         axis: Vector3,
         major: f64,
         minor: f64,
+        facing: Option<[f64; 2]>,
     },
 }
 
@@ -59,12 +60,17 @@ impl Round {
                 centre: sphere.frame().origin(),
                 radius: sphere.radius(),
             }),
-            Surface::Torus(torus) => Some(Self::Torus {
-                origin: torus.frame().origin(),
-                axis: torus.frame().normal(),
-                major: torus.major_radius(),
-                minor: torus.minor_radius(),
-            }),
+            Surface::Torus(torus) => {
+                let origin = torus.frame().origin();
+                let axis = torus.frame().normal();
+                Some(Self::Torus {
+                    origin,
+                    axis,
+                    major: torus.major_radius(),
+                    minor: torus.minor_radius(),
+                    facing: facing(solid, face, origin, axis),
+                })
+            }
             _ => None,
         }
     }
@@ -108,8 +114,14 @@ impl Round {
         let start = Plane::new(at - toward * behind, toward).ok_or_else(refused_now)?;
         let near = half_space(&start, span, feature, name)?;
         let (shape, operation) = match (self, away) {
-            (Self::Torus { .. }, true) => (
-                self.corner(at, toward, feature, refused)?,
+            (
+                Self::Torus {
+                    facing: Some(facing),
+                    ..
+                },
+                true,
+            ) => (
+                self.corner(at, *facing, feature, refused)?,
                 BooleanOperation::Intersection,
             ),
             (_, true) => (
@@ -136,7 +148,7 @@ impl Round {
     fn corner(
         &self,
         at: Point3,
-        toward: Vector3,
+        [radial_sign, axial_sign]: [f64; 2],
         feature: u64,
         refused: &BlendError,
     ) -> Result<Solid, BlendError> {
@@ -146,6 +158,7 @@ impl Round {
             axis,
             major,
             minor,
+            ..
         } = *self
         else {
             return Err(refused_now());
@@ -154,8 +167,6 @@ impl Round {
             return Err(refused_now());
         }
         let plane = Self::radial_frame(origin, axis, at).ok_or_else(refused_now)?;
-        let radial_sign = toward.dot(plane.x_axis()).signum();
-        let axial_sign = toward.dot(axis).signum();
         let reach = CORNER_REACH * minor;
         let across = |distance: f64| (major + radial_sign * distance).max(0.0);
         let centre = Point2::new(major, 0.0);
@@ -252,6 +263,7 @@ impl Round {
                 axis,
                 major,
                 minor,
+                ..
             } => {
                 if minor >= major - SMALLEST_RADIUS {
                     return Err(refused());
@@ -274,4 +286,18 @@ fn swept(plane: &Plane, curves: &[ProfileCurve], feature: u64) -> Result<Solid, 
         AngularExtent::full(),
         feature,
     )?)
+}
+
+const LEANING: f64 = 0.2;
+
+fn facing(solid: &Solid, face: FaceId, origin: Point3, axis: Vector3) -> Option<[f64; 2]> {
+    let definition = solid.face(face)?;
+    let surface = definition.surface();
+    let middle = solid.classifier().face_uv_box(face)?.center();
+    let point = surface.point_at(middle);
+    let normal = surface.normal(middle.x, middle.y)? * definition.sense().sign();
+    let along = (point - origin).dot(axis);
+    let radial = (point - origin - axis * along).try_normalize()?;
+    let [across, up] = [normal.dot(radial), normal.dot(axis)];
+    (across.abs() >= LEANING && up.abs() >= LEANING).then_some([across.signum(), up.signum()])
 }
