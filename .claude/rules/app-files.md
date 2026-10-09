@@ -339,6 +339,13 @@ paths:
 - Changes apply at once and save on the files worker (a slider on release,
   `PreferencesCommand::Preview` until then). The palette's Recent commands are kept the same way
   (`palette.recent`, `app-input.md`) but are no preference: Restore defaults leaves them alone.
+- Recent custom colours (`Preferences::recent_colours`, key `body.recent_colours`, a list of hex
+  strings, newest first, at most `RECENT_COLOURS_LIMIT`) are set by
+  `PreferenceChange::RecentColour`, which leaves out the fixed swatches and moves a repeated colour
+  to the front. They are read leniently (unreadable or repeated entries skipped, a missing key is
+  empty, so older files and older caditors keep working) and written only when there are any;
+  Restore defaults leaves them alone. `apply_preferences` hands them to `Model::recent_colours`,
+  which the body card reads (`app-look.md`).
 - `Workspace` owns the `Preferences`; `Model` carries the length unit; `app::apply_preferences`
   hands the model its share at startup and after every change, and the session passes graphics
   settings to the renderer after each frame's actions (`Renderer::set_graphics`).

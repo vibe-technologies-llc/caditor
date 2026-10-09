@@ -28,6 +28,7 @@ paths:
   - "crates/caditor/src/principal_tree.rs"
   - "crates/caditor/src/bodies_tree.rs"
   - "crates/caditor/src/body_appearance.rs"
+  - "crates/caditor/src/colour_selector.rs"
   - "crates/caditor/src/tree_row.rs"
   - "crates/caditor/src/conventions_tests.rs"
 ---
@@ -440,7 +441,9 @@ paths:
 - A body row's paint bucket (or the Body colour and material command, for the body chosen in the
   tree, else of the selection, else of the open feature) opens its colour and material card under the row
   (`PanelState::painting`, one at a time, focus on the first swatch until it lands):
-  `widgets::swatch`es (default and `body_appearance::SWATCHES`) above a property grid of Colour
+  `widgets::swatch`es (default, `body_appearance::SWATCHES`, the recent custom colours
+  (`Model::recent_colours`, named "Recent colour, <name>, <hex>") and the Custom colour swatch, a
+  `widgets::icon_swatch` with a plus, always last) above a property grid of Colour
   (a hex field), Material (`MATERIALS` presets, which set the density and, for a body without a
   colour, their colour; None clears both), Name and Density (g/cm³, an expression), under a Body
   name field (empty: named after its feature) and above them Opacity (`OPACITIES`: Solid, 75%,
@@ -452,6 +455,22 @@ paths:
   opacity (from STEP import) by splitting the body between the opaque and translucent passes
   outside the analysis and reflection views, unless the body is failed or outdated. Each change is
   one undoable `SetBodyAppearance`; a refused value is an `error_row`.
+- The Custom colour swatch, on the body row and on the selected-faces row alike, opens
+  `colour_selector.rs` in the card (state in egui temp data keyed by `body_appearance::selector_id`,
+  so a body and its faces each have their own): a saturation and brightness square, a hue strip,
+  Current and New previews and a Hex colour field. The working colour is an `Hsv` kept apart from
+  the model, which keeps a grey's hue; nothing is applied while the pointer is down. The colour
+  applies as one `SetBodyAppearance` (`with_colour` or `with_face_colours`) when the pointer is
+  released or a click lands, when a keyboard edit ends (Enter, or focus leaving the square or
+  strip) and when a hex value is committed; the body's Colour field follows the working colour
+  meanwhile (`colour_selector::working`). The square and strip are focusable, lock the arrow keys
+  while focused (egui hands the lock over one frame after focus lands) and step 1% or 1 degree,
+  10% or 15 degrees with Shift. Screen readers get the square (`SQUARE_NAME`, its saturation and
+  brightness as its value), the strip (a slider in degrees) and both previews as images named with
+  a colour word and the hex (`colour_selector::describe`); chrome colours are `Tokens`, with the
+  handles ringed in text over panel colour so they hold over any colour. Every applied custom
+  colour that is not a fixed swatch joins the recent row (`PreferenceChange::RecentColour`,
+  `app-files.md`). Tests are in `ui_tests/custom_colours.rs`.
 - The rollback bar is a row of its own (`feature_tree::rollback_bar`, named "Rollback bar" for
   screen readers), at the end of the tree when nothing is rolled back. It and every row name drag
   (`PanelState::dragging`): the gap under the pointer shows an accent line, or an error one with a

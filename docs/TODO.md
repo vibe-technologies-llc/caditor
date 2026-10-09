@@ -462,15 +462,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   found again in the copy's recomputed result (by matching it in the original's) before the paste
   is applied. Pasted features also take no group, and a copy from another model keeps none of its
   references outside the copied set.
-- [medium · medium] The body colour card offers eleven fixed swatches and a hex field, so a colour
-  that is not among them has to be typed as a code. Add a custom colour swatch at the end of the
-  row (a plus, named "Custom colour") that opens a colour selector in the card: a saturation and
-  brightness square with a hue strip, a preview of the colour against the current one, and the hex
-  field kept in step with it. It applies as one undoable `SetBodyAppearance` when released, not on
-  each pointer move, and the same swatch ends the row of selected faces. Colours picked this way
-  join a short row of recent custom colours kept in preferences, shown after the fixed swatches.
-  It works from the keyboard (arrows move the square and strip, typed values stay in the hex
-  field), names its colour for screen readers, and takes its chrome colours from the theme.
 - [low · hard] Themes are four fixed `Tokens` sets in `appearance.rs` (dark, light and their
   high-contrast variants) and the 3D view is dark in all of them. Add themes as data: a few shipped
   ones beyond dark and light, a choice of accent colour, a light 3D view (background, grid, edges

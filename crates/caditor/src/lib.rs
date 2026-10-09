@@ -18,6 +18,7 @@ mod box_selection;
 mod canvas;
 mod cli;
 mod clipboard;
+mod colour_selector;
 mod comb;
 mod comb_panel;
 mod combine_panel;

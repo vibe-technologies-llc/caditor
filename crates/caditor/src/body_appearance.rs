@@ -8,11 +8,12 @@ use egui::{Color32, Id, Ui, Widget};
 
 use crate::{
     appearance::SPACE_S,
-    bodies,
+    bodies, colour_selector,
     feature_fields::{self, Choice},
     field::{self, Expected},
     icons,
     model::{Action, Model},
+    preferences::{PreferenceChange, PreferencesCommand},
     selection::{Pickable, Selection},
     widgets::{self, FIELD_WIDTH},
 };
@@ -20,6 +21,7 @@ use crate::{
 pub const DEFAULT_COLOUR: Rgb = Rgb::new(150, 162, 180);
 pub const DEFAULT_COLOUR_NAME: &str = "Default colour";
 pub const BODY_COLOUR_NAME: &str = "The body's colour";
+pub const CUSTOM_COLOUR_NAME: &str = "Custom colour";
 pub const CLEAR_FACE_COLOURS: &str = "Clear face colours";
 pub const DENSITY_UNIT: &str = "g/cm³";
 pub const NO_MATERIAL: &str = "None";
@@ -47,7 +49,6 @@ pub const OPACITIES: [(Option<u8>, &str, &str); 4] = [
         "Draw the body faint, mostly see-through; its faces are not picked",
     ),
 ];
-const HEX_HINT: &str = "Enter a colour as # and six hexadecimal digits, such as #4682b4";
 const DENSITY_NOTE: &str =
     "A plain number in g/cm³; the Measure panel shows the body's mass from it.";
 
@@ -257,6 +258,14 @@ pub fn other_faces_note(count: usize) -> Option<String> {
     }
 }
 
+pub fn selector_id(body: FeatureId, faces: bool) -> Id {
+    Id::new(("custom-colour", body, faces))
+}
+
+pub fn recent_swatch_name(colour: Rgb) -> String {
+    format!("Recent colour, {}", colour_selector::describe(colour))
+}
+
 pub fn face_swatch_name(colour: &str) -> String {
     format!("{colour} for the selected faces")
 }
@@ -327,9 +336,19 @@ impl Panel<'_> {
         self.actions.push(feature_fields::applied(name, change));
     }
 
+    fn remember(&mut self, colour: Rgb) {
+        self.actions
+            .push(Action::Preferences(PreferencesCommand::Change(
+                PreferenceChange::RecentColour(colour),
+            )));
+    }
+
     fn swatches(&mut self, ui: &mut Ui, focus: bool) -> bool {
         let current = self.appearance.colour;
-        let (chosen, focused) = ui
+        let selector = selector_id(self.body, false);
+        let recent = self.model.recent_colours();
+        let selecting = colour_selector::is_open(ui, selector);
+        let (chosen, focused, toggled) = ui
             .horizontal_wrapped(|ui| {
                 let mut chosen = None;
                 let default = widgets::swatch(
@@ -351,11 +370,31 @@ impl Panel<'_> {
                         chosen = Some(Some(swatch.colour));
                     }
                 }
-                (chosen, default.has_focus())
+                for colour in recent {
+                    let picked = current == Some(*colour);
+                    let name = recent_swatch_name(*colour);
+                    if widgets::swatch(ui, color32(*colour), &name, picked).clicked() {
+                        chosen = Some(Some(*colour));
+                    }
+                }
+                let toggled =
+                    widgets::icon_swatch(ui, icons::ADD, CUSTOM_COLOUR_NAME, selecting).clicked();
+                (chosen, default.has_focus(), toggled)
             })
             .inner;
+        let shown = current.unwrap_or(DEFAULT_COLOUR);
+        if toggled {
+            colour_selector::toggle(ui, selector, shown);
+        }
         if let Some(colour) = chosen.filter(|colour| *colour != current) {
+            if let Some(colour) = colour {
+                self.remember(colour);
+            }
             self.apply(with_colour(self.appearance, colour), "colour");
+        }
+        if let Some(colour) = colour_selector::show(ui, selector, shown) {
+            self.remember(colour);
+            self.apply(with_colour(self.appearance, Some(colour)), "colour");
         }
         focused
     }
@@ -382,7 +421,10 @@ impl Panel<'_> {
                 .first()
                 .copied()
                 .filter(|first| current.iter().all(|colour| colour == first));
-            let chosen = ui
+            let selector = selector_id(self.body, true);
+            let recent = self.model.recent_colours();
+            let selecting = colour_selector::is_open(ui, selector);
+            let (chosen, toggled) = ui
                 .horizontal_wrapped(|ui| {
                     let mut chosen = None;
                     let default = widgets::swatch(
@@ -401,12 +443,38 @@ impl Panel<'_> {
                             chosen = Some(Some(swatch.colour));
                         }
                     }
-                    chosen
+                    for colour in recent {
+                        let picked = shared == Some(Some(*colour));
+                        let name = face_swatch_name(&recent_swatch_name(*colour));
+                        if widgets::swatch(ui, color32(*colour), &name, picked).clicked() {
+                            chosen = Some(Some(*colour));
+                        }
+                    }
+                    let name = face_swatch_name(CUSTOM_COLOUR_NAME);
+                    let toggled = widgets::icon_swatch(ui, icons::ADD, &name, selecting).clicked();
+                    (chosen, toggled)
                 })
                 .inner;
+            let shown = shared
+                .flatten()
+                .or(self.appearance.colour)
+                .unwrap_or(DEFAULT_COLOUR);
+            if toggled {
+                colour_selector::toggle(ui, selector, shown);
+            }
             if let Some(colour) = chosen {
+                if let Some(colour) = colour {
+                    self.remember(colour);
+                }
                 self.apply(
                     with_face_colours(self.appearance, faces, colour),
+                    "face colours",
+                );
+            }
+            if let Some(colour) = colour_selector::show(ui, selector, shown) {
+                self.remember(colour);
+                self.apply(
+                    with_face_colours(self.appearance, faces, Some(colour)),
                     "face colours",
                 );
             }
@@ -467,7 +535,8 @@ impl Panel<'_> {
     fn colour_row(&mut self, ui: &mut Ui) {
         widgets::caption(ui, COLOUR_CAPTION);
         let current = self.appearance.colour;
-        let stored = current.map(Rgb::hex).unwrap_or_default();
+        let working = colour_selector::working(ui, selector_id(self.body, false));
+        let stored = working.or(current).map(Rgb::hex).unwrap_or_default();
         let field = field::commit_field(
             ui,
             Id::new(("body-colour", self.body)),
@@ -480,7 +549,7 @@ impl Panel<'_> {
                 }
                 Rgb::from_hex(text)
                     .map(Some)
-                    .ok_or_else(|| HEX_HINT.to_owned())
+                    .ok_or_else(|| colour_selector::HEX_HINT.to_owned())
             },
         );
         ui.end_row();

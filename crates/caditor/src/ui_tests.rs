@@ -70,6 +70,7 @@ use crate::{
 mod cancel_and_parameters;
 mod configurations;
 mod coordinate_systems;
+mod custom_colours;
 mod dimension_labels;
 mod feature_panels;
 mod feature_tree_choice;
