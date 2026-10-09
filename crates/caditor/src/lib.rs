@@ -53,6 +53,7 @@ mod headless;
 mod history;
 mod hole_panel;
 mod hole_tools;
+mod icon_font;
 mod icons;
 mod image_export;
 mod import;

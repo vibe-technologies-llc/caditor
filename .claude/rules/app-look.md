@@ -3,6 +3,7 @@ paths:
   - "crates/caditor/src/fonts.rs"
   - "crates/caditor/src/appearance.rs"
   - "crates/caditor/src/icons.rs"
+  - "crates/caditor/src/icon_font.rs"
   - "crates/caditor/src/widgets.rs"
   - "crates/caditor/src/dialog_parts.rs"
   - "crates/caditor/src/canvas.rs"
@@ -37,6 +38,15 @@ paths:
   `icons` family, since Inter's private-use glyphs would shadow them; `icons.rs` holds one icon
   per command, tool, constraint and feature kind. Fonts install on the first frame, which draws
   nothing.
+- caditor's own icons (fillet, which the sketch fillet shares, chamfer, shell, extrude, revolve and
+  both patterns) are glyphs of a font `icon_font.rs` builds in memory at startup from a small
+  vector description: strokes, loops, arcs, dots and rings on Phosphor's 256 grid with its 16-unit
+  round stroke, outlined into overlapping same-winding TrueType contours (ring holes the other way)
+  at Phosphor's 1024 units per em and metrics. The font sits after Phosphor in the `icons` family
+  at private-use code points Phosphor leaves free (U+F8E0 onwards), so every consumer keeps taking
+  a glyph string and the icons scale, theme and read like the rest. Painted shapes were set aside
+  because tool buttons, menus, the palette, tree rows and accessible names all carry icons as text.
+  A new icon is a `Mark` list in `ICONS` and a constant; `fonts.rs` tests that each one renders.
 - `appearance.rs` holds the theme as `Tokens` for dark, light and both high-contrast variants,
   builds each egui `Style` from them and tests every text pairing, control outline, focus ring
   and button kind against its background in all four. Panels read colours from

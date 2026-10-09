@@ -84,6 +84,7 @@ mod sketch_patterns;
 mod sketch_regions;
 mod sketch_tangent_circles;
 mod svg_import;
+mod templates;
 
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -126,6 +127,19 @@ impl Dialogs for ScriptedDialogs {
     }
 
     fn pick_save_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+        respond(self.reply());
+    }
+
+    fn pick_template(&self, _directory: Option<PathBuf>, respond: Respond) {
+        respond(self.reply());
+    }
+
+    fn pick_template_path(
+        &self,
+        _directory: Option<PathBuf>,
+        _file_name: String,
+        respond: Respond,
+    ) {
         respond(self.reply());
     }
 
