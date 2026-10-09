@@ -2,6 +2,8 @@ mod corner;
 mod feet;
 mod section;
 #[cfg(test)]
+mod survey;
+#[cfg(test)]
 mod tests;
 
 use std::{
@@ -38,6 +40,7 @@ const TANGENT_FACE_SAMPLES: [f64; 3] = [0.25, 0.5, 0.75];
 const PERPENDICULAR_END: f64 = 1e-9;
 const SHALLOWEST_END: f64 = 0.1;
 const END_MARGIN: f64 = 0.25;
+const MITRE_REACH: f64 = 2.0;
 const CUTTER_SCALE: f64 = 4.0;
 const CLEARANCE: f64 = 0.25;
 const SMALLEST_RADIUS: f64 = 10.0 * LINEAR_RESOLUTION;
@@ -635,10 +638,11 @@ fn end_at(
     let point = solid.vertex(vertex).ok_or(refused.clone())?.point();
     let normal = face_normal(solid, end_face, point).ok_or(refused.clone())?;
     let cosine = normal.dot(out);
-    let planar = matches!(
-        solid.face(end_face).map(|face| face.surface()),
-        Some(Surface::Plane(_))
-    );
+    let planar = is_planar(solid, end_face);
+    let free = geometry.section.convex == (cosine > 0.0);
+    if !free && let Some(mitre) = mitre(around, geometry, vertex, point, end_face, reach) {
+        return Ok((mitre, Some(end_face)));
+    }
     if planar && cosine.abs() >= 1.0 - PERPENDICULAR_END {
         return Ok((End::Flush, Some(end_face)));
     }
@@ -646,7 +650,6 @@ fn end_at(
         return Err(refused);
     }
     let extension = reach * ((1.0 - cosine * cosine).max(0.0).sqrt() / cosine.abs() + END_MARGIN);
-    let free = geometry.section.convex == (cosine > 0.0);
     if free {
         return Ok((End::Extended(extension), Some(end_face)));
     }
@@ -655,6 +658,61 @@ fn end_at(
     }
     let plane = Plane::new(point, normal * cosine.signum()).ok_or(refused)?;
     Ok((End::Clipped { extension, plane }, Some(end_face)))
+}
+
+fn is_planar(solid: &Solid, face: FaceId) -> bool {
+    matches!(
+        solid.face(face).map(|face| face.surface()),
+        Some(Surface::Plane(_))
+    )
+}
+
+fn is_straight(solid: &Solid, edge: EdgeId) -> bool {
+    matches!(
+        solid.edge(edge).map(|edge| edge.curve()),
+        Some(Curve::Line(_))
+    )
+}
+
+fn mitre(
+    around: &Surroundings<'_>,
+    geometry: &EdgeGeometry,
+    vertex: VertexId,
+    point: Point3,
+    end_face: FaceId,
+    reach: f64,
+) -> Option<End> {
+    let solid = around.solid;
+    let edge = geometry.edge;
+    if !is_straight(solid, edge) {
+        return None;
+    }
+    let own: BTreeSet<FaceId> = geometry.faces.into_iter().collect();
+    let partner = around.topology.edges_at(vertex).iter().find(|other| {
+        let faces = face_set(solid, **other);
+        let common: Vec<&FaceId> = faces.intersection(&own).collect();
+        **other != edge
+            && around.chosen.contains(*other)
+            && faces.contains(&end_face)
+            && matches!(common.as_slice(), [common] if is_planar(solid, **common))
+    })?;
+    let alike =
+        analyze(solid, *partner).is_ok_and(|other| other.section.convex == geometry.section.convex);
+    if !alike || !is_straight(solid, *partner) {
+        return None;
+    }
+    let out = leaving(solid, edge, vertex)?;
+    let other_out = leaving(solid, *partner, vertex)?;
+    let cosine = out.dot(other_out);
+    let half_tangent = ((1.0 - cosine) / (1.0 + cosine)).max(0.0).sqrt();
+    if !half_tangent.is_finite() || half_tangent < SHALLOWEST_END {
+        return None;
+    }
+    let plane = Plane::new(point, (out - other_out).try_normalize()?)?;
+    Some(End::Clipped {
+        extension: reach * (MITRE_REACH / half_tangent + END_MARGIN),
+        plane,
+    })
 }
 
 fn ends(
@@ -760,11 +818,52 @@ fn crosses_boundary(solid: &Solid, face: FaceId, edge: EdgeId, foot: &(Curve, In
     })
 }
 
+struct EndPlane {
+    point: Point3,
+    normal: Vector3,
+}
+
+impl EndPlane {
+    fn passed_by(&self, point: Point3) -> bool {
+        (point - self.point).dot(self.normal) > LINEAR_RESOLUTION
+    }
+}
+
+fn end_planes(solid: &Solid, topology: &Topology, geometry: &EdgeGeometry) -> Vec<EndPlane> {
+    let Some(definition) = solid.edge(geometry.edge).filter(|edge| !edge.is_closed()) else {
+        return Vec::new();
+    };
+    [definition.start(), definition.end()]
+        .into_iter()
+        .flat_map(|vertex| {
+            let point = solid.vertex(vertex).map(|vertex| vertex.point());
+            let out = leaving(solid, geometry.edge, vertex);
+            topology
+                .edges_at(vertex)
+                .iter()
+                .flat_map(|other| face_set(solid, *other))
+                .filter(|face| !geometry.faces.contains(face) && is_planar(solid, *face))
+                .collect::<BTreeSet<FaceId>>()
+                .into_iter()
+                .filter_map(move |face| {
+                    let point = point?;
+                    let normal = face_normal(solid, face, point)?;
+                    let cosine = normal.dot(out?);
+                    (cosine.abs() >= SHALLOWEST_END).then(|| EndPlane {
+                        point,
+                        normal: normal * cosine.signum(),
+                    })
+                })
+        })
+        .collect()
+}
+
 fn fits(
     classifier: &SolidClassifier<'_>,
     solid: &Solid,
     geometry: &EdgeGeometry,
     blend: &Blend,
+    past_ends: &[EndPlane],
 ) -> bool {
     geometry.faces.iter().zip(blend.feet).all(|(face, foot)| {
         let Some(surface) = solid.face(*face).map(|face| face.surface()) else {
@@ -777,6 +876,9 @@ fn fits(
                 let Some(point) = geometry.place(foot, *fraction) else {
                     return false;
                 };
+                if past_ends.iter().any(|end| end.passed_by(point)) {
+                    return true;
+                }
                 let uv = surface.project(point, None);
                 let contained = classifier.point_in_face(*face, uv);
                 let accepted = if *fraction == 0.5 {
@@ -1135,7 +1237,8 @@ fn apply_analysed(
             BlendShape::Chamfer { distance } => geometry.section.chamfer(distance),
         }
         .ok_or(BlendError::TooLarge(edge))?;
-        if !fits(&classifier, solid, &geometry, &blend) {
+        let past_ends = end_planes(solid, topology, &geometry);
+        if !fits(&classifier, solid, &geometry, &blend, &past_ends) {
             return Err(BlendError::TooLarge(edge));
         }
         let reach = geometry.section.reach(&blend);

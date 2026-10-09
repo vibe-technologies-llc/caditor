@@ -171,14 +171,27 @@ paths:
 - `TooLarge` covers a blend that does not fit on both faces at sampled points along the edge, whose
   foot on a face crosses an edge of that face (other than seams and edges at the blended edge's
   ends), whose foot crosses another blend's on that face (`feet.rs`; edges sharing a vertex
-  excepted), and a knife edge (faces with opposite normals).
+  excepted), and a knife edge (faces with opposite normals). A sample past the plane of a flat face
+  at one of the edge's ends (`end_planes`, oriented along the edge out of that end) fits whatever
+  face it lands on, since that end extends or clips the tool there: a foot running off an acute
+  end onto the face it meets is not too large.
 - Convex tools are lifted clear of the faces they cut and subtracted; concave ones are flush and
   added. All concave edges go first, then the convex ones are re-found by reference in the filled
   solid (one not found fails as `Lost`; errors about unchosen edges of the filled solid come back
   as `AfterFill` without an id).
 - Ends continuing into another chosen edge stop flush, ends on a perpendicular face stop there,
   ends on a slanted face extend past it when the extension lies where the operation changes
-  nothing, else are clipped by its plane. A circular edge whose extended sweep would pass a full
+  nothing, else are clipped by its plane. Where that extension would change something and the end
+  face belongs to another chosen straight edge of the same kind sharing one flat face (concave
+  edges round a boss's outside corner, convex edges into an inside corner), both ends are mitred
+  instead (`mitre`): each tool extends past the vertex and is clipped by the plane through the
+  vertex bisecting the two edges, so the corner is filled or cut to where the two blends meet
+  rather than left notched or standing.
+- Refused corners, each pinned by a test: a convex edge rising from bevelled concave edges (a
+  boss's corner edge chosen with its base) ends, after the fill, where two fill faces meet and is
+  `UnsupportedEnd`; feet meeting exactly across a fill (a rim chamfer meeting a boss's skirt on the
+  face between them) are `TooLarge`, and fills that use up a whole face (a pocket's walls) lose the
+  edges on it (`Lost`). `survey.rs` chamfers every corner of twenty bodies (ignored). A circular edge whose extended sweep would pass a full
   turn is `WrapsAround`.
 - Three convex straight edges filleted at a vertex of three planes get a spherical corner
   (`corner.rs`: a hexahedron minus the rolling ball); other corners mitre.

@@ -856,3 +856,166 @@ fn tools_apart_are_joined_as_lumps_without_a_boolean() {
     check("four cylinders apart", &group.solid, 4.0 * 2.0 * PI);
     assert!(matches!(stopped, Err(BooleanError::Cancelled(_))));
 }
+
+fn block_at(min: (f64, f64, f64), size: (f64, f64, f64), feature: u64) -> Solid {
+    let (x, y, z) = min;
+    let (width, depth, height) = size;
+    let curves = polygon(&[
+        (x, y),
+        (x + width, y),
+        (x + width, y + depth),
+        (x, y + depth),
+    ]);
+    let regions = Profile::new(&curves)
+        .unwrap()
+        .select(&Selection::EvenDepth)
+        .unwrap();
+    let plane = Plane::from_frame(Point3::new(0.0, 0.0, z), Vector3::Z, Vector3::X).unwrap();
+    extrude(
+        &plane,
+        &regions,
+        LinearExtent::one_side(height).unwrap(),
+        feature,
+    )
+    .unwrap()
+}
+
+fn bossed_block() -> Solid {
+    let block = block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
+    let boss = block_at((3.0, 3.0, 10.0), (4.0, 4.0, 4.0), 2);
+    boolean(&block, &boss, BooleanOperation::Union).unwrap()
+}
+
+#[test]
+fn a_chamfer_runs_off_an_acute_end_onto_the_face_it_meets() {
+    let acute = swept(
+        Plane::XY,
+        &polygon(&[(0.0, 0.0), (10.0, 0.0), (0.0, 5.0)]),
+        4.0,
+    );
+    let edge = edge_through(&acute, (5.0, 0.0, 0.0));
+    let along_the_whole_edge = 10.0 * 1.125;
+    let beyond_where_the_face_narrows = 2.0 * (1.5 * 1.125 - 1.5f64.powi(3) / 6.0);
+
+    let result = run(&acute, &[edge], BlendShape::Chamfer { distance: 1.5 });
+
+    check(
+        "acute end",
+        &result,
+        100.0 - (along_the_whole_edge - 3.0 * 1.125 + beyond_where_the_face_narrows),
+    );
+    assert!(blend(&acute, &[edge], fillet(1.5), 50).is_ok());
+}
+
+#[test]
+fn chosen_edges_meeting_at_a_corner_of_the_other_kind_are_mitred() {
+    let l_shape = swept(
+        Plane::XY,
+        &polygon(&[
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 4.0),
+            (4.0, 4.0),
+            (4.0, 10.0),
+            (0.0, 10.0),
+        ]),
+        5.0,
+    );
+    let inside = [
+        edge_through(&l_shape, (4.0, 7.0, 5.0)),
+        edge_through(&l_shape, (7.0, 4.0, 5.0)),
+    ];
+    let boss = bossed_block();
+    let base: Vec<EdgeId> = [
+        (5.0, 3.0, 10.0),
+        (3.0, 5.0, 10.0),
+        (5.0, 7.0, 10.0),
+        (7.0, 5.0, 10.0),
+    ]
+    .into_iter()
+    .map(|point| edge_through(&boss, point))
+    .collect();
+    let mitred_corner = 1.0 / 3.0;
+
+    let bevelled = run(&l_shape, &inside, BlendShape::Chamfer { distance: 1.0 });
+    let skirted = run(&boss, &base, BlendShape::Chamfer { distance: 1.0 });
+
+    check(
+        "inside corner",
+        &bevelled,
+        320.0 - 2.0 * 3.0 - mitred_corner,
+    );
+    assert_eq!(bevelled.faces().count(), 10);
+    check(
+        "boss base",
+        &skirted,
+        1064.0 + 4.0 * 2.0 + 4.0 * mitred_corner,
+    );
+    assert_eq!(skirted.faces().count(), 15);
+}
+
+#[test]
+fn a_convex_edge_rising_from_bevelled_concave_edges_is_refused_at_its_foot() {
+    let boss = bossed_block();
+    let rising = edge_through(&boss, (3.0, 3.0, 12.0));
+    let corner = [
+        edge_through(&boss, (5.0, 3.0, 10.0)),
+        edge_through(&boss, (3.0, 5.0, 10.0)),
+        rising,
+    ];
+
+    let refusal = blend(&boss, &corner, BlendShape::Chamfer { distance: 0.5 }, 50);
+
+    assert_eq!(
+        refusal,
+        Err(BlendError::UnsupportedEnd {
+            edge: rising,
+            vertex: None
+        })
+    );
+    assert!(
+        blend(
+            &boss,
+            &corner[1..],
+            BlendShape::Chamfer { distance: 0.5 },
+            50
+        )
+        .is_ok()
+    );
+}
+
+fn edges_where(solid: &Solid, keep: impl Fn(Point3) -> bool) -> Vec<EdgeId> {
+    solid
+        .edges()
+        .filter(|(_, edge)| keep(edge.curve().point(edge.interval().middle())))
+        .map(|(id, _)| id)
+        .collect()
+}
+
+#[test]
+fn feet_meeting_exactly_across_a_fill_are_refused() {
+    let boss = bossed_block();
+    let skirt_and_rim = edges_where(&boss, |middle| (middle.z - 10.0).abs() < 1e-9);
+    let block = block_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), 1);
+    let pocketed = boolean(
+        &block,
+        &block_at((3.0, 3.0, 6.0), (4.0, 4.0, 4.0), 2),
+        BooleanOperation::Difference,
+    )
+    .unwrap();
+    let rim = edge_through(&pocketed, (5.0, 3.0, 10.0));
+    let pocket = edges_where(&pocketed, |middle| {
+        (3.0..=7.0).contains(&middle.x) && (3.0..=7.0).contains(&middle.y)
+    });
+    let chamfer = |distance| BlendShape::Chamfer { distance };
+
+    let touching = blend(&boss, &skirt_and_rim, chamfer(1.5), 50);
+    let walls_gone = blend(&pocketed, &pocket, chamfer(2.0), 50);
+
+    assert_eq!(skirt_and_rim.len(), 8);
+    assert!(is_too_large(touching));
+    assert!(blend(&boss, &skirt_and_rim, chamfer(1.4), 50).is_ok());
+    assert_eq!(pocket.len(), 12);
+    assert_eq!(walls_gone, Err(BlendError::Lost(rim)));
+    assert!(blend(&pocketed, &pocket, chamfer(1.9), 50).is_ok());
+}
