@@ -1185,6 +1185,54 @@ impl Command {
         fixed.to_owned()
     }
 
+    pub fn keywords(self) -> &'static [&'static str] {
+        match self {
+            Self::FitView => &[
+                "zoom extents",
+                "zoom all",
+                "zoom to fit",
+                "frame",
+                "fit all",
+            ],
+            Self::View(StandardView::Isometric) => &["home", "default view"],
+            Self::Undo => &["revert", "take back"],
+            Self::Redo => &["again"],
+            Self::UndoHistory => &["history", "steps"],
+            Self::HideSelection | Self::HideOthers | Self::ToggleVisibility => {
+                &["visibility", "show", "hide"]
+            }
+            Self::ShowAll => &["visibility", "unhide", "reveal"],
+            Self::Measure => &["distance", "ruler", "length", "angle", "area", "volume"],
+            Self::Interference => &["collision", "clash", "overlap"],
+            Self::DeleteSelection | Self::DeleteFeature => &["remove", "erase"],
+            Self::Extrude => &["pad", "pocket", "boss", "push pull"],
+            Self::Revolve => &["lathe", "turn", "spin"],
+            Self::Fillet => &["round", "blend"],
+            Self::Chamfer => &["bevel"],
+            Self::Shell => &["hollow"],
+            Self::Hole => &["drill", "bore", "counterbore", "countersink"],
+            Self::NewSketch => &["draw", "profile", "2d"],
+            Self::Preferences => &["settings", "options", "units"],
+            Self::KeyboardShortcuts => &["keymap", "keys", "bindings", "hotkeys"],
+            Self::Guide => &["help", "manual", "documentation"],
+            Self::Messages => &["log", "notifications", "errors", "history"],
+            Self::ToggleProjection | Self::AutomaticProjection => {
+                &["perspective", "orthographic", "parallel"]
+            }
+            Self::ToggleSnapping => &["magnet", "snap"],
+            Self::ToggleGridSnapping => &["snap to grid"],
+            Self::LookAtFace | Self::LookAtSketch => &["normal to", "perpendicular", "face on"],
+            Self::Section(SectionCommand::Toggle) => &["cross section", "clipping", "cut away"],
+            Self::ExportImage => &["screenshot", "png", "picture"],
+            Self::Export => &["stl", "3mf", "step", "save as stl"],
+            Self::Import => &["dxf", "svg", "step", "stl", "obj", "3mf"],
+            Self::Configurations => &["variants", "family table", "design table"],
+            Self::Recompute => &["rebuild", "regenerate", "update"],
+            Self::Quit => &["exit", "close"],
+            _ => &[],
+        }
+    }
+
     pub fn category(self) -> Category {
         match self {
             Self::New
@@ -1920,6 +1968,15 @@ impl Keymap {
         self.set(command, shortcuts);
     }
 
+    pub fn reset_conflicts(&self, command: Command) -> Vec<(KeyboardShortcut, Vec<Command>)> {
+        command
+            .default_shortcuts()
+            .into_iter()
+            .map(|shortcut| (shortcut, self.conflicts(command, &shortcut)))
+            .filter(|(_, holders)| !holders.is_empty())
+            .collect()
+    }
+
     pub fn reset(&mut self, command: Command) {
         self.overrides.remove(&command);
         for shortcut in command.default_shortcuts() {
@@ -2086,6 +2143,7 @@ pub enum Pasted<'a> {
 pub struct CommandFrame<'a> {
     keymap: &'a Keymap,
     triggered: Vec<Command>,
+    showing_state: Vec<Command>,
     offers: Vec<Offer>,
     refused: Vec<(Command, String)>,
     clipboard: Clipboard,
@@ -2098,6 +2156,7 @@ impl<'a> CommandFrame<'a> {
         Self {
             keymap,
             triggered,
+            showing_state: Vec::new(),
             offers: Vec::new(),
             refused: Vec::new(),
             clipboard: Clipboard::Unread,
@@ -2187,6 +2246,15 @@ impl<'a> CommandFrame<'a> {
 
     pub fn trigger(&mut self, command: Command) {
         self.triggered.push(command);
+    }
+
+    pub fn trigger_showing_state(&mut self, command: Command) {
+        self.triggered.push(command);
+        self.showing_state.push(command);
+    }
+
+    pub fn state_unseen(&self, command: Command) -> bool {
+        !self.showing_state.contains(&command)
     }
 
     pub fn take(&mut self, command: Command) -> bool {

@@ -65,7 +65,7 @@ pub fn file_name(model: &Model) -> String {
 impl Files {
     pub(super) fn ask_parameter_export(&mut self, model: &mut Model) {
         if model.document().parameters().is_empty() {
-            model.set_notice(Notice::info(format!("{NO_PARAMETERS}.")));
+            model.set_notice(Notice::warning(format!("{NO_PARAMETERS}.")));
             return;
         }
         self.pick(Purpose::ExportParameters, model);
@@ -98,7 +98,7 @@ impl Files {
     ) {
         let name = display_name(Some(path));
         model.set_notice(match result {
-            Ok(()) => Notice::info(format!(
+            Ok(()) => Notice::success(format!(
                 "Exported {} to “{name}”.",
                 count(exported, "parameter", "parameters")
             )),
@@ -139,7 +139,7 @@ impl Files {
         let name = display_name(Some(&path));
         let rows = match result {
             Ok(rows) if rows.is_empty() => {
-                model.set_notice(Notice::info(format!(
+                model.set_notice(Notice::warning(format!(
                     "“{name}” lists no parameters, so nothing was imported."
                 )));
                 return;
@@ -199,7 +199,7 @@ impl Files {
                         if let Some(transaction) = plan.transaction {
                             model.perform(Action::Apply(transaction));
                         }
-                        model.set_notice(Notice::info(note));
+                        model.set_notice(Notice::success(note));
                     }
                     Err(reason) => model.set_notice(Notice::failure(reason)),
                 }

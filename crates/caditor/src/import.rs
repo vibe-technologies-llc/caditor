@@ -134,7 +134,7 @@ pub fn place_drawing(
         .document()
         .feature(sketch)
         .map_or_else(|| "the sketch".to_owned(), |feature| feature.name.clone());
-    model.set_notice(Notice::info(format!(
+    model.set_notice(Notice::success(format!(
         "Imported {} from “{file}” into {sketch}.",
         count(curves, "curve", "curves")
     )));
@@ -242,7 +242,7 @@ pub fn place_bodies(
     if model.revision() == revision {
         return None;
     }
-    model.set_notice(Notice::info(format!(
+    model.set_notice(Notice::success(format!(
         "Imported {} from “{file}”.",
         count(imported.bodies.len(), "body", "bodies")
     )));
@@ -260,7 +260,7 @@ pub fn replace_body(
 ) -> Option<ImportReport> {
     let file = display_name(Some(path));
     let Some(existing) = model.document().feature(feature) else {
-        model.set_notice(Notice::info(format!(
+        model.set_notice(Notice::warning(format!(
             "The imported body was deleted before “{file}” was read, so nothing was replaced."
         )));
         return None;
@@ -319,7 +319,7 @@ pub fn replace_body(
     if model.revision() == revision {
         return None;
     }
-    model.set_notice(Notice::info(format!(
+    model.set_notice(Notice::success(format!(
         "Replaced {name} with the body in “{file}”. Features using its faces and edges find them \
          again, and any that cannot say so in the tree."
     )));

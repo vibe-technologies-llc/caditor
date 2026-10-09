@@ -997,7 +997,7 @@ impl Files {
             FileCommand::History(command) => self.history_command(command, model),
             FileCommand::Import { into } => {
                 if self.importing.is_some() {
-                    model.set_notice(Notice::info("An import is already running."));
+                    model.set_notice(Notice::warning("An import is already running."));
                     return;
                 }
                 if self.picking.is_some() {
@@ -1008,7 +1008,7 @@ impl Files {
             }
             FileCommand::ReplaceImport(feature) => {
                 if self.importing.is_some() {
-                    model.set_notice(Notice::info("An import is already running."));
+                    model.set_notice(Notice::warning("An import is already running."));
                     return;
                 }
                 if self.picking.is_some() {
@@ -1019,12 +1019,12 @@ impl Files {
             }
             FileCommand::ReloadImport(feature) => {
                 if self.importing.is_some() {
-                    model.set_notice(Notice::info("An import is already running."));
+                    model.set_notice(Notice::warning("An import is already running."));
                     return;
                 }
                 match import::kept_source(model.document(), feature) {
                     Ok(path) => self.replace_import(path, feature, model),
-                    Err(reason) => model.set_notice(Notice::info(reason)),
+                    Err(reason) => model.set_notice(Notice::warning(reason)),
                 }
             }
             FileCommand::Drop { paths, into } => self.dropped(paths, into, model),
@@ -1044,7 +1044,7 @@ impl Files {
 
     fn dropped(&mut self, paths: Vec<PathBuf>, into: Option<FeatureId>, model: &mut Model) {
         if self.is_blocking() {
-            model.set_notice(Notice::info(
+            model.set_notice(Notice::warning(
                 "Finish with the open dialog before dropping files on caditor.",
             ));
             return;
@@ -1052,7 +1052,7 @@ impl Files {
         let models = paths.iter().filter(|path| is_model_file(path)).count();
         match (models, paths.as_slice()) {
             (0, _) if self.is_importing() => {
-                model.set_notice(Notice::info(
+                model.set_notice(Notice::warning(
                     "An import is already running. Drop the files again once it has finished.",
                 ));
             }
@@ -1067,7 +1067,7 @@ impl Files {
                 self.import_next(model);
             }
             (1, [path]) => self.request(Intent::Open(Some(path.clone())), model),
-            _ => model.set_notice(Notice::info(
+            _ => model.set_notice(Notice::warning(
                 "Drop a single model to open it, or drawings and STEP files to import them.",
             )),
         }
@@ -1119,7 +1119,7 @@ impl Files {
                     self.history.open(path.to_path_buf());
                     self.list_versions();
                 }
-                None => model.set_notice(Notice::info(
+                None => model.set_notice(Notice::warning(
                     "Save the model first; from then on every save keeps the version before it.",
                 )),
             },
@@ -1176,7 +1176,7 @@ impl Files {
     ) {
         self.history.finish_restoring(path, &result);
         if model.path() != Some(path) {
-            model.set_notice(Notice::info(format!(
+            model.set_notice(Notice::warning(format!(
                 "The earlier version of “{}” was not restored, because another model is open now.",
                 display_name(Some(path))
             )));
@@ -1196,7 +1196,7 @@ impl Files {
                     return;
                 }
                 self.history.close();
-                model.set_notice(Notice::info(format!(
+                model.set_notice(Notice::success(format!(
                     "Restored the version saved {}. Undo brings back what you had.",
                     history::when_saved(state)
                 )));
@@ -1542,7 +1542,7 @@ impl Files {
     fn replace_import(&mut self, path: PathBuf, feature: FeatureId, model: &mut Model) {
         if !import::is_model(&path) {
             self.importing = None;
-            model.set_notice(Notice::info(format!(
+            model.set_notice(Notice::warning(format!(
                 "“{}” is not a STEP, STL, OBJ or 3MF file, so it cannot replace an imported \
                  body.",
                 display_name(Some(&path))
@@ -1858,7 +1858,7 @@ impl Files {
 
     fn export(&mut self, path: PathBuf, format: ExportFormat, model: &mut Model) {
         if self.exporter.is_running() {
-            model.set_notice(Notice::info("An export is already running."));
+            model.set_notice(Notice::warning("An export is already running."));
             return;
         }
         let events = self.events.clone();
@@ -1983,7 +1983,7 @@ impl Files {
                 }
                 model.restore(candidate.recovered);
                 if suppressed && model.suppress_every_feature() {
-                    model.perform(Action::Inform(Notice::info(RESTORED_SUPPRESSED)));
+                    model.perform(Action::Inform(Notice::warning(RESTORED_SUPPRESSED)));
                 }
             }
             Intent::Replace(opened) => self.finish_open(*opened, model),
@@ -2702,7 +2702,7 @@ pub fn menu(
             }
             None => {
                 if commands.take(command) {
-                    actions.push(Action::Inform(Notice::info(format!(
+                    actions.push(Action::Inform(Notice::warning(format!(
                         "{}: there are not that many recent models",
                         command.title()
                     ))));

@@ -383,12 +383,12 @@ pub fn finished(path: &Path, sketch: &str, result: Result<SketchExported, Export
                 too_wide(exported.too_wide)
             );
             match (exported.construction_left_out, exported.construction) {
-                (0, 0) => Notice::info(summary),
-                (0, kept) => Notice::info(format!(
+                (0, 0) => Notice::success(summary),
+                (0, kept) => Notice::success(format!(
                     "{summary} {} on the Construction layer.",
                     count(kept, "construction curve is", "construction curves are")
                 )),
-                (left_out, _) => Notice::info(format!(
+                (left_out, _) => Notice::success(format!(
                     "{summary} {} left out; File › Keep construction geometry in drawings keeps \
                      them.",
                     count(
@@ -441,8 +441,8 @@ pub fn face_finished(
                 too_wide(exported.too_wide)
             );
             match exported.approximated {
-                0 => Notice::info(summary),
-                approximated => Notice::info(format!(
+                0 => Notice::success(summary),
+                approximated => Notice::success(format!(
                     "{summary} {} with no exact form in a drawing {} fitted within a micrometre.",
                     count(approximated, "curve", "curves"),
                     if approximated == 1 { "was" } else { "were" }
@@ -517,7 +517,7 @@ pub fn both_finished(
             }
         ));
     }
-    Notice::info(text)
+    Notice::success(text)
 }
 
 pub fn dialog(

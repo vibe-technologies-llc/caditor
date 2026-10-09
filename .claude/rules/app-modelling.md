@@ -146,7 +146,7 @@ paths:
   which opens the feature and starts choosing that slot (`reference_picking::Picking`, held by
   `SketchEditing` and published to the panels through egui temp data each frame, since the tree's
   call signatures carry no editing state). While choosing, a click (or the activated keyboard
-  highlight) is tried as the selection for that slot: it applies and stops, or leaves an info
+  highlight) is tried as the selection for that slot: it applies and stops, or leaves a warning
   notice with the reason. A datum axis keeps a first plane pending until a second one crosses it.
   Escape stops choosing before anything else; opening another feature or closing this one stops it
   too. The lists of regions, blend edges and shell faces use `choose_in_view`, which opens the

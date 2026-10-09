@@ -151,6 +151,7 @@ mod thread_panel;
 mod thread_tools;
 mod tidy_panel;
 mod tidying;
+mod toggles;
 mod toolbar;
 mod tracking;
 mod tree_row;
@@ -237,7 +238,7 @@ fn run_session(open: Option<PathBuf>, state_dir: Option<PathBuf>, logging: &Logg
         },
     );
     if let Some(log) = &stopped_before {
-        model.set_notice(Notice::info(logging::unexpected_end_notice(log)));
+        model.set_notice(Notice::warning(logging::unexpected_end_notice(log)));
     }
     let config_dir = caditor_file::config_dir();
     let files = Files::new(

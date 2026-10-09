@@ -270,7 +270,7 @@ impl Files {
     pub(super) fn template_target(&mut self, path: PathBuf, model: &mut Model) {
         let named = with_extension(path.clone());
         if model.path() == Some(named.as_path()) || model.path() == Some(path.as_path()) {
-            model.set_notice(Notice::info(format!(
+            model.set_notice(Notice::warning(format!(
                 "“{}” is the open model's own file, so it is already saved as that template \
                  whenever you save.",
                 display_name(Some(&named))
@@ -304,7 +304,7 @@ impl Files {
         let name = display_name(Some(path));
         match result {
             Ok(()) => {
-                model.set_notice(Notice::info(format!(
+                model.set_notice(Notice::success(format!(
                     "Saved “{name}” as a template. New from template starts a model from it, and \
                      Preferences can make New model start from it."
                 )));

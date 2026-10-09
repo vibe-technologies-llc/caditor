@@ -94,7 +94,7 @@ pub fn create_actions(
     match create(document, evaluation, source, unit) {
         Ok((transaction, feature)) => {
             let told = body_selection::left_out_words(&source.left_out).map(|words| {
-                Action::Inform(Notice::info(format!(
+                Action::Inform(Notice::warning(format!(
                     "{TITLE} takes faces to leave open only, so {words}."
                 )))
             });
@@ -106,7 +106,9 @@ pub fn create_actions(
             .chain(told)
             .collect()
         }
-        Err(reason) => vec![Action::Inform(Notice::info(format!("{TITLE}: {reason}.")))],
+        Err(reason) => vec![Action::Inform(Notice::warning(format!(
+            "{TITLE}: {reason}."
+        )))],
     }
 }
 

@@ -1,9 +1,9 @@
-use egui::{Event, Grid, KeyboardShortcut, Label, ScrollArea, TextEdit, Ui};
+use egui::{Align, Event, Grid, KeyboardShortcut, Label, Layout, ScrollArea, TextEdit, Ui};
 
 use crate::{
     appearance::{self, SPACE_L, SPACE_M, SPACE_S, SPACE_XS},
     commands::{self, Category, Command, Keymap, Scope},
-    dialog_parts, icons,
+    dialog_parts, icons, palette,
     preferences::{PreferenceChange, PreferencesCommand},
     widgets::{self, DialogWidth, Tone},
 };
@@ -11,6 +11,8 @@ use crate::{
 pub const TITLE: &str = "Keyboard shortcuts";
 const RESET_ALL: &str = "Reset all shortcuts";
 const FILTER_HINT: &str = "Filter by command or keys";
+pub const CHANGED: &str = "Changed";
+pub const CHANGED_ONLY: &str = "Changed only";
 const BINDINGS_WIDTH: f32 = 170.0;
 const ACTIONS_WIDTH: f32 = 180.0;
 const SCROLL_BAR_ROOM: f32 = 12.0;
@@ -38,10 +40,41 @@ struct Pending {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingReset {
+    command: Command,
+    taken: Vec<(KeyboardShortcut, Vec<Command>)>,
+}
+
+impl PendingReset {
+    fn question(&self) -> String {
+        let taken: Vec<String> = self
+            .taken
+            .iter()
+            .map(|(shortcut, holders)| {
+                let holders: Vec<String> = holders.iter().map(|holder| holder.title()).collect();
+                format!(
+                    "{} is used by {}.",
+                    commands::display(shortcut),
+                    holders.join(" and ")
+                )
+            })
+            .collect();
+        let them = if self.taken.len() == 1 { "it" } else { "them" };
+        format!(
+            "{} Reset {} and move {them} there?",
+            taken.join(" "),
+            self.command.title()
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShortcutEditor {
     query: String,
+    changed_only: bool,
     recording: Option<Command>,
     pending: Option<Pending>,
+    pending_reset: Option<PendingReset>,
     message: Option<String>,
     focus_filter: bool,
     confirm_reset: bool,
@@ -51,8 +84,10 @@ impl Default for ShortcutEditor {
     fn default() -> Self {
         Self {
             query: String::new(),
+            changed_only: false,
             recording: None,
             pending: None,
+            pending_reset: None,
             message: None,
             focus_filter: true,
             confirm_reset: false,
@@ -94,6 +129,23 @@ impl ShortcutEditor {
         });
         None
     }
+
+    fn reset(&mut self, command: Command, keymap: &Keymap) -> Option<PreferencesCommand> {
+        self.pending = None;
+        self.message = None;
+        self.confirm_reset = false;
+        let taken = keymap.reset_conflicts(command);
+        if taken.is_empty() {
+            self.pending_reset = None;
+            return Some(reset(command));
+        }
+        self.pending_reset = Some(PendingReset { command, taken });
+        None
+    }
+}
+
+fn reset(command: Command) -> PreferencesCommand {
+    PreferencesCommand::Change(PreferenceChange::ResetShortcut(command))
 }
 
 fn bind(command: Command, shortcut: KeyboardShortcut) -> PreferencesCommand {
@@ -115,6 +167,7 @@ pub fn dialog(
         ));
         let mut command = None;
         conflict(ui, editor, &mut command);
+        reset_conflict(ui, editor, &mut command);
         if let Some(message) = &editor.message {
             widgets::callout(ui, Tone::Warning, |ui| {
                 ui.label(message);
@@ -136,6 +189,8 @@ pub fn dialog(
         if std::mem::take(&mut editor.focus_filter) {
             filter.request_focus();
         }
+        ui.checkbox(&mut editor.changed_only, CHANGED_ONLY)
+            .on_hover_text("List only the commands whose shortcuts differ from caditor's own");
         let columns = Columns::of(ui);
         header(ui, columns);
         let height = widgets::list_height(ui.ctx(), LIST_HEIGHT);
@@ -272,6 +327,58 @@ fn conflict(ui: &mut Ui, editor: &mut ShortcutEditor, command: &mut Option<Prefe
     });
 }
 
+fn reset_conflict(
+    ui: &mut Ui,
+    editor: &mut ShortcutEditor,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let Some(pending) = editor.pending_reset.clone() else {
+        return;
+    };
+    let them = if pending.taken.len() == 1 {
+        "it"
+    } else {
+        "them"
+    };
+    widgets::callout(ui, Tone::Warning, |ui| {
+        ui.label(pending.question());
+        ui.horizontal(|ui| {
+            if ui
+                .add(widgets::button(format!("Reset and move {them}")))
+                .clicked()
+            {
+                *command = Some(reset(pending.command));
+                editor.pending_reset = None;
+            }
+            let keep = if pending.taken.len() == 1 {
+                "Keep it where it is"
+            } else {
+                "Keep them where they are"
+            };
+            if ui.add(widgets::button(keep)).clicked() {
+                editor.pending_reset = None;
+            }
+        });
+    });
+}
+
+fn shown_in_list(listed: Command, query: &str, changed_only: bool, keymap: &Keymap) -> bool {
+    if changed_only && keymap.is_default(listed) {
+        return false;
+    }
+    let text = format!(
+        "{}: {}",
+        listed.category().label().to_lowercase(),
+        listed.title().to_lowercase()
+    );
+    query.is_empty()
+        || palette::starts_words(query, &text)
+        || keymap
+            .shortcuts(listed)
+            .iter()
+            .any(|shortcut| commands::is_named_by(shortcut, query))
+}
+
 fn list(
     ui: &mut Ui,
     editor: &mut ShortcutEditor,
@@ -284,15 +391,7 @@ fn list(
     for category in CATEGORIES {
         let shown: Vec<Command> = Command::all()
             .filter(|listed| listed.category() == category)
-            .filter(|listed| {
-                query.is_empty()
-                    || listed.title().to_lowercase().contains(&query)
-                    || category.label().to_lowercase().contains(&query)
-                    || keymap
-                        .shortcuts(*listed)
-                        .iter()
-                        .any(|shortcut| commands::is_named_by(shortcut, &query))
-            })
+            .filter(|listed| shown_in_list(*listed, &query, editor.changed_only, keymap))
             .collect();
         let Some(first) = shown.first() else {
             continue;
@@ -318,12 +417,20 @@ fn list(
             });
     }
     if !shown_any {
-        let text = format!("No command or shortcut matches “{}”.", editor.query.trim());
+        let text = match (editor.changed_only, query.is_empty()) {
+            (true, true) => "Every shortcut is the one caditor starts with.".to_owned(),
+            (true, false) => format!(
+                "No changed command or shortcut matches “{}”.",
+                editor.query.trim()
+            ),
+            (false, _) => format!("No command or shortcut matches “{}”.", editor.query.trim()),
+        };
         let clear = widgets::empty_state(ui, icons::SEARCH, &text, |ui| {
             ui.add(widgets::button("Clear the filter")).clicked()
         });
         if clear {
             editor.query.clear();
+            editor.changed_only = false;
             editor.focus_filter = true;
         }
     }
@@ -341,7 +448,15 @@ fn row(
         ui.set_width(columns.command);
         let muted = appearance::tokens(ui).text_muted;
         widgets::icon_label(ui, icons::command(listed), muted);
-        ui.add(Label::new(listed.title()).truncate());
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            if !keymap.is_default(listed) {
+                widgets::pill(ui, Tone::Info, CHANGED)
+                    .on_hover_text("Its shortcuts differ from the ones caditor starts with");
+            }
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                ui.add(Label::new(listed.title()).truncate());
+            });
+        });
     });
     ui.horizontal_wrapped(|ui| {
         ui.set_width(columns.shortcuts);
@@ -379,6 +494,7 @@ fn row(
         if add.clicked() {
             editor.recording = Some(listed);
             editor.pending = None;
+            editor.pending_reset = None;
             editor.message = None;
             editor.confirm_reset = false;
         }
@@ -392,10 +508,10 @@ fn row(
                 widgets::Named::new(widgets::button("Reset"), reset_name.clone()),
             )
             .on_hover_text(reset_name);
-        if reset.clicked() {
-            *command = Some(PreferencesCommand::Change(PreferenceChange::ResetShortcut(
-                listed,
-            )));
+        if reset.clicked()
+            && let Some(reset) = editor.reset(listed, keymap)
+        {
+            *command = Some(reset);
         }
     });
 }

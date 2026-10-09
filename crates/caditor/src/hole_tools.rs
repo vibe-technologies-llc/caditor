@@ -416,7 +416,9 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
                 Action::Editing(EditingCommand::OpenSolid(feature)),
                 Action::Inform(Notice::info(told)),
             ],
-            Err(reason) => vec![Action::Inform(Notice::info(format!("{TITLE}: {reason}.")))],
+            Err(reason) => vec![Action::Inform(Notice::warning(format!(
+                "{TITLE}: {reason}."
+            )))],
         },
     }
 }

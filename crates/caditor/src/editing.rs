@@ -469,7 +469,7 @@ impl SketchEditing {
 }
 
 fn refuse_new_sketch(model: &mut Model, reason: &str) {
-    model.perform(Action::Inform(Notice::info(format!(
+    model.perform(Action::Inform(Notice::warning(format!(
         "{}: {reason}.",
         Command::NewSketch.title()
     ))));

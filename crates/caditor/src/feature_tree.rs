@@ -287,7 +287,7 @@ fn state_words(model: &Model, feature: &Feature) -> Vec<&'static str> {
         .collect()
 }
 
-fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
+pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
     match kind {
         FeatureKind::Sketch(_) => &["sketch"],
         FeatureKind::Solid(SolidFeature::Extrude(_)) => &["extrude", "extrusion"],
@@ -882,7 +882,7 @@ fn open_feature(
         None => collapsing.toggle(ui),
         Some(command) => match editable(document, feature) {
             Ok(()) => actions.push(Action::Editing(command)),
-            Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
         },
     }
 }
@@ -2527,7 +2527,7 @@ fn edit_itself(ui: &mut Ui, document: &Document, actions: &mut Vec<Action>, row:
     if ui.add(button).clicked() {
         actions.push(match editable(document, row.feature) {
             Ok(()) => Action::Editing(command),
-            Err(reason) => Action::Inform(Notice::info(reason)),
+            Err(reason) => Action::Inform(Notice::warning(reason)),
         });
     }
 }

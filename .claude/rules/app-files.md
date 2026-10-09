@@ -312,7 +312,8 @@ paths:
   the tab changes, another preference changes or the dialog closes. The shortcut editor's reset
   works the same way.
 - Changes apply at once and save on the files worker (a slider on release,
-  `PreferencesCommand::Preview` until then).
+  `PreferencesCommand::Preview` until then). The palette's Recent commands are kept the same way
+  (`palette.recent`, `app-input.md`) but are no preference: Restore defaults leaves them alone.
 - `Workspace` owns the `Preferences`; `Model` carries the length unit; `app::apply_preferences`
   hands the model its share at startup and after every change, and the session passes graphics
   settings to the renderer after each frame's actions (`Renderer::set_graphics`).

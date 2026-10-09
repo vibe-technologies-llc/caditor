@@ -215,7 +215,7 @@ pub fn finished(result: Result<Vec<ConfigurationExported>, ExportError>) -> Noti
         )
     };
     if problems.is_empty() {
-        return Notice::info(summary);
+        return Notice::success(summary);
     }
     Notice::failure(format!("{summary} But {}.", problems.join("; ")))
 }

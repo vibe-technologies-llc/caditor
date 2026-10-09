@@ -288,7 +288,7 @@ pub fn create_on_face_actions(model: &Model, face: FaceChoice) -> Vec<Action> {
             Action::Editing(EditingCommand::OpenSolid(feature)),
             Action::Inform(Notice::info(told)),
         ],
-        Err(reason) => vec![Action::Inform(Notice::info(format!(
+        Err(reason) => vec![Action::Inform(Notice::warning(format!(
             "{}: {reason}.",
             Sweep::Extrude.label()
         )))],

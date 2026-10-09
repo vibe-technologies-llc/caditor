@@ -12,7 +12,7 @@ use caditor_file::{JournalEntry, Start, Storage, StorageConfig};
 use caditor_geometry::{Plane, Point2};
 use caditor_render::{CutFace, SurfaceTarget, ViewportFrame, ViewportRenderer};
 use caditor_sketch::{Constraint, Sketch};
-use egui::{Event, Key, Modifiers};
+use egui::{Event, Key, KeyboardShortcut, Modifiers};
 use tempfile::TempDir;
 
 use super::{
@@ -21,7 +21,9 @@ use super::{
 };
 use crate::{
     app::Workspace,
-    blend_tools, datum_tools,
+    blend_tools,
+    commands::Command,
+    datum_tools,
     drawing_export::{DrawingCommand, DrawingSource, Layout},
     editing::EditingCommand,
     export::ExportCommand,
@@ -30,17 +32,17 @@ use crate::{
     hole_tools,
     image_export::ImageCommand,
     mirror_tools,
-    model::Action,
+    model::{Action, Notice},
     move_tools,
     panels::{Painting, Renaming},
     pattern_tools::{self, Shape},
-    preferences::{Preferences, PreferencesCommand, PreferencesTab, Theme},
+    preferences::{PreferenceChange, Preferences, PreferencesCommand, PreferencesTab, Theme},
     reference_picking::{Picking, Slot},
     samples::Sample,
     scale_tools,
     section::SectionTool,
     selection::{Pickable, Selection},
-    shell_tools, view_cube,
+    shell_tools, shortcut_editor, view_cube,
 };
 
 const OUTPUT: &str = "CADITOR_SCREENSHOTS";
@@ -498,6 +500,23 @@ fn screenshots() {
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
 
+        model.key(Key::P, Modifiers::COMMAND | Modifiers::SHIFT);
+        model.show_new_windows();
+        model.type_text("snap");
+        shoot(&mut model, &gpu, &out, "palette-toggles", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+
+        model.perform(Action::Inform(Notice::warning(
+            "Fillet: select one or more edges of a body first.",
+        )));
+        shoot(&mut model, &gpu, &out, "notice-warning", look);
+        model.perform(Action::Inform(Notice::success(
+            "Exported 1 body to “plate.stl”.",
+        )));
+        shoot(&mut model, &gpu, &out, "notice-success", look);
+        model.perform(Action::DismissNotice);
+
         model.click("Model");
         shoot(&mut model, &gpu, &out, "menu-model", look);
         model.click("Bodies");
@@ -952,6 +971,21 @@ fn dialog_scenes(gpu: &Gpu, out: &Path, look: Look) {
     model.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
     shoot(&mut model, gpu, out, "shortcuts", look);
     close_dialog(&mut model);
+
+    model.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::Bind(
+            Command::Undo,
+            KeyboardShortcut::new(Modifiers::NONE, Key::F),
+        ),
+    )));
+    model.perform(Action::Preferences(PreferencesCommand::ShowShortcuts));
+    model.click(shortcut_editor::CHANGED_ONLY);
+    model.click_button("Reset Fit view to the shortcut caditor starts with");
+    shoot(&mut model, gpu, out, "shortcuts-changed", look);
+    close_dialog(&mut model);
+    model.perform(Action::Preferences(PreferencesCommand::Change(
+        PreferenceChange::ResetShortcuts,
+    )));
 
     model.perform(Action::Preferences(PreferencesCommand::ShowAbout));
     shoot(&mut model, gpu, out, "about", look);

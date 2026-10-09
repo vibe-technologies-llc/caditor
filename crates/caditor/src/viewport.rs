@@ -62,7 +62,7 @@ use crate::{
     sketch_placement::{self, DatumTarget, FaceChoice},
     sketch_toolbar, sketch_tools,
     snap::{Hold, Pointer, Screen},
-    snapshot, solid_tools,
+    snapshot, solid_tools, toggles,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
     view_aids::ViewAids,
@@ -2163,7 +2163,7 @@ impl ViewportState {
                 Ok(Some(transaction)) => actions.push(Action::Apply(transaction)),
                 Ok(None) => {}
                 Err(refusal) => {
-                    actions.push(Action::Inform(Notice::info(format!(
+                    actions.push(Action::Inform(Notice::warning(format!(
                         "{}.",
                         refusal.reason()
                     ))));
@@ -2223,7 +2223,7 @@ impl ViewportState {
         picks.push(picked);
         match dimensioning::fitting(&shown, &picks) {
             dimensioning::Fit::Refused(reason) => {
-                actions.push(Action::Inform(Notice::info(format!("{reason}."))));
+                actions.push(Action::Inform(Notice::warning(format!("{reason}."))));
             }
             dimensioning::Fit::Ready(_)
                 if picks.len() > 1 && !dimensioning::awaits_placement(&shown, &picks) =>
@@ -2245,7 +2245,7 @@ impl ViewportState {
     ) {
         match dimensioning::dimension(model, feature, picks, self.sketch_cursor) {
             Ok(added) => self.dimension_added(feature, added, actions),
-            Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
         }
     }
 
@@ -2402,23 +2402,23 @@ impl ViewportState {
         if commands.available(Command::ToggleControlPolygons) {
             self.aids.control_polygons_hidden = !self.aids.control_polygons_hidden;
         }
-        if commands.available(Command::ToggleSnapping) {
-            self.snapping = !self.snapping;
-        }
-        if commands.available(Command::ToggleGridSnapping) {
-            self.grid_snapping = !self.grid_snapping;
-        }
-        if commands.available(Command::ToggleLasso) {
-            self.lasso = !self.lasso;
-        }
-        if commands.available(Command::TogglePaintSelection) {
-            self.paint = !self.paint;
-        }
-        if commands.available(Command::ToggleSelectThrough) {
-            self.select_through = !self.select_through;
-        }
-        if commands.available(Command::ToggleTypedDimensions) {
-            self.typed_dimensions = !self.typed_dimensions;
+        for (command, setting) in [
+            (Command::ToggleSnapping, &mut self.snapping),
+            (Command::ToggleGridSnapping, &mut self.grid_snapping),
+            (Command::ToggleLasso, &mut self.lasso),
+            (Command::TogglePaintSelection, &mut self.paint),
+            (Command::ToggleSelectThrough, &mut self.select_through),
+            (Command::ToggleTypedDimensions, &mut self.typed_dimensions),
+        ] {
+            if !commands.available(command) {
+                continue;
+            }
+            *setting = !*setting;
+            if commands.state_unseen(command)
+                && let Some(text) = toggles::quiet_toggle_notice(command, *setting)
+            {
+                actions.push(Action::Inform(Notice::info(text)));
+            }
         }
         if commands.available(Command::Section(SectionCommand::SliceSketch)) {
             self.sketch_slice = !self.sketch_slice;
@@ -2708,22 +2708,22 @@ impl ViewportState {
         let sketch = edited_sketch(model, editing)?;
         match highlight {
             Pickable::Origin => self.drawing.type_point(&sketch, Point2::ZERO),
-            Pickable::SketchEntity { feature, entity } if feature == active.feature => {
-                match sketch.entity(entity) {
-                    Some(Entity::Point(position)) => self.drawing.type_point(&sketch, *position),
-                    Some(_) => {
-                        if let Err(reason) = self.drawing.type_on_curve(&sketch, entity) {
-                            return Some(Some(Action::Inform(Notice::info(format!("{reason}.")))));
-                        }
+            Pickable::SketchEntity { feature, entity } if feature == active.feature => match sketch
+                .entity(entity)
+            {
+                Some(Entity::Point(position)) => self.drawing.type_point(&sketch, *position),
+                Some(_) => {
+                    if let Err(reason) = self.drawing.type_on_curve(&sketch, entity) {
+                        return Some(Some(Action::Inform(Notice::warning(format!("{reason}.")))));
                     }
-                    None => return Some(Some(Action::Inform(Notice::info(PLACE_AT_A_POINT)))),
                 }
-            }
-            _ => return Some(Some(Action::Inform(Notice::info(PLACE_AT_A_POINT)))),
+                None => return Some(Some(Action::Inform(Notice::warning(PLACE_AT_A_POINT)))),
+            },
+            _ => return Some(Some(Action::Inform(Notice::warning(PLACE_AT_A_POINT)))),
         }
         Some(match self.drawing.click(model) {
             Ok(transaction) => transaction.map(Action::Apply),
-            Err(refusal) => Some(Action::Inform(Notice::info(refusal.reason()))),
+            Err(refusal) => Some(Action::Inform(Notice::warning(refusal.reason()))),
         })
     }
 
@@ -2740,11 +2740,11 @@ impl ViewportState {
             match saved_views::save(document, &name, current) {
                 Ok(transaction) => {
                     actions.push(Action::Apply(transaction));
-                    actions.push(Action::Inform(Notice::info(format!(
+                    actions.push(Action::Inform(Notice::success(format!(
                         "Saved the view as {name}. Rename it, or see them all, in Saved views."
                     ))));
                 }
-                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
             }
         }
         if commands.available(Command::SavedViews) {
@@ -2754,11 +2754,11 @@ impl ViewportState {
             match saved_views::set_home(document, current) {
                 Ok(transaction) => {
                     actions.push(Action::Apply(transaction));
-                    actions.push(Action::Inform(Notice::info(
+                    actions.push(Action::Inform(Notice::success(
                         "The Isometric view now shows the model like this.",
                     )));
                 }
-                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
             }
         }
         let redefined = match document.saved_views().home {
@@ -2768,7 +2768,7 @@ impl ViewportState {
         if commands.invoke(Command::ResetHomeView, &redefined) {
             match saved_views::reset_home(document) {
                 Ok(transaction) => actions.push(Action::Apply(transaction)),
-                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
             }
         }
     }
@@ -2878,12 +2878,12 @@ impl ViewportState {
                     let left_out = selection_sets::left_out_note(saved.left_out)
                         .map(|note| format!(" {note}"))
                         .unwrap_or_default();
-                    actions.push(Action::Inform(Notice::info(format!(
+                    actions.push(Action::Inform(Notice::success(format!(
                         "Saved the selection as {name}. Rename it, select it again or see them \
                          all in Selection sets.{left_out}"
                     ))));
                 }
-                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
             }
         }
         if commands.available(Command::SelectionSets) {
@@ -3008,16 +3008,16 @@ impl ViewportState {
                         self.selection.clear();
                         actions.push(Action::Apply(transaction.finish()));
                     } else {
-                        actions.push(Action::Inform(Notice::info(format!("Copied {what}."))));
+                        actions.push(Action::Inform(Notice::success(format!("Copied {what}."))));
                     }
                 }
-                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
             }
         }
         if commands.invoke(Command::PasteGeometry, &Ok::<(), String>(())) {
             match commands.pasted() {
                 Pasted::Unread => commands.ask_for_paste(Command::PasteGeometry),
-                Pasted::Nothing => actions.push(Action::Inform(Notice::info(NOTHING_TO_PASTE))),
+                Pasted::Nothing => actions.push(Action::Inform(Notice::warning(NOTHING_TO_PASTE))),
                 Pasted::Text(text) => self.paste_text(model, feature, text, actions),
             }
         }
@@ -3037,7 +3037,7 @@ impl ViewportState {
         ) {
             Ok(pasted) => pasted,
             Err(error) => {
-                actions.push(Action::Inform(Notice::info(format!(
+                actions.push(Action::Inform(Notice::warning(format!(
                     "Nothing was pasted: {error}."
                 ))));
                 return;
@@ -3057,10 +3057,10 @@ impl ViewportState {
                 actions.push(Action::Apply(transaction));
                 self.add_to_selection(feature, placed, false);
                 if let Some(note) = paste_note(&pasted) {
-                    actions.push(Action::Inform(Notice::info(note)));
+                    actions.push(Action::Inform(Notice::warning(note)));
                 }
             }
-            Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
         }
     }
 
@@ -3309,7 +3309,7 @@ impl ViewportState {
                     self.add_to_selection(feature, entities, false);
                 }
             }
-            Outcome::Refused(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            Outcome::Refused(reason) => actions.push(Action::Inform(Notice::warning(reason))),
         }
     }
 
@@ -3465,13 +3465,13 @@ impl ViewportState {
                     Ended::Drawn(transaction) => actions.push(Action::Apply(transaction)),
                     Ended::Stopped => {}
                     Ended::Refused(refusal) => {
-                        actions.push(Action::Inform(Notice::info(refusal.reason())));
+                        actions.push(Action::Inform(Notice::warning(refusal.reason())));
                     }
                 }
             } else if let Some((feature, picks)) = self.picked_dimension(model) {
                 match dimensioning::dimension(model, feature, &picks, None) {
                     Ok(added) => self.dimension_added(feature, added, actions),
-                    Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+                    Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
                 }
             } else if let Some(Pickable::SketchConstraint {
                 feature,
@@ -4201,7 +4201,7 @@ fn edited_sketch<'a>(model: &'a Model, editing: &SketchEditing) -> Option<Displa
 fn outcome_action(outcome: Result<Option<Transaction>, String>) -> Option<Action> {
     match outcome {
         Ok(transaction) => transaction.map(Action::Apply),
-        Err(reason) => Some(Action::Inform(Notice::info(reason))),
+        Err(reason) => Some(Action::Inform(Notice::warning(reason))),
     }
 }
 
@@ -4271,7 +4271,7 @@ fn pick_action(
         return Some(match target {
             Some(target) => match projecting::project(model, active, target, whole) {
                 Ok(transaction) => vec![Action::Apply(transaction)],
-                Err(reason) => vec![Action::Inform(Notice::info(format!("{reason}.")))],
+                Err(reason) => vec![Action::Inform(Notice::warning(format!("{reason}.")))],
             },
             None => Vec::new(),
         });
@@ -4282,7 +4282,7 @@ fn pick_action(
     if let Some((open, copy)) = copy {
         return Some(match pattern_tools::leave_out(model, open, copy) {
             Ok(transaction) => vec![Action::Apply(transaction)],
-            Err(reason) => vec![Action::Inform(Notice::info(format!("{reason}.")))],
+            Err(reason) => vec![Action::Inform(Notice::warning(format!("{reason}.")))],
         });
     }
     let toggled = match pickable {
