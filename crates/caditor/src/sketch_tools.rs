@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{Edit, FeatureId, Transaction, TransactionBuilder};
-use caditor_expression::{Expression, Unit};
+use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
     Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Relations, Sketch,
@@ -10,7 +10,7 @@ use caditor_sketch::{
 
 use crate::{
     feature_tree::count,
-    field::sentence,
+    field::{self, DimensionTarget, sentence},
     model::Model,
     selection::{Pickable, Selection},
     units::Units,
@@ -20,6 +20,7 @@ use crate::{
 const DISPLAY_DECIMALS: f64 = 3.0;
 const SIGNIFICANT_DIGITS: f64 = 6.0;
 const DEGENERATE_LENGTH: f64 = 1e-12;
+const UNCHANGED_SCALE: f64 = 1e-12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConstraintTool {
@@ -1099,6 +1100,77 @@ impl ConstructionChange {
         }
         transaction.finish()
     }
+}
+
+pub fn dimension_change(
+    model: &Model,
+    target: DimensionTarget,
+    text: &str,
+    first_dimension_scales: bool,
+) -> Result<Transaction, String> {
+    let plain = field::dimension_transaction(
+        model.document(),
+        model.parameters(),
+        target,
+        text,
+        model.units(),
+    )?;
+    if !first_dimension_scales {
+        return Ok(plain);
+    }
+    Ok(scaled_to_first_dimension(model, target, &plain).unwrap_or(plain))
+}
+
+fn scaled_to_first_dimension(
+    model: &Model,
+    target: DimensionTarget,
+    plain: &Transaction,
+) -> Option<Transaction> {
+    let document = model.document();
+    let wanted = plain.edits().iter().find_map(|edit| match edit {
+        Edit::SetDimension { value, .. } => model.parameters().evaluate_expression(value).ok(),
+        _ => None,
+    })?;
+    let owner = document.feature(target.feature)?;
+    let sketch = owner.kind.sketch()?;
+    let constraint = sketch.constraint(target.constraint)?;
+    let only_dimension = sketch.constraints().all(|(id, other)| {
+        id == target.constraint
+            || !sketch.is_active(id)
+            || (other.dimension().is_none() && !matches!(other, Constraint::Fix { .. }))
+    });
+    if constraint.dimension_kind() != Some(Dimension::LENGTH)
+        || !sketch.is_active(target.constraint)
+        || !only_dimension
+        || sketch.projected().next().is_some()
+    {
+        return None;
+    }
+    let settled = model.settled_sketch(target.feature)?;
+    let factor = wanted.value / settled.measured(constraint)?;
+    if !factor.is_finite() || factor <= 0.0 || (factor - 1.0).abs() < UNCHANGED_SCALE {
+        return None;
+    }
+    let mut scaled = settled.clone();
+    for (id, entity) in settled.entities() {
+        let resized = match entity {
+            _ if id.is_reference() => continue,
+            Entity::Point(position) => Entity::Point(*position * factor),
+            Entity::Circle { center, radius } => Entity::Circle {
+                center: *center,
+                radius: radius * factor,
+            },
+            Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => continue,
+        };
+        scaled.replace_entity(id, resized).ok()?;
+    }
+    let mut transaction =
+        document.transaction(format!("Scale {} to its first dimension", owner.name));
+    transaction.settle_sketch(target.feature, &scaled);
+    for edit in plain.edits() {
+        transaction.edit(edit.clone());
+    }
+    field::checked(document, transaction.finish()).ok()
 }
 
 pub fn settled_transaction(

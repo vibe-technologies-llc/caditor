@@ -177,6 +177,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleSelectThrough => phosphor::SELECTION_BACKGROUND,
         Command::CycleSelectionPriority => phosphor::FUNNEL,
         Command::ToggleTypedDimensions => phosphor::RULER,
+        Command::ToggleFirstDimensionScales => phosphor::RESIZE,
         Command::ToggleGlyphs => phosphor::SHAPES,
         Command::ToggleCentresOfMass => phosphor::TARGET,
         Command::MinimizeWindow => MINIMIZE,

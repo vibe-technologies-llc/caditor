@@ -159,10 +159,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   leave it fully constrained, each set previewed before it is added as one undoable change. A
   check of the sketch would also name what the eye misses (ends a hair apart but not joined, a
   curve lying twice on itself or another, curves of no length) and offer the fix.
-- [low · easy] The first dimension of a sketch moves only what it measures, so a traced or
-  imported outline at the wrong size is scaled by hand first. An option to scale the whole sketch
-  about its origin when its first dimension is set, while it has no other, would size it in one
-  step.
 - [low · medium] No blend curve: a curve joining the ends of two sketch curves or edges, tangent
   (G1) or curvature-continuous (G2), as a spline held by `Tangent` and `Curvature` constraints so
   it follows when either end moves, for a transition where a fillet's circular arc is not smooth

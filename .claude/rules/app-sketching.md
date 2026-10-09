@@ -421,6 +421,15 @@ paths:
   "(disabled)".
 - Dimensions start at the displayed geometry's measured value. Every sketch transaction first
   settles the sketch to the last result when up to date (`Model::settled_sketch`).
+- Scale the whole sketch on its first dimension (`Command::ToggleFirstDimensionScales`, Sketch
+  menu, palette, no default key; off by default, kept for the session in
+  `ViewportState::first_dimension_scales`) makes a value typed in a dimension's field on the
+  canvas (`sketch_tools::dimension_change`) scale every point and circle of the settled sketch
+  about its origin by the new value over the measured one, in the same transaction as the value
+  ("Scale <sketch> to its first dimension"), so a traced or imported outline is sized in one
+  step. It applies only to an active length dimension that is the sketch's only active dimension,
+  with no active `Fix` and no projected geometry and the sketch settled; otherwise the value is
+  set as usual.
 - A new dimension whose every entity is `EntityState::FullyConstrained` in the settled solution
   (`Model::settled_solution`, none while a recompute is pending) is already determined, so it is
   added inactive in the same transaction, labelled "Add reference ...", with a notice saying it

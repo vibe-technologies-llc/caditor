@@ -444,6 +444,7 @@ pub fn show(
         select_through: viewport.select_through(),
         automatic_projection: viewport.projection() == ProjectionMode::Automatic,
         typed_dimensions: viewport.typed_dimensions(),
+        first_dimension_scales: viewport.first_dimension_scales(),
         glyphs: viewport.glyphs_shown(),
         aids: viewport.aids(),
     };

@@ -108,6 +108,7 @@ pub struct MenuContext<'a> {
     pub select_through: bool,
     pub automatic_projection: bool,
     pub typed_dimensions: bool,
+    pub first_dimension_scales: bool,
     pub glyphs: bool,
     pub aids: ViewAids,
 }
@@ -152,6 +153,7 @@ pub fn show(
                     select_through: context.select_through,
                     automatic_projection: context.automatic_projection,
                     typed_dimensions: context.typed_dimensions,
+                    first_dimension_scales: context.first_dimension_scales,
                     glyphs: context.glyphs,
                     aids: context.aids,
                     commands,
@@ -384,6 +386,7 @@ struct Menus<'a, 'b> {
     select_through: bool,
     automatic_projection: bool,
     typed_dimensions: bool,
+    first_dimension_scales: bool,
     glyphs: bool,
     aids: ViewAids,
     commands: &'a CommandFrame<'b>,
@@ -652,6 +655,11 @@ impl Menus<'_, '_> {
                 [Command::ReverseArc, Command::MoreSides, Command::FewerSides],
             );
             self.choice(ui, Command::ToggleTypedDimensions, self.typed_dimensions);
+            self.choice(
+                ui,
+                Command::ToggleFirstDimensionScales,
+                self.first_dimension_scales,
+            );
             ui.separator();
             self.item(ui, Command::Construction);
             self.items(ui, modifying.into_iter().map(Command::SketchTool));

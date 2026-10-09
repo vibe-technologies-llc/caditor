@@ -72,6 +72,7 @@ mod screenshots;
 mod selection_targets;
 mod sketch_breaks;
 mod sketch_chamfers;
+mod sketch_first_dimension;
 mod sketch_free;
 mod sketch_patterns;
 mod sketch_regions;
