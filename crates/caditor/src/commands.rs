@@ -71,6 +71,8 @@ pub enum Command {
     Import,
     Export,
     ExportImage,
+    ImportParameters,
+    ExportParameters,
     ExportSketch,
     ExportFace,
     KeepDrawingConstruction,
@@ -497,6 +499,8 @@ plain_commands! {
     Import,
     Export,
     ExportImage,
+    ImportParameters,
+    ExportParameters,
     ExportSketch,
     ExportFace,
     KeepDrawingConstruction,
@@ -689,6 +693,8 @@ impl Command {
             Self::Import => "file.import",
             Self::Export => "file.export",
             Self::ExportImage => "file.export_image",
+            Self::ImportParameters => "file.import_parameters",
+            Self::ExportParameters => "file.export_parameters",
             Self::ExportSketch => "file.export_sketch",
             Self::ExportFace => "file.export_face",
             Self::KeepDrawingConstruction => "file.keep_drawing_construction",
@@ -934,6 +940,8 @@ impl Command {
             Self::Import => "Import…",
             Self::Export => "Export…",
             Self::ExportImage => "Export image…",
+            Self::ImportParameters => "Import parameters…",
+            Self::ExportParameters => "Export parameters…",
             Self::ExportSketch => "Export sketch…",
             Self::ExportFace => "Export face…",
             Self::KeepDrawingConstruction => "Keep construction geometry in drawings",
@@ -1136,6 +1144,8 @@ impl Command {
             | Self::Import
             | Self::Export
             | Self::ExportImage
+            | Self::ImportParameters
+            | Self::ExportParameters
             | Self::ExportSketch
             | Self::ExportFace
             | Self::KeepDrawingConstruction
@@ -1462,6 +1472,8 @@ impl Command {
             | Self::Analysis(_)
             | Self::NewFromTemplate
             | Self::SaveAsTemplate
+            | Self::ImportParameters
+            | Self::ExportParameters
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
             | Self::ClearRecent

@@ -111,6 +111,8 @@ pub fn command(command: Command) -> &'static str {
         Command::Import => phosphor::DOWNLOAD_SIMPLE,
         Command::Export => phosphor::EXPORT,
         Command::ExportImage => phosphor::IMAGE,
+        Command::ImportParameters => phosphor::TABLE,
+        Command::ExportParameters => phosphor::EXPORT,
         Command::ExportSketch => phosphor::EXPORT,
         Command::ExportFace => phosphor::EXPORT,
         Command::KeepDrawingConstruction => CONSTRUCTION,

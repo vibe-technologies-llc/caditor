@@ -224,6 +224,25 @@ paths:
   into what was edited at the drop, each after the previous report closed. Mixed or multi-model
   drops, or drops during an import or dialog, are refused with a notice.
 
+## Parameter files
+
+- File › Import parameters… and Export parameters… (`Command::ImportParameters`,
+  `ExportParameters`, also in the palette, no default keys; `files/parameters.rs`) move the
+  model's parameters through a CSV file (`file-import-export.md`). Export is offered only while
+  the model has parameters; the text is made on the UI thread from the document and written on
+  the files worker, `.csv` appended to a name without it and replacing asked as for the other
+  outputs, and a notice counts what was written.
+- Import picks a file and reads it on an `import` thread; a result arriving after another model
+  opened is dropped. The rows open a preview (`ParameterImportDraft`, a modal counted by
+  `is_blocking`) planned by `Document::plan_parameter_import`: a row per parameter with a pill
+  (New, Replaces, Kept, Same, Left out) and the expression, what it replaces or the reason it is
+  left out, a warning callout counting values the model already has differently and an error
+  callout counting rows left out. "Replace values the model already has" (on by default) replans
+  with conflicts kept instead. Import replans against the model as it is then and applies one
+  transaction ("Import parameters from <file>", undone in one step) with a notice summing up what
+  was added, changed, kept and left out; Import is disabled with the reason when nothing would
+  change. A file that cannot be read at all is a notice saying why.
+
 ## Model properties
 
 - Model properties… (File menu, the model details under the title, palette) opens a modal

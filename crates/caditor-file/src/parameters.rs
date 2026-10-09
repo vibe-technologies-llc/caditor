@@ -36,6 +36,8 @@ pub enum ParameterFileError {
     UnclosedQuote { line: usize },
     #[error("it has more than {MAX_PARAMETER_ROWS} rows")]
     TooManyRows,
+    #[error("caditor ran into an internal error while handling it")]
+    Internal,
 }
 
 pub fn parameters_csv(document: &Document, values: &ParameterValues) -> String {

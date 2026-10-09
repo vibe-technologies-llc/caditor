@@ -70,6 +70,7 @@ mod dimension_labels;
 mod feature_panels;
 mod import_jobs;
 mod paint_selection;
+mod parameter_files;
 mod pick_list;
 mod primitives;
 mod scale_model;
@@ -175,6 +176,19 @@ impl Dialogs for ScriptedDialogs {
     }
 
     fn pick_image_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+        respond(self.reply());
+    }
+
+    fn pick_parameters_path(
+        &self,
+        _directory: Option<PathBuf>,
+        _file_name: String,
+        respond: Respond,
+    ) {
+        respond(self.reply());
+    }
+
+    fn pick_parameters(&self, _directory: Option<PathBuf>, respond: Respond) {
         respond(self.reply());
     }
 }
