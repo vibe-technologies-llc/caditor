@@ -6049,7 +6049,7 @@ fn split_model(plane: PlaneReference, flipped: bool) -> (Document, FeatureId) {
         "Split 1",
         FeatureKind::Split(Split {
             body: base,
-            plane,
+            along: caditor_document::SplitAlong::Plane(plane),
             flipped,
         }),
     );
@@ -6100,10 +6100,72 @@ fn a_split_with_a_damaged_plane_loads_along_the_yz_plane_and_says_so() {
         .split()
         .unwrap();
     assert_eq!(
-        restored.plane,
-        PlaneReference::Principal(PrincipalPlane::Yz)
+        restored.along,
+        caditor_document::SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz))
     );
     assert!(restored.flipped);
+}
+
+#[test]
+fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
+    use caditor_document::{Move, Split, SplitAlong, TurnCentre};
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Copy");
+    let turned = transaction.add_feature(
+        "Copy 1",
+        FeatureKind::Move(Move {
+            body: base,
+            offset: ["1 mm", "0 mm", "0 mm"].map(|text| transaction.parse(text).unwrap()),
+            turn: ["0 deg", "0 deg", "0 deg"].map(|text| transaction.parse(text).unwrap()),
+            copy: true,
+            about: TurnCentre::Origin,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let outline = document
+        .features()
+        .find(|feature| feature.name == "Outline")
+        .unwrap()
+        .id();
+    for (along, stored, flipped) in [
+        (
+            SplitAlong::Body(turned),
+            format!("\"along\":{{\"body\":{}}}", turned.raw()),
+            false,
+        ),
+        (
+            SplitAlong::Sketch(outline),
+            format!("\"along\":{{\"sketch\":{}}}", outline.raw()),
+            true,
+        ),
+    ] {
+        let mut document = document.clone();
+        let mut transaction = document.transaction("Split");
+        let split = transaction.add_feature(
+            "Split 1",
+            FeatureKind::Split(Split {
+                body: base,
+                along,
+                flipped,
+            }),
+        );
+        document.apply(transaction.finish()).unwrap();
+
+        let text = encode(&document).unwrap();
+        let loaded = decode_text(&text);
+
+        assert!(text.contains(&format!("\"split_along\":{{{stored},\"body\":")));
+        assert!(!text.contains("\"split\":"));
+        assert_eq!(text.contains("\"flipped\":true"), flipped);
+        assert_eq!(loaded.issues, Vec::<String>::new());
+        assert_eq!(loaded.document, document);
+
+        let kind = document.feature(split).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
 }
 
 fn scaled_model(factor: &str) -> (Document, FeatureId) {

@@ -101,8 +101,9 @@ const CHOOSE_MOVE_PROMPT: &str =
 const CHOOSE_SCALE_PROMPT: &str = "Enter the factor and the centre in the feature's panel";
 const CHOOSE_MIRROR_PROMPT: &str =
     "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
-const CHOOSE_SPLIT_PROMPT: &str =
-    "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
+const CHOOSE_SPLIT_PROMPT: &str = "Choose what to split along in the feature's panel, or select a \
+                                   plane, flat face, sketch curve or other body and use it from \
+                                   there";
 const CHOOSE_HOLE_PROMPT: &str = "Choose the hole's style and sizes in the feature's panel";
 const CHOOSE_PRIMITIVE_PROMPT: &str =
     "Enter the sizes and position in the feature's panel, or choose in the view where it goes";

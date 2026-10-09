@@ -1865,7 +1865,7 @@ fn split_change(
     feature: &Feature,
 ) -> Result<Transaction, String> {
     match feature.kind.split() {
-        Some(split) => split_tools::plane_change(model, selection, feature.id(), split),
+        Some(split) => split_tools::along_change(model, selection, feature.id(), split),
         None => Err(format!("{} is not a split", feature.name)),
     }
 }

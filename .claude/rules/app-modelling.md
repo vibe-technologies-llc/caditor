@@ -346,11 +346,17 @@ paths:
   chosen now, as a pattern's Repeats rows do; Keep the original is hidden while features are
   mirrored. The open mirror shows its body and its reflected cuts like a pattern of holes.
 - Split body (Alt+K, Model menu, palette, a body's right-click menu; not on the ribbon, which it
-  would widen past one row) takes the body the same way and creates a `Split` along the plane
-  chosen as Mirror's is (the Bodies group's Split body too), and opens it; its panel mirrors Mirror's (combo, Use
-  selected, Choose in the view with slot `SplitPlane`, the palette's Split along selected), with
-  Keep the other side and rows naming the body and the split-off body. While open both bodies show
-  as previews.
+  would widen past one row) takes the body the same way and creates a `Split` along what is
+  selected (`split_tools::source`, `source_for` from the Bodies group): a plane or flat face chosen
+  as Mirror's is, else curves or regions of one sketch made before it, else, with faces or edges
+  of exactly two bodies and no tree rows, the first picked is split along the second; nothing
+  chosen splits along the YZ plane. It opens the split; its panel mirrors Mirror's: the Split along
+  combo lists the principal planes, every other body standing before the split and every earlier
+  sketch that is one open chain (`is_open_chain`), worded by `split_tools::describe` ("The curve
+  of Sketch 2"); Use selected, Choose in the view (slot `SplitPlane`) and the palette's Split
+  along selected take a plane or flat face, a sketch curve, or a face or edge of another earlier
+  body (`along_change`). Keep the other side and rows naming the body and the split-off body
+  follow. While open both bodies show as previews.
 - Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 (the body unchanged until
   a factor is typed) about the origin. The panel has the factor (a plain number above zero) and
   the centre's three coordinates, all expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).

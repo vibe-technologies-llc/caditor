@@ -125,7 +125,9 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()
         }
         Slot::MirrorPlane => "Click a plane or flat face to mirror across".to_owned(),
-        Slot::SplitPlane => "Click a plane or flat face to split along".to_owned(),
+        Slot::SplitPlane => {
+            "Click a plane, flat face, sketch curve or another body to split along".to_owned()
+        }
         Slot::PrimitivePlace => {
             let noun = kind(model, picking.feature)
                 .and_then(FeatureKind::primitive)
@@ -202,7 +204,7 @@ pub fn change(
             mirror_tools::plane_change(model, selection, feature, mirror)
         }
         (Slot::SplitPlane, FeatureKind::Split(split)) => {
-            split_tools::plane_change(model, selection, feature, split)
+            split_tools::along_change(model, selection, feature, split)
         }
         (Slot::PatternDirection, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::First)

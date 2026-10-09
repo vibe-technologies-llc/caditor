@@ -143,7 +143,9 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             visit_plane(&mut mirror.plane, "the face it mirrors across", visitor);
         }
         FeatureKind::Split(split) => {
-            visit_plane(&mut split.plane, "the face it splits along", visitor);
+            if let Some(plane) = split.along.plane_mut() {
+                visit_plane(plane, "the face it splits along", visitor);
+            }
         }
         FeatureKind::Primitive(primitive) => {
             visit_plane(&mut primitive.plane, "the face it stands on", visitor);

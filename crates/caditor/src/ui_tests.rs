@@ -10186,6 +10186,56 @@ fn a_body_is_split_along_a_plane_into_two_bodies_from_the_panel() {
     assert_eq!(harness.built_with_meshes(2).scene.meshes.len(), 2);
 }
 
+#[test]
+fn a_body_is_split_along_a_sketch_curve_or_another_body_chosen_in_the_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    let mut line = Sketch::new(Plane::XY);
+    line.add_line(Point2::new(20.0, 10.0), Point2::new(20.0, 30.0));
+    let mut transaction = harness.document().transaction("Add a cut line");
+    transaction.add_feature("Cut line", FeatureKind::from(line));
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    let edge = |harness: &mut Harness, of: FeatureId| {
+        harness
+            .built()
+            .picks
+            .pickables()
+            .find(|pickable| matches!(pickable, Pickable::Edge { body, .. } if *body == of))
+            .expect("an edge of the body is pickable")
+    };
+    let plate_edge = edge(&mut harness, plate);
+    let peg_edge = edge(&mut harness, peg);
+
+    harness.select([plate_edge, peg_edge]);
+    harness.use_tool_with(Key::K, Modifiers::ALT);
+    harness.settle();
+    let split = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the split is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Split 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(volume_about(&harness, plate, 16000.0 - 1000.0));
+    assert!(volume_about(&harness, split, 1000.0));
+    assert!(volume_about(&harness, peg, 3000.0));
+
+    choose(&mut harness, "Peg", "The curve of Cut line");
+    assert_eq!(harness.model.undo_label(), Some("Edit Split 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!(low.x.abs() < 1e-6 && (high.x - 20.0).abs() < 1e-6);
+    let (low, high) = plate_bounds(&harness, split);
+    assert!((low.x - 20.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
+
+    harness.click(split_panel::KEEP_OTHER_SIDE);
+    harness.settle();
+    let (low, high) = plate_bounds(&harness, plate);
+    assert!((low.x - 20.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
+}
+
 fn extruded(harness: &mut Harness, min: Point2, max: Point2) -> FeatureId {
     let mut sketch = Sketch::new(Plane::XY);
     rectangle(&mut sketch, min, max);

@@ -5,7 +5,6 @@ use crate::{
     appearance::{self, SPACE_S},
     body_appearance, body_selection,
     commands::{Command, CommandFrame},
-    datum_tools,
     feature_tree::CommandContext,
     icons,
     model::{Action, Model, Notice},
@@ -246,14 +245,8 @@ fn row_menu(
         ui.close();
     }
     if widgets::menu_item(ui, icons::command(Command::Split), "Split body", None).clicked() {
-        match datum_tools::chosen_plane(model, selection, model.document().bar_index()) {
-            Ok(chosen) => {
-                let source = split_tools::SplitSource {
-                    body,
-                    plane: chosen.map(|chosen| chosen.plane),
-                };
-                actions.extend(split_tools::create_actions(model, &source));
-            }
+        match split_tools::source_for(model, selection, body) {
+            Ok(source) => actions.extend(split_tools::create_actions(model, &source)),
             Err(reason) => actions.push(Action::Inform(Notice::info(format!(
                 "{}: {reason}.",
                 split_tools::TITLE

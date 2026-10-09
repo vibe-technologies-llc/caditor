@@ -106,7 +106,7 @@ pub use crate::{
         Revolve, RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart,
         body_part, body_parts, profile_curve, sketch_regions,
     },
-    split::{HalfSpaceError, Split},
+    split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
     thread::{
         Bore, BoreError, PlacedThread, Thread, ThreadLength, ThreadPlacement, ThreadResult,
         hole_thread, placed_threads,

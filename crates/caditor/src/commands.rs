@@ -1022,7 +1022,7 @@ impl Command {
             Self::ClearChosenRegions => "Clear the chosen regions",
             Self::StartAtSelected => "Start extrusion or revolution at selected face or plane",
             Self::MirrorAcrossSelected => "Mirror across selected face or plane",
-            Self::SplitAlongSelected => "Split along selected face or plane",
+            Self::SplitAlongSelected => "Split along selected plane, face, curve or body",
             Self::DatumUseSelected => "Base datum on selection",
             Self::DatumTurnAboutSelected => "Turn datum plane about selected axis",
             Self::PatternUseSelected => "Pattern along or about selected axis",

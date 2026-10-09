@@ -289,7 +289,7 @@ impl FeatureKind {
             Self::Move(movement) => used.extend(movement.axis_body()),
             Self::Combine(combine) => used.extend(combine.tools()),
             Self::Mirror(mirror) => used.extend(mirror.plane.body()),
-            Self::Split(split) => used.extend(split.plane.body()),
+            Self::Split(split) => used.extend(split.along.body()),
             Self::Primitive(primitive) => used.extend(primitive.plane.body()),
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Blend(_)
@@ -316,7 +316,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.end_datums(),
             Self::Datum(datum) => datum.plane_datums(),
             Self::Mirror(mirror) => mirror.plane.datum().into_iter().collect(),
-            Self::Split(split) => split.plane.datum().into_iter().collect(),
+            Self::Split(split) => split.along.datum().into_iter().collect(),
             Self::Primitive(primitive) => primitive.plane.datum().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
@@ -386,6 +386,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.axis_sketch().into_iter().collect(),
             Self::Pattern(pattern) => pattern.axis_sketches(),
             Self::Move(movement) => movement.axis_sketch().into_iter().collect(),
+            Self::Split(split) => split.along.sketch().into_iter().collect(),
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
@@ -393,7 +394,6 @@ impl FeatureKind {
             | Self::Primitive(_)
             | Self::Combine(_)
             | Self::Mirror(_)
-            | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_)
@@ -869,7 +869,7 @@ impl FeatureKind {
             Self::Move(movement) => movement.origin_features(),
             Self::Combine(_) | Self::Scale(_) | Self::Hole(_) => BTreeSet::new(),
             Self::Mirror(mirror) => mirror.plane.origin_features(),
-            Self::Split(split) => split.plane.origin_features(),
+            Self::Split(split) => split.along.origin_features(),
             Self::Pattern(pattern) => pattern.origin_features(),
             Self::Datum(datum) => datum.origin_features(),
             Self::Thread(thread) => thread.origin_features(),

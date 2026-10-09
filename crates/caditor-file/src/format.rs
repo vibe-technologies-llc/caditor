@@ -18,8 +18,8 @@ use caditor_document::{
     PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource,
     RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView,
     SavedViews, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split,
-    Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
-    TurnCentre, group_name, material_name, view_name,
+    SplitAlong, Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize,
+    Transaction, TurnCentre, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector3};
@@ -199,6 +199,7 @@ pub(crate) enum FeatureKindRecord {
     FeatureMirror(Box<FeatureMirrorRecord>),
     Primitive(Box<PrimitiveRecord>),
     Thread(Box<ThreadRecord>),
+    SplitAlong(Box<SplitAlongRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -338,7 +339,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 44] = [
+pub(crate) const FEATURE_KINDS: [&str; 45] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -383,6 +384,7 @@ pub(crate) const FEATURE_KINDS: [&str; 44] = [
     "feature_mirror",
     "primitive",
     "thread",
+    "split_along",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -644,6 +646,21 @@ pub(crate) struct SplitRecord {
     pub plane: Lenient<PlaneReferenceRecord>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub flipped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SplitAlongRecord {
+    pub body: u64,
+    pub along: SplitToolRecord,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flipped: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SplitToolRecord {
+    Body(u64),
+    Sketch(u64),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1678,11 +1695,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         FeatureKind::Primitive(primitive) => {
             FeatureKindRecord::Primitive(Box::new(primitive_record(primitive)))
         }
-        FeatureKind::Split(split) => FeatureKindRecord::Split(SplitRecord {
-            body: split.body.raw(),
-            plane: Lenient::Read(plane_reference_record(&split.plane)),
-            flipped: split.flipped,
-        }),
+        FeatureKind::Split(split) => split_record(split),
         FeatureKind::Scale(scale) => FeatureKindRecord::Scale(ScaleRecord {
             body: scale.body.raw(),
             factor: scale.factor.to_stored_text(),
@@ -3626,6 +3639,7 @@ fn restore_kind(
             FeatureKind::Mirror(restore_mirror(record, name, issues))
         }
         FeatureKindRecord::Split(record) => FeatureKind::Split(restore_split(record, name, issues)),
+        FeatureKindRecord::SplitAlong(record) => FeatureKind::Split(restore_split_along(record)),
         FeatureKindRecord::Primitive(record) => {
             FeatureKind::Primitive(restore_primitive(record, name, issues))
         }
@@ -4347,6 +4361,36 @@ fn restore_mirror(record: &MirrorRecord, feature: &str, issues: &mut Vec<String>
     }
 }
 
+fn split_record(split: &Split) -> FeatureKindRecord {
+    let along = match &split.along {
+        SplitAlong::Plane(plane) => {
+            return FeatureKindRecord::Split(SplitRecord {
+                body: split.body.raw(),
+                plane: Lenient::Read(plane_reference_record(plane)),
+                flipped: split.flipped,
+            });
+        }
+        SplitAlong::Body(tool) => SplitToolRecord::Body(tool.raw()),
+        SplitAlong::Sketch(sketch) => SplitToolRecord::Sketch(sketch.raw()),
+    };
+    FeatureKindRecord::SplitAlong(Box::new(SplitAlongRecord {
+        body: split.body.raw(),
+        along,
+        flipped: split.flipped,
+    }))
+}
+
+fn restore_split_along(record: &SplitAlongRecord) -> Split {
+    Split {
+        body: FeatureId::from_raw(record.body),
+        along: match record.along {
+            SplitToolRecord::Body(tool) => SplitAlong::Body(FeatureId::from_raw(tool)),
+            SplitToolRecord::Sketch(sketch) => SplitAlong::Sketch(FeatureId::from_raw(sketch)),
+        },
+        flipped: record.flipped,
+    }
+}
+
 fn restore_split(record: &SplitRecord, feature: &str, issues: &mut Vec<String>) -> Split {
     let plane = match &record.plane {
         Lenient::Read(plane) => restore_plane_reference(plane),
@@ -4361,7 +4405,7 @@ fn restore_split(record: &SplitRecord, feature: &str, issues: &mut Vec<String>) 
     });
     Split {
         body: FeatureId::from_raw(record.body),
-        plane,
+        along: SplitAlong::Plane(plane),
         flipped: record.flipped,
     }
 }
