@@ -1,12 +1,13 @@
 use caditor_document::{
-    Blend, BlendKind, Document, Feature, FeatureId, Resolution, SolidResult, Transaction,
+    Blend, BlendKind, ChamferForm, Document, Feature, FeatureId, Resolution, SolidResult,
+    Transaction,
 };
 use caditor_expression::Dimension;
 use caditor_kernel::EdgeId;
 use egui::{Id, Ui};
 
 use crate::{
-    blend_tools::{self, KINDS},
+    blend_tools::{self, FORMS, FormChoice, KINDS},
     bodies,
     editing::EditingCommand,
     feature_fields::{self, Quantity, Rule, Segment},
@@ -57,12 +58,101 @@ fn kind_row(
     ));
 }
 
-fn size_caption(kind: BlendKind) -> &'static str {
-    match kind {
-        BlendKind::Fillet => "Radius",
-        BlendKind::Chamfer => "Distance",
+fn form_row(
+    ui: &mut Ui,
+    model: &Model,
+    feature: &Feature,
+    blend: &Blend,
+    actions: &mut Vec<Action>,
+) {
+    let current = FormChoice::of(&blend.form);
+    let segments = FORMS
+        .into_iter()
+        .map(|choice| Segment {
+            label: choice.short(),
+            hover: choice.hover(),
+            change: (choice != current)
+                .then(|| change(model, feature.id(), choice.applied_to(blend))),
+        })
+        .collect();
+    actions.extend(feature_fields::segmented_row(
+        ui,
+        "Distances",
+        &feature.name,
+        segments,
+    ));
+}
+
+fn size_caption(blend: &Blend) -> &'static str {
+    match (blend.kind, blend.chamfer_form()) {
+        (BlendKind::Fillet, _) => "Radius",
+        (BlendKind::Chamfer, ChamferForm::TwoDistances { .. }) => "First distance",
+        (BlendKind::Chamfer, ChamferForm::Equal | ChamferForm::DistanceAngle { .. }) => "Distance",
     }
 }
+
+fn form_value_row(
+    ui: &mut Ui,
+    model: &Model,
+    feature: FeatureId,
+    blend: &Blend,
+    actions: &mut Vec<Action>,
+) {
+    let (caption, expression, dimension, rule) = match blend.chamfer_form() {
+        ChamferForm::Equal => return,
+        ChamferForm::TwoDistances { second } => (
+            "Second distance",
+            second,
+            Dimension::LENGTH,
+            Rule::AboveZero,
+        ),
+        ChamferForm::DistanceAngle { angle } => {
+            ("Angle", angle, Dimension::ANGLE, Rule::ChamferAngle)
+        }
+    };
+    let quantity = Quantity {
+        feature,
+        id: Id::new(("blend-form", feature)),
+        expression,
+        dimension,
+        rule,
+    };
+    let drafting = feature_fields::expression_row_drafting(ui, model, caption, quantity, |value| {
+        let mut changed = blend.clone();
+        if let Some(slot) = changed.form.expression_mut() {
+            *slot = value;
+        }
+        change(model, feature, changed)
+    });
+    actions.extend(drafting.into_actions(feature));
+}
+
+fn flip_row(
+    ui: &mut Ui,
+    model: &Model,
+    feature: &Feature,
+    blend: &Blend,
+    actions: &mut Vec<Action>,
+) {
+    if blend.chamfer_form().is_equal() {
+        return;
+    }
+    if let Some(flipped) = feature_fields::reverse_row(ui, FLIP, blend.flipped) {
+        actions.push(feature_fields::applied(
+            &feature.name,
+            change(
+                model,
+                feature.id(),
+                Blend {
+                    flipped,
+                    ..blend.clone()
+                },
+            ),
+        ));
+    }
+}
+
+const FLIP: &str = "Measure from the other face";
 
 fn size_row(
     ui: &mut Ui,
@@ -78,7 +168,7 @@ fn size_row(
         dimension: Dimension::LENGTH,
         rule: Rule::AboveZero,
     };
-    let caption = size_caption(blend.kind);
+    let caption = size_caption(blend);
     let drafting = feature_fields::expression_row_drafting(ui, model, caption, quantity, |size| {
         change(
             model,
@@ -201,8 +291,13 @@ pub fn show(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mut
     let id = feature.id();
     widgets::properties(ui, ("blend-properties", id), |ui| {
         kind_row(ui, model, feature, blend, actions);
+        if blend.kind == BlendKind::Chamfer {
+            form_row(ui, model, feature, blend, actions);
+        }
         edges_row(ui, row, cache, actions);
         size_row(ui, model, id, blend, actions);
+        form_value_row(ui, model, id, blend, actions);
+        flip_row(ui, model, feature, blend, actions);
         feature_fields::feature_row(ui, model.document(), "Body", blend.body);
     });
 }

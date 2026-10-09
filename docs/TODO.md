@@ -212,12 +212,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   blind or through all, never up to a face or the next face it meets.
 - [medium · hard] Blends: only line and circle edges along planes, parallel cylinders and coaxial
   surfaces; no ellipse, spline or intersection edges, not even a straight edge beside a spline
-  extrusion face; ends at steps and T-junctions refused; no variable radius, two-distance or
-  distance-angle chamfer; a round corner only for three convex straight edges meeting at three
-  planes (other corners mitre). Missing as shapes of their own: a full-round fillet across a
-  narrow face between two others, a fillet sized by chord length, a fillet that runs by a rule
-  over every edge of a kind, setback corners where three fillets meet, a tangency weight, and a
-  curvature-continuous (G2) fillet.
+  extrusion face; ends at steps and T-junctions refused; no variable radius; a round corner only
+  for three convex straight edges meeting at three planes (other corners mitre). Missing as shapes
+  of their own: a full-round fillet across a narrow face between two others, a fillet sized by
+  chord length, a fillet that runs by a rule over every edge of a kind, setback corners where three
+  fillets meet, a tangency weight, and a curvature-continuous (G2) fillet.
 - [medium · hard] Blend corners still refused where a blend is possible (`blend/survey.rs` chamfers
   every corner of twenty bodies): a convex edge chosen with the concave edges at its foot (a boss's
   corner edge with its base) ends after the fill where two fill faces meet and is `UnsupportedEnd`

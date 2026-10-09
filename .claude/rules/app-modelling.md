@@ -215,6 +215,14 @@ paths:
 - Choose in the view on a fillet or chamfer first adds the edges selected in the view of its
   body (`blend_tools::with_selected_edges`, one undoable change, edges already in a chosen chain
   skipped), then opens it, so those and the edges it held show chosen and a click leaves one out.
+- A chamfer's panel adds Distances (Equal, Two, Angle; `blend_tools::FormChoice`) after Shape:
+  Two names the size First distance and adds Second distance (starting as the first), Angle adds
+  an angle field (45 deg to start, refused at or past 180°, `Rule::ChamferAngle`), each previewed
+  while typed like the size, and either adds Measure from the other face (`flipped`). The palette
+  has the same on the open feature or the tree's current one (Chamfer by one distance on both
+  faces, by two distances, by a distance and an angle, Flip the chamfer's faces;
+  `blend_tools::form_change`, `flip_change`), refused in words on anything but a chamfer and the
+  flip on an equal one.
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's
   list stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or
   the revision changes.

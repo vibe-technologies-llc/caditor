@@ -15,7 +15,9 @@ use egui::{
 
 use crate::{
     appearance::{self, ICON_SIZE, SPACE_L, SPACE_M, SPACE_S},
-    blend_panel, bodies_tree, combine_panel,
+    blend_panel,
+    blend_tools::{self, FormChoice},
+    bodies_tree, combine_panel,
     commands::{Command, CommandFrame},
     datum_panel,
     drawing_export::{self, DrawingSource},
@@ -2008,7 +2010,7 @@ fn feature_commands(
         actions.push(Action::Apply(transaction));
     }
     let target = open_feature.or(current);
-    let changes: [(Command, FeatureChange<'_>); 12] = [
+    let changes: [(Command, FeatureChange<'_>); 16] = [
         (Command::PlaceSketch, &|feature| {
             place_change(model, selection, feature)
         }),
@@ -2048,6 +2050,18 @@ fn feature_commands(
         }),
         (Command::MoveTurnAboutSelected, &|feature| {
             move_change(model, selection, feature)
+        }),
+        (Command::ChamferEqual, &|feature| {
+            blend_tools::form_change(document, feature, FormChoice::Equal)
+        }),
+        (Command::ChamferTwoDistances, &|feature| {
+            blend_tools::form_change(document, feature, FormChoice::TwoDistances)
+        }),
+        (Command::ChamferDistanceAngle, &|feature| {
+            blend_tools::form_change(document, feature, FormChoice::DistanceAngle)
+        }),
+        (Command::FlipChamfer, &|feature| {
+            blend_tools::flip_change(document, feature)
         }),
     ];
     for (command, change) in changes {

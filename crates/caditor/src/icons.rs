@@ -261,6 +261,10 @@ pub fn command(command: Command) -> &'static str {
         | Command::PatternUseSelected
         | Command::PatternSecondUseSelected
         | Command::MoveTurnAboutSelected => USE_SELECTED,
+        Command::ChamferEqual | Command::ChamferTwoDistances | Command::ChamferDistanceAngle => {
+            blend(BlendKind::Chamfer)
+        }
+        Command::FlipChamfer => phosphor::ARROWS_LEFT_RIGHT,
         Command::FilterFeatures => SEARCH,
         Command::AddParameter => ADD,
         Command::DeleteParameter => DELETE,
