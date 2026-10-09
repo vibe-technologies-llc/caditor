@@ -61,9 +61,11 @@ const SHIFT: &str = "Shift";
 pub enum Command {
     Palette,
     New,
+    NewFromTemplate,
     Open,
     Save,
     SaveAs,
+    SaveAsTemplate,
     VersionHistory,
     ModelProperties,
     Import,
@@ -477,9 +479,11 @@ macro_rules! plain_commands {
 plain_commands! {
     Palette,
     New,
+    NewFromTemplate,
     Open,
     Save,
     SaveAs,
+    SaveAsTemplate,
     VersionHistory,
     ModelProperties,
     Import,
@@ -659,6 +663,8 @@ impl Command {
         match self {
             Self::Palette => "palette",
             Self::New => "file.new",
+            Self::NewFromTemplate => "file.new_from_template",
+            Self::SaveAsTemplate => "file.save_as_template",
             Self::Open => "file.open",
             Self::Save => "file.save",
             Self::SaveAs => "file.save_as",
@@ -892,6 +898,8 @@ impl Command {
         let fixed = match self {
             Self::Palette => "Search commands",
             Self::New => "New model",
+            Self::NewFromTemplate => "New from template…",
+            Self::SaveAsTemplate => "Save as template…",
             Self::Open => "Open…",
             Self::Save => "Save",
             Self::SaveAs => "Save as…",
@@ -1084,6 +1092,8 @@ impl Command {
     pub fn category(self) -> Category {
         match self {
             Self::New
+            | Self::NewFromTemplate
+            | Self::SaveAsTemplate
             | Self::Open
             | Self::Save
             | Self::SaveAs
@@ -1400,6 +1410,8 @@ impl Command {
             | Self::Filter(_)
             | Self::Style(_)
             | Self::Analysis(_)
+            | Self::NewFromTemplate
+            | Self::SaveAsTemplate
             | Self::OpenSample(_)
             | Self::OpenRecent(_)
             | Self::ClearRecent

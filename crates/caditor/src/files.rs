@@ -18,15 +18,16 @@ use caditor_file::{
     Closing, Construction, DXF_EXTENSION, Drawing, DrawingSheet, ExportError, ExportFormat,
     Exported, FILE_EXTENSION, FaceExported, FileJournal, History, ImportError, LoadError, Loaded,
     MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch, PNG_EXTENSION, RecentChange,
-    RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings,
-    SheetLayout, SketchExported, SketchFormat, describe_set_aside, journal_for, load_cancellable,
-    load_version, read_dxf, scan,
+    RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState,
+    Settings, SheetLayout, SketchExported, SketchFormat, describe_set_aside, journal_for,
+    load_cancellable, load_version, read_dxf, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
 use egui::{Sides, Ui};
 use parking_lot::Mutex;
 
+use self::templates::Templates;
 use crate::{
     appearance::{self, SPACE_S},
     bodies::{self, FaceKey},
@@ -54,6 +55,8 @@ use crate::{
     widgets::{self, DialogWidth, Tone},
 };
 
+pub mod templates;
+
 const OPEN_RECENT: &str = "Open recent";
 pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geometry dashed on a \
                                           layer of its own named Construction, instead of leaving \
@@ -76,11 +79,13 @@ const MODEL_EXCHANGE_KIND: &str = "STEP model";
 const MESH_KIND: &str = "STL, OBJ or 3MF mesh";
 const IMPORTABLE_KIND: &str = "Drawings and models";
 const IMAGE_KIND: &str = "PNG image";
-const FILE_COMMANDS: [Command; 11] = [
+const FILE_COMMANDS: [Command; 13] = [
     Command::New,
+    Command::NewFromTemplate,
     Command::Open,
     Command::Save,
     Command::SaveAs,
+    Command::SaveAsTemplate,
     Command::VersionHistory,
     Command::ModelProperties,
     Command::Import,
@@ -93,6 +98,10 @@ const FILE_COMMANDS: [Command; 11] = [
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileCommand {
     New,
+    NewEmpty,
+    NewFromTemplate(Option<PathBuf>),
+    SaveAsTemplate,
+    ListTemplates,
     Open,
     OpenPath(PathBuf),
     Save,
@@ -152,6 +161,8 @@ pub type Respond = Box<dyn FnOnce(Result<Option<PathBuf>, DialogError>) + Send>;
 pub trait Dialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond);
     fn pick_save_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond);
+    fn pick_template(&self, directory: Option<PathBuf>, respond: Respond);
+    fn pick_template_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond);
     fn pick_export_path(
         &self,
         directory: Option<PathBuf>,
@@ -213,6 +224,24 @@ impl Dialogs for NativeDialogs {
     fn pick_model(&self, directory: Option<PathBuf>, respond: Respond) {
         let filters = vec![Filter::new(MODEL_KIND, &[FILE_EXTENSION]), Filter::any()];
         let request = Self::request(Mode::Open, "Open model", directory, None, filters);
+        Self::spawn(respond, request);
+    }
+
+    fn pick_template(&self, directory: Option<PathBuf>, respond: Respond) {
+        let filters = vec![Filter::new(MODEL_KIND, &[FILE_EXTENSION]), Filter::any()];
+        let request = Self::request(Mode::Open, "New from template", directory, None, filters);
+        Self::spawn(respond, request);
+    }
+
+    fn pick_template_path(&self, directory: Option<PathBuf>, file_name: String, respond: Respond) {
+        let filters = vec![Filter::new(MODEL_KIND, &[FILE_EXTENSION])];
+        let request = Self::request(
+            Mode::Save,
+            "Save as template",
+            directory,
+            Some(file_name),
+            filters,
+        );
         Self::spawn(respond, request);
     }
 
@@ -301,6 +330,8 @@ pub struct FilesConfig {
 enum Purpose {
     Open,
     SaveAs,
+    Template,
+    SaveTemplate,
     Export(ExportFormat),
     Image,
     Drawing,
@@ -325,6 +356,14 @@ struct Opened {
     path: PathBuf,
     loaded: Loaded,
     notes: Vec<String>,
+    origin: Origin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    File,
+    Template,
+    DefaultTemplate,
 }
 
 enum SaveTarget {
@@ -340,12 +379,16 @@ enum Output {
     Export { path: PathBuf, format: ExportFormat },
     Image { path: PathBuf },
     Drawing { path: PathBuf },
+    Template { path: PathBuf },
 }
 
 impl Output {
     fn path(&self) -> &Path {
         match self {
-            Self::Export { path, .. } | Self::Image { path } | Self::Drawing { path } => path,
+            Self::Export { path, .. }
+            | Self::Image { path }
+            | Self::Drawing { path }
+            | Self::Template { path } => path,
         }
     }
 
@@ -360,6 +403,9 @@ impl Output {
             },
             Self::Drawing { path } => Self::Drawing {
                 path: drawing_export::with_format_extension(path),
+            },
+            Self::Template { path } => Self::Template {
+                path: with_extension(path),
             },
         }
     }
@@ -412,6 +458,21 @@ enum Event {
         revision: u64,
         attempt: u64,
         outcome: OpenOutcome,
+    },
+    TemplatesListed {
+        listed: Vec<PathBuf>,
+        then: Option<Purpose>,
+    },
+    TemplateLoaded {
+        path: PathBuf,
+        origin: Origin,
+        revision: u64,
+        attempt: u64,
+        result: Result<Loaded, LoadError>,
+    },
+    TemplateSaved {
+        path: PathBuf,
+        result: Result<(), SaveError>,
     },
     Discarded {
         journal: PathBuf,
@@ -470,6 +531,8 @@ enum Event {
 
 enum Intent {
     New,
+    Empty,
+    Template(Option<PathBuf>),
     Sample(Sample),
     Open(Option<PathBuf>),
     Restore { journal: PathBuf, suppressed: bool },
@@ -519,13 +582,15 @@ impl Importing {
 
 struct Opening {
     path: PathBuf,
+    origin: Origin,
     stopped: Arc<AtomicBool>,
 }
 
 impl Opening {
-    fn new(path: PathBuf) -> Self {
+    fn new(path: PathBuf, origin: Origin) -> Self {
         Self {
             path,
+            origin,
             stopped: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -586,12 +651,15 @@ pub struct Files {
     changed_on_disk: Option<PathBuf>,
     closing: Option<(Closing, Instant)>,
     stored_settings: Option<Settings>,
+    templates: Templates,
+    default_template: Option<String>,
     quit: bool,
 }
 
 impl Files {
     pub fn new(config: FilesConfig, dialogs: Box<dyn Dialogs>, make_waker: WakerFactory) -> Self {
         let (events, inbox) = mpsc::channel();
+        let templates = Templates::in_config(config.config_dir.as_deref());
         Self {
             config,
             dialogs,
@@ -625,6 +693,8 @@ impl Files {
             changed_on_disk: None,
             closing: None,
             stored_settings: None,
+            templates,
+            default_template: None,
             quit: false,
         }
     }
@@ -643,6 +713,7 @@ impl Files {
             },
             || Event::ScanFailed,
         );
+        self.list_templates(None, model);
         match open {
             Some(path) if is_importable_file(&path) => self.dropped(vec![path], None, model),
             Some(path) => self.perform(FileCommand::OpenPath(path), model),
@@ -719,6 +790,14 @@ impl Files {
     pub fn perform(&mut self, command: FileCommand, model: &mut Model) {
         match command {
             FileCommand::New => self.request(Intent::New, model),
+            FileCommand::NewEmpty => self.request(Intent::Empty, model),
+            FileCommand::NewFromTemplate(path) => self.request(Intent::Template(path), model),
+            FileCommand::SaveAsTemplate => {
+                if self.picking.is_none() {
+                    self.list_templates(Some(Purpose::SaveTemplate), model);
+                }
+            }
+            FileCommand::ListTemplates => self.list_templates(None, model),
             FileCommand::OpenSample(sample) => self.request(Intent::Sample(sample), model),
             FileCommand::Open => self.request(Intent::Open(None), model),
             FileCommand::OpenPath(path) => self.request(Intent::Open(Some(path)), model),
@@ -801,6 +880,7 @@ impl Files {
                     }
                     (Replacement::Output(Output::Export { .. }), false) => {}
                     (Replacement::Output(Output::Drawing { .. }), false) => {}
+                    (Replacement::Output(Output::Template { .. }), false) => {}
                 }
             }
             FileCommand::QuitAnyway => {
@@ -1184,6 +1264,20 @@ impl Files {
                     self.opened(path, revision, outcome, model);
                 }
             }
+            Event::TemplatesListed { listed, then } => self.templates_listed(listed, then, model),
+            Event::TemplateLoaded {
+                path,
+                origin,
+                revision,
+                attempt,
+                result,
+            } => {
+                if attempt == self.open_attempt {
+                    self.opening = None;
+                    self.template_loaded(path, origin, revision, result, model);
+                }
+            }
+            Event::TemplateSaved { path, result } => self.template_saved(&path, result, model),
             Event::Discarded { journal, error } => {
                 let index = self
                     .recoverable
@@ -1503,6 +1597,7 @@ impl Files {
             Output::Export { path, format } => self.export(path, format, model),
             Output::Image { path } => self.image.picked(path),
             Output::Drawing { path } => self.export_drawing(path, model),
+            Output::Template { path } => self.save_template(path, model),
         }
     }
 
@@ -1669,6 +1764,7 @@ impl Files {
                     path,
                     loaded: *loaded,
                     notes,
+                    origin: Origin::File,
                 };
                 if model.revision() != revision && model.is_dirty() {
                     self.guard = Some(Intent::Replace(Box::new(opened)));
@@ -1729,7 +1825,14 @@ impl Files {
 
     fn run(&mut self, intent: Intent, model: &mut Model) {
         match intent {
-            Intent::New => model.replace(Document::default(), None, None, false),
+            Intent::New => self.new_model(model),
+            Intent::Empty => model.replace(Document::default(), None, None, false),
+            Intent::Template(None) => {
+                if self.picking.is_none() {
+                    self.list_templates(Some(Purpose::Template), model);
+                }
+            }
+            Intent::Template(Some(path)) => self.load_template(path, Origin::Template, model),
             Intent::Sample(sample) => match sample.document() {
                 Ok(document) => model.replace(document, None, None, false),
                 Err(error) => {
@@ -1782,6 +1885,8 @@ impl Files {
         match (purpose, path) {
             (Purpose::Open, Some(path)) => self.open(path, model),
             (Purpose::SaveAs, Some(path)) => self.save_as(path, model),
+            (Purpose::Template, Some(path)) => self.load_template(path, Origin::Template, model),
+            (Purpose::SaveTemplate, Some(path)) => self.template_target(path, model),
             (Purpose::Export(format), Some(path)) => {
                 self.check_output(Output::Export { path, format });
             }
@@ -1847,6 +1952,19 @@ impl Files {
             });
         match purpose {
             Purpose::Open => self.dialogs.pick_model(directory, respond),
+            Purpose::Template => {
+                let folder = self.templates.folder().map(Path::to_path_buf);
+                self.dialogs.pick_template(folder.or(directory), respond);
+            }
+            Purpose::SaveTemplate => {
+                let folder = self.templates.folder().map(Path::to_path_buf);
+                let file_name = match model.path() {
+                    Some(_) => model.display_name(),
+                    None => format!("{}.{FILE_EXTENSION}", model.display_name()),
+                };
+                self.dialogs
+                    .pick_template_path(folder.or(directory), file_name, respond);
+            }
             Purpose::SaveAs => {
                 let file_name = match model.path() {
                     Some(_) => model.display_name(),
@@ -1877,7 +1995,7 @@ impl Files {
 
     fn open(&mut self, path: PathBuf, model: &mut Model) {
         self.abandon_open();
-        let opening = Opening::new(path.clone());
+        let opening = Opening::new(path.clone(), Origin::File);
         let cancel = opening.token();
         self.opening = Some(opening);
         self.open_attempt += 1;
@@ -1965,7 +2083,24 @@ impl Files {
             path,
             loaded,
             notes,
+            origin,
         } = opened;
+        if origin != Origin::File {
+            if !loaded.issues.is_empty() {
+                self.report = Some(Report {
+                    heading: format!(
+                        "Parts of the template “{}” could not be read",
+                        display_name(Some(&path))
+                    ),
+                    intro: Some(
+                        "The new model has the rest of it. The template file was not changed.",
+                    ),
+                    issues: loaded.issues,
+                });
+            }
+            model.replace(loaded.document, None, None, false);
+            return;
+        }
         let damaged = !loaded.issues.is_empty();
         let name = display_name(Some(&path));
         if damaged {
@@ -1997,10 +2132,12 @@ impl Files {
     }
 
     pub fn settings_loaded(&mut self, settings: Settings) {
+        self.read_default_template(&settings);
         self.stored_settings = Some(settings);
     }
 
     pub fn store_settings(&mut self, settings: Settings) {
+        self.read_default_template(&settings);
         let Some(config_dir) = self.config.config_dir.clone() else {
             return;
         };
@@ -2230,7 +2367,7 @@ pub fn menu(
         .map(|_| ())
         .ok_or("Save the model to start keeping its versions");
     let mut chosen = Vec::new();
-    ui.menu_button("File", |ui| {
+    let file_menu = ui.menu_button("File", |ui| {
         widgets::fitted_menu(ui, |ui| {
             let item = |ui: &mut Ui, chosen: &mut Vec<Command>, command: Command| {
                 if menu_item(ui, commands, command).clicked() {
@@ -2238,6 +2375,7 @@ pub fn menu(
                 }
             };
             item(ui, &mut chosen, Command::New);
+            templates::menu(ui, files, commands, &mut chosen, actions);
             item(ui, &mut chosen, Command::Open);
             ui.add_enabled_ui(!files.recent().is_empty(), |ui| {
                 let recent = ui.menu_button(submenu_label(ui, icons::RECENT, OPEN_RECENT), |ui| {
@@ -2334,6 +2472,9 @@ pub fn menu(
             item(ui, &mut chosen, Command::Quit);
         });
     });
+    if file_menu.response.clicked() {
+        actions.push(Action::File(FileCommand::ListTemplates));
+    }
     if commands.invoke(Command::KeepDrawingConstruction, &Ok::<(), String>(()))
         || chosen.contains(&Command::KeepDrawingConstruction)
     {
@@ -2396,6 +2537,8 @@ pub fn menu(
         }
         let action = match command {
             Command::New => Action::File(FileCommand::New),
+            Command::NewFromTemplate => Action::File(FileCommand::NewFromTemplate(None)),
+            Command::SaveAsTemplate => Action::File(FileCommand::SaveAsTemplate),
             Command::Open => Action::File(FileCommand::Open),
             Command::Save => Action::File(FileCommand::Save),
             Command::SaveAs => Action::File(FileCommand::SaveAs),
@@ -2544,7 +2687,7 @@ pub fn show(
     if let Some((_, since)) = &files.closing {
         command = closing(&ctx, *since);
     } else if let Some(open) = &files.opening {
-        command = opening(&ctx, &open.path);
+        command = opening(&ctx, &open.path, open.origin);
     } else if let Some(intent) = &files.guard {
         command = guard(&ctx, model, intent).map(FileCommand::Guard);
     } else if let Some(replacement) = &files.confirm_replace {
@@ -2581,19 +2724,28 @@ pub fn show(
     }
 }
 
-fn opening(ctx: &egui::Context, path: &Path) -> Option<FileCommand> {
-    let title = format!("Opening “{}”…", display_name(Some(path)));
+fn opening(ctx: &egui::Context, path: &Path, origin: Origin) -> Option<FileCommand> {
+    let name = display_name(Some(path));
+    let (title, doing, cancel) = match origin {
+        Origin::File => (
+            format!("Opening “{name}”…"),
+            "Reading the model and checking it for unsaved work…",
+            "Stop opening it and keep the current model",
+        ),
+        Origin::Template | Origin::DefaultTemplate => (
+            format!("Starting from “{name}”…"),
+            "Reading the template…",
+            "Stop reading the template and keep the current model",
+        ),
+    };
     let response = widgets::dialog(ctx, "opening", &title, DialogWidth::Medium, |ui| {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label(widgets::muted(
-                "Reading the model and checking it for unsaved work…",
-                ui,
-            ));
+            ui.label(widgets::muted(doing, ui));
         });
         widgets::footer(ui, |ui| {
             ui.add(widgets::button("Cancel"))
-                .on_hover_text("Stop opening it and keep the current model")
+                .on_hover_text(cancel)
                 .clicked()
         })
     });
@@ -2608,6 +2760,8 @@ fn guard(ctx: &egui::Context, model: &Model, intent: &Intent) -> Option<GuardCho
             "Close without saving",
         ),
         Intent::New
+        | Intent::Empty
+        | Intent::Template(_)
         | Intent::Sample(_)
         | Intent::Open(_)
         | Intent::Restore { .. }

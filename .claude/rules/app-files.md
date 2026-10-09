@@ -1,6 +1,7 @@
 ---
 paths:
   - "crates/caditor/src/files.rs"
+  - "crates/caditor/src/files/**"
   - "crates/caditor/src/portal.rs"
   - "crates/caditor/src/portal/**"
   - "crates/caditor/src/onboarding.rs"
@@ -65,6 +66,31 @@ paths:
   judged by extension only (`has_importable_extension`), never read on the UI thread, since a
   stalled mount would freeze the window; an unknown extension warns that dropping reads it, and the
   import worker decides by content.
+
+## Templates
+
+- Templates are ordinary model files in the `templates` folder of the config directory
+  (`files/templates.rs`, `Templates`). Its listing is read on the files worker at startup, when
+  the File menu or Preferences opens and after a template is saved; nothing lists it on the UI
+  thread, and the folder is made only before a dialog that needs it.
+- File › New from template lists the templates by name, then New from template… (a dialog opened
+  in the folder, accepting any model) and Save as template… (`Command::NewFromTemplate`,
+  `Command::SaveAsTemplate`, both in the palette, no default keys). Starting from one passes the
+  unsaved-changes prompt first, reads the file on an `open` thread behind the cancellable opening
+  dialog ("Starting from …", `Origin::Template`) and replaces the model with an untitled, unchanged
+  copy: no path, no lock or journal on the template, not added to recent files, so the template
+  file is never written by editing. Parts that could not be read go in the report card; a template
+  that cannot be read at all leaves a new empty model with a notice saying why.
+- Save as template writes a copy of the document without its versions (`templates::save`, the
+  files worker), the dialog suggesting the model's name in the folder; an appended extension asks
+  before replacing as the other outputs do, and naming the open model's own file is refused in
+  words. The model keeps its own path.
+- Preferences › General › New models › Start from (key `files.default_template`, a file name in
+  the folder, empty by default) makes New model start from that template (`Origin::DefaultTemplate`);
+  `Files` reads it from every `Settings` it is handed. A default that is missing or unreadable
+  starts an empty model and the notice points to Preferences; Preferences shows it "(not found)".
+  The welcome's Start with an empty model (`FileCommand::NewEmpty`) and the model at startup stay
+  empty.
 
 ## Onboarding
 

@@ -81,6 +81,7 @@ pub const INTERFERENCE: &str = phosphor::INTERSECT_SQUARE;
 pub const ANALYSIS: &str = phosphor::GAUGE;
 pub const CURVATURE_COMB: &str = phosphor::CHART_LINE;
 pub const COPY: &str = phosphor::COPY_SIMPLE;
+pub const TEMPLATE: &str = phosphor::STAMP;
 pub const FEATURES: &str = phosphor::TREE_STRUCTURE;
 pub const PARAMETERS: &str = phosphor::FUNCTION;
 pub const GO_TO: &str = phosphor::ARROW_RIGHT;
@@ -99,6 +100,8 @@ pub fn command(command: Command) -> &'static str {
     match command {
         Command::Palette => SEARCH,
         Command::New => phosphor::FILE_PLUS,
+        Command::NewFromTemplate => TEMPLATE,
+        Command::SaveAsTemplate => phosphor::BOOKMARK_SIMPLE,
         Command::Open => phosphor::FOLDER_OPEN,
         Command::Save => phosphor::FLOPPY_DISK,
         Command::SaveAs => phosphor::FLOPPY_DISK_BACK,

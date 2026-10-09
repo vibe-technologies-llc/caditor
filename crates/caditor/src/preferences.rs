@@ -6,6 +6,7 @@ use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
     commands::{self, Command, Keymap},
     dialog_parts::{self, BodyRoom},
+    files::templates::{self, Templates},
     graphics::{self, CurveQuality, FrameLimit, Graphics, Hardware},
     icons,
     layout::{PanelLayout, WindowPlacement},
@@ -28,6 +29,7 @@ const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
 const INPUT_MODE_KEY: &str = "navigation.input_mode";
 const PROJECTION_KEY: &str = "navigation.projection";
 const TITLE_BAR_KEY: &str = "appearance.title_bar";
+const EMPTY_MODEL: &str = "An empty model";
 const DIALOG_HEIGHT_SHARE: f32 = 0.75;
 const HEIGHT_CHANGE: f32 = 0.5;
 const CONFIRM_KEY: &str = "preferences-confirm-defaults";
@@ -177,8 +179,8 @@ impl PreferencesTab {
     fn defaults(self) -> &'static str {
         match self {
             Self::General => {
-                "Go back to millimetres. Only this tab changes; shortcuts are reset in the \
-                 shortcut editor"
+                "Go back to millimetres and to new models starting empty. Only this tab \
+                 changes; shortcuts are reset in the shortcut editor"
             }
             Self::Appearance => {
                 "Go back to the system theme at normal size and contrast with caditor's title \
@@ -369,11 +371,12 @@ pub struct Preferences {
     pub keymap: Keymap,
     pub window: WindowPlacement,
     pub panels: PanelLayout,
+    pub default_template: Option<String>,
     loaded_keymap: Keymap,
     raw: Settings,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PreferenceChange {
     Unit(LengthUnit),
     Angle(AngleUnit),
@@ -386,6 +389,7 @@ pub enum PreferenceChange {
     Projection(ProjectionMode),
     InputMode(InputMode),
     TitleBar(TitleBar),
+    DefaultTemplate(Option<String>),
     Vsync(bool),
     FrameLimit(FrameLimit),
     Msaa(Msaa),
@@ -403,7 +407,7 @@ pub enum PreferenceChange {
     Defaults(PreferencesTab),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PreferencesCommand {
     Show,
     Hide,
@@ -497,6 +501,7 @@ impl Preferences {
             keymap: Keymap::from_settings(&raw),
             window: WindowPlacement::from_settings(&raw),
             panels: PanelLayout::from_settings(&raw),
+            default_template: templates::default_template(&raw),
             loaded_keymap: Keymap::from_settings(&raw),
             raw,
         }
@@ -520,6 +525,7 @@ impl Preferences {
         self.onboarding.write(&mut settings);
         self.window.write(&mut settings);
         self.panels.write(&mut settings);
+        templates::write_default_template(self.default_template.as_deref(), &mut settings);
         settings
     }
 
@@ -542,6 +548,7 @@ impl Preferences {
             PreferenceChange::Projection(projection) => self.navigation.projection = projection,
             PreferenceChange::InputMode(mode) => self.navigation.input_mode = mode,
             PreferenceChange::TitleBar(bar) => self.title_bar = bar,
+            PreferenceChange::DefaultTemplate(name) => self.default_template = name,
             PreferenceChange::Vsync(vsync) => self.graphics.vsync = vsync,
             PreferenceChange::FrameLimit(limit) => self.graphics.frame_limit = limit,
             PreferenceChange::Msaa(msaa) => self.graphics.msaa = msaa,
@@ -565,10 +572,10 @@ impl Preferences {
         }
     }
 
-    pub fn restoring(&self, change: PreferenceChange) -> Option<Restored> {
+    pub fn restoring(&self, change: &PreferenceChange) -> Option<Restored> {
         match change {
             PreferenceChange::Defaults(tab) => Some(Restored::Defaults {
-                tab,
+                tab: *tab,
                 before: Box::new(self.clone()),
             }),
             PreferenceChange::ResetShortcuts => {
@@ -594,6 +601,7 @@ impl Preferences {
             PreferencesTab::General => {
                 self.unit = from.unit;
                 self.angle = from.angle;
+                self.default_template.clone_from(&from.default_template);
             }
             PreferencesTab::Appearance => {
                 self.appearance = from.appearance;
@@ -608,6 +616,7 @@ impl Preferences {
 pub struct PreferencesView<'a> {
     pub tab: PreferencesTab,
     pub hardware: &'a Hardware,
+    pub templates: &'a Templates,
     pub switch_keys: bool,
     pub restored: Option<&'a Restored>,
 }
@@ -713,7 +722,7 @@ fn body(
         .show(ui, |ui| {
             ui.set_min_height(tallest);
             ui.scope(|ui| match tab {
-                PreferencesTab::General => general(ui, preferences, command),
+                PreferencesTab::General => general(ui, preferences, view.templates, command),
                 PreferencesTab::Appearance => appearance(ui, preferences, command),
                 PreferencesTab::Navigation => navigation(ui, preferences, command),
                 PreferencesTab::Graphics => {
@@ -789,8 +798,14 @@ fn speed_slider(
     }
 }
 
-fn general(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
+fn general(
+    ui: &mut Ui,
+    preferences: &Preferences,
+    templates: &Templates,
+    command: &mut Option<PreferencesCommand>,
+) {
     units(ui, preferences, command);
+    new_models(ui, preferences, templates, command);
     keyboard(ui, command);
     tips(ui, preferences, command);
 }
@@ -836,6 +851,70 @@ fn units(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preference
                 .collect();
             if let Some(unit) = choice(ui, &options, preferences.angle) {
                 change(command, PreferenceChange::Angle(unit));
+            }
+        });
+    });
+}
+
+fn new_models(
+    ui: &mut Ui,
+    preferences: &Preferences,
+    templates: &Templates,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let current = preferences.default_template.as_deref();
+    let missing = current.is_some_and(|name| !templates.lists(name));
+    let note = match templates.folder() {
+        Some(folder) => format!(
+            "New model starts from the chosen template's parameters, model properties, saved \
+             views, sketches and features, as an untitled copy. Templates are caditor models \
+             kept in {}; File › Save as template… adds one.",
+            folder.display()
+        ),
+        None => "Templates need a configuration folder, and caditor could not find one, so new \
+                 models start empty."
+            .to_owned(),
+    };
+    section(ui, "New models", "new-models", Some(note), |ui| {
+        widgets::property(ui, "Start from", |ui| {
+            let selected: egui::WidgetText = match current {
+                None => EMPTY_MODEL.into(),
+                Some(name) if missing => {
+                    let warning = appearance::tokens(ui).warn;
+                    egui::RichText::new(format!("{} (not found)", templates::title(name)))
+                        .color(warning)
+                        .into()
+                }
+                Some(name) => templates::title(name).into(),
+            };
+            let combo = egui::ComboBox::from_id_salt("default-template")
+                .selected_text(selected)
+                .show_ui(ui, |ui| {
+                    let empty = widgets::menu_option(ui, current.is_none(), EMPTY_MODEL)
+                        .on_hover_text("New model starts with nothing in it");
+                    if empty.clicked() && current.is_some() {
+                        change(command, PreferenceChange::DefaultTemplate(None));
+                    }
+                    for name in templates.names() {
+                        let chosen = current == Some(name);
+                        let response = widgets::menu_option(ui, chosen, &templates::title(name))
+                            .on_hover_text(format!(
+                                "New model starts as a copy of the template {name}"
+                            ));
+                        if response.clicked() && !chosen {
+                            change(
+                                command,
+                                PreferenceChange::DefaultTemplate(Some(name.to_owned())),
+                            );
+                        }
+                    }
+                });
+            widgets::tie_to_caption(ui, &combo.response);
+            if missing {
+                combo.response.on_hover_text(
+                    "This template is no longer in the templates folder, so New model starts \
+                     empty and says so. Choose another, or An empty model.",
+                );
             }
         });
     });

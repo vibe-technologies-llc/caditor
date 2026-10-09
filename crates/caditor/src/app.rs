@@ -242,7 +242,10 @@ impl Workspace {
         files: &mut Files,
     ) {
         match command {
-            PreferencesCommand::Show => self.preferences_open = true,
+            PreferencesCommand::Show => {
+                self.preferences_open = true;
+                files.perform(FileCommand::ListTemplates, model);
+            }
             PreferencesCommand::Hide => {
                 self.preferences_open = false;
                 self.restored = None;
@@ -291,7 +294,7 @@ impl Workspace {
                 self.restored = None;
             }
             PreferencesCommand::Change(change) => {
-                self.restored = self.preferences.restoring(change);
+                self.restored = self.preferences.restoring(&change);
                 self.preview_preference(change, model);
                 files.store_settings(self.preferences.settings());
             }
@@ -651,6 +654,7 @@ pub fn show(
         let view = PreferencesView {
             tab: *preferences_tab,
             hardware,
+            templates: files.templates(),
             switch_keys: shortcut_editor.is_none(),
             restored: restored.as_ref(),
         };
@@ -765,7 +769,7 @@ fn welcome_chosen(choice: WelcomeChoice, model: &Model, actions: &mut Vec<Action
     match choice {
         WelcomeChoice::Close | WelcomeChoice::ClearRecent => {}
         WelcomeChoice::Empty if model.is_empty_and_untitled() => {}
-        WelcomeChoice::Empty => actions.push(Action::File(FileCommand::New)),
+        WelcomeChoice::Empty => actions.push(Action::File(FileCommand::NewEmpty)),
         WelcomeChoice::Sample(sample) => {
             actions.push(Action::File(FileCommand::OpenSample(sample)));
         }

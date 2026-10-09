@@ -414,10 +414,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the current tool or panel.
 - [medium · hard] No clipboard for features, and sketch geometry copies only within one caditor
   (the system clipboard gets a line of text, not the geometry); no parameter import or export.
-- [low · easy] No templates: a new model always starts empty, so the parameters, model properties,
-  saved views, body materials and starting sketches put in every part are copied by hand. New from
-  template opens a chosen model as an untitled copy, and Preferences can name one that New starts
-  from.
 - [low · medium] The modelling tools borrow Phosphor glyphs that mean something else (`icons.rs`):
   fillet is the full-screen corners, chamfer a generic polygon, revolve the refresh arrows, circular
   pattern a loading spinner, shell a see-through cube, and the sketch fillet shares the fillet's.
