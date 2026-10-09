@@ -15,6 +15,7 @@ mod reason;
 mod recent;
 mod recovery;
 mod save;
+mod selection_sets;
 mod settings;
 mod step_cache;
 mod storage;

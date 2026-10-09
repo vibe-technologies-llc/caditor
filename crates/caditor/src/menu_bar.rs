@@ -1,4 +1,4 @@
-use caditor_document::SavedViews;
+use caditor_document::{SavedViews, SelectionSets};
 use egui::{
     Align, CornerRadius, Id, Label, Layout, Popup, Rect, Response, RichText, Sense, Shape, Stroke,
     StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, pos2, vec2,
@@ -99,6 +99,7 @@ const MODEL_RECOMPUTE: [&[Command]; 1] = [&[
 
 pub struct MenuContext<'a> {
     pub views: &'a SavedViews,
+    pub sets: &'a SelectionSets,
     pub files: &'a Files,
     pub editing: &'a SketchEditing,
     pub offers: &'a [Offer],
@@ -108,6 +109,7 @@ pub struct MenuContext<'a> {
     pub snapping: bool,
     pub grid_snapping: bool,
     pub lasso: bool,
+    pub paint: bool,
     pub select_through: bool,
     pub automatic_projection: bool,
     pub typed_dimensions: bool,
@@ -147,12 +149,15 @@ pub fn show(
                 let mut menus = Menus {
                     views: context.views,
                     visited: Vec::new(),
+                    sets: context.sets,
+                    picked_sets: Vec::new(),
                     offers: context.offers,
                     filter: context.filter,
                     style: context.style,
                     snapping: context.snapping,
                     grid_snapping: context.grid_snapping,
                     lasso: context.lasso,
+                    paint: context.paint,
                     select_through: context.select_through,
                     automatic_projection: context.automatic_projection,
                     typed_dimensions: context.typed_dimensions,
@@ -169,6 +174,7 @@ pub fn show(
                 menus.help(ui);
                 let chosen = std::mem::take(&mut menus.chosen);
                 let visited = std::mem::take(&mut menus.visited);
+                let picked_sets = std::mem::take(&mut menus.picked_sets);
                 for command in chosen {
                     commands.trigger(command);
                 }
@@ -176,6 +182,11 @@ pub fn show(
                     visited
                         .into_iter()
                         .map(|index| Action::Preferences(PreferencesCommand::GoToView(index))),
+                );
+                actions.extend(
+                    picked_sets
+                        .into_iter()
+                        .map(|index| Action::Preferences(PreferencesCommand::SelectSet(index))),
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if context.chrome.built_in() {
@@ -380,12 +391,15 @@ fn model_details(
 struct Menus<'a, 'b> {
     views: &'a SavedViews,
     visited: Vec<usize>,
+    sets: &'a SelectionSets,
+    picked_sets: Vec<usize>,
     offers: &'a [Offer],
     filter: SelectionFilter,
     style: DisplayStyle,
     snapping: bool,
     grid_snapping: bool,
     lasso: bool,
+    paint: bool,
     select_through: bool,
     automatic_projection: bool,
     typed_dimensions: bool,
@@ -467,6 +481,28 @@ impl Menus<'_, '_> {
                     Command::SelectBody,
                 ],
             );
+            submenu(
+                ui,
+                icons::command(Command::SelectionSets),
+                "Selection sets",
+                |ui| {
+                    self.items(ui, [Command::SaveSelectionSet, Command::SelectionSets]);
+                    if !self.sets.sets.is_empty() {
+                        ui.separator();
+                    }
+                    for (index, set) in self.sets.sets.iter().enumerate() {
+                        let picked = widgets::menu_item(
+                            ui,
+                            icons::command(Command::SelectionSets),
+                            &set.name,
+                            None,
+                        );
+                        if picked.clicked() {
+                            self.picked_sets.push(index);
+                        }
+                    }
+                },
+            );
             ui.separator();
             self.item(ui, Command::Palette);
         });
@@ -543,6 +579,7 @@ impl Menus<'_, '_> {
             self.choice(ui, Command::ToggleSnapping, self.snapping);
             self.choice(ui, Command::ToggleGridSnapping, self.grid_snapping);
             self.choice(ui, Command::ToggleLasso, self.lasso);
+            self.choice(ui, Command::TogglePaintSelection, self.paint);
             self.choice(ui, Command::ToggleSelectThrough, self.select_through);
             self.choice(ui, Command::ToggleGlyphs, self.glyphs);
             self.choice(ui, Command::ToggleCentresOfMass, self.aids.centres_of_mass);

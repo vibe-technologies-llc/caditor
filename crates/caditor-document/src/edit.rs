@@ -25,6 +25,7 @@ use crate::{
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner},
     projection::ProjectionSource,
     properties::{ModelProperties, ModelProperty},
+    selection_sets::{MAX_SELECTION_SETS, MAX_SET_MEMBERS, MAX_SET_NAME_CHARS, SelectionSets},
     solid::BodyOperation,
     views::{MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, SavedViews},
 };
@@ -103,6 +104,9 @@ pub enum Edit {
     },
     SetSavedViews {
         views: Box<SavedViews>,
+    },
+    SetSelectionSets {
+        sets: Box<SelectionSets>,
     },
     SetFeatureKind {
         id: FeatureId,
@@ -261,6 +265,7 @@ impl Transaction {
                 Edit::SetPrincipalHidden { .. } => touched.principal = true,
                 Edit::SetModelProperties { .. } => touched.properties = true,
                 Edit::SetSavedViews { .. } => touched.views = true,
+                Edit::SetSelectionSets { .. } => touched.selection_sets = true,
             }
         }
         touched
@@ -293,6 +298,7 @@ impl Transaction {
                     size_of::<ModelProperties>() + properties.heap_size()
                 }
                 Edit::SetSavedViews { views } => size_of::<SavedViews>() + views.heap_size(),
+                Edit::SetSelectionSets { sets } => size_of::<SelectionSets>() + sets.heap_size(),
                 Edit::SetParameterExpression { expression, .. }
                 | Edit::SetDimension {
                     value: expression, ..
@@ -379,6 +385,22 @@ pub enum EditError {
         "A named value's description may be at most {MAX_VALUE_LABEL_CHARS} characters long, and this one has {0}"
     )]
     ValueLabelTooLong(usize),
+    #[error("A selection set needs a name")]
+    SetNameEmpty,
+    #[error(
+        "A selection set's name may be at most {MAX_SET_NAME_CHARS} characters long, and this one has {length}"
+    )]
+    SetNameTooLong { length: usize },
+    #[error("There is already a selection set named '{0}'. Choose another name.")]
+    SetNameTaken(String),
+    #[error("A model keeps at most {MAX_SELECTION_SETS} selection sets. Delete one first.")]
+    TooManySets,
+    #[error("The selection set '{0}' holds nothing. Select faces, edges or bodies to keep in it.")]
+    SetEmpty(String),
+    #[error(
+        "A selection set holds at most {MAX_SET_MEMBERS} faces, edges and bodies, and '{name}' has {members}"
+    )]
+    SetTooLarge { name: String, members: usize },
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
     #[error("The rollback bar sits right above {0}; move the bar before deleting it")]
@@ -512,6 +534,7 @@ pub struct Touched {
     pub principal: bool,
     pub properties: bool,
     pub views: bool,
+    pub selection_sets: bool,
 }
 
 pub struct TransactionBuilder<'a> {
@@ -653,6 +676,7 @@ impl Document {
             }
             Edit::SetModelProperties { properties } => self.set_model_properties(*properties),
             Edit::SetSavedViews { views } => self.set_saved_views(*views),
+            Edit::SetSelectionSets { sets } => self.set_selection_sets(*sets),
             Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
             Edit::SetSketchPlacement {
                 feature,
@@ -1236,6 +1260,56 @@ impl Document {
         let previous = std::mem::replace(&mut self.views, Arc::new(views));
         Ok(Edit::SetSavedViews {
             views: Box::new(Arc::unwrap_or_clone(previous)),
+        })
+    }
+
+    fn set_selection_sets(&mut self, sets: SelectionSets) -> Result<Edit, EditError> {
+        if sets.sets.len() > MAX_SELECTION_SETS {
+            return Err(EditError::TooManySets);
+        }
+        if let Some(set) = sets
+            .sets
+            .iter()
+            .find(|set| set.members.len() > MAX_SET_MEMBERS)
+        {
+            return Err(EditError::SetTooLarge {
+                name: set.name.clone(),
+                members: set.members.len(),
+            });
+        }
+        let sets = sets.normalized();
+        for (index, set) in sets.sets.iter().enumerate() {
+            let length = set.name.chars().count();
+            if length == 0 {
+                return Err(EditError::SetNameEmpty);
+            }
+            if length > MAX_SET_NAME_CHARS {
+                return Err(EditError::SetNameTooLong { length });
+            }
+            let repeated = sets
+                .sets
+                .iter()
+                .take(index)
+                .any(|other| other.name.to_lowercase() == set.name.to_lowercase());
+            if repeated {
+                return Err(EditError::SetNameTaken(set.name.clone()));
+            }
+            if set.members.is_empty() {
+                return Err(EditError::SetEmpty(set.name.clone()));
+            }
+        }
+        for body in sets.bodies() {
+            check_storable(body.raw())?;
+        }
+        let beyond = sets
+            .bodies()
+            .map(|body| body.raw().saturating_add(1))
+            .max()
+            .unwrap_or(0);
+        self.next_feature_id = self.next_feature_id.max(beyond);
+        let previous = std::mem::replace(&mut self.selection_sets, Arc::new(sets));
+        Ok(Edit::SetSelectionSets {
+            sets: Box::new(Arc::unwrap_or_clone(previous)),
         })
     }
 

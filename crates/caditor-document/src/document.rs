@@ -28,6 +28,7 @@ use crate::{
     properties::ModelProperties,
     removal::Remove,
     scaling::Scale,
+    selection_sets::SelectionSets,
     shell::Shell,
     solid::{BodyOperation, SolidFeature},
     split::Split,
@@ -1037,6 +1038,7 @@ pub struct Document {
     pub(crate) rollback: RollbackBar,
     pub(crate) properties: Arc<ModelProperties>,
     pub(crate) views: Arc<SavedViews>,
+    pub(crate) selection_sets: Arc<SelectionSets>,
 }
 
 impl Document {
@@ -1104,6 +1106,10 @@ impl Document {
         &self.views
     }
 
+    pub fn selection_sets(&self) -> &SelectionSets {
+        &self.selection_sets
+    }
+
     pub fn rollback_bar(&self) -> RollbackBar {
         self.rollback
     }
@@ -1157,6 +1163,7 @@ impl Document {
             && self.hidden_principal == other.hidden_principal
             && self.properties == other.properties
             && self.views == other.views
+            && self.selection_sets == other.selection_sets
             && self.rollback == other.rollback
             && self.features.len() == other.features.len()
             && self
@@ -1236,6 +1243,10 @@ impl Document {
         let views = (self.views != target.views).then(|| Edit::SetSavedViews {
             views: Box::new(SavedViews::clone(&target.views)),
         });
+        let selection_sets =
+            (self.selection_sets != target.selection_sets).then(|| Edit::SetSelectionSets {
+                sets: Box::new(SelectionSets::clone(&target.selection_sets)),
+            });
         Transaction::new(
             label,
             removals
@@ -1244,6 +1255,7 @@ impl Document {
                 .chain(rollback)
                 .chain(properties)
                 .chain(views)
+                .chain(selection_sets)
                 .collect(),
         )
     }

@@ -31,6 +31,10 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
+use crate::selection_sets::{
+    SelectionSetsRecord, restore_selection_sets, selection_sets_record_of,
+};
+
 pub const FORMAT_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -45,9 +49,10 @@ pub(crate) enum Record {
     Properties(PropertiesRecord),
     Views(ViewsRecord),
     NamedValues(NamedValuesRecord),
+    SelectionSets(SelectionSetsRecord),
 }
 
-pub(crate) const RECORD_KINDS: [&str; 9] = [
+pub(crate) const RECORD_KINDS: [&str; 10] = [
     "parameter",
     "feature",
     "next_ids",
@@ -57,6 +62,7 @@ pub(crate) const RECORD_KINDS: [&str; 9] = [
     "properties",
     "views",
     "named_values",
+    "selection_sets",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1254,6 +1260,9 @@ pub(crate) enum EditRecord {
     SetSavedViews {
         views: ViewsRecord,
     },
+    SetSelectionSets {
+        sets: SelectionSetsRecord,
+    },
     SetFeatureKind {
         feature: FeatureRecord,
     },
@@ -2114,7 +2123,7 @@ fn direction_record(direction: &LinearDirection) -> DirectionRecord {
     }
 }
 
-fn edge_record(edge: &EdgeReference) -> EdgeRecord {
+pub(crate) fn edge_record(edge: &EdgeReference) -> EdgeRecord {
     let [first, second] = edge.faces();
     let [from, to] = edge.ends();
     EdgeRecord {
@@ -2569,7 +2578,7 @@ fn axis_record(reference: &AxisReference) -> AxisReferenceRecord {
     }
 }
 
-fn face_record(face: &FaceReference) -> FaceRecord {
+pub(crate) fn face_record(face: &FaceReference) -> FaceRecord {
     FaceRecord {
         face: hex(face.name().digest()),
         origin: face.origin().map(origin_record),
@@ -2986,6 +2995,9 @@ fn edit_record(edit: &Edit) -> EditRecord {
         Edit::SetSavedViews { views } => EditRecord::SetSavedViews {
             views: views_record_of(views),
         },
+        Edit::SetSelectionSets { sets } => EditRecord::SetSelectionSets {
+            sets: selection_sets_record_of(sets),
+        },
         Edit::SetFeatureKind { id, kind } => EditRecord::SetFeatureKind {
             feature: FeatureRecord {
                 id: id.raw(),
@@ -3209,6 +3221,9 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
         },
         EditRecord::SetSavedViews { views } => Edit::SetSavedViews {
             views: Box::new(restore_views(views, &mut Vec::new())),
+        },
+        EditRecord::SetSelectionSets { sets } => Edit::SetSelectionSets {
+            sets: Box::new(restore_selection_sets(sets, &mut Vec::new())),
         },
         EditRecord::SetFeatureKind { feature } => {
             let mut issues = Vec::new();
@@ -4855,7 +4870,7 @@ fn restore_blend(
     }
 }
 
-fn restore_edge(record: &EdgeRecord) -> Option<EdgeReference> {
+pub(crate) fn restore_edge(record: &EdgeRecord) -> Option<EdgeReference> {
     let face = |text: &str| restore_digest(text).map(FaceName::from_digest);
     let vertex = |text: &str| restore_digest(text).map(VertexName::from_digest);
     let [first, second] = &record.faces;
@@ -5053,7 +5068,7 @@ fn restore_attachment(record: &AttachmentRecord) -> Option<FaceAttachment> {
     })
 }
 
-fn restore_face(
+pub(crate) fn restore_face(
     face: &str,
     origin: Option<FaceOriginRecord>,
     copy: Option<CopyRecord>,

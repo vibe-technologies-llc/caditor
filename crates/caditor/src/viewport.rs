@@ -35,7 +35,9 @@ use crate::{
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome},
     move_manipulator::{Handle, Manipulating, Manipulator},
-    offset_face_tools, pattern_tools,
+    offset_face_tools,
+    paint_selection::{self, Painting},
+    pattern_tools,
     pick_list::{self, PickList},
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
     primitive_tools, projecting,
@@ -46,6 +48,7 @@ use crate::{
     scene_description::{Item, SceneDescription},
     scene_palette::Contrast,
     selection::{Pickable, Selection, SelectionFilter},
+    selection_sets,
     shape_modes::ShapeMode,
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
@@ -199,6 +202,7 @@ enum PrimaryDrag {
     ModelBox {
         area: ScreenArea,
     },
+    Paint(Painting),
     Trim {
         feature: FeatureId,
         from: Point2,
@@ -290,6 +294,7 @@ pub struct ViewportState {
     snapping: bool,
     grid_snapping: bool,
     lasso: bool,
+    paint: bool,
     select_through: bool,
     typed_dimensions: bool,
     first_dimension_scales: bool,
@@ -426,6 +431,7 @@ impl ViewportState {
             snapping: true,
             grid_snapping: false,
             lasso: false,
+            paint: false,
             select_through: false,
             typed_dimensions: true,
             first_dimension_scales: false,
@@ -450,6 +456,10 @@ impl ViewportState {
 
     pub fn lasso(&self) -> bool {
         self.lasso
+    }
+
+    pub fn paint(&self) -> bool {
+        self.paint
     }
 
     pub fn projection(&self) -> ProjectionMode {
@@ -637,6 +647,10 @@ impl ViewportState {
 
     pub fn selection(&self) -> &Selection {
         &self.selection
+    }
+
+    pub fn replace_selection(&mut self, pickables: Vec<Pickable>) {
+        self.selection.replace_with_all(pickables);
     }
 
     #[cfg(test)]
@@ -1336,6 +1350,9 @@ impl ViewportState {
                 })
                 .map(|press| press.cursor);
             self.primary = press.and_then(|press| self.begin_primary(press, model, editing));
+            if matches!(self.primary, Some(PrimaryDrag::Paint(_))) && !toggle {
+                self.selection.clear();
+            }
             if let Some(PrimaryDrag::Trim { from, .. }) = &self.primary {
                 self.trimming.begin_path(*from);
             }
@@ -1406,6 +1423,12 @@ impl ViewportState {
                     area.reach(cursor / f64::from(self.pixels_per_point));
                 }
             }
+            Some(PrimaryDrag::Paint(painting)) => {
+                if let Some(cursor) = cursor {
+                    let samples = painting.stroke_to(cursor, f64::from(self.pixels_per_point));
+                    self.paint_faces(model, editing, &samples);
+                }
+            }
             Some(PrimaryDrag::Trim { .. } | PrimaryDrag::Pull { .. }) | None => {}
         }
         if released {
@@ -1442,8 +1465,42 @@ impl ViewportState {
                         }),
                     }
                 }
-                Some(PrimaryDrag::Grab(_)) | None => {}
+                Some(PrimaryDrag::Grab(_) | PrimaryDrag::Paint(_)) | None => {}
             }
+        }
+    }
+
+    fn paint_faces(&mut self, model: &Model, editing: &SketchEditing, samples: &[Vector2]) {
+        let (Some(built), Some(view)) = (self.scenes.built(), self.view()) else {
+            return;
+        };
+        let document = model.document();
+        let evaluation = model.evaluation();
+        let context = editing.context();
+        let mut painted: Vec<Pickable> = Vec::new();
+        for at in samples {
+            for face in paint_selection::faces_under(
+                built,
+                &view,
+                *at,
+                self.pixels_per_point,
+                self.select_through,
+            ) {
+                if !painted.contains(&face)
+                    && !self.selection.contains(face)
+                    && face.is_available(document, evaluation, context)
+                {
+                    painted.push(face);
+                }
+            }
+        }
+        let added: Vec<Pickable> = painted
+            .into_iter()
+            .flat_map(|face| self.whole_body_of(model, face))
+            .filter(|item| !self.selection.contains(*item))
+            .collect();
+        if !added.is_empty() {
+            self.selection.extend(added);
         }
     }
 
@@ -1522,6 +1579,12 @@ impl ViewportState {
             && editing.picking().is_none()
             && !editing.is_choosing_plane()
         {
+            if self.paint && paint_selection::takes_faces(self.active_filter()) {
+                return Some(PrimaryDrag::Paint(Painting::new(
+                    self.selection.clone(),
+                    press.cursor,
+                )));
+            }
             let at = press.cursor / f64::from(self.pixels_per_point);
             return Some(PrimaryDrag::ModelBox {
                 area: ScreenArea::starting_at(at, self.lasso),
@@ -2138,6 +2201,9 @@ impl ViewportState {
         if commands.available(Command::ToggleLasso) {
             self.lasso = !self.lasso;
         }
+        if commands.available(Command::TogglePaintSelection) {
+            self.paint = !self.paint;
+        }
         if commands.available(Command::ToggleSelectThrough) {
             self.select_through = !self.select_through;
         }
@@ -2570,6 +2636,45 @@ impl ViewportState {
                 .unwrap_or(body_selection::Kind::Faces);
             self.selection
                 .replace_with_all(body_selection::whole_bodies(model, &bodies, kind));
+        }
+        self.selection_set_commands(model, in_sketch, commands, actions);
+    }
+
+    fn selection_set_commands(
+        &self,
+        model: &Model,
+        in_sketch: bool,
+        commands: &mut CommandFrame<'_>,
+        actions: &mut Vec<Action>,
+    ) {
+        let keepable =
+            body_selection::outside_sketch(
+                in_sketch,
+                match self.selection.iter().any(|pickable| {
+                    matches!(pickable, Pickable::Face { .. } | Pickable::Edge { .. })
+                }) {
+                    true => Ok(()),
+                    false => Err(selection_sets::NOTHING_TO_KEEP),
+                },
+            );
+        if commands.invoke(Command::SaveSelectionSet, &keepable) && keepable.is_ok() {
+            let name = model.document().selection_sets().unused_name();
+            match selection_sets::save(model, &self.selection, &name) {
+                Ok(saved) => {
+                    actions.push(Action::Apply(saved.transaction));
+                    let left_out = selection_sets::left_out_note(saved.left_out)
+                        .map(|note| format!(" {note}"))
+                        .unwrap_or_default();
+                    actions.push(Action::Inform(Notice::info(format!(
+                        "Saved the selection as {name}. Rename it, select it again or see them \
+                         all in Selection sets.{left_out}"
+                    ))));
+                }
+                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            }
+        }
+        if commands.available(Command::SelectionSets) {
+            actions.push(Action::Preferences(PreferencesCommand::ShowSelectionSets));
         }
     }
 
@@ -3154,6 +3259,7 @@ impl ViewportState {
                     feature: manipulating.feature,
                     draft: None,
                 }),
+                PrimaryDrag::Paint(painting) => self.selection = painting.before,
                 PrimaryDrag::Box { .. }
                 | PrimaryDrag::ModelBox { .. }
                 | PrimaryDrag::Pull { .. } => {}

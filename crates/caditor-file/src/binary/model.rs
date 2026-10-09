@@ -25,6 +25,7 @@ use crate::{
         LoadError, Loaded, Parts, assemble, describe_unpack_failure, describe_unreadable_record,
         newer_version,
     },
+    selection_sets::selection_sets_record,
     untrusted::UntrustedMap,
 };
 
@@ -488,6 +489,7 @@ fn document_records(document: &Document) -> impl Iterator<Item = Result<Vec<u8>,
         .chain(properties_record(document).map(Record::Properties))
         .chain(views_record(document).map(Record::Views))
         .chain(named_values_record(document).map(Record::NamedValues))
+        .chain(selection_sets_record(document).map(Record::SelectionSets))
         .chain(std::iter::once(Record::NextIds(next_ids_record(document))))
         .map(|record| value::to_bytes(&record))
 }

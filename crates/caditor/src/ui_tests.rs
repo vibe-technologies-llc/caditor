@@ -68,9 +68,11 @@ use crate::{
 mod dimension_labels;
 mod feature_panels;
 mod import_jobs;
+mod paint_selection;
 mod pick_list;
 mod primitives;
 mod screenshots;
+mod selection_sets;
 mod selection_targets;
 mod sketch_blend_curves;
 mod sketch_breaks;

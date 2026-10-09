@@ -154,6 +154,8 @@ pub enum Command {
     SelectHole,
     SelectBody,
     SelectFaceEdges,
+    SaveSelectionSet,
+    SelectionSets,
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
@@ -169,6 +171,7 @@ pub enum Command {
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
+    TogglePaintSelection,
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
@@ -503,6 +506,7 @@ plain_commands! {
     ToggleSnapping,
     ToggleGridSnapping,
     ToggleLasso,
+    TogglePaintSelection,
     ToggleSelectThrough,
     CycleSelectionPriority,
     ToggleTypedDimensions,
@@ -528,6 +532,8 @@ plain_commands! {
     SelectHole,
     SelectBody,
     SelectFaceEdges,
+    SaveSelectionSet,
+    SelectionSets,
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
@@ -804,6 +810,8 @@ impl Command {
             Self::SelectTangentFaces => "select.tangent_faces",
             Self::SelectHole => "select.hole",
             Self::SelectBody => "select.body",
+            Self::SaveSelectionSet => "select.save_set",
+            Self::SelectionSets => "select.sets",
             Self::SelectFaceEdges => "select.face_edges",
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
@@ -820,6 +828,7 @@ impl Command {
             Self::ToggleSnapping => "view.toggle_snapping",
             Self::ToggleGridSnapping => "view.toggle_grid_snapping",
             Self::ToggleLasso => "view.toggle_lasso",
+            Self::TogglePaintSelection => "view.toggle_paint_selection",
             Self::ToggleSelectThrough => "view.toggle_select_through",
             Self::CycleSelectionPriority => "select.priority",
             Self::ToggleTypedDimensions => "sketch.toggle_typed_dimensions",
@@ -1000,6 +1009,8 @@ impl Command {
             Self::SelectTangentFaces => "Select the faces tangent to the selected faces",
             Self::SelectHole => "Select the whole hole of the selected wall",
             Self::SelectBody => "Select the whole body",
+            Self::SaveSelectionSet => "Save the selection as a set",
+            Self::SelectionSets => "Selection sets…",
             Self::SelectFaceEdges => "Select the edges around the selected faces",
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
@@ -1016,6 +1027,7 @@ impl Command {
             Self::ToggleSnapping => "Turn snapping on or off",
             Self::ToggleGridSnapping => "Snap to the grid",
             Self::ToggleLasso => "Select with a lasso",
+            Self::TogglePaintSelection => "Select faces by painting over them",
             Self::ToggleSelectThrough => "Select through to what is hidden",
             Self::CycleSelectionPriority => "Cycle the selection priority: body, face, edge",
             Self::ToggleTypedDimensions => "Keep typed values as dimensions",
@@ -1119,6 +1131,8 @@ impl Command {
             | Self::SelectHole
             | Self::SelectBody
             | Self::SelectFaceEdges
+            | Self::SaveSelectionSet
+            | Self::SelectionSets
             | Self::DismissNotice => Category::Edit,
             Self::FitView
             | Self::Measure
@@ -1154,6 +1168,7 @@ impl Command {
             | Self::ToggleSnapping
             | Self::ToggleGridSnapping
             | Self::ToggleLasso
+            | Self::TogglePaintSelection
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::ToggleGlyphs
@@ -1388,6 +1403,8 @@ impl Command {
             | Self::RemoveBody
             | Self::SelectBody
             | Self::SelectHole
+            | Self::SaveSelectionSet
+            | Self::SelectionSets
             | Self::FinishSketch
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive
@@ -1421,6 +1438,7 @@ impl Command {
             | Self::ToggleGridSnapping
             | Self::AutomaticProjection
             | Self::ToggleLasso
+            | Self::TogglePaintSelection
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::ToggleCentresOfMass

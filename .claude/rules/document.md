@@ -124,6 +124,23 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `ViewNameTaken`, `TooManyViews` and `ViewNotUsable`. A unit orientation is stored as given and
   any other is normalised, so setting the same views again is no change.
 
+## Selection sets (`selection_sets.rs`)
+
+- `SelectionSets` (named `SelectionSet`s in the user's order) is document content like the saved
+  views: compared by `same_content`, carried by `transaction_to`, counted by `heap_size`, ignored
+  by recompute. A set's `SetMember`s are a whole body (its `FeatureId`), or a face or an edge of a
+  body as a `FaceReference` or `EdgeReference`, never a position.
+- `Edit::SetSelectionSets` sets them whole and its inverse holds the previous ones. Names follow
+  the saved views' rules (`set_name`, unique ignoring case, `MAX_SET_NAME_CHARS`); a blank or
+  taken name, an empty set, a set past `MAX_SET_MEMBERS` and more than `MAX_SELECTION_SETS` sets
+  are refused (`SetNameEmpty`, `SetNameTooLong`, `SetNameTaken`, `SetEmpty`, `SetTooLarge`,
+  `TooManySets`). A set may name a body no longer in the model, like a feature using a deleted
+  one, so the feature ID counter is raised past every body a set names.
+- `SelectionSet::resolve` finds what a set means in an `Evaluation` now, so it heals like any
+  reference: a body is every face of its current solid, a face or an edge resolves by its
+  reference in its body's shown solid (a tie takes every candidate). What it cannot find is a
+  `SetLoss` per body (no solid now, a face or an edge not found), which the app puts in words.
+
 ## Body appearance (`body_appearance.rs`)
 
 - A feature's `appearance` (`BodyAppearance`: an sRGB `Rgb` colour, a material name, a density

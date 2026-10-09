@@ -170,7 +170,7 @@ paths:
   `redo_steps`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary
   undoable journal step. Hovering a step sums up what it touched (`Transaction::touched`): the
   features by name, how many sketch curves, points, constraints and dimensions, the parameters,
-  and the rollback bar, principal geometry, model properties or saved views.
+  and the rollback bar, principal geometry, model properties, saved views or selection sets.
 - Neither bar clips at large sizes or in narrow windows: the search field, model name, selection,
   unit and size take their own row when last frame's needed width does not fit
   (`widgets::remembered_width`); the selection has a fixed truncating share (all of it on hover);

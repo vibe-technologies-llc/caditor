@@ -17,6 +17,7 @@ use crate::{
     },
     load::{Parts, assemble},
     os,
+    selection_sets::{SelectionSetsRecord, selection_sets_record},
 };
 
 const JOURNAL_VERSION: u32 = 1;
@@ -69,6 +70,7 @@ struct SnapshotRecord {
     views: Option<ViewsRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     named_values: Option<NamedValuesRecord>,
+    selection_sets: Option<SelectionSetsRecord>,
 }
 
 pub(crate) struct JournalHead<'a> {
@@ -200,6 +202,7 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
         properties: properties_record(document),
         views: views_record(document),
         named_values: named_values_record(document),
+        selection_sets: selection_sets_record(document),
     }
 }
 
@@ -317,6 +320,7 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
         properties: snapshot.properties,
         views: snapshot.views,
         named_values: snapshot.named_values,
+        selection_sets: snapshot.selection_sets,
         ..Parts::default()
     };
     for parameter in snapshot.parameters {

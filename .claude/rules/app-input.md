@@ -8,6 +8,8 @@ paths:
   - "crates/caditor/src/viewport.rs"
   - "crates/caditor/src/pick_list.rs"
   - "crates/caditor/src/saved_views.rs"
+  - "crates/caditor/src/selection_sets.rs"
+  - "crates/caditor/src/paint_selection.rs"
   - "crates/caditor/src/app.rs"
   - "crates/caditor/src/feature_tree.rs"
 ---
@@ -81,15 +83,36 @@ paths:
   for a new session; the headless PNG does the same), and one without goes back to the default
   orientation after one that had it.
 
+## Selection sets
+
+- A model keeps named groups of faces, edges and bodies (`document.md`, `selection_sets.rs`).
+  `selection_sets::capture` turns the viewport selection into members: a body all of whose faces
+  are selected becomes the body, other faces and edges their references; anything else (vertices,
+  sketch geometry, datums) is left out and the save says how many. Save the selection as a set
+  (Edit › Selection sets, palette; unavailable inside a sketch or with no face or edge selected,
+  `NOTHING_TO_KEEP`) saves it under the next free "Set N" with a notice. Selection sets… opens a
+  modal like Saved views (`Workspace::selection_sets`, dropped with the session) listing each set
+  with what it holds and Select, Replace with the current selection, Rename and Delete, and a
+  Name field with Save selection; each change is one undoable `SetSelectionSets` built by
+  `selection_sets::save`, `update`, `rename` or `delete`, checked before it is offered.
+- A set is selected from Edit › Selection sets, the dialog or a palette search
+  (`PreferencesCommand::SelectSet`, `Choice::SelectionSet`), outside a sketch only.
+  `selection_sets::choose` resolves it now (`SelectionSet::resolve`), replaces the selection with
+  what it finds on shown bodies (seam edges left out) and says in a notice what it could not:
+  faces or edges of a body not found, a body with no solid now, a deleted body or a hidden one.
+  When nothing can be selected the selection is kept and the notice says why. Tools then take the
+  selection as they take any other, so a set feeds a fillet, a hide or a pattern.
+
 ## Command palette
 
 - `palette.rs` lists this frame's offers, then the sketch commands that do not fit outside a
   sketch (muted, after all offers, `palette::absence`), and once something is typed the features
   (selecting the row and scrolling the tree to it, `Focus::Feature`) and parameters (focusing the
-  value field, `Focus::ParameterValue`) and saved views (going to the view, `Choice::View`,
-  `Palette::take_view`); the focus reaches the panels the next frame
+  value field, `Focus::ParameterValue`), saved views (going to the view, `Choice::View`,
+  `Palette::take_view`) and selection sets (selecting the set, `Choice::SelectionSet`,
+  `Palette::take_selection_set`); the focus reaches the panels the next frame
   (`Palette::take_focus`, `PanelState::request_focus`). Groups (Recent only while nothing is typed,
-  Commands, Features, Parameters, Views) are ordered by best match.
+  Commands, Features, Parameters, Views, Selection sets) are ordered by best match.
 - A fixed detail line under the list says what Enter does, or why the highlighted entry is not
   available, distinguishing "unavailable now" from "only works while a sketch is edited". The
   chosen command is triggered on the next frame.
@@ -182,6 +205,15 @@ paths:
   makes those drags, and the edited sketch's, draw a freehand outline instead
   (`sketch_drag::ScreenArea::Lasso`, a point every `LASSO_STEP` points, closed back to its start)
   that takes what lies wholly inside it, like a window; everything else about box selection holds.
+- Select faces by painting over them (`Command::TogglePaintSelection`, View menu, palette; kept for
+  the session in `ViewportState::paint`, not saved) makes those model drags a brush
+  (`PrimaryDrag::Paint`, `paint_selection.rs`) while the filter takes faces (Everything, Faces or
+  Bodies; other filters keep the box): the drag replaces the selection (Shift or Ctrl adds) and
+  each pointer move adds the faces under the stroke as it goes, sampled every
+  `BRUSH_STEP_POINTS` (at most `MAX_BRUSH_SAMPLES` a move) through `Scene::hits_through` on the
+  CPU, so no GPU pick is awaited. Each sample takes the nearest face, or every face under it with
+  Select through; the Bodies filter takes the whole body (`whole_body_of`). Escape mid-drag puts
+  back the selection the drag started from. Sketch drags keep the box or lasso.
 - Select all (`select.all`), Select tangent edges and Select edges around faces
   (`body_selection.rs`) work on the shown bodies outside sketch editing and refuse inside one.
   Select all takes every face, edge or vertex by the selection filter, or by the kind already

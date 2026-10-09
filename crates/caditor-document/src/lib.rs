@@ -32,6 +32,7 @@ mod recompute;
 mod removal;
 mod scaling;
 mod section;
+mod selection_sets;
 mod shell;
 mod solid;
 mod split;
@@ -105,6 +106,10 @@ pub use crate::{
     removal::Remove,
     scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR, Scale},
     section::{SectionCurve, SectionError, datum_outline, section_curves},
+    selection_sets::{
+        MAX_SELECTION_SETS, MAX_SET_MEMBERS, MAX_SET_NAME_CHARS, SelectionSet, SelectionSets,
+        SetItem, SetLoss, SetMember, SetResolution, set_name,
+    },
     shell::Shell,
     solid::{
         AxisSide, BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice,
@@ -177,6 +182,8 @@ mod removal_tests;
 mod scaling_tests;
 #[cfg(test)]
 mod section_tests;
+#[cfg(test)]
+mod selection_sets_tests;
 #[cfg(test)]
 mod shell_tests;
 #[cfg(test)]

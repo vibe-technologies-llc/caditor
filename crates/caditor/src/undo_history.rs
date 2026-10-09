@@ -149,6 +149,9 @@ pub fn summary(document: &Document, step: &Transaction) -> String {
     if touched.views {
         lines.push("The model's saved views".to_owned());
     }
+    if touched.selection_sets {
+        lines.push("The model's selection sets".to_owned());
+    }
     lines.join("\n")
 }
 
