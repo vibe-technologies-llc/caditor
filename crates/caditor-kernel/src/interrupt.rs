@@ -1,11 +1,11 @@
-use std::{cell::RefCell, sync::Arc};
+use std::{cell::Cell, sync::Arc};
 
 use thiserror::Error;
 
 pub type Interrupt = Arc<dyn Fn() -> bool + Send + Sync>;
 
 thread_local! {
-    static CURRENT: RefCell<Option<Interrupt>> = const { RefCell::new(None) };
+    static CURRENT: Cell<Option<Interrupt>> = const { Cell::new(None) };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -19,10 +19,30 @@ pub fn interruptible<T>(interrupt: Interrupt, work: impl FnOnce() -> T) -> T {
 }
 
 pub fn check() -> Result<(), Interrupted> {
-    let interrupt = CURRENT.with(|current| current.borrow().clone());
-    match interrupt {
-        Some(interrupted) if interrupted() => Err(Interrupted),
-        Some(_) | None => Ok(()),
+    let interrupted = CURRENT.with(|current| {
+        let lent = Lent {
+            slot: current,
+            interrupt: current.take(),
+        };
+        lent.interrupt
+            .as_ref()
+            .is_some_and(|interrupted| interrupted())
+    });
+    if interrupted {
+        Err(Interrupted)
+    } else {
+        Ok(())
+    }
+}
+
+struct Lent<'a> {
+    slot: &'a Cell<Option<Interrupt>>,
+    interrupt: Option<Interrupt>,
+}
+
+impl Drop for Lent<'_> {
+    fn drop(&mut self) {
+        self.slot.set(self.interrupt.take());
     }
 }
 
@@ -54,5 +74,28 @@ mod tests {
             assert_eq!(check(), Err(Interrupted));
         });
         assert_eq!(check(), Ok(()));
+    }
+
+    #[test]
+    fn an_interrupt_may_itself_check_without_seeing_itself() {
+        let nested = interruptible(Arc::new(|| check().is_err()), || {
+            (check(), interruptible(Arc::new(|| true), check))
+        });
+        assert_eq!(nested, (Ok(()), Err(Interrupted)));
+        assert_eq!(check(), Ok(()));
+    }
+
+    #[test]
+    fn an_interrupt_that_panics_is_still_in_place_afterwards() {
+        let polled = Arc::new(AtomicBool::new(false));
+        let seen = Arc::clone(&polled);
+        let interrupt: Interrupt = Arc::new(move || {
+            assert!(seen.swap(true, Ordering::SeqCst), "the first poll panics");
+            true
+        });
+        interruptible(interrupt, || {
+            assert!(std::panic::catch_unwind(check).is_err());
+            assert_eq!(check(), Err(Interrupted));
+        });
     }
 }
