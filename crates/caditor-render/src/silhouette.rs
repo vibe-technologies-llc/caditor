@@ -14,7 +14,6 @@ use crate::{
 pub const SILHOUETTE_STRIDE: u64 = 60;
 const SILHOUETTE_BINDING: u32 = 3;
 const SILHOUETTE_UNIFORM_BYTES: u64 = 80;
-const QUAD_VERTICES: u32 = 6;
 const SNORM16_SCALE: f32 = i16::MAX as f32;
 const POSITIONS_BYTES: usize = 36;
 const NORMAL_BYTES: usize = 8;
@@ -500,7 +499,7 @@ impl SilhouetteCache {
             pass.set_bind_group(1, &silhouette.bind_group, &[]);
             for chunk in silhouette.chunks.iter() {
                 pass.set_vertex_buffer(0, chunk.buffer.slice(..));
-                pass.draw(0..QUAD_VERTICES, 0..chunk.count);
+                pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..chunk.count);
             }
         }
     }

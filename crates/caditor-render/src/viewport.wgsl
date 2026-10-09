@@ -183,15 +183,13 @@ fn is_cut(in: Varyings) -> bool {
 }
 
 fn quad_corner(index: u32) -> vec2<f32> {
-    var corners = array<vec2<f32>, 6>(
+    var corners = array<vec2<f32>, 4>(
         vec2<f32>(-1.0, -1.0),
         vec2<f32>(1.0, -1.0),
         vec2<f32>(1.0, 1.0),
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>(1.0, 1.0),
         vec2<f32>(-1.0, 1.0),
     );
-    return corners[index % 6u];
+    return corners[index % 4u];
 }
 
 struct LineInstance {

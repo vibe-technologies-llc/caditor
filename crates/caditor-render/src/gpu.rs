@@ -44,6 +44,33 @@ pub fn scoped<T>(device: &wgpu::Device, work: impl FnOnce() -> T) -> (T, Option<
     (value, exhausted.or(refused))
 }
 
+const QUAD_INDICES: [u16; 6] = [0, 1, 2, 0, 2, 3];
+pub const QUAD_INDEX_COUNT: u32 = QUAD_INDICES.len() as u32;
+
+#[derive(Clone)]
+pub struct QuadIndices(wgpu::Buffer);
+
+impl QuadIndices {
+    pub fn new(device: &wgpu::Device) -> Self {
+        let bytes: Vec<u8> = QUAD_INDICES
+            .iter()
+            .flat_map(|index| index.to_le_bytes())
+            .collect();
+        Self(wgpu::util::DeviceExt::create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("quad corners"),
+                contents: &bytes,
+                usage: wgpu::BufferUsages::INDEX,
+            },
+        ))
+    }
+
+    pub fn bind(&self, pass: &mut wgpu::RenderPass<'_>) {
+        pass.set_index_buffer(self.0.slice(..), wgpu::IndexFormat::Uint16);
+    }
+}
+
 pub struct OpenedDevice {
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,

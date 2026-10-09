@@ -237,6 +237,9 @@ paths:
 
 - Sizes are logical points: `ViewportFrame::pixels_per_point` goes into the view uniform and
   shaders scale line widths, marker diameters and the grid by it.
+- Lines, markers, silhouettes and the grid are quads, one instance each, drawn indexed through one
+  static index buffer of two triangles over four corners (`gpu::QuadIndices`, bound once after the
+  meshes in each pass), so the vertex shader runs four times a quad rather than six.
 - Lines and silhouettes are finished in the colour pass (`Strokes::Finished` in the view uniform's
   `fill_light.w`): each quad reaches `STROKE_FRINGE_PIXELS` beyond its edges and `fs_line` turns the
   distance from the segment, carried in screen space (the `stroke` varying times `w`, divided

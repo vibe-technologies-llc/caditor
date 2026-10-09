@@ -7,7 +7,7 @@ use crate::{
     SurfaceSize,
     camera::{Projection, View},
     culling::ClipWindow,
-    gpu::{self, Bytes, GrowableBuffer},
+    gpu::{self, Bytes, GrowableBuffer, QuadIndices},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
     mesh::{MESH_VERTEX_STRIDE, MeshCache, UploadBudget},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
@@ -27,7 +27,6 @@ pub const BACKGROUND: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 const FAR_DEPTH: f32 = 0.0;
-const QUAD_VERTICES: u32 = 6;
 const FACE_DEPTH_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
     constant: 0,
     slope_scale: -2.0,
@@ -639,7 +638,7 @@ impl GpuBatch {
         }
         pass.set_pipeline(pipeline);
         pass.set_vertex_buffer(0, self.lines.slice(u64::from(instances) * LINE_STRIDE));
-        pass.draw(0..QUAD_VERTICES, 0..instances);
+        pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..instances);
     }
 
     fn draw_hidden_lines(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
@@ -649,7 +648,7 @@ impl GpuBatch {
         let end = self.line_count.saturating_add(self.hidden_line_count);
         pass.set_pipeline(pipeline);
         pass.set_vertex_buffer(0, self.lines.slice(u64::from(end) * LINE_STRIDE));
-        pass.draw(0..QUAD_VERTICES, self.line_count..end);
+        pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, self.line_count..end);
     }
 
     fn draw_markers(
@@ -663,7 +662,7 @@ impl GpuBatch {
         }
         pass.set_pipeline(pipeline);
         pass.set_vertex_buffer(0, self.markers.slice(u64::from(instances) * MARKER_STRIDE));
-        pass.draw(0..QUAD_VERTICES, 0..instances);
+        pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..instances);
     }
 
     fn bind_fills(&self, pass: &mut wgpu::RenderPass<'_>) {
@@ -766,6 +765,7 @@ pub struct ViewportRenderer {
     view_uniform: Uniform,
     pick_view_uniform: Uniform,
     grid_uniform: Uniform,
+    quad_indices: QuadIndices,
     batches: Vec<GpuBatch>,
     anchor: Option<Point3>,
     fill_order: FillOrder,
@@ -825,6 +825,7 @@ impl ViewportRenderer {
             view_uniform: Uniform::new(device, &view_layout, "view", VIEW_UNIFORM_SIZE),
             pick_view_uniform: Uniform::new(device, &view_layout, "pick view", VIEW_UNIFORM_SIZE),
             grid_uniform: Uniform::new(device, &grid_layout, "grid", GRID_UNIFORM_SIZE),
+            quad_indices: QuadIndices::new(device),
             view_layout,
             grid_layout,
             batches: Vec::new(),
@@ -1039,6 +1040,7 @@ impl ViewportRenderer {
                 VIEW_UNIFORM_SIZE,
             ),
             grid_uniform: Uniform::new(device, &self.grid_layout, "grid", GRID_UNIFORM_SIZE),
+            quad_indices: self.quad_indices.clone(),
             batches: Vec::new(),
             anchor: None,
             fill_order: FillOrder::default(),
@@ -1192,6 +1194,7 @@ impl ViewportRenderer {
             .draw(pass, &self.pipelines.translucent_meshes, window);
         self.overlay
             .draw(pass, &self.pipelines.overlay_meshes, window);
+        self.quad_indices.bind(pass);
         self.silhouettes
             .draw(pass, &self.pipelines.silhouettes, window);
         for batch in &self.batches {
@@ -1208,7 +1211,7 @@ impl ViewportRenderer {
         if grid {
             pass.set_pipeline(&self.pipelines.grid);
             pass.set_bind_group(1, &self.grid_uniform.bind_group, &[]);
-            pass.draw(0..QUAD_VERTICES, 0..1);
+            pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..1);
         }
         self.draw_fills(pass);
     }
@@ -1269,6 +1272,7 @@ impl ViewportRenderer {
                 batch.nearer_pick_fills(),
             );
         }
+        self.quad_indices.bind(&mut pass);
         for batch in &self.batches {
             batch.draw_lines(&mut pass, &self.pipelines.pick.lines, batch.line_count);
         }
