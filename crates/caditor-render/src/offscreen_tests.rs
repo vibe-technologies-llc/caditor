@@ -696,6 +696,37 @@ fn a_section_cuts_bodies_and_lines_away_caps_the_cut_and_picks_neither() {
 }
 
 #[test]
+fn faces_a_section_keeps_draw_as_before_seen_from_an_angle() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::new(1.0, -1.5, 1.2), Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let kept_top = view.project(Point3::new(-5.0, 12.0, 20.0)).unwrap();
+    let kept_side = view.project(Point3::new(20.0, 12.0, -5.0)).unwrap();
+    let on_cap = view.project(Point3::new(-5.0, 0.0, 5.0)).unwrap();
+    let whole = Scene {
+        section: Vec::new(),
+        ..sectioned_box(CutFace::Hatched, Vector3::NEG_Y)
+    };
+
+    let cut = render(
+        &device,
+        &queue,
+        &view,
+        &sectioned_box(CutFace::Filled, Vector3::NEG_Y),
+        kept_top,
+    );
+    let whole = render(&device, &queue, &view, &whole, kept_top);
+
+    assert_eq!(pixel(&cut, kept_top), pixel(&whole, kept_top));
+    assert_eq!(pixel(&cut, kept_side), pixel(&whole, kept_side));
+    assert_ne!(pixel(&cut, on_cap), pixel(&whole, on_cap));
+    assert_eq!(cut.pick.hits[0].id, PickId::from_index(14).unwrap());
+}
+
+#[test]
 fn face_colours_and_the_eye_follow_every_frame_with_one_renderer() {
     let Some((device, queue)) = gpu() else {
         return;

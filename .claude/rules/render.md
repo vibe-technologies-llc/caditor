@@ -203,12 +203,17 @@ paths:
 - While a section is shown the opaque, flat and reflective meshes draw with `fs_*_sectioned`
   pipelines (and `fs_mesh_pick_sectioned`), which cap the cut: a back face (the flat normal from
   derivatives, oriented by the interpolated normal, turned from the eye) seen where the eye's ray
-  crossed a plane is drawn at the point where the ray entered the kept region, writing that depth,
-  shaded with the plane's normal in the face's colour darkened by `CAP_SHADE` and hatched
-  (`HATCH_SHADE`) or filled. Since these write `frag_depth`, they take no pipeline depth bias and
-  add the face slope bias themselves; plain pipelines draw when there is no section, so early depth
-  testing is kept then. A cap picks id 0 with its own depth, hiding what lies behind it and picking
-  nothing. Caps assume closed solids; translucent and overlay meshes are only cut, never capped.
+  crossed a plane is the inside of a cut solid, since a closed solid's back face is the nearest
+  kept surface only from inside it. It is drawn as the plane there: shaded with the plane's normal
+  in the face's colour darkened by `CAP_SHADE`, hatched (`HATCH_SHADE`) or filled from the point
+  where the ray entered the kept region. Its depth stays the back face's, pulled forward by
+  `CAP_DEPTH_BIAS` so the back faces' edges (lines at their smaller bias) stay hidden behind it;
+  moving it onto the plane instead would let it win over front faces between the plane and the
+  back face. The pick pass writes id 0 there with the plane's depth value, so a cap hides what
+  lies behind it, picks nothing and gives the orbit pivot on the cut. These shaders write
+  `frag_depth`, so they take no pipeline depth bias and add the face slope bias themselves; plain
+  pipelines draw when there is no section, keeping early depth testing then. Caps assume closed
+  solids; translucent and overlay meshes are only cut, never capped.
 - `Scene::hits_through` skips hits on sectioned geometry beyond a plane (`is_cut_away`), so the
   pick list, paint selection and Measure only reach what is shown (offscreen and `through.rs`
   tests).

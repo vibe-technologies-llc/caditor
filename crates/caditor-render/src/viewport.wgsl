@@ -42,7 +42,8 @@ const IN_FRONT: u32 = 1u;
 const SECTIONED: u32 = 2u;
 const MAX_SECTION_PLANES: u32 = 6u;
 const FACE_SLOPE_BIAS: f32 = 2.0;
-const CAP_SHADE: f32 = 0.8;
+const CAP_DEPTH_BIAS: f32 = 1.0002;
+const CAP_SHADE: f32 = 0.7;
 const HATCH_SHADE: f32 = 0.25;
 const HATCH_WIDTH_POINTS: f32 = 1.0;
 const DASH_PERIOD_POINTS: f32 = 10.0;
@@ -685,9 +686,9 @@ fn sectioned_face_depth(in: Varyings) -> f32 {
     return max(in.position.z - FACE_SLOPE_BIAS * slope, 0.0);
 }
 
-fn depth_of(relative: vec3<f32>) -> f32 {
+fn cap_depth(relative: vec3<f32>) -> f32 {
     let clip = to_clip(relative);
-    return clamp(layered_depth(clip, 1.0, BEHIND) / clip.w, 0.0, 1.0);
+    return clamp(layered_depth(clip, CAP_DEPTH_BIAS, BEHIND) / clip.w, 0.0, 1.0);
 }
 
 struct Sectioned {
@@ -709,7 +710,7 @@ fn sectioned(in: Varyings) -> Sectioned {
     let line = clamp(HATCH_WIDTH_POINTS * pixels_per_point() * 0.5 + 0.5 - distance, 0.0, 1.0);
     let hatched = select(0.0, line, dot(hatch.xyz, hatch.xyz) > 0.0);
     let capped = back && cap.found;
-    return Sectioned(is_cut_away(in.relative), capped, cap, select(face_depth, depth_of(cap.relative), capped), hatched);
+    return Sectioned(is_cut_away(in.relative), capped, cap, select(face_depth, cap_depth(in.relative), capped), hatched);
 }
 
 fn hatched(color: vec3<f32>, section: Sectioned) -> vec4<f32> {
