@@ -6,6 +6,8 @@ struct View {
     light: vec4<f32>,
     fill_light: vec4<f32>,
     anchor: vec4<f32>,
+    reflection_across: vec4<f32>,
+    reflection_along: vec4<f32>,
 }
 
 struct Grid {
@@ -383,6 +385,64 @@ fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
         return vec4<f32>(enhanced_shade(in.color.rgb, normal, eye), in.color.a);
     }
     return vec4<f32>(standard_shade(in.color.rgb, normal, eye), in.color.a);
+}
+
+const TAU: f32 = 6.2831853;
+const ZEBRA_LIGHT: f32 = 1.3;
+const ZEBRA_DARK: f32 = 0.08;
+const CHROME_TINT: f32 = 0.5;
+const SKY_LOW: vec3<f32> = vec3<f32>(0.55, 0.62, 0.72);
+const SKY_HIGH: vec3<f32> = vec3<f32>(0.95, 0.97, 1.0);
+const GROUND_NEAR: vec3<f32> = vec3<f32>(0.46, 0.43, 0.4);
+const GROUND_FAR: vec3<f32> = vec3<f32>(0.26, 0.26, 0.28);
+const HORIZON_WIDTH: f32 = 0.015;
+const PANEL_DIRECTION: vec3<f32> = vec3<f32>(0.48, -0.56, 0.68);
+const PANEL_SHARPNESS: f32 = 90.0;
+const PANEL_BRIGHTNESS: f32 = 0.9;
+
+fn is_zebra() -> bool {
+    return view.reflection_along.w > 0.5;
+}
+
+fn zebra(color: vec3<f32>, reflected: vec3<f32>) -> vec3<f32> {
+    let across = view.reflection_across.xyz;
+    let along = view.reflection_along.xyz;
+    let stripes = view.reflection_across.w;
+    let x = dot(reflected, across);
+    let y = dot(reflected, along);
+    let turns = atan2(y, x) / TAU * stripes;
+    let opposite = atan2(-y, -x) / TAU * stripes;
+    let width = max(min(fwidth(turns), fwidth(opposite)), 1e-4);
+    let distance = abs(fract(turns) - 0.5);
+    let light = smoothstep(0.25 - width, 0.25 + width, distance);
+    let bright = min(color * ZEBRA_LIGHT, vec3<f32>(1.0));
+    return mix(color * ZEBRA_DARK, bright, light);
+}
+
+fn environment(reflected: vec3<f32>) -> vec3<f32> {
+    let up = reflected.z;
+    let sky = mix(SKY_LOW, SKY_HIGH, smoothstep(0.0, 0.7, up));
+    let ground = mix(GROUND_NEAR, GROUND_FAR, smoothstep(0.0, -0.7, up));
+    let horizon = smoothstep(-HORIZON_WIDTH, HORIZON_WIDTH, up);
+    let panel = pow(max(dot(reflected, normalize(PANEL_DIRECTION)), 0.0), PANEL_SHARPNESS);
+    return mix(ground, sky, horizon) + vec3<f32>(panel * PANEL_BRIGHTNESS);
+}
+
+fn chrome(color: vec3<f32>, reflected: vec3<f32>) -> vec3<f32> {
+    let brightest = max(max(color.r, color.g), max(color.b, 1e-3));
+    let tint = mix(vec3<f32>(1.0), color / brightest, CHROME_TINT);
+    return min(environment(reflected) * tint, vec3<f32>(1.0));
+}
+
+@fragment
+fn fs_reflective(in: Varyings) -> @location(0) vec4<f32> {
+    let eye = toward_eye(in.relative);
+    let normal = facing_normal(in, eye);
+    let reflected = reflect(-eye, normal);
+    if is_zebra() {
+        return vec4<f32>(zebra(in.color.rgb, reflected), in.color.a);
+    }
+    return vec4<f32>(chrome(in.color.rgb, reflected), in.color.a);
 }
 
 fn marker_coverage(in: Varyings) -> f32 {

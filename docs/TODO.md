@@ -324,11 +324,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   centroid or second moments of area (about its centroid and its principal axes), which a beam
   section, an extrusion profile or a gasket is sized by. Selected regions of a sketch should read
   in Measure as a body's mass properties do, exact for lines and arcs.
-- [low · medium] No surface quality analyses: zebra stripes, a curvature map (Gaussian and the
-  principal curvatures), isocurves with combs, and a chrome reflection of the surroundings, all
-  shown on the bodies without changing the model.
-- [low · medium] No accessibility analysis: faces reachable from a chosen plane or direction
-  coloured against those that are not, to judge undercuts for a three-axis machine.
+- [low · medium] No isocurves with combs: the u and v parameter lines of the selected faces drawn
+  on the bodies, each with a curvature comb (`comb.rs`), to judge a spline face's flow; the
+  curvature map, zebra stripes and chrome reflection are done (`app.md`, "Face analysis").
 
 ## STEP import and export
 

@@ -69,7 +69,7 @@ paths:
   upload once per `Arc` and drop when the mesh leaves the scene; a mesh past `max_buffer_size` is
   split into parts that each fit.
 - New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
-  shared by the four mesh caches): each frame packs and writes the next whole vertices and indices
+  shared by the five mesh caches): each frame packs and writes the next whole vertices and indices
   into buffers made at the start, so the frame that first shows a large body never stalls (about
   2 ms at worst instead of 8 to 11 ms for 39 MB in a release build). A mesh is drawn only once it
   is complete, never half; while any mesh of a cache is still uploading, the meshes the cache drew
@@ -92,6 +92,8 @@ paths:
 - `ShadedMesh::divide` makes another mesh in which every face is split into one face per class a
   caller's classifier gives each triangle (from its corners' positions and normals), with the
   source face and the area of every piece; analysis colouring uses it, since styles are per face.
+  `ShadedMesh::origin` and `face_triangles` (world corners with their face) let the app's reach
+  analysis and `through.rs` work on the triangles without a copy of the mesh.
 - Per-face styles live in an `Rg32Uint` texture (`StyleLayout`) read by face index in the vertex
   shader, rewritten only when they differ, so hover and selection cost nothing in geometry.
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
@@ -128,6 +130,14 @@ paths:
 
 - `Scene::flat_meshes` draw right after the opaque meshes with the same depth writes and pick pass
   but `fs_color`, so each face shows its style's colour exactly, unlit (the hidden-line style).
+- `Scene::reflective_meshes` draw right after the flat ones with the opaque depth writes and pick
+  pass but `fs_reflective`, which reflects the eye ray about the normal in world space and shades
+  by `Scene::reflection`: `Zebra` (a ring of `stripes` light and dark bands per turn around an axis,
+  antialiased with the narrower `fwidth` of two angles whose seams differ, the light band the face
+  colour brightened and the dark one nearly black) or `Chrome` (a procedural world-Z-up sky,
+  horizon, ground and one light panel, tinted halfway to the face colour's hue, so hover and
+  selection still show). The reflection rides in the view uniform's last two vectors (the stripe
+  axes' orthonormal pair, the stripe count and a zebra flag).
 - `Scene::overlay_meshes` draw right after the translucent ones, blended, with no depth test or
   write and never in the pick pass, so they show through whatever covers them (the cut preview).
 - `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and

@@ -13,8 +13,8 @@ use crate::{
     image::{self, Background, Image, ImageGpu, ImageRequest},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{
-        Batch, Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Scene, Stroke,
-        ViewportRect,
+        Batch, Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Reflection, Scene,
+        Stroke, ViewportRect,
     },
     settings::{Msaa, Shading},
     viewport::{SurfaceTarget, ViewportFrame, ViewportRenderer, Work},
@@ -61,6 +61,8 @@ fn scene() -> Scene {
         translucent_meshes: Vec::new(),
         overlay_meshes: Vec::new(),
         flat_meshes: Vec::new(),
+        reflective_meshes: Vec::new(),
+        reflection: Reflection::default(),
         grid: None,
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
@@ -753,6 +755,8 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
         translucent_meshes: Vec::new(),
         overlay_meshes: Vec::new(),
         flat_meshes: Vec::new(),
+        reflective_meshes: Vec::new(),
+        reflection: Reflection::default(),
         grid: None,
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
@@ -1405,6 +1409,92 @@ fn a_flat_mesh_shows_its_colour_unlit_hides_what_is_behind_it_and_is_picked() {
     assert_eq!(pixel(&rendered, middle)[..3], [236, 238, 242]);
     assert_eq!(pixel(&rendered, behind)[..3], [236, 238, 242]);
     assert_eq!(rendered.pick.hits[0].id, face_pick);
+}
+
+fn bumped_square(half: f64, steps: u32) -> ShadedMesh {
+    let side = steps + 1;
+    let points = (0..side)
+        .flat_map(|row| (0..side).map(move |column| (column, row)))
+        .map(|(column, row)| {
+            let at = |index: u32| (f64::from(index) / f64::from(steps) * 2.0 - 1.0) * half;
+            let (x, y) = (at(column), at(row));
+            MeshPoint {
+                position: Point3::new(x, y, 0.0),
+                normal: Vector3::new(x / half * 1.7, y / half * 1.7, 1.0).normalize(),
+            }
+        })
+        .collect();
+    let triangles = (0..steps)
+        .flat_map(|row| (0..steps).map(move |column| (column, row)))
+        .flat_map(|(column, row)| {
+            let corner = |column: u32, row: u32| row * side + column;
+            let (a, b) = (corner(column, row), corner(column + 1, row));
+            let (c, d) = (corner(column + 1, row + 1), corner(column, row + 1));
+            [[a, b, c], [a, c, d]]
+        })
+        .collect();
+    ShadedMesh::new([MeshFace { points, triangles }])
+}
+
+fn reflective_scene(reflection: Reflection, pick: PickId) -> Scene {
+    Scene {
+        reflective_meshes: vec![MeshInstance {
+            mesh: Arc::new(bumped_square(40.0, 32)),
+            faces: vec![FaceStyle {
+                color: Color::from_rgb8(200, 200, 200),
+                pick: Some(pick),
+            }],
+            placement: None,
+        }],
+        reflection,
+        ..Scene::default()
+    }
+}
+
+#[test]
+fn zebra_stripes_alternate_across_a_curved_face_and_chrome_reflects_sky_and_ground() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
+    let pick = PickId::from_index(0).unwrap();
+    let middle = view.project(Point3::ZERO).unwrap();
+    let edge = view.project(Point3::new(38.0, 0.0, 0.0)).unwrap();
+    let brightness = |pixel: [u8; 4]| {
+        pixel[..3]
+            .iter()
+            .map(|channel| u32::from(*channel))
+            .sum::<u32>()
+    };
+    let zebra = Reflection::Zebra {
+        along: Vector3::X,
+        stripes: 12,
+    };
+
+    let striped = render(
+        &device,
+        &queue,
+        &view,
+        &reflective_scene(zebra, pick),
+        middle,
+    );
+    let chrome = render(
+        &device,
+        &queue,
+        &view,
+        &reflective_scene(Reflection::Chrome, pick),
+        middle,
+    );
+    let across: Vec<u32> = column(middle.x, middle.y, 50.0)
+        .map(|at| brightness(pixel(&striped, at)))
+        .collect();
+
+    assert!(across.iter().any(|value| *value < 120));
+    assert!(across.iter().any(|value| *value > 500));
+    assert!(brightness(pixel(&chrome, middle)) > 600);
+    assert!(brightness(pixel(&chrome, edge)) < 400);
+    assert_eq!(striped.pick.hits[0].id, pick);
+    assert_eq!(chrome.pick.hits[0].id, pick);
 }
 
 #[test]

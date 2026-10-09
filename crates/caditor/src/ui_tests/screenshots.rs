@@ -398,6 +398,21 @@ fn screenshots() {
             .toggle_centres_of_mass_for_screenshots();
         model.frame();
 
+        for (kind, scene) in [
+            (crate::analysis::Kind::Reach, "analysis-reach"),
+            (crate::analysis::Kind::Curvature, "analysis-curvature"),
+            (crate::analysis::Kind::Zebra, "analysis-zebra"),
+            (crate::analysis::Kind::Chrome, "analysis-chrome"),
+        ] {
+            model.workspace.analysis.toggle(kind);
+            model.frame();
+            model.frame();
+            model.frame();
+            shoot(&mut model, &gpu, &out, scene, look);
+            model.workspace.analysis.toggle(kind);
+            model.frame();
+        }
+
         let sketch = model
             .document()
             .features()

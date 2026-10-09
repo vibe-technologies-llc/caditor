@@ -1,6 +1,6 @@
 use std::{num::NonZeroU32, sync::Arc};
 
-use caditor_geometry::{Plane, Point3};
+use caditor_geometry::{Plane, Point3, Vector3};
 use glam::DVec2;
 
 use crate::mesh::MeshInstance;
@@ -193,8 +193,37 @@ pub struct Scene {
     pub translucent_meshes: Vec<MeshInstance>,
     pub overlay_meshes: Vec<MeshInstance>,
     pub flat_meshes: Vec<MeshInstance>,
+    pub reflective_meshes: Vec<MeshInstance>,
+    pub reflection: Reflection,
     pub batches: Vec<Arc<Batch>>,
     pub grid: Option<Grid>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum Reflection {
+    #[default]
+    Chrome,
+    Zebra {
+        along: Vector3,
+        stripes: u32,
+    },
+}
+
+impl Reflection {
+    pub(crate) fn uniform(self) -> [[f32; 4]; 2] {
+        match self {
+            Self::Chrome => [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],
+            Self::Zebra { along, stripes } => {
+                let (first, second) = along.normalize_or(Vector3::Z).any_orthonormal_pair();
+                let first = first.as_vec3();
+                let second = second.as_vec3();
+                [
+                    [first.x, first.y, first.z, stripes as f32],
+                    [second.x, second.y, second.z, 1.0],
+                ]
+            }
+        }
+    }
 }
 
 impl Scene {

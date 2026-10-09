@@ -103,7 +103,11 @@ impl ShadedMesh {
         self.indices.len() / 3
     }
 
-    pub(crate) fn face_triangles(&self) -> impl Iterator<Item = (usize, [Point3; 3])> + '_ {
+    pub fn origin(&self) -> Point3 {
+        self.origin
+    }
+
+    pub fn face_triangles(&self) -> impl Iterator<Item = (usize, [Point3; 3])> + '_ {
         self.indices
             .as_chunks::<3>()
             .0
