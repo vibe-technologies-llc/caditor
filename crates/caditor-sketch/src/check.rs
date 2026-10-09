@@ -164,8 +164,8 @@ impl Sketch {
             Some(Entity::Arc { .. }) => self
                 .arc(curve)
                 .is_some_and(|arc| arc.radius <= tiny || arc.radius * arc.sweep <= tiny),
-            Some(Entity::Spline { control_points }) => {
-                let points: Vec<Point2> = control_points
+            Some(Entity::Spline { points, .. }) => {
+                let points: Vec<Point2> = points
                     .iter()
                     .filter_map(|point| self.point(*point))
                     .collect();

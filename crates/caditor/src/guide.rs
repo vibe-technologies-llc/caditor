@@ -34,6 +34,7 @@ pub enum Page {
     Slot,
     Polygon,
     Spline,
+    Conic,
     Ellipses,
     TrimAndExtend,
     Offset,
@@ -106,6 +107,7 @@ all_variants!(
     Slot,
     Polygon,
     Spline,
+    Conic,
     Ellipses,
     TrimAndExtend,
     Offset,
@@ -224,6 +226,7 @@ impl Page {
             Self::Slot => "slot",
             Self::Polygon => "polygon",
             Self::Spline => "spline",
+            Self::Conic => "conic",
             Self::Ellipses => "ellipses",
             Self::TrimAndExtend => "trim-and-extend",
             Self::Offset => "offset",
@@ -302,6 +305,7 @@ impl Page {
             Self::Slot => include_str!("../guide/slot.md"),
             Self::Polygon => include_str!("../guide/polygon.md"),
             Self::Spline => include_str!("../guide/spline.md"),
+            Self::Conic => include_str!("../guide/conic.md"),
             Self::Ellipses => include_str!("../guide/ellipses.md"),
             Self::TrimAndExtend => include_str!("../guide/trim-and-extend.md"),
             Self::Offset => include_str!("../guide/offset.md"),
@@ -376,6 +380,7 @@ impl Page {
             | Self::Slot
             | Self::Polygon
             | Self::Spline
+            | Self::Conic
             | Self::Ellipses
             | Self::TrimAndExtend
             | Self::Offset
@@ -434,6 +439,7 @@ impl Page {
             Tool::Slot => Self::Slot,
             Tool::Polygon => Self::Polygon,
             Tool::Spline => Self::Spline,
+            Tool::Conic => Self::Conic,
             Tool::Ellipse | Tool::EllipticalArc => Self::Ellipses,
             Tool::Trim | Tool::Extend => Self::TrimAndExtend,
             Tool::Offset => Self::Offset,
