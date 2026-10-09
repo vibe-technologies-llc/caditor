@@ -123,8 +123,10 @@ paths:
   tree order already holds writes `shares`, that text's blake3 digest in hex, instead of `step`,
   and loading (`ImportTexts`) hands every import of one text the same text and solid; a shared
   text that cannot be found loads the import empty, reported. An `import` record always holds its
-  text, for older readers, and journaled edits hold theirs whole. Parsing goes through `step_cache.rs`, a process-wide LRU cache of solids by the blake3
-  digest of the text, so a load, a journal replay and a recovery scan parse each import once.
+  text, for older readers, and journaled edits hold theirs whole. Parsing goes through `step_cache.rs`, a process-wide LRU cache of shared solids
+  (`Arc<Solid>`, handed to `Import::shared`) by the blake3 digest of the text, so a load, a journal
+  replay and a recovery scan parse each import once and every document holding it shares one
+  solid; its budget counts each solid it keeps once.
 - `ValueError::Refused` is what serde's `custom` becomes and carries no message: no type of ours
   raises it, only serde's own derives.
 - Unreadable values become reported fallbacks (the `restore_*` functions in `format.rs`), never

@@ -5038,33 +5038,38 @@ fn restore_import(
     issues: &mut Vec<String>,
 ) -> Import {
     let source = record.source;
-    let (digest, text) = match (record.step, record.shares) {
+    let (digest, hash, text) = match (record.step, record.shares) {
         (Some(step), _) => {
-            let digest = blake3::hash(step.as_bytes()).to_hex().to_string();
+            let hash = blake3::hash(step.as_bytes());
+            let digest = hash.to_hex().to_string();
             let text = texts
                 .texts
                 .entry(digest.clone())
                 .or_insert_with(|| Arc::from(step))
                 .clone();
-            (digest, text)
+            (digest, Some(hash), text)
         }
         (None, Some(shares)) => match texts.texts.get(shares) {
-            Some(text) => (shares.to_owned(), text.clone()),
+            Some(text) => (shares.to_owned(), None, text.clone()),
             None => {
                 issues.push(format!(
                     "The shape of “{name}”, imported from “{source}”, was kept with another \
                      import that could not be read, so the feature has no shape."
                 ));
-                (String::new(), Arc::from(""))
+                (String::new(), None, Arc::from(""))
             }
         },
-        (None, None) => (String::new(), Arc::from("")),
+        (None, None) => (String::new(), None, Arc::from("")),
+    };
+    let parse = |text: &str| match hash {
+        Some(hash) => crate::step_cache::first_solid_hashed(text, hash),
+        None => crate::step_cache::first_solid(text),
     };
     let solid = match texts.solids.get(&digest) {
         Some(solid) => solid.clone(),
-        None => match crate::step_cache::first_solid(&text) {
+        None => match parse(&text) {
             Ok(read) => {
-                let read = Arc::new(read.unwrap_or_default());
+                let read = read.unwrap_or_default();
                 if !digest.is_empty() {
                     texts.solids.insert(digest, read.clone());
                 }

@@ -50,7 +50,7 @@ fn import_transaction(document: &Document, text: &str) -> Transaction {
     let mut transaction = document.transaction("Import");
     transaction.add_feature(
         "Prism",
-        FeatureKind::Import(Import::new("prism.step", solid, text)),
+        FeatureKind::Import(Import::shared("prism.step", solid, text)),
     );
     transaction.finish()
 }
@@ -142,7 +142,14 @@ fn save_and_journal_costs() {
     let text = prism_text(PRISM_SIDES);
     let import = imported(&text);
     let sketches = many_sketches();
-    println!("STEP text of {} bytes", text.len());
+    println!(
+        "STEP text of {} bytes, read as a solid of about {} bytes",
+        text.len(),
+        crate::step_cache::first_solid(&text)
+            .unwrap()
+            .unwrap()
+            .approximate_size()
+    );
 
     report_costs("an import", &import, &import_transaction(&sample(), &text));
     report_costs(
