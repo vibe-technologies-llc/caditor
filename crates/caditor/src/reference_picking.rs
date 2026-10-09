@@ -5,7 +5,7 @@ use crate::{
     datum_panel::{self, FramePart},
     datum_tools,
     editing::EditingCommand,
-    mate_tools, mirror_tools,
+    hole_panel, mate_tools, mirror_tools,
     model::{Action, Model, Notice},
     move_tools,
     pattern_tools::{self, Reference},
@@ -30,6 +30,7 @@ pub enum Slot {
     RevolveAxis,
     ExtrudeTarget(Side),
     StartPlane,
+    HoleTarget,
     MirrorPlane,
     SplitPlane,
     PatternDirection,
@@ -127,6 +128,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
             format!("Click {AXIS} to turn about")
         }
         Slot::ExtrudeTarget(_) => "Click a flat face or plane to extrude up to".to_owned(),
+        Slot::HoleTarget => "Click a flat face or plane to drill up to".to_owned(),
         Slot::StartPlane => {
             "Click a flat face or plane parallel to the sketch to start from".to_owned()
         }
@@ -216,6 +218,9 @@ pub fn change(
         }
         (Slot::StartPlane, FeatureKind::Solid(solid)) => {
             solid_panel::start_change(model, selection, feature, solid)
+        }
+        (Slot::HoleTarget, FeatureKind::Hole(hole)) => {
+            hole_panel::target_change(model, selection, feature, hole)
         }
         (Slot::MirrorPlane, FeatureKind::Mirror(mirror)) => {
             mirror_tools::plane_change(model, selection, feature, mirror)

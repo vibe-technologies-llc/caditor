@@ -10113,7 +10113,8 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
         Id::new(("hole-field", "countersink-diameter", hole)),
         "14 mm",
     );
-    harness.click("Through all");
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest("Through all");
     harness.settle();
     assert_eq!(rows_named(&harness, "Depth").len(), 1);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
@@ -10134,6 +10135,66 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
         plate,
         std::f64::consts::PI * 25.0 * 10.0
     ));
+}
+
+#[test]
+fn a_hole_is_drilled_up_to_the_next_face_or_a_chosen_face_short_of_it_by_its_offset() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut sketch = Sketch::new(top);
+    sketch.add_point(Point2::new(20.0, 20.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let bore = std::f64::consts::PI * 3.0 * 3.0;
+
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest(crate::hole_panel::UP_TO_NEXT);
+    harness.settle();
+    let to_next = open_hole(&harness, hole).depth;
+    let through = removed_about(&harness, plate, bore * 10.0);
+    harness.type_into_field(Id::new(("hole-field", "end-offset", hole)), "-4 mm");
+    harness.settle();
+    let short = removed_about(&harness, plate, bore * 6.0);
+
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest(crate::hole_panel::UP_TO_FACE);
+    harness.settle();
+    let asks_for_a_face = harness.shows("Click a flat face or plane to drill up to.");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let bottom = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            pickable.describe(harness.document(), harness.model.evaluation())
+                == "Extrude 1 › Extrude 1 start face"
+        })
+        .expect("the bottom face is pickable");
+    harness.select([bottom]);
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest(crate::hole_panel::UP_TO_FACE);
+    harness.settle();
+    let to_face = open_hole(&harness, hole).depth;
+    let still_short = removed_about(&harness, plate, bore * 6.0);
+
+    assert_eq!(to_next, caditor_document::HoleDepth::up_to_next());
+    assert!(through);
+    assert!(short);
+    assert!(asks_for_a_face);
+    assert!(to_face.target().is_some());
+    assert!(to_face.offset().is_some());
+    assert!(still_short);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
 #[test]
@@ -10190,7 +10251,8 @@ fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
     );
     assert!(harness.shows("Enter an angle above 0° and up to 179°"));
 
-    harness.click("Through all");
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest("Through all");
     harness.settle();
     assert!(!harness.shows(crate::hole_panel::DRILL_POINT));
     assert_eq!(harness.model.evaluation().failed_count(), 0);

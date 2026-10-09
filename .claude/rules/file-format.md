@@ -224,7 +224,12 @@ paths:
   no hole loads without the steps, reported. A hole ending in a drill point is a `drill_point_hole`
   record: `feature`, the hole record it would be ending flat (itself a `stepped_hole` when stepped),
   and `angle` (stored text; unreadable: 118 deg, reported), since an older reader would drill a
-  flat bottom; an inner record that is no hole loads without it, reported.
+  flat bottom; an inner record that is no hole loads without it, reported. A hole drilled up to
+  the next face or a face is a `hole_up_to` record: `feature`, the hole record it would be drilled
+  through all (itself any of the hole records above), `end` (`up_to_next`, or `up_to_face` with a
+  plane reference) and `offset`, its stored text only when set; an unreadable end loads drilled
+  through all and an unreadable offset as 0 mm, each reported, and an inner record that is no hole
+  loads without the end, reported.
 - A datum point is a `point` record (`base`, a point reference: `origin`, `datum`, `vertex` with
   `body` and the vertex name's digest, `centre` with `body` and an edge record, `surface_centre`
   with `body` and a face record, or `sketch` with `sketch` and `entity`; `offset`, three stored

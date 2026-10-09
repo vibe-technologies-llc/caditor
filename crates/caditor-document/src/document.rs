@@ -310,11 +310,11 @@ impl FeatureKind {
             Self::Split(split) => used.extend(split.along.body()),
             Self::Primitive(primitive) => used.extend(primitive.plane.body()),
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
+            Self::Hole(hole) => used.extend(hole.end_body()),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::Scale(_)
-            | Self::Hole(_)
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_) => {}
@@ -337,13 +337,13 @@ impl FeatureKind {
             Self::Split(split) => split.along.datum().into_iter().collect(),
             Self::Primitive(primitive) => primitive.plane.datum().into_iter().collect(),
             Self::Mate(mate) => mate.plane_datums(),
+            Self::Hole(hole) => hole.end_datum().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Scale(_)
-            | Self::Hole(_)
             | Self::Pattern(_)
             | Self::Import(_)
             | Self::Remove(_)
@@ -398,11 +398,11 @@ impl FeatureKind {
             Self::Primitive(primitive) => primitive.plane.frame().into_iter().collect(),
             Self::Scale(scale) => scale.frame.into_iter().collect(),
             Self::Import(import) => import.placement.frame.into_iter().collect(),
+            Self::Hole(hole) => hole.end_frame().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::Combine(_)
-            | Self::Hole(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
         }
@@ -968,7 +968,8 @@ impl FeatureKind {
             Self::Primitive(primitive) => primitive.origin_features(),
             Self::Move(movement) => movement.origin_features(),
             Self::Mate(mate) => mate.origin_features(),
-            Self::Combine(_) | Self::Scale(_) | Self::Hole(_) => BTreeSet::new(),
+            Self::Hole(hole) => hole.origin_features(),
+            Self::Combine(_) | Self::Scale(_) => BTreeSet::new(),
             Self::Mirror(mirror) => mirror.plane.origin_features(),
             Self::Split(split) => split.along.origin_features(),
             Self::Pattern(pattern) => pattern.origin_features(),

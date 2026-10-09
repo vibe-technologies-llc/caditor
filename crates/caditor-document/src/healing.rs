@@ -10,6 +10,7 @@ use crate::{
     },
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     edit::{Edit, Transaction},
+    hole::HoleDepth,
     mate::MatePair,
     movement::TurnCentre,
     pattern::PatternKind,
@@ -146,10 +147,12 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visit_axis(&mut axes.target, "axis to mate onto", visitor);
             }
         },
-        FeatureKind::Combine(_)
-        | FeatureKind::Scale(_)
-        | FeatureKind::Hole(_)
-        | FeatureKind::Remove(_) => {}
+        FeatureKind::Hole(hole) => {
+            if let HoleDepth::UpToFace { target, .. } = &mut hole.depth {
+                visit_plane(target, "the face it is drilled up to", visitor);
+            }
+        }
+        FeatureKind::Combine(_) | FeatureKind::Scale(_) | FeatureKind::Remove(_) => {}
         FeatureKind::Mirror(mirror) => {
             visit_plane(&mut mirror.plane, "the face it mirrors across", visitor);
         }

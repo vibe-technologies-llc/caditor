@@ -59,8 +59,7 @@ const UP_TO_NEXT_NEEDS_A_BODY: &str = "Up to next stops at the body this feature
      body first";
 const NO_TARGET_SELECTED: &str =
     "Select a flat face or a plane made before this feature, then use it";
-const CURVED_TARGET: &str =
-    "The selected face is curved; an extrusion can only end on a flat face or plane";
+const CURVED_TARGET: &str = "The selected face is curved; only a flat face or plane can be an end";
 const SIDES_CHANGED: &str = "The extrusion no longer has that end; choose the face again";
 
 struct Panel<'a> {
@@ -1074,7 +1073,7 @@ impl Panel<'_> {
     }
 }
 
-fn is_zero(expression: &Expression) -> bool {
+pub fn is_zero(expression: &Expression) -> bool {
     matches!(
         expression,
         Expression::Number(value) | Expression::Measure(value, _) if *value == 0.0

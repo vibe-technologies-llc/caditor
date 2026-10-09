@@ -1,20 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use caditor_expression::{Dimension, EvalError, Expression, ParameterId};
+use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanOperation, LINEAR_RESOLUTION, LinearExtent, MAX_SIZE, Profile,
-    ProfileCurve, Solid, boolean, extrude, revolve,
+    ProfileCurve, ReachError, Region, Solid, boolean, extrude, next_face, revolve,
 };
 use caditor_sketch::{Entity, EntityId, Sketch};
 
 use crate::{
-    document::{Feature, FeatureId},
+    attachment::AttachmentError,
+    datum::{PlaneReference, Resolver, capitalized, describe_plane},
+    describe::describe_origin,
+    document::{Feature, FeatureId, list_names},
     hole_standard::HoleStandard,
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
     thread::hole_thread,
     thread_standard::{ThreadClass, ThreadHand, ThreadSide},
+    tolerance,
     trouble::boolean_trouble,
 };
 
@@ -24,12 +28,85 @@ const PARTS: u64 = 16;
 const STEP_SHIFT: u32 = 56;
 const MARGIN: f64 = 1.0;
 const THROUGH_ALL_REACH: f64 = 0.05;
+const END_OFFSET: &str = "end offset";
 pub const MAX_CONE_ANGLE: f64 = 179.0;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HoleDepth {
     Blind(Expression),
     ThroughAll,
+    UpToNext {
+        offset: Option<Box<Expression>>,
+    },
+    UpToFace {
+        target: Box<PlaneReference>,
+        offset: Option<Box<Expression>>,
+    },
+}
+
+impl HoleDepth {
+    pub fn up_to_next() -> Self {
+        Self::UpToNext { offset: None }
+    }
+
+    pub fn up_to_face(target: PlaneReference) -> Self {
+        Self::UpToFace {
+            target: Box::new(target),
+            offset: None,
+        }
+    }
+
+    pub fn is_blind(&self) -> bool {
+        matches!(self, Self::Blind(_))
+    }
+
+    pub fn target(&self) -> Option<&PlaneReference> {
+        match self {
+            Self::UpToFace { target, .. } => Some(target),
+            Self::Blind(_) | Self::ThroughAll | Self::UpToNext { .. } => None,
+        }
+    }
+
+    pub fn offset(&self) -> Option<&Expression> {
+        match self {
+            Self::UpToNext { offset } | Self::UpToFace { offset, .. } => offset.as_deref(),
+            Self::Blind(_) | Self::ThroughAll => None,
+        }
+    }
+
+    pub fn takes_offset(&self) -> bool {
+        matches!(self, Self::UpToNext { .. } | Self::UpToFace { .. })
+    }
+
+    #[must_use]
+    pub fn with_offset(self, offset: Option<Expression>) -> Self {
+        let offset = offset.map(Box::new);
+        match self {
+            Self::UpToNext { .. } => Self::UpToNext { offset },
+            Self::UpToFace { target, .. } => Self::UpToFace { target, offset },
+            other @ (Self::Blind(_) | Self::ThroughAll) => other,
+        }
+    }
+
+    fn expressions(&self) -> Vec<&Expression> {
+        match self {
+            Self::Blind(depth) => vec![depth],
+            Self::UpToNext { offset } | Self::UpToFace { offset, .. } => {
+                offset.as_deref().into_iter().collect()
+            }
+            Self::ThroughAll => Vec::new(),
+        }
+    }
+
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        match self {
+            Self::Blind(depth) => vec![depth],
+            Self::UpToNext { offset } | Self::UpToFace { offset, .. } => {
+                offset.as_deref_mut().into_iter().collect()
+            }
+            Self::ThroughAll => Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -144,9 +221,7 @@ pub struct TappedThread {
 impl Hole {
     pub fn expressions(&self) -> Vec<&Expression> {
         let mut expressions = vec![&self.diameter];
-        if let HoleDepth::Blind(depth) = &self.depth {
-            expressions.push(depth);
-        }
+        expressions.extend(self.depth.expressions());
         expressions.extend(self.style.expressions());
         if let HoleShape::Slot { length, angle } = &self.shape {
             expressions.extend([length, angle]);
@@ -160,9 +235,7 @@ impl Hole {
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
         let mut expressions = vec![&mut self.diameter];
-        if let HoleDepth::Blind(depth) = &mut self.depth {
-            expressions.push(depth);
-        }
+        expressions.extend(self.depth.expressions_mut());
         expressions.extend(self.style.expressions_mut());
         if let HoleShape::Slot { length, angle } = &mut self.shape {
             expressions.extend([length, angle]);
@@ -191,8 +264,28 @@ impl Hole {
         BTreeSet::from([self.sketch, self.body])
     }
 
+    pub fn end_body(&self) -> Option<FeatureId> {
+        self.depth.target().and_then(PlaneReference::body)
+    }
+
+    pub fn end_datum(&self) -> Option<FeatureId> {
+        self.depth.target().and_then(PlaneReference::datum)
+    }
+
+    pub fn end_frame(&self) -> Option<FeatureId> {
+        self.depth.target().and_then(PlaneReference::frame)
+    }
+
+    pub fn origin_features(&self) -> BTreeSet<FeatureId> {
+        self.depth
+            .target()
+            .map(PlaneReference::origin_features)
+            .unwrap_or_default()
+    }
+
     pub fn heap_size(&self) -> usize {
-        self.style.heap_size()
+        self.depth.target().map_or(0, PlaneReference::heap_size)
+            + self.style.heap_size()
             + self
                 .expressions()
                 .into_iter()
@@ -541,7 +634,7 @@ impl Context<'_> {
         let hole = sized.map_or_else(|| "the hole".to_owned(), |sized| sized.circle.clone());
         let depth = match &definition.depth {
             HoleDepth::Blind(depth) => Some(self.length(depth, "depth")?),
-            HoleDepth::ThroughAll => None,
+            HoleDepth::ThroughAll | HoleDepth::UpToNext { .. } | HoleDepth::UpToFace { .. } => None,
         };
         let style = match &definition.style {
             HoleStyle::Plain => StyleValues::Plain,
@@ -853,6 +946,283 @@ fn drills(
     Ok(tools)
 }
 
+enum Reach {
+    Blind,
+    ThroughAll,
+    UpToNext {
+        offset: f64,
+    },
+    UpToFace {
+        plane: Plane,
+        name: String,
+        offset: f64,
+    },
+}
+
+struct Drilled<'a> {
+    frame: &'a Plane,
+    centre: Point3,
+    down: Vector3,
+    at: &'a str,
+}
+
+impl Context<'_> {
+    fn reach(&self, depth: &HoleDepth) -> Result<Reach, Failure> {
+        Ok(match depth {
+            HoleDepth::Blind(_) => Reach::Blind,
+            HoleDepth::ThroughAll => Reach::ThroughAll,
+            HoleDepth::UpToNext { offset } => Reach::UpToNext {
+                offset: self.end_offset(offset.as_deref())?,
+            },
+            HoleDepth::UpToFace { target, offset } => Reach::UpToFace {
+                plane: self.end_plane(target)?,
+                name: describe_plane(self.inputs.document, target),
+                offset: self.end_offset(offset.as_deref())?,
+            },
+        })
+    }
+
+    fn end_offset(&self, offset: Option<&Expression>) -> Result<f64, Failure> {
+        let Some(offset) = offset else {
+            return Ok(0.0);
+        };
+        let value = self.value(offset, Dimension::LENGTH, END_OFFSET)?;
+        if value.abs() > MAX_SIZE {
+            return Err(self.error(
+                format!(
+                    "The {END_OFFSET} cannot be more than {} m.",
+                    MAX_SIZE / 1_000.0
+                ),
+                format!("Enter an {END_OFFSET} of at most {} m.", MAX_SIZE / 1_000.0),
+            ));
+        }
+        Ok(value)
+    }
+
+    fn end_plane(&self, target: &PlaneReference) -> Result<Plane, Failure> {
+        let PlaneReference::Face(attachment) = target else {
+            return Resolver {
+                feature: self.feature,
+                inputs: self.inputs,
+            }
+            .plane(target);
+        };
+        let body = self.name(attachment.body);
+        let solid = self
+            .inputs
+            .body(attachment.body)
+            .ok_or_else(|| self.inputs.missing_body(attachment.body))?;
+        attachment.resolve(solid).map_err(|error| {
+            let reason = match error {
+                AttachmentError::Missing => format!(
+                    "The face this hole is drilled up to is no longer part of the body of {body}."
+                ),
+                AttachmentError::Ambiguous => format!(
+                    "The face of {body} this hole is drilled up to was split into parts that no \
+                     longer lie in one plane."
+                ),
+                AttachmentError::NotFlat => {
+                    format!("The face of {body} this hole is drilled up to is no longer flat.")
+                }
+            };
+            self.error(
+                reason,
+                "Select a flat face or plane and use it for the end of the hole, or drill it \
+                 blind or through all."
+                    .to_owned(),
+            )
+        })
+    }
+
+    fn depth_to(
+        &self,
+        plane: &Plane,
+        name: &str,
+        offset: f64,
+        drilled: &Drilled<'_>,
+    ) -> Result<f64, Failure> {
+        let at = drilled.at;
+        let facing = plane.normal().dot(drilled.down);
+        if tolerance::perpendicular(plane.normal(), drilled.down) {
+            return Err(self.error(
+                format!(
+                    "{} runs along the hole at {at}, so the hole never reaches it.",
+                    capitalized(name)
+                ),
+                "Choose a face or plane that faces the hole, or drill it blind.".to_owned(),
+            ));
+        }
+        let reached = -plane.signed_distance(drilled.centre) / facing;
+        if reached <= LINEAR_RESOLUTION {
+            return Err(self.error(
+                format!(
+                    "{} does not lie ahead of the hole at {at}.",
+                    capitalized(name)
+                ),
+                "Turn the hole around, or choose a face or plane beyond the sketch.".to_owned(),
+            ));
+        }
+        let depth = reached + offset / facing.abs();
+        if depth <= LINEAR_RESOLUTION {
+            return Err(self.error(
+                format!(
+                    "Stopping {} short of {name} would end the hole at {at} before it starts.",
+                    Quantity::length(-offset)
+                ),
+                format!(
+                    "Enter a smaller {END_OFFSET}, or choose a face or plane farther from the \
+                     sketch."
+                ),
+            ));
+        }
+        if depth > MAX_SIZE {
+            return Err(self.error(
+                format!(
+                    "The hole at {at} would reach farther than {} m before it meets {name}.",
+                    MAX_SIZE / 1_000.0
+                ),
+                "Choose a face or plane that faces the hole more squarely, or drill it blind."
+                    .to_owned(),
+            ));
+        }
+        Ok(depth)
+    }
+
+    fn up_to_next(
+        &self,
+        body: &Solid,
+        body_name: &str,
+        values: &Values,
+        offset: f64,
+        drilled: &Drilled<'_>,
+    ) -> Result<f64, Failure> {
+        let at = drilled.at;
+        let unusable = || {
+            self.error(
+                format!("The next face the hole at {at} meets could not be found."),
+                "Use Up to face to choose where it stops, or drill it blind.".to_owned(),
+            )
+        };
+        let (along, footprint) = footprint(values, drilled.frame).ok_or_else(unusable)?;
+        let plane = Plane::from_frame(drilled.centre, drilled.down, along).ok_or_else(unusable)?;
+        let describe = |face| {
+            describe_origin(
+                self.inputs.document,
+                body.face(face).and_then(|face| face.origin()),
+            )
+        };
+        let found = next_face(body, &plane, &footprint, false).map_err(|error| match error {
+            ReachError::Cancelled(_) => Failure::Cancelled,
+            ReachError::NoRegions | ReachError::Undecided => unusable(),
+            ReachError::Nothing => self.error(
+                format!("The hole at {at} meets nothing of the body of {body_name}."),
+                "Turn the hole around, or move the point onto the body.".to_owned(),
+            ),
+            ReachError::Partly => self.error(
+                format!(
+                    "Part of the hole at {at} passes beside the body of {body_name}, so there is \
+                     no one next face to stop at."
+                ),
+                "Use Up to face to choose where it stops, or move the point.".to_owned(),
+            ),
+            ReachError::SeveralFaces(faces) => {
+                let names: Vec<String> = faces.iter().map(|face| describe(*face)).collect();
+                self.error(
+                    format!(
+                        "The hole at {at} meets several faces of {body_name} first: {}.",
+                        list_names(&names)
+                    ),
+                    "Use Up to face to choose which one it stops at.".to_owned(),
+                )
+            }
+            ReachError::Curved(face) => self.error(
+                format!(
+                    "The next face the hole at {at} meets, {}, is curved, and a hole can only \
+                     end on a flat face or plane.",
+                    describe(face)
+                ),
+                "Use Up to face with a flat face or plane, or drill it blind.".to_owned(),
+            ),
+        })?;
+        if found.entering {
+            return Err(self.error(
+                format!(
+                    "The hole at {at} first meets the body of {body_name} where it enters it, so \
+                     drilling up to that face removes nothing."
+                ),
+                "Place the sketch on or inside the body, or use Through all or Up to face."
+                    .to_owned(),
+            ));
+        }
+        self.depth_to(&found.plane, &describe(found.face), offset, drilled)
+    }
+
+    fn head_fits(
+        &self,
+        definition: &Hole,
+        values: &Values,
+        depth: f64,
+        at: &str,
+    ) -> Result<(), Failure> {
+        let (head, what) = match &values.style {
+            StyleValues::Plain => return Ok(()),
+            StyleValues::Stepped(steps) => (
+                steps.last().map_or(0.0, |deepest| deepest.floor),
+                match definition.style {
+                    HoleStyle::Stepped(_) => "steps reach",
+                    HoleStyle::Plain
+                    | HoleStyle::Counterbore { .. }
+                    | HoleStyle::Countersink { .. } => "counterbore reaches",
+                },
+            ),
+            StyleValues::Countersink {
+                diameter,
+                half_angle,
+            } => (
+                (diameter - values.diameter) / 2.0 / half_angle.tan(),
+                "countersink reaches",
+            ),
+        };
+        if head < depth {
+            return Ok(());
+        }
+        Err(self.error(
+            format!("At {at}, the {what} as deep as the whole hole."),
+            "Make the head of the hole shallower, or choose an end farther from the sketch."
+                .to_owned(),
+        ))
+    }
+}
+
+fn footprint(values: &Values, frame: &Plane) -> Option<(Vector3, Vec<Region>)> {
+    let radius = values.diameter / 2.0;
+    let along = match values.slot {
+        None => frame.x_axis(),
+        Some(slot) => {
+            let (sin, cos) = slot.angle.sin_cos();
+            frame.x_axis() * cos + frame.y_axis() * sin
+        }
+    };
+    let curves = match values.slot {
+        None => vec![ProfileCurve::circle(0, Point2::ZERO, radius)],
+        Some(slot) => {
+            let half = slot.length / 2.0;
+            let first = Point2::new(-half, -radius);
+            let second = Point2::new(half, -radius);
+            let third = Point2::new(half, radius);
+            let fourth = Point2::new(-half, radius);
+            vec![
+                ProfileCurve::line(0, first, second),
+                ProfileCurve::arc(1, Point2::new(half, 0.0), second, third),
+                ProfileCurve::line(2, third, fourth),
+                ProfileCurve::arc(3, Point2::new(-half, 0.0), fourth, first),
+            ]
+        }
+    };
+    let regions = Profile::new(&curves).ok()?.regions().to_vec();
+    Some((along, regions))
+}
+
 fn reach(body: &Solid, centre: Point3, down: Vector3) -> Option<f64> {
     let bounds = body.bounding_box()?;
     let farthest = bounds
@@ -906,10 +1276,11 @@ pub(crate) fn evaluate(
     }
     let body_name = context.name(definition.body);
     let mut tools = Vec::new();
-    let mut body = inputs
+    let original = inputs
         .body(definition.body)
-        .ok_or_else(|| inputs.missing_body(definition.body))?
-        .clone();
+        .ok_or_else(|| inputs.missing_body(definition.body))?;
+    let mut body = original.clone();
+    let reach_kind = context.reach(&definition.depth)?;
     let frame = sketch.geometry.plane();
     let up = frame.normal() * if definition.reversed { -1.0 } else { 1.0 };
     let circles = match definition.sizing {
@@ -933,18 +1304,43 @@ pub(crate) fn evaluate(
             return Err(Failure::Cancelled);
         }
         let centre = frame.to_world(position);
-        let depth = match values.depth {
-            Some(depth) => depth,
-            None => reach(&body, centre, -up).ok_or_else(|| {
-                context.error(
-                    format!(
-                        "No part of the body of {body_name} lies beyond {} in the drilling \
-                         direction, so there is nothing to go through.",
-                        sketch.geometry.entity_label(point)
-                    ),
-                    "Turn the hole around, or move the point onto the body.".to_owned(),
-                )
-            })?,
+        let at = sketch.geometry.entity_label(point);
+        let drilled = Drilled {
+            frame: &frame,
+            centre,
+            down: -up,
+            at: &at,
+        };
+        let depth = match (&reach_kind, values.depth) {
+            (Reach::Blind, Some(depth)) => depth,
+            (Reach::Blind | Reach::ThroughAll, _) => {
+                reach(&body, centre, -up).ok_or_else(|| {
+                    context.error(
+                        format!(
+                            "No part of the body of {body_name} lies beyond {at} in the drilling \
+                             direction, so there is nothing to go through."
+                        ),
+                        "Turn the hole around, or move the point onto the body.".to_owned(),
+                    )
+                })?
+            }
+            (Reach::UpToNext { offset }, _) => {
+                let depth = context.up_to_next(original, &body_name, values, *offset, &drilled)?;
+                context.head_fits(definition, values, depth, &at)?;
+                depth
+            }
+            (
+                Reach::UpToFace {
+                    plane,
+                    name,
+                    offset,
+                },
+                _,
+            ) => {
+                let depth = context.depth_to(plane, name, *offset, &drilled)?;
+                context.head_fits(definition, values, depth, &at)?;
+                depth
+            }
         };
         let base = point.raw().wrapping_mul(PARTS);
         for drill in drills(&context, values, &frame, centre, up, depth, base)? {

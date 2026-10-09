@@ -887,7 +887,7 @@ fn body(
             body_display(ui, model, feature);
         }
         FeatureKind::Hole(hole) => {
-            hole_panel::show(ui, model, actions, feature, hole);
+            hole_panel::show(ui, model, row.selection, actions, feature, hole);
             body_display(ui, model, feature);
         }
         FeatureKind::Move(movement) => {

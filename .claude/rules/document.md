@@ -374,9 +374,17 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Hole { sketch, body, diameter, depth, style, reversed }` drills at every free point of its sketch
   (`Sketch::free_points`: no curve uses it, not construction; a point only a constraint uses still
   counts) and at the centre of every circle that is not construction (`hole::centres`), down into
-  the sketch plane's normal, or up when reversed. `HoleDepth` is blind or
+  the sketch plane's normal, or up when reversed. `HoleDepth` is blind,
   through all (the farthest corner of the body past the point plus a margin, as the extrusion's
-  through all); `HoleStyle` is plain, counterbore (diameter, depth), countersink (diameter,
+  through all), up to next or up to face (a boxed `PlaneReference` resolved like an extrusion's
+  end, its body, datum and frame counted as used, its face healed), each up-to end with an
+  optional signed `offset` as an extrusion's end has. Each hole's depth is where its axis meets
+  the plane, the offset measured along the plane's normal, so a slanted face gives each hole its
+  own depth and a flat bottom square to the hole there. Up to next asks kernel `next_face` along
+  the hole's own outline (circle or slot) in the body before the feature, and fails in words when
+  the hole first enters the body (it would remove nothing), meets several faces, a curved one or
+  passes beside it. An up-to hole's counterbore, countersink or steps must stay shallower than
+  each hole's depth, and it ends flat whatever its bottom says, like a through hole; `HoleStyle` is plain, counterbore (diameter, depth), countersink (diameter,
   angle) or stepped (`HoleStep`s from the mouth down, 1 to `MAX_HOLE_STEPS`, each a diameter and
   its own depth, so a step's floor lies at the sum of the depths down to it). Each step must be
   narrower than the one above it and wider than the hole, and the steps together shallower than a

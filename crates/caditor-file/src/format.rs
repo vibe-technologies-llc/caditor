@@ -240,6 +240,7 @@ pub(crate) enum FeatureKindRecord {
     ImportInFrame(Box<MoveInFrameRecord>),
     ScaledImport(Box<ScaledImportRecord>),
     OffsetEnds(Box<OffsetEndsRecord>),
+    HoleUpTo(Box<HoleUpToRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -488,6 +489,21 @@ pub(crate) struct OffsetEndsRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HoleEndRecord {
+    UpToNext,
+    UpToFace(PlaneReferenceRecord),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct HoleUpToRecord {
+    pub feature: FeatureKindRecord,
+    pub end: Lenient<HoleEndRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct RevolveOneSideRecord {
     pub feature: FeatureKindRecord,
     pub side: AxisSideRecord,
@@ -495,7 +511,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 56] = [
+pub(crate) const FEATURE_KINDS: [&str; 57] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -552,6 +568,7 @@ pub(crate) const FEATURE_KINDS: [&str; 56] = [
     "import_in_frame",
     "scaled_import",
     "offset_ends",
+    "hole_up_to",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2124,7 +2141,7 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 None => record,
             }
         }
-        FeatureKind::Hole(hole) => hole_record(hole),
+        FeatureKind::Hole(hole) => hole_up_to_record(hole).unwrap_or_else(|| hole_record(hole)),
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
         FeatureKind::Import(import) => import_record(import, None),
     }
@@ -2423,14 +2440,35 @@ fn restore_tapped_thread(
     }
 }
 
+fn hole_up_to_record(hole: &Hole) -> Option<FeatureKindRecord> {
+    let end = match &hole.depth {
+        HoleDepth::UpToNext { .. } => HoleEndRecord::UpToNext,
+        HoleDepth::UpToFace { target, .. } => {
+            HoleEndRecord::UpToFace(plane_reference_record(target))
+        }
+        HoleDepth::Blind(_) | HoleDepth::ThroughAll => return None,
+    };
+    let through = Hole {
+        depth: HoleDepth::ThroughAll,
+        ..hole.clone()
+    };
+    Some(FeatureKindRecord::HoleUpTo(Box::new(HoleUpToRecord {
+        feature: hole_record(&through),
+        end: Lenient::Read(end),
+        offset: hole.depth.offset().map(Expression::to_stored_text),
+    })))
+}
+
 fn hole_record(hole: &Hole) -> FeatureKindRecord {
     let record = HoleRecord {
         sketch: hole.sketch.raw(),
         body: hole.body.raw(),
         diameter: hole.diameter.to_stored_text(),
         depth: match &hole.depth {
-            HoleDepth::ThroughAll => HoleDepthRecord::ThroughAll,
             HoleDepth::Blind(depth) => HoleDepthRecord::Blind(depth.to_stored_text()),
+            HoleDepth::ThroughAll | HoleDepth::UpToNext { .. } | HoleDepth::UpToFace { .. } => {
+                HoleDepthRecord::ThroughAll
+            }
         },
         style: match &hole.style {
             HoleStyle::Plain => HoleStyleRecord::Plain,
@@ -4097,6 +4135,19 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::HoleUpTo(up_to) => {
+            let mut kind = restore_kind(&up_to.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Hole(hole) => {
+                    hole.depth = restore_hole_end(up_to, name, issues);
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to be drilled up to a face, but it is not a hole, so that was \
+                     left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::OffsetEnds(offsets) => {
             let mut kind = restore_kind(&offsets.feature, name, texts, issues);
             restore_offsets(&mut kind, offsets, name, issues);
@@ -4550,6 +4601,33 @@ fn restore_start(
             None
         }
     }
+}
+
+fn restore_hole_end(record: &HoleUpToRecord, name: &str, issues: &mut Vec<String>) -> HoleDepth {
+    let end = match &record.end {
+        Lenient::Read(HoleEndRecord::UpToNext) => HoleDepth::up_to_next(),
+        Lenient::Read(HoleEndRecord::UpToFace(target)) => match restore_plane_reference(target) {
+            Some(target) => HoleDepth::up_to_face(target),
+            None => {
+                issues.push(format!(
+                    "The face or plane that “{name}” is drilled up to could not be read, so it \
+                     is drilled through all."
+                ));
+                return HoleDepth::ThroughAll;
+            }
+        },
+        Lenient::Unreadable(_) => {
+            issues.push(format!(
+                "Where “{name}” ends could not be read, so it is drilled through all."
+            ));
+            return HoleDepth::ThroughAll;
+        }
+    };
+    let offset = record
+        .offset
+        .as_deref()
+        .map(|text| restore_value(text, "end offset", "0 mm", name, issues));
+    end.with_offset(offset)
 }
 
 fn restore_offsets(

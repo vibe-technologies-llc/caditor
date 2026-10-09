@@ -302,7 +302,11 @@ paths:
   last, and Remove the last step), Sized by (Diameter, Circles, which sets `CirclesAndHeads`; shown while the sketch has
   circles or the hole is sized by them, with Scale the counterbore or countersink with each circle
   for a counterbored or countersunk one), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
-  (Blind with its field, or Through all), for a blind round hole Drill point (a switch giving the
+  (a combo: Blind with its field, Through all, Up to next, or Up to face, taken from the selection
+  like an extrusion's end through `solid_panel::selected_target`, else choosing one in the view
+  with `Slot::HoleTarget` and shown as Up to with Use selected; either up-to kind has the
+  extrusion's Past the face field, key `end-offset`, kept when switching between them), for a
+  blind round hole Drill point (a switch giving the
   bottom a 118° cone, with its Drill point angle field, key `drill-point-angle`), Reverse direction, and the Sketch and Body rows (the body
   a list of `bodies_before`). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.

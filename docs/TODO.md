@@ -199,9 +199,8 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Extrusions end only on flat faces and planes: up to face and up to next refuse a
   curved face, and up to next needs one flat face that the whole profile meets first. An end
   cannot end on a whole body (where the profile last leaves it); an extrusion runs only square to
-  its sketch, never along a chosen edge, axis or sketch line; a revolve turns only by angles, never
-  up to a face or plane; and a hole is blind or through all, never up to a face or the next face it
-  meets.
+  its sketch, never along a chosen edge, axis or sketch line; and a revolve turns only by angles,
+  never up to a face or plane. A hole stops at the next face only where that face is flat.
 - [medium · hard] Blends: only line and circle edges along planes, parallel cylinders and coaxial
   surfaces; no ellipse, spline or intersection edges, not even a straight edge beside a spline
   extrusion face; ends at steps and T-junctions refused; no variable radius, two-distance or

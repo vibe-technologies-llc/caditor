@@ -1218,3 +1218,148 @@ fn a_drill_point_angle_outside_its_range_or_on_a_slot_fails_the_hole_in_words() 
     let error = failure(&evaluate(&pair.document, &mut engine), hole);
     assert!(error.reason.contains("slot ends flat"), "{}", error.reason);
 }
+
+fn level(pair: &mut Pair, height: &str) -> FeatureId {
+    let mut transaction = pair.document.transaction("Level");
+    let offset = transaction.parse(height).unwrap();
+    let level = transaction.add_feature(
+        "Level",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset,
+        })),
+    );
+    pair.document.apply(transaction.finish()).unwrap();
+    level
+}
+
+fn up_to(
+    pair: &mut Pair,
+    depth: HoleDepth,
+    style: impl FnOnce(&Document) -> HoleStyle,
+) -> FeatureId {
+    drilled(pair, &[(5.0, 5.0)], style, |_| depth, false)
+}
+
+fn removed_by(depth: f64) -> f64 {
+    PI * 2.0 * 2.0 * depth
+}
+
+#[test]
+fn a_hole_drilled_up_to_a_plane_ends_on_it_short_of_it_or_past_it_by_its_offset() {
+    let mut pair = pair();
+    let floor = level(&mut pair, "1 mm");
+    let hole = up_to(
+        &mut pair,
+        HoleDepth::up_to_face(PlaneReference::Datum(floor)),
+        |_| HoleStyle::Plain,
+    );
+    let mut engine = Recompute::default();
+
+    let on_it = evaluate(&pair.document, &mut engine);
+    let on_it_volume = volume(&on_it, pair.plate);
+    let mut offsets = Vec::new();
+    for offset in ["-1 mm", "0.5 mm"] {
+        let kind = FeatureKind::Hole(Hole {
+            depth: HoleDepth::up_to_face(PlaneReference::Datum(floor))
+                .with_offset(Some(expression(&pair.document, offset))),
+            ..pair
+                .document
+                .feature(hole)
+                .unwrap()
+                .kind
+                .hole()
+                .unwrap()
+                .clone()
+        });
+        pair.document
+            .apply(Transaction::single(
+                "Offset",
+                Edit::SetFeatureKind { id: hole, kind },
+            ))
+            .unwrap();
+        let evaluation = evaluate(&pair.document, &mut engine);
+        assert_eq!(evaluation.failed_count(), 0);
+        offsets.push(volume(&evaluation, pair.plate));
+    }
+
+    assert_eq!(on_it.failed_count(), 0);
+    assert!((PLATE - on_it_volume - removed_by(3.0)).abs() < 0.01 * removed_by(3.0));
+    assert!((PLATE - offsets[0] - removed_by(2.0)).abs() < 0.01 * removed_by(2.0));
+    assert!((PLATE - offsets[1] - removed_by(3.5)).abs() < 0.01 * removed_by(3.5));
+    let kind = &pair.document.feature(hole).unwrap().kind;
+    assert!(kind.planes_used().contains(&floor));
+    assert!(kind.parameters().is_empty());
+}
+
+#[test]
+fn a_hole_drilled_up_to_the_next_face_stops_where_it_leaves_the_body() {
+    let mut pair = pair();
+    let hole = up_to(
+        &mut pair,
+        HoleDepth::up_to_next().with_offset(Some(Expression::Measure(
+            -1.0,
+            caditor_expression::Unit::Millimetre,
+        ))),
+        |_| HoleStyle::Plain,
+    );
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(
+        evaluation.failed_count(),
+        0,
+        "{:?}",
+        evaluation.feature(hole)
+    );
+    let found = volume(&evaluation, pair.plate);
+    assert!(
+        (PLATE - found - removed_by(3.0)).abs() < 0.01 * removed_by(3.0),
+        "{found}"
+    );
+}
+
+#[test]
+fn a_hole_up_to_a_plane_behind_it_or_shallower_than_its_counterbore_fails_in_words() {
+    let mut behind_pair = pair();
+    let above = level(&mut behind_pair, "6 mm");
+    let behind = up_to(
+        &mut behind_pair,
+        HoleDepth::up_to_face(PlaneReference::Datum(above)),
+        |_| HoleStyle::Plain,
+    );
+    let mut shallow_pair = pair();
+    let floor = level(&mut shallow_pair, "3 mm");
+    let shallow = up_to(
+        &mut shallow_pair,
+        HoleDepth::up_to_face(PlaneReference::Datum(floor)),
+        |document| HoleStyle::Counterbore {
+            diameter: expression(document, "6 mm"),
+            depth: expression(document, "2 mm"),
+        },
+    );
+
+    let refused = failure(
+        &evaluate(&behind_pair.document, &mut Recompute::default()),
+        behind,
+    );
+    let too_shallow = failure(
+        &evaluate(&shallow_pair.document, &mut Recompute::default()),
+        shallow,
+    );
+
+    assert_eq!(
+        refused.reason,
+        "Level does not lie ahead of the hole at Point 0."
+    );
+    assert_eq!(
+        refused.remedy,
+        "Turn the hole around, or choose a face or plane beyond the sketch."
+    );
+    assert_eq!(
+        too_shallow.reason,
+        "At Point 0, the counterbore reaches as deep as the whole hole."
+    );
+}

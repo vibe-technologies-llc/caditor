@@ -6492,6 +6492,88 @@ fn a_hole_ending_in_a_drill_point_is_a_kind_older_readers_report_and_reads_back(
 }
 
 #[test]
+fn a_hole_drilled_up_to_a_face_or_the_next_face_is_a_kind_older_readers_report() {
+    use caditor_document::{
+        Datum, DatumPlane, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStyle,
+        PlaneReference, PrincipalPlane, SolidFeature, TappedThread,
+    };
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let (mut document, base, _) = solid_model();
+    let sketch = match &document.feature(base).unwrap().kind {
+        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
+        other => panic!("{other:?}"),
+    };
+    let mut transaction = document.transaction("Hole");
+    let level = transaction.add_feature(
+        "Level",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: parse("-3 mm"),
+        })),
+    );
+    let drilled = |depth| {
+        FeatureKind::Hole(Hole {
+            sketch,
+            body: base,
+            diameter: parse("4 mm"),
+            depth,
+            style: HoleStyle::Plain,
+            reversed: true,
+            shape: HoleShape::Round,
+            standard: None,
+            sizing: HoleSizing::Typed,
+            bottom: HoleBottom::DrillPoint(parse("118 deg")),
+            thread: TappedThread::default(),
+        })
+    };
+    let to_face = transaction.add_feature(
+        "To face",
+        drilled(
+            HoleDepth::up_to_face(PlaneReference::Datum(level)).with_offset(Some(parse("-1 mm"))),
+        ),
+    );
+    let to_next = transaction.add_feature("To next", drilled(HoleDepth::up_to_next()));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("hole_up_to", "hole_up_too"));
+    let damaged = decode_text(&text.replacen(
+        "\"up_to_face\":{\"datum\":",
+        "\"up_to_face\":{\"datom\":",
+        1,
+    ));
+
+    assert!(text.contains("\"hole_up_to\":{\"end\":{\"up_to_face\":{\"datum\":"));
+    assert!(text.contains("\"offset\":\"-1 mm\""));
+    assert!(text.contains("\"hole_up_to\":{\"end\":\"up_to_next\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(to_face).is_none());
+    assert!(older.document.feature(to_next).is_none());
+    assert!(!older.issues.is_empty());
+    let Some(FeatureKind::Hole(restored)) = damaged
+        .document
+        .feature(to_face)
+        .map(|feature| &feature.kind)
+    else {
+        panic!("the hole was not loaded");
+    };
+    assert_eq!(restored.depth, HoleDepth::ThroughAll);
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    for feature in [to_face, to_next] {
+        let kind = document.feature(feature).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
+        let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        assert_eq!(
+            format::restore_transaction(through_binary(&journaled)),
+            Some(transaction)
+        );
+    }
+}
+
+#[test]
 fn a_hole_sized_by_its_circles_is_a_record_kind_of_its_own() {
     let (mut document, hole) = holed_model(caditor_document::HoleStyle::Plain, false);
     let mut sized = document.feature(hole).unwrap().kind.clone();

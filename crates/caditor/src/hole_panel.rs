@@ -1,17 +1,21 @@
 use caditor_document::{
     Feature, FeatureId, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
     HoleStep, HoleStyle, MAX_HOLE_STEPS, MetricSize, TappedThread, ThreadHand, ThreadSide,
-    Transaction, circle_sizes, hole_thread, pitch_text,
+    Transaction, capitalized, circle_sizes, describe_plane, hole_thread, pitch_text,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
-    feature_fields::{self, Choice, Quantity, REVERSE_DIRECTION, Rule, Segment},
+    editing::EditingCommand,
+    feature_fields::{self, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment, Shown},
     field,
     hole_tools::{self, DEFAULT_STEP_DIAMETER, Kind},
     icons,
     model::{Action, Model},
+    reference_picking::{self, Picking, Slot},
+    selection::Selection,
+    solid_panel::{self, END_OFFSET},
     widgets,
 };
 
@@ -36,7 +40,20 @@ pub const THREAD_LENGTH: &str = "Thread length";
 pub const THREAD_DEPTH: &str = "Thread depth";
 pub const WHOLE_BORE: &str = "Whole bore";
 pub const TO_A_DEPTH: &str = "To a depth";
+pub const BLIND: &str = "Blind";
+pub const THROUGH_ALL: &str = "Through all";
+pub const UP_TO_NEXT: &str = "Up to next";
+pub const UP_TO_FACE: &str = "Up to face";
 const DEFAULT_THREAD_DEPTH: f64 = 10.0;
+
+fn depth_label(depth: &HoleDepth) -> &'static str {
+    match depth {
+        HoleDepth::Blind(_) => BLIND,
+        HoleDepth::ThroughAll => THROUGH_ALL,
+        HoleDepth::UpToNext { .. } => UP_TO_NEXT,
+        HoleDepth::UpToFace { .. } => UP_TO_FACE,
+    }
+}
 
 fn sizing_label(sizing: HoleSizing) -> &'static str {
     match sizing {
@@ -75,6 +92,7 @@ struct Field {
 
 struct Panel<'a> {
     model: &'a Model,
+    selection: &'a Selection,
     feature: &'a Feature,
     hole: &'a Hole,
     actions: &'a mut Vec<Action>,
@@ -461,36 +479,109 @@ impl Panel<'_> {
 
     fn depth_row(&mut self, ui: &mut Ui) {
         let unit = self.model.length_unit();
-        let blind = matches!(self.hole.depth, HoleDepth::Blind(_));
-        let options = [
-            (
-                "Blind",
-                "Stop at a depth",
-                HoleDepth::Blind(hole_tools::default_depth(unit)),
-                blind,
-            ),
-            (
-                "Through all",
-                "Drill all the way through the body",
-                HoleDepth::ThroughAll,
-                !blind,
-            ),
-        ];
-        let segments = options
-            .into_iter()
-            .map(|(label, hover, depth, current)| Segment {
-                label,
-                hover,
-                change: (!current).then(|| {
-                    self.change(Hole {
-                        depth,
-                        ..self.hole.clone()
-                    })
-                }),
-            })
-            .collect();
-        let chosen = feature_fields::segmented_row(ui, "Depth", &self.feature.name, segments);
+        let depth = &self.hole.depth;
+        let kept = depth.offset().cloned();
+        let current = depth_label(depth);
+        widgets::caption(ui, "Depth");
+        let chosen = feature_fields::combo(ui, Id::new(("hole-depth", self.id())), current, || {
+            let options = [
+                (BLIND, Ok(HoleDepth::Blind(hole_tools::default_depth(unit)))),
+                (THROUGH_ALL, Ok(HoleDepth::ThroughAll)),
+                (
+                    UP_TO_NEXT,
+                    Ok(HoleDepth::up_to_next().with_offset(kept.clone())),
+                ),
+                (
+                    UP_TO_FACE,
+                    solid_panel::selected_target(self.model, self.selection, self.id())
+                        .map(|target| HoleDepth::up_to_face(target).with_offset(kept.clone())),
+                ),
+            ];
+            options
+                .into_iter()
+                .map(|(label, depth)| Choice {
+                    label: label.to_owned(),
+                    selected: label == current,
+                    change: match depth {
+                        Ok(depth) => self
+                            .change(Hole {
+                                depth,
+                                ..self.hole.clone()
+                            })
+                            .map(Action::Apply),
+                        Err(_) => Ok(Action::Editing(EditingCommand::Pick(Picking::new(
+                            self.id(),
+                            Slot::HoleTarget,
+                        )))),
+                    },
+                })
+                .collect()
+        });
         self.actions.extend(chosen);
+        ui.end_row();
+    }
+
+    fn end_rows(&mut self, ui: &mut Ui) {
+        let id = self.id();
+        let picker = Picker {
+            feature: id,
+            slot: Slot::HoleTarget,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (id, Slot::HoleTarget),
+                || target_change(self.model, self.selection, id, self.hole),
+            ),
+            hover: "Drill up to the selected flat face or plane instead",
+        };
+        let picking = reference_picking::current(ui.ctx())
+            .is_some_and(|picking| picking.is_for(id, Slot::HoleTarget));
+        let shown = match self.hole.depth.target() {
+            Some(target) => Some(Shown::Named(capitalized(&describe_plane(
+                self.model.document(),
+                target,
+            )))),
+            None if picking => Some(Shown::NoneChosen),
+            None => None,
+        };
+        if let Some(shown) = shown {
+            feature_fields::reference_row(
+                ui,
+                self.model,
+                "Up to",
+                shown,
+                picker,
+                None,
+                self.actions,
+            );
+        }
+        if !self.hole.depth.takes_offset() {
+            return;
+        }
+        let offset = self
+            .hole
+            .depth
+            .offset()
+            .cloned()
+            .unwrap_or_else(|| self.model.length_unit().default_length(0.0));
+        self.length_row(
+            ui,
+            Field {
+                caption: END_OFFSET,
+                key: "end-offset",
+                dimension: Dimension::LENGTH,
+                rule: Rule::Any,
+            },
+            &offset,
+            |hole, value| {
+                let kept = (!solid_panel::is_zero(&value)).then_some(value);
+                Hole {
+                    depth: hole.depth.clone().with_offset(kept),
+                    ..hole.clone()
+                }
+            },
+        );
     }
 
     fn bottom_rows(&mut self, ui: &mut Ui) {
@@ -770,9 +861,40 @@ impl Panel<'_> {
     }
 }
 
-pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Feature, hole: &Hole) {
+pub fn target_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    hole: &Hole,
+) -> Result<Transaction, String> {
+    let target = solid_panel::selected_target(model, selection, feature)?;
+    let depth = HoleDepth::up_to_face(target).with_offset(hole.depth.offset().cloned());
+    if depth == hole.depth {
+        return Err("The hole already ends at the selected face or plane".to_owned());
+    }
+    let transaction = hole_tools::edit(
+        model.document(),
+        feature,
+        Hole {
+            depth,
+            ..hole.clone()
+        },
+    )
+    .ok_or_else(|| "The feature no longer exists".to_owned())?;
+    field::checked(model.document(), transaction)
+}
+
+pub fn show(
+    ui: &mut Ui,
+    model: &Model,
+    selection: &Selection,
+    actions: &mut Vec<Action>,
+    feature: &Feature,
+    hole: &Hole,
+) {
     let mut panel = Panel {
         model,
+        selection,
         feature,
         hole,
         actions,
@@ -819,6 +941,7 @@ pub fn show(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, feature: &Fea
                 },
             );
         }
+        panel.end_rows(ui);
         panel.bottom_rows(ui);
         if let Some(reversed) = feature_fields::reverse_row(ui, REVERSE_DIRECTION, hole.reversed) {
             let flipped = Hole {

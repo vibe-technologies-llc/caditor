@@ -14,7 +14,7 @@ use crate::{
     },
     document::{Document, Feature, FeatureKind},
     edit::{Edit, Transaction},
-    hole::{HoleDepth, HoleShape, HoleStyle},
+    hole::{HoleShape, HoleStyle},
     mate::MatePair,
     movement::{MoveAxis, Pivot, TurnCentre},
     pattern::PatternKind,
@@ -517,9 +517,7 @@ impl Rescaler {
             FeatureKind::Hole(hole) => {
                 let before = hole.clone();
                 self.length(&mut hole.diameter, name)?;
-                if let HoleDepth::Blind(depth) = &mut hole.depth {
-                    self.length(depth, name)?;
-                }
+                self.lengths(hole.depth.expressions_mut(), name)?;
                 match &mut hole.style {
                     HoleStyle::Plain => {}
                     HoleStyle::Counterbore { diameter, depth } => {
@@ -814,12 +812,17 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
             PatternKind::Linear { .. } => Vec::new(),
         },
         FeatureKind::Datum(datum) => datum_anchors(datum),
+        FeatureKind::Hole(hole) => hole
+            .depth
+            .target()
+            .and_then(plane_anchor)
+            .into_iter()
+            .collect(),
         FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Scale(_)
-        | FeatureKind::Hole(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
         | FeatureKind::Thread(_) => Vec::new(),
