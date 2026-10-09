@@ -18,6 +18,7 @@ pub(crate) struct Shapes<'a> {
     data: &'a mut Data,
     vertices: BTreeMap<VertexId, Ref>,
     edges: BTreeMap<EdgeId, Ref>,
+    faces: BTreeMap<FaceId, Ref>,
 }
 
 struct Lump {
@@ -31,7 +32,12 @@ impl<'a> Shapes<'a> {
             data,
             vertices: BTreeMap::new(),
             edges: BTreeMap::new(),
+            faces: BTreeMap::new(),
         }
+    }
+
+    pub fn written_face(&self, face: FaceId) -> Option<Ref> {
+        self.faces.get(&face).copied()
     }
 
     pub fn data(&mut self) -> &mut Data {
@@ -45,6 +51,7 @@ impl<'a> Shapes<'a> {
     pub fn body(&mut self, solid: &Solid, name: &str) -> Result<Vec<Ref>, Unsupported> {
         self.vertices.clear();
         self.edges.clear();
+        self.faces.clear();
         let mut solids = Vec::new();
         for lump in lumps(solid)? {
             let outer = self.closed_shell(solid, lump.outer, false)?;
@@ -106,11 +113,13 @@ impl<'a> Shapes<'a> {
             );
         }
         let surface = self.surface(face.surface())?;
-        Ok(self.data.add(format!(
+        let written = self.data.add(format!(
             "ADVANCED_FACE('',{},{surface},{})",
             list(bounds),
             logical(face.sense().is_same() != flipped)
-        )))
+        ));
+        self.faces.insert(id, written);
+        Ok(written)
     }
 
     fn vertex(&mut self, solid: &Solid, id: VertexId) -> Result<Ref, Unsupported> {
@@ -382,6 +391,25 @@ fn classify(solid: &Solid) -> Option<(Classified, caditor_kernel::Mesh)> {
         }
     }
     Some((classified, mesh))
+}
+
+pub(crate) fn lump_faces(solid: &Solid) -> Result<Vec<Vec<usize>>, Unsupported> {
+    let positions: BTreeMap<FaceId, usize> = solid
+        .faces()
+        .enumerate()
+        .map(|(position, (id, _))| (id, position))
+        .collect();
+    let mut written = Vec::new();
+    for lump in lumps(solid)? {
+        let mut faces = Vec::new();
+        for shell in std::iter::once(lump.outer).chain(lump.voids) {
+            for face in solid.shell(shell).ok_or(Unsupported::Geometry)?.faces() {
+                faces.push(*positions.get(face).ok_or(Unsupported::Geometry)?);
+            }
+        }
+        written.push(faces);
+    }
+    Ok(written)
 }
 
 fn lumps(solid: &Solid) -> Result<Vec<Lump>, Unsupported> {

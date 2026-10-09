@@ -17,11 +17,13 @@ struct Parent {
     representation: u64,
     transform: Option<Similarity>,
     occurrence: Option<String>,
+    links: Vec<u64>,
 }
 
 struct Occurrence {
     child: u64,
     name: Option<String>,
+    usage: u64,
 }
 
 pub(crate) struct Structure {
@@ -151,6 +153,9 @@ impl Structure {
             representation: parent,
             transform,
             occurrence: occurrence.and_then(|occurrence| occurrence.name.clone()),
+            links: std::iter::once(entity.id)
+                .chain(occurrence.map(|occurrence| occurrence.usage))
+                .collect(),
         });
     }
 
@@ -186,6 +191,7 @@ impl Structure {
             representation: parent,
             transform,
             occurrence: None,
+            links: vec![entity.id],
         });
     }
 
@@ -256,7 +262,10 @@ impl Structure {
             .cloned()
             .collect();
         let placements = if parents.is_empty() {
-            Placements::at_origin()
+            Placements {
+                paths: vec![class.iter().copied().collect()],
+                ..Placements::at_origin()
+            }
         } else if depth >= MAX_DEPTH {
             Placements::unplaced(Unplaced::TooDeep)
         } else {
@@ -264,6 +273,7 @@ impl Structure {
             let mut placed = Placements {
                 transforms: Vec::new(),
                 occurrences: Vec::new(),
+                paths: Vec::new(),
                 unplaced: None,
                 left_out: false,
             };
@@ -277,13 +287,22 @@ impl Structure {
                 if outer.transforms.is_empty() {
                     placed.unplaced = placed.unplaced.or(outer.unplaced);
                 }
-                for outer in outer.transforms {
+                let outer_paths = outer.paths.into_iter().chain(std::iter::repeat(Vec::new()));
+                for (outer, outer_path) in outer.transforms.into_iter().zip(outer_paths) {
                     if placed.transforms.len() >= MAX_INSTANCES {
                         self.truncated = true;
                         break;
                     }
                     placed.transforms.push(transform.then(&outer));
                     placed.occurrences.push(parent.occurrence.clone());
+                    placed.paths.push(
+                        class
+                            .iter()
+                            .chain(&parent.links)
+                            .chain(&outer_path)
+                            .copied()
+                            .collect(),
+                    );
                 }
             }
             if !placed.transforms.is_empty() {
@@ -309,6 +328,7 @@ pub(crate) enum Unplaced {
 pub(crate) struct Placements {
     pub transforms: Vec<Similarity>,
     pub occurrences: Vec<Option<String>>,
+    pub paths: Vec<Vec<u64>>,
     pub unplaced: Option<Unplaced>,
     pub left_out: bool,
 }
@@ -318,6 +338,7 @@ impl Placements {
         Self {
             transforms: vec![Similarity::IDENTITY],
             occurrences: vec![None],
+            paths: vec![Vec::new()],
             unplaced: None,
             left_out: false,
         }
@@ -327,6 +348,7 @@ impl Placements {
         Self {
             transforms: Vec::new(),
             occurrences: Vec::new(),
+            paths: Vec::new(),
             unplaced: Some(reason),
             left_out: false,
         }
@@ -366,7 +388,14 @@ fn occurrences(graph: &Graph<'_>) -> BTreeMap<u64, Occurrence> {
             continue;
         };
         let name = usage_fields.name(1).or_else(|| usage_fields.name(5));
-        found.insert(relationship, Occurrence { child, name });
+        found.insert(
+            relationship,
+            Occurrence {
+                child,
+                name,
+                usage: usage.id,
+            },
+        );
     }
     found
 }

@@ -104,8 +104,9 @@ paths:
 ## Topology
 
 - A `Solid` is an arena of typed ids built by `SolidBuilder::build`, which validates. An importer
-  whose geometry does not validate may still mesh what it built (`SolidBuilder::unvalidated_mesh`)
-  to pass to `faceted_solids`; the unvalidated arena itself never leaves the builder.
+  whose geometry does not validate may still mesh what it built (`SolidBuilder::unvalidated_mesh`,
+  a `FaceMesh` naming the face of each triangle) to pass to `faceted_solids`; the unvalidated
+  arena itself never leaves the builder.
 - A coedge's pcurve is a uv polyline carrying each sample's edge parameter, exact ends, chords
   within its tolerance in space, continuous across seams. A fitted pcurve's tolerance is
   `PCURVE_TOLERANCE`, or half of how far the edge bows from the chord between its ends when that is
@@ -195,7 +196,8 @@ paths:
   or has no single outer loop is split back into triangles; after `MERGE_ATTEMPTS`, or when the
   build fails, the shell keeps all its triangles. A corner on a straight edge between two such
   faces is left out, so a box imports with 12 edges. More than `MAX_FACETED_FACES` faces in all is
-  refused.
+  refused. `FacetedSolids::sources` lists, per solid and face, the input triangles the face was
+  made of (fans closing holes have none).
 
 ## Measuring (`measure/`)
 

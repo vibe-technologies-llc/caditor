@@ -20,6 +20,7 @@ fn written(name: &str, solid: &caditor_kernel::Solid) -> String {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "part",
         SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_000_000),
@@ -136,6 +137,7 @@ fn model_details_fill_the_header_product_and_revision() {
             opacity: None,
             layer: None,
             threads: &[],
+            faces: &[],
         }],
         "bracket",
         &details,
@@ -165,6 +167,7 @@ fn several_bodies_are_written_as_parts_of_an_assembly_and_read_back_in_place() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
             StepBody {
                 name: "Turned",
@@ -173,6 +176,7 @@ fn several_bodies_are_written_as_parts_of_an_assembly_and_read_back_in_place() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
         ],
         "model",
@@ -221,6 +225,7 @@ fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
             StepBody {
                 name: "Turned",
@@ -229,6 +234,7 @@ fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
             StepBody {
                 name: "Other",
@@ -237,6 +243,7 @@ fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             },
         ],
         "model",
@@ -269,6 +276,57 @@ fn coloured_bodies_are_styled_and_bodies_of_one_colour_share_their_style() {
         .collect();
     let named = |name: &str| breps.iter().find(|brep| brep.1 == name).unwrap().0;
     assert_eq!(styled, [named("Plate"), named("Other")]);
+}
+
+#[test]
+fn face_looks_style_their_faces_and_a_see_through_body_needs_no_colour() {
+    let plate = fixtures::plate_with_hole();
+    let looks = [
+        crate::FaceLook {
+            face: 0,
+            colour: Some([0, 255, 0]),
+            opacity: None,
+        },
+        crate::FaceLook {
+            face: 1,
+            colour: None,
+            opacity: None,
+        },
+    ];
+    let body = |colour, opacity, faces| StepBody {
+        name: "Plate",
+        solid: &plate,
+        colour,
+        opacity,
+        layer: None,
+        threads: &[],
+        faces,
+    };
+    let write = |body: StepBody<'_>| write_step(&[body], "part", SystemTime::UNIX_EPOCH).unwrap();
+
+    let see_through = write(body(None, Some(60), &[]));
+    let faced = write(body(None, None, &looks));
+    let tinted = write(body(Some([1, 2, 3]), None, &looks));
+
+    assert_eq!(count(&see_through, "STYLED_ITEM"), 1);
+    assert_eq!(count(&see_through, "COLOUR_RGB"), 0);
+    assert!(see_through.contains("SURFACE_STYLE_RENDERING_WITH_PROPERTIES(.NORMAL_SHADING.,$,("));
+    assert!(see_through.contains("SURFACE_STYLE_TRANSPARENT(0.4)"));
+    assert_eq!(count(&faced, "STYLED_ITEM"), 2);
+    assert!(faced.contains("PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)))"));
+    assert_eq!(count(&tinted, "STYLED_ITEM"), 2);
+    assert!(!tinted.contains("NULL_STYLE"));
+    let first_face = tinted
+        .lines()
+        .find_map(|line| line.split_once("=ADVANCED_FACE("))
+        .map(|(id, _)| id)
+        .unwrap();
+    assert!(
+        tinted
+            .lines()
+            .any(|line| line.contains("=STYLED_ITEM(")
+                && line.ends_with(&format!(",{first_face});")))
+    );
 }
 
 #[test]
@@ -360,6 +418,7 @@ fn a_thread_is_a_property_of_its_part_holding_its_designation_start_and_length()
         opacity: None,
         layer: None,
         threads,
+        faces: &[],
     };
     let moment = SystemTime::UNIX_EPOCH;
 

@@ -5,7 +5,7 @@ use std::{
 
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
-    BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, FacetedError,
+    BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, FaceMesh, FacetedError,
     IntersectionCurve, Interval, LINEAR_RESOLUTION, MeshQuality, PlaneSurface, Sense, ShellId,
     Solid, SolidBuilder, Surface, TriangleMesh, ValidationError, VertexId, faceted_solids,
 };
@@ -161,7 +161,7 @@ pub(crate) fn unreadable_faces(geometry: &Geometry<'_>, shells: &SolidShells) ->
     found
 }
 
-fn shell_faces(graph: Graph<'_>, shell: u64) -> Read<Vec<u64>> {
+pub(crate) fn shell_faces(graph: Graph<'_>, shell: u64) -> Read<Vec<u64>> {
     let mut entity = graph.entity(shell)?;
     if entity.kind() == "ORIENTED_CLOSED_SHELL" {
         entity = graph.entity(entity.record("ORIENTED_CLOSED_SHELL")?.reference(2)?)?;
@@ -185,7 +185,7 @@ pub(crate) struct Built {
     pub unchecked: Option<[u64; 2]>,
     pub faceted: bool,
     pub bent: Option<Bending>,
-    pub faces: Vec<u64>,
+    pub faces: Vec<Option<u64>>,
     pub lost: Option<Lost>,
 }
 
@@ -278,6 +278,7 @@ impl<'g, 'a> Topology<'g, 'a> {
         let healed = self.healed;
         let precision = self.geometry.units.precision;
         let faceted = self.healing == Healing::Faceted;
+        let mut faceted_faces = Vec::new();
         let solid = if faceted {
             let allowance = precision.unwrap_or(LINEAR_RESOLUTION);
             if self.loosest > allowance {
@@ -290,8 +291,13 @@ impl<'g, 'a> Topology<'g, 'a> {
                     ),
                 ));
             }
-            facets(&self.builder, !self.left_out.is_empty())
-                .map_err(|reason| Problem::new(id, reason))?
+            let Faceted { solid, faces } = facets(&self.builder, !self.left_out.is_empty())
+                .map_err(|reason| Problem::new(id, reason))?;
+            faceted_faces = faces
+                .into_iter()
+                .map(|face| face.and_then(|face| self.face_entities.get(face.index()).copied()))
+                .collect();
+            solid
         } else {
             self.builder
                 .build()
@@ -333,9 +339,9 @@ impl<'g, 'a> Topology<'g, 'a> {
             farthest: self.conformed.farthest,
         });
         let faces = if faceted {
-            Vec::new()
+            faceted_faces
         } else {
-            self.face_entities
+            self.face_entities.into_iter().map(Some).collect()
         };
         Ok(Built {
             solid,
@@ -1196,7 +1202,12 @@ fn solve3(matrix: [[f64; 3]; 3], right: [f64; 3]) -> Option<Vector3> {
     solution.is_finite().then_some(solution)
 }
 
-fn facets(builder: &SolidBuilder, open: bool) -> Result<Solid, String> {
+struct Faceted {
+    solid: Solid,
+    faces: Vec<Option<FaceId>>,
+}
+
+fn facets(builder: &SolidBuilder, open: bool) -> Result<Faceted, String> {
     let mut last = String::new();
     let coarse = MeshQuality::COARSE;
     let coarser = (1..=COARSER_STEPS).filter_map(|step| {
@@ -1204,16 +1215,24 @@ fn facets(builder: &SolidBuilder, open: bool) -> Result<Solid, String> {
         MeshQuality::new(coarse.chord_fraction() * scale, coarse.angle() * scale)
     });
     for quality in [MeshQuality::SMOOTH, coarse].into_iter().chain(coarser) {
-        let mesh = builder
+        let FaceMesh { mesh, faces } = builder
             .unvalidated_mesh(&quality)
             .map_err(|error| format!("could not be meshed ({error})"))?;
         let mesh = if open { closed_over(mesh) } else { mesh };
         match faceted_solids(&mesh) {
             Ok(mut built) if built.solids.len() == 1 => {
-                return built
+                let solid = built
                     .solids
                     .pop()
-                    .ok_or_else(|| "did not close into one solid".to_owned());
+                    .ok_or_else(|| "did not close into one solid".to_owned())?;
+                let sources = built.sources.pop().unwrap_or_default();
+                return Ok(Faceted {
+                    faces: sources
+                        .iter()
+                        .map(|made_of| main_face(made_of, &mesh, &faces))
+                        .collect(),
+                    solid,
+                });
             }
             Ok(_) => return Err("did not close into one solid".to_owned()),
             Err(FacetedError::TooDetailed { faces }) => {
@@ -1223,6 +1242,26 @@ fn facets(builder: &SolidBuilder, open: bool) -> Result<Solid, String> {
         }
     }
     Err(last)
+}
+
+fn main_face(made_of: &[usize], mesh: &TriangleMesh, faces: &[FaceId]) -> Option<FaceId> {
+    let mut areas: BTreeMap<FaceId, f64> = BTreeMap::new();
+    for triangle in made_of {
+        let (Some(face), Some(corners)) = (faces.get(*triangle), mesh.triangles.get(*triangle))
+        else {
+            continue;
+        };
+        let [a, b, c] = corners.map(|corner| mesh.positions.get(corner).copied());
+        let area = match (a, b, c) {
+            (Some(a), Some(b), Some(c)) => (b - a).cross(c - a).length(),
+            _ => 0.0,
+        };
+        *areas.entry(*face).or_default() += area;
+    }
+    areas
+        .into_iter()
+        .max_by(|(_, first), (_, second)| first.total_cmp(second))
+        .map(|(face, _)| face)
 }
 
 fn closed_over(mut mesh: TriangleMesh) -> TriangleMesh {

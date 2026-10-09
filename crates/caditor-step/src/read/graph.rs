@@ -169,22 +169,6 @@ impl<'a> Fields<'a> {
     pub fn references(&self, index: usize) -> Read<Vec<u64>> {
         references(self.list(index)?, self.id)
     }
-
-    pub fn all_references(&self) -> Vec<u64> {
-        let mut found = Vec::new();
-        gather(self.record.parameters(), &mut found);
-        found
-    }
-}
-
-fn gather(items: List<'_>, found: &mut Vec<u64>) {
-    for item in items.iter() {
-        if let Some(reference) = item.reference() {
-            found.push(reference);
-        } else if let Some(nested) = item.list() {
-            gather(nested, found);
-        }
-    }
 }
 
 pub(crate) fn references(items: List<'_>, context: u64) -> Read<Vec<u64>> {

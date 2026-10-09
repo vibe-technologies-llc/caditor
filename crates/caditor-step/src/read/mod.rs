@@ -1,6 +1,8 @@
 mod conform;
 mod geometry;
 mod graph;
+#[cfg(test)]
+mod look_tests;
 mod loose;
 mod offset;
 mod presentation;
@@ -25,7 +27,7 @@ use crate::{
     read::{
         geometry::{Geometry, MAX_WORK, Work},
         graph::{Entity, Graph, Problem},
-        presentation::{Look, Presentation},
+        presentation::{Consulted, Look, Presentation, SolidParts},
         structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
         topology::{Bending, Built, Healing, Lost, SolidShells, Topology, short, unreadable_faces},
         units::Units,
@@ -309,6 +311,7 @@ fn read_placed<T>(
             *solids_per_representation.entry(representation).or_default() += 1;
         }
     }
+    let mut consulted = Consulted::default();
     let mut budget = MAX_PLACEMENTS;
     let mut unplaced = Vec::new();
     let mut builder = Builder::new(graph);
@@ -343,7 +346,7 @@ fn read_placed<T>(
         if placements.transforms.len() > budget {
             structure.truncated = true;
         }
-        let transforms: Vec<(Similarity, Option<String>)> = placements
+        let transforms: Vec<(Similarity, Option<String>, Vec<u64>)> = placements
             .transforms
             .into_iter()
             .zip(
@@ -352,6 +355,13 @@ fn read_placed<T>(
                     .into_iter()
                     .chain(std::iter::repeat(None)),
             )
+            .zip(
+                placements
+                    .paths
+                    .into_iter()
+                    .chain(std::iter::repeat(Vec::new())),
+            )
+            .map(|((transform, occurrence), path)| (transform, occurrence, path))
             .take(budget)
             .collect();
         if transforms.is_empty() {
@@ -359,7 +369,7 @@ fn read_placed<T>(
         }
         let named_occurrences: BTreeSet<&str> = transforms
             .iter()
-            .filter_map(|(_, occurrence)| occurrence.as_deref())
+            .filter_map(|(_, occurrence, _)| occurrence.as_deref())
             .collect();
         let occurrences_name_each =
             transforms.len() > 1 && named_occurrences.len() == transforms.len();
@@ -388,22 +398,27 @@ fn read_placed<T>(
                     unchecked_notes.push(unchecked_note(&name, faces));
                 }
                 let count = transforms.len();
-                let mut look = presentation.of_solid(&graph, entity);
-                look.faces = presentation.of_faces(&look, &faces);
+                let parts = SolidParts::of(&graph, entity.id);
+                let mut looks: BTreeMap<Vec<u64>, Look> = BTreeMap::new();
                 let mut misplaced = false;
                 let solid = Arc::new(solid);
-                for (instance, (placement, occurrence)) in transforms.into_iter().enumerate() {
+                for (instance, (placement, occurrence, path)) in transforms.into_iter().enumerate()
+                {
                     let Some(placed) = place(&solid, placement) else {
                         misplaced = true;
                         continue;
                     };
+                    let look = looks
+                        .entry(presentation.placement_key(&path))
+                        .or_insert_with(|| presentation.look(&parts, &faces, &path, &mut consulted))
+                        .clone();
                     let name = match occurrence {
                         Some(occurrence) if occurrences_name_each => occurrence,
                         _ if count > 1 && instance > 0 => format!("{name} {}", instance + 1),
                         _ => name.clone(),
                     };
                     budget = budget.saturating_sub(1);
-                    model.solids.push((name, look.clone(), placed));
+                    model.solids.push((name, look, placed));
                 }
                 if misplaced {
                     unplaced.push((name.clone(), Misplacement::CopyUnplaceable));
@@ -435,6 +450,7 @@ fn read_placed<T>(
             .map(|(name, bending, precision)| bent_note(name, *bending, *precision)),
     );
     model.notes.extend(unchecked_notes);
+    model.notes.extend(presentation.note(&consulted));
     model.notes.extend(damage_notes(&exchange));
     if structure.truncated {
         model.notes.push(format!(

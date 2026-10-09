@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{
     curve::{Curve, Line},
     error::GeometryError,
-    faceted::TriangleMesh,
+    faceted::{FaceMesh, TriangleMesh},
     interrupt::Interrupted,
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin},
@@ -315,18 +315,29 @@ impl SolidBuilder {
         }
     }
 
-    pub fn unvalidated_mesh(
-        &self,
-        quality: &MeshQuality,
-    ) -> Result<TriangleMesh, TessellationError> {
+    pub fn unvalidated_mesh(&self, quality: &MeshQuality) -> Result<FaceMesh, TessellationError> {
         let tolerance = quality.tolerance(self.solid.extent());
         let mesh = tessellation::tessellate(&self.solid, &tolerance)?;
-        Ok(TriangleMesh {
-            positions: mesh.positions().to_vec(),
-            triangles: mesh
-                .position_triangles()
-                .map(|triangle| triangle.map(|corner| corner as usize))
-                .collect(),
+        let mut triangles = Vec::with_capacity(mesh.triangles().len());
+        let mut faces = Vec::with_capacity(mesh.triangles().len());
+        for face in mesh.faces() {
+            let corners = mesh
+                .triangles()
+                .get(face.triangles.clone())
+                .unwrap_or_default();
+            for triangle in corners {
+                if let Some(positions) = mesh.triangle_positions(*triangle) {
+                    triangles.push(positions.map(|corner| corner as usize));
+                    faces.push(face.face);
+                }
+            }
+        }
+        Ok(FaceMesh {
+            mesh: TriangleMesh {
+                positions: mesh.positions().to_vec(),
+                triangles,
+            },
+            faces,
         })
     }
 

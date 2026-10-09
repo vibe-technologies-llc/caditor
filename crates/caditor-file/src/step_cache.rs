@@ -133,6 +133,7 @@ mod tests {
                 opacity: None,
                 layer: None,
                 threads: &[],
+                faces: &[],
             }],
             "Block",
             SystemTime::UNIX_EPOCH,

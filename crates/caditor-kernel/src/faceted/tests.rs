@@ -89,6 +89,34 @@ fn a_triangulated_cube_becomes_six_square_faces() {
 }
 
 #[test]
+fn each_face_lists_the_triangles_it_was_made_of() {
+    let mut mesh = soup(&cube());
+    mesh.triangles.insert(0, [0, 0, 1]);
+
+    let built = faceted_solids(&mesh).unwrap();
+
+    let [solid] = built.solids.as_slice() else {
+        panic!("expected one solid, found {}", built.solids.len());
+    };
+    let [sources] = built.sources.as_slice() else {
+        panic!("expected sources for one solid");
+    };
+    assert_eq!(sources.len(), solid.faces().count());
+    let mut every: Vec<usize> = sources.iter().flatten().copied().collect();
+    every.sort_unstable();
+    assert_eq!(every, (1..13).collect::<Vec<_>>());
+    for ((_, face), made_of) in solid.faces().zip(sources) {
+        assert_eq!(made_of.len(), 2);
+        for source in made_of {
+            for corner in mesh.triangles[*source] {
+                let point = mesh.positions[corner];
+                assert!(face.surface().distance(point) < 1e-9);
+            }
+        }
+    }
+}
+
+#[test]
 fn a_triangle_soup_is_welded_and_an_inside_out_one_turned_around() {
     let mut inverted = soup(&cube());
     for triangle in &mut inverted.triangles {

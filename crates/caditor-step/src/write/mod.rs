@@ -9,9 +9,9 @@ use std::{
 };
 
 use caditor_geometry::{Point3, Vector3};
-use caditor_kernel::Solid;
+use caditor_kernel::{FaceId, Solid};
 
-use crate::write::shape::Shapes;
+use crate::{FaceLook, write::shape::Shapes};
 
 pub const SCHEMA: &str = "AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }";
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
@@ -26,6 +26,7 @@ pub struct StepBody<'a> {
     pub opacity: Option<u8>,
     pub layer: Option<&'a str>,
     pub threads: &'a [StepThread<'a>],
+    pub faces: &'a [FaceLook],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -38,8 +39,38 @@ pub struct StepThread<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct Style {
-    colour: [u8; 3],
+    colour: Option<[u8; 3]>,
     opacity: Option<u8>,
+}
+
+impl Style {
+    fn of_body(body: &StepBody<'_>) -> Option<Self> {
+        let style = Self {
+            colour: body.colour,
+            opacity: body.opacity.filter(|opacity| *opacity < OPAQUE_PERCENT),
+        };
+        let looks = style.colour.is_some() || style.opacity.is_some();
+        (looks
+            || body
+                .faces
+                .iter()
+                .any(|face| face.colour.is_some() || face.opacity.is_some()))
+        .then_some(style)
+    }
+
+    fn of_face(self, look: &FaceLook) -> Self {
+        Self {
+            colour: look.colour.or(self.colour),
+            opacity: look
+                .opacity
+                .or(self.opacity)
+                .filter(|opacity| *opacity < OPAQUE_PERCENT),
+        }
+    }
+}
+
+pub fn lump_faces(solid: &Solid) -> Option<Vec<Vec<usize>>> {
+    shape::lump_faces(solid).ok()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -302,7 +333,7 @@ pub fn write_step_detailed(
     let mut parts = Vec::new();
     let mut shapes = Shapes::new(&mut data);
     let mut left_out = Vec::new();
-    let mut coloured = Vec::new();
+    let mut styled = Vec::new();
     let mut layered: BTreeMap<&str, Vec<Ref>> = BTreeMap::new();
     let mut threaded: Vec<(Ref, &StepThread<'_>)> = Vec::new();
     for (index, body) in bodies.iter().enumerate() {
@@ -316,12 +347,9 @@ pub fn write_step_detailed(
         };
         match outcome {
             Ok(solids) => {
-                if let Some(colour) = body.colour {
-                    let style = Style {
-                        colour,
-                        opacity: body.opacity.filter(|opacity| *opacity < OPAQUE_PERCENT),
-                    };
-                    coloured.extend(solids.iter().map(|solid| (*solid, style)));
+                if let Some(style) = Style::of_body(body) {
+                    styled.extend(solids.iter().map(|solid| (*solid, style)));
+                    styled.extend(face_styles(&shapes, body, style));
                 }
                 if let Some(layer) = body.layer.filter(|layer| !layer.trim().is_empty()) {
                     layered
@@ -372,7 +400,7 @@ pub fn write_step_detailed(
             root.shape
         ));
     }
-    styles(&mut data, &coloured, context);
+    styles(&mut data, &styled, context);
     layers(&mut data, &layered);
     for (definition, thread) in threaded {
         thread_property(&mut data, definition, thread, contexts.representation);
@@ -494,13 +522,32 @@ fn place_part(
     ));
 }
 
-fn styles(data: &mut Data, coloured: &[(Ref, Style)], context: Ref) {
-    if coloured.is_empty() {
+fn face_styles(shapes: &Shapes<'_>, body: &StepBody<'_>, style: Style) -> Vec<(Ref, Style)> {
+    if body.faces.is_empty() {
+        return Vec::new();
+    }
+    let ids: Vec<FaceId> = body.solid.faces().map(|(id, _)| id).collect();
+    let mut looks: BTreeMap<usize, &FaceLook> = BTreeMap::new();
+    for look in body.faces {
+        looks.insert(look.face, look);
+    }
+    looks
+        .into_iter()
+        .filter_map(|(face, look)| {
+            let written = shapes.written_face(*ids.get(face)?)?;
+            let own = style.of_face(look);
+            (own != style).then_some((written, own))
+        })
+        .collect()
+}
+
+fn styles(data: &mut Data, items: &[(Ref, Style)], context: Ref) {
+    if items.is_empty() {
         return;
     }
     let mut assignments = BTreeMap::new();
     let mut styled = Vec::new();
-    for (solid, style) in coloured {
+    for (solid, style) in items {
         let assignment = *assignments
             .entry(*style)
             .or_insert_with(|| style_assignment(data, *style));
@@ -556,18 +603,26 @@ fn thread_property(
 }
 
 fn style_assignment(data: &mut Data, Style { colour, opacity }: Style) -> Ref {
-    let [red, green, blue] = colour;
-    let channel = |value: u8| real(f64::from(value) / 255.0);
-    let rgb = data.add(format!(
-        "COLOUR_RGB('',{},{},{})",
-        channel(red),
-        channel(green),
-        channel(blue)
-    ));
-    let fill_colour = data.add(format!("FILL_AREA_STYLE_COLOUR('',{rgb})"));
-    let fill = data.add(format!("FILL_AREA_STYLE('',({fill_colour}))"));
-    let area = data.add(format!("SURFACE_STYLE_FILL_AREA({fill})"));
-    let mut elements = vec![area];
+    if colour.is_none() && opacity.is_none() {
+        return data.add("PRESENTATION_STYLE_ASSIGNMENT((NULL_STYLE(.NULL.)))");
+    }
+    let mut elements = Vec::new();
+    let rgb = match colour {
+        Some([red, green, blue]) => {
+            let channel = |value: u8| real(f64::from(value) / 255.0);
+            let rgb = data.add(format!(
+                "COLOUR_RGB('',{},{},{})",
+                channel(red),
+                channel(green),
+                channel(blue)
+            ));
+            let fill_colour = data.add(format!("FILL_AREA_STYLE_COLOUR('',{rgb})"));
+            let fill = data.add(format!("FILL_AREA_STYLE('',({fill_colour}))"));
+            elements.push(data.add(format!("SURFACE_STYLE_FILL_AREA({fill})")));
+            rgb.to_string()
+        }
+        None => "$".to_owned(),
+    };
     if let Some(opacity) = opacity {
         let transparency = data.add(format!(
             "SURFACE_STYLE_TRANSPARENT({})",

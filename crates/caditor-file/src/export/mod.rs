@@ -29,7 +29,7 @@ use caditor_geometry::{Aabb, Point3, Vector3};
 use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
 use caditor_step::{
-    StepBody, StepDetails, StepThread, StepWritten, WriteError, write_step_detailed,
+    FaceLook, StepBody, StepDetails, StepThread, StepWritten, WriteError, write_step_detailed,
 };
 
 use self::{
@@ -438,6 +438,14 @@ pub struct ExportBody<'a> {
     pub look: Option<Look<'a>>,
     pub group: Option<&'a str>,
     pub threads: &'a [ExportThread],
+    pub faces: &'a [ExportFace],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExportFace {
+    pub face: usize,
+    pub colour: Rgb,
+    pub opacity: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -659,10 +667,24 @@ fn export_step(
                 .collect()
         })
         .collect();
+    let step_faces: Vec<Vec<FaceLook>> = bodies
+        .iter()
+        .map(|body| {
+            body.faces
+                .iter()
+                .map(|face| FaceLook {
+                    face: face.face,
+                    colour: Some([face.colour.red, face.colour.green, face.colour.blue]),
+                    opacity: face.opacity,
+                })
+                .collect()
+        })
+        .collect();
     let step_bodies: Vec<StepBody<'_>> = bodies
         .iter()
         .zip(&step_threads)
-        .map(|(body, threads)| StepBody {
+        .zip(&step_faces)
+        .map(|((body, threads), faces)| StepBody {
             name: body.name,
             solid: body.solid,
             colour: body
@@ -671,6 +693,7 @@ fn export_step(
             opacity: body.look.and_then(|look| look.opacity),
             layer: body.group,
             threads,
+            faces,
         })
         .collect();
     let model_name = path
