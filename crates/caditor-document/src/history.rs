@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use caditor_kernel::Mesh;
+
 use crate::{
     document::FeatureId,
     recompute::{CacheEntry, FeatureResult},
@@ -7,7 +9,6 @@ use crate::{
 
 pub(crate) const RESULTS_KEPT_PER_FEATURE: usize = 4;
 pub(crate) const EARLIER_RESULTS_BUDGET: usize = 256 * 1024 * 1024;
-const MESH_ALLOWANCE: usize = 2;
 const SKETCH_ENTITY_BYTES: usize = 160;
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,13 @@ struct Kept {
     entry: CacheEntry,
     bytes: usize,
     used: u64,
+}
+
+impl Kept {
+    fn demote(&mut self) -> usize {
+        self.bytes = self.entry.result.as_deref().map_or(0, result_bytes);
+        self.bytes
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -66,8 +74,8 @@ impl ResultHistory {
             if let Some(found) = kept.get(at) {
                 self.earlier_bytes = self.earlier_bytes.saturating_sub(found.bytes);
             }
-            if let Some(latest) = kept.first() {
-                self.earlier_bytes += latest.bytes;
+            if let Some(latest) = kept.first_mut() {
+                self.earlier_bytes += latest.demote();
             }
         }
         kept.get_mut(..=at)?.rotate_right(1);
@@ -78,16 +86,15 @@ impl ResultHistory {
 
     pub(crate) fn insert(&mut self, feature: FeatureId, entry: CacheEntry) {
         self.clock += 1;
-        let bytes = entry.result.as_deref().map_or(0, result_bytes);
         let kept = self.features.entry(feature).or_default();
-        if let Some(latest) = kept.first() {
-            self.earlier_bytes += latest.bytes;
+        if let Some(latest) = kept.first_mut() {
+            self.earlier_bytes += latest.demote();
         }
         kept.insert(
             0,
             Kept {
                 entry,
-                bytes,
+                bytes: 0,
                 used: self.clock,
             },
         );
@@ -172,7 +179,8 @@ impl ResultHistory {
 fn result_bytes(result: &FeatureResult) -> usize {
     match result {
         FeatureResult::Solid(solid) => {
-            solid.solid.approximate_size() * MESH_ALLOWANCE
+            solid.solid.approximate_size()
+                + solid.mesh().map_or(0, Mesh::approximate_size)
                 + solid
                     .others()
                     .iter()

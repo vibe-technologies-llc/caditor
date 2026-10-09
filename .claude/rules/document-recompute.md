@@ -1,6 +1,7 @@
 ---
 paths:
   - "crates/caditor-document/src/recompute.rs"
+  - "crates/caditor-document/src/history.rs"
   - "crates/caditor-document/src/presenting.rs"
   - "crates/caditor-document/src/pool.rs"
   - "crates/caditor-document/src/lookahead.rs"
@@ -42,8 +43,11 @@ paths:
   `RESULTS_KEPT_PER_FEATURE` entries, the one last used first, so undoing a change or switching a
   value back finds the earlier entry and its result `Arc`, and everything below reuses its own
   earlier entries in turn. Earlier entries (all but the latest of each feature) are held within
-  `EARLIER_RESULTS_BUDGET`, estimated from `Solid::approximate_size` with room for its mesh; the
-  least recently used go first, and the latest entry of a feature is never dropped for size.
+  `EARLIER_RESULTS_BUDGET`. An entry is measured as it stops being its feature's latest, by then
+  meshed if it ever will be: `Solid::approximate_size` plus its mesh's `Mesh::approximate_size`
+  (an intermediate state, never meshed, counts its solid alone). The history keeps a running
+  total, so an insert looks at the earlier entries only when over budget; the least recently used
+  go first, and the latest entry of a feature is never dropped for size.
 - A failed result is also recomputed when a name its message could hold changed (its own, those of
   the parameters and features it uses, those of every feature before it, which name the faces it
   works on); which used features are suppressed is part of its key too.
