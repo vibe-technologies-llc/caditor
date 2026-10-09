@@ -85,6 +85,21 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Shells whose volume and placement could be known without meshing, and lumps of a many-lump body
   that the tool does not reach (a union touching one of 300 separated blocks takes 18 ms), are not
   carried yet.
+- [medium · medium] A body's display mesh is built on one thread, face after face
+  (`tessellation/mod.rs`), and every face is meshed again whenever the body changes, even if only
+  one face did. Once the edges are sampled, faces could be triangulated in parallel, since
+  `face::triangulate` only reads the samplings, and a per-face cache keyed by face name and
+  geometry would keep unchanged faces. Each display mesh is also held twice on the CPU: the
+  kernel `Mesh` (f64, with a 32-byte vertex) and the app's `ShadedMesh`.
+- [medium · medium] Every intermediate solid is a deep copy: a `Pcurve` is a `Vec` of samples and
+  B-spline curves own their data, so carried coedges clone their pcurves (`build/plan.rs`
+  `PlanPcurve::Settled`, `boolean/faces.rs`), and the result history holds each feature's body in
+  full. Pcurve samples and curve data shared through `Arc`, as spline surfaces already are, would
+  let successive bodies share what did not change. `SolidResult::cuts`/`joins` also keep every
+  tool solid forever, though only patterns, mirrors and an open feature read them.
+- [low · easy] The recompute pool is scoped to a run (`pool.rs`), so every run and draft starts up
+  to `available_parallelism()` threads again, and `draft_copy` deep-copies every cache entry for
+  each draft.
 - [low · hard] The face grid is graded per direction but still a tensor product, so a bump divides
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
@@ -354,6 +369,40 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Interface performance
 
+- [medium · easy] Sketch commands work out their availability every frame by walking the sketch:
+  Select all and Select free each build the full entity list, and Select free also reads every
+  entity's solved state. Together that is about 40% of a `large_sketch` frame in the
+  `ui_tests/frame_costs.rs` benchmark. The toolbar's hole tool scans the sketch every frame too.
+  `sketch_drag::can_select_all` already answers cheaply; Select free needs an early-exit check or a
+  cache, and the hole check could move into the cached `SelectionOffers`.
+- [medium · medium] A body's exact mass properties (adaptive Gauss–Kronrod over every face) and
+  extent are computed in `BodyMesh::build` (`bodies.rs`) on the single body-meshes thread before
+  the mesh can be shown, though only the measure panel and the centre-of-mass aid read them. They
+  could be computed after the mesh is sent, or lazily off the UI thread, and bodies could be
+  converted in parallel.
+- [medium · medium] An egui-only repaint (a tooltip, hover over a panel, a spinner tick) draws the
+  whole 3D pass again. Keeping the resolved view in a surface-sized texture and copying it while
+  the scene generation, view, rect, graphics settings and picks are unchanged would save the GPU
+  that work.
+- [low · easy] Smaller per-frame costs measured or found in the resource survey:
+  - `CommandFrame::invoke_detailed` runs `retain` over the offers on every call and allocates each
+    reason with `to_string` (`commands.rs`): about 12% of the plate frame.
+  - `Highlight::is_hovered` searches a slice for every scene item (`scene.rs`), and `hovered` can
+    hold a whole body.
+  - The selection is cloned and compared by content every frame (`app.rs`, `scene_cache.rs`)
+    where `Selection::generation` would do.
+  - `snap::held` runs `curves` twice.
+  - Key hints, shortcut lists and the window title are formatted again every frame.
+- [low · easy] Fallback system fonts are held twice in RAM (`font_fallbacks.rs` loads them as owned
+  data and epaint copies it again), up to tens of MB with CJK fonts. Face analysis also keeps a
+  split mesh per body after its panel closes (`analysis.rs`).
+- [low · medium] A pick in flight is polled every millisecond (`PICK_CHECK`, `app.rs`) until it is
+  answered. A helper thread blocking on the device could wake the app instead.
+- [low · medium] GPU records are wider than needed. Mesh vertices are 28 B, where a normal packed
+  into 16-bit values would give 20 to 24 B. Silhouette records are 60 B, and two 16-bit values per
+  normal would give 48 B. Line, marker and fill records carry an `f32x4` colour that `Unorm8x4`
+  would fit. Pickable fills are uploaded twice (`fills` and `pick_fills`), the hidden-edges style
+  pushes a second copy of every edge, and batches are never culled, the pick pass included.
 - [low · medium] Annotations are laid out only near the view and kept until the view or sketch
   changes (`annotations::Marks`), but a camera move zoomed out over a dense sketch still places
   every glyph in view against crowded `Obstacles`: about 350 ms a frame for the `large_sketch`
