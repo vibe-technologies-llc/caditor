@@ -1571,8 +1571,12 @@ fn dense_and_sparse_analyses_agree_on_both_sides_of_the_dense_limit() {
         };
         let every: Vec<usize> = (0..system.equations.len()).collect();
         for component in components(&system, &every, &system.values) {
-            let dense = solver.analyze_by(Elimination::Dense, &component, &system.values);
-            let sparse = solver.analyze_by(Elimination::Sparse, &component, &system.values);
+            let dense = solver
+                .analyze_by(Elimination::Dense, &component, &system.values)
+                .unwrap();
+            let sparse = solver
+                .analyze_by(Elimination::Sparse, &component, &system.values)
+                .unwrap();
             sizes.insert(component.variables.len());
             assert_eq!(dense, sparse, "{} variables", component.variables.len());
         }
@@ -1767,4 +1771,216 @@ fn an_inactive_constraint_neither_restates_nor_contradicts_a_new_one() {
     sketch.set_active(level, false).unwrap();
 
     assert_eq!(sketch.restating(&Constraint::Horizontal(line)), None);
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Dimensioning {
+    Joints,
+    Lengths,
+    Angles,
+}
+
+fn closed_polygon(count: usize, order: [Dimensioning; 3]) -> (Sketch, Vec<EntityId>) {
+    let step = std::f64::consts::TAU / count as f64;
+    let radius = count as f64 / std::f64::consts::TAU * 10.0;
+    let first_turn = -std::f64::consts::FRAC_PI_2 - step / 2.0;
+    let corner = |index: usize| {
+        let turn = first_turn + step * index as f64;
+        Point2::new(
+            radius * (turn.cos() - first_turn.cos()),
+            radius * (turn.sin() - first_turn.sin()),
+        )
+    };
+    let side = corner(0).distance(corner(1));
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let lines: Vec<EntityId> = (0..count)
+        .map(|index| sketch.add_line(corner(index), corner(index + 1)))
+        .collect();
+    let corners: Vec<(EntityId, EntityId)> =
+        lines.iter().map(|line| ends(&sketch, *line)).collect();
+
+    for dimensioning in order {
+        match dimensioning {
+            Dimensioning::Joints => {
+                for (index, (_, end)) in corners.iter().enumerate() {
+                    let (next, _) = corners[(index + 1) % count];
+                    add(&mut sketch, Constraint::Coincident(*end, next));
+                }
+                add(
+                    &mut sketch,
+                    Constraint::Coincident(corners[0].0, EntityId::ORIGIN),
+                );
+                add(&mut sketch, Constraint::Horizontal(lines[0]));
+            }
+            Dimensioning::Lengths => {
+                for (start, end) in &corners {
+                    add(
+                        &mut sketch,
+                        Constraint::Distance {
+                            from: *start,
+                            to: *end,
+                            value: mm(side),
+                        },
+                    );
+                }
+            }
+            Dimensioning::Angles => {
+                for pair in lines.windows(2).take(count - 3) {
+                    add(
+                        &mut sketch,
+                        Constraint::Angle {
+                            from: pair[0],
+                            to: pair[1],
+                            reversed: false,
+                            value: degrees(360.0 / count as f64),
+                        },
+                    );
+                }
+            }
+        }
+    }
+    (sketch, lines)
+}
+
+const ANGLES_FIRST: [Dimensioning; 3] = [
+    Dimensioning::Angles,
+    Dimensioning::Joints,
+    Dimensioning::Lengths,
+];
+
+fn offset_closed_polygon(count: usize) -> Sketch {
+    let (mut sketch, lines) = closed_polygon(count, ANGLES_FIRST);
+    let side = sketch.offset_chain(&lines).unwrap().default_side();
+    sketch.offset(&lines, side, 2.0, mm(2.0)).unwrap();
+    sketch
+}
+
+#[test]
+fn a_closed_dimensioned_chain_and_its_offset_analyse_in_near_linear_work() {
+    let analysed = |count: usize| {
+        let sketch = offset_closed_polygon(count);
+        let (solved, work) = super::tally::measure(|| solve(&sketch).unwrap());
+        assert!(solved.solution.is_fully_constrained());
+        assert!(solved.solution.redundancies().is_empty());
+        work
+    };
+
+    let small = analysed(50);
+    let large = analysed(200);
+
+    assert!(large < 6 * small, "{small} for 50 lines, {large} for 200");
+}
+
+#[test]
+#[ignore = "measures wall-clock time, best run in release"]
+fn offsetting_a_closed_dimensioned_chain_solves_in_milliseconds() {
+    for count in [100, 200, 400, 1_000] {
+        let sketch = offset_closed_polygon(count);
+        let started = std::time::Instant::now();
+
+        let solved = solve(&sketch).unwrap();
+
+        println!("{count} lines and their offset: {:?}", started.elapsed());
+        assert!(solved.solution.is_fully_constrained());
+    }
+}
+
+#[test]
+fn cancelling_during_the_analysis_stops_the_solve() {
+    let sketch = offset_closed_polygon(40);
+    let polls = Cell::new(0_usize);
+    let counting = || {
+        polls.set(polls.get() + 1);
+        false
+    };
+    sketch
+        .solve_geometry_from(&no_parameters, &counting, &[], None)
+        .unwrap();
+    let solving = polls.replace(0);
+    sketch.solve(&no_parameters, &counting).unwrap();
+    let with_analysis = polls.replace(0);
+    let after_solving = || {
+        polls.set(polls.get() + 1);
+        polls.get() > solving
+    };
+
+    let result = sketch.solve(&no_parameters, &after_solving);
+
+    assert!(with_analysis > solving);
+    assert_eq!(result, Err(SketchError::Cancelled));
+}
+
+#[test]
+fn closed_chains_report_freedoms_and_redundancies_alike_by_dense_and_sparse_elimination() {
+    use std::collections::BTreeSet;
+
+    use crate::solve::{
+        numeric::{Elimination, STIFF, Solver, components},
+        system::System,
+    };
+
+    let orders = [
+        ANGLES_FIRST,
+        [
+            Dimensioning::Joints,
+            Dimensioning::Lengths,
+            Dimensioning::Angles,
+        ],
+        [
+            Dimensioning::Lengths,
+            Dimensioning::Joints,
+            Dimensioning::Angles,
+        ],
+    ];
+    let loosened = |order, kind: &str| {
+        let (mut sketch, _) = closed_polygon(24, order);
+        let loose: Vec<ConstraintId> = sketch
+            .constraints()
+            .filter(|(_, constraint)| constraint.kind_name() == kind)
+            .map(|(id, _)| id)
+            .collect();
+        sketch.remove_constraint(loose[loose.len() / 2]).unwrap();
+        sketch
+    };
+    let repeated = |order| {
+        let (mut sketch, lines) = closed_polygon(24, order);
+        add(&mut sketch, Constraint::Equal(lines[3], lines[17]));
+        sketch
+    };
+    let mut sketches = Vec::new();
+    for order in orders {
+        sketches.push(closed_polygon(24, order).0);
+        sketches.push(loosened(order, "Distance"));
+        sketches.push(loosened(order, "Angle"));
+        sketches.push(repeated(order));
+    }
+
+    let mut freedoms = BTreeSet::new();
+    for sketch in sketches {
+        let geometry = solve(&sketch).unwrap().geometry;
+        let dimensions = geometry.evaluate(&no_parameters).unwrap();
+        let system = System::build(&geometry, &dimensions).unwrap();
+        let stiff = BTreeSet::new();
+        let solver = Solver {
+            system: &system,
+            cancelled: &|| false,
+            stiff: &stiff,
+            stiffness: STIFF,
+        };
+        let every: Vec<usize> = (0..system.equations.len()).collect();
+        for component in components(&system, &every, &system.values) {
+            let dense = solver
+                .analyze_by(Elimination::Dense, &component, &system.values)
+                .unwrap();
+            let sparse = solver
+                .analyze_by(Elimination::Sparse, &component, &system.values)
+                .unwrap();
+            freedoms.insert(component.variables.len() - sparse.rank);
+            assert_eq!(dense, sparse, "{} variables", component.variables.len());
+        }
+    }
+
+    assert!(freedoms.contains(&0));
+    assert!(freedoms.iter().any(|freedom| *freedom > 0));
 }

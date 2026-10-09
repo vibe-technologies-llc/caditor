@@ -5,7 +5,7 @@ use crate::{
     sketch::DimensionValues,
     solve::{
         equation::value,
-        numeric::{Component, ComponentAnalysis},
+        numeric::{Cancelled, Component, ComponentAnalysis},
         system::System,
     },
 };
@@ -125,8 +125,8 @@ impl<'a> Recall<'a> {
         &mut self,
         component: &Component,
         values: &[f64],
-        analyze: impl FnOnce() -> ComponentAnalysis,
-    ) -> ComponentAnalysis {
+        analyze: impl FnOnce() -> Result<ComponentAnalysis, Cancelled>,
+    ) -> Result<ComponentAnalysis, Cancelled> {
         let Some(key) = self.key_of(component).cloned() else {
             return analyze();
         };
@@ -140,11 +140,11 @@ impl<'a> Recall<'a> {
                 self.next.recalled += 1;
                 outcome
             }
-            None => Outcome::analysed(component, values, analyze()),
+            None => Outcome::analysed(component, values, analyze()?),
         };
         let analysis = outcome.restore(component);
         self.remember(key, outcome);
-        analysis
+        Ok(analysis)
     }
 
     pub fn remember_geometry(&mut self, component: &Component, values: &[f64]) {

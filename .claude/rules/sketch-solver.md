@@ -12,10 +12,11 @@ paths:
 - `solve` evaluates dimensions first; lengths are at most `MAX_LENGTH`, a huge value refused in
   words rather than overflowing the solver's scale.
 - Then damped Gauss-Newton with minimal-norm steps on each independent part: SVD up to
-  `DENSE_LIMIT` variables, above that CGLS on the sparse Jacobian with sparse elimination for the
-  analysis (`sparse.rs`). Every equation has an analytic gradient.
+  `DENSE_LIMIT` variables, above that CGLS on the sparse Jacobian with a sparse factorisation for
+  the analysis (`sparse.rs`). Every equation has an analytic gradient.
 - Convergence is checked after every step and cancellation before it, so the diagnosis budget
-  counts steps taken. Tests bound cost with `solve/tally.rs` work units, never wall-clock time.
+  counts steps taken. The analysis polls cancellation before each part, each constraint and each
+  null-space solve. Tests bound cost with `solve/tally.rs` work units, never wall-clock time.
 - An attempt ends converged, at a least-squares minimum, pressed against a collapse (such a minimum
   with a moving line or arc span, or a radius, near the collapse length) or unfinished. Retries
   perturb each part by a fraction of its own extent.
@@ -105,6 +106,16 @@ paths:
 - Degrees of freedom and each entity's state come from the rank and null space of the Jacobian at
   the solution. A constraint whose equations add no rank over older ones is redundant, naming what
   it duplicates.
+- Above `DENSE_LIMIT` the analysis (`sparse::Triangular`) merges the normalised rows, in
+  constraint order, into an upper-triangular basis by Givens rotations, its columns in a
+  minimum-degree order of the column graph, so fill stays within the symbolic Cholesky structure
+  and a closed chain analyses in near-linear work (a test bounds it against the chain's length). A
+  row adds rank when an entry above `RANK_TOLERANCE` reaches a column with no basis row. A variable
+  is fixed when its row of the null space (each free column set to one, back-substituted) stays
+  within `sqrt(NULL_SPACE_TOLERANCE)`: a part with no free column is fixed throughout, a column
+  that reaches no free column through the basis is fixed outright, and the rest take one
+  back-substitution per free column or one transposed solve per column, whichever is fewer. Dense
+  and sparse analysis agree on the same parts, closed chains included.
 
 ## Conflict diagnosis (`diagnosis.rs`)
 

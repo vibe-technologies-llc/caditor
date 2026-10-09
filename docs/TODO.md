@@ -92,11 +92,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketch solver and expressions
 
-- [medium · hard] The rank and null-space analysis (`analyze_sparse`, `Echelon::spans_unit` once per
-  column) is near cubic on closed chains and never checks `cancelled`: solving the sketch left by
-  offsetting a closed, fully dimensioned chain takes 0.2 s at 100 lines, 1.8 s at 200 and 15 s at
-  400 in release (the geometry alone solves in milliseconds), and Cancel does nothing meanwhile. Use
-  a sparse factorisation with a fill-reducing order, and poll inside `analyze_component`.
 - [medium · hard] A drag frame solves geometry only (`solve_geometry_from`, no rank or
   degrees-of-freedom analysis), but the dragged part is still never memoised and the solve itself is
   the cost: dragging an end of a fully dimensioned chain of 2,000 lines to a point it cannot reach
