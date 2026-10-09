@@ -22,6 +22,7 @@ use crate::{
     },
     read::read_file,
     reason::ReadFailure,
+    selection_sets::{SelectionSetsRecord, restore_selection_sets},
     untrusted::{UntrustedMap, UntrustedSet},
 };
 
@@ -160,6 +161,7 @@ pub(crate) struct Parts {
     pub rollback: Option<u64>,
     pub properties: Option<PropertiesRecord>,
     pub views: Option<ViewsRecord>,
+    pub selection_sets: Option<SelectionSetsRecord>,
     pub lost_parameter_names: BTreeMap<u64, String>,
     pub beyond_limit: usize,
 }
@@ -186,6 +188,7 @@ impl Parts {
             Record::Rollback(rollback) => self.rollback = Some(rollback.before),
             Record::Properties(properties) => self.properties = Some(properties),
             Record::Views(views) => self.views = Some(views),
+            Record::SelectionSets(sets) => self.selection_sets = Some(sets),
         }
     }
 }
@@ -418,6 +421,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
 
     restore_model_properties(&mut document, parts.properties, issues);
     restore_saved_views(&mut document, parts.views, issues);
+    restore_document_sets(&mut document, parts.selection_sets, issues);
     restore_suppressed(&mut document, &parts.suppressed, issues);
     restore_rollback_bar(&mut document, parts.rollback, issues);
 
@@ -464,6 +468,28 @@ fn restore_saved_views(
         .is_err()
     {
         issues.push("The model's saved views could not be restored, so there are none.".to_owned());
+    }
+}
+
+fn restore_document_sets(
+    document: &mut Document,
+    record: Option<SelectionSetsRecord>,
+    issues: &mut Vec<String>,
+) {
+    let Some(record) = record else {
+        return;
+    };
+    let sets = restore_selection_sets(record, issues);
+    let edit = Edit::SetSelectionSets {
+        sets: Box::new(sets),
+    };
+    if document
+        .apply(Transaction::single("Selection sets", edit))
+        .is_err()
+    {
+        issues.push(
+            "The model's selection sets could not be restored, so there are none.".to_owned(),
+        );
     }
 }
 

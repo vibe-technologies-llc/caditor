@@ -157,6 +157,8 @@ pub fn command(command: Command) -> &'static str {
         Command::RenameBody => EDIT,
         Command::RemoveBody => REMOVE_BODY,
         Command::SelectBody => BODIES,
+        Command::SaveSelectionSet => phosphor::SELECTION_PLUS,
+        Command::SelectionSets => phosphor::LIST_CHECKS,
         Command::BodyAppearance => BODY_APPEARANCE,
         Command::Hole => HOLE,
         Command::LinearPattern => LINEAR_PATTERN,

@@ -150,6 +150,8 @@ pub enum Command {
     SelectHole,
     SelectBody,
     SelectFaceEdges,
+    SaveSelectionSet,
+    SelectionSets,
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
@@ -519,6 +521,8 @@ plain_commands! {
     SelectHole,
     SelectBody,
     SelectFaceEdges,
+    SaveSelectionSet,
+    SelectionSets,
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
@@ -783,6 +787,8 @@ impl Command {
             Self::SelectTangentFaces => "select.tangent_faces",
             Self::SelectHole => "select.hole",
             Self::SelectBody => "select.body",
+            Self::SaveSelectionSet => "select.save_set",
+            Self::SelectionSets => "select.sets",
             Self::SelectFaceEdges => "select.face_edges",
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
@@ -971,6 +977,8 @@ impl Command {
             Self::SelectTangentFaces => "Select the faces tangent to the selected faces",
             Self::SelectHole => "Select the whole hole of the selected wall",
             Self::SelectBody => "Select the whole body",
+            Self::SaveSelectionSet => "Save the selection as a set",
+            Self::SelectionSets => "Selection sets…",
             Self::SelectFaceEdges => "Select the edges around the selected faces",
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
@@ -1086,6 +1094,8 @@ impl Command {
             | Self::SelectHole
             | Self::SelectBody
             | Self::SelectFaceEdges
+            | Self::SaveSelectionSet
+            | Self::SelectionSets
             | Self::DismissNotice => Category::Edit,
             Self::FitView
             | Self::Measure
@@ -1345,6 +1355,8 @@ impl Command {
             | Self::RemoveBody
             | Self::SelectBody
             | Self::SelectHole
+            | Self::SaveSelectionSet
+            | Self::SelectionSets
             | Self::FinishSketch
             | Self::ShapeMode(_)
             | Self::ToggleConstraintActive

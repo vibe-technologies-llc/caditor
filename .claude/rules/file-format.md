@@ -72,6 +72,14 @@ paths:
   unusable one is left out, a blank name becomes "View N", a long one is cut, a repeated one is
   numbered and views past `MAX_SAVED_VIEWS` are left out, each reported (`restore_views`). The
   journal snapshot carries the same record as `views`, and `set_saved_views` holds it.
+- The selection sets are a `selection_sets` record, written only when there is one: `sets`, each a
+  `name` and `members`, each `body` (an id), `face` (`body` and a face record) or `edge` (`body`
+  and an edge record). Losing them changes nothing computed, so like the views an older reader
+  reports the unknown record. Loading (`selection_sets.rs`, `restore_selection_sets`) reads each
+  set and member on its own: an unreadable member is left out, a set left with nothing is left
+  out, names are repaired like the views' ("Set N", cut, numbered), members past
+  `MAX_SET_MEMBERS` and sets past `MAX_SELECTION_SETS` are left out, each reported. The journal
+  snapshot carries the same record as `selection_sets`, and `set_selection_sets` holds it.
 - A feature record carries `group`, its folder's name, only when it has one; losing it changes
   nothing computed, so it is a field, and an older reader drops it. A name too long for this
   version is cut at `MAX_GROUP_NAME_CHARS`, reported. The journal's `set_feature_group` holds the

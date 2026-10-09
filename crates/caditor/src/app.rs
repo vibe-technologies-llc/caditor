@@ -63,6 +63,7 @@ use crate::{
     saved_views::{self, ViewsDraft},
     scene_palette::Contrast,
     selection::{Selection, SelectionFilter},
+    selection_sets::{self, SetsDraft},
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
     status_bar::{self, StatusContext},
@@ -133,6 +134,7 @@ pub struct Workspace {
     pub undo_history_open: bool,
     pub model_properties: Option<PropertiesDraft>,
     pub saved_views: Option<ViewsDraft>,
+    pub selection_sets: Option<SetsDraft>,
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
     pub measure: MeasureTool,
@@ -176,6 +178,7 @@ impl Workspace {
             undo_history_open: false,
             model_properties: None,
             saved_views: None,
+            selection_sets: None,
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
             measure: MeasureTool::default(),
@@ -205,6 +208,7 @@ impl Workspace {
         self.undo_history_open = false;
         self.model_properties = None;
         self.saved_views = None;
+        self.selection_sets = None;
         self.last_offers.clear();
         self.selection_offers = SelectionOffers::default();
         self.measure = MeasureTool::default();
@@ -224,6 +228,7 @@ impl Workspace {
             self.panels.forget_document();
             self.model_properties = None;
             self.saved_views = None;
+            self.selection_sets = None;
             self.interference.interference.forget();
             self.comb.forget();
         }
@@ -285,6 +290,21 @@ impl Workspace {
                         draft.current = named.view;
                     }
                 }
+            }
+            PreferencesCommand::ShowSelectionSets => {
+                self.selection_sets = Some(SetsDraft::of(model.document()));
+            }
+            PreferencesCommand::CloseSelectionSets => self.selection_sets = None,
+            PreferencesCommand::SelectSet(index) => {
+                let in_sketch = self.editing.feature().is_some();
+                let report = match selection_sets::choose(model, index, in_sketch) {
+                    Ok(chosen) => {
+                        self.viewport.replace_selection(chosen.pickables);
+                        chosen.report
+                    }
+                    Err(reason) => reason,
+                };
+                model.perform(Action::Inform(Notice::info(report)));
             }
             PreferencesCommand::Tab(tab) => {
                 self.preferences_tab = tab;
@@ -367,6 +387,7 @@ pub fn show(
         || workspace.undo_history_open
         || workspace.model_properties.is_some()
         || workspace.saved_views.is_some()
+        || workspace.selection_sets.is_some()
         || workspace.panels.deleting.is_some()
         || workspace.panels.noting.is_some();
     let dialog_open = modal_open || palette_open;
@@ -389,6 +410,7 @@ pub fn show(
         undo_history_open,
         model_properties,
         saved_views,
+        selection_sets,
         last_offers,
         selection_offers,
         measure,
@@ -429,9 +451,13 @@ pub fn show(
     if let Some(index) = palette.take_view() {
         actions.push(Action::Preferences(PreferencesCommand::GoToView(index)));
     }
+    if let Some(index) = palette.take_selection_set() {
+        actions.push(Action::Preferences(PreferencesCommand::SelectSet(index)));
+    }
     let mut commands = CommandFrame::new(&preferences.keymap, triggered);
     let menu = MenuContext {
         views: model.document().saved_views(),
+        sets: model.document().selection_sets(),
         files,
         editing,
         offers: last_offers,
@@ -715,6 +741,22 @@ pub fn show(
                 }
                 saved_views::Outcome::Show(index) => {
                     actions.push(Action::Preferences(PreferencesCommand::GoToView(index)));
+                }
+            }
+        }
+        if let Some(draft) = selection_sets
+            && let Some(outcome) =
+                selection_sets::dialog(ui.ctx(), model, viewport.selection(), draft)
+        {
+            match outcome {
+                selection_sets::Outcome::Close => {
+                    actions.push(Action::Preferences(PreferencesCommand::CloseSelectionSets));
+                }
+                selection_sets::Outcome::Apply(transaction) => {
+                    actions.push(Action::Apply(transaction))
+                }
+                selection_sets::Outcome::Select(index) => {
+                    actions.push(Action::Preferences(PreferencesCommand::SelectSet(index)));
                 }
             }
         }

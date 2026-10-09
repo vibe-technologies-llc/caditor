@@ -46,6 +46,7 @@ use crate::{
     scene_description::{Item, SceneDescription},
     scene_palette::Contrast,
     selection::{Pickable, Selection, SelectionFilter},
+    selection_sets,
     shape_modes::ShapeMode,
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
@@ -622,6 +623,10 @@ impl ViewportState {
 
     pub fn selection(&self) -> &Selection {
         &self.selection
+    }
+
+    pub fn replace_selection(&mut self, pickables: Vec<Pickable>) {
+        self.selection.replace_with_all(pickables);
     }
 
     #[cfg(test)]
@@ -2547,6 +2552,45 @@ impl ViewportState {
                 .unwrap_or(body_selection::Kind::Faces);
             self.selection
                 .replace_with_all(body_selection::whole_bodies(model, &bodies, kind));
+        }
+        self.selection_set_commands(model, in_sketch, commands, actions);
+    }
+
+    fn selection_set_commands(
+        &self,
+        model: &Model,
+        in_sketch: bool,
+        commands: &mut CommandFrame<'_>,
+        actions: &mut Vec<Action>,
+    ) {
+        let keepable =
+            body_selection::outside_sketch(
+                in_sketch,
+                match self.selection.iter().any(|pickable| {
+                    matches!(pickable, Pickable::Face { .. } | Pickable::Edge { .. })
+                }) {
+                    true => Ok(()),
+                    false => Err(selection_sets::NOTHING_TO_KEEP),
+                },
+            );
+        if commands.invoke(Command::SaveSelectionSet, &keepable) && keepable.is_ok() {
+            let name = model.document().selection_sets().unused_name();
+            match selection_sets::save(model, &self.selection, &name) {
+                Ok(saved) => {
+                    actions.push(Action::Apply(saved.transaction));
+                    let left_out = selection_sets::left_out_note(saved.left_out)
+                        .map(|note| format!(" {note}"))
+                        .unwrap_or_default();
+                    actions.push(Action::Inform(Notice::info(format!(
+                        "Saved the selection as {name}. Rename it, select it again or see them \
+                         all in Selection sets.{left_out}"
+                    ))));
+                }
+                Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            }
+        }
+        if commands.available(Command::SelectionSets) {
+            actions.push(Action::Preferences(PreferencesCommand::ShowSelectionSets));
         }
     }
 

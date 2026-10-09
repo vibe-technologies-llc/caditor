@@ -1,4 +1,4 @@
-use caditor_document::SavedViews;
+use caditor_document::{SavedViews, SelectionSets};
 use egui::{
     Align, CornerRadius, Id, Label, Layout, Popup, Rect, Response, RichText, Sense, Shape, Stroke,
     StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, pos2, vec2,
@@ -96,6 +96,7 @@ const MODEL_RECOMPUTE: [&[Command]; 1] = [&[
 
 pub struct MenuContext<'a> {
     pub views: &'a SavedViews,
+    pub sets: &'a SelectionSets,
     pub files: &'a Files,
     pub editing: &'a SketchEditing,
     pub offers: &'a [Offer],
@@ -143,6 +144,8 @@ pub fn show(
                 let mut menus = Menus {
                     views: context.views,
                     visited: Vec::new(),
+                    sets: context.sets,
+                    picked_sets: Vec::new(),
                     offers: context.offers,
                     filter: context.filter,
                     style: context.style,
@@ -164,6 +167,7 @@ pub fn show(
                 menus.help(ui);
                 let chosen = std::mem::take(&mut menus.chosen);
                 let visited = std::mem::take(&mut menus.visited);
+                let picked_sets = std::mem::take(&mut menus.picked_sets);
                 for command in chosen {
                     commands.trigger(command);
                 }
@@ -171,6 +175,11 @@ pub fn show(
                     visited
                         .into_iter()
                         .map(|index| Action::Preferences(PreferencesCommand::GoToView(index))),
+                );
+                actions.extend(
+                    picked_sets
+                        .into_iter()
+                        .map(|index| Action::Preferences(PreferencesCommand::SelectSet(index))),
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if context.chrome.built_in() {
@@ -375,6 +384,8 @@ fn model_details(
 struct Menus<'a, 'b> {
     views: &'a SavedViews,
     visited: Vec<usize>,
+    sets: &'a SelectionSets,
+    picked_sets: Vec<usize>,
     offers: &'a [Offer],
     filter: SelectionFilter,
     style: DisplayStyle,
@@ -460,6 +471,28 @@ impl Menus<'_, '_> {
                     Command::SelectFaceEdges,
                     Command::SelectBody,
                 ],
+            );
+            submenu(
+                ui,
+                icons::command(Command::SelectionSets),
+                "Selection sets",
+                |ui| {
+                    self.items(ui, [Command::SaveSelectionSet, Command::SelectionSets]);
+                    if !self.sets.sets.is_empty() {
+                        ui.separator();
+                    }
+                    for (index, set) in self.sets.sets.iter().enumerate() {
+                        let picked = widgets::menu_item(
+                            ui,
+                            icons::command(Command::SelectionSets),
+                            &set.name,
+                            None,
+                        );
+                        if picked.clicked() {
+                            self.picked_sets.push(index);
+                        }
+                    }
+                },
             );
             ui.separator();
             self.item(ui, Command::Palette);

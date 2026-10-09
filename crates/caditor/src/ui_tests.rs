@@ -69,6 +69,7 @@ mod feature_panels;
 mod import_jobs;
 mod pick_list;
 mod screenshots;
+mod selection_sets;
 mod selection_targets;
 mod sketch_breaks;
 mod sketch_chamfers;

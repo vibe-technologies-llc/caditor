@@ -17,7 +17,7 @@ const LIST_HEIGHT: f32 = 360.0;
 const RECENT_LIMIT: usize = 6;
 const ROW_HEIGHT: f32 = CONTROL_HEIGHT + SPACE_S;
 const DETAIL_LINES: f32 = 2.0;
-pub const FIELD_HINT: &str = "Search commands, features, parameters and views";
+pub const FIELD_HINT: &str = "Search commands, features, parameters, views and selection sets";
 const SKETCH_ONLY: &str = "works only while a sketch is edited";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -37,6 +37,7 @@ enum Group {
     Features,
     Parameters,
     Views,
+    SelectionSets,
 }
 
 impl Group {
@@ -47,6 +48,7 @@ impl Group {
             Self::Features => "Features",
             Self::Parameters => "Parameters",
             Self::Views => "Views",
+            Self::SelectionSets => "Selection sets",
         }
     }
 }
@@ -56,6 +58,7 @@ pub enum Choice {
     Command(Command),
     Focus(Focus),
     View(usize),
+    SelectionSet(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +96,9 @@ impl Entry {
                 "Press Enter to select it in the feature tree.".to_owned()
             }
             (State::Ready, Choice::View(_)) => "Press Enter to go to this saved view.".to_owned(),
+            (State::Ready, Choice::SelectionSet(_)) => {
+                "Press Enter to select what this set holds.".to_owned()
+            }
         }
     }
 
@@ -113,6 +119,7 @@ pub struct Palette {
     chosen: Option<Command>,
     focus: Option<Focus>,
     view: Option<usize>,
+    selection_set: Option<usize>,
     recent: Vec<Command>,
 }
 
@@ -139,6 +146,10 @@ impl Palette {
         self.view.take()
     }
 
+    pub fn take_selection_set(&mut self) -> Option<usize> {
+        self.selection_set.take()
+    }
+
     fn choose(&mut self, choice: Choice) {
         self.open = false;
         match choice {
@@ -150,6 +161,7 @@ impl Palette {
             }
             Choice::Focus(focus) => self.focus = Some(focus),
             Choice::View(index) => self.view = Some(index),
+            Choice::SelectionSet(index) => self.selection_set = Some(index),
         }
     }
 
@@ -256,6 +268,21 @@ impl Palette {
                 };
                 ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
             }
+            for (index, set) in document.selection_sets().sets.iter().enumerate() {
+                let Some((fit, length)) = matches(&set.name, &set.name) else {
+                    continue;
+                };
+                let entry = Entry {
+                    group: Group::SelectionSets,
+                    choice: Choice::SelectionSet(index),
+                    title: set.name.clone(),
+                    glyph: icons::command(Command::SelectionSets),
+                    note: None,
+                    keys: None,
+                    state: State::Ready,
+                };
+                ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
+            }
         }
         let best = |group: Group| {
             ranked
@@ -277,6 +304,7 @@ impl Palette {
             Group::Features,
             Group::Parameters,
             Group::Views,
+            Group::SelectionSets,
         ]
         .into_iter()
         .map(|group| (group_order(group), group))
