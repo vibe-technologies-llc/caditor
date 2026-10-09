@@ -9,7 +9,7 @@ use egui::{Id, Label, Ui};
 use crate::{
     editing::EditingCommand,
     feature_fields::{self, Choice, Picker, Quantity, REVERSE_DIRECTION, Rule, Segment, Shown},
-    field,
+    field, hole_on_curve,
     hole_tools::{self, DEFAULT_STEP_DIAMETER, Kind},
     icons,
     model::{Action, Model},
@@ -707,18 +707,25 @@ impl Panel<'_> {
             ),
             hover: PLACE_HOVER,
         };
-        let text = document
-            .feature(self.hole.sketch)
-            .and_then(|sketch| sketch.kind.attachment())
-            .map_or_else(
-                || NOT_ON_A_FACE.to_owned(),
-                |attachment| capitalized(&sketch_placement::describe(document, attachment)),
-            );
+        let mounted = hole_on_curve::mount(document, self.hole);
+        let text = match mounted.and_then(|mount| hole_on_curve::face_words(document, mount)) {
+            Some(words) => capitalized(&words),
+            None => document
+                .feature(self.hole.sketch)
+                .and_then(|sketch| sketch.kind.attachment())
+                .map_or_else(
+                    || NOT_ON_A_FACE.to_owned(),
+                    |attachment| capitalized(&sketch_placement::describe(document, attachment)),
+                ),
+        };
         ui.vertical(|ui| {
             ui.add(Label::new(text).wrap());
             feature_fields::reference_picker(ui, self.model, picker, self.actions);
         });
         ui.end_row();
+        if mounted.is_some() {
+            return;
+        }
         let unit = self.model.length_unit();
         for (index, caption) in feature_fields::POSITION_CAPTIONS.into_iter().enumerate() {
             let along = if index == 0 { point.at.x } else { point.at.y };

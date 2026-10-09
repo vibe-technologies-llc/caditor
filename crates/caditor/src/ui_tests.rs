@@ -19732,6 +19732,98 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
 }
 
 #[test]
+fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_circle(Point2::new(0.0, 0.0), 20.0);
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let puck = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let full = harness.body_volume(puck);
+    let wall = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            matches!(pickable, Pickable::Face { .. })
+                && harness
+                    .model
+                    .evaluation()
+                    .body(puck)
+                    .and_then(|solid| {
+                        let Pickable::Face { face, .. } = pickable else {
+                            return None;
+                        };
+                        let shown = crate::bodies::shown(harness.model.evaluation(), puck)?;
+                        let id = crate::bodies::find_face(shown, *face)?;
+                        solid.face(id).map(|face| {
+                            matches!(face.surface(), caditor_kernel::Surface::Cylinder(_))
+                        })
+                    })
+                    .unwrap_or(false)
+        })
+        .expect("the round wall is pickable");
+
+    harness.select([wall]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+
+    assert_eq!(harness.model.undo_label(), Some("Create Hole 1"));
+    assert_eq!(
+        harness
+            .workspace
+            .editing
+            .picking()
+            .map(|picking| picking.slot),
+        Some(crate::reference_picking::Slot::HolePlace)
+    );
+    assert!(harness.shows_containing("drilled square into the curved face"));
+    assert!(full - harness.body_volume(puck) > 0.5 * std::f64::consts::PI * 9.0 * 10.0);
+
+    let spot = Point3::new(0.0, -20.0, 4.0);
+    let tangent = Plane::from_frame(spot, Vector3::NEG_Y, Vector3::X).unwrap();
+    harness.click_pickable(tangent, Point2::ZERO, wall);
+    harness.settle();
+    let bore = harness
+        .model
+        .evaluation()
+        .body(puck)
+        .unwrap()
+        .faces()
+        .find_map(|(_, face)| match face.surface() {
+            caditor_kernel::Surface::Cylinder(cylinder) if cylinder.radius() < 4.0 => {
+                Some(*cylinder.frame())
+            }
+            _ => None,
+        })
+        .expect("the hole has a bore");
+
+    assert_eq!(harness.workspace.editing.picking(), None);
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert!(crate::hole_on_curve::mount(harness.document(), &open_hole(&harness, hole)).is_some());
+    assert!(bore.normal().y.abs() > 1.0 - 1e-9, "{bore:?}");
+    assert!(
+        bore.origin().x.abs() < 1e-3 && (bore.origin().z - 4.0).abs() < 1e-3,
+        "{bore:?}"
+    );
+    assert!(full - harness.body_volume(puck) > 0.5 * std::f64::consts::PI * 9.0 * 10.0);
+    assert!(!harness.model.evaluation().body(puck).unwrap().faces().any(
+        |(_, face)| matches!(face.surface(), caditor_kernel::Surface::Cylinder(cylinder)
+                if cylinder.radius() < 4.0 && cylinder.frame().normal().y.abs() < 0.99)
+    ));
+}
+
+#[test]
 fn a_hole_is_drilled_on_a_selected_face_and_takes_a_metric_size_fit_and_slot_from_its_panel() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);

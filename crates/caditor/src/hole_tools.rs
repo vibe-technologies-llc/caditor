@@ -12,7 +12,9 @@ use crate::{
     bodies,
     body_selection::face_boundary,
     editing::{self, EditingCommand, SketchEditing},
+    hole_on_curve,
     model::{Action, Model, Notice},
+    reference_picking::{Picking, Slot},
     scene,
     selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
@@ -60,6 +62,7 @@ pub struct HoleSource {
 pub enum HoleStart {
     Sketch(HoleSource),
     Face(FaceChoice),
+    CurvedFace(FaceChoice),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -206,7 +209,7 @@ pub fn start(
         .filter(|_| editing.feature().is_none() && !sketch_chosen);
     match face {
         Some(face) if sketch_placement::is_flat(model, face) => Ok(HoleStart::Face(face)),
-        Some(_) => Err(sketch_placement::NOT_FLAT),
+        Some(face) => Ok(HoleStart::CurvedFace(face)),
         None => source(model, selection, editing).map(HoleStart::Sketch),
     }
 }
@@ -250,7 +253,7 @@ pub fn source(
     Ok(HoleSource { sketch, body })
 }
 
-fn new_hole(sketch: FeatureId, body: FeatureId, unit: LengthUnit) -> FeatureKind {
+pub fn new_hole(sketch: FeatureId, body: FeatureId, unit: LengthUnit) -> FeatureKind {
     FeatureKind::Hole(Hole {
         sketch,
         body,
@@ -433,6 +436,17 @@ pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
                 "{TITLE}: {reason}."
             )))],
         },
+        HoleStart::CurvedFace(face) => match hole_on_curve::create(model, face) {
+            Ok((transaction, feature, told)) => vec![
+                Action::Apply(transaction),
+                Action::Editing(EditingCommand::OpenSolid(feature)),
+                Action::Editing(EditingCommand::Pick(Picking::new(feature, Slot::HolePlace))),
+                Action::Inform(Notice::info(told)),
+            ],
+            Err(reason) => vec![Action::Inform(Notice::warning(format!(
+                "{TITLE}: {reason}."
+            )))],
+        },
     }
 }
 
@@ -480,6 +494,9 @@ fn placed(
     ray: Option<Ray>,
 ) -> Result<Transaction, String> {
     let document = model.document();
+    if hole_on_curve::mount(document, hole).is_some() || !sketch_placement::is_flat(model, face) {
+        return hole_on_curve::moved(model, feature, hole, face, ray);
+    }
     let name = &document.feature(feature).ok_or(GONE)?.name;
     let point = lone_point(document, hole).ok_or(NOT_ONE_POINT)?;
     let index = document.feature_index(hole.sketch).ok_or(GONE)?;

@@ -8,6 +8,9 @@
   depth. Its panel's **Placed on** row moves it too: **Choose in the view** and click where the
   hole goes on any flat face, or type its **Position X** and **Position Y** on the face. **Edit
   the sketch** under **Sketch** opens the hidden sketch to dimension the point or add more holes.
+- With one curved face selected (the round wall of a cylinder, a cone or a sphere), it drills
+  square into the face and asks you to click where the hole goes; **Choose in the view** on
+  **Placed on** moves it again later.
 - With a sketch selected or being edited, it drills at each of its loose points and circles.
 
 The panel sets:

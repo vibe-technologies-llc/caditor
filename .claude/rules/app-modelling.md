@@ -363,7 +363,16 @@ paths:
   point inside the face farthest from its edges and holes (`deepest_point`, a refined grid search
   over the sampled loops, ties going to the middle of its bounds), so an L- or U-shaped or holed face
   is drilled on material, with a notice saying how to move it from the panel
-  (`hole_tools::create_on_face`). Otherwise it takes the sketch the way Extrude does (edited,
+  (`hole_tools::create_on_face`). With one curved face selected instead (`HoleStart::CurvedFace`,
+  `hole_on_curve.rs`) the one transaction also makes a hidden datum point at a spot on the face
+  (its boundary's mean projected onto it) and a hidden datum plane touching the face nearest that
+  point (`PlaneThrough::TangentAt`), and the hidden sketch lies on that plane with its point at the
+  plane's origin, so the hole drills square into the face; it opens choosing its place in the view
+  (`Slot::HolePlace`). Such a hole (`hole_on_curve::mount`) moves by rewriting the datum point to
+  the spot the pointer's ray first meets the body (`SolidClassifier::first_crossing`), projected
+  onto the clicked face, and the tangent plane to that face; its panel's Placed on names the face
+  and has no Position rows, and it has no placement handles, which would slide it off square.
+  Otherwise it takes the sketch the way Extrude does (edited,
   selected, or with nothing selected the opened or last one; else `NOTHING_TO_DRILL`) and needs at least one free point or circle in it (`hole_centres`);
   its body is the one the sketch is attached to, else the one whose faces are selected, else the
   last body standing. It creates a plain

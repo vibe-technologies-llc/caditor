@@ -8,7 +8,7 @@ use caditor_sketch::Entity;
 
 use crate::{
     feature_fields::POSITION_CAPTIONS,
-    hole_tools,
+    hole_on_curve, hole_tools,
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
@@ -114,6 +114,9 @@ impl PlaceHandles {
     ) -> Option<Self> {
         let document = model.document();
         let (subject, plane, at) = if let Some(hole) = committed_hole(document, feature) {
+            if hole_on_curve::mount(document, hole).is_some() {
+                return None;
+            }
             let lone = hole_tools::lone_point(document, hole)?;
             let plane = scene::sketch_plane(document, model.evaluation(), hole.sketch)?;
             let at = previewed_point(model, feature, hole).unwrap_or(lone.at);
