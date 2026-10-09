@@ -56,16 +56,15 @@ impl ResultHistory {
         &mut self,
         feature: FeatureId,
         matches: impl Fn(&CacheEntry) -> bool,
-    ) -> Option<CacheEntry> {
+    ) -> Option<&CacheEntry> {
         self.clock += 1;
         let clock = self.clock;
         let kept = self.features.get_mut(&feature)?;
         let at = kept.iter().position(|kept| matches(&kept.entry))?;
-        let mut found = kept.remove(at);
+        kept.get_mut(..=at)?.rotate_right(1);
+        let found = kept.first_mut()?;
         found.used = clock;
-        let entry = found.entry.clone();
-        kept.insert(0, found);
-        Some(entry)
+        Some(&found.entry)
     }
 
     pub(crate) fn insert(&mut self, feature: FeatureId, entry: CacheEntry) {

@@ -890,10 +890,13 @@ impl Recompute {
             let view = walk.view(feature);
             let key = Key::of(run, (feature, index), (&tree, &suppressed), &view);
             walk.see_bodies(feature);
-            let reusable = self.cache.reuse(id, |entry| entry.matches(feature, &key));
+            let reused = self
+                .cache
+                .reuse(id, |entry| entry.matches(feature, &key))
+                .map(CacheEntry::status);
             let previous = self.cache.latest(id);
-            let entry = if let Some(entry) = reusable {
-                entry
+            let status = if let Some(status) = reused {
+                status
             } else if cancelled || cancel.is_cancelled() {
                 cancelled = true;
                 let last_good = previous.and_then(|entry| entry.result.clone());
@@ -940,11 +943,12 @@ impl Recompute {
                     healing,
                     retry: false,
                 };
-                self.cache.insert(id, entry.clone());
-                entry
+                let status = entry.status();
+                self.cache.insert(id, entry);
+                status
             };
 
-            let stood = match (&entry.state, &entry.result) {
+            let stood = match (&status.state, &status.result) {
                 (FeatureState::UpToDate, Some(result)) => Some(Arc::clone(result)),
                 _ => None,
             };
@@ -954,7 +958,7 @@ impl Recompute {
             if let Some(lookahead) = &mut lookahead {
                 lookahead.settle(index, stood);
             }
-            walk.statuses.insert(id, entry.status());
+            walk.statuses.insert(id, status);
         }
         progress(features.len(), features.len());
         walk
@@ -1062,7 +1066,7 @@ impl Recompute {
     fn glimpse(&self, run: &Run<'_>, walk: &Walk, reached: usize) -> Evaluation {
         let document = run.document;
         let bar = document.bar_index();
-        let mut seen = walk.clone();
+        let mut seen = walk.shown();
         let mut pending = BTreeSet::new();
         for (index, feature) in document.feature_handles().iter().enumerate().skip(reached) {
             let id = feature.id();
@@ -1184,7 +1188,7 @@ impl<'a> Run<'a> {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct Walk {
     statuses: BTreeMap<FeatureId, FeatureStatus>,
     current: BTreeMap<FeatureId, Arc<FeatureResult>>,
@@ -1209,6 +1213,19 @@ impl Walk {
             self.bodies.remove(&body);
             self.consumed.insert(body);
             self.consumers.entry(body).or_default().push(id);
+        }
+    }
+
+    fn shown(&self) -> Self {
+        Self {
+            statuses: self.statuses.clone(),
+            current: BTreeMap::new(),
+            bodies: self.bodies.clone(),
+            consumed: self.consumed.clone(),
+            consumers: BTreeMap::new(),
+            recomputed: self.recomputed.clone(),
+            inputs_before: self.inputs_before.clone(),
+            seen_bodies: self.seen_bodies.clone(),
         }
     }
 
