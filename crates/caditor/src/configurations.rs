@@ -226,6 +226,7 @@ fn table(
         .show(ui, |ui| {
             ui.label("");
             widgets::column_caption(ui, NAME_CAPTION);
+            ui.label("");
             for value in values {
                 let name = value_name(document, *value);
                 ui.horizontal(|ui| {
@@ -237,7 +238,6 @@ fn table(
                     }
                 });
             }
-            ui.label("");
             ui.end_row();
             for row in &document.configurations().rows {
                 if let Some(chosen) = table_row(ui, model, draft, values, row) {
@@ -281,11 +281,6 @@ fn table_row(
     } else {
         ui.label(&row.name);
     }
-    for value in values {
-        if let Some(changed) = cell(ui, model, draft, row, *value) {
-            outcome = Some(changed);
-        }
-    }
     ui.horizontal(|ui| {
         if widgets::icon_button(ui, icons::RENAME, RENAME_HOVER).clicked() {
             draft.renaming = Some(Renaming {
@@ -308,6 +303,11 @@ fn table_row(
             outcome = applying(draft, checked(document, built));
         }
     });
+    for value in values {
+        if let Some(changed) = cell(ui, model, draft, row, *value) {
+            outcome = Some(changed);
+        }
+    }
     outcome
 }
 

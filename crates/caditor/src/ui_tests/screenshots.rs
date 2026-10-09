@@ -351,6 +351,12 @@ fn screenshots() {
         drop(moving);
 
         let dir = TempDir::new().expect("a temporary directory");
+        let mut configured = Harness::styled(look, dir.path(), false);
+        configured.open_sample(Sample::Bracket);
+        configurations_scene(&mut configured, &gpu, &out, look);
+        drop(configured);
+
+        let dir = TempDir::new().expect("a temporary directory");
         let mut model = Harness::styled(look, dir.path(), false);
         model.open_sample(Sample::Bracket);
         shoot(&mut model, &gpu, &out, "model", look);
@@ -990,4 +996,58 @@ fn crashed_session(dir: &Path) {
     .expect("the storage starts");
     assert!(crashed.flusher().flush(super::FILE_TIMEOUT));
     assert!(crashed.close(false).wait(super::FILE_TIMEOUT));
+}
+
+fn configurations_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    use caditor_document::{ConfiguredValue, Setting};
+
+    let (first, _) = harness.document().adding_configuration(Some("M4"));
+    harness.perform(Action::Apply(first));
+    let parameters: Vec<_> = harness
+        .document()
+        .parameters()
+        .iter()
+        .take(2)
+        .map(|parameter| ConfiguredValue::Parameter(parameter.id()))
+        .collect();
+    let body = harness
+        .document()
+        .features()
+        .find(|feature| feature.makes_body())
+        .map(|feature| feature.id());
+    let last = harness
+        .document()
+        .features()
+        .last()
+        .map(|feature| feature.id());
+    let values: Vec<ConfiguredValue> = parameters
+        .into_iter()
+        .chain(last.map(ConfiguredValue::Suppressed))
+        .chain(body.map(ConfiguredValue::Colour))
+        .collect();
+    for value in &values {
+        let configure = harness.document().configuring(*value).unwrap();
+        harness.perform(Action::Apply(configure));
+    }
+    for name in ["M6", "M8"] {
+        let (added, id) = harness.document().adding_configuration(Some(name));
+        harness.perform(Action::Apply(added));
+        if let Some(value) = values.iter().find(|value| value.feature().is_some()) {
+            let change = harness
+                .document()
+                .setting_configuration(id, *value, Setting::Suppressed(true))
+                .unwrap();
+            harness.perform(Action::Apply(change));
+        }
+    }
+    harness.settle();
+    harness.perform(Action::Preferences(PreferencesCommand::ShowConfigurations));
+    shoot(harness, gpu, out, "configurations", look);
+    harness.perform(Action::Preferences(PreferencesCommand::CloseConfigurations));
+    harness.frame();
+    harness.command(FileCommand::Export(ExportCommand::Show));
+    harness.command(FileCommand::Export(ExportCommand::SetEveryConfiguration(
+        true,
+    )));
+    shoot(harness, gpu, out, "export-configurations", look);
 }
