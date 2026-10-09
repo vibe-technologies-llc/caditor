@@ -31,8 +31,9 @@ pub use crate::{
     offscreen::OffscreenRenderer,
     picking::PickPoll,
     scene::{
-        Batch, Color, Fill, Grid, Layer, Line, Marker, PickHit, PickId, PickResult, Reflection,
-        Scene, Stroke, ViewportRect,
+        Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickHit,
+        PickId, PickResult, Reflection, Scene, SectionPlane, Stroke, ViewportRect, is_cut_away,
+        section_slack,
     },
     settings::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading},
     silhouette::Silhouette,

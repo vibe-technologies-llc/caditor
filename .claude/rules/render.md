@@ -186,6 +186,33 @@ paths:
   two instances of one mesh: in `meshes` with those faces at alpha 0 and in `translucent_meshes`
   with only those faces visible, both carrying every face's pick id.
 
+## Sections
+
+- `Scene::section` holds up to `MAX_SECTION_PLANES` `SectionPlane`s (a `Plane` and a `CutFace`,
+  hatched or filled); each cuts away the side its normal points to, so together they keep what
+  every plane keeps. It only changes what is drawn and picked, never a mesh or a batch, so moving
+  a plane costs a uniform write: the view uniform carries the count, a slack
+  (`section_slack`, a fraction of the view distance, so a face lying on a plane is kept), each
+  plane as its normal and offset relative to the eye (worked out in f64) and each plane's hatch
+  direction over its spacing with a phase anchored to the plane, the spacing `HATCH_SPACING_POINTS`
+  at the target rounded up to a power of two so the hatch stays put while zooming a little.
+- Every mesh and silhouette, and lines, markers and fills of `Layer::Model` and `Layer::Hidden`
+  (`Layer::is_sectioned`, a bit in the instance flags beside the front-layer bit), are discarded
+  beyond a plane in view and picking alike; reference and front geometry never are, so datums,
+  the edited sketch and the front-layer marks stay whole.
+- While a section is shown the opaque, flat and reflective meshes draw with `fs_*_sectioned`
+  pipelines (and `fs_mesh_pick_sectioned`), which cap the cut: a back face (the flat normal from
+  derivatives, oriented by the interpolated normal, turned from the eye) seen where the eye's ray
+  crossed a plane is drawn at the point where the ray entered the kept region, writing that depth,
+  shaded with the plane's normal in the face's colour darkened by `CAP_SHADE` and hatched
+  (`HATCH_SHADE`) or filled. Since these write `frag_depth`, they take no pipeline depth bias and
+  add the face slope bias themselves; plain pipelines draw when there is no section, so early depth
+  testing is kept then. A cap picks id 0 with its own depth, hiding what lies behind it and picking
+  nothing. Caps assume closed solids; translucent and overlay meshes are only cut, never capped.
+- `Scene::hits_through` skips hits on sectioned geometry beyond a plane (`is_cut_away`), so the
+  pick list, paint selection and Measure only reach what is shown (offscreen and `through.rs`
+  tests).
+
 ## Lines, markers and sizes
 
 - Sizes are logical points: `ViewportFrame::pixels_per_point` goes into the view uniform and

@@ -12,7 +12,8 @@ use crate::{
     mesh::{MESH_VERTEX_STRIDE, MeshCache, UploadBudget},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{
-        Batch, Color, Fill, Grid, Layer, Line, PickId, Primitive, Reflection, Scene, ViewportRect,
+        Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, PickId, Primitive,
+        Reflection, Scene, SectionPlane, ViewportRect, section_slack,
     },
     settings::Shading,
     silhouette::{SILHOUETTE_STRIDE, SilhouetteCache},
@@ -41,7 +42,8 @@ const LINE_STRIDE: u64 = 60;
 const MARKER_STRIDE: u64 = 44;
 const FILL_VERTEX_STRIDE: u64 = 40;
 const FILL_TRIANGLE_STRIDE: u64 = FILL_VERTEX_STRIDE * 3;
-const VIEW_UNIFORM_SIZE: u64 = 192;
+const VIEW_UNIFORM_SIZE: u64 = 400;
+const HATCH_SPACING_POINTS: f64 = 8.0;
 const REANCHOR_DISTANCES: f64 = 4.0;
 const ANCHOR_ERROR_PIXELS: f64 = 0.02;
 const F32_ROUNDING: f64 = f32::EPSILON as f64 / 2.0;
@@ -55,6 +57,7 @@ const GRID_EXTENT_PER_SCALE: f64 = 40.0;
 const GRID_MIN_SCALE_PER_DISTANCE: f64 = 0.25;
 const WHOLE_VIEW: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 const MESH_UPLOAD_BYTES_PER_FRAME: u64 = 8 << 20;
+const SECTIONED_LABEL: &str = "sectioned";
 
 pub struct ViewportFrame<'a> {
     pub rect: ViewportRect,
@@ -202,6 +205,9 @@ impl Uniform {
 #[derive(Clone)]
 struct Pipelines {
     meshes: wgpu::RenderPipeline,
+    sectioned_meshes: wgpu::RenderPipeline,
+    sectioned_flat_meshes: wgpu::RenderPipeline,
+    sectioned_reflective_meshes: wgpu::RenderPipeline,
     translucent_meshes: wgpu::RenderPipeline,
     overlay_meshes: wgpu::RenderPipeline,
     flat_meshes: wgpu::RenderPipeline,
@@ -223,6 +229,7 @@ struct PickPipelines {
     fills: wgpu::RenderPipeline,
     reference_fills: wgpu::RenderPipeline,
     meshes: wgpu::RenderPipeline,
+    sectioned_meshes: wgpu::RenderPipeline,
     translucent_meshes: wgpu::RenderPipeline,
 }
 
@@ -235,6 +242,7 @@ pub struct ImagePlan {
     clear: wgpu::Color,
     grid: bool,
     reflection: Reflection,
+    section: Vec<SectionPlane>,
     targets: ImageTargets,
 }
 
@@ -534,7 +542,7 @@ impl GpuBatch {
                 .u32(PickId::raw(line.pick))
                 .f32(line.layer.depth_bias(Primitive::Line))
                 .f32(line.stroke.along())
-                .u32(u32::from(line.layer.draws_in_front()));
+                .u32(line.layer.flags());
         }
         let uploaded = count(self.lines.upload(device, queue, staging, LINE_STRIDE));
         self.line_count = uploaded.min(count(ordered.pickable));
@@ -550,7 +558,7 @@ impl GpuBatch {
                 .f32(marker.diameter)
                 .u32(PickId::raw(marker.pick))
                 .f32(marker.layer.depth_bias(Primitive::Marker))
-                .u32(u32::from(marker.layer.draws_in_front()));
+                .u32(marker.layer.flags());
         }
         self.marker_count = count(self.markers.upload(device, queue, staging, MARKER_STRIDE));
         self.shown_markers = count(shown_markers).min(self.marker_count);
@@ -776,6 +784,7 @@ pub struct ViewportRenderer {
     picking: Picking,
     pick_refused: bool,
     pick_window: Option<ClipWindow>,
+    sectioned: bool,
 }
 
 impl ViewportRenderer {
@@ -836,6 +845,7 @@ impl ViewportRenderer {
             picking: Picking::new(device, DEPTH_FORMAT),
             pick_refused: false,
             pick_window: None,
+            sectioned: false,
         }
     }
 
@@ -1047,6 +1057,7 @@ impl ViewportRenderer {
             picking: Picking::new(device, DEPTH_FORMAT),
             pick_refused: false,
             pick_window: None,
+            sectioned: false,
         }
     }
 
@@ -1099,6 +1110,7 @@ impl ViewportRenderer {
             },
             grid: request.scene.grid.is_some(),
             reflection: request.scene.reflection,
+            section: request.scene.section.clone(),
             targets,
         })
     }
@@ -1119,7 +1131,7 @@ impl ViewportRenderer {
                 anchor: plan.anchor,
             },
             plan.pixels_per_point,
-            (self.shading, plan.reflection),
+            (self.shading, plan.reflection, &plan.section),
             (transform, Strokes::Finished),
         );
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
@@ -1158,10 +1170,23 @@ impl ViewportRenderer {
 
     fn draw_scene(&self, pass: &mut wgpu::RenderPass<'_>, grid: bool, window: &ClipWindow) {
         pass.set_bind_group(0, &self.view_uniform.bind_group, &[]);
-        self.meshes.draw(pass, &self.pipelines.meshes, window);
-        self.flat.draw(pass, &self.pipelines.flat_meshes, window);
-        self.reflective
-            .draw(pass, &self.pipelines.reflective_meshes, window);
+        let pipelines = &self.pipelines;
+        let (meshes, flat, reflective) = if self.sectioned {
+            (
+                &pipelines.sectioned_meshes,
+                &pipelines.sectioned_flat_meshes,
+                &pipelines.sectioned_reflective_meshes,
+            )
+        } else {
+            (
+                &pipelines.meshes,
+                &pipelines.flat_meshes,
+                &pipelines.reflective_meshes,
+            )
+        };
+        self.meshes.draw(pass, meshes, window);
+        self.flat.draw(pass, flat, window);
+        self.reflective.draw(pass, reflective, window);
         self.translucent
             .draw(pass, &self.pipelines.translucent_meshes, window);
         self.overlay
@@ -1224,12 +1249,14 @@ impl ViewportRenderer {
         drop(behind);
         let mut pass = begin_pick_pass(encoder, targets, "pick", false);
         pass.set_bind_group(0, &self.pick_view_uniform.bind_group, &[]);
-        self.meshes
-            .draw(&mut pass, &self.pipelines.pick.meshes, &window);
-        self.flat
-            .draw(&mut pass, &self.pipelines.pick.meshes, &window);
-        self.reflective
-            .draw(&mut pass, &self.pipelines.pick.meshes, &window);
+        let meshes = if self.sectioned {
+            &self.pipelines.pick.sectioned_meshes
+        } else {
+            &self.pipelines.pick.meshes
+        };
+        self.meshes.draw(&mut pass, meshes, &window);
+        self.flat.draw(&mut pass, meshes, &window);
+        self.reflective.draw(&mut pass, meshes, &window);
         self.translucent
             .draw(&mut pass, &self.pipelines.pick.translucent_meshes, &window);
         for batch in &self.batches {
@@ -1295,11 +1322,12 @@ impl ViewportRenderer {
         };
 
         let pixels_per_point = valid_scale(viewport.pixels_per_point);
+        self.sectioned = !scene.section.is_empty();
         view_uniform(
             &mut self.staging,
             &anchored,
             pixels_per_point,
-            (self.shading, scene.reflection),
+            (self.shading, scene.reflection, &scene.section),
             (WHOLE_VIEW, Strokes::Finished),
         );
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
@@ -1321,7 +1349,7 @@ impl ViewportRenderer {
                 &mut self.staging,
                 &anchored,
                 pixels_per_point,
-                (self.shading, scene.reflection),
+                (self.shading, scene.reflection, &scene.section),
                 (transform, Strokes::Bare),
             );
             queue.write_buffer(&self.pick_view_uniform.buffer, 0, self.staging.as_slice());
@@ -1640,6 +1668,7 @@ impl Pipelines {
             Some(wgpu::ColorTargetState::from(picking::DEPTH_VALUE_FORMAT)),
         ];
         let bias_of = |label: &str, vertex: &str| match (label, vertex) {
+            (_, "vs_mesh") if label.starts_with(SECTIONED_LABEL) => wgpu::DepthBiasState::default(),
             (_, "vs_mesh") => FACE_DEPTH_BIAS,
             ("reference fills" | "pick reference fills", _) | (_, "vs_grid") => {
                 BEHIND_FACES_DEPTH_BIAS
@@ -1690,6 +1719,30 @@ impl Pipelines {
                 "vs_mesh",
                 &meshes,
                 "fs_mesh",
+                true,
+            ),
+            sectioned_meshes: color(
+                "sectioned meshes",
+                &mesh_pipeline_layout,
+                "vs_mesh",
+                &meshes,
+                "fs_mesh_sectioned",
+                true,
+            ),
+            sectioned_flat_meshes: color(
+                "sectioned flat meshes",
+                &mesh_pipeline_layout,
+                "vs_mesh",
+                &meshes,
+                "fs_color_sectioned",
+                true,
+            ),
+            sectioned_reflective_meshes: color(
+                "sectioned reflective meshes",
+                &mesh_pipeline_layout,
+                "vs_mesh",
+                &meshes,
+                "fs_reflective_sectioned",
                 true,
             ),
             translucent_meshes: color(
@@ -1765,13 +1818,13 @@ impl Pipelines {
                 "fs_marker",
                 true,
             ),
-            fills: color("fills", &scene_layout, "vs_fill", &fills, "fs_color", false),
+            fills: color("fills", &scene_layout, "vs_fill", &fills, "fs_fill", false),
             reference_fills: color(
                 "reference fills",
                 &scene_layout,
                 "vs_fill",
                 &fills,
-                "fs_color",
+                "fs_fill",
                 false,
             ),
             grid: color(
@@ -1821,6 +1874,14 @@ impl Pipelines {
                     "vs_mesh",
                     &meshes,
                     "fs_mesh_pick",
+                    true,
+                ),
+                sectioned_meshes: pick_pipeline(
+                    "sectioned pick meshes",
+                    &mesh_pipeline_layout,
+                    "vs_mesh",
+                    &meshes,
+                    "fs_mesh_pick_sectioned",
                     true,
                 ),
                 translucent_meshes: pick_pipeline(
@@ -1885,7 +1946,7 @@ fn build_pipeline(device: &wgpu::Device, spec: &PipelineSpec<'_>) -> wgpu::Rende
 
 fn stage_fill(bytes: &mut Bytes, fill: &Fill, anchor: Point3) -> u32 {
     let depth_bias = fill.layer.depth_bias(Primitive::Fill);
-    let in_front = u32::from(fill.layer.draws_in_front());
+    let flags = fill.layer.flags();
     let mut written = 0u32;
     for corner in fill.triangles.iter().flatten() {
         bytes
@@ -1893,7 +1954,7 @@ fn stage_fill(bytes: &mut Bytes, fill: &Fill, anchor: Point3) -> u32 {
             .floats(&fill.color.to_array())
             .u32(PickId::raw(fill.pick))
             .f32(depth_bias)
-            .u32(in_front);
+            .u32(flags);
         written = written.saturating_add(1);
     }
     written
@@ -1926,7 +1987,7 @@ fn view_uniform(
     bytes: &mut Bytes,
     anchored: &AnchoredView<'_>,
     pixels_per_point: f32,
-    (shading, reflection): (Shading, Reflection),
+    (shading, reflection, section): (Shading, Reflection, &[SectionPlane]),
     (transform, strokes): ([f32; 4], Strokes),
 ) {
     let [across, along] = reflection.uniform();
@@ -1948,6 +2009,66 @@ fn view_uniform(
         .vec4(relative_to_eye(anchored.anchor, view.eye()), 0.0)
         .floats(&across)
         .floats(&along);
+    section_uniform(bytes, view, pixels_per_point, section);
+}
+
+fn section_uniform(
+    bytes: &mut Bytes,
+    view: &View,
+    pixels_per_point: f32,
+    section: &[SectionPlane],
+) {
+    let eye = view.eye();
+    let distance = view.viewpoint().distance;
+    let planes = section.get(..MAX_SECTION_PLANES).unwrap_or(section);
+    let spacing = hatch_spacing(
+        view.units_per_pixel_at(distance) * f64::from(pixels_per_point) * HATCH_SPACING_POINTS,
+    );
+    bytes.floats(&[
+        planes.len() as f32,
+        section_slack(distance) as f32,
+        0.0,
+        0.0,
+    ]);
+    for index in 0..MAX_SECTION_PLANES {
+        match planes.get(index) {
+            Some(section) => {
+                let normal = section.plane.normal();
+                bytes.vec4(
+                    normal.as_vec3(),
+                    normal.dot(section.plane.origin() - eye) as f32,
+                );
+            }
+            None => {
+                bytes.floats(&[0.0; 4]);
+            }
+        }
+    }
+    for index in 0..MAX_SECTION_PLANES {
+        match planes
+            .get(index)
+            .filter(|section| section.cut_face == CutFace::Hatched)
+        {
+            Some(section) => {
+                let plane = section.plane;
+                let across =
+                    (plane.x_axis() + plane.y_axis()).normalize_or(plane.x_axis()) / spacing;
+                let phase = across.dot(eye - plane.origin()).rem_euclid(1.0);
+                bytes.vec4(across.as_vec3(), phase as f32);
+            }
+            None => {
+                bytes.floats(&[0.0; 4]);
+            }
+        }
+    }
+}
+
+fn hatch_spacing(wanted: f64) -> f64 {
+    if wanted.is_finite() && wanted > 0.0 {
+        2f64.powf(wanted.log2().ceil())
+    } else {
+        1.0
+    }
 }
 
 fn key_light(view: &View) -> Vector3 {
