@@ -590,6 +590,13 @@ fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         shoot(model, gpu, out, "drawing", look);
         model.type_text("10");
         shoot(model, gpu, out, "typed-point", look);
+        model.click_screen(viewport.center() + egui::vec2(-160.0, 120.0));
+        model.frame();
+        shoot(model, gpu, out, "typed-point-waiting", look);
+        model.type_text("0, 20");
+        shoot(model, gpu, out, "typed-point-preview", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
         model.key(Key::Escape, Modifiers::NONE);

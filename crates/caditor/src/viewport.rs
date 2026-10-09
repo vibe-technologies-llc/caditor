@@ -132,7 +132,9 @@ const TAKE_BACK_HINT: &str = "Backspace: take back the last point";
 const HELD_SNAP_HINT: &str = "Alt: snap to the grid or nearby geometry";
 const TYPE_POINT_HINT: &str = "Type x, y or length < angle for an exact point";
 const TYPED_POINT_HINT: &str = "@: from the last point   A length alone goes toward the pointer   \
-                                Enter: place   Esc: cancel";
+                                < angle alone: lock the direction   Enter: place   Esc: cancel";
+pub const TYPE_VALUE_UNAVAILABLE: &str = "Choose a drawing tool, or Offset, Sketch fillet, a \
+                                          pattern or Tangent circle, to type an exact value";
 const TYPED_SIDES_HINT: &str = "6 sides: set the sides";
 const TYPED_RHO_HINT: &str = "0.3 rho: set its shape";
 const SCRUB_HINT: &str = "Shift: move sideways to set the sides";
@@ -300,6 +302,7 @@ pub struct ViewportState {
     list_hold: bool,
     last_cursor: Option<Vector2>,
     typed_point: TypedPoint,
+    typed_owner: Option<(FeatureId, Tool)>,
     moving: Option<Moving>,
     transforming: Option<Transforming>,
     moving_label: Option<LabelMoving>,
@@ -477,6 +480,7 @@ impl ViewportState {
             list_hold: false,
             last_cursor: None,
             typed_point: TypedPoint::default(),
+            typed_owner: None,
             moving: None,
             transforming: None,
             moving_label: None,
@@ -2480,6 +2484,18 @@ impl ViewportState {
             }
         }
         if let Some(active) = editing.active() {
+            let typable = active.tool.draws()
+                || self.modifying.value_field().is_some()
+                || self.moving.is_some()
+                || self.moving_label.is_some()
+                || self.transforming.is_some();
+            let typing = match typable {
+                true => Ok(()),
+                false => Err(TYPE_VALUE_UNAVAILABLE),
+            };
+            if commands.invoke(Command::TypeValue, &typing) && typable {
+                self.typed_point.open_or_resume();
+            }
             let reversible = self.drawing.reversible();
             if commands.invoke(Command::ReverseArc, &reversible) {
                 self.drawing.reverse_arc();
@@ -3160,6 +3176,11 @@ impl ViewportState {
         keys_free: bool,
         actions: &mut Vec<Action>,
     ) {
+        let owner = editing.active().map(|active| (active.feature, active.tool));
+        if owner != self.typed_owner {
+            self.typed_owner = owner;
+            self.typed_point.close();
+        }
         self.moving = self
             .moving
             .take()
@@ -3212,6 +3233,10 @@ impl ViewportState {
             model.length_unit().symbol()
         );
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
+        let from = typed_point::From {
+            last: self.drawing.last_placed(),
+            toward: self.drawing.pointer_position(),
+        };
         let Some(typed) = self.typed_point.show(
             ui.ctx(),
             top_band(rect),
@@ -3220,11 +3245,12 @@ impl ViewportState {
             &hint,
             typed_point::POINT_PLACEHOLDER,
         ) else {
+            self.preview_typed_point(model, &sketch, from);
             return;
         };
         if let Some(count) = typed_point::sides(&typed.text) {
             if let Err(reason) = self.drawing.set_sides(count) {
-                self.typed_point.open_with(typed.text, reason.to_owned());
+                self.typed_point.open_with(typed.entered, reason.to_owned());
             }
             return;
         }
@@ -3233,14 +3259,24 @@ impl ViewportState {
                 self.drawing.set_rho(value, typed).map_err(str::to_owned)
             });
             if let Err(reason) = set {
-                self.typed_point.open_with(typed.text, reason);
+                self.typed_point.open_with(typed.entered, reason);
             }
             return;
         }
-        let from = typed_point::From {
-            last: self.drawing.last_placed(),
-            toward: self.drawing.pointer_position(),
-        };
+        if let Some(heading) = typed_point::heading(model, &typed.text, from) {
+            match heading {
+                Ok(heading) => {
+                    let dimensions = heading
+                        .dimension
+                        .filter(|_| self.typed_dimensions)
+                        .into_iter()
+                        .collect();
+                    self.drawing.lock_heading(heading.degrees, dimensions);
+                }
+                Err(error) => self.typed_point.open_with(typed.entered, error),
+            }
+            return;
+        }
         match typed_point::parse_placed(model, &typed.text, from) {
             Ok(mut placed) => {
                 if !self.typed_dimensions {
@@ -3252,12 +3288,27 @@ impl ViewportState {
                     Ok(None) => {}
                     Err(refusal) => self
                         .typed_point
-                        .open_with(typed.text, refusal.reason().to_owned()),
+                        .open_with(typed.entered, refusal.reason().to_owned()),
                 }
             }
             Err(error) => {
-                self.typed_point.open_with(typed.text, error);
+                self.typed_point.open_with(typed.entered, error);
             }
+        }
+    }
+
+    fn preview_typed_point(&mut self, model: &Model, sketch: &Sketch, from: typed_point::From) {
+        let Some(text) = self.typed_point.typing_text() else {
+            return;
+        };
+        if let Some(heading) = typed_point::heading(model, text, from) {
+            if let Ok(heading) = heading {
+                self.drawing.preview_heading(sketch, heading.degrees);
+            }
+            return;
+        }
+        if let Ok(placed) = typed_point::parse_placed(model, text, from) {
+            self.drawing.preview_typed(sketch, placed.position);
         }
     }
 
@@ -3276,7 +3327,8 @@ impl ViewportState {
         if keys_free {
             self.typed_point.open_from_typing(ui.ctx());
         }
-        self.modifying.show_text(model, self.typed_point.text());
+        self.modifying
+            .show_text(model, self.typed_point.typing_text());
         let hint = format!(
             "Lengths in {}   Enter: {}   Esc: cancel",
             model.length_unit().symbol(),
@@ -3296,7 +3348,7 @@ impl ViewportState {
         self.modifying.show_text(model, None);
         match self.modifying.enter_text(model, &typed.text) {
             Ok(outcome) => self.modify(editing, outcome, actions),
-            Err(error) => self.typed_point.open_with(typed.text, error),
+            Err(error) => self.typed_point.open_with(typed.entered, error),
         }
     }
 
@@ -3340,7 +3392,7 @@ impl ViewportState {
         match typed_point::parse(model, &typed.text, from) {
             Ok(target) => actions.extend(moving.to(target).into_iter().map(Action::Drag)),
             Err(error) => {
-                self.typed_point.open_with(typed.text, error);
+                self.typed_point.open_with(typed.entered, error);
                 self.moving = Some(moving);
             }
         }
@@ -3379,7 +3431,7 @@ impl ViewportState {
         match typed_point::parse(model, &typed.text, from) {
             Ok(target) => actions.push(Action::Apply(moving.transaction(model, target))),
             Err(error) => {
-                self.typed_point.open_with(typed.text, error);
+                self.typed_point.open_with(typed.entered, error);
                 self.moving_label = Some(moving);
             }
         }
@@ -3428,7 +3480,7 @@ impl ViewportState {
         match commands {
             Ok(commands) => actions.extend(commands.into_iter().map(Action::Drag)),
             Err(error) => {
-                self.typed_point.open_with(typed.text, error);
+                self.typed_point.open_with(typed.entered, error);
                 self.transforming = Some(transforming);
             }
         }
@@ -3508,6 +3560,10 @@ impl ViewportState {
         if self.pick_list.take().is_some() {
             return;
         }
+        if self.typed_point.is_waiting() {
+            self.typed_point.close();
+            return;
+        }
         if let Some(primary) = self.primary.take() {
             match primary {
                 PrimaryDrag::Grab(_) => actions.push(Action::Drag(DragCommand::Cancel)),
@@ -3526,6 +3582,8 @@ impl ViewportState {
             actions.push(Action::Editing(EditingCommand::CancelNewSketch));
         } else if editing.picking().is_some() {
             actions.push(Action::Editing(EditingCommand::StopPicking));
+        } else if self.drawing.has_heading() {
+            self.drawing.release_heading();
         } else if self.drawing.in_progress() {
             self.drawing.cancel();
         } else if self.keyboard_highlight.is_some() {

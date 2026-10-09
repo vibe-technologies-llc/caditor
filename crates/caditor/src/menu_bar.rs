@@ -695,6 +695,7 @@ impl Menus<'_, '_> {
                 ui,
                 [Command::ReverseArc, Command::MoreSides, Command::FewerSides],
             );
+            self.item(ui, Command::TypeValue);
             self.choice(ui, Command::ToggleTypedDimensions);
             self.choice(ui, Command::Section(SectionCommand::SliceSketch));
             self.choice(ui, Command::ToggleFirstDimensionScales);

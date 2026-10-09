@@ -98,6 +98,7 @@ mod sketch_tangent_circles;
 mod sketch_tidying;
 mod svg_import;
 mod templates;
+mod typed_values;
 mod user_guide;
 mod view_navigation;
 

@@ -298,13 +298,38 @@ paths:
 
 ## Typed-point field
 
-- `typed_point.rs`: with a drawing tool active, typing a digit, sign, point, `(` or `@` opens it.
+- `typed_point.rs`: with a drawing tool active, typing a digit, sign, point, `(`, `@`, `<` or `=`
+  opens it. Letters are tool keys, so `=` is the way to start with a parameter's name: a leading
+  `=` is left out of what is parsed (`typed_point::value_text`; `Typed::text` is the value,
+  `Typed::entered` what was typed, which an error reopens). Type an exact value
+  (`Command::TypeValue`, Sketch menu, palette, no default key) opens it empty, or resumes a
+  waiting one, while a drawing tool, a modify tool's value field, Move, Rotate or Scale is active
+  (`viewport::TYPE_VALUE_UNAVAILABLE` otherwise).
   It takes two length expressions split at top-level commas, a length and angle split at a
   top-level `<` (from the sketch's x axis; degrees unless a unit is named), `@` for an offset from
   the last placed point, and a lone length from the last point toward the pointer. The point must
   be within `MAX_LENGTH` of the origin. Offset's distance and Sketch fillet's radius reuse it as
   one length expression (`modifying::Value`, `app-sketching.md`), as does Move.
+- An angle alone (`< 30`, `@< 30`; `typed_point::heading`) locks the direction from the last
+  placed point (`Drawing::lock_heading`): `Drawing::place` projects the pointer onto that ray,
+  ahead of snapping, Ctrl and the toggles, the preview draws the ray as a dashed guide, the prompt
+  says so (`drawing::HEADING_PROMPT`) and a click places the point there, keeping the angle as a
+  dimension like a typed one (`typed_hover`); a lone length typed meanwhile runs along the ray and
+  keeps the angle too. Placing the point, Backspace, cancelling the shape or Escape
+  (`Drawing::release_heading`, before the shape is cancelled) let go of it.
 - It is canvas chrome (`canvas::PANEL`, `canvas::Hints`) in the band left of the view cube.
+- While it has focus and its text reads as a point (`typed_point::parse_placed`) or a heading, the
+  drawing previews it as a placement that is never placed (`Drawing::preview_typed`,
+  `preview_heading`): the hover, the arc's sweep and the heading are kept aside (`Pointed`) and put
+  back by the next `Drawing::hover`, so the readout and shape follow the text and the pointer
+  takes over again when it stops reading. Modify tools preview `TypedPoint::typing_text` the same
+  way (`show_text`).
+- Losing focus without Enter or Escape (a click in the view, another widget, a shortcut) keeps
+  the text, waiting: the label in `canvas::MUTED`, the text in the theme's `text_muted` and `typed_point::WAITING_HINT` as its
+  hint in place of the prompt, as while typing, and clicks acting at the pointer. Clicking the field, an
+  opener typed (appended to the kept text, a leading `=` dropped) or Type an exact value resumes
+  it; Escape in the view (first in `ViewportState::escape`), a change of edited sketch or tool
+  (`ViewportState::typed_owner`) or leaving the context clears it.
 - Enter places the point through `Drawing::type_point` (landing exactly on an existing or the
   pending point snaps to it, like a click); an error keeps it open with the reason; Escape closes
   it without touching the shape. It is handled after the drawing syncs with the displayed sketch

@@ -9,7 +9,7 @@ use egui::{
 };
 
 use crate::{
-    canvas,
+    appearance, canvas,
     field::{self, Expected},
     icons,
     model::Model,
@@ -20,10 +20,12 @@ use crate::{
 pub const FIELD_LABEL: &str = "Place point";
 pub const MOVE_LABEL: &str = "Move to";
 pub const POINT_PLACEHOLDER: &str = "x, y  or  length < angle";
+pub const WAITING_HINT: &str = "Still waiting: click the field or type to carry on   Esc: clear it";
 const FIELD_WIDTH: f32 = 180.0;
 const FRAME_MARGIN: Margin = Margin::symmetric(8, 6);
 const HINT_GAP: f32 = 6.0;
 const RELATIVE_MARK: char = '@';
+const VALUE_MARK: char = '=';
 const SEPARATORS: [char; 2] = [',', ';'];
 const POLAR_MARK: char = '<';
 const LENGTH: Expected = Expected {
@@ -46,6 +48,8 @@ const RHO: Part = Part {
 };
 const FULL_TURN_DEGREES: f64 = 360.0;
 const FORMS: &str = "Type x, y such as 10, 20, or a length and an angle such as 25 < 30";
+const HEADING_NEEDS_A_POINT: &str = "An angle alone sets the direction from the last placed point: place a point first, or type \
+     length < angle";
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct From {
@@ -58,10 +62,28 @@ pub struct TypedPoint {
     text: Option<String>,
     error: Option<String>,
     focus_pending: bool,
+    waiting: bool,
 }
 
 pub struct Typed {
     pub text: String,
+    pub entered: String,
+}
+
+impl Typed {
+    fn of(entered: &str) -> Self {
+        let entered = entered.trim().to_owned();
+        Self {
+            text: value_text(&entered).to_owned(),
+            entered,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Heading {
+    pub degrees: f64,
+    pub dimension: Option<TypedDimension>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,8 +170,25 @@ pub fn rho(model: &Model, text: &str) -> Option<Result<(f64, Expression), String
 
 fn starts_a_point(text: &str) -> bool {
     text.chars().next().is_some_and(|first| {
-        first.is_ascii_digit() || matches!(first, '-' | '.' | '(' | RELATIVE_MARK)
+        first.is_ascii_digit()
+            || matches!(
+                first,
+                '-' | '.' | '(' | RELATIVE_MARK | VALUE_MARK | POLAR_MARK
+            )
     })
+}
+
+pub fn value_text(text: &str) -> &str {
+    let text = text.trim();
+    text.strip_prefix(VALUE_MARK).map_or(text, str::trim_start)
+}
+
+fn resumed(kept: &str, typed: &str) -> String {
+    let typed = match kept.is_empty() {
+        true => typed,
+        false => typed.strip_prefix(VALUE_MARK).unwrap_or(typed),
+    };
+    format!("{kept}{typed}")
 }
 
 fn split_top_level(text: &str, separates: impl Fn(char, Option<char>) -> bool) -> Vec<&str> {
@@ -188,6 +227,23 @@ impl TypedPoint {
         self.text.is_some()
     }
 
+    pub fn is_waiting(&self) -> bool {
+        self.is_open() && self.waiting
+    }
+
+    pub fn is_typing(&self) -> bool {
+        self.is_open() && !self.waiting
+    }
+
+    pub fn open_or_resume(&mut self) {
+        if self.is_waiting() {
+            self.waiting = false;
+            self.focus_pending = true;
+        } else {
+            self.open();
+        }
+    }
+
     pub fn close(&mut self) {
         *self = Self::default();
     }
@@ -196,20 +252,25 @@ impl TypedPoint {
         self.text = Some(String::new());
         self.error = None;
         self.focus_pending = true;
+        self.waiting = false;
     }
 
     pub fn open_with(&mut self, text: String, error: String) {
         self.text = Some(text);
         self.error = Some(error);
         self.focus_pending = true;
+        self.waiting = false;
     }
 
-    pub fn text(&self) -> Option<&str> {
-        self.text.as_deref()
+    pub fn typing_text(&self) -> Option<&str> {
+        self.text
+            .as_deref()
+            .filter(|_| !self.waiting)
+            .map(value_text)
     }
 
     pub fn open_from_typing(&mut self, ctx: &egui::Context) {
-        if self.is_open() {
+        if self.is_typing() {
             return;
         }
         let typed = ctx.input_mut(|input| {
@@ -230,10 +291,12 @@ impl TypedPoint {
             });
             Some(text)
         });
-        if let Some(text) = typed {
-            self.text = Some(text);
+        if let Some(typed) = typed {
+            let kept = self.text.take().unwrap_or_default();
+            self.text = Some(resumed(&kept, &typed));
             self.error = None;
             self.focus_pending = true;
+            self.waiting = false;
         }
     }
 
@@ -255,6 +318,11 @@ impl TypedPoint {
             state.store(ctx, id);
         }
         let error = self.error.clone();
+        let waiting = self.waiting && !self.focus_pending;
+        let (label_color, hint) = match waiting {
+            true => (canvas::MUTED, WAITING_HINT),
+            false => (canvas::TEXT, hint),
+        };
         let inner_width = (bounds.width() - FRAME_MARGIN.sum().x).max(FIELD_WIDTH);
         let response = Area::new(id.with("area"))
             .order(Order::Foreground)
@@ -266,14 +334,16 @@ impl TypedPoint {
                     ui.set_max_width(inner_width);
                     let field = ui
                         .horizontal(|ui| {
-                            canvas_text(ui, label, canvas::TEXT);
+                            canvas_text(ui, label, label_color);
                             widgets::text_field(ui, |ui| {
-                                ui.add(
-                                    TextEdit::singleline(text)
-                                        .id(id)
-                                        .desired_width(FIELD_WIDTH)
-                                        .hint_text(placeholder),
-                                )
+                                let field = TextEdit::singleline(text)
+                                    .id(id)
+                                    .desired_width(FIELD_WIDTH)
+                                    .hint_text(placeholder);
+                                ui.add(match waiting {
+                                    true => field.text_color(appearance::tokens(ui).text_muted),
+                                    false => field,
+                                })
                             })
                         })
                         .inner;
@@ -308,6 +378,9 @@ impl TypedPoint {
         if field.changed() {
             self.error = None;
         }
+        if field.has_focus() {
+            self.waiting = false;
+        }
         if !field.lost_focus() {
             return None;
         }
@@ -317,12 +390,16 @@ impl TypedPoint {
                 input.key_pressed(Key::Escape),
             )
         });
-        if entered && !escaped {
-            let typed = text.trim().to_owned();
+        if escaped {
             self.close();
-            return Some(Typed { text: typed });
+            return None;
         }
-        self.close();
+        if entered {
+            let typed = Typed::of(text);
+            self.close();
+            return Some(typed);
+        }
+        self.waiting = true;
         None
     }
 }
@@ -482,6 +559,25 @@ pub fn parse(model: &Model, text: &str, from: From) -> Result<Point2, String> {
     parse_placed(model, text, from).map(|placed| placed.position)
 }
 
+pub fn heading(model: &Model, text: &str, from: From) -> Option<Result<Heading, String>> {
+    let text = text.strip_prefix(RELATIVE_MARK).unwrap_or(text);
+    let [length, angle] = polar(text)[..] else {
+        return None;
+    };
+    if !length.trim().is_empty() || coordinates(text).len() != 1 {
+        return None;
+    }
+    Some(
+        typed_value(model, angle, DIRECTION, Measured::Angle).and_then(|angle| {
+            let last = from.last.ok_or_else(|| HEADING_NEEDS_A_POINT.to_owned())?;
+            Ok(Heading {
+                degrees: angle.value,
+                dimension: angle.dimension(Some(last)),
+            })
+        }),
+    )
+}
+
 pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, String> {
     let (relative, text) = match text.strip_prefix(RELATIVE_MARK) {
         Some(rest) => (true, rest),
@@ -508,7 +604,24 @@ pub fn parse_placed(model: &Model, text: &str, from: From) -> Result<Placed, Str
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use caditor_document::Document;
+    use caditor_file::StorageConfig;
+
     use super::*;
+    use crate::model::Services;
+
+    fn empty_model() -> Model {
+        Model::new(
+            Document::default(),
+            Services {
+                make_waker: Box::new(|| Box::new(|| {})),
+                storage: StorageConfig::default(),
+                panic_flush: Arc::default(),
+            },
+        )
+    }
 
     #[test]
     fn a_point_starts_with_a_digit_a_sign_a_decimal_point_or_the_relative_mark() {
@@ -517,6 +630,51 @@ mod tests {
         }
         for text in ["l", " ", "", "x"] {
             assert!(!starts_a_point(text), "{text}");
+        }
+    }
+
+    #[test]
+    fn an_equals_sign_opens_the_field_and_is_left_out_of_the_value() {
+        for text in ["=width, 20", "=t", "<30", "@<30"] {
+            assert!(starts_a_point(text), "{text}");
+        }
+        assert_eq!(value_text("=width, 20"), "width, 20");
+        assert_eq!(value_text(" = t "), "t");
+        assert_eq!(value_text("10, 20"), "10, 20");
+        assert_eq!(value_text("a = b"), "a = b");
+    }
+
+    #[test]
+    fn typing_into_a_waiting_field_carries_on_from_the_kept_text() {
+        assert_eq!(resumed("10, 2", "0"), "10, 20");
+        assert_eq!(resumed("10, ", "=w"), "10, w");
+        assert_eq!(resumed("", "=w"), "=w");
+    }
+
+    #[test]
+    fn an_angle_alone_is_a_heading_from_the_last_point_and_nothing_else_is() {
+        let model = empty_model();
+        let last = Point2::new(5.0, 5.0);
+        let from = From {
+            last: Some(last),
+            toward: None,
+        };
+
+        let absolute = heading(&model, "<30", from).and_then(Result::ok);
+        let relative = heading(&model, "@ < 30", from).and_then(Result::ok);
+        let without_point = heading(&model, "<30", From::default());
+
+        assert_eq!(absolute.as_ref().map(|found| found.degrees), Some(30.0));
+        assert_eq!(
+            absolute
+                .and_then(|heading| heading.dimension)
+                .map(|dimension| (dimension.measured, dimension.from)),
+            Some((Measured::Angle, Some(last)))
+        );
+        assert_eq!(relative.map(|found| found.degrees), Some(30.0));
+        assert_eq!(without_point, Some(Err(HEADING_NEEDS_A_POINT.to_owned())));
+        for text in ["10 < 30", "10, 20", "5", "1, 2 < 3"] {
+            assert!(heading(&model, text, from).is_none(), "{text}");
         }
     }
 

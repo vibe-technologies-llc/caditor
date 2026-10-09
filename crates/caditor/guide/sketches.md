@@ -35,9 +35,20 @@ With a drawing tool active, start typing a number to open the point field:
 - `@15, 0` places it 15 to the right of the last point.
 - `40 < 30` is 40 long at 30 degrees from the sketch's x axis.
 - A lone length, such as `25`, goes that far from the last point toward the pointer.
+- An angle alone, such as `< 30`, locks the direction from the last point: the pointer then sets
+  only the length, and a click places the point with the angle kept. Escape lets go of the
+  direction.
 
-Values are [expressions](expressions), so parameters and units work. What you type is kept as
-dimensions, unless {command:sketch.toggle_typed_dimensions} is turned off.
+Values are [expressions](expressions), so parameters and units work. Letters choose tools, so to
+start with a parameter's name type `=` first, as in `=width, 20`, or put the name in brackets, as
+in `(width), 20`. The same works in the value field of Offset, Sketch fillet, the patterns and
+Tangent circle. {command:sketch.type_value} opens the field without typing anything first.
+
+While the text reads as a point, the shape being drawn follows it and shows its size, but nothing
+is placed until you press Enter. Clicking elsewhere keeps the text, shown dimmed: click the field
+or type again to carry on, or press Escape to clear it.
+
+What you type is kept as dimensions, unless {command:sketch.toggle_typed_dimensions} is turned off.
 
 ## Drawing tools
 
