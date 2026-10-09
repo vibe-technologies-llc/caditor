@@ -141,7 +141,7 @@ paths:
   finished asks for a pick again (`ViewportState::pick_again`), since picks made meanwhile could
   not pick the replaced bodies. Every request goes through `Session::request_redraw`, never straight to the window.
   Animated widgets (`widgets::spinner`) and progress readouts repaint on a timer
-  (`request_repaint_after`), never every frame (`app-look.md`).
+  (`request_repaint_after`), never every frame, and the text caret does not blink (`app-look.md`).
 - `FramePacer` (`graphics.rs`) holds requests to the frame limit: the chosen rate's interval, or
   for Match the display the monitor's refresh rate only while vsync is off (`Fifo` already paces
   to it); none when unlimited or unknown. An early request is scheduled for the next slot

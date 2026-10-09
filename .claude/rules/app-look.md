@@ -171,7 +171,8 @@ paths:
     from the input time and asks for the next frame after `SPINNER_FRAME` (about 15 a second),
     since egui's own `Spinner` requests a repaint every frame and would drive the whole app and
     the 3D pass at the display's rate while a job runs (`conventions_tests.rs` refuses the raw
-    one).
+    one). The text caret is solid (`text_cursor.blink` off in `appearance::visuals`), so a focused
+    field never blinks indefinitely or wakes an idle app.
 - `dialog_parts.rs` holds what dialogs share beyond the kit: `confirmation` and `confirm_footer`
   (warning callout, destructive action left, primary Cancel right), `undo_note`, `titled_modal`
   (no close button, for waits that cannot be cancelled) and `BodyRoom` (keeps the whole dialog
