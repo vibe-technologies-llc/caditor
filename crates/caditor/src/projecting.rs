@@ -27,6 +27,7 @@ pub fn projectable(model: &Model, active: ActiveSketch, pickable: Pickable) -> b
     match (active.tool.intersects(), pickable) {
         (true, Pickable::Face { .. }) => true,
         (true, Pickable::Datum(datum)) => datum_tools::is_plane(model.document(), datum),
+        (true, Pickable::Plane(_)) => true,
         (true, _) => false,
         (false, Pickable::Edge { .. } | Pickable::Vertex { .. } | Pickable::Face { .. }) => true,
         (false, Pickable::SketchEntity { feature, entity }) => {
@@ -50,6 +51,7 @@ pub fn describe(model: &Model, active: ActiveSketch, pickable: Pickable) -> Opti
                 ))
             }
             Pickable::Datum(datum) => Some(format!("Intersect {}", feature_name(document, datum))),
+            Pickable::Plane(plane) => Some(format!("Intersect the {}", plane.name())),
             _ => None,
         };
     }
@@ -241,6 +243,10 @@ fn already_projected(definition: &SketchFeature, source: &ProjectionSource) -> b
                 ProjectionSource::DatumPlane { datum, .. },
                 ProjectionSource::DatumPlane { datum: other, .. },
             ) => datum == other,
+            (
+                ProjectionSource::PrincipalPlane { plane, .. },
+                ProjectionSource::PrincipalPlane { plane: other, .. },
+            ) => plane == other,
             _ => existing == source,
         })
 }
@@ -323,9 +329,30 @@ fn intersect(
                 label,
             )
         }
+        Pickable::Plane(principal) => {
+            let reach = datum_reach(model, &principal.plane(), &plane);
+            let outline = datum_outline(&principal.plane(), &plane, reach).ok_or_else(|| {
+                format!(
+                    "The {} is parallel to the sketch, so it does not cross it",
+                    principal.name()
+                )
+            })?;
+            (
+                vec![(
+                    ProjectionSource::PrincipalPlane {
+                        plane: principal,
+                        reach,
+                    },
+                    outline,
+                )],
+                true,
+                format!("Intersect the {}", principal.name()),
+            )
+        }
         _ => {
             return Err(
-                "Only faces and bodies, and datum planes, can be intersected with the sketch"
+                "Only faces and bodies, and datum and principal planes, can be intersected with \
+                 the sketch"
                     .to_owned(),
             );
         }

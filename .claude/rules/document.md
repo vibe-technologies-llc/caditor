@@ -479,7 +479,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `DatumPlane { datum, reach }` is the line where an earlier datum plane crosses the sketch
   plane, centred where it passes nearest the sketch origin and `reach` long either way;
   `datum_outline` gives none for a parallel plane. Datum sources count in `planes_used`, so an
-  edit refuses one that is not a datum plane (`NotAPlane`).
+  edit refuses one that is not a datum plane (`NotAPlane`). A `PrincipalPlane { plane, reach }`
+  is the same line for the XY, XZ or YZ plane; it has no source feature (`ProjectionSource::feature`
+  is `None`), so only the sketch's own plane moves it and a failure names the plane.
 - Datums are planes, axes and points with a `DatumResult`, referring to model geometry in each
   body's state at the feature's place in the tree. Edits refuse a sketch or plane based on a
   non-datum-plane (`NotAPlane`), an axis reference to a non-datum-axis (`NotAnAxis`), a point

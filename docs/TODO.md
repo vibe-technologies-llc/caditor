@@ -159,9 +159,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   leave it fully constrained, each set previewed before it is added as one undoable change. A
   check of the sketch would also name what the eye misses (ends a hair apart but not joined, a
   curve lying twice on itself or another, curves of no length) and offer the fix.
-- [low · easy] Intersect takes faces, bodies and datum planes but not the principal planes, which
-  are not drawn while a sketch is edited; a sketch on a tilted datum cannot draw where the XY
-  plane crosses it.
 - [low · easy] Nothing selects what is still free: a sketch counts its remaining degrees of
   freedom and colours its curves, but no command selects the points and curves not yet fully
   constrained, so the one loose point of a large sketch is found by eye.

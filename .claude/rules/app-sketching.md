@@ -187,13 +187,14 @@ paths:
 - Intersect (`Tool::Intersect`, Alt+I, Sketch menu, palette; not on the sketch bar, whose Edit
   group would grow a row, `sketch_toolbar::OFF_RIBBON`) draws where the model crosses the sketch
   plane. It is a projecting tool (`Tool::projects`), so bodies are pickable as for Project, and
-  `Context::intersecting` also draws and offers the shown datum planes above the sketch. A click
-  on a face adds the cut through that face (`section_curves`, filtered by the face's name), a
-  Shift-click or `Command::IntersectBody` (Shift+Space, on the highlighted or hovered face) the
-  cut through its whole body, and a click on a datum plane the line where it crosses the sketch
-  as a construction line, spanning the shown bodies (`datum_reach`). Each is one undoable
-  transaction from the body's state at the sketch; a plane missing the face or body, a parallel
-  datum plane, a later datum and cuts already drawn are refused in words.
+  `Context::intersecting` also draws and offers the shown datum planes above the sketch and the
+  shown principal planes that cross it (a parallel one is not drawn). A click on a face adds the
+  cut through that face (`section_curves`, filtered by the face's name), a Shift-click or
+  `Command::IntersectBody` (Shift+Space, on the highlighted or hovered face) the cut through its
+  whole body, and a click on a datum or principal plane the line where it crosses the sketch as a
+  construction line, spanning the shown bodies (`datum_reach`). Each is one undoable transaction
+  from the body's state at the sketch; a plane missing the face or body, a parallel plane, a later
+  datum and cuts already drawn are refused in words.
 - Projected geometry is drawn in the `PROJECTED` palette, is never grabbed or dragged and follows
   its source on every recompute (`document.md`).
 

@@ -17671,6 +17671,61 @@ fn the_intersect_tool_draws_where_the_sketch_cuts_a_face_the_whole_body_or_a_dat
 }
 
 #[test]
+fn the_intersect_tool_draws_where_a_principal_plane_crosses_the_sketch() {
+    let mut harness = Harness::new();
+    let across = Plane::from_frame(Point3::new(0.0, 20.0, 0.0), -Vector3::Y, Vector3::X).unwrap();
+    let sketch = harness.add_sketch(Sketch::new(across));
+    harness.edit(sketch);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let principal = |harness: &mut Harness, plane: caditor_document::PrincipalPlane| {
+        harness
+            .built()
+            .picks
+            .pickables()
+            .any(|pickable| pickable == Pickable::Plane(plane))
+    };
+
+    assert!(!principal(
+        &mut harness,
+        caditor_document::PrincipalPlane::Xy
+    ));
+
+    harness.use_tool_with(Key::I, Modifiers::ALT);
+
+    assert!(principal(
+        &mut harness,
+        caditor_document::PrincipalPlane::Xy
+    ));
+    assert!(principal(
+        &mut harness,
+        caditor_document::PrincipalPlane::Yz
+    ));
+    assert!(!principal(
+        &mut harness,
+        caditor_document::PrincipalPlane::Xz
+    ));
+
+    let level = Pickable::Plane(caditor_document::PrincipalPlane::Xy);
+    harness.click_pickable(across, Point2::new(5.0, 0.0), level);
+    harness.settle();
+    let along = harness
+        .sketch(sketch)
+        .projected()
+        .find(|id| harness.sketch(sketch).is_construction(*id))
+        .expect("the principal plane's cut is a construction line");
+    let (start, end) = harness.shown(sketch).line_endpoints(along).unwrap();
+
+    assert_eq!(harness.model.undo_label(), Some("Intersect the XY plane"));
+    assert!(across.to_world(start).z.abs() < 1e-9 && across.to_world(end).z.abs() < 1e-9);
+
+    harness.click_pickable(across, Point2::new(5.0, 0.0), level);
+    harness.settle();
+
+    assert!(harness.shows_containing(crate::projecting::ALREADY_INTERSECTED));
+}
+
+#[test]
 fn a_hole_at_a_circle_can_take_the_circle_s_diameter_from_its_panel() {
     let mut harness = Harness::new();
     let (plate, _) = extruded_plate(&mut harness);
