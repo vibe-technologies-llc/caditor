@@ -1020,6 +1020,9 @@ fn not_a_target(model: &Model, pickable: Pickable, index: usize) -> Option<&'sta
         Pickable::Datum(datum) if datum_tools::is_plane(model.document(), datum) => {
             Some("The selected plane comes after this feature in the tree")
         }
+        Pickable::FramePlane { .. } => {
+            Some("The selected coordinate system comes after this feature in the tree")
+        }
         Pickable::Datum(_) => Some("The selected datum is not a plane"),
         _ => None,
     }

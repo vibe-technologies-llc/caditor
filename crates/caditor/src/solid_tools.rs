@@ -449,7 +449,7 @@ pub fn default_operation(document: &Document, before: Option<FeatureId>) -> Body
 pub fn face_body(document: &Document, sketch: FeatureId) -> Option<FeatureId> {
     let body = match document.feature(sketch)?.kind.attachment()? {
         SketchAttachment::Face(face) => face.body,
-        SketchAttachment::Datum(_) => return None,
+        SketchAttachment::Datum(_) | SketchAttachment::Frame { .. } => return None,
     };
     document.bodies_standing().contains(&body).then_some(body)
 }

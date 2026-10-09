@@ -446,9 +446,37 @@ paths:
 - Outside sketch editing datums are picked as `Pickable::Datum` and tinted when failed;
   double-clicking one opens it.
 
+## Coordinate systems
+
+- Coordinate system (`Command::CoordinateSystem`, Model menu's Datums group and the palette, no
+  default key and not on the ribbon, which it would widen past one row) takes from the selection
+  (`datum_tools::frame_from_selection`) at most one point for its origin (else the origin), one
+  axis, straight edge, round face, sketch line or another system's axis for its X axis and one
+  plane, flat face or another system's plane for its XY plane, two of a kind refused with
+  `FRAME_CHOICES`. A missing axis is the principal axis lying flattest in the chosen plane, a
+  missing plane the principal plane holding the chosen axis best (directions read through
+  `measure::direction_of`), so the defaults never stand square to each other.
+- Its panel has Origin, X axis and XY plane reference rows, each with Use selected and Choose in
+  the view (slots `FrameOrigin`, `FrameAxis`, `FramePlane`, `datum_panel::frame_change`), and the
+  Reverse X and Reverse Z switches.
+- It is drawn (`scene::Builder::frame`) as a triad at its origin `FRAME_AXIS_SCALE` of the
+  reference size long: an origin marker that is `Pickable::Datum` (selecting and opening the
+  feature), an axis line per axis in the palette's axis colours (`Pickable::FrameAxis`) and a small
+  square in the datum colours per plane (`Pickable::FramePlane`), tinted when failed. Those
+  pickables are axes and planes wherever one is taken from the selection (`datum_tools`
+  `plane_reference`, `axis_reference`, `chosen_plane`, `sketch_placement::DatumTarget`), so
+  patterns, mirrors, splits, primitives, revolves, moves, datums and sketches use them, and they
+  are listed in the pattern and move axis lists (`pattern_tools::listed_axes`) and the mirror and
+  split plane lists (`datum_tools::listed_planes`) for every system above the feature.
+- A move's Directions combo (World, or a coordinate system above it; shown once the model has
+  one) sets `Move::frame`, with a description saying it turns and shifts along that system's axes;
+  the manipulator's arrows, squares and rings follow the system's axes (`Model::move_frame`, the
+  world being `Plane::XY`).
+
 ## Sketches on faces and planes
 
-- New sketch starts on the one selected principal plane, datum plane or flat face
+- New sketch starts on the one selected principal plane, datum plane, coordinate system plane or
+  flat face
   (`sketch_placement::sketch_target`, several refused with `SEVERAL_TO_SKETCH_ON`, as Place on the
   selection does); while choosing a plane a click on any of them does the same.
 - The attachment is captured from the body's state where the sketch sits in the tree: a face made

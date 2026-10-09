@@ -1,9 +1,8 @@
-use caditor_document::{
-    Feature, FeatureId, PlaneReference, PrincipalPlane, Split, capitalized, describe_plane,
-};
+use caditor_document::{Feature, FeatureId, Split, capitalized, describe_plane};
 use egui::{Id, Ui};
 
 use crate::{
+    datum_tools,
     feature_fields::{self, Choice, Picker},
     model::{Action, Model},
     reference_picking::Slot,
@@ -39,18 +38,15 @@ impl Panel<'_> {
         widgets::caption(ui, "Split along");
         let chosen =
             feature_fields::combo(ui, Id::new(("split-plane", self.id())), current, || {
-                PrincipalPlane::ALL
+                datum_tools::listed_planes(document, self.id())
                     .into_iter()
-                    .map(|plane| {
-                        let reference = PlaneReference::Principal(plane);
-                        Choice {
-                            label: capitalized(&describe_plane(document, &reference)),
-                            selected: self.split.plane == reference,
-                            change: self.change(Split {
-                                plane: reference,
-                                ..self.split.clone()
-                            }),
-                        }
+                    .map(|reference| Choice {
+                        label: capitalized(&describe_plane(document, &reference)),
+                        selected: self.split.plane == reference,
+                        change: self.change(Split {
+                            plane: reference,
+                            ..self.split.clone()
+                        }),
                     })
                     .collect()
             });

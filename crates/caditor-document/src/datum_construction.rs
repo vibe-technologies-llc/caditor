@@ -4,8 +4,8 @@ use caditor_kernel::{Curve, EdgeId, FaceId, Interval, LINEAR_RESOLUTION, Referen
 
 use crate::{
     datum::{
-        AxisReference, CurveStation, FaceTangent, PlaneReference, PointBy, Resolver, capitalized,
-        describe_axis, describe_plane, face_axis, feature_name,
+        AxisReference, CurveStation, DatumFrame, FaceTangent, PlaneReference, PointBy, Resolver,
+        capitalized, describe_axis, describe_plane, face_axis, feature_name,
     },
     describe::describe_origin,
     recompute::Failure,
@@ -312,4 +312,40 @@ pub(crate) fn point_by(resolver: &Resolver<'_>, by: &PointBy) -> Result<Point3, 
             "Choose other references.",
         ))
     }
+}
+
+pub(crate) fn coordinate_system(
+    resolver: &Resolver<'_>,
+    frame: &DatumFrame,
+) -> Result<Plane, Failure> {
+    let document = resolver.inputs.document;
+    let origin = resolver.point(&frame.origin)?;
+    let axis = resolver.axis(&frame.x_axis)?;
+    let plane = resolver.plane(&frame.plane)?;
+    let normal = if frame.reverse_z {
+        -plane.normal()
+    } else {
+        plane.normal()
+    };
+    let along = if frame.reverse_x {
+        -axis.direction()
+    } else {
+        axis.direction()
+    };
+    if tolerance::parallel(along, normal) {
+        return Err(resolver.own_error(
+            format!(
+                "{} stands square to {}, so it gives no direction in that plane for the X axis.",
+                capitalized(&describe_axis(document, &frame.x_axis)),
+                describe_plane(document, &frame.plane)
+            ),
+            "Choose an axis or straight edge that runs along the plane, or another plane.",
+        ));
+    }
+    Plane::with_x_axis(origin, normal, along).ok_or_else(|| {
+        resolver.own_error(
+            "The coordinate system could not be placed.".to_owned(),
+            "Choose another point, axis or plane for it.",
+        )
+    })
 }

@@ -22,7 +22,7 @@ use crate::{
     canvas,
     comb::CombDrawing,
     commands::{CameraMove, Command, CommandFrame, StandardView},
-    datum_tools, dimensioning,
+    dimensioning,
     display::Displayed,
     display_style::DisplayStyle,
     drag_solver::DragCommand,
@@ -49,7 +49,7 @@ use crate::{
     shape_modes::ShapeMode,
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
-    sketch_placement::{self, FaceChoice},
+    sketch_placement::{self, DatumTarget, FaceChoice},
     sketch_toolbar, sketch_tools,
     snap::{Hold, Pointer, Screen},
     snapshot, solid_tools,
@@ -3680,7 +3680,9 @@ fn outcome_action(outcome: Result<Option<Transaction>, String>) -> Option<Action
 fn open_command(pickable: Option<Pickable>, model: &Model) -> Option<EditingCommand> {
     match pickable? {
         Pickable::SketchEntity { feature, .. } => Some(EditingCommand::Enter(feature)),
-        Pickable::Datum(datum) => Some(EditingCommand::OpenSolid(datum)),
+        Pickable::Datum(datum)
+        | Pickable::FrameAxis { feature: datum, .. }
+        | Pickable::FramePlane { feature: datum, .. } => Some(EditingCommand::OpenSolid(datum)),
         Pickable::Face { body, face } => bodies::shown(model.evaluation(), body)
             .and_then(|shown| bodies::face_origin(shown, face))
             .map(|origin| EditingCommand::OpenSolid(bodies::origin_feature(origin))),
@@ -3758,10 +3760,10 @@ fn pick_action(
     }
     let command = match pickable {
         Some(Pickable::Plane(plane)) => Some(EditingCommand::NewSketch(Some(plane))),
-        Some(Pickable::Datum(datum)) if datum_tools::is_plane(model.document(), datum) => {
-            Some(EditingCommand::NewSketchOnDatum(datum))
-        }
-        Some(pickable) => FaceChoice::of(pickable).map(EditingCommand::NewSketchOnFace),
+        Some(pickable) => match DatumTarget::of(model.document(), pickable) {
+            Some(datum) => Some(EditingCommand::NewSketchOnDatum(datum)),
+            None => FaceChoice::of(pickable).map(EditingCommand::NewSketchOnFace),
+        },
         None => None,
     };
     Some(command.map(Action::Editing).into_iter().collect())

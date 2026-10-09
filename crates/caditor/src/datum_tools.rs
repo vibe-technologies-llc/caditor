@@ -1,13 +1,16 @@
 use caditor_document::{
-    AxisReference, CurveStation, Datum, DatumAxis, DatumKind, DatumPlane, DatumPoint, DatumResult,
-    Document, Edit, Evaluation, FeatureId, FeatureKind, FeatureResult, PlaneReference,
-    PlaneRotation, PlaneThrough, PointBy, PointReference, PrincipalPlane, Transaction,
+    AxisReference, CurveStation, Datum, DatumAxis, DatumFrame, DatumKind, DatumPlane, DatumPoint,
+    DatumResult, Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult,
+    PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointReference, PrincipalAxis,
+    PrincipalPlane, Transaction,
 };
+use caditor_geometry::Vector3;
 use caditor_kernel::{EdgeReference, FaceReference, vertex_names};
 
 use crate::{
     bodies,
     editing::{self, EditingCommand},
+    measure,
     model::{Action, Model, Notice},
     selection::{Pickable, Selection},
     sketch_placement::{self, FaceChoice},
@@ -19,7 +22,7 @@ pub const DEFAULT_ANGLE: f64 = 45.0;
 pub const SEVERAL_PLANES: &str =
     "Several planes or flat faces are selected; select only the one to use";
 pub const DATUM_NOT_A_PLANE: &str =
-    "The selected datum is an axis or a point; select a plane or flat face";
+    "The selected datum is an axis, a point or a coordinate system; select a plane or flat face";
 pub const DATUM_MADE_LATER: &str =
     "The selected datum plane comes later in the tree; select one made before this feature";
 
@@ -52,6 +55,21 @@ pub fn only_plane(
             .iter()
             .filter_map(|pickable| plane_reference(model, pickable, index)),
         SEVERAL_PLANES,
+    )
+}
+
+pub const SEVERAL_POINTS: &str = "Several points are selected; select only the one to use";
+
+pub fn only_point(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<Option<PointReference>, &'static str> {
+    only(
+        selection
+            .iter()
+            .filter_map(|pickable| point_reference(model, pickable, index)),
+        SEVERAL_POINTS,
     )
 }
 
@@ -91,6 +109,13 @@ pub fn chosen_plane(
                 return Err(DATUM_MADE_LATER);
             }
             Pickable::Datum(feature) => planes.push(PlaneReference::Datum(feature)),
+            Pickable::FramePlane { feature, .. } if !comes_before(document, feature, index) => {
+                return Err(DATUM_MADE_LATER);
+            }
+            Pickable::FramePlane { feature, plane } => planes.push(PlaneReference::Frame {
+                frame: feature,
+                plane,
+            }),
             _ => {}
         }
     }
@@ -130,6 +155,27 @@ pub fn result(evaluation: &Evaluation, feature: FeatureId) -> Option<DatumResult
         .copied()
 }
 
+pub fn frames_before(document: &Document, before: usize) -> Vec<FeatureId> {
+    document
+        .features()
+        .take(before)
+        .filter(|candidate| candidate.kind.datum().is_some_and(Datum::is_frame))
+        .map(Feature::id)
+        .collect()
+}
+
+pub fn listed_planes(document: &Document, feature: FeatureId) -> Vec<PlaneReference> {
+    let before = document.feature_index(feature).unwrap_or(usize::MAX);
+    let frames = frames_before(document, before)
+        .into_iter()
+        .flat_map(|frame| PrincipalPlane::ALL.map(|plane| PlaneReference::Frame { frame, plane }));
+    PrincipalPlane::ALL
+        .into_iter()
+        .map(PlaneReference::Principal)
+        .chain(frames)
+        .collect()
+}
+
 pub fn is_plane(document: &Document, feature: FeatureId) -> bool {
     is_datum(document, feature, DatumKind::Plane)
 }
@@ -157,6 +203,13 @@ pub fn plane_reference(model: &Model, pickable: Pickable, index: usize) -> Optio
         {
             Some(PlaneReference::Datum(feature))
         }
+        Pickable::FramePlane { feature, plane } if comes_before(document, feature, index) => {
+            Some(PlaneReference::Frame {
+                frame: feature,
+                plane,
+            })
+        }
+        Pickable::FramePlane { .. } => None,
         pickable => {
             let choice = FaceChoice::of(pickable)?;
             let (attachment, _) = sketch_placement::attachment_at(model, choice, index).ok()?;
@@ -175,6 +228,12 @@ pub fn axis_reference(model: &Model, pickable: Pickable, index: usize) -> Option
                 && comes_before(document, feature, index) =>
         {
             Some(AxisReference::Datum(feature))
+        }
+        Pickable::FrameAxis { feature, axis } if comes_before(document, feature, index) => {
+            Some(AxisReference::Frame {
+                frame: feature,
+                axis,
+            })
         }
         Pickable::Edge { body, edge } => {
             let shown = bodies::shown(evaluation, body)?;
@@ -322,7 +381,10 @@ fn why_unusable(model: &Model, pickable: Pickable, index: usize) -> Option<&'sta
         Pickable::SketchEntity { .. } => {
             Some("Only sketch points made before this datum can place it")
         }
-        Pickable::Datum(_) => {
+        Pickable::Datum(feature) if is_datum(model.document(), feature, DatumKind::Frame) => {
+            Some("Select one of the coordinate system's axes or planes rather than its origin")
+        }
+        Pickable::Datum(_) | Pickable::FrameAxis { .. } | Pickable::FramePlane { .. } => {
             Some("The selected plane, axis or point comes after this point in the tree")
         }
         _ => None,
@@ -493,6 +555,83 @@ pub fn point_from_selection(
         )),
         _ => Err(POINT_CHOICES),
     }
+}
+
+pub const FRAME_CHOICES: &str = "Select at most one point for its origin, one axis or straight \
+                                 edge for its X axis and one plane or flat face for its XY plane";
+
+fn steepness(along: Vector3, normal: Option<Vector3>) -> f64 {
+    normal.map_or(0.0, |normal| {
+        along
+            .normalize_or_zero()
+            .dot(normal.normalize_or_zero())
+            .abs()
+    })
+}
+
+fn least_steep<T: Copy>(
+    choices: impl IntoIterator<Item = (T, Vector3)>,
+    other: Option<Vector3>,
+) -> Option<T> {
+    choices
+        .into_iter()
+        .map(|(choice, along)| (choice, steepness(along, other)))
+        .fold(None, |best: Option<(T, f64)>, (choice, steep)| match best {
+            Some((_, least)) if least <= steep => best,
+            _ => Some((choice, steep)),
+        })
+        .map(|(choice, _)| choice)
+}
+
+pub fn frame_from_selection(
+    model: &Model,
+    selection: &Selection,
+    index: usize,
+) -> Result<Datum, &'static str> {
+    let mut origin = None;
+    let mut x_axis = None;
+    let mut plane = None;
+    for pickable in selection.iter() {
+        let direction = || measure::direction_of(model, pickable);
+        if let Some(found) = plane_reference(model, pickable, index) {
+            if plane.replace((found, direction())).is_some() {
+                return Err(FRAME_CHOICES);
+            }
+        } else if let Some(found) = axis_reference(model, pickable, index) {
+            if x_axis.replace((found, direction())).is_some() {
+                return Err(FRAME_CHOICES);
+            }
+        } else if let Some(found) = point_reference(model, pickable, index) {
+            if origin.replace(found).is_some() {
+                return Err(FRAME_CHOICES);
+            }
+        } else if let Some(reason) = why_unusable(model, pickable, index) {
+            return Err(reason);
+        }
+    }
+    let normal = plane.as_ref().and_then(|(_, normal)| *normal);
+    let along = x_axis.as_ref().and_then(|(_, along)| *along);
+    let x_axis = x_axis.map(|(axis, _)| axis).unwrap_or_else(|| {
+        let flattest = least_steep(
+            PrincipalAxis::ALL.map(|axis| (axis, axis.direction())),
+            normal,
+        );
+        AxisReference::Principal(flattest.unwrap_or(PrincipalAxis::X))
+    });
+    let plane = plane.map(|(plane, _)| plane).unwrap_or_else(|| {
+        let holding = least_steep(
+            PrincipalPlane::ALL.map(|plane| (plane, plane.plane().normal())),
+            along,
+        );
+        PlaneReference::Principal(holding.unwrap_or(PrincipalPlane::Xy))
+    });
+    Ok(Datum::Frame(Box::new(DatumFrame {
+        origin: origin.unwrap_or(PointReference::Origin),
+        x_axis,
+        plane,
+        reverse_x: false,
+        reverse_z: false,
+    })))
 }
 
 pub fn create(document: &Document, datum: Datum) -> (Transaction, FeatureId) {

@@ -411,7 +411,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   a pattern's at the move's place, and an angle expression) it first turns by that angle about
   the axis, in the sense of the axis's direction, then by the three turns about the axis's point
   (`Pivot::Axis`), then shifts; the axis's body, datum and sketch count as used and its edge or
-  face is healed like any reference. It modifies
+  face is healed like any reference. With `frame` (a coordinate system) the turns are about that
+  system's X, Y and Z axes, through its origin when turning about the origin, and the distances
+  run along its axes (`MoveAxis::direction_in`); the system counts as used. It modifies
   its body like a blend does, keeps every face and edge name (`Solid::transformed`) so references
   held through it survive, and fails alone when a value is not a length or angle or the result is
   not finite. With `copy` it leaves the body alone and makes a new body of its own (`makes_body`,
@@ -511,8 +513,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 
 ### Sketch and datum (`attachment.rs`, `datum.rs`)
 
-- A sketch keeps its `Sketch` and optionally a `SketchAttachment`: a datum plane it follows, or on a
-  body a `FaceAttachment`. The stored plane is where it was placed; recompute resolves the reference
+- A sketch keeps its `Sketch` and optionally a `SketchAttachment`: a datum plane it follows, a
+  plane of a coordinate system (`Frame`), or on a body a `FaceAttachment`. The stored plane is where it was placed; recompute resolves the reference
   in the body's state at the sketch's place (`FeatureKind::body_input`) and gives the solved
   geometry the face's plane, normal and frame. Fragments of a split face are accepted when in one
   plane; a lost, split or curved face fails the sketch alone with a fix pointing at it.
@@ -544,12 +546,26 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   plane, centred where it passes nearest the sketch origin and `reach` long either way;
   `datum_outline` gives none for a parallel plane. Datum sources count in `planes_used`, so an
   edit refuses one that is not a datum plane (`NotAPlane`).
-- Datums are planes, axes and points with a `DatumResult`, referring to model geometry in each
-  body's state at the feature's place in the tree. Edits refuse a sketch or plane based on a
-  non-datum-plane (`NotAPlane`), an axis reference to a non-datum-axis (`NotAnAxis`), a point
-  reference to a non-datum-point (`NotAPoint`) and a sketch point or line of a feature that is not
-  a sketch (`NotASketch`, through `FeatureKind::reference_sketches`). `Datum::kind` (plane, axis,
-  point) is what `SetFeatureKind` keeps, so a plane may switch between offset and through forms.
+- Datums are planes, axes, points and coordinate systems with a `DatumResult`, referring to model
+  geometry in each body's state at the feature's place in the tree. Edits refuse a sketch or plane
+  based on a non-datum-plane (`NotAPlane`), an axis reference to a non-datum-axis (`NotAnAxis`), a
+  point reference to a non-datum-point (`NotAPoint`), a reference to a coordinate system's axis or
+  plane naming another kind of feature (`NotACoordinateSystem`, through
+  `FeatureKind::frames_used`, which joins `features()`) and a sketch point or line of a feature
+  that is not a sketch (`NotASketch`, through `FeatureKind::reference_sketches`). `Datum::kind`
+  (plane, axis, point, frame) is what `SetFeatureKind` keeps, so a plane may switch between offset
+  and through forms.
+- A coordinate system (`Datum::Frame`, `DatumFrame`, titled "Coordinate system") has an origin (a
+  `PointReference`), an X axis (an `AxisReference`, an edge included) and an XY plane (a
+  `PlaneReference`); `datum_construction::coordinate_system` takes Z as the plane's normal and X
+  as the axis's direction laid into the plane, each reversed by `reverse_x` and `reverse_z`, Y
+  completing a right-handed frame, so its XY plane is parallel to the chosen plane through the
+  origin. An axis square to the plane fails in words naming both. Its result is
+  `DatumResult::Frame(Plane)`, the frame as its XY plane. `AxisReference::Frame` and
+  `PlaneReference::Frame` name one of its three axes or planes, placed by
+  `PrincipalAxis::in_frame` and `PrincipalPlane::in_frame` (the principal geometry carried by the
+  frame), so they work wherever an axis or plane reference does; `displayed_frame` and
+  `displayed_plane` read them for drawing. A `PointReference::Datum` cannot name one.
 - A `PointReference` is the origin, a datum point, a body corner (`VertexName`, resolved when
   exactly one vertex has it), the centre of a round edge (an `EdgeReference`, pieces of one circle
   accepted), the centre of a spherical or toroidal face (`SurfaceCentre`, a `FaceReference`, pieces

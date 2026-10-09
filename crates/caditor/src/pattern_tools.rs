@@ -474,10 +474,14 @@ pub fn listed_axes(model: &Model, feature: FeatureId) -> Vec<AxisReference> {
         .take(before)
         .filter(|candidate| matches!(candidate.kind.datum(), Some(datum) if datum.is_axis()))
         .map(|datum| AxisReference::Datum(datum.id()));
+    let frames = datum_tools::frames_before(document, before)
+        .into_iter()
+        .flat_map(|frame| PrincipalAxis::ALL.map(|axis| AxisReference::Frame { frame, axis }));
     PrincipalAxis::ALL
         .into_iter()
         .map(AxisReference::Principal)
         .chain(datums)
+        .chain(frames)
         .collect()
 }
 

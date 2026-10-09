@@ -285,9 +285,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   be kept in the model: a named reading between two references, updated on every recompute and
   drawn in the view, by which a clearance is watched while upstream features change and which
   expressions could then use.
-- [low · medium] No user coordinate system: Measure, Move and the patterns read from the origin and
-  the principal axes. A coordinate system placed at a point, its axes taken from edges or faces,
-  would be a second origin to measure and place from.
+- [low · easy] Coordinate systems reach only Measure, Move and what takes an axis or plane: a
+  scale's centre and an imported body's placement still read from the world origin and axes, and
+  a coordinate system's origin cannot be chosen where a point is wanted (no `PointReference` names
+  it), so a datum point or plane through it needs a point of its own.
 - [low · medium] Datums on curved faces: a plane is tangent only to a cylinder or cone, never to a
   sphere, torus or spline face at a point; no axis stands square to a curved face at a point on
   it; and a datum point cannot sit at the middle of an edge or the centre of a face, only at a

@@ -222,6 +222,17 @@ paths:
   `axis_through` records (`points`, `normal_to`), so an older reader reports them rather than
   misreading them; an unreadable reference loads as the XY plane, the Z axis or the origin,
   reported. An axis reference may be a `sketch_line` (`sketch`, `entity`).
+- A coordinate system is a `coordinate_system` record (`origin`, a point reference; `x_axis`, an
+  axis reference; `plane`, a plane reference; `reverse_x` and `reverse_z` only when set), its own
+  kind so an older reader reports it; an unreadable reference loads as the origin, the X axis or
+  the XY plane, reported. An axis reference to one of its axes is `frame` (`frame`, its id, and
+  `axis`), a plane reference to one of its planes `frame` (`frame` and `plane`). A sketch lying on
+  one of its planes is a `sketch_on_frame` record (`feature`, the sketch record, and `frame`, the
+  same `frame` and `plane`), and a move in it a `move_in_frame` record (`feature`, the move record
+  it would be in the world, itself possibly turning about its centre or an axis, and `frame`), since
+  an older reader would leave the sketch where it was or move along the world's axes; an inner
+  record of another kind loads without it, reported. The journal's `set_sketch_placement` carries
+  `frame` for a sketch placed on one.
 - The constructed planes are `plane_construction` records (`tangent` with `body`, `face` and
   `toward`, a point reference; `square_to_curve` with `body`, an `edge` record and the `distance`
   text; `lines`, two axis references) and the constructed points `point_construction` records

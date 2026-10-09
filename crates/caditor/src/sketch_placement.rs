@@ -1,6 +1,7 @@
 use caditor_document::{
-    Document, Edit, FaceAttachment, FeatureId, FeatureKind, FeatureState, PrincipalPlane,
-    SketchAttachment, SketchFeature, Transaction, face_plane,
+    Document, Edit, Evaluation, FaceAttachment, FeatureId, FeatureKind, FeatureState,
+    PrincipalPlane, SketchAttachment, SketchFeature, Transaction, describe_plane, displayed_frame,
+    face_plane,
 };
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::{FaceReference, Solid};
@@ -25,6 +26,54 @@ impl FaceChoice {
         match pickable {
             Pickable::Face { body, face } => Some(Self { body, face }),
             _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DatumTarget {
+    Plane(FeatureId),
+    Frame {
+        frame: FeatureId,
+        plane: PrincipalPlane,
+    },
+}
+
+impl DatumTarget {
+    pub fn of(document: &Document, pickable: Pickable) -> Option<Self> {
+        match pickable {
+            Pickable::Datum(feature) if datum_tools::is_plane(document, feature) => {
+                Some(Self::Plane(feature))
+            }
+            Pickable::FramePlane { feature, plane } => Some(Self::Frame {
+                frame: feature,
+                plane,
+            }),
+            _ => None,
+        }
+    }
+
+    fn attachment(self) -> SketchAttachment {
+        match self {
+            Self::Plane(datum) => SketchAttachment::Datum(datum),
+            Self::Frame { frame, plane } => SketchAttachment::Frame { frame, plane },
+        }
+    }
+
+    fn plane(self, evaluation: &Evaluation) -> Option<Plane> {
+        match self {
+            Self::Plane(datum) => datum_tools::result(evaluation, datum)?.plane(),
+            Self::Frame { frame, plane } => plane.in_frame(&displayed_frame(evaluation, frame)?),
+        }
+    }
+
+    pub fn name(self, document: &Document) -> String {
+        match self {
+            Self::Plane(datum) => feature_name(document, datum),
+            Self::Frame { frame, plane } => describe_plane(
+                document,
+                &caditor_document::PlaneReference::Frame { frame, plane },
+            ),
         }
     }
 }
@@ -194,7 +243,7 @@ pub fn detach(model: &Model, sketch: FeatureId) -> Option<Transaction> {
     let document = model.document();
     let what = match document.feature(sketch)?.kind.attachment()? {
         SketchAttachment::Face(_) => "face",
-        SketchAttachment::Datum(_) => "plane",
+        SketchAttachment::Datum(_) | SketchAttachment::Frame { .. } => "plane",
     };
     let plane = scene::sketch_plane(document, model.evaluation(), sketch)?;
     let name = feature_name(document, sketch);
@@ -212,22 +261,30 @@ pub fn describe(document: &Document, attachment: &SketchAttachment) -> String {
     match attachment {
         SketchAttachment::Face(face) => bodies::describe_origin(document, face.face.origin()),
         SketchAttachment::Datum(datum) => feature_name(document, *datum),
+        SketchAttachment::Frame { frame, plane } => DatumTarget::Frame {
+            frame: *frame,
+            plane: *plane,
+        }
+        .name(document),
     }
 }
 
 pub fn new_sketch_on_datum(
     model: &Model,
-    datum: FeatureId,
+    datum: DatumTarget,
 ) -> Result<(Transaction, FeatureId), String> {
     let document = model.document();
-    let plane = datum_tools::result(model.evaluation(), datum)
-        .and_then(|result| result.plane())
+    let plane = datum
+        .plane(model.evaluation())
         .ok_or("The selected plane has no position yet")?;
     let name = editing::next_sketch_name(document);
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
         name,
-        FeatureKind::Sketch(SketchFeature::on_datum(Sketch::new(plane), datum)),
+        FeatureKind::Sketch(SketchFeature {
+            attachment: Some(datum.attachment()),
+            ..SketchFeature::from(Sketch::new(plane))
+        }),
     );
     let transaction = transaction.finish();
     document
@@ -239,10 +296,10 @@ pub fn new_sketch_on_datum(
 pub fn place_on_datum(
     model: &Model,
     sketch: FeatureId,
-    datum: FeatureId,
+    datum: DatumTarget,
 ) -> Result<Transaction, &'static str> {
     let document = model.document();
-    let attachment = SketchAttachment::Datum(datum);
+    let attachment = datum.attachment();
     if document
         .feature(sketch)
         .and_then(|feature| feature.kind.attachment())
@@ -250,12 +307,12 @@ pub fn place_on_datum(
     {
         return Err("The sketch already lies on the selected plane");
     }
-    let plane = datum_tools::result(model.evaluation(), datum)
-        .and_then(|result| result.plane())
+    let plane = datum
+        .plane(model.evaluation())
         .ok_or("The selected plane has no position yet")?;
     let name = feature_name(document, sketch);
     let transaction = Transaction::single(
-        format!("Place {name} on {}", feature_name(document, datum)),
+        format!("Place {name} on {}", datum.name(document)),
         Edit::SetSketchPlacement {
             feature: sketch,
             plane,
@@ -272,7 +329,7 @@ const NOTHING_TO_PLACE_ON: &str = "Select a datum plane or a flat face to place 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlacementTarget {
-    Plane(FeatureId),
+    Plane(DatumTarget),
     Face(FaceChoice),
 }
 
@@ -285,11 +342,9 @@ pub fn placement_target(
 ) -> Result<Option<PlacementTarget>, &'static str> {
     let targets: Vec<PlacementTarget> = selection
         .iter()
-        .filter_map(|pickable| match pickable {
-            Pickable::Datum(feature) if datum_tools::is_plane(document, feature) => {
-                Some(PlacementTarget::Plane(feature))
-            }
-            pickable => FaceChoice::of(pickable).map(PlacementTarget::Face),
+        .filter_map(|pickable| match DatumTarget::of(document, pickable) {
+            Some(datum) => Some(PlacementTarget::Plane(datum)),
+            None => FaceChoice::of(pickable).map(PlacementTarget::Face),
         })
         .collect();
     match targets.as_slice() {
@@ -302,7 +357,7 @@ pub fn placement_target(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SketchTarget {
     Principal(PrincipalPlane),
-    Datum(FeatureId),
+    Datum(DatumTarget),
     Face(FaceChoice),
     Choose,
 }
@@ -313,10 +368,10 @@ pub fn sketch_target(model: &Model, selection: &Selection) -> Result<SketchTarge
         .iter()
         .filter_map(|pickable| match pickable {
             Pickable::Plane(plane) => Some(SketchTarget::Principal(plane)),
-            Pickable::Datum(feature) if datum_tools::is_plane(document, feature) => {
-                Some(SketchTarget::Datum(feature))
-            }
-            pickable => FaceChoice::of(pickable).map(SketchTarget::Face),
+            pickable => match DatumTarget::of(document, pickable) {
+                Some(datum) => Some(SketchTarget::Datum(datum)),
+                None => FaceChoice::of(pickable).map(SketchTarget::Face),
+            },
         })
         .collect();
     match targets.as_slice() {

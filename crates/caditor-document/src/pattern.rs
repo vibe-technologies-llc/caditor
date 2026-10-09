@@ -226,6 +226,13 @@ impl Pattern {
             .collect()
     }
 
+    pub fn axis_frames(&self) -> BTreeSet<FeatureId> {
+        self.axes()
+            .into_iter()
+            .filter_map(AxisReference::frame)
+            .collect()
+    }
+
     pub fn axis_bodies(&self) -> BTreeSet<FeatureId> {
         self.axes()
             .into_iter()

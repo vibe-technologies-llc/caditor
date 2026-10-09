@@ -363,6 +363,34 @@ impl FeatureKind {
         }
     }
 
+    pub fn frames_used(&self) -> BTreeSet<FeatureId> {
+        match self {
+            Self::Sketch(sketch) => sketch
+                .attachment
+                .as_ref()
+                .and_then(SketchAttachment::frame)
+                .map(|(frame, _)| frame)
+                .into_iter()
+                .collect(),
+            Self::Solid(solid) => solid.frames(),
+            Self::Datum(datum) => datum.frames(),
+            Self::Pattern(pattern) => pattern.axis_frames(),
+            Self::Move(movement) => movement.frames(),
+            Self::Mirror(mirror) => mirror.plane.frame().into_iter().collect(),
+            Self::Split(split) => split.plane.frame().into_iter().collect(),
+            Self::Primitive(primitive) => primitive.plane.frame().into_iter().collect(),
+            Self::Blend(_)
+            | Self::Shell(_)
+            | Self::OffsetFace(_)
+            | Self::Combine(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Import(_)
+            | Self::Remove(_)
+            | Self::Thread(_) => BTreeSet::new(),
+        }
+    }
+
     pub fn points_used(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Datum(datum) => datum.point_datums(),
@@ -851,6 +879,7 @@ impl FeatureKind {
         used.extend(self.bodies_used());
         used.extend(self.planes_used());
         used.extend(self.axes_used());
+        used.extend(self.frames_used());
         used
     }
 

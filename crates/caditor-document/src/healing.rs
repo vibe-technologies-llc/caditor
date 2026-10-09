@@ -256,6 +256,11 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             }
             PointBy::Along(station) => visit_station(station, visitor),
         },
+        FeatureKind::Datum(Datum::Frame(frame)) => {
+            visit_point(&mut frame.origin, "origin", visitor);
+            visit_axis(&mut frame.x_axis, "X axis", visitor);
+            visit_plane(&mut frame.plane, "the face giving its XY plane", visitor);
+        }
         FeatureKind::Import(_) => {}
     }
 }
@@ -271,7 +276,10 @@ fn visit_axis(axis: &mut AxisReference, role: &str, visitor: &mut impl Reference
         AxisReference::Face { body, face } => {
             visitor.face(*body, face, &format!("the face giving its {role}"));
         }
-        AxisReference::Principal(_) | AxisReference::Datum(_) | AxisReference::Sketch { .. } => {}
+        AxisReference::Principal(_)
+        | AxisReference::Datum(_)
+        | AxisReference::Sketch { .. }
+        | AxisReference::Frame { .. } => {}
     }
 }
 

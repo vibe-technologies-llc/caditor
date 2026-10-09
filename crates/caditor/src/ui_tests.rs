@@ -65,6 +65,7 @@ use crate::{
     view_cube, widgets, window_frame,
 };
 
+mod coordinate_systems;
 mod feature_panels;
 mod import_jobs;
 mod pick_list;

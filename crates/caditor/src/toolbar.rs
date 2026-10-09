@@ -142,7 +142,10 @@ fn group_buttons(
             scale_button(ui, model, context, commands, actions);
         }
         Group::Pattern => pattern_buttons(ui, model, context, commands, actions),
-        Group::Reference => datum_buttons(ui, model, context, commands, actions),
+        Group::Reference => {
+            datum_buttons(ui, model, context, commands, actions);
+            coordinate_system_offer(model, context, commands, actions);
+        }
         Group::Inspect => {
             measure_button(ui, context.measuring, commands);
             interference_button(ui, context.checking_interference, commands);
@@ -201,10 +204,7 @@ fn sketch_buttons(
         Ok(SketchTarget::Datum(datum)) => (
             format!(
                 "Start a sketch on {}; it follows the plane when the model changes",
-                model
-                    .document()
-                    .feature(datum)
-                    .map_or("the selected plane", |datum| datum.name.as_str())
+                datum.name(model.document())
             ),
             EditingCommand::NewSketchOnDatum(datum),
         ),
@@ -463,6 +463,20 @@ fn datum_buttons(
         && let Ok(point) = point
     {
         actions.extend(datum_tools::create_actions(document, point));
+    }
+}
+
+fn coordinate_system_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let frame = &context.offers.coordinate_system;
+    if commands.invoke(Command::CoordinateSystem, frame)
+        && let Ok(frame) = frame
+    {
+        actions.extend(datum_tools::create_actions(model.document(), frame.clone()));
     }
 }
 

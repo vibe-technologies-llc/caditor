@@ -1,8 +1,8 @@
 use caditor_document::{
-    AxisReference, CurveStation, Datum, DatumAxis, DatumPlane, DatumPoint, Document, FaceTangent,
-    Feature, FeatureId, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointReference,
-    Transaction, capitalized, describe_axis, describe_curve, describe_origin, describe_plane,
-    describe_point, describe_points,
+    AxisReference, CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document,
+    FaceTangent, Feature, FeatureId, PlaneReference, PlaneRotation, PlaneThrough, PointBy,
+    PointReference, Transaction, capitalized, describe_axis, describe_curve, describe_origin,
+    describe_plane, describe_point, describe_points,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -20,6 +20,60 @@ use crate::{
 pub const PLANE_DESCRIPTION: &str = "A reference plane to sketch on or extrude up to";
 pub const AXIS_DESCRIPTION: &str = "A reference axis to revolve, pattern or turn planes about";
 pub const POINT_DESCRIPTION: &str = "A reference point to place planes and axes through";
+pub const FRAME_DESCRIPTION: &str = "A second origin to measure and move from, and whose axes and \
+                                     planes place patterns, mirrors and sketches: X runs along its \
+                                     axis laid into its plane, Z stands square to the plane";
+pub const REVERSE_X: &str = "Reverse X";
+pub const REVERSE_Z: &str = "Reverse Z";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FramePart {
+    Origin,
+    XAxis,
+    Plane,
+}
+
+impl FramePart {
+    fn slot(self) -> Slot {
+        match self {
+            Self::Origin => Slot::FrameOrigin,
+            Self::XAxis => Slot::FrameAxis,
+            Self::Plane => Slot::FramePlane,
+        }
+    }
+
+    fn caption(self) -> &'static str {
+        match self {
+            Self::Origin => "Origin",
+            Self::XAxis => "X axis",
+            Self::Plane => "XY plane",
+        }
+    }
+
+    fn hover(self) -> &'static str {
+        match self {
+            Self::Origin => {
+                "Stand its origin at the selected corner, centre, sketch point or datum point"
+            }
+            Self::XAxis => {
+                "Run its X axis along the selected axis, straight edge, round face or sketch line"
+            }
+            Self::Plane => "Lay its XY plane along the selected plane or flat face",
+        }
+    }
+
+    fn missing(self) -> &'static str {
+        match self {
+            Self::Origin => {
+                "Select a corner, round edge, sketch point or datum point made before it"
+            }
+            Self::XAxis => {
+                "Select an axis, straight edge, round face or sketch line made before it"
+            }
+            Self::Plane => "Select a plane or flat face made before it",
+        }
+    }
+}
 const CONTAINS_AXIS: &str = "Contains it";
 const SQUARE_TO_AXIS: &str = "Square to it";
 const TANGENT_TO_FACE: &str = "Tangent to it";
@@ -122,7 +176,43 @@ impl Chooser<'_> {
                     chosen => Ok(chosen),
                 }
             }
+            Datum::Frame(held) => {
+                match datum_tools::frame_from_selection(self.model, self.selection, self.index)? {
+                    Datum::Frame(chosen) => Ok(Datum::Frame(Box::new(DatumFrame {
+                        reverse_x: held.reverse_x,
+                        reverse_z: held.reverse_z,
+                        ..*chosen
+                    }))),
+                    chosen => Ok(chosen),
+                }
+            }
         }
+    }
+
+    fn frame_part(&self, datum: &Datum, part: FramePart) -> Result<Datum, &'static str> {
+        let Datum::Frame(frame) = datum else {
+            return Err("Only a coordinate system has an origin, an X axis and an XY plane");
+        };
+        let mut changed = frame.as_ref().clone();
+        let unchanged = match part {
+            FramePart::Origin => {
+                let origin = datum_tools::only_point(self.model, self.selection, self.index)?
+                    .ok_or(part.missing())?;
+                std::mem::replace(&mut changed.origin, origin) == changed.origin
+            }
+            FramePart::XAxis => {
+                let axis = self.only_axis()?.ok_or(part.missing())?;
+                std::mem::replace(&mut changed.x_axis, axis) == changed.x_axis
+            }
+            FramePart::Plane => {
+                let plane = self.only_plane()?.ok_or(part.missing())?;
+                std::mem::replace(&mut changed.plane, plane) == changed.plane
+            }
+        };
+        if unchanged {
+            return Err("It already follows the selection");
+        }
+        Ok(Datum::Frame(Box::new(changed)))
     }
 
     fn rotation(&self, datum: &Datum) -> Result<Datum, &'static str> {
@@ -196,6 +286,17 @@ pub fn base_change(
 ) -> Result<Transaction, String> {
     let chooser = Chooser::of(model, selection, feature);
     chooser.checked(chooser.base(datum))
+}
+
+pub fn frame_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    datum: &Datum,
+    part: FramePart,
+) -> Result<Transaction, String> {
+    let chooser = Chooser::of(model, selection, feature);
+    chooser.checked(chooser.frame_part(datum, part))
 }
 
 pub fn rotation_change(
@@ -547,6 +648,50 @@ impl Panel<'_> {
         }
     }
 
+    fn frame_rows(&mut self, ui: &mut Ui, frame: &DatumFrame) {
+        let document = self.model.document();
+        feature_fields::description_row(ui, FRAME_DESCRIPTION);
+        let datum = Datum::Frame(Box::new(frame.clone()));
+        for (part, shown) in [
+            (FramePart::Origin, describe_point(document, &frame.origin)),
+            (FramePart::XAxis, describe_axis(document, &frame.x_axis)),
+            (FramePart::Plane, describe_plane(document, &frame.plane)),
+        ] {
+            let chooser = self.chooser();
+            let chosen = feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (self.id(), part.slot()),
+                || chooser.checked(chooser.frame_part(&datum, part)),
+            );
+            let picker = self.picker(part.slot(), chosen, part.hover());
+            feature_fields::reference_row(
+                ui,
+                self.model,
+                part.caption(),
+                Shown::Named(capitalized(&shown)),
+                picker,
+                None,
+                self.actions,
+            );
+        }
+        if let Some(reverse_x) = feature_fields::reverse_row(ui, REVERSE_X, frame.reverse_x) {
+            let change = self.change(Datum::Frame(Box::new(DatumFrame {
+                reverse_x,
+                ..frame.clone()
+            })));
+            self.apply(change);
+        }
+        if let Some(reverse_z) = feature_fields::reverse_row(ui, REVERSE_Z, frame.reverse_z) {
+            let change = self.change(Datum::Frame(Box::new(DatumFrame {
+                reverse_z,
+                ..frame.clone()
+            })));
+            self.apply(change);
+        }
+    }
+
     fn point_rows(&mut self, ui: &mut Ui, point: &DatumPoint) {
         let document = self.model.document();
         feature_fields::description_row(ui, POINT_DESCRIPTION);
@@ -674,5 +819,6 @@ pub fn show(
         Datum::Axis(axis) => panel.axis_rows(ui, axis),
         Datum::Point(point) => panel.point_rows(ui, point),
         Datum::PointBy(by) => panel.point_by_rows(ui, by),
+        Datum::Frame(frame) => panel.frame_rows(ui, frame),
     });
 }

@@ -188,6 +188,14 @@ pub enum Pickable {
         face: FaceKey,
     },
     Datum(FeatureId),
+    FrameAxis {
+        feature: FeatureId,
+        axis: PrincipalAxis,
+    },
+    FramePlane {
+        feature: FeatureId,
+        plane: PrincipalPlane,
+    },
     CentreOfMass(FeatureId),
 }
 
@@ -210,6 +218,14 @@ pub fn swept_regions<'a>(
 ) -> Option<(FeatureId, &'a [SketchRegion])> {
     let sketch = document.feature(feature)?.kind.solid()?.sketch();
     Some((sketch, sketch_regions(evaluation, sketch)?))
+}
+
+fn frame_name(document: &Document, frame: FeatureId) -> &str {
+    document
+        .feature(frame)
+        .map_or("A deleted coordinate system", |feature| {
+            feature.name.as_str()
+        })
 }
 
 pub fn body_name(document: &Document, body: FeatureId) -> &str {
@@ -237,7 +253,9 @@ impl Pickable {
             | Self::Region { feature, .. }
             | Self::BlendEdge { feature, .. }
             | Self::ShellFace { feature, .. }
-            | Self::Datum(feature) => Some(feature),
+            | Self::Datum(feature)
+            | Self::FrameAxis { feature, .. }
+            | Self::FramePlane { feature, .. } => Some(feature),
             Self::Face { body, .. }
             | Self::Edge { body, .. }
             | Self::Vertex { body, .. }
@@ -332,6 +350,12 @@ impl Pickable {
             Self::Datum(feature) => document
                 .feature(feature)
                 .map_or_else(|| "A deleted datum".to_owned(), |datum| datum.name.clone()),
+            Self::FrameAxis { feature, axis } => {
+                format!("{} › {}", frame_name(document, feature), axis.name())
+            }
+            Self::FramePlane { feature, plane } => {
+                format!("{} › {}", frame_name(document, feature), plane.name())
+            }
             Self::CentreOfMass(body) => format!("Centre of mass of {}", body_name(document, body)),
             Self::ShellFace { feature, face } => {
                 let owner = document
@@ -475,6 +499,13 @@ impl Pickable {
                         .is_some_and(|datum| datum.kind.datum().is_some())
                     && (context.solid == Some(feature) || visibility::is_shown(document, feature))
                     && datum_tools::result(evaluation, feature).is_some()
+            }
+            Self::FrameAxis { feature, .. } | Self::FramePlane { feature, .. } => {
+                editing.is_none()
+                    && (context.solid == Some(feature) || visibility::is_shown(document, feature))
+                    && datum_tools::result(evaluation, feature)
+                        .and_then(|result| result.frame())
+                        .is_some()
             }
             Self::ShellFace { feature, face } => {
                 context.solid == Some(feature)

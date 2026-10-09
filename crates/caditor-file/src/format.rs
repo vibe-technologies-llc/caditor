@@ -7,10 +7,10 @@ use std::{
 use caditor_document::{
     AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, CircularPattern, Combine, CombineOperation, CurveStation, Datum, DatumAxis,
-    DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment,
-    FaceColour, FaceTangent, Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom,
-    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import,
-    LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
+    DatumFrame, DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent,
+    FaceAttachment, FaceColour, FaceTangent, Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView,
     OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind,
@@ -219,6 +219,38 @@ pub(crate) enum FeatureKindRecord {
     FeatureMirror(Box<FeatureMirrorRecord>),
     Primitive(Box<PrimitiveRecord>),
     Thread(Box<ThreadRecord>),
+    CoordinateSystem(Box<CoordinateSystemRecord>),
+    MoveInFrame(Box<MoveInFrameRecord>),
+    SketchOnFrame(Box<SketchOnFrameRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CoordinateSystemRecord {
+    pub origin: Lenient<PointReferenceRecord>,
+    pub x_axis: Lenient<AxisReferenceRecord>,
+    pub plane: Lenient<PlaneReferenceRecord>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reverse_x: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reverse_z: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MoveInFrameRecord {
+    pub feature: FeatureKindRecord,
+    pub frame: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct SketchOnFrameRecord {
+    pub feature: FeatureKindRecord,
+    pub frame: FramePlaneRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FramePlaneRecord {
+    pub frame: u64,
+    pub plane: PrincipalPlaneRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -358,7 +390,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 44] = [
+pub(crate) const FEATURE_KINDS: [&str; 47] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -403,6 +435,9 @@ pub(crate) const FEATURE_KINDS: [&str; 44] = [
     "feature_mirror",
     "primitive",
     "thread",
+    "coordinate_system",
+    "move_in_frame",
+    "sketch_on_frame",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -474,6 +509,7 @@ pub(crate) enum PlaneReferenceRecord {
     Principal(PrincipalPlaneRecord),
     Datum(u64),
     Face(AttachmentRecord),
+    Frame(FramePlaneRecord),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -481,9 +517,22 @@ pub(crate) enum PlaneReferenceRecord {
 pub(crate) enum AxisReferenceRecord {
     Principal(PrincipalAxisRecord),
     Datum(u64),
-    Edge { body: u64, edge: EdgeRecord },
-    Face { body: u64, face: FaceRecord },
-    SketchLine { sketch: u64, entity: u64 },
+    Edge {
+        body: u64,
+        edge: EdgeRecord,
+    },
+    Face {
+        body: u64,
+        face: FaceRecord,
+    },
+    SketchLine {
+        sketch: u64,
+        entity: u64,
+    },
+    Frame {
+        frame: u64,
+        axis: PrincipalAxisRecord,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1226,6 +1275,8 @@ pub(crate) enum EditRecord {
         attachment: Option<AttachmentRecord>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         datum: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame: Option<FramePlaneRecord>,
     },
     SetDimension {
         feature: u64,
@@ -1531,7 +1582,18 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }));
     }
     match kind {
-        FeatureKind::Sketch(sketch) => FeatureKindRecord::Sketch(sketch_record(sketch)),
+        FeatureKind::Sketch(sketch) => {
+            let record = FeatureKindRecord::Sketch(sketch_record(sketch));
+            match sketch.attachment.as_ref().and_then(SketchAttachment::frame) {
+                Some((frame, plane)) => {
+                    FeatureKindRecord::SketchOnFrame(Box::new(SketchOnFrameRecord {
+                        feature: record,
+                        frame: frame_plane_record(frame, plane),
+                    }))
+                }
+                None => record,
+            }
+        }
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude_record(extrude),
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => revolve_record(revolve),
         FeatureKind::Blend(blend) => {
@@ -1642,6 +1704,15 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 PointBy::Along(station) => PointConstructionRecord::Along(station_record(station)),
             }))
         }
+        FeatureKind::Datum(Datum::Frame(frame)) => {
+            FeatureKindRecord::CoordinateSystem(Box::new(CoordinateSystemRecord {
+                origin: Lenient::Read(point_record(&frame.origin)),
+                x_axis: Lenient::Read(axis_record(&frame.x_axis)),
+                plane: Lenient::Read(plane_reference_record(&frame.plane)),
+                reverse_x: frame.reverse_x,
+                reverse_z: frame.reverse_z,
+            }))
+        }
         FeatureKind::Shell(shell) => FeatureKindRecord::Shell(ShellRecord {
             body: shell.body.raw(),
             thickness: shell.thickness.to_stored_text(),
@@ -1687,7 +1758,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             } else {
                 FeatureKindRecord::Move(record)
             };
-            match &movement.about {
+            let turned = match &movement.about {
                 TurnCentre::Origin => feature,
                 TurnCentre::Body => {
                     FeatureKindRecord::MoveAboutCentre(Box::new(MoveAboutCentreRecord { feature }))
@@ -1699,6 +1770,13 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                         angle: turn.angle.to_stored_text(),
                     }))
                 }
+            };
+            match movement.frame {
+                Some(frame) => FeatureKindRecord::MoveInFrame(Box::new(MoveInFrameRecord {
+                    feature: turned,
+                    frame: frame.raw(),
+                })),
+                None => turned,
             }
         }
         FeatureKind::Mirror(mirror) => mirror_record(mirror),
@@ -2471,6 +2549,16 @@ fn plane_reference_record(reference: &PlaneReference) -> PlaneReferenceRecord {
         PlaneReference::Face(attachment) => {
             PlaneReferenceRecord::Face(attachment_record(attachment))
         }
+        PlaneReference::Frame { frame, plane } => {
+            PlaneReferenceRecord::Frame(frame_plane_record(*frame, *plane))
+        }
+    }
+}
+
+fn frame_plane_record(frame: FeatureId, plane: PrincipalPlane) -> FramePlaneRecord {
+    FramePlaneRecord {
+        frame: frame.raw(),
+        plane: principal_plane_record(plane),
     }
 }
 
@@ -2522,6 +2610,10 @@ fn axis_record(reference: &AxisReference) -> AxisReferenceRecord {
         AxisReference::Sketch { sketch, entity } => AxisReferenceRecord::SketchLine {
             sketch: sketch.raw(),
             entity: entity.raw(),
+        },
+        AxisReference::Frame { frame, axis } => AxisReferenceRecord::Frame {
+            frame: frame.raw(),
+            axis: principal_axis_record(*axis),
         },
     }
 }
@@ -2949,6 +3041,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
                 .as_ref()
                 .and_then(SketchAttachment::datum)
                 .map(FeatureId::raw),
+            frame: attachment
+                .as_ref()
+                .and_then(SketchAttachment::frame)
+                .map(|(frame, plane)| frame_plane_record(frame, plane)),
         },
         Edit::SetDimension {
             feature,
@@ -3154,13 +3250,18 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
             plane,
             attachment,
             datum,
+            frame,
         } => Edit::SetSketchPlacement {
             feature: FeatureId::from_raw(feature),
             plane: restore_plane(plane)?,
-            attachment: match (attachment, datum) {
-                (Some(record), _) => Some(SketchAttachment::Face(restore_attachment(&record)?)),
-                (None, Some(datum)) => Some(SketchAttachment::Datum(FeatureId::from_raw(datum))),
-                (None, None) => None,
+            attachment: match (attachment, datum, frame) {
+                (Some(record), _, _) => Some(SketchAttachment::Face(restore_attachment(&record)?)),
+                (None, Some(datum), _) => Some(SketchAttachment::Datum(FeatureId::from_raw(datum))),
+                (None, None, Some(frame)) => Some(SketchAttachment::Frame {
+                    frame: FeatureId::from_raw(frame.frame),
+                    plane: restore_principal_plane(frame.plane),
+                }),
+                (None, None, None) => None,
             },
         },
         EditRecord::SetDimension {
@@ -3404,6 +3505,35 @@ fn restore_kind(
                 _ => issues.push(format!(
                     "“{name}” was to turn about its body's centre, but it is not a move, so that \
                      was left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::MoveInFrame(framed) => {
+            let mut kind = restore_kind(&framed.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Move(movement) => {
+                    movement.frame = Some(FeatureId::from_raw(framed.frame));
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to move in a coordinate system, but it is not a move, so that \
+                     was left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::SketchOnFrame(placed) => {
+            let mut kind = restore_kind(&placed.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Sketch(sketch) => {
+                    sketch.attachment = Some(SketchAttachment::Frame {
+                        frame: FeatureId::from_raw(placed.frame.frame),
+                        plane: restore_principal_plane(placed.frame.plane),
+                    });
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to lie on a plane of a coordinate system, but it is not a \
+                     sketch, so that was left out."
                 )),
             }
             kind
@@ -3758,6 +3888,9 @@ fn restore_kind(
         FeatureKindRecord::PointConstruction(record) => {
             FeatureKind::Datum(restore_point_construction(record, name, issues))
         }
+        FeatureKindRecord::CoordinateSystem(record) => FeatureKind::Datum(Datum::Frame(Box::new(
+            restore_coordinate_system(record, name, issues),
+        ))),
         FeatureKindRecord::Import(record) => FeatureKind::Import(restore_import(
             &StoredShape {
                 source: &record.source,
@@ -3948,6 +4081,10 @@ fn restore_plane_reference(record: &PlaneReferenceRecord) -> Option<PlaneReferen
         PlaneReferenceRecord::Face(attachment) => {
             PlaneReference::Face(restore_attachment(attachment)?)
         }
+        PlaneReferenceRecord::Frame(frame) => PlaneReference::Frame {
+            frame: FeatureId::from_raw(frame.frame),
+            plane: restore_principal_plane(frame.plane),
+        },
     })
 }
 
@@ -3968,6 +4105,10 @@ fn restore_axis(record: &AxisReferenceRecord) -> Option<AxisReference> {
         AxisReferenceRecord::SketchLine { sketch, entity } => AxisReference::Sketch {
             sketch: FeatureId::from_raw(*sketch),
             entity: EntityId::from_raw(*entity),
+        },
+        AxisReferenceRecord::Frame { frame, axis } => AxisReference::Frame {
+            frame: FeatureId::from_raw(*frame),
+            axis: restore_principal_axis(*axis),
         },
     })
 }
@@ -3999,6 +4140,48 @@ fn restore_datum_plane(
         base,
         rotation,
         offset: restore_value(&record.offset, "offset", "0 mm", feature, issues),
+    }
+}
+
+fn restore_coordinate_system(
+    record: &CoordinateSystemRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> DatumFrame {
+    let world = DatumFrame::world();
+    let origin = match &record.origin {
+        Lenient::Read(origin) => restore_point(origin),
+        Lenient::Unreadable(_) => None,
+    };
+    let x_axis = match &record.x_axis {
+        Lenient::Read(axis) => restore_axis(axis),
+        Lenient::Unreadable(_) => None,
+    };
+    let plane = match &record.plane {
+        Lenient::Read(plane) => restore_plane_reference(plane),
+        Lenient::Unreadable(_) => None,
+    };
+    DatumFrame {
+        origin: origin.unwrap_or_else(|| {
+            issues.push(format!(
+                "The origin of “{feature}” could not be read, so it stands at the origin."
+            ));
+            world.origin
+        }),
+        x_axis: x_axis.unwrap_or_else(|| {
+            issues.push(format!(
+                "The X axis of “{feature}” could not be read, so it runs along the X axis."
+            ));
+            world.x_axis
+        }),
+        plane: plane.unwrap_or_else(|| {
+            issues.push(format!(
+                "The plane of “{feature}” could not be read, so it lies on the XY plane."
+            ));
+            world.plane
+        }),
+        reverse_x: record.reverse_x,
+        reverse_z: record.reverse_z,
     }
 }
 
@@ -4410,6 +4593,7 @@ fn restore_move(record: &MoveRecord, copy: bool, feature: &str, issues: &mut Vec
         turn: read(&record.turn, "turn", "0 deg"),
         copy,
         about: TurnCentre::Origin,
+        frame: None,
     }
 }
 

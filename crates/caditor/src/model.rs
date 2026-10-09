@@ -8,13 +8,13 @@ use std::{
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureId, FeatureKind, FeatureResult,
     FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Pivot, Prepared, Progress,
-    Recomputer, SketchResult, Stale, Transaction, TurnCentre, displayed_axis,
+    Recomputer, SketchResult, Stale, Transaction, TurnCentre, displayed_axis, displayed_frame,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, JournalEntry, JournalFailure, KeepRequest, Recovered, Report,
     SaveRequest, Start, Storage, StorageConfig,
 };
-use caditor_geometry::{Point3, RigidTransform};
+use caditor_geometry::{Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
 use caditor_sketch::{Constraint, Sketch, SketchSolution};
 use parking_lot::Mutex;
@@ -310,7 +310,8 @@ impl Model {
             drafted.body
         };
         let pivot = self.move_pivot(draft.feature, drafted)?;
-        let placement = drafted.placement(&self.parameters, pivot)?;
+        let frame = self.move_frame(drafted)?;
+        let placement = drafted.placement(&self.parameters, pivot, Some(&frame))?;
         Some((body, committed.inverse().then(&placement)))
     }
 
@@ -374,18 +375,28 @@ impl Model {
         match &self.document().feature(feature)?.kind {
             FeatureKind::Move(committed) if up_to_date => {
                 let pivot = self.move_pivot(feature, committed)?;
-                committed.placement(&self.parameters, pivot)
+                let frame = self.move_frame(committed)?;
+                committed.placement(&self.parameters, pivot, Some(&frame))
             }
             _ => None,
         }
     }
 
+    pub fn move_frame(&self, movement: &Move) -> Option<Plane> {
+        match movement.frame {
+            Some(frame) => displayed_frame(&self.evaluation, frame),
+            None => Some(Plane::XY),
+        }
+    }
+
     pub fn move_pivot(&self, feature: FeatureId, movement: &Move) -> Option<Pivot> {
         match &movement.about {
-            TurnCentre::Origin => Some(Pivot::Point(Point3::ZERO)),
-            TurnCentre::Body => {
-                movement.pivot(self.evaluation.body_seen_by(feature, movement.body)?, None)
-            }
+            TurnCentre::Origin => Some(Pivot::Point(self.move_frame(movement)?.origin())),
+            TurnCentre::Body => movement.pivot(
+                self.evaluation.body_seen_by(feature, movement.body)?,
+                None,
+                None,
+            ),
             TurnCentre::Axis(turn) => Some(Pivot::Axis(displayed_axis(
                 &self.evaluation,
                 feature,

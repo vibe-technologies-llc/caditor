@@ -421,6 +421,8 @@ pub enum EditError {
     NotAnAxis(String),
     #[error("{0} is not a point")]
     NotAPoint(String),
+    #[error("{0} is not a coordinate system")]
+    NotACoordinateSystem(String),
     #[error("The revolution axis is not a line of {0}")]
     AxisNotALine(String),
     #[error("{0} cannot become a different kind of feature")]
@@ -770,6 +772,15 @@ impl Document {
         {
             if !axis.kind.datum().is_some_and(Datum::is_axis) {
                 return Err(EditError::NotAnAxis(axis.name.clone()));
+            }
+        }
+        for frame in kind
+            .frames_used()
+            .into_iter()
+            .filter_map(|id| self.feature(id))
+        {
+            if !frame.kind.datum().is_some_and(Datum::is_frame) {
+                return Err(EditError::NotACoordinateSystem(frame.name.clone()));
             }
         }
         for point in kind
