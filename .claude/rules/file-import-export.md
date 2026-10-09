@@ -62,7 +62,8 @@ paths:
   level and overflows the stack on hostile depth: iterative, namespaces resolved, attribute values
   decoded (the five named entities, character references and the DOCTYPE's own text entities,
   which Illustrator uses for `xmlns`; an entity holding markup, nested past `MAX_ENTITY_DEPTH` or
-  expanding past `MAX_ENTITY_WORK` is damage), text content never decoded. Past
+  expanding past `MAX_ENTITY_WORK` is damage), text content kept only inside `style` elements
+  (text decoded like attributes, CDATA as is). Past
   `MAX_DRAWING_ELEMENTS` elements the file is `ImportError::TooManyElements`. Damage ends reading
   where it is found: the elements before it are kept with their open ancestors and a note names
   the line; damage before the root element is `DamagedAt`.
@@ -88,21 +89,44 @@ paths:
   are read; zero-sized shapes draw nothing.
 - `transform` lists (`matrix`, `translate`, `scale`, `rotate` about a point, `skewX`, `skewY`)
   compose down the tree; one that cannot be read is ignored and counted. `use` places its target
-  (`href` or `xlink:href`, by id) at x and y, a `symbol` drawn as a group without its own viewBox;
-  a target that is the use's own ancestor or already being placed, uses nested past
+  (`href` or `xlink:href`, by id) at x and y; a `symbol` is fitted like a nested `svg`, its viewBox
+  and `preserveAspectRatio` (default `xMidYMid meet`) into the use's width and height (else its
+  own, else 100%), and draws nothing when either is zero; a target that is the use's own ancestor or already being placed, uses nested past
   `MAX_USE_DEPTH` and elements nested past `MAX_NESTING` are left out with a note. Inside a use
   every element and shape is charged against `MAX_EXPANDED_OBJECTS` (`TooManyCopies`), and each
   element's properties and local shapes are decoded once and shared by its instances.
 - Layers: below the root (or below a single group that wraps everything, repeatedly) each group or
   nested `svg` is a layer named by its `inkscape:label`, else its `id`, else `Group <n>`; shapes
   outside them are on `Ungrouped`. Layers are interned like DXF's, names compared without case.
-- `display: none` and `visibility: hidden` (attribute or `style`) leave elements out with a note;
-  `stroke-dasharray` (inherited) makes curves construction geometry, as a dashed DXF linetype does;
-  a `clip-path` or `mask` is ignored and counted, the shape imported whole. A `switch` draws its
+- Style (`style.rs`, `css.rs`): each property is cascaded as SVG does, from the `style` attribute,
+  the document's `<style>` sheets (CSS, or no `type`) and the presentation attribute: the highest
+  `!important`, then inline over sheet, then specificity (ids, classes, element), then the later
+  rule wins, and a presentation attribute only when no declaration names the property. Sheets
+  read simple selectors only (an element name or `*`, classes, one id, grouped with commas);
+  a selector with a combinator, pseudo-class or attribute test is ignored and counted in a note,
+  at-rules (`@media` included) are skipped, comments and `<!--` `-->` dropped. Rules are indexed by
+  id, first class or element; past `MAX_STYLE_RULES` they are ignored with a note, and past
+  `MAX_MATCHING_WORK` selector tests the rest of the elements keep their own attributes only, with
+  a note, so a hostile sheet cannot make matching quadratic.
+- `display: none` and `visibility: hidden` leave elements out with a note; an element whose stroke
+  and fill are both set to `none` somewhere in its cascade (not by the defaults, since a bare
+  `line` with no stroke is still wanted) is left out and counted; `stroke-dasharray` (inherited)
+  makes curves construction geometry, as a dashed DXF linetype does; a `clip-path` or `mask` is
+  ignored and counted, the shape imported whole.
+- Markers (`marker-start`, `marker-mid`, `marker-end` and the `marker` shorthand, inherited) are
+  drawn on `path`, `line`, `polyline` and `polygon` at every vertex the outline records
+  (`path::Vertex`: each move, segment end and close, with the directions in and out, arcs by their
+  tangents): the marker's viewBox fitted into `markerWidth` by `markerHeight` (default 3), `refX`
+  and `refY` put on the vertex, scaled by the stroke width unless `markerUnits` is
+  `userSpaceOnUse`, and turned by `orient` (an angle in deg, rad, grad or turn, `auto` along the
+  bisector of the directions, `auto-start-reverse`). Marker content inherits from the marker's own
+  ancestors, never the path, is charged against `MAX_EXPANDED_OBJECTS` like a use, and a marker
+  drawn inside itself is left out as reusing itself. Markers are drawn even on an element left
+  out for having neither stroke nor fill, as browsers draw them; overflow clipping is not
+  applied. A `switch` draws its
   first child without conditions. `text`, `image` and `foreignObject` are counted as left out,
   other unknown SVG elements named in a note, definitions, styles and metadata skipped silently,
-  and elements of other namespaces (Inkscape's, Sodipodi's) ignored. `<style>` sheets are not
-  read. Shapes whose numbers overflow are left out and counted; the curve, point and empty limits
+  and elements of other namespaces (Inkscape's, Sodipodi's) ignored. Shapes whose numbers overflow are left out and counted; the curve, point and empty limits
   are DXF's.
 
 ## STEP import (`import/model.rs`)
@@ -196,12 +220,15 @@ paths:
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that
   outlasts edits); the export fails only when no body could be written. STEP does this through
   `write_step_keeping_what_can_be`.
-- Drawings: `export_sketches` and `export_faces` turn each source (a `NamedSketch` or a
-  `NamedFace`) into a `Figure` of 2D `Shape`s, each on a `Layer` (`export/figure.rs`), arrange
-  them by a `DrawingSheet` (`export/sheet.rs`) and write it with `export/dxf.rs` or
-  `export/svg.rs`; `SketchFormat::of` picks DXF or SVG from the path. Both are written atomically,
-  cancellation checked between sources, while nesting and before writing. `export_sketch` and
-  `export_face` are the one-source, default-sheet forms.
+- Drawings: `export_drawing` turns each source (a `NamedSketch` or a `NamedFace`, both kinds in
+  one drawing, sketches first) into a `Figure` of 2D `Shape`s, each on a `Layer`
+  (`export/figure.rs`), arranges them by a `DrawingSheet` (`export/sheet.rs`) and writes it with
+  `export/dxf.rs` or `export/svg.rs`; `SketchFormat::of` picks DXF or SVG from the path. It
+  returns `DrawingExported` (a `SketchExported` and a `FaceExported` plus the parts wider than the
+  sheet) and fails with `NoCurves` only when no sketch draws anything and there is no face.
+  `export_sketches` and `export_faces` are its one-kind forms, `export_sketch` and `export_face`
+  the one-source, default-sheet ones. Written atomically, cancellation checked between sources,
+  while nesting and before writing.
 - A sketch writes its solved curves in its own 2D coordinates on layer 0, and a `POINT` for a point
   no curve uses. Construction curves (`DrawingSheet::construction`) are counted and left out
   (`Construction::LeftOut`), or with `Construction::OnLayer` written on layer `Construction` in a
@@ -222,13 +249,20 @@ paths:
 - `SheetLayout::SideBySide` (the default) leaves the first source in its own frame and shifts each
   next one to the right of what is placed by a gap of a tenth of the largest (at least 10 mm),
   bottoms level, so one source is written exactly where it is. `SheetLayout::Nested(Nesting)`
-  packs the bounding rectangles bottom-left from the origin, largest area first: each goes to the
-  lowest, then leftmost, spot among the origin and the right and top edges of those placed (plus
-  the spacing) that keeps the spacing to every other and stays within the sheet width, and, when
-  `Nesting::turns`, also tries a quarter turn (`Motion`) and keeps the lower spot. A source wider
-  than the sheet either way goes alone above the others and is counted in `too_wide`.
-  `Nesting::new` refuses a width that is not positive or a negative spacing. It is deterministic
-  and roughly cubic in the number of sources.
+  (`export/nest.rs`) packs true shapes bottom-left from the origin, largest first: each source,
+  with its label band, is traced into polylines (`Shape::traced`, circles and text boxes closed)
+  and rasterised on a grid of square cells into row runs, conservatively (every cell a curve
+  touches, plus the inside by the even-odd rule, so a ring's hollow and an L's crook stay free),
+  and its runs grown by the spacing in cells (square growth, so the gap between geometry is at
+  least the spacing). The cell is the smaller of the sheet width and the parts' size (largest side,
+  or the root of their summed box areas) over 400, but no finer than a thousandth of the largest
+  part or a 64th of the spacing. Each goes to the lowest, then leftmost, cell where its grown runs
+  miss every placed run within the sheet width, rows without a gap as wide as the part's widest
+  run skipped at once; with `Nesting::turns` it also tries quarter turns, and the 15° step that
+  boxes it smallest with its quarter turns, keeping the lowest spot (`Motion::turn`, exact for
+  quarter turns). A source wider than the sheet every way goes alone above the others, narrowest
+  way round, and is counted in `too_wide`. `Nesting::new` refuses a width that is not positive or
+  a negative spacing. It is deterministic; a label is placed below its source's turned bounds.
 - `Annotations::Included` adds, for a sketch, a dimension per dimensional constraint
   (`export/annotation.rs`, measured from the solved geometry, active or not; one touching a
   left-out construction curve is skipped) on layer `Dimensions`: distances as a dimension line
@@ -236,7 +270,9 @@ paths:
   lines are measured from the end of one farther along the other, so the dimension sits outside),
   horizontal and vertical distances along X or Y, radius and diameter as a leader through the
   centre (`R`, `⌀`), angles as an arc at the lines' vertex, arc sweep and length as an arc beyond
-  the arc (`°`, `⌒`); values in millimetres to three decimals and degrees to two. Every source
+  the arc (`°`, `⌒`); values in millimetres to three decimals and degrees to two. Placement does
+  not use the canvas's lanes or obstacle avoidance (`caditor`'s `annotation_layout.rs`, which this
+  crate cannot reach), so crowded labels may overlap. Every source
   gets its name as a label below it on layer `Labels` (nesting reserves the band). Text is
   `sheet::text_height` high: a fiftieth of the largest source, at least 2.5 mm.
 - DXF is ASCII, version AC1015, millimetres (`$INSUNITS` 4), header and entities (layers are

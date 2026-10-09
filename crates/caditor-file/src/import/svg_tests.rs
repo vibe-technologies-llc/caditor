@@ -801,6 +801,21 @@ fn hostile_drawings_are_refused_or_cut_short_without_panicking() {
         drawing.notes
     );
 
+    let marked = format!(
+        r##"<marker id="m"><line x1="0" y1="0" x2="1" y2="0"/><line x1="0" y1="1" x2="1" y2="1"/></marker>
+            <path d="M0 0{}" marker-mid="url(#m)"/>"##,
+        " l1 0".repeat(250_000)
+    );
+    assert_eq!(parse_svg(&svg(&marked)), Err(ImportError::TooManyCopies));
+
+    let unclosed = read(
+        r#"<style>.a { display: none } .b { stroke: none; fill: none; {{{{ </style>
+           <line class="a" x1="0" y1="0" x2="1" y2="0"/>
+           <line class="b" x1="0" y1="1" x2="1" y2="1"/>
+           <line x1="0" y1="2" x2="1" y2="2"/>"#,
+    );
+    assert_eq!(unclosed.curves.len(), 1);
+
     for cut in (0..deep.len().min(4_000)).step_by(37) {
         let _ = parse_svg(deep.as_bytes().get(..cut).unwrap());
     }
@@ -842,4 +857,145 @@ fn latin_1_names_are_read_with_a_note() {
 
     assert_eq!(drawing.layers[0], "Maße");
     assert!(drawing.notes[0].contains("Latin-1"), "{:?}", drawing.notes);
+}
+
+#[test]
+fn style_sheets_hide_dash_and_unpaint_by_class_id_and_element() {
+    let drawing = read(
+        r#"<style type="text/css"><![CDATA[
+             /* guides */
+             .guide, #ghost { display: none }
+             line.cut { stroke-dasharray: 3 1 }
+             .plain { stroke-dasharray: 2 2 }
+             #solid { stroke-dasharray: none }
+             .invisible { stroke: none; fill: none }
+             g > line { display: none }
+             @media print { line { display: none } }
+           ]]></style>
+           <line class="guide" x1="0" y1="0" x2="1" y2="0"/>
+           <line id="ghost" x1="0" y1="1" x2="1" y2="1"/>
+           <line class="cut" x1="0" y1="2" x2="1" y2="2"/>
+           <line class="plain" id="solid" x1="0" y1="3" x2="1" y2="3"/>
+           <line class="plain" style="stroke-dasharray: none" x1="0" y1="4" x2="1" y2="4"/>
+           <line class="plain" stroke-dasharray="none" x1="0" y1="5" x2="1" y2="5"/>
+           <line class="invisible" x1="0" y1="6" x2="1" y2="6"/>
+           <line class="invisible" stroke="black" x1="0" y1="7" x2="1" y2="7"/>
+           <line class="invisible" style="stroke: black" x1="0" y1="8" x2="1" y2="8"/>"#,
+    );
+
+    assert_curves_close(
+        &drawing.curves,
+        &[
+            line((0.0, -2.0), (1.0, -2.0)),
+            line((0.0, -3.0), (1.0, -3.0)),
+            line((0.0, -4.0), (1.0, -4.0)),
+            line((0.0, -5.0), (1.0, -5.0)),
+            line((0.0, -8.0), (1.0, -8.0)),
+        ],
+    );
+    assert_eq!(drawing.construction, BTreeSet::from([0, 3]));
+    for expected in [
+        "2 hidden elements were left out.",
+        "2 elements drawn with neither stroke nor fill were left out.",
+        "1 rule in the drawing's style sheet was ignored, because caditor reads only selectors of an element name, class or id.",
+    ] {
+        assert!(
+            drawing.notes.contains(&expected.to_owned()),
+            "{expected}: {:?}",
+            drawing.notes
+        );
+    }
+}
+
+#[test]
+fn important_declarations_and_later_rules_win_by_specificity() {
+    let drawing = read(
+        r#"<style>
+             .a.b { display: none }
+             .a { display: inline }
+             line { display: none !important }
+             #keep { display: inline !important }
+           </style>
+           <line class="a b" id="keep" style="display: none" x1="0" y1="0" x2="1" y2="0"/>
+           <line class="a" style="display: inline" x1="0" y1="1" x2="1" y2="1"/>
+           <rect class="a b" width="1" height="1"/>
+           <circle class="a" r="1"/>"#,
+    );
+
+    assert_eq!(drawing.curves.len(), 2, "{:?}", drawing.curves);
+    assert!(matches!(drawing.curves[0], DrawingCurve::Line { .. }));
+    assert!(matches!(drawing.curves[1], DrawingCurve::Circle { .. }));
+}
+
+#[test]
+fn a_symbol_fits_its_view_box_into_the_use_size() {
+    let drawing = read(
+        r##"<defs>
+              <symbol id="bar" viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="0"/></symbol>
+              <symbol id="stretched" viewBox="0 0 10 10" preserveAspectRatio="none">
+                <line x1="0" y1="10" x2="10" y2="10"/>
+              </symbol>
+            </defs>
+            <use href="#bar" x="20" y="20" width="20" height="40"/>
+            <use href="#stretched" width="20" height="40"/>
+            <use href="#bar" width="0" height="10"/>"##,
+    );
+
+    assert_curves_close(
+        &drawing.curves,
+        &[
+            line((20.0, -30.0), (40.0, -30.0)),
+            line((0.0, -40.0), (20.0, -40.0)),
+        ],
+    );
+}
+
+#[test]
+fn markers_are_drawn_at_the_vertices_of_a_path() {
+    let drawing = read(
+        r##"<defs>
+              <marker id="tick" markerUnits="userSpaceOnUse" orient="auto">
+                <line x1="0" y1="0" x2="-1" y2="1"/>
+              </marker>
+              <marker id="dot" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="2" markerHeight="2">
+                <circle cx="5" cy="5" r="5"/>
+              </marker>
+            </defs>
+            <path d="M0 0 L10 0" marker-end="url(#tick)"/>
+            <line x1="50" y1="0" x2="50" y2="10" style="marker-start: url(#tick)"/>
+            <polyline points="0 50 10 50 10 60" stroke="none" fill="none" stroke-width="3" marker-mid="url(#dot)"/>"##,
+    );
+
+    assert_curves_close(
+        &drawing.curves,
+        &[
+            line((0.0, 0.0), (10.0, 0.0)),
+            line((10.0, 0.0), (9.0, -1.0)),
+            line((50.0, 0.0), (50.0, -10.0)),
+            line((50.0, 0.0), (49.0, 1.0)),
+            DrawingCurve::Circle {
+                center: Point2::new(10.0, -50.0),
+                radius: 3.0,
+            },
+        ],
+    );
+}
+
+#[test]
+fn a_marker_drawing_itself_is_left_out() {
+    let drawing = read(
+        r##"<marker id="loop" orient="auto">
+              <path d="M0 0 L1 0" marker-end="url(#loop)"/>
+            </marker>
+            <path d="M0 0 L10 0" marker-end="url(#loop)"/>"##,
+    );
+
+    assert_eq!(drawing.curves.len(), 2);
+    assert!(
+        drawing
+            .notes
+            .contains(&"1 element nested too deeply or reusing itself was left out.".to_owned()),
+        "{:?}",
+        drawing.notes
+    );
 }

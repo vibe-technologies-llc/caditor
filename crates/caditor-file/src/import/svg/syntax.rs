@@ -246,6 +246,13 @@ impl Matrix {
         }
     }
 
+    pub fn apply(&self, point: Point2) -> Point2 {
+        Point2::new(
+            self.a * point.x + self.c * point.y + self.e,
+            self.b * point.x + self.d * point.y + self.f,
+        )
+    }
+
     pub fn affine(&self) -> Affine {
         Affine::planar(
             Vector2::new(self.a, self.b),

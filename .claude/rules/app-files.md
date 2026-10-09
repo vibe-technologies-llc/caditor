@@ -132,12 +132,16 @@ paths:
   has current or that is edited (`drawing_export::exportable_sketches`; other kinds are ignored),
   and only once every one has solved geometry. Export face (`Command::ExportFace`,
   `drawing_export::face_commands`) is offered while one or more faces are selected, all flat (a
-  curved one refuses in words).
+  curved one refuses in words). Export sketch also takes the flat faces selected in the view
+  (`DrawingSource::with_faces`, `DrawingSource::Both`, titled "Export sketches and faces"); the
+  dialog offers them as a checkbox, on each time it opens, and the files worker writes both into
+  one drawing (`caditor_file::export_drawing`) and announces it with `drawing_export::both_finished`.
 - Both send `FileCommand::ExportDrawing` with a `DrawingSource`, which opens the drawing export
   dialog (`drawing_export::dialog`, `DrawingExporter` in `Files`, `FileCommand::DrawingExport`):
   Layout side by side (the default, a single sketch keeping its coordinates) or nested on a sheet
   with a sheet width and spacing (length fields taking units and expressions, 600 mm and 5 mm by
-  default) and quarter turns (on by default); Dimensions and names (Names for faces), off by
+  default) and turns (on by default: quarter turns and the 15° step that boxes a part smallest);
+  Dimensions and names (Names for faces, Dimensions and names whenever a sketch is included), off by
   default; and, for sketches, the construction choice below. The choices last for the session.
   Export… picks a `.dxf` or `.svg` path (`Purpose::Drawing`, titled for the source, `.dxf`
   appended to any other and replacing asked as for the other outputs); the dialog stays open behind

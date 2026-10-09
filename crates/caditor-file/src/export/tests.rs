@@ -2050,3 +2050,63 @@ fn a_step_export_names_its_product_and_header_from_the_model_properties() {
     assert!(step.contains("=PRODUCT_DEFINITION_FORMATION('C','',"));
     assert!(!step.contains("Never exported"));
 }
+
+#[test]
+fn sketches_and_faces_nest_into_one_drawing() {
+    let plate = rounded_plate();
+    let mut sketch = Sketch::new(Plane::XY);
+    sketch.add_line(Point2::ZERO, Point2::new(30.0, 0.0));
+    sketch.add_circle(Point2::new(15.0, 10.0), 5.0);
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("mixed.dxf");
+    let face = face_facing(&plate, Vector3::Z);
+    let sheet = DrawingSheet {
+        layout: SheetLayout::Nested(Nesting::new(200.0, 5.0, true).unwrap()),
+        annotations: Annotations::Included,
+        ..DrawingSheet::default()
+    };
+
+    let exported = export_drawing(
+        &path,
+        &[NamedSketch {
+            name: "Bracket",
+            sketch: &sketch,
+        }],
+        &[NamedFace {
+            name: "Plate",
+            solid: &plate,
+            face,
+        }],
+        SketchFormat::Dxf,
+        &sheet,
+        &CancelToken::never(),
+    )
+    .unwrap();
+
+    let outlined = outline::face_figure(&plate, face).unwrap().1;
+    assert_eq!(exported.sketches.sketches, 1);
+    assert_eq!(exported.sketches.curves, 2);
+    assert_eq!(exported.faces.faces, 1);
+    assert_eq!(exported.faces.curves, outlined.curves);
+    assert_eq!(exported.too_wide, 0);
+    let drawing = crate::parse_dxf(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(drawing.curves.len(), 2 + outlined.curves);
+    assert!(drawing.layers.iter().any(|layer| layer == "0"));
+    assert!(drawing.layers.iter().any(|layer| layer == "Outline"));
+    assert!(
+        drawing.notes.iter().any(|note| note.contains("2 texts")),
+        "{:?}",
+        drawing.notes
+    );
+    assert_eq!(
+        export_drawing(
+            &path,
+            &[],
+            &[],
+            SketchFormat::Dxf,
+            &sheet,
+            &CancelToken::never()
+        ),
+        Err(ExportError::NoCurves)
+    );
+}

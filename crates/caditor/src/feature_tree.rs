@@ -2063,7 +2063,11 @@ pub fn commands(
     commands: &mut CommandFrame<'_>,
     actions: &mut Vec<Action>,
 ) {
-    let CommandContext { model, editing, .. } = *context;
+    let CommandContext {
+        model,
+        editing,
+        selection,
+    } = *context;
     let document = model.document();
     let current = current_feature(document, editing, state);
     let open = editing
@@ -2124,8 +2128,9 @@ pub fn commands(
         &exportable,
     ) && let Ok(sketches) = exportable
     {
+        let faces = drawing_export::exportable_faces(model, selection).unwrap_or_default();
         actions.push(Action::File(FileCommand::ExportDrawing(
-            DrawingSource::Sketches(sketches),
+            DrawingSource::with_faces(sketches, faces),
         )));
     }
     let replaceable = current

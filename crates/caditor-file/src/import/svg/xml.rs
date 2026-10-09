@@ -3,6 +3,7 @@ use std::{borrow::Cow, collections::BTreeMap};
 const XML_NAMESPACE: &str = "http://www.w3.org/XML/1998/namespace";
 const MAX_ENTITY_DEPTH: usize = 8;
 const MAX_ENTITY_WORK: usize = 4 << 20;
+const TEXT_KEPT_IN: &str = "style";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum XmlError {
@@ -24,6 +25,7 @@ struct Element<'t> {
     attributes: Vec<Attribute<'t>>,
     parent: Option<usize>,
     children: Vec<usize>,
+    text: Cow<'t, str>,
 }
 
 #[derive(Debug)]
@@ -85,6 +87,10 @@ impl<'a, 't> Node<'a, 't> {
                 tree,
                 index: *index,
             })
+    }
+
+    pub fn text(self) -> &'a str {
+        self.element().map_or("", |element| element.text.as_ref())
     }
 
     pub fn ancestors(self) -> impl Iterator<Item = Node<'a, 't>> {
@@ -193,7 +199,9 @@ impl<'t> Parser<'t> {
             let step = if rest.starts_with('<') {
                 self.markup(rest)?
             } else {
-                Some(Step::Skip(rest.find('<').unwrap_or(rest.len())))
+                let length = rest.find('<').unwrap_or(rest.len());
+                self.keep_text(rest.get(..length).unwrap_or_default(), true);
+                Some(Step::Skip(length))
             };
             match step {
                 Some(Step::Skip(length)) => self.at += length,
@@ -217,7 +225,10 @@ impl<'t> Parser<'t> {
         if rest.starts_with("<!--") {
             return Ok(through("<!--", "-->"));
         }
-        if rest.starts_with("<![CDATA[") {
+        if let Some(body) = rest.strip_prefix("<![CDATA[") {
+            if let Some(end) = body.find("]]>") {
+                self.keep_text(body.get(..end).unwrap_or_default(), false);
+            }
             return Ok(through("<![CDATA[", "]]>"));
         }
         if rest.starts_with("<?") {
@@ -308,6 +319,7 @@ impl<'t> Parser<'t> {
             attributes,
             parent,
             children: Vec::new(),
+            text: Cow::Borrowed(""),
         });
         if tag.empty {
             if self
@@ -324,6 +336,27 @@ impl<'t> Parser<'t> {
             self.open.push((index, tag.name));
         }
         Ok(Some(Step::Skip(tag.length)))
+    }
+
+    fn keep_text(&mut self, raw: &'t str, escaped: bool) {
+        let Some((element, name)) = self.open.last().copied() else {
+            return;
+        };
+        if name.rsplit(':').next() != Some(TEXT_KEPT_IN) {
+            return;
+        }
+        let text = if escaped {
+            self.decoded(raw).unwrap_or(Cow::Borrowed(raw))
+        } else {
+            Cow::Borrowed(raw)
+        };
+        if let Some(element) = self.tree.elements.get_mut(element) {
+            if element.text.is_empty() {
+                element.text = text;
+            } else {
+                element.text.to_mut().push_str(&text);
+            }
+        }
     }
 
     fn intern(&mut self, value: Cow<'t, str>) -> usize {
