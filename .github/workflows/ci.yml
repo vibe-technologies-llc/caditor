@@ -150,6 +150,11 @@ jobs:
           cargo test --release --locked -p caditor-sketch -- --ignored --exact \
             solve::diagnosis_tests::a_conflict_across_hundreds_of_entities_is_named_within_seconds
 
+      - name: Time a large STEP import from reading to every body shown
+        run: |
+          cargo test --release --locked -p caditor --lib -- --ignored --exact --nocapture \
+            ui_tests::import_costs::a_large_step_import_is_timed_stage_by_stage
+
   format:
     runs-on: ubuntu-latest
     container: ubuntu:22.04

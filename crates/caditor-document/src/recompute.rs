@@ -27,7 +27,7 @@ use crate::{
     lookahead::Lookahead,
     mate, mirror, movement, offset_face, pattern,
     pool::{Claim, Job, Landed, Pool, Work, available_workers},
-    presenting::{Glimpse, Presentation, SettledBody},
+    presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
     primitive, projection, removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
     split,
@@ -1103,6 +1103,7 @@ impl Recompute {
         report: &dyn Fn(&Evaluation),
     ) {
         report(evaluation);
+        let mut reported = Instant::now();
         let (meshes, meshed) = mpsc::channel();
         for body in evaluation.bodies.keys() {
             let Some(result) = evaluation.body_result(*body) else {
@@ -1134,8 +1135,9 @@ impl Recompute {
                     Err(mpsc::RecvError) => break,
                 },
             };
-            if done {
+            if done && reported.elapsed() >= MESHES_REPORTED_EVERY {
                 report(evaluation);
+                reported = Instant::now();
             }
         }
         evaluation.meshed = evaluation.bodies.keys().all(|body| {

@@ -27,7 +27,7 @@ paths:
   linted. Also: `rust-formatter --check`, `cargo deny` on the root and fuzz workspaces, a snapshot
   archive checked by `packaging/check-install.sh`, and a minute of fuzzing per target.
 - The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the ignored
-  kernel and sketch stress tests in release. `random_placements_of_every_fixture` asserts that every
+  kernel and sketch stress tests and the large STEP import benchmark (`app-tests.md`) in release. `random_placements_of_every_fixture` asserts that every
   boolean of its seed succeeds, so a kernel change that breaks one fails the job.
 - The check job runs cargo as the unprivileged `builder` user (`as-builder`), since root ignores the
   file modes the unreadable-file tests rely on. It fails if the tests leave any change or untracked

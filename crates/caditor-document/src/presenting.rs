@@ -4,13 +4,15 @@ use std::{
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use crate::{
     pool::Meshed,
     recompute::{CancelToken, Evaluation, FeatureResult},
 };
+
+pub(crate) const MESHES_REPORTED_EVERY: Duration = Duration::from_millis(750);
 
 pub(crate) struct Glimpse {
     pub(crate) evaluation: Evaluation,
@@ -69,19 +71,26 @@ impl Presentation<'_> {
     fn present(&self, shown: &Receiver<Shown>, meshes: &Sender<Shown>) {
         let mut latest: Option<Evaluation> = None;
         let mut unreported = false;
+        let mut only_meshes = false;
+        let mut reported: Option<Instant> = None;
         loop {
             if self.cancel.is_cancelled() {
                 return;
             }
             let now = Instant::now();
-            if unreported && now >= self.from {
+            let due = match reported {
+                Some(at) if only_meshes => self.from.max(at + MESHES_REPORTED_EVERY),
+                Some(_) | None => self.from,
+            };
+            if unreported && now >= due {
                 if let Some(evaluation) = &latest {
                     (self.report)(evaluation.clone());
+                    reported = Some(now);
                 }
                 unreported = false;
             }
             let received = if unreported {
-                shown.recv_timeout(self.from.saturating_duration_since(now))
+                shown.recv_timeout(due.saturating_duration_since(now))
             } else {
                 shown
                     .recv()
@@ -94,6 +103,7 @@ impl Presentation<'_> {
                         settled,
                     } = *glimpse;
                     latest = Some(evaluation);
+                    only_meshes = false;
                     for body in settled {
                         let meshes = meshes.clone();
                         (self.mesh)(
@@ -107,7 +117,10 @@ impl Presentation<'_> {
                     }
                     unreported = true;
                 }
-                Ok(Shown::Meshed) => unreported = true,
+                Ok(Shown::Meshed) => {
+                    only_meshes = !unreported || only_meshes;
+                    unreported = true;
+                }
                 Ok(Shown::Ended) | Err(RecvTimeoutError::Disconnected) => return,
                 Err(RecvTimeoutError::Timeout) => {}
             }

@@ -325,18 +325,16 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   tests that a body, a mix of faces and an assembly come back with exactly their colours and
   opacities. Then check files from those systems and have the import report say what it could not
   understand. `step-read.md` and `step-write.md` change in the same commit.
-- [high · hard] Importing a large STEP file is slow, and its bodies appear in the view one by one
-  over a long stretch instead of together. Nothing has been measured yet: start by timing a large
-  import in release stage by stage (reading and healing, the recompute of each body, tessellation,
-  the hand to the renderer, the GPU upload) on a real file such as a VZBot printer assembly (many bodies, large),
-  and let the numbers pick the work. The suspects already on the roadmap are the single-threaded,
-  uncached display meshing of each body (`Kernel performance`), the upload that takes in only
-  8 MiB of meshes and silhouettes a frame (`MESH_UPLOAD_BYTES_PER_FRAME`, in
-  `caditor-render/src/viewport.rs`), and bodies recomputed and shown one after another instead of
-  as one batch. Whatever the cause, an import shows progress and the model as soon as the first
-  bodies are ready, without the interface stalling, and a benchmark with a large STEP file keeps
-  the time from creeping back. Pair it with the indicator while the GPU takes in a body
-  (`Application`).
+- [high · hard] A large STEP import still stalls the interface while its bodies arrive: every
+  showing rebuilds the base scene, whose one batch holds every body edge as line segments (13.2
+  million for the VZ330 assembly, 0.25 to 0.4 s a rebuild on the UI thread in release, and the
+  renderer uploads the whole batch again unbudgeted). Each body's edges and vertices could be a
+  batch of its own, cached while its `BodyMesh`, style and highlight are unchanged, with pick ids
+  that do not shift when other bodies come and go; hovering over a large model rebuilds the same
+  way. Reading is now bound by single parts: the VZ330's lead screw (406 faces, helical splines of
+  7 by 1441 control points) takes most of the 71 s alone, in healing and `find_crossing`; opening a
+  saved model reads every import text with `read_step` again, crossing check included
+  (`step_cache.rs`). Pair it with the indicator while the GPU takes in a body (`Application`).
 - [low · hard] No IGES import or export, though older CAM software and many suppliers still exchange
   it.
 
@@ -398,11 +396,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   `ui_tests/frame_costs.rs` benchmark. The toolbar's hole tool scans the sketch every frame too.
   `sketch_drag::can_select_all` already answers cheaply; Select free needs an early-exit check or a
   cache, and the hole check could move into the cached `SelectionOffers`.
-- [medium · medium] A body's exact mass properties (adaptive Gauss–Kronrod over every face) and
-  extent are computed in `BodyMesh::build` (`bodies.rs`) on the single body-meshes thread before
-  the mesh can be shown, though only the measure panel and the centre-of-mass aid read them. They
-  could be computed after the mesh is sent, or lazily off the UI thread, and bodies could be
-  converted in parallel.
 - [medium · medium] An egui-only repaint (a tooltip, hover over a panel, a spinner tick) draws the
   whole 3D pass again. Keeping the resolved view in a surface-sized texture and copying it while
   the scene generation, view, rect, graphics settings and picks are unchanged would save the GPU

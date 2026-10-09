@@ -30,6 +30,7 @@ struct Basis {
     evaluation: u64,
     unit: LengthUnit,
     meshing: bool,
+    masses: u64,
 }
 
 pub type Chosen<'a> = (&'a [FeatureId], &'a [FeatureId]);
@@ -125,6 +126,7 @@ impl SelectionOffers {
             evaluation: model.evaluation_generation(),
             unit: model.length_unit(),
             meshing: model.bodies_pending(),
+            masses: model.masses_measured(),
         };
         let (_, offers) = match self.current.take() {
             Some((known, offers)) if known == basis => self.current.insert((known, offers)),

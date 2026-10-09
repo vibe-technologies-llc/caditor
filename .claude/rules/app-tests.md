@@ -46,3 +46,9 @@ paths:
   idle, with the pointer moving and with the line tool, and over the plate with a tree row
   chosen; `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times the scene alone,
   a whole-body hover with the Bodies filter included.
+- The ignored `a_large_step_import_is_timed_stage_by_stage` (`ui_tests/import_costs.rs`) times a
+  STEP import stage by stage (reading and healing, adding, recompute, tessellation, display
+  conversion, mass properties, scene, offscreen upload), then through the harness from the Import
+  command to every body shown, listing each frame over 50 ms. It synthesises a file of copies of the
+  samples and asserts the import stays within `SYNTHESISED_WITHIN`, or times the file
+  `CADITOR_IMPORT_FILE` names; the nightly stress job runs it.

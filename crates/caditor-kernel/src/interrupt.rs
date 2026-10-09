@@ -18,6 +18,14 @@ pub fn interruptible<T>(interrupt: Interrupt, work: impl FnOnce() -> T) -> T {
     work()
 }
 
+pub fn current() -> Option<Interrupt> {
+    CURRENT.with(|current| {
+        let installed = current.take();
+        current.set(installed.clone());
+        installed
+    })
+}
+
 pub fn check() -> Result<(), Interrupted> {
     let interrupted = CURRENT.with(|current| {
         let lent = Lent {
@@ -74,6 +82,23 @@ mod tests {
             assert_eq!(check(), Err(Interrupted));
         });
         assert_eq!(check(), Ok(()));
+    }
+
+    #[test]
+    fn the_current_interrupt_carries_to_another_thread() {
+        assert!(current().is_none());
+        let stop = Arc::new(AtomicBool::new(true));
+        let flag = Arc::clone(&stop);
+        let carried = interruptible(Arc::new(move || flag.load(Ordering::SeqCst)), || {
+            let installed = current().unwrap();
+            let elsewhere = std::thread::spawn(move || interruptible(installed, check))
+                .join()
+                .unwrap();
+            (elsewhere, check())
+        });
+
+        assert_eq!(carried, (Err(Interrupted), Err(Interrupted)));
+        assert!(current().is_none());
     }
 
     #[test]

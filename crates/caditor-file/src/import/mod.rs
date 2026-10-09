@@ -25,8 +25,9 @@ pub use crate::import::{
     dxf::parse_dxf,
     mesh::{MESH_IMPORT_EXTENSIONS, MeshFormat, parse_mesh, read_mesh_file},
     model::{
-        ImportedBody, ImportedFace, ModelImport, STEP_IMPORT_EXTENSIONS, bodies_transaction,
-        parse_step, read_step_file,
+        ImportedBody, ImportedFace, ModelImport, ReadingProgress, ReadingStage,
+        STEP_IMPORT_EXTENSIONS, bodies_transaction, parse_step, read_step_file,
+        read_step_file_reporting,
     },
     sketch::{DrawingImport, SketchTarget, drawing_transaction},
     svg::{SVG_EXTENSIONS, parse_svg},

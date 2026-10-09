@@ -18,7 +18,9 @@ Under the readings, each body's volume, area, centre of mass and, once it has a 
 and moments of inertia. They are for the bodies of the selection, else those chosen in the tree,
 else every shown body, with a total for several. Set a density with
 [Body colour and material](bodies). {command:view.toggle_centres_of_mass} marks each centre in the
-view, so it can be measured to.
+view, so it can be measured to. Mass properties are worked out exactly from each body's faces the
+first time something asks for them, in the background; until then a body's card says so, and on a
+large assembly the total follows a few seconds later.
 
 ## Relative to
 

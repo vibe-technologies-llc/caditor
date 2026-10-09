@@ -13,17 +13,23 @@ mod units;
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
+    num::NonZeroUsize,
+    panic,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
 };
 
 use caditor_geometry::Similarity;
-use caditor_kernel::{Solid, check_interrupt};
+use caditor_kernel::{Solid, check_interrupt, current_interrupt, interruptible};
 
 pub use crate::read::presentation::FaceLook;
 use crate::{
     part21::{Exchange, SyntaxError, parse},
     read::{
-        geometry::{Geometry, MAX_WORK, Work},
+        geometry::{Crossings, Geometry, MAX_WORK, Work},
         graph::{Entity, Graph, Problem},
         presentation::{Look, Presentation},
         structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
@@ -68,6 +74,12 @@ pub struct StepCopy {
     pub opacity: Option<u8>,
     pub layer: Option<String>,
     pub faces: Vec<FaceLook>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReadProgress {
+    pub built: usize,
+    pub solids: usize,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -210,7 +222,19 @@ impl From<Unplaced> for Misplacement {
 }
 
 pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
-    let read = read_placed(text, |solid, placement| {
+    read_step_checking(text, Crossings::Checked)
+}
+
+pub fn read_own_step(text: &str) -> Result<StepModel, ReadError> {
+    read_step_checking(text, Crossings::Trusted)
+}
+
+fn read_step_checking(text: &str, crossings: Crossings) -> Result<StepModel, ReadError> {
+    let reading = Reading {
+        report: &|_| {},
+        crossings,
+    };
+    let read = read_placed(text, &reading, |solid, placement| {
         if placement == Similarity::IDENTITY {
             Some(Solid::clone(solid))
         } else {
@@ -235,7 +259,18 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
 }
 
 pub fn read_step_copies(text: &str) -> Result<StepCopies, ReadError> {
-    let read = read_placed(text, |solid, placement| {
+    read_step_copies_reporting(text, &|_| {})
+}
+
+pub fn read_step_copies_reporting(
+    text: &str,
+    report: &(dyn Fn(ReadProgress) + Sync),
+) -> Result<StepCopies, ReadError> {
+    let reading = Reading {
+        report,
+        crossings: Crossings::Checked,
+    };
+    let read = read_placed(text, &reading, |solid, placement| {
         Some((Arc::clone(solid), placement))
     })?;
     Ok(StepCopies {
@@ -258,6 +293,7 @@ pub fn read_step_copies(text: &str) -> Result<StepCopies, ReadError> {
 
 fn read_placed<T>(
     text: &str,
+    reading: &Reading<'_>,
     mut place: impl FnMut(&Arc<Solid>, Similarity) -> Option<T>,
 ) -> Result<Read<T>, ReadError> {
     check_interrupt().map_err(|_| ReadError::Cancelled)?;
@@ -309,9 +345,20 @@ fn read_placed<T>(
             *solids_per_representation.entry(representation).or_default() += 1;
         }
     }
+    let wanted: Vec<(u64, Units)> = solids
+        .iter()
+        .map(|entity| {
+            let units = structure
+                .representation_of(entity.id)
+                .map(|representation| structure.units_of(&graph, representation))
+                .unwrap_or_default();
+            (entity.id, units)
+        })
+        .collect();
+    check_interrupt().map_err(|_| ReadError::Cancelled)?;
+    let mut builds = Builds::of(graph, &wanted, reading);
     let mut budget = MAX_PLACEMENTS;
     let mut unplaced = Vec::new();
-    let mut builder = Builder::new(graph);
     for (index, entity) in solids.iter().enumerate() {
         check_interrupt().map_err(|_| ReadError::Cancelled)?;
         let representation = structure.representation_of(entity.id);
@@ -363,7 +410,7 @@ fn read_placed<T>(
             .collect();
         let occurrences_name_each =
             transforms.len() > 1 && named_occurrences.len() == transforms.len();
-        match builder.build(units, entity.id) {
+        match builds.take(entity.id) {
             Ok(Built {
                 solid,
                 healed,
@@ -643,67 +690,205 @@ fn unchecked_note(name: &str, [first, second]: [u64; 2]) -> String {
     )
 }
 
-type Builds = BTreeMap<(SolidShells, [u64; 3]), (u64, Result<Built, Problem>)>;
+type BuildKey = (SolidShells, [u64; 3]);
 
-struct Builder<'a> {
-    graph: Graph<'a>,
-    work: Work,
-    geometries: Vec<Geometry<'a>>,
-    builds: Builds,
+struct Builds(BTreeMap<u64, Result<Built, Problem>>);
+
+impl Builds {
+    fn of(graph: Graph<'_>, wanted: &[(u64, Units)], reading: &Reading<'_>) -> Self {
+        let mut firsts: BTreeMap<BuildKey, u64> = BTreeMap::new();
+        let mut keyed: Vec<(u64, Result<BuildKey, Problem>)> = Vec::with_capacity(wanted.len());
+        let mut jobs: Vec<Job> = Vec::new();
+        for (id, units) in wanted {
+            let key = SolidShells::of(&graph, *id).map(|shells| {
+                (
+                    shells,
+                    [
+                        units.length.to_bits(),
+                        units.angle.to_bits(),
+                        units.uncertainty().to_bits(),
+                    ],
+                )
+            });
+            if let Ok(key) = &key
+                && !firsts.contains_key(key)
+            {
+                firsts.insert(key.clone(), *id);
+                jobs.push(Job {
+                    id: *id,
+                    units: *units,
+                    shells: key.0.clone(),
+                });
+            }
+            keyed.push((*id, key));
+        }
+        let mut uses: BTreeMap<u64, usize> = BTreeMap::new();
+        for key in keyed.iter().filter_map(|(_, key)| key.as_ref().ok()) {
+            if let Some(first) = firsts.get(key) {
+                *uses.entry(*first).or_default() += 1;
+            }
+        }
+        let mut firsts_built: BTreeMap<u64, Result<Built, Problem>> = jobs
+            .iter()
+            .map(|job| job.id)
+            .zip(built_together(graph, &jobs, reading))
+            .collect();
+        let builds = keyed
+            .into_iter()
+            .map(|(id, key)| {
+                let built = key.and_then(|key| {
+                    let first = firsts.get(&key).copied().unwrap_or(id);
+                    let left = uses.entry(first).or_default();
+                    *left = left.saturating_sub(1);
+                    let built = if *left == 0 {
+                        firsts_built.remove(&first)
+                    } else {
+                        firsts_built.get(&first).cloned()
+                    };
+                    built
+                        .unwrap_or_else(|| Err(Problem::new(id, "could not be read")))
+                        .map_err(|problem| {
+                            if problem.entity == first {
+                                Problem::new(id, problem.reason)
+                            } else {
+                                problem
+                            }
+                        })
+                });
+                (id, built)
+            })
+            .collect();
+        Self(builds)
+    }
+
+    fn take(&mut self, id: u64) -> Result<Built, Problem> {
+        self.0
+            .remove(&id)
+            .unwrap_or_else(|| Err(Problem::new(id, "could not be read")))
+    }
 }
 
-impl<'a> Builder<'a> {
-    fn new(graph: Graph<'a>) -> Self {
-        Self {
-            graph,
-            work: Work::new(MAX_WORK),
-            geometries: Vec::new(),
-            builds: BTreeMap::new(),
-        }
-    }
+#[derive(Clone, Copy)]
+struct Reading<'r> {
+    report: &'r (dyn Fn(ReadProgress) + Sync),
+    crossings: Crossings,
+}
 
-    fn build(&mut self, units: Units, id: u64) -> Result<Built, Problem> {
-        let shells = SolidShells::of(&self.graph, id)?;
-        let key = (
-            shells,
-            [
-                units.length.to_bits(),
-                units.angle.to_bits(),
-                units.uncertainty().to_bits(),
-            ],
-        );
-        if let Some((first, built)) = self.builds.get(&key) {
-            let first = *first;
-            return built.clone().map_err(|problem| {
-                if problem.entity == first {
-                    Problem::new(id, problem.reason)
-                } else {
-                    problem
-                }
-            });
-        }
-        self.work.charge(id)?;
-        let position = match self
-            .geometries
+struct Job {
+    id: u64,
+    units: Units,
+    shells: SolidShells,
+}
+
+fn built_together(
+    graph: Graph<'_>,
+    jobs: &[Job],
+    reading: &Reading<'_>,
+) -> Vec<Result<Built, Problem>> {
+    let Reading { report, crossings } = *reading;
+    let work = Work::new(MAX_WORK);
+    let finished = AtomicUsize::new(0);
+    let total = jobs.len();
+    let count = || {
+        let solids = finished.fetch_add(1, Ordering::Relaxed) + 1;
+        report(ReadProgress {
+            built: solids,
+            solids: total,
+        });
+    };
+    report(ReadProgress {
+        built: 0,
+        solids: total,
+    });
+    let threads = thread::available_parallelism()
+        .map_or(1, NonZeroUsize::get)
+        .min(jobs.len());
+    if threads <= 1 {
+        let mut geometries = Vec::new();
+        return jobs
             .iter()
-            .position(|geometry| geometry.units == units)
-        {
-            Some(position) => position,
-            None => {
-                self.geometries
-                    .push(Geometry::new(self.graph, units, self.work.clone()));
-                self.geometries.len() - 1
-            }
-        };
-        let geometry = self
-            .geometries
-            .get(position)
-            .ok_or_else(|| Problem::new(id, "could not be read"))?;
-        let built = healed(geometry, id, &key.0)
-            .or_else(|problem| without_unreadable(geometry, id, &key.0, problem));
-        self.builds.insert(key, (id, built.clone()));
-        built
+            .map(|job| {
+                let built = build_one(graph, (&work, crossings), &mut geometries, job);
+                count();
+                built
+            })
+            .collect();
     }
+    let next = AtomicUsize::new(0);
+    let interrupt = current_interrupt();
+    let mut built: Vec<Option<Result<Built, Problem>>> = jobs.iter().map(|_| None).collect();
+    thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                let (next, work, count, interrupt) = (&next, &work, &count, interrupt.clone());
+                scope.spawn(move || {
+                    let serve = || {
+                        let mut geometries = Vec::new();
+                        let mut done = Vec::new();
+                        loop {
+                            let at = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(job) = jobs.get(at) else {
+                                break;
+                            };
+                            if check_interrupt().is_err() {
+                                break;
+                            }
+                            done.push((
+                                at,
+                                build_one(graph, (work, crossings), &mut geometries, job),
+                            ));
+                            count();
+                        }
+                        done
+                    };
+                    match interrupt {
+                        Some(interrupt) => interruptible(interrupt, serve),
+                        None => serve(),
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            let done = worker
+                .join()
+                .unwrap_or_else(|panic| panic::resume_unwind(panic));
+            for (at, result) in done {
+                if let Some(slot) = built.get_mut(at) {
+                    *slot = Some(result);
+                }
+            }
+        }
+    });
+    built
+        .into_iter()
+        .zip(jobs)
+        .map(|(built, job)| built.unwrap_or_else(|| Err(Problem::new(job.id, "could not be read"))))
+        .collect()
+}
+
+fn build_one<'a>(
+    graph: Graph<'a>,
+    (work, crossings): (&Work, Crossings),
+    geometries: &mut Vec<Geometry<'a>>,
+    job: &Job,
+) -> Result<Built, Problem> {
+    work.charge(job.id)?;
+    let position = match geometries
+        .iter()
+        .position(|geometry| geometry.units == job.units)
+    {
+        Some(position) => position,
+        None => {
+            geometries
+                .push(Geometry::new(graph, job.units, work.clone()).with_crossings(crossings));
+            geometries.len() - 1
+        }
+    };
+    let geometry = geometries
+        .get(position)
+        .ok_or_else(|| Problem::new(job.id, "could not be read"))?;
+    healed(geometry, job.id, &job.shells)
+        .or_else(|problem| without_unreadable(geometry, job.id, &job.shells, problem))
 }
 
 fn healed(geometry: &Geometry<'_>, id: u64, shells: &SolidShells) -> Result<Built, Problem> {

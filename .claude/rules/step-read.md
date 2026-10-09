@@ -47,6 +47,18 @@ paths:
 - Cancellation: `read_step` and `read_step_copies` poll the kernel interrupt (`kernel.md`) before
   parsing and before each solid, answering `ReadError::Cancelled`; nothing installs an interrupt
   by default, so an uncancelled read never sees it.
+- Solids are built in parallel (`Builds::of`, `built_together`): each distinct solid (one per
+  shells and units) is a job, shared out over up to the available parallelism of scoped threads
+  that each keep their own geometry memo per units and install the caller's interrupt
+  (`current_interrupt`), polling it before each job, against the file's one `MAX_WORK` budget
+  (`Work`, atomic). Results are taken in file order, so names, notes and refusals are those of a
+  sequential read; a solid with the same shells and units as an earlier one takes its build. A
+  file of one solid builds on the calling thread. `read_step_copies_reporting` hands a
+  `ReadProgress` (solids built of solids to build) to a callback the workers call.
+- `read_own_step` reads text caditor's own writer has just made from a solid that was already
+  checked (import's canonicalising) without `Solid::find_crossing` (`Crossings::Trusted`), which
+  was 92% of reading back a 400-face lead screw (87 s); a model file's import text and every other
+  text go through `read_step`.
 - Hostile-input bounds: `MAX_SPLINE_DEGREE`, checked knot arithmetic before expansion, one
   `MAX_WORK` budget per file for everything built, `MAX_DEPTH` and `MAX_INSTANCES` for assemblies.
   Curves, surfaces, placements and solids are memoised per entity and units.

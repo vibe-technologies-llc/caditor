@@ -1,11 +1,15 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    fmt,
+    num::NonZeroUsize,
     panic::{self, AssertUnwindSafe},
     sync::{
-        Arc,
+        Arc, OnceLock, Weak,
+        atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread,
+    time::{Duration, Instant},
 };
 
 use caditor_document::{
@@ -19,6 +23,7 @@ use caditor_kernel::{
     Mesh, Solid, SolidMass, Surface, VertexId, VertexName, extent, mass_properties,
 };
 use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
+use parking_lot::{Condvar, Mutex};
 
 use crate::{
     blend_tools::{self, ChosenEdges},
@@ -27,6 +32,8 @@ use crate::{
     selection::Pickable,
     shell_tools,
 };
+
+const SHOWN_TOGETHER_FOR: Duration = Duration::from_millis(750);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FaceKey {
@@ -124,7 +131,6 @@ pub struct BodyFace {
     pub key: FaceKey,
     pub flat: bool,
     pub bounds: Option<Aabb>,
-    pub area: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -204,6 +210,68 @@ impl BodyMass {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MassReading {
+    pub mass: BodyMass,
+    face_areas: BTreeMap<FaceKey, f64>,
+}
+
+impl MassReading {
+    fn of(source: &FeatureResult) -> Option<Self> {
+        let body = source.solid()?;
+        let (mass, areas) = BodyMass::with_face_areas(&body.solid, body.mesh()?);
+        let keys: BTreeMap<FaceId, FaceKey> = face_keys(&body.solid).into_iter().collect();
+        let face_areas = areas
+            .into_iter()
+            .filter_map(|(face, area)| Some((*keys.get(&face)?, area)))
+            .collect();
+        Some(Self { mass, face_areas })
+    }
+}
+
+struct MassSlot {
+    source: Arc<FeatureResult>,
+    reading: OnceLock<Option<MassReading>>,
+    asked: AtomicBool,
+    pool: Weak<Pool>,
+}
+
+impl fmt::Debug for MassSlot {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MassSlot")
+            .field("reading", &self.reading.get())
+            .finish_non_exhaustive()
+    }
+}
+
+impl MassSlot {
+    fn reading(self: &Arc<Self>) -> Option<&MassReading> {
+        if let Some(reading) = self.reading.get() {
+            return reading.as_ref();
+        }
+        if !self.asked.swap(true, Ordering::AcqRel) {
+            let queued = self
+                .pool
+                .upgrade()
+                .is_some_and(|pool| pool.push(Task::Measure(Arc::clone(self))));
+            if !queued {
+                self.measure();
+            }
+        }
+        self.reading.get().and_then(Option::as_ref)
+    }
+
+    fn measure(&self) {
+        let reading = panic::catch_unwind(AssertUnwindSafe(|| MassReading::of(&self.source)))
+            .unwrap_or_else(|_| {
+                log::error!("working out a body's mass properties panicked");
+                None
+            });
+        let _ = self.reading.set(reading);
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BodyMesh {
     source: Arc<FeatureResult>,
@@ -211,18 +279,22 @@ pub struct BodyMesh {
     pub faces: Vec<BodyFace>,
     pub edges: Vec<BodyEdge>,
     pub vertices: Vec<BodyVertex>,
-    pub mass: BodyMass,
+    mass: Arc<MassSlot>,
 }
 
 impl BodyMesh {
-    fn of(source: &Arc<FeatureResult>) -> Option<Self> {
+    fn of(source: &Arc<FeatureResult>, pool: Weak<Pool>) -> Option<Self> {
         let solid = source.solid()?;
-        Some(Self::build(source, solid, solid.mesh()?))
+        Some(Self::build(source, solid, solid.mesh()?, pool))
     }
 
-    fn build(source: &Arc<FeatureResult>, body: &SolidResult, mesh: &Mesh) -> Self {
+    fn build(
+        source: &Arc<FeatureResult>,
+        body: &SolidResult,
+        mesh: &Mesh,
+        pool: Weak<Pool>,
+    ) -> Self {
         let solid = &body.solid;
-        let (mass, face_areas) = BodyMass::with_face_areas(solid, mesh);
         let keys: BTreeMap<FaceId, FaceKey> = face_keys(solid).into_iter().collect();
         let mut faces = Vec::new();
         let mut shaded = Vec::new();
@@ -249,7 +321,6 @@ impl BodyMesh {
                     .face(face.face)
                     .is_some_and(|face| matches!(face.surface(), Surface::Plane(_))),
                 bounds: Aabb::from_points(drawn.points.iter().map(|point| point.position)),
-                area: face_areas.get(&face.face).copied(),
             });
             shaded.push(drawn);
         }
@@ -283,8 +354,17 @@ impl BodyMesh {
             faces,
             edges,
             vertices,
-            mass,
+            mass: Arc::new(MassSlot {
+                source: Arc::clone(source),
+                reading: OnceLock::new(),
+                asked: AtomicBool::new(false),
+                pool,
+            }),
         }
+    }
+
+    pub fn mass(&self) -> Option<&BodyMass> {
+        self.mass.reading().map(|reading| &reading.mass)
     }
 
     pub fn source(&self) -> &Arc<FeatureResult> {
@@ -303,10 +383,7 @@ impl BodyMesh {
     }
 
     pub fn face_area(&self, key: FaceKey) -> Option<f64> {
-        self.faces
-            .iter()
-            .find(|face| face.key == key)
-            .and_then(|face| face.area)
+        self.mass.reading()?.face_areas.get(&key).copied()
     }
 
     pub fn face_bounds(&self, key: FaceKey) -> Option<Aabb> {
@@ -666,37 +743,149 @@ struct Conversion {
     mesh: Option<Arc<BodyMesh>>,
 }
 
+enum Task {
+    Convert(Arc<FeatureResult>),
+    Measure(Arc<MassSlot>),
+}
+
+enum Done {
+    Converted(Conversion),
+    Measured,
+}
+
+#[derive(Default)]
+struct Tasks {
+    converts: VecDeque<Arc<FeatureResult>>,
+    measures: VecDeque<Arc<MassSlot>>,
+    idle: usize,
+    started: usize,
+    closed: bool,
+}
+
+impl Tasks {
+    fn waiting(&self) -> usize {
+        self.converts.len() + self.measures.len()
+    }
+
+    fn take(&mut self) -> Option<Task> {
+        self.converts
+            .pop_front()
+            .map(Task::Convert)
+            .or_else(|| self.measures.pop_front().map(Task::Measure))
+    }
+}
+
+struct Pool {
+    tasks: Mutex<Tasks>,
+    ready: Condvar,
+    limit: usize,
+    done: Sender<Done>,
+    wake: Mutex<Waker>,
+}
+
+impl Pool {
+    fn push(self: &Arc<Self>, task: Task) -> bool {
+        let mut tasks = self.tasks.lock();
+        if tasks.closed {
+            return false;
+        }
+        match task {
+            Task::Convert(source) => tasks.converts.push_back(source),
+            Task::Measure(slot) => tasks.measures.push_back(slot),
+        }
+        let spawn = tasks.waiting() > tasks.idle && tasks.started < self.limit;
+        if spawn {
+            tasks.started += 1;
+        }
+        drop(tasks);
+        self.ready.notify_one();
+        if !spawn {
+            return true;
+        }
+        let pool = Arc::clone(self);
+        let spawned = thread::Builder::new()
+            .name("body meshes".to_owned())
+            .spawn(move || pool.serve());
+        match spawned {
+            Ok(_) => true,
+            Err(error) => {
+                log::error!("could not start a body mesh worker: {error}");
+                let mut tasks = self.tasks.lock();
+                tasks.started = tasks.started.saturating_sub(1);
+                tasks.started > 0
+            }
+        }
+    }
+
+    fn serve(self: &Arc<Self>) {
+        loop {
+            let task = {
+                let mut tasks = self.tasks.lock();
+                loop {
+                    if tasks.closed {
+                        return;
+                    }
+                    if let Some(task) = tasks.take() {
+                        break task;
+                    }
+                    tasks.idle += 1;
+                    self.ready.wait(&mut tasks);
+                    tasks.idle -= 1;
+                }
+            };
+            let done = match task {
+                Task::Convert(source) => Done::Converted(convert(source, Arc::downgrade(self))),
+                Task::Measure(slot) => {
+                    slot.measure();
+                    Done::Measured
+                }
+            };
+            if self.done.send(done).is_err() {
+                return;
+            }
+            (*self.wake.lock())();
+        }
+    }
+
+    fn close(&self) {
+        self.tasks.lock().closed = true;
+        self.ready.notify_all();
+    }
+}
+
 struct Converter {
-    jobs: Sender<Arc<FeatureResult>>,
-    done: Receiver<Conversion>,
+    pool: Arc<Pool>,
+    done: Receiver<Done>,
 }
 
 impl Converter {
-    fn spawn(wake: Waker) -> Option<Self> {
-        let (jobs, queue) = mpsc::channel::<Arc<FeatureResult>>();
-        let (sender, done) = mpsc::channel();
-        let spawned = thread::Builder::new()
-            .name("body meshes".to_owned())
-            .spawn(move || {
-                while let Ok(source) = queue.recv() {
-                    if sender.send(convert(source)).is_err() {
-                        break;
-                    }
-                    wake();
-                }
-            });
-        match spawned {
-            Ok(_) => Some(Self { jobs, done }),
-            Err(error) => {
-                log::error!("could not start the body mesh worker: {error}");
-                None
-            }
+    fn new(wake: Waker) -> Self {
+        let (done, received) = mpsc::channel();
+        let limit = thread::available_parallelism()
+            .map_or(1, NonZeroUsize::get)
+            .saturating_sub(1)
+            .max(1);
+        Self {
+            pool: Arc::new(Pool {
+                tasks: Mutex::new(Tasks::default()),
+                ready: Condvar::new(),
+                limit,
+                done,
+                wake: Mutex::new(wake),
+            }),
+            done: received,
         }
     }
 }
 
-fn convert(source: Arc<FeatureResult>) -> Conversion {
-    let mesh = panic::catch_unwind(AssertUnwindSafe(|| BodyMesh::of(&source)))
+impl Drop for Converter {
+    fn drop(&mut self) {
+        self.pool.close();
+    }
+}
+
+fn convert(source: Arc<FeatureResult>, pool: Weak<Pool>) -> Conversion {
+    let mesh = panic::catch_unwind(AssertUnwindSafe(|| BodyMesh::of(&source, pool)))
         .unwrap_or_else(|_| {
             log::error!("preparing a body mesh for display panicked");
             None
@@ -705,20 +894,23 @@ fn convert(source: Arc<FeatureResult>) -> Conversion {
     Conversion { source, mesh }
 }
 
+fn address(source: &Arc<FeatureResult>) -> usize {
+    Arc::as_ptr(source).addr()
+}
+
 #[derive(Default)]
 pub struct BodyMeshing {
     converter: Option<Converter>,
-    pending: Vec<Arc<FeatureResult>>,
-    converted: Vec<Conversion>,
+    pending: BTreeMap<usize, Arc<FeatureResult>>,
+    held: BTreeMap<usize, Conversion>,
+    converted: BTreeMap<usize, Conversion>,
+    shown_at: Option<Instant>,
+    measured: u64,
 }
 
 impl BodyMeshing {
     pub fn lookup(&self, source: &Arc<FeatureResult>) -> Converted<'_> {
-        let conversion = self
-            .converted
-            .iter()
-            .find(|conversion| Arc::ptr_eq(&conversion.source, source));
-        match (conversion, source.solid()) {
+        match (self.converted.get(&address(source)), source.solid()) {
             (Some(conversion), _) => conversion
                 .mesh
                 .as_ref()
@@ -729,32 +921,35 @@ impl BodyMeshing {
     }
 
     pub fn is_pending(&self) -> bool {
-        !self.pending.is_empty()
+        !self.pending.is_empty() || !self.held.is_empty()
+    }
+
+    pub fn preparing(&self) -> Option<(usize, usize)> {
+        let waiting = self.pending.len() + self.held.len();
+        (waiting > 0).then(|| (self.converted.len(), self.converted.len() + waiting))
+    }
+
+    pub fn masses_measured(&self) -> u64 {
+        self.measured
     }
 
     pub fn request(&mut self, source: &Arc<FeatureResult>, wake: impl FnOnce() -> Waker) {
         let meshed = source.solid().is_some_and(|solid| solid.mesh().is_some());
-        let known = self
-            .pending
-            .iter()
-            .chain(self.converted.iter().map(|conversion| &conversion.source))
-            .any(|known| Arc::ptr_eq(known, source));
+        let at = address(source);
+        let known = self.pending.contains_key(&at)
+            || self.held.contains_key(&at)
+            || self.converted.contains_key(&at);
         if !meshed || known {
             return;
         }
-        if self.converter.is_none() {
-            self.converter = Converter::spawn(wake());
-        }
-        let sent = self
-            .converter
-            .as_ref()
-            .is_some_and(|converter| converter.jobs.send(Arc::clone(source)).is_ok());
-        if sent {
-            self.pending.push(Arc::clone(source));
+        let converter = self.converter.get_or_insert_with(|| Converter::new(wake()));
+        if converter.pool.push(Task::Convert(Arc::clone(source))) {
+            self.pending.insert(at, Arc::clone(source));
         } else {
             log::error!("no body mesh worker, so the mesh is prepared on the UI thread");
             self.converter = None;
-            self.converted.push(convert(Arc::clone(source)));
+            self.converted
+                .insert(at, convert(Arc::clone(source), Weak::new()));
         }
     }
 
@@ -763,18 +958,37 @@ impl BodyMeshing {
             return false;
         };
         let mut arrived = false;
-        while let Ok(conversion) = converter.done.try_recv() {
-            self.pending
-                .retain(|pending| !Arc::ptr_eq(pending, &conversion.source));
-            self.converted.push(conversion);
+        while let Ok(done) = converter.done.try_recv() {
+            match done {
+                Done::Converted(conversion) => {
+                    let at = address(&conversion.source);
+                    if self.pending.remove(&at).is_some() {
+                        self.held.insert(at, conversion);
+                    }
+                }
+                Done::Measured => {
+                    self.measured = self.measured.wrapping_add(1);
+                    arrived = true;
+                }
+            }
+        }
+        let due = self.pending.is_empty()
+            || self
+                .shown_at
+                .is_none_or(|shown| shown.elapsed() >= SHOWN_TOGETHER_FOR);
+        if due && !self.held.is_empty() {
+            self.converted.append(&mut self.held);
+            self.shown_at = Some(Instant::now());
             arrived = true;
         }
         arrived
     }
 
     pub fn retain(&mut self, keep: impl Fn(&Arc<FeatureResult>) -> bool) {
-        self.pending.retain(|pending| keep(pending));
-        self.converted.retain(|conversion| keep(&conversion.source));
+        self.pending.retain(|_, pending| keep(pending));
+        self.held.retain(|_, conversion| keep(&conversion.source));
+        self.converted
+            .retain(|_, conversion| keep(&conversion.source));
     }
 }
 
@@ -920,7 +1134,7 @@ mod tests {
         wait_for(&mut meshing);
         meshes.update(&evaluation, &meshing);
         let shown = meshes.get(body).unwrap();
-        let direct = BodyMesh::of(&source).unwrap();
+        let direct = BodyMesh::of(&source, Weak::new()).unwrap();
 
         assert_eq!(shown.faces, direct.faces);
         assert_eq!(shown.edges, direct.edges);
