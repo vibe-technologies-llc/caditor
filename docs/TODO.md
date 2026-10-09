@@ -77,11 +77,14 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Kernel performance
 
-- [medium · hard] Every boolean rebuilds and revalidates every face of the body through `assemble`
-  and `Plan::build` even when the tool touches two (an untouched face only skips tracing and
-  classification), so a sequence of hole features is quadratic: in release the 144th hole of a block
-  takes about 70 ms against 1 ms for the first. Carry untouched faces through by id, and return
-  disjoint operands without the pipeline: a few hundred separated unions take seconds.
+- [medium · hard] A boolean still validates the volume of every shell it touches by meshing the
+  whole shell, and passes every face of the body through `Plan::build` and the cheap checks, so a
+  sequence of hole features stays quadratic with a smaller constant: in release the 144th hole of
+  a block takes about 21 ms (14 of them the volume check's mesh) against 1 ms for the first
+  (`carry_tests::holes_drilled_one_by_one_and_blocks_joined_one_by_one_take_bounded_time`).
+  Shells whose volume and placement could be known without meshing, and lumps of a many-lump body
+  that the tool does not reach (a union touching one of 300 separated blocks takes 18 ms), are not
+  carried yet.
 - [low · hard] The face grid is graded per direction but still a tensor product, so a bump divides
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where

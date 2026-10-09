@@ -33,6 +33,7 @@ type Mark = (f64, Option<usize>);
 pub(super) struct Source {
     pub curve: Curve,
     pub name: EdgeName,
+    pub edge: Option<(Operand, EdgeId)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -578,6 +579,7 @@ fn split_edges(
         let source = arrangement.add_source(Source {
             curve: curve.clone(),
             name: edge.name(),
+            edge: Some((operand, edge_id)),
         });
         let mut pieces = Vec::with_capacity(stops.len());
         for pair in stops.windows(2) {
@@ -784,6 +786,7 @@ fn clip_branch(
             arrangement.add_source(Source {
                 curve: curve.clone(),
                 name: EdgeName::between(names[0], names[1]),
+                edge: None,
             })
         });
         let piece = arrangement.add_piece(Piece {

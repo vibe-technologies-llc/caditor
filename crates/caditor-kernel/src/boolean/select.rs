@@ -215,6 +215,19 @@ fn extent(input: &Input, operand: Operand) -> Option<Aabb> {
         .reduce(Aabb::union)
 }
 
+fn reaches_beyond(arrangement: &Arrangement, fragment: &Fragment, other: Option<&Aabb>) -> bool {
+    fragment
+        .loops
+        .iter()
+        .flat_map(|traced| &traced.coedges)
+        .filter_map(|coedge| arrangement.curve(coedge.half_edge.piece))
+        .any(|(curve, piece)| {
+            other.is_none_or(|other| {
+                !boxes_overlap(&curve.bounding_box(piece.interval), other, TOLERANCE)
+            })
+        })
+}
+
 fn apart(input: &Input, key: FaceKey, other: Option<&Aabb>) -> bool {
     let Some(other) = other else {
         return true;
@@ -254,6 +267,9 @@ pub(super) fn select(
             let class = match known {
                 Some(class) => class,
                 None if face.untouched && apart(input, face.key, other_extent) => Class::Outside,
+                None if input.carrying && reaches_beyond(arrangement, &fragment, other_extent) => {
+                    Class::Outside
+                }
                 None => classify(
                     input,
                     face.key,

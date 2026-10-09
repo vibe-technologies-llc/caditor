@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_geometry::{Point2, Point3, Vector2};
 use thiserror::Error;
@@ -18,7 +18,7 @@ use crate::{
         Coedge, CoedgeId, Edge, EdgeId, Face, FaceId, Loop, LoopId, Shell, ShellId, Solid, Vertex,
         VertexId,
         pcurve::{Pcurve, PcurveError, fit},
-        validate::ValidationError,
+        validate::{self, ValidationError},
     },
 };
 
@@ -85,6 +85,7 @@ pub(crate) struct Blamed {
 #[derive(Debug, Clone, Default)]
 pub struct SolidBuilder {
     solid: Solid,
+    settled: BTreeSet<CoedgeId>,
 }
 
 impl SolidBuilder {
@@ -291,8 +292,21 @@ impl SolidBuilder {
         self.build_blamed().map_err(|blamed| blamed.error)
     }
 
+    pub(crate) fn settle(&mut self, face_loop: LoopId, settled: &[bool]) {
+        if let Some(face_loop) = self.solid.face_loop(face_loop) {
+            self.settled.extend(
+                face_loop
+                    .coedges
+                    .iter()
+                    .zip(settled)
+                    .filter(|(_, settled)| **settled)
+                    .map(|(coedge, _)| *coedge),
+            );
+        }
+    }
+
     pub(crate) fn build_blamed(self) -> Result<Solid, Blamed> {
-        match self.solid.validate() {
+        match validate::validate_settled(&self.solid, &self.settled) {
             Ok(()) => Ok(self.solid),
             Err(error) => Err(Blamed {
                 faces: error.faces(&self.solid),

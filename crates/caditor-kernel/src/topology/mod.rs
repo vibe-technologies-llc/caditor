@@ -725,7 +725,7 @@ fn torus_extremes(torus: &Torus) -> Vec<Point3> {
     extremes
 }
 
-fn doubly_curved(surface: &Surface) -> bool {
+pub(crate) fn doubly_curved(surface: &Surface) -> bool {
     matches!(
         surface,
         Surface::Sphere(_) | Surface::Torus(_) | Surface::Revolution(_) | Surface::BSpline(_)

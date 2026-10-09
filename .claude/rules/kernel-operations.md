@@ -68,6 +68,21 @@ paths:
   (`Empty` when nothing is left). Phases: `imprint.rs`, `faces.rs`, `select.rs`, `heal.rs`,
   `assemble.rs`. Candidates come from a tree of face boxes (`box_tree.rs`, also used by
   `find_crossing`).
+- Operands whose enclosing boxes (edges and vertices, plus the uv patch box of each doubly curved
+  face) lie more than ten times the resolution apart skip the pipeline (`apart.rs`): a union is
+  `Solid::beside`, a difference the first solid, an intersection `Empty`. Only when the pipeline
+  would change nothing in them, though: no edge between two faces healing would merge, no vertex
+  of exactly two edges between the same faces, no edge name repeated across both operands
+  (`Plan` would disambiguate it); otherwise they go through the pipeline.
+- What no tool touches is carried rather than rebuilt, so the work follows the size of the contact
+  and not of the body: a face's loops whose edges are unsplit, shared with nothing and whose
+  vertices no cut or other loop reaches keep their pcurves and skip tracing and refitting; a
+  fragment with an edge whose box misses the other solid's extent is outside without sampling;
+  coedges reaching assembly with the operand's own edge, surface, sense and pcurve go to the
+  `Plan` as `PlanPcurve::Settled`, whose geometry validation skips (`SolidBuilder::settle`).
+  Every other check, the volume and lump checks over the whole result included, still runs, so a
+  hole in a body of many holes costs about the volume check's coarse mesh of the body.
+  `Input::with_carrying(.., false)` runs the full pipeline; `carry_tests.rs` compares the two.
 - Face boxes (uv and the 3D box from it) are widened by `PCURVE_TOLERANCE` converted through the
   slowest surface speed, since the box of a face's pcurve samples can fall that far short of the
   edges, and a branch clipped to it would stop before the edge vertex.

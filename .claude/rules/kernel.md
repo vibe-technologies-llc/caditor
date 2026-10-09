@@ -165,6 +165,9 @@ paths:
   that band or narrower than the probe spacing is not seen.
 - Validation never intersects faces with each other, since every build runs it; `find_crossing`
   does, for importers.
+- A coedge a builder marks settled (`SolidBuilder::settle`, from `PlanPcurve::Settled`) was
+  carried with its edge curve, interval, face surface and pcurve unchanged from a valid solid, so
+  its geometry check against the edge is skipped; nothing else is.
 
 ## `Solid::find_crossing` (for importers)
 
