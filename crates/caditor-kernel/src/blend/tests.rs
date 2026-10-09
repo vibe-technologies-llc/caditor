@@ -1151,3 +1151,58 @@ fn a_distance_angle_chamfer_turns_its_cut_from_the_measured_face() {
         Err(BlendError::TooLarge(edge))
     );
 }
+
+fn notched_puck() -> Solid {
+    let puck = swept(
+        Plane::XY,
+        &[ProfileCurve::circle(1, Point2::new(0.0, 0.0), 40.0)],
+        15.0,
+    );
+    let notch = block_at((-10.0, 30.0, 8.0), (20.0, 20.0, 10.0), 2);
+    boolean(&puck, &notch, BooleanOperation::Difference).unwrap()
+}
+
+#[test]
+fn a_notch_edge_running_out_through_a_round_wall_is_rounded_up_to_the_wall() {
+    let puck = notched_puck();
+    let before = volume(&puck);
+    let edge = edge_through(&puck, (-10.0, 34.0, 8.0));
+
+    let rounded = run(&puck, &[edge], fillet(1.5));
+    let added = volume(&rounded) - before;
+    let length = (40.0_f64.powi(2) - 100.0).sqrt() - 30.0;
+
+    check("notch", &rounded, before + added);
+    assert!(
+        (added - spandrel(1.5) * length).abs() < 0.02 * spandrel(1.5) * length,
+        "added {added}"
+    );
+}
+
+#[test]
+fn a_notch_through_a_rounded_rim_has_its_floor_edges_rounded_up_to_the_wall() {
+    let puck = swept(
+        Plane::XY,
+        &[ProfileCurve::circle(1, Point2::new(0.0, 0.0), 40.0)],
+        15.0,
+    );
+    let rim = edge_through(&puck, (-40.0, 0.0, 15.0));
+    let rounded_rim = run(&puck, &[rim], fillet(3.0));
+    let notch = block_at((-10.0, 30.0, 11.0), (20.0, 20.0, 10.0), 2);
+    let notched = boolean(&rounded_rim, &notch, BooleanOperation::Difference).unwrap();
+    let before = volume(&notched);
+    let sides = [
+        edge_through(&notched, (-10.0, 34.0, 11.0)),
+        edge_through(&notched, (10.0, 34.0, 11.0)),
+    ];
+
+    let rounded = run(&notched, &sides, fillet(1.5));
+    let added = volume(&rounded) - before;
+    let length = (40.0_f64.powi(2) - 100.0).sqrt() - 30.0;
+
+    check("notch through the rim", &rounded, before + added);
+    assert!(
+        (added - 2.0 * spandrel(1.5) * length).abs() < 0.02 * spandrel(1.5) * length,
+        "added {added}"
+    );
+}

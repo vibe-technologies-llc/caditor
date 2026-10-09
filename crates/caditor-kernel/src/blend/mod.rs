@@ -1,5 +1,6 @@
 mod corner;
 mod feet;
+mod round_end;
 mod section;
 #[cfg(test)]
 mod survey;
@@ -17,6 +18,7 @@ use thiserror::Error;
 
 use self::{
     corner::Corner,
+    round_end::{Cut, Round},
     section::{
         BLEND_CURVE, Blend, FIRST_SIDE, Miss, SECOND_SIDE, Section, SectionCurve, SectionSide, Side,
     },
@@ -314,7 +316,16 @@ impl EdgeGeometry {
 enum End {
     Flush,
     Extended(f64),
-    Clipped { extension: f64, plane: Plane },
+    Clipped {
+        extension: f64,
+        plane: Plane,
+    },
+    Trimmed {
+        extension: f64,
+        round: Round,
+        at: Point3,
+        out: Vector3,
+    },
     Setback(f64),
 }
 
@@ -322,7 +333,9 @@ impl End {
     fn extension(self) -> f64 {
         match self {
             Self::Flush => 0.0,
-            Self::Extended(extension) | Self::Clipped { extension, .. } => extension,
+            Self::Extended(extension)
+            | Self::Clipped { extension, .. }
+            | Self::Trimmed { extension, .. } => extension,
             Self::Setback(distance) => -distance,
         }
     }
@@ -667,6 +680,7 @@ fn follow(
 struct Ends {
     at: [End; 2],
     faces: [Option<FaceId>; 2],
+    beside: [Vec<(Point3, FaceId)>; 2],
 }
 
 struct Surroundings<'a> {
@@ -736,7 +750,16 @@ fn end_at(
         return Ok((End::Extended(extension), Some(end_face)));
     }
     if !planar {
-        return Err(refused);
+        let round = Round::of(solid, end_face).ok_or(refused)?;
+        return Ok((
+            End::Trimmed {
+                extension: extension + reach,
+                round,
+                at: point,
+                out,
+            },
+            Some(end_face),
+        ));
     }
     let plane = Plane::new(point, normal * cosine.signum()).ok_or(refused)?;
     Ok((End::Clipped { extension, plane }, Some(end_face)))
@@ -810,6 +833,7 @@ fn ends(
         return Ok(Ends {
             at: [End::Flush, End::Flush],
             faces: [None, None],
+            beside: [Vec::new(), Vec::new()],
         });
     }
     let (start, start_face) = end_at(around, geometry, definition.start(), reach)?;
@@ -819,10 +843,105 @@ fn ends(
     {
         return Err(BlendError::TooLarge(geometry.edge));
     }
+    let [beside_start, beside_end] = beside_ends(around.solid, around.topology, geometry);
     Ok(Ends {
         at: [start, end],
         faces: [start_face, end_face],
+        beside: [beside_start, beside_end],
     })
+}
+
+fn faces_at(solid: &Solid, topology: &Topology, vertex: VertexId) -> BTreeSet<FaceId> {
+    topology
+        .edges_at(vertex)
+        .iter()
+        .flat_map(|edge| face_set(solid, *edge))
+        .collect()
+}
+
+fn neighbours(solid: &Solid, face: FaceId) -> BTreeSet<FaceId> {
+    solid
+        .face(face)
+        .into_iter()
+        .flat_map(|face| face.loops())
+        .filter_map(|id| solid.face_loop(*id))
+        .flat_map(|face_loop| face_loop.coedges())
+        .filter_map(|coedge| solid.coedge(*coedge).map(|coedge| coedge.edge()))
+        .flat_map(|edge| face_set(solid, edge))
+        .filter(|other| *other != face)
+        .collect()
+}
+
+fn corner_of(
+    solid: &Solid,
+    topology: &Topology,
+    face: FaceId,
+    own: &BTreeSet<FaceId>,
+    end_faces: &[FaceId],
+) -> Option<Point3> {
+    solid
+        .face(face)?
+        .loops()
+        .iter()
+        .filter_map(|id| solid.face_loop(*id))
+        .flat_map(|face_loop| face_loop.coedges())
+        .filter_map(|coedge| solid.coedge(*coedge).map(|coedge| coedge.edge()))
+        .filter_map(|edge| solid.edge(edge))
+        .flat_map(|edge| [edge.start(), edge.end()])
+        .find(|vertex| {
+            let around = faces_at(solid, topology, *vertex);
+            around.iter().any(|other| own.contains(other))
+                && end_faces.iter().any(|other| around.contains(other))
+        })
+        .and_then(|vertex| solid.vertex(vertex))
+        .map(|vertex| vertex.point())
+}
+
+fn beside_ends(
+    solid: &Solid,
+    topology: &Topology,
+    geometry: &EdgeGeometry,
+) -> [Vec<(Point3, FaceId)>; 2] {
+    let Some(definition) = solid.edge(geometry.edge).filter(|edge| !edge.is_closed()) else {
+        return [Vec::new(), Vec::new()];
+    };
+    let own: BTreeSet<FaceId> = geometry.faces.into_iter().collect();
+    let beside_one = |vertex: VertexId| -> Vec<(Point3, FaceId)> {
+        let Some(point) = solid.vertex(vertex).map(|vertex| vertex.point()) else {
+            return Vec::new();
+        };
+        let at_end = faces_at(solid, topology, vertex);
+        let end_faces: Vec<FaceId> = at_end.difference(&own).copied().collect();
+        if end_faces
+            .iter()
+            .any(|face| !is_planar(solid, *face) && Round::of(solid, *face).is_none())
+        {
+            return Vec::new();
+        }
+        let beside_own: BTreeSet<FaceId> = own
+            .iter()
+            .flat_map(|face| neighbours(solid, *face))
+            .collect();
+        end_faces
+            .iter()
+            .flat_map(|face| neighbours(solid, *face))
+            .filter(|face| {
+                !own.contains(face)
+                    && !at_end.contains(face)
+                    && beside_own.contains(face)
+                    && Round::of(solid, *face).is_some()
+            })
+            .collect::<BTreeSet<FaceId>>()
+            .into_iter()
+            .map(|face| {
+                (
+                    corner_of(solid, topology, face, &own, &end_faces).unwrap_or(point),
+                    face,
+                )
+            })
+            .collect()
+    };
+    [beside_one(definition.start()), beside_one(definition.end())]
 }
 
 const FIT_FRACTIONS: [f64; 3] = [0.25, 0.5, 0.75];
@@ -849,7 +968,13 @@ fn foot_path(geometry: &EdgeGeometry, foot: Point2) -> Option<(Curve, Interval)>
     }
 }
 
-fn crosses_boundary(solid: &Solid, face: FaceId, edge: EdgeId, foot: &(Curve, Interval)) -> bool {
+fn crosses_boundary(
+    solid: &Solid,
+    face: FaceId,
+    edge: EdgeId,
+    foot: &(Curve, Interval),
+    trimmed_by: &BTreeSet<FaceId>,
+) -> bool {
     let (path, range) = foot;
     let Some(definition) = solid.edge(edge) else {
         return false;
@@ -879,7 +1004,10 @@ fn crosses_boundary(solid: &Solid, face: FaceId, edge: EdgeId, foot: &(Curve, In
         };
         let incident =
             ends.contains(&other_definition.start()) || ends.contains(&other_definition.end());
-        if *other == edge || incident || *used > 1 {
+        let trimmed = face_set(solid, *other)
+            .iter()
+            .any(|across| trimmed_by.contains(across));
+        if *other == edge || incident || *used > 1 || trimmed {
             return false;
         }
         let other_reach = other_definition
@@ -946,13 +1074,14 @@ fn fits(
     geometry: &EdgeGeometry,
     blend: &Blend,
     past_ends: &[EndPlane],
+    trimmed_by: &BTreeSet<FaceId>,
 ) -> bool {
     geometry.faces.iter().zip(blend.feet).all(|(face, foot)| {
         let Some(surface) = solid.face(*face).map(|face| face.surface()) else {
             return false;
         };
         let crossed = foot_path(geometry, foot)
-            .is_some_and(|path| crosses_boundary(solid, *face, geometry.edge, &path));
+            .is_some_and(|path| crosses_boundary(solid, *face, geometry.edge, &path, trimmed_by));
         !crossed
             && FIT_FRACTIONS.iter().all(|fraction| {
                 let Some(point) = geometry.place(foot, *fraction) else {
@@ -1115,9 +1244,54 @@ fn tool(
         (chosen.name, chosen.origin)
     });
     for (end, cap) in ends.at.iter().zip(caps) {
-        if let End::Clipped { extension, plane } = end {
-            let cutter = half_space(plane, CUTTER_SCALE * (reach + extension), feature, cap)?;
-            shaped = boolean(&shaped, &cutter, BooleanOperation::Difference)?;
+        match end {
+            End::Clipped { extension, plane } => {
+                let cutter = half_space(plane, CUTTER_SCALE * (reach + extension), feature, cap)?;
+                shaped = boolean(&shaped, &cutter, BooleanOperation::Difference)?;
+            }
+            End::Trimmed {
+                extension,
+                round,
+                at,
+                out,
+            } => {
+                let refused = BlendError::UnsupportedEnd {
+                    edge: geometry.edge,
+                    vertex: None,
+                };
+                let cut = Cut {
+                    at: *at,
+                    toward: *out,
+                    span: CUTTER_SCALE * (reach + extension),
+                    behind: reach,
+                };
+                let cutter = round.region_beyond(cut, feature, cap, &refused)?;
+                shaped = boolean(&shaped, &cutter, BooleanOperation::Difference)?;
+            }
+            End::Flush | End::Extended(_) | End::Setback(_) => {}
+        }
+    }
+    if !geometry.section.convex {
+        for (beside, cap) in ends.beside.iter().zip(caps) {
+            for (at, face) in beside {
+                let refused = BlendError::UnsupportedEnd {
+                    edge: geometry.edge,
+                    vertex: None,
+                };
+                let (Some(round), Some(toward)) =
+                    (Round::of(solid, *face), face_normal(solid, *face, *at))
+                else {
+                    return Err(refused);
+                };
+                let cut = Cut {
+                    at: *at,
+                    toward,
+                    span: CUTTER_SCALE * reach,
+                    behind: reach,
+                };
+                let cutter = round.region_beyond(cut, feature, cap, &refused)?;
+                shaped = boolean(&shaped, &cutter, BooleanOperation::Difference)?;
+            }
         }
     }
     Ok(Tool {
@@ -1315,7 +1489,23 @@ fn apply_analysed(
         let measured_on = measured_side(solid, &geometry, &shared, shape.flipped());
         let blend = shape.cut(&geometry, measured_on)?;
         let past_ends = end_planes(solid, topology, &geometry);
-        if !fits(&classifier, solid, &geometry, &blend, &past_ends) {
+        let trimmed_by: BTreeSet<FaceId> = if geometry.section.convex {
+            BTreeSet::new()
+        } else {
+            beside_ends(solid, topology, &geometry)
+                .into_iter()
+                .flatten()
+                .map(|(_, face)| face)
+                .collect()
+        };
+        if !fits(
+            &classifier,
+            solid,
+            &geometry,
+            &blend,
+            &past_ends,
+            &trimmed_by,
+        ) {
             return Err(BlendError::TooLarge(edge));
         }
         let reach = geometry.section.reach(&blend);

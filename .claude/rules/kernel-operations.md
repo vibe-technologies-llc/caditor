@@ -208,6 +208,17 @@ paths:
   instead (`mitre`): each tool extends past the vertex and is clipped by the plane through the
   vertex bisecting the two edges, so the corner is filled or cut to where the two blends meet
   rather than left notched or standing.
+- An end that must be clipped by a curved face (a notch's floor edge running out through a round
+  wall) is `End::Trimmed` when that face is a cylinder, cone, sphere or torus (`round_end.rs`,
+  `Round`): near the end (`Cut`: from the vertex, `behind` back along the edge, `span` across) the
+  tool loses what lies beyond the face's surface, the region a revolved profile of the surface
+  bounds (the solid of the cylinder, cone or sphere, or for a torus seen from outside its tube
+  the corner of the quadrant the face faces, a revolved spandrel, so the tube's other quarters
+  keep their material). A concave tool also loses what lies beyond each round face beside the end
+  (`beside_ends`: a neighbour of an end face and of a blended face, a rim's fillet the notch runs
+  out under), anchored at the corner those three share, and its feet may cross the edges to those
+  faces without being `TooLarge`; an end beside a face that is neither flat nor round keeps
+  none.
 - Refused corners, each pinned by a test: a convex edge rising from bevelled concave edges (a
   boss's corner edge chosen with its base) ends, after the fill, where two fill faces meet and is
   `UnsupportedEnd`; feet meeting exactly across a fill (a rim chamfer meeting a boss's skirt on the
