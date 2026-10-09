@@ -1,8 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
 use caditor_geometry::{Aabb, Point3, RigidTransform, Vector3};
 use glam::Vec3;
-use wgpu::util::DeviceExt;
 
 use crate::{
     culling::{ClipWindow, placed_corners},
@@ -297,41 +296,189 @@ struct GpuPart {
     index_count: u32,
 }
 
-impl GpuPart {
-    fn new<'a>(
-        device: &wgpu::Device,
-        bytes: &mut Bytes,
-        vertices: impl Iterator<Item = &'a GpuVertex>,
-        indices: impl Iterator<Item = u32>,
-    ) -> Self {
-        bytes.clear();
-        for vertex in vertices {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UploadBudget(u64);
+
+impl UploadBudget {
+    pub const UNLIMITED: Self = Self(u64::MAX);
+
+    pub fn of(bytes: u64) -> Self {
+        Self(bytes)
+    }
+
+    fn grant(&mut self, wanted: usize, stride: u64) -> usize {
+        let affordable = usize::try_from(self.0 / stride).unwrap_or(usize::MAX);
+        let granted = wanted.min(affordable);
+        self.0 = self.0.saturating_sub(granted as u64 * stride);
+        granted
+    }
+}
+
+enum PartSource {
+    Whole,
+    Split(MeshPart),
+}
+
+impl PartSource {
+    fn vertex_count(&self, mesh: &ShadedMesh) -> usize {
+        match self {
+            Self::Whole => mesh.vertices.len(),
+            Self::Split(part) => part.vertices.len(),
+        }
+    }
+
+    fn indices<'a>(&'a self, mesh: &'a ShadedMesh) -> &'a [u32] {
+        match self {
+            Self::Whole => &mesh.indices,
+            Self::Split(part) => &part.indices,
+        }
+    }
+
+    fn pack_vertices(&self, mesh: &ShadedMesh, bytes: &mut Bytes, range: Range<usize>) {
+        let pack = |vertex: &GpuVertex| {
             bytes
                 .vec3(vertex.position)
                 .vec3(vertex.normal)
                 .u32(vertex.face);
+        };
+        match self {
+            Self::Whole => mesh
+                .vertices
+                .get(range)
+                .into_iter()
+                .flatten()
+                .for_each(pack),
+            Self::Split(part) => part
+                .vertices
+                .get(range)
+                .into_iter()
+                .flatten()
+                .filter_map(|vertex| mesh.vertices.get(*vertex as usize))
+                .for_each(pack),
         }
-        let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh vertices"),
-            contents: bytes.as_slice(),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        bytes.clear();
-        let mut index_count = 0u32;
-        for index in indices {
-            bytes.u32(index);
-            index_count = index_count.saturating_add(1);
-        }
-        let indices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh indices"),
-            contents: bytes.as_slice(),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+    }
+}
+
+struct PartUpload {
+    source: PartSource,
+    gpu: GpuPart,
+    vertices_written: usize,
+    indices_written: usize,
+}
+
+impl PartUpload {
+    fn new(device: &wgpu::Device, mesh: &ShadedMesh, source: PartSource) -> Self {
+        let buffer = |label, length: usize, stride: u64, usage| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: length as u64 * stride,
+                usage: usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        let index_count = source.indices(mesh).len();
+        let gpu = GpuPart {
+            vertices: buffer(
+                "mesh vertices",
+                source.vertex_count(mesh),
+                MESH_VERTEX_STRIDE,
+                wgpu::BufferUsages::VERTEX,
+            ),
+            indices: buffer(
+                "mesh indices",
+                index_count,
+                INDEX_BYTES,
+                wgpu::BufferUsages::INDEX,
+            ),
+            index_count: u32::try_from(index_count).unwrap_or(u32::MAX),
+        };
         Self {
-            vertices,
-            indices,
-            index_count,
+            source,
+            gpu,
+            vertices_written: 0,
+            indices_written: 0,
         }
+    }
+
+    fn advance(
+        &mut self,
+        mesh: &ShadedMesh,
+        queue: &wgpu::Queue,
+        bytes: &mut Bytes,
+        budget: &mut UploadBudget,
+    ) -> bool {
+        let vertex_count = self.source.vertex_count(mesh);
+        while self.vertices_written < vertex_count {
+            let granted = budget.grant(vertex_count - self.vertices_written, MESH_VERTEX_STRIDE);
+            if granted == 0 {
+                return false;
+            }
+            let range = self.vertices_written..self.vertices_written + granted;
+            bytes.clear();
+            self.source.pack_vertices(mesh, bytes, range);
+            let offset = self.vertices_written as u64 * MESH_VERTEX_STRIDE;
+            queue.write_buffer(&self.gpu.vertices, offset, bytes.as_slice());
+            self.vertices_written += granted;
+        }
+        let indices = self.source.indices(mesh);
+        while self.indices_written < indices.len() {
+            let granted = budget.grant(indices.len() - self.indices_written, INDEX_BYTES);
+            if granted == 0 {
+                return false;
+            }
+            let range = self.indices_written..self.indices_written + granted;
+            bytes.clear();
+            for index in indices.get(range).into_iter().flatten() {
+                bytes.u32(*index);
+            }
+            let offset = self.indices_written as u64 * INDEX_BYTES;
+            queue.write_buffer(&self.gpu.indices, offset, bytes.as_slice());
+            self.indices_written += granted;
+        }
+        true
+    }
+}
+
+struct MeshUpload {
+    mesh: Arc<ShadedMesh>,
+    parts: Vec<PartUpload>,
+}
+
+impl MeshUpload {
+    fn start(device: &wgpu::Device, mesh: Arc<ShadedMesh>) -> Self {
+        let buffer_limit = gpu::buffer_limit(device);
+        let sources = match split_into_parts(&mesh, buffer_limit) {
+            None => vec![PartSource::Whole],
+            Some(parts) => {
+                log::warn!(
+                    "a mesh of {} vertices is drawn in {} parts, since the graphics device holds at most {buffer_limit} bytes in a buffer",
+                    mesh.vertices.len(),
+                    parts.len()
+                );
+                parts.into_iter().map(PartSource::Split).collect()
+            }
+        };
+        let parts = sources
+            .into_iter()
+            .map(|source| PartUpload::new(device, &mesh, source))
+            .collect();
+        Self { mesh, parts }
+    }
+
+    fn advance(
+        &mut self,
+        queue: &wgpu::Queue,
+        bytes: &mut Bytes,
+        budget: &mut UploadBudget,
+    ) -> bool {
+        self.parts
+            .iter_mut()
+            .all(|part| part.advance(&self.mesh, queue, bytes, budget))
+    }
+
+    fn finish(self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> GpuMesh {
+        let parts = self.parts.into_iter().map(|part| part.gpu).collect();
+        GpuMesh::with_parts(device, layout, self.mesh, parts)
     }
 }
 
@@ -393,40 +540,6 @@ fn pack_color(color: Color) -> u32 {
 }
 
 impl GpuMesh {
-    fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, mesh: Arc<ShadedMesh>) -> Self {
-        let buffer_limit = gpu::buffer_limit(device);
-        let mut bytes = Bytes::default();
-        let parts = match split_into_parts(&mesh, buffer_limit) {
-            None => vec![GpuPart::new(
-                device,
-                &mut bytes,
-                mesh.vertices.iter(),
-                mesh.indices.iter().copied(),
-            )],
-            Some(parts) => {
-                log::warn!(
-                    "a mesh of {} vertices is drawn in {} parts, since the graphics device holds at most {buffer_limit} bytes in a buffer",
-                    mesh.vertices.len(),
-                    parts.len()
-                );
-                parts
-                    .iter()
-                    .map(|part| {
-                        GpuPart::new(
-                            device,
-                            &mut bytes,
-                            part.vertices
-                                .iter()
-                                .filter_map(|vertex| mesh.vertices.get(*vertex as usize)),
-                            part.indices.iter().copied(),
-                        )
-                    })
-                    .collect()
-            }
-        };
-        Self::with_parts(device, layout, mesh, parts.into())
-    }
-
     fn sharing(&self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> Self {
         Self::with_parts(
             device,
@@ -497,7 +610,28 @@ impl GpuMesh {
     ) {
         self.write_placement(queue, bytes, instance.placement, eye);
         if self.written.as_deref() != Some(instance.faces.as_slice()) {
-            self.write_face_styles(queue, bytes, instance);
+            self.write_face_styles(queue, bytes, &instance.faces);
+        }
+    }
+
+    fn keep_showing_unpicked(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, eye: Point3) {
+        let placement = self.placed.and_then(|placed| placed.placement);
+        self.write_placement(queue, bytes, placement, eye);
+        let unpicked: Option<Vec<FaceStyle>> = self
+            .written
+            .as_ref()
+            .filter(|written| written.iter().any(|style| style.pick.is_some()))
+            .map(|written| {
+                written
+                    .iter()
+                    .map(|style| FaceStyle {
+                        pick: None,
+                        ..*style
+                    })
+                    .collect()
+            });
+        if let Some(unpicked) = unpicked {
+            self.write_face_styles(queue, bytes, &unpicked);
         }
     }
 
@@ -535,15 +669,10 @@ impl GpuMesh {
         queue.write_buffer(&self.placement, 0, bytes.as_slice());
     }
 
-    fn write_face_styles(
-        &mut self,
-        queue: &wgpu::Queue,
-        bytes: &mut Bytes,
-        instance: &MeshInstance,
-    ) {
+    fn write_face_styles(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, faces: &[FaceStyle]) {
         bytes.clear();
         for face in 0..self.layout.texels() {
-            let style = instance.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
+            let style = faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
             bytes
                 .u32(pack_color(style.color))
                 .u32(PickId::raw(style.pick));
@@ -558,13 +687,30 @@ impl GpuMesh {
             },
             self.layout.extent(),
         );
-        self.written = Some(instance.faces.clone());
+        self.written = Some(faces.to_vec());
     }
+}
+
+enum Prepared {
+    Ready(Box<GpuMesh>),
+    Uploading(MeshUpload),
+}
+
+fn take_of<T>(
+    items: &mut Vec<T>,
+    mesh: &Arc<ShadedMesh>,
+    of: impl Fn(&T) -> &Arc<ShadedMesh>,
+) -> Option<T> {
+    items
+        .iter()
+        .position(|item| Arc::ptr_eq(of(item), mesh))
+        .map(|index| items.swap_remove(index))
 }
 
 pub struct MeshCache {
     layout: wgpu::BindGroupLayout,
     meshes: Vec<GpuMesh>,
+    uploads: Vec<MeshUpload>,
     rejected: Vec<Arc<ShadedMesh>>,
     staging: Bytes,
 }
@@ -599,6 +745,7 @@ impl MeshCache {
         Self {
             layout,
             meshes: Vec::new(),
+            uploads: Vec::new(),
             rejected: Vec::new(),
             staging: Bytes::default(),
         }
@@ -616,9 +763,14 @@ impl MeshCache {
                 .iter()
                 .map(|mesh| mesh.sharing(device, &self.layout))
                 .collect(),
+            uploads: Vec::new(),
             rejected: self.rejected.clone(),
             staging: Bytes::default(),
         }
+    }
+
+    pub fn is_uploading(&self) -> bool {
+        !self.uploads.is_empty()
     }
 
     pub fn prepare(
@@ -627,8 +779,10 @@ impl MeshCache {
         queue: &wgpu::Queue,
         instances: &[MeshInstance],
         eye: Point3,
+        budget: &mut UploadBudget,
     ) -> u32 {
         let mut previous = std::mem::take(&mut self.meshes);
+        let mut uploads = std::mem::take(&mut self.uploads);
         let mut rejected = std::mem::take(&mut self.rejected);
         let mut kept_rejected = Vec::new();
         let mut newly_rejected = 0;
@@ -636,27 +790,34 @@ impl MeshCache {
             .iter()
             .filter(|instance| !instance.mesh.is_empty())
         {
-            if let Some(index) = rejected
-                .iter()
-                .position(|refused| Arc::ptr_eq(refused, &instance.mesh))
-            {
-                kept_rejected.push(rejected.swap_remove(index));
+            if let Some(refused) = take_of(&mut rejected, &instance.mesh, |refused| refused) {
+                kept_rejected.push(refused);
                 continue;
             }
-            let reused = previous
-                .iter()
-                .position(|cached| Arc::ptr_eq(&cached.mesh, &instance.mesh))
-                .map(|index| previous.swap_remove(index));
-            let (gpu, error) = gpu::scoped(device, || {
-                let mut gpu = reused.unwrap_or_else(|| {
-                    GpuMesh::new(device, &self.layout, Arc::clone(&instance.mesh))
-                });
-                gpu.write_styles(queue, &mut self.staging, instance, eye);
-                gpu
+            let reused = take_of(&mut previous, &instance.mesh, |cached| &cached.mesh);
+            let started = take_of(&mut uploads, &instance.mesh, |upload| &upload.mesh);
+            let staging = &mut self.staging;
+            let layout = &self.layout;
+            let (prepared, error) = gpu::scoped(device, || {
+                let mut ready = match reused {
+                    Some(gpu) => gpu,
+                    None => {
+                        let mut upload = started.unwrap_or_else(|| {
+                            MeshUpload::start(device, Arc::clone(&instance.mesh))
+                        });
+                        if !upload.advance(queue, staging, budget) {
+                            return Prepared::Uploading(upload);
+                        }
+                        upload.finish(device, layout)
+                    }
+                };
+                ready.write_styles(queue, staging, instance, eye);
+                Prepared::Ready(Box::new(ready))
             });
-            match error {
-                None => self.meshes.push(gpu),
-                Some(error) => {
+            match (prepared, error) {
+                (Prepared::Ready(gpu), None) => self.meshes.push(*gpu),
+                (Prepared::Uploading(upload), None) => self.uploads.push(upload),
+                (_, Some(error)) => {
                     log::warn!(
                         "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
                         instance.mesh.vertices.len()
@@ -666,8 +827,33 @@ impl MeshCache {
                 }
             }
         }
+        if self.is_uploading() {
+            self.keep_previous(device, queue, previous, eye);
+        }
         self.rejected = kept_rejected;
         newly_rejected
+    }
+
+    fn keep_previous(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mut previous: Vec<GpuMesh>,
+        eye: Point3,
+    ) {
+        let staging = &mut self.staging;
+        let ((), error) = gpu::scoped(device, || {
+            for mesh in &mut previous {
+                mesh.keep_showing_unpicked(queue, staging, eye);
+            }
+        });
+        match error {
+            None => self.meshes.append(&mut previous),
+            Some(error) => log::warn!(
+                "the graphics device refused to keep {} meshes shown while their replacements upload: {error}",
+                previous.len()
+            ),
+        }
     }
 
     pub fn draw(
@@ -797,6 +983,20 @@ mod tests {
         assert_eq!(wrapped.texels(), 3072);
         assert_eq!(beyond.faces, 64 * 64);
         assert_eq!(StyleLayout::new(0, 0).faces, 1);
+    }
+
+    #[test]
+    fn an_upload_budget_grants_whole_elements_until_it_is_spent() {
+        let mut budget = UploadBudget::of(100);
+        let mut unlimited = UploadBudget::UNLIMITED;
+
+        assert_eq!(budget.grant(10, MESH_VERTEX_STRIDE), 3);
+        assert_eq!(budget.grant(10, INDEX_BYTES), 4);
+        assert_eq!(budget.grant(10, INDEX_BYTES), 0);
+        assert_eq!(
+            unlimited.grant(usize::MAX / 64, MESH_VERTEX_STRIDE),
+            usize::MAX / 64
+        );
     }
 
     #[test]

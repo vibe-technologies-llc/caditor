@@ -9,7 +9,7 @@ use crate::{
     culling::ClipWindow,
     gpu::{self, Bytes, GrowableBuffer},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
-    mesh::{MESH_VERTEX_STRIDE, MeshCache},
+    mesh::{MESH_VERTEX_STRIDE, MeshCache, UploadBudget},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{Batch, Color, Fill, Grid, Layer, Line, PickId, Primitive, Scene, ViewportRect},
     settings::Shading,
@@ -51,6 +51,7 @@ const GRID_CELLS_ACROSS_SCALE: f64 = 100.0;
 const GRID_EXTENT_PER_SCALE: f64 = 40.0;
 const GRID_MIN_SCALE_PER_DISTANCE: f64 = 0.25;
 const WHOLE_VIEW: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
+const MESH_UPLOAD_BYTES_PER_FRAME: u64 = 8 << 20;
 
 pub struct ViewportFrame<'a> {
     pub rect: ViewportRect,
@@ -636,6 +637,7 @@ pub struct ViewportRenderer {
     translucent: MeshCache,
     overlay: MeshCache,
     flat: MeshCache,
+    mesh_upload_bytes: u64,
     staging: Bytes,
     targets: Option<SceneTargets>,
     targets_refused: Option<(u32, u32)>,
@@ -690,6 +692,7 @@ impl ViewportRenderer {
             translucent: MeshCache::new(device),
             overlay: MeshCache::new(device),
             flat: MeshCache::new(device),
+            mesh_upload_bytes: MESH_UPLOAD_BYTES_PER_FRAME,
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -754,6 +757,17 @@ impl ViewportRenderer {
         self.picking.is_pending()
     }
 
+    pub fn is_uploading(&self) -> bool {
+        [&self.meshes, &self.translucent, &self.overlay, &self.flat]
+            .iter()
+            .any(|cache| cache.is_uploading())
+    }
+
+    #[cfg(test)]
+    pub fn set_mesh_upload_bytes(&mut self, bytes: u64) {
+        self.mesh_upload_bytes = bytes;
+    }
+
     pub fn draw(
         &mut self,
         device: &wgpu::Device,
@@ -769,7 +783,8 @@ impl ViewportRenderer {
         let viewport =
             viewport.filter(|viewport| viewport.rect.width >= 1.0 && viewport.rect.height >= 1.0);
         if let Some(viewport) = viewport {
-            let uploaded = self.upload(device, queue, viewport);
+            let budget = UploadBudget::of(self.mesh_upload_bytes);
+            let uploaded = self.upload(device, queue, viewport, budget);
             faults.meshes = uploaded.meshes;
             faults.batches = uploaded.batches;
             faults.picking = uploaded.picking;
@@ -859,6 +874,7 @@ impl ViewportRenderer {
             translucent: self.translucent.sibling(device),
             overlay: self.overlay.sibling(device),
             flat: self.flat.sibling(device),
+            mesh_upload_bytes: self.mesh_upload_bytes,
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
@@ -889,7 +905,10 @@ impl ViewportRenderer {
             pick_at: None,
             pixels_per_point: request.pixels_per_point,
         };
-        if self.upload(device, queue, &frame).any() {
+        if self
+            .upload(device, queue, &frame, UploadBudget::UNLIMITED)
+            .any()
+        {
             return None;
         }
         let targets = ImageTargets::new(
@@ -1090,6 +1109,7 @@ impl ViewportRenderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         viewport: &ViewportFrame<'_>,
+        mut budget: UploadBudget,
     ) -> Faults {
         let mut faults = Faults::default();
         let view = viewport.view;
@@ -1136,23 +1156,17 @@ impl ViewportRenderer {
             queue.write_buffer(&self.grid_uniform.buffer, 0, self.staging.as_slice());
         }
 
-        faults.meshes = self
-            .meshes
-            .prepare(device, queue, &scene.meshes, view.eye())
-            .saturating_add(self.translucent.prepare(
-                device,
-                queue,
-                &scene.translucent_meshes,
-                view.eye(),
-            ))
-            .saturating_add(
-                self.overlay
-                    .prepare(device, queue, &scene.overlay_meshes, view.eye()),
-            )
-            .saturating_add(
-                self.flat
-                    .prepare(device, queue, &scene.flat_meshes, view.eye()),
-            );
+        let eye = view.eye();
+        faults.meshes = [
+            (&mut self.meshes, &scene.meshes),
+            (&mut self.translucent, &scene.translucent_meshes),
+            (&mut self.overlay, &scene.overlay_meshes),
+            (&mut self.flat, &scene.flat_meshes),
+        ]
+        .into_iter()
+        .fold(0, |refused: u32, (cache, instances)| {
+            refused.saturating_add(cache.prepare(device, queue, instances, eye, &mut budget))
+        });
         let (changed, refused_batches) =
             self.upload_batches(device, queue, &scene.batches, anchored.anchor);
         faults.batches = refused_batches;

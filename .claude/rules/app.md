@@ -124,7 +124,10 @@ paths:
   frame that must follow: an action, a camera animation). A pick in flight is checked every
   `PICK_CHECK` from `about_to_wait` (`Renderer::is_pick_answered`) and a frame follows once it is
   answered; an exported image's tiles advance on the wake its writer sends for each buffer it
-  returns. Neither draws frames while it waits. Every request goes through `Session::request_redraw`, never straight to the window.
+  returns. Neither draws frames while it waits. While the renderer is uploading meshes
+  (`Renderer::is_uploading`) a frame follows each frame, and the frame that sees the uploads
+  finished asks for a pick again (`ViewportState::pick_again`), since picks made meanwhile could
+  not pick the replaced bodies. Every request goes through `Session::request_redraw`, never straight to the window.
 - `FramePacer` (`graphics.rs`) holds requests to the frame limit: the chosen rate's interval, or
   for Match the display the monitor's refresh rate only while vsync is off (`Fifo` already paces
   to it); none when unlimited or unknown. An early request is scheduled for the next slot
