@@ -262,6 +262,31 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   tried one candidate at a time instead, each kept only when it solves, adds rank and stays within
   the limit. What is kept comes back with the degrees of freedom left.
 
+- `Sketch::datum_dimensions` (`datum.rs`) dimensions what is still free from a datum point (the
+  origin or any point; `InferenceError::NotAPoint` otherwise) at the measured values, through the
+  same `keep_holding` in one stage, so only dimensions adding rank are kept: the datum's horizontal
+  and vertical distances from the origin (unless it is the origin or fixed), each circle's
+  diameter, arc's radius and ellipse's minor radius, then every other free point's horizontal and
+  vertical distance from the datum, nearest points first so a rectangle cornered on it gets its
+  width and height. An offset within the tolerance is held by `VerticalPoints` or
+  `HorizontalPoints` instead of a dimension of nothing. Fixed and reference geometry is left out.
+
+## Checking a sketch (`check.rs`)
+
+- `Sketch::flaws` names what the eye misses, within a `Tolerance`: curves of no length
+  (`Flaw::NoLength`: a line, arc length or radius, or every spline control point within the
+  distance), ends of different curves at most the distance apart and not joined
+  (`NearlyJoined`, with the gap; the two ends of a curve of no length count as joined, so its
+  fix is not named twice), and a line, circle or arc lying on another (`OVERLAP_SAMPLES` points
+  along it all within the distance of the other: `LiesOn`, the newer on the older when each lies
+  on the other) or sharing a stretch with it (two or more samples: `Overlaps`). Projected and
+  reference geometry is left out; curves are paired through a sweep over their boxes.
+- `Sketch::fix` gives each flaw's repair as entities to remove and constraints to add (`Fix`):
+  a `Coincident` for ends nearly joined; a curve of no length removed, its points no other curve
+  or constraint uses with it, and its two kept ends joined; a curve lying on another removed the
+  same way, each kept end not already joined to an end of the other held on it by `Coincident`.
+  A partial overlap has no fix (`Fix::is_empty`), since which piece to keep is the user's choice.
+
 ## Tangent circles (`tangent_circle.rs`)
 
 - `tangent_circle` draws a circle tangent to three of the sketch's lines, circles and arcs (an

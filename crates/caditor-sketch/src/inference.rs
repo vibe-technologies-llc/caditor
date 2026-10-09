@@ -842,7 +842,7 @@ fn ordered(a: EntityId, b: EntityId) -> (EntityId, EntityId) {
     if a <= b { (a, b) } else { (b, a) }
 }
 
-fn within_sweep(arc: &ArcGeometry, at: Point2, slack: f64) -> bool {
+pub(crate) fn within_sweep(arc: &ArcGeometry, at: Point2, slack: f64) -> bool {
     let turn = at - arc.center;
     let past_start = (turn.y.atan2(turn.x) - arc.start_angle).rem_euclid(TAU);
     let angular_slack = if arc.radius > 0.0 {

@@ -2,9 +2,11 @@ mod banded;
 mod beyond;
 mod blend;
 mod breaking;
+mod check;
 mod clip;
 mod constraint;
 mod curve;
+mod datum;
 mod entity;
 mod fillet;
 mod fit;
@@ -26,6 +28,7 @@ pub use crate::{
     beyond::PointBeyond,
     blend::{BlendCurve, BlendEnd, BlendError, Continuity},
     breaking::{BreakError, Broken},
+    check::{Fix, Flaw},
     clip::{ClipError, SketchClip},
     constraint::{Constraint, DimensionError, MAX_LENGTH},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
