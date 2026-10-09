@@ -388,9 +388,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
   distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
   at once, which only looks into the model and changes nothing. Measure works on what it shows.
-- [low · easy] Nothing hides or shows by kind: hiding every sketch, every datum or every body takes
-  choosing each, where a command per kind beside Hide everything but the selection and Show
-  everything would clear the view for a picture or a measurement in one step.
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
 - [low · medium] Lighting and the MSAA resolve happen in gamma space.

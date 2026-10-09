@@ -557,6 +557,9 @@ impl Menus<'_, '_> {
                     Command::ToggleVisibility,
                     Command::ShowAll,
                     Command::TogglePrincipal,
+                    Command::ToggleSketches,
+                    Command::ToggleDatums,
+                    Command::ToggleBodies,
                 ],
             );
             ui.separator();

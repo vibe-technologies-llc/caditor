@@ -153,6 +153,9 @@ pub enum Command {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    ToggleSketches,
+    ToggleDatums,
+    ToggleBodies,
     SaveView,
     SavedViews,
     SetHomeView,
@@ -522,6 +525,9 @@ plain_commands! {
     ToggleVisibility,
     ShowAll,
     TogglePrincipal,
+    ToggleSketches,
+    ToggleDatums,
+    ToggleBodies,
     SaveView,
     SavedViews,
     SetHomeView,
@@ -787,6 +793,9 @@ impl Command {
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
+            Self::ToggleSketches => "view.toggle_sketches",
+            Self::ToggleDatums => "view.toggle_datums",
+            Self::ToggleBodies => "view.toggle_bodies",
             Self::SaveView => "view.save",
             Self::SavedViews => "view.saved_views",
             Self::SetHomeView => "view.set_home",
@@ -975,6 +984,9 @@ impl Command {
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
+            Self::ToggleSketches => "Hide or show every sketch",
+            Self::ToggleDatums => "Hide or show every datum",
+            Self::ToggleBodies => "Hide or show every body",
             Self::SaveView => "Save the current view",
             Self::SavedViews => "Saved views…",
             Self::SetHomeView => "Make the current view the Isometric view",
@@ -1109,6 +1121,9 @@ impl Command {
             | Self::ToggleVisibility
             | Self::ShowAll
             | Self::TogglePrincipal
+            | Self::ToggleSketches
+            | Self::ToggleDatums
+            | Self::ToggleBodies
             | Self::SaveView
             | Self::SavedViews
             | Self::SetHomeView
@@ -1414,7 +1429,10 @@ impl Command {
             | Self::About
             | Self::Messages
             | Self::UndoHistory
-            | Self::SelectFree => Vec::new(),
+            | Self::SelectFree
+            | Self::ToggleSketches
+            | Self::ToggleDatums
+            | Self::ToggleBodies => Vec::new(),
         }
     }
 

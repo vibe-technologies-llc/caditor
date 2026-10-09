@@ -1967,6 +1967,21 @@ fn feature_commands(
     if commands.invoke(Command::TogglePrincipal, &Ok::<_, String>(())) {
         actions.push(Action::Apply(visibility::toggle_principal_group(document)));
     }
+    for (command, kind) in [
+        Command::ToggleSketches,
+        Command::ToggleDatums,
+        Command::ToggleBodies,
+    ]
+    .into_iter()
+    .zip(visibility::Kind::ALL)
+    {
+        let toggle = visibility::toggle_kind(document, kind, editing.feature());
+        if commands.invoke(command, &toggle)
+            && let Ok(transaction) = toggle
+        {
+            actions.push(Action::Apply(transaction));
+        }
+    }
     if let Some(transaction) = invoke_on(commands, Command::DetachSketch, current, |feature| {
         detach_change(model, feature)
     }) {

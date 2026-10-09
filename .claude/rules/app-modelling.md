@@ -370,6 +370,11 @@ paths:
   open datum. Extrude and Revolve hide their sketch in the same transaction. Every hide control
   is also a command. Hide everything but the selection (`visibility::hide_others`) hides in one
   transaction every other shown hideable feature and principal item, except the edited sketch.
+- Hide or show every sketch, datum or body (`Command::ToggleSketches`, `ToggleDatums`,
+  `ToggleBodies`, View menu, palette, no default key; `visibility::toggle_kind`) is one
+  transaction per kind: while any of that kind is shown it hides every one shown, otherwise it
+  shows them all; the edited sketch is never touched, and a model with none of the kind refuses
+  in words. Body-making features count as bodies, as `can_hide` judges them.
 - Principal planes, axes and origin hide the same way through a group row (`principal_tree.rs`)
   with an eye for the group and one per item. Hidden ones are drawn and offered anyway while a
   sketch's plane is chosen (`Context::choosing_plane`).
