@@ -40,6 +40,18 @@ impl ResultHistory {
             .map(|kept| &kept.entry)
     }
 
+    pub(crate) fn peek(
+        &self,
+        feature: FeatureId,
+        matches: impl Fn(&CacheEntry) -> bool,
+    ) -> Option<&CacheEntry> {
+        self.features
+            .get(&feature)?
+            .iter()
+            .map(|kept| &kept.entry)
+            .find(|entry| matches(entry))
+    }
+
     pub(crate) fn reuse(
         &mut self,
         feature: FeatureId,

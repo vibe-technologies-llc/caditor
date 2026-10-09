@@ -2,7 +2,10 @@ use std::{
     any::Any,
     collections::{BTreeMap, BTreeSet},
     panic::{self, AssertUnwindSafe},
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, OnceLock,
+        mpsc::{self, TryRecvError},
+    },
     time::{Duration, Instant},
 };
 
@@ -20,7 +23,10 @@ use crate::{
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
     history::ResultHistory,
-    hole, import, mate, mirror, movement, offset_face, pattern,
+    hole, import,
+    lookahead::Lookahead,
+    mate, mirror, movement, offset_face, pattern,
+    pool::{Claim, Job, Landed, Pool, Work, available_workers},
     presenting::{Glimpse, Presentation, SettledBody},
     primitive, projection, removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
@@ -236,7 +242,9 @@ impl FeatureResult {
     }
 }
 
-type BodyStates = BTreeMap<FeatureId, (FeatureId, Arc<FeatureResult>)>;
+pub(crate) type BodyState = (FeatureId, Arc<FeatureResult>);
+
+type BodyStates = BTreeMap<FeatureId, BodyState>;
 
 pub struct Inputs<'a> {
     pub document: &'a Document,
@@ -535,29 +543,22 @@ impl CacheEntry {
         }
     }
 
-    fn matches(
-        &self,
-        definition: &Arc<Feature>,
-        parameters: &ParameterFingerprint,
-        names: &Names,
-        upstream: &[(FeatureId, Option<Arc<FeatureResult>>)],
-        suppressed_upstream: &BTreeSet<FeatureId>,
-    ) -> bool {
+    fn matches(&self, definition: &Arc<Feature>, key: &Key) -> bool {
         let same_definition = Arc::ptr_eq(&self.definition, definition)
             || (self.definition.id() == definition.id()
                 && self.definition.kind.same_content(&definition.kind));
         let same_message = match self.state {
             FeatureState::Failed(_) => {
-                self.names == *names && self.suppressed_upstream == *suppressed_upstream
+                self.names == key.names && self.suppressed_upstream == key.suppressed_upstream
             }
-            FeatureState::UpToDate if self.healing.is_some() => self.names == *names,
+            FeatureState::UpToDate if self.healing.is_some() => self.names == key.names,
             FeatureState::UpToDate
             | FeatureState::Outdated
             | FeatureState::Suppressed
             | FeatureState::RolledBack => true,
         };
-        let same_upstream = self.upstream.len() == upstream.len()
-            && self.upstream.iter().zip(upstream).all(
+        let same_upstream = self.upstream.len() == key.upstream.len()
+            && self.upstream.iter().zip(&key.upstream).all(
                 |((id, result), (other_id, other_result))| {
                     id == other_id
                         && match (result, other_result) {
@@ -572,9 +573,101 @@ impl CacheEntry {
         !self.retry
             && same_definition
             && same_message
-            && self.parameters == *parameters
+            && self.parameters == key.parameters
             && same_upstream
     }
+}
+
+struct Key {
+    parameters: ParameterFingerprint,
+    names: Names,
+    upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)>,
+    suppressed_upstream: BTreeSet<FeatureId>,
+}
+
+impl Key {
+    fn of(
+        run: &Run<'_>,
+        (feature, index): (&Feature, usize),
+        (tree, suppressed): (&Arc<[String]>, &BTreeSet<FeatureId>),
+        view: &View,
+    ) -> Self {
+        let used_parameters = feature.kind.parameters();
+        let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = feature
+            .kind
+            .features()
+            .into_iter()
+            .map(|used| (used, view.features.get(&used).cloned()))
+            .collect();
+        for body in feature.kind.bodies_used() {
+            if let Some((state, result)) = view.bodies.get(&body) {
+                upstream.push((*state, Some(Arc::clone(result))));
+            }
+        }
+        let suppressed_upstream = upstream
+            .iter()
+            .map(|(used, _)| *used)
+            .filter(|used| suppressed.contains(used))
+            .collect();
+        Self {
+            parameters: run.parameters.fingerprint(&used_parameters),
+            names: Names::of(
+                run.document,
+                (feature, index),
+                tree,
+                run.parameters,
+                &used_parameters,
+            ),
+            upstream,
+            suppressed_upstream,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct View {
+    pub(crate) features: BTreeMap<FeatureId, Arc<FeatureResult>>,
+    pub(crate) bodies: BodyStates,
+}
+
+impl View {
+    pub(crate) fn same_as(&self, other: &Self) -> bool {
+        let same_features = self.features.len() == other.features.len()
+            && self.features.iter().zip(&other.features).all(
+                |((id, result), (other_id, other_result))| {
+                    id == other_id && Arc::ptr_eq(result, other_result)
+                },
+            );
+        let same_bodies = self.bodies.len() == other.bodies.len()
+            && self.bodies.iter().zip(&other.bodies).all(
+                |((body, (state, result)), (other_body, (other_state, other_result)))| {
+                    body == other_body && state == other_state && Arc::ptr_eq(result, other_result)
+                },
+            );
+        same_features && same_bodies
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Context<'a> {
+    pub(crate) document: &'a Document,
+    pub(crate) parameters: &'a ParameterValues,
+    pub(crate) evaluator: &'a dyn Evaluator,
+    pub(crate) cancel: &'a CancelToken,
+}
+
+pub(crate) type Computed = Result<(Arc<FeatureResult>, Option<Arc<Healing>>), Failure>;
+
+pub(crate) fn compute(context: &Context<'_>, job: &Job) -> Computed {
+    let inputs = Inputs {
+        document: context.document,
+        parameters: context.parameters,
+        features: &job.view.features,
+        bodies: &job.view.bodies,
+        previous: job.previous.as_deref(),
+    };
+    let result = evaluate_contained(context.evaluator, &job.feature, &inputs, context.cancel)?;
+    Ok((Arc::new(result), check_healing(&job.feature, &inputs)))
 }
 
 const FEATURES_DONE_AFTER: Duration = Duration::from_millis(250);
@@ -585,6 +678,7 @@ pub struct Recompute {
     cache: ResultHistory,
     mesh_quality: MeshQuality,
     features_done_after: Duration,
+    workers: usize,
 }
 
 impl Default for Recompute {
@@ -604,7 +698,14 @@ impl Recompute {
             cache: ResultHistory::default(),
             mesh_quality,
             features_done_after: FEATURES_DONE_AFTER,
+            workers: available_workers(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_workers(mut self, workers: usize) -> Self {
+        self.workers = workers;
+        self
     }
 
     #[cfg(test)]
@@ -628,6 +729,7 @@ impl Recompute {
             cache: self.cache.clone(),
             mesh_quality: self.mesh_quality,
             features_done_after: self.features_done_after,
+            workers: self.workers,
         }
     }
 
@@ -712,37 +814,49 @@ impl Recompute {
             cancel,
             progress: reports.progress,
         };
-        let walk = match display {
-            Display::Prepared => Presentation {
-                quality: self.mesh_quality,
-                cancel,
-                report: reports.features_done,
-                from: shown_from,
-            }
-            .during(|glimpse| self.walk(&run, Some(glimpse))),
-            Display::Skipped => self.walk(&run, None),
-        };
-        let mut evaluation = walk.into_evaluation(document, parameters, BTreeSet::new());
-        if display == Display::Prepared {
-            self.prepare_display(document, &mut evaluation, cancel, &|evaluation| {
-                if !cancel.is_cancelled() && Instant::now() >= shown_from {
-                    (reports.features_done)(evaluation.clone());
+        let work = Work::new(run.context(), self.mesh_quality, self.workers);
+        let evaluation = std::thread::scope(|scope| {
+            let pool = Pool::new(scope, &work);
+            let _closing = pool.closing();
+            let walk = match display {
+                Display::Prepared => Presentation {
+                    cancel,
+                    report: reports.features_done,
+                    mesh: &|body, meshed| pool.mesh(body, meshed),
+                    from: shown_from,
                 }
-            });
-        }
+                .during(|glimpse| self.walk(&run, &pool, Some(glimpse))),
+                Display::Skipped => self.walk(&run, &pool, None),
+            };
+            pool.forget_features();
+            let mut evaluation =
+                walk.into_evaluation(document, parameters.clone(), BTreeSet::new());
+            if display == Display::Prepared {
+                self.prepare_display(document, &mut evaluation, &pool, &|evaluation| {
+                    if !cancel.is_cancelled() && Instant::now() >= shown_from {
+                        (reports.features_done)(evaluation.clone());
+                    }
+                });
+            }
+            evaluation
+        });
 
         let alive: BTreeSet<FeatureId> = document.features().map(Feature::id).collect();
         self.cache.retain(|id| alive.contains(id));
         evaluation
     }
 
-    fn walk(&mut self, run: &Run<'_>, glimpse: Option<&dyn Fn(Glimpse)>) -> Walk {
+    fn walk(
+        &mut self,
+        run: &Run<'_>,
+        pool: &Pool<'_, '_>,
+        glimpse: Option<&dyn Fn(Glimpse)>,
+    ) -> Walk {
         let Run {
             document,
-            parameters,
-            evaluator,
             cancel,
             progress,
+            ..
         } = *run;
         let features = document.feature_handles();
         let tree: Arc<[String]> = features
@@ -756,11 +870,15 @@ impl Recompute {
             .map(Feature::id)
             .collect();
         let settling = settling(features, bar);
+        let mut lookahead: Option<Lookahead> = None;
         let mut walk = Walk::default();
         let mut cancelled = false;
         let mut glimpsed = Glimpsed::default();
 
         for (index, feature) in features.iter().enumerate() {
+            if let Some(lookahead) = &mut lookahead {
+                self.advance(run, pool, lookahead, (&tree, &suppressed));
+            }
             progress(index, features.len());
             let id = feature.id();
             if let Some(state) = skipped(feature, index, bar) {
@@ -768,21 +886,8 @@ impl Recompute {
                     .insert(id, FeatureStatus::without_result(state));
                 continue;
             }
-            let used_parameters = feature.kind.parameters();
-            let parameter_fingerprint = parameters.fingerprint(&used_parameters);
-            let names = Names::of(
-                document,
-                (feature, index),
-                &tree,
-                parameters,
-                &used_parameters,
-            );
-            let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = feature
-                .kind
-                .features()
-                .into_iter()
-                .map(|used| (used, walk.current.get(&used).cloned()))
-                .collect();
+            let view = walk.view(feature);
+            let key = Key::of(run, (feature, index), (&tree, &suppressed), &view);
             if feature.kind.sketch().is_some() {
                 let standing: Vec<(FeatureId, FeatureId)> = walk
                     .bodies
@@ -792,28 +897,14 @@ impl Recompute {
                 walk.seen_bodies.entry(id).or_default().extend(standing);
             }
             for body in feature.kind.bodies_used() {
-                if let Some((state, result)) = walk.bodies.get(&body) {
-                    upstream.push((*state, Some(Arc::clone(result))));
+                if let Some((state, _)) = walk.bodies.get(&body) {
                     walk.seen_bodies.entry(id).or_default().insert(body, *state);
                     if feature.kind.modifies_body() && feature.kind.body_input() == Some(body) {
                         walk.inputs_before.insert(id, *state);
                     }
                 }
             }
-            let suppressed_upstream: BTreeSet<FeatureId> = upstream
-                .iter()
-                .map(|(used, _)| *used)
-                .filter(|used| suppressed.contains(used))
-                .collect();
-            let reusable = self.cache.reuse(id, |entry| {
-                entry.matches(
-                    feature,
-                    &parameter_fingerprint,
-                    &names,
-                    &upstream,
-                    &suppressed_upstream,
-                )
-            });
+            let reusable = self.cache.reuse(id, |entry| entry.matches(feature, &key));
             let previous = self.cache.latest(id);
             let entry = if let Some(entry) = reusable {
                 entry
@@ -827,23 +918,23 @@ impl Recompute {
                     self.offer_glimpse(run, &walk, (&settling, index), &mut glimpsed, show);
                 }
                 let last_good = previous.and_then(|entry| entry.result.clone());
-                let inputs = Inputs {
-                    document,
-                    parameters,
-                    features: &walk.current,
-                    bodies: &walk.bodies,
-                    previous: last_good.as_deref(),
+                let job = Job {
+                    feature: Arc::clone(feature),
+                    view,
+                    previous: last_good.clone(),
                 };
-                let outcome = match missing_upstream(document, feature, &upstream) {
+                let outcome = match missing_upstream(document, feature, &key.upstream) {
                     Some(error) => Err(error.into()),
-                    None => evaluate_contained(evaluator, feature, &inputs, cancel),
+                    None if pool.parallel() => {
+                        let lookahead =
+                            lookahead.get_or_insert_with(|| walk.lookahead(features, bar));
+                        let names = (&tree, &suppressed);
+                        self.outcome(run, pool, lookahead, names, (index, job))
+                    }
+                    None => compute(&run.context(), &job),
                 };
                 let (state, result, healing) = match outcome {
-                    Ok(result) => (
-                        FeatureState::UpToDate,
-                        Some(Arc::new(result)),
-                        check_healing(feature, &inputs),
-                    ),
+                    Ok((result, healing)) => (FeatureState::UpToDate, Some(result), healing),
                     Err(Failure::Error(error)) => (FeatureState::Failed(*error), last_good, None),
                     Err(Failure::Cancelled) => {
                         cancelled = true;
@@ -854,10 +945,10 @@ impl Recompute {
                 walk.recomputed.push(id);
                 let entry = CacheEntry {
                     definition: Arc::clone(feature),
-                    parameters: parameter_fingerprint,
-                    names,
-                    upstream,
-                    suppressed_upstream,
+                    parameters: key.parameters,
+                    names: key.names,
+                    upstream: key.upstream,
+                    suppressed_upstream: key.suppressed_upstream,
                     state,
                     result,
                     healing,
@@ -867,13 +958,88 @@ impl Recompute {
                 entry
             };
 
-            if let (FeatureState::UpToDate, Some(result)) = (&entry.state, &entry.result) {
+            let stood = match (&entry.state, &entry.result) {
+                (FeatureState::UpToDate, Some(result)) => Some(Arc::clone(result)),
+                _ => None,
+            };
+            if let Some(result) = &stood {
                 walk.stand(feature, result);
+            }
+            if let Some(lookahead) = &mut lookahead {
+                lookahead.settle(index, stood);
             }
             walk.statuses.insert(id, entry.status());
         }
         progress(features.len(), features.len());
         walk
+    }
+
+    fn advance(
+        &self,
+        run: &Run<'_>,
+        pool: &Pool<'_, '_>,
+        lookahead: &mut Lookahead,
+        names: (&Arc<[String]>, &BTreeSet<FeatureId>),
+    ) {
+        for (index, landed) in pool.landed() {
+            match landed {
+                Landed::Stands(result) => lookahead.settle(index, Some(result)),
+                Landed::Falls => lookahead.settle(index, None),
+                Landed::Stopped => lookahead.halt(),
+                Landed::Lost => {}
+            }
+        }
+        if run.cancel.is_cancelled() {
+            lookahead.halt();
+        }
+        let features = run.document.feature_handles();
+        while let Some(index) = lookahead.next_ready() {
+            let Some(feature) = features.get(index) else {
+                continue;
+            };
+            let id = feature.id();
+            let view = lookahead.view(index);
+            let key = Key::of(run, (feature, index), names, &view);
+            if missing_upstream(run.document, feature, &key.upstream).is_some() {
+                lookahead.settle(index, None);
+                continue;
+            }
+            if let Some(entry) = self.cache.peek(id, |entry| entry.matches(feature, &key)) {
+                let stood = match (&entry.state, &entry.result) {
+                    (FeatureState::UpToDate, Some(result)) => Some(Arc::clone(result)),
+                    _ => None,
+                };
+                lookahead.settle(index, stood);
+                continue;
+            }
+            let previous = self.cache.latest(id).and_then(|entry| entry.result.clone());
+            pool.queue(
+                index,
+                Job {
+                    feature: Arc::clone(feature),
+                    view,
+                    previous,
+                },
+            );
+        }
+    }
+
+    fn outcome(
+        &self,
+        run: &Run<'_>,
+        pool: &Pool<'_, '_>,
+        lookahead: &mut Lookahead,
+        names: (&Arc<[String]>, &BTreeSet<FeatureId>),
+        (index, job): (usize, Job),
+    ) -> Computed {
+        loop {
+            self.advance(run, pool, lookahead, names);
+            match pool.claim(index) {
+                Claim::Finished(view, computed) if view.same_as(&job.view) => return computed,
+                Claim::Finished(..) | Claim::Absent => return compute(&run.context(), &job),
+                Claim::Pending => pool.wait(),
+            }
+        }
     }
 
     fn offer_glimpse(
@@ -935,10 +1101,54 @@ impl Recompute {
         &self,
         document: &Document,
         evaluation: &mut Evaluation,
-        cancel: &CancelToken,
+        pool: &Pool<'_, '_>,
         report: &dyn Fn(&Evaluation),
     ) {
         report(evaluation);
+        let (meshes, meshed) = mpsc::channel();
+        for body in evaluation.bodies.keys() {
+            let Some(result) = evaluation.body_result(*body) else {
+                continue;
+            };
+            if result.solid().is_none_or(SolidResult::is_meshed) {
+                continue;
+            }
+            let meshes = meshes.clone();
+            pool.mesh(
+                SettledBody {
+                    name: body_name(document, *body).to_owned(),
+                    result: Arc::clone(result),
+                },
+                Box::new(move |done| {
+                    let _ = meshes.send(done);
+                }),
+            );
+        }
+        drop(meshes);
+        self.find_regions(document, evaluation, pool.cancel());
+        loop {
+            let done = match meshed.try_recv() {
+                Ok(done) => done,
+                Err(TryRecvError::Disconnected) => break,
+                Err(TryRecvError::Empty) if pool.help() => continue,
+                Err(TryRecvError::Empty) => match meshed.recv() {
+                    Ok(done) => done,
+                    Err(mpsc::RecvError) => break,
+                },
+            };
+            if done {
+                report(evaluation);
+            }
+        }
+        evaluation.meshed = evaluation.bodies.keys().all(|body| {
+            evaluation
+                .body_result(*body)
+                .and_then(|result| result.solid())
+                .is_none_or(SolidResult::is_meshed)
+        });
+    }
+
+    fn find_regions(&self, document: &Document, evaluation: &Evaluation, cancel: &CancelToken) {
         let swept: BTreeSet<FeatureId> = document
             .active_features()
             .filter_map(|feature| feature.kind.solid().map(SolidFeature::sketch))
@@ -966,32 +1176,6 @@ impl Recompute {
                 interruptible(cancel.interrupt(), || result.find_regions());
             }
         }
-        for body in evaluation.bodies.keys() {
-            if cancel.is_cancelled() {
-                break;
-            }
-            let Some(solid) = evaluation
-                .body_result(*body)
-                .and_then(|result| result.solid())
-            else {
-                continue;
-            };
-            if solid.is_meshed() {
-                continue;
-            }
-            interruptible(cancel.interrupt(), || {
-                solid.tessellate(body_name(document, *body), &self.mesh_quality);
-            });
-            if solid.is_meshed() {
-                report(evaluation);
-            }
-        }
-        evaluation.meshed = evaluation.bodies.keys().all(|body| {
-            evaluation
-                .body_result(*body)
-                .and_then(|result| result.solid())
-                .is_none_or(SolidResult::is_meshed)
-        });
     }
 }
 
@@ -1003,12 +1187,24 @@ struct Run<'a> {
     progress: &'a dyn Fn(usize, usize),
 }
 
+impl<'a> Run<'a> {
+    fn context(&self) -> Context<'a> {
+        Context {
+            document: self.document,
+            parameters: self.parameters,
+            evaluator: self.evaluator,
+            cancel: self.cancel,
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 struct Walk {
     statuses: BTreeMap<FeatureId, FeatureStatus>,
     current: BTreeMap<FeatureId, Arc<FeatureResult>>,
     bodies: BodyStates,
     consumed: BTreeSet<FeatureId>,
+    consumers: BTreeMap<FeatureId, Vec<FeatureId>>,
     recomputed: Vec<FeatureId>,
     inputs_before: BTreeMap<FeatureId, FeatureId>,
     seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>>,
@@ -1026,7 +1222,38 @@ impl Walk {
         for body in feature.kind.consumed_bodies() {
             self.bodies.remove(&body);
             self.consumed.insert(body);
+            self.consumers.entry(body).or_default().push(id);
         }
+    }
+
+    fn lookahead(&self, features: &[Arc<Feature>], bar: usize) -> Lookahead {
+        let mut lookahead = Lookahead::new(features, bar);
+        for (index, feature) in features.iter().enumerate() {
+            if self.statuses.contains_key(&feature.id()) {
+                lookahead.settle(index, self.current.get(&feature.id()).cloned());
+            }
+        }
+        lookahead
+    }
+
+    fn view(&self, feature: &Feature) -> View {
+        let mut view = View::default();
+        for used in feature.kind.features() {
+            if let Some(result) = self.current.get(&used) {
+                view.features.insert(used, Arc::clone(result));
+            }
+        }
+        for body in feature.kind.bodies_used() {
+            if let Some((state, result)) = self.bodies.get(&body) {
+                view.bodies.insert(body, (*state, Arc::clone(result)));
+            }
+            for consumer in self.consumers.get(&body).into_iter().flatten() {
+                if let Some(result) = self.current.get(consumer) {
+                    view.features.insert(*consumer, Arc::clone(result));
+                }
+            }
+        }
+        view
     }
 
     fn into_evaluation(

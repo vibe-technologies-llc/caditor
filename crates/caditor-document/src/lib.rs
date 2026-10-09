@@ -16,6 +16,7 @@ mod hole;
 mod hole_standard;
 mod import;
 mod inlining;
+mod lookahead;
 mod mate;
 mod mirror;
 mod model_parameters;
@@ -26,6 +27,7 @@ mod origins;
 mod parameter_list;
 mod pattern;
 mod pieces;
+mod pool;
 mod presenting;
 mod primitive;
 mod projection;
@@ -175,6 +177,8 @@ mod model_scale_tests;
 mod movement_tests;
 #[cfg(test)]
 mod offset_face_tests;
+#[cfg(test)]
+mod parallel_tests;
 #[cfg(test)]
 mod parameter_tests;
 #[cfg(test)]

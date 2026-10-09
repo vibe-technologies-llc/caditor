@@ -2,6 +2,8 @@
 paths:
   - "crates/caditor-document/src/recompute.rs"
   - "crates/caditor-document/src/presenting.rs"
+  - "crates/caditor-document/src/pool.rs"
+  - "crates/caditor-document/src/lookahead.rs"
   - "crates/caditor-document/src/worker.rs"
   - "crates/caditor-document/src/values.rs"
   - "crates/caditor/src/model.rs"
@@ -17,6 +19,25 @@ paths:
   parameters it uses and its upstream results are unchanged. Upstream results count as unchanged
   when they are the same `Arc` or equal in what dependents read (a sketch's plane and entities, a
   datum's result, a solid's body and geometry), so an edit that leaves geometry alone stops there.
+- Features evaluate in parallel while the walk keeps committing them in tree order, so statuses,
+  cache entries and their order, `recomputed`, glimpses and progress are those of a sequential
+  walk. An evaluator sees only what it uses (`View`): the results of `features()` and the states
+  of `bodies_used` standing at its place, plus the features that consumed those bodies (which
+  `Inputs::missing_body` names); anything else it read would also break the cache's keys.
+  - From the first feature the walk must compute, `Lookahead` (`lookahead.rs`) follows the
+    dependency graph ahead of it: a feature depends on the features it uses and on the last
+    earlier feature changing or consuming each body it uses or changes (`Feature::bodies`,
+    `consumed_bodies`). Once those have a provisional outcome it builds the feature's view and
+    key, takes a matching cache entry without touching its recency (`ResultHistory::peek`), and
+    otherwise queues the evaluation on the run's pool.
+  - The pool (`pool.rs`) is scoped to the run and starts its threads only as queued work outgrows
+    the idle ones, up to the available parallelism (`with_workers(0)` in tests is the sequential
+    walk). Evaluations run lowest tree index first, before any mesh. The walk waits for the
+    feature it is at and takes its outcome only when the view it ran on is the one the walk has
+    (`View::same_as`, by `Arc`); otherwise (another view, a panic on the pool outside the
+    evaluator, no thread started) it evaluates inline. A cancel halts the lookahead, queued evaluations end as cancelled without running,
+    and features not committed are `Outdated` as before; whatever the lookahead ran past a
+    cancel is dropped.
 - The cache keeps a short history per feature (`history.rs`, `ResultHistory`): up to
   `RESULTS_KEPT_PER_FEATURE` entries, the one last used first, so undoing a change or switching a
   value back finds the earlier entry and its result `Arc`, and everything below reuses its own
@@ -59,10 +80,12 @@ paths:
   not), and every sketch a solid feature sweeps, or of at most `MAX_UNSWEPT_REGION_ENTITIES`
   entities, gets its regions with a triangulation each (the app tints them while it is edited).
 - A body settles once the walk passes the last active feature that changes or consumes it
-  (`settling`, from `Feature::body` and `consumed_bodies`). Settled bodies are meshed during the
-  feature loop by a display thread scoped to the run (`presenting.rs`), beside the features still
-  computing; the rest are meshed after the loop. A run without display data
-  (`run_without_display`) starts no thread.
+  (`settling`, from `Feature::body` and `consumed_bodies`). The walk hands settled bodies to a
+  display thread scoped to the run (`presenting.rs`), which queues their meshes on the pool
+  beside the features still computing; after the loop every shown body not yet meshed is queued
+  too and the walk's own thread helps mesh them, so bodies mesh in parallel. A body queued twice
+  is meshed once (`Arc` identity). A run without display data (`run_without_display`) meshes
+  nothing and starts no display thread.
 - A sketch's profile arrangement is built once per result, shared by every feature sweeping it and
   the display, under the run's cancel token (a build cancelled midway is not kept). A sketch that
   solves again to the same geometry (`Sketch::same_geometry`) shares the last result's arrangement
@@ -92,7 +115,7 @@ paths:
   it. Before each feature it evaluates, the walk hands the display thread a glimpse of the
   evaluation so far, when a feature was computed or a body settled since the last one; the thread
   reports the latest glimpse once the time is up, even while that feature is still running, and
-  again after each body it meshes. After the loop the run reports once more before the regions
+  again after each body meshed for it. After the loop the run reports once more before the regions
   and meshes, and after each mesh. A run that recomputes nothing before a slow feature reports
   nothing early, since nothing shown would change.
 - In a glimpse the features not reached yet are pending (`Evaluation::is_pending`) and keep the

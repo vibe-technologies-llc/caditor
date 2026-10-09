@@ -87,13 +87,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where
   they bow past the chord (a quadtree) would keep the division local and find narrow features.
 
-## Document and recompute
-
-- [medium · hard] Recompute evaluates features on one thread: independent bodies could run in
-  parallel over the dependency data the document already has. A body is meshed beside the feature
-  loop once no later feature changes it, but one at a time, and those settling only at the last
-  features are meshed one after another once the loop ends.
-
 ## Sketch solver and expressions
 
 - [medium · hard] The rank and null-space analysis (`analyze_sparse`, `Echelon::spans_unit` once per
