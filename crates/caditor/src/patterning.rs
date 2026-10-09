@@ -21,19 +21,26 @@ use crate::{
 
 pub const TRANSACTION: &str = "Pattern geometry";
 pub const RECTANGULAR_SELECT_FIRST: &str =
-    "Select the geometry to repeat first, then choose Rectangular pattern";
+    "Select what to repeat: click it or drag a box around it, then type how many and how far apart";
 pub const CIRCULAR_SELECT_FIRST: &str =
-    "Select the geometry to repeat first, then choose Circular pattern";
+    "Select what to repeat: click it or drag a box around it, then press Enter";
+pub const CIRCULAR_SELECT_MORE: &str = "Click or drag a box to add to what is repeated, then press Enter to choose the point to repeat it about";
 pub const RECTANGULAR_PROMPT: &str =
     "Type how many and how far apart, such as 4 x 10, or 4 x 10, 3 x 15 for a grid";
 pub const CIRCULAR_PROMPT: &str =
     "Type how many, such as 6 over a full turn, or 5 over 120 for part of one";
 pub const CENTRE_PROMPT: &str = "Click the point to repeat the selection about";
-pub const SELECT_KEYS: &str = "Esc: back to Select, then select what to repeat";
-pub const RECTANGULAR_KEYS: &str = "Count x spacing, then < angle for a slanted direction; a second term adds rows   Esc: back to Select";
+pub const RECTANGULAR_GATHER_KEYS: &str =
+    "Click: add or remove   Drag: add what the box takes   Esc: back to Select";
+pub const CIRCULAR_GATHER_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the point to repeat about   Esc: back to Select";
+pub const CIRCULAR_GATHERED_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the point to repeat about   Esc: let go of the selection";
+pub const RECTANGULAR_KEYS: &str = "Count x spacing, then < angle for a slanted direction; a second term adds rows   Click or drag a box: change what is repeated   Esc: back to Select";
+pub const RECTANGULAR_GATHERED_KEYS: &str = "Count x spacing, then < angle for a slanted direction; a second term adds rows   Click or drag a box: change what is repeated   Esc: let go of the selection";
 pub const CIRCULAR_KEYS: &str = "A count alone spaces them over a full turn; count over angle spreads them across it   Esc: choose another point";
 pub const CENTRE_KEYS: &str =
     "Click a point, or Highlight the next item in the view and press Space   Esc: back to Select";
+pub const GATHERED_CENTRE_KEYS: &str = "Click a point, or Highlight the next item in the view and press Space   Esc: change what is repeated";
+const NOTHING_SELECTED: &str = "select what to repeat first: click it or drag a box around it";
 pub const RECTANGULAR_FIELD: ValueField = ValueField {
     label: "Repeat",
     placeholder: "4 x 10, 3 x 15",
@@ -83,13 +90,6 @@ impl PatternKind {
             Self::Circular => CIRCULAR_FIELD,
         }
     }
-
-    fn select_first(self) -> &'static str {
-        match self {
-            Self::Rectangular => RECTANGULAR_SELECT_FIRST,
-            Self::Circular => CIRCULAR_SELECT_FIRST,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -114,6 +114,8 @@ impl Spec {
 pub struct Patterning {
     kind: PatternKind,
     selected: Vec<EntityId>,
+    gathering: bool,
+    gathered: bool,
     selected_centre: Option<EntityId>,
     chosen: Option<EntityId>,
     hover: Option<EntityId>,
@@ -123,10 +125,12 @@ pub struct Patterning {
 }
 
 impl Patterning {
-    pub fn new(kind: PatternKind) -> Self {
+    pub fn starting(kind: PatternKind, selected: &[EntityId]) -> Self {
         Self {
             kind,
-            selected: Vec::new(),
+            selected: selected.to_vec(),
+            gathering: selected.is_empty(),
+            gathered: selected.is_empty(),
             selected_centre: None,
             chosen: None,
             hover: None,
@@ -140,9 +144,21 @@ impl Patterning {
         self.kind.field()
     }
 
+    pub fn gathers(&self) -> bool {
+        self.kind == PatternKind::Rectangular || self.gathering
+    }
+
+    pub fn gathered(&self) -> bool {
+        self.gathered
+    }
+
     pub fn sync(&mut self, sketch: &Sketch, selected: &[EntityId]) {
         if self.selected != selected {
             self.selected = selected.to_vec();
+        }
+        if selected.is_empty() {
+            self.gathering = true;
+            self.gathered = true;
         }
         self.selected_centre = match self.kind {
             PatternKind::Rectangular => None,
@@ -162,6 +178,7 @@ impl Patterning {
     ) {
         self.hover = match self.kind {
             PatternKind::Rectangular => None,
+            PatternKind::Circular if self.gathering => None,
             PatternKind::Circular => {
                 pointer.and_then(|pointer| point_under(sketch, screen, pointer))
             }
@@ -242,25 +259,25 @@ impl Patterning {
     }
 
     pub fn prompt(&self) -> Prompt {
-        if self.selected.is_empty() {
-            return Prompt {
-                text: self.kind.select_first(),
-                hint: Hint::Keys(SELECT_KEYS),
-            };
-        }
-        match (self.kind, self.centre()) {
-            (PatternKind::Rectangular, _) => Prompt {
-                text: RECTANGULAR_PROMPT,
-                hint: Hint::Keys(RECTANGULAR_KEYS),
+        let (text, keys) = match (self.kind, self.selected.is_empty()) {
+            (PatternKind::Rectangular, true) => (RECTANGULAR_SELECT_FIRST, RECTANGULAR_GATHER_KEYS),
+            (PatternKind::Rectangular, false) if self.gathered => {
+                (RECTANGULAR_PROMPT, RECTANGULAR_GATHERED_KEYS)
+            }
+            (PatternKind::Rectangular, false) => (RECTANGULAR_PROMPT, RECTANGULAR_KEYS),
+            (PatternKind::Circular, true) => (CIRCULAR_SELECT_FIRST, CIRCULAR_GATHER_KEYS),
+            (PatternKind::Circular, false) if self.gathering => {
+                (CIRCULAR_SELECT_MORE, CIRCULAR_GATHERED_KEYS)
+            }
+            (PatternKind::Circular, false) => match (self.centre(), self.gathered) {
+                (None, true) => (CENTRE_PROMPT, GATHERED_CENTRE_KEYS),
+                (None, false) => (CENTRE_PROMPT, CENTRE_KEYS),
+                (Some(_), _) => (CIRCULAR_PROMPT, CIRCULAR_KEYS),
             },
-            (PatternKind::Circular, None) => Prompt {
-                text: CENTRE_PROMPT,
-                hint: Hint::Keys(CENTRE_KEYS),
-            },
-            (PatternKind::Circular, Some(_)) => Prompt {
-                text: CIRCULAR_PROMPT,
-                hint: Hint::Keys(CIRCULAR_KEYS),
-            },
+        };
+        Prompt {
+            text,
+            hint: Hint::Keys(keys),
         }
     }
 
@@ -269,6 +286,17 @@ impl Patterning {
             self.chosen = Some(point);
             self.highlight = None;
         }
+        Outcome::Nothing
+    }
+
+    pub fn finish(&mut self) -> Outcome {
+        if self.selected.is_empty() {
+            return Outcome::Refused(trimming::refusal(self.kind.tool(), NOTHING_SELECTED));
+        }
+        if self.kind == PatternKind::Rectangular || !self.gathering {
+            return self.activate();
+        }
+        self.gathering = false;
         Outcome::Nothing
     }
 
@@ -308,7 +336,7 @@ impl Patterning {
     }
 
     pub fn steps_targets(&self) -> bool {
-        self.kind == PatternKind::Circular
+        self.kind == PatternKind::Circular && !self.gathering
     }
 
     pub fn steppable(&self) -> Result<(), &'static str> {
@@ -355,12 +383,20 @@ impl Patterning {
     }
 
     pub fn can_back_out(&self) -> bool {
-        self.highlight.is_some() || self.chosen.is_some()
+        self.highlight.is_some() || self.chosen.is_some() || self.regathers()
+    }
+
+    fn regathers(&self) -> bool {
+        self.kind == PatternKind::Circular && self.gathered && !self.gathering
     }
 
     pub fn back_out(&mut self) {
-        if self.highlight.take().is_none() {
-            self.chosen = None;
+        if self.highlight.take().is_some() {
+            return;
+        }
+        if self.chosen.take().is_none() && self.regathers() {
+            self.gathering = true;
+            self.image = None;
         }
     }
 }

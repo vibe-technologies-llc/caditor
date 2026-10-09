@@ -98,6 +98,8 @@ pub enum Command {
     MoveGeometry,
     SelectAll,
     SelectFree,
+    SelectOpenEnds,
+    SelectRedundant,
     FindRelations,
     DimensionFromDatum,
     CheckSketch,
@@ -661,6 +663,8 @@ plain_commands! {
     MoveGeometry,
     SelectAll,
     SelectFree,
+    SelectOpenEnds,
+    SelectRedundant,
     FindRelations,
     DimensionFromDatum,
     CheckSketch,
@@ -789,6 +793,8 @@ impl Command {
             Self::MoveGeometry => "sketch.move",
             Self::SelectAll => "sketch.select_all",
             Self::SelectFree => "sketch.select_free",
+            Self::SelectOpenEnds => "sketch.select_open_ends",
+            Self::SelectRedundant => "sketch.select_redundant",
             Self::FindRelations => "sketch.find_relations",
             Self::DimensionFromDatum => "sketch.dimension_from_datum",
             Self::CheckSketch => "sketch.check",
@@ -1057,6 +1063,8 @@ impl Command {
             Self::MoveGeometry => "Move selected sketch geometry",
             Self::SelectAll => "Select all sketch geometry",
             Self::SelectFree => "Select what is still free in the sketch",
+            Self::SelectOpenEnds => "Select the open ends of the sketch",
+            Self::SelectRedundant => "Select the redundant constraints of the sketch",
             Self::FindRelations => "Add the relations the drawing shows",
             Self::DimensionFromDatum => "Dimension fully from a datum point",
             Self::CheckSketch => "Check the sketch for flaws",
@@ -1490,6 +1498,8 @@ impl Command {
             | Self::MoveGeometry
             | Self::SelectAll
             | Self::SelectFree
+            | Self::SelectOpenEnds
+            | Self::SelectRedundant
             | Self::FindRelations
             | Self::DimensionFromDatum
             | Self::CheckSketch
@@ -1522,6 +1532,8 @@ impl Command {
             | Self::MoveGeometry
             | Self::SelectAll
             | Self::SelectFree
+            | Self::SelectOpenEnds
+            | Self::SelectRedundant
             | Self::FindRelations
             | Self::DimensionFromDatum
             | Self::CheckSketch
@@ -1744,6 +1756,8 @@ impl Command {
             | Self::Mate
             | Self::UndoHistory
             | Self::SelectFree
+            | Self::SelectOpenEnds
+            | Self::SelectRedundant
             | Self::FindRelations
             | Self::DimensionFromDatum
             | Self::CheckSketch

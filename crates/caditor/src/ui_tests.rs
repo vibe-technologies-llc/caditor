@@ -95,6 +95,7 @@ mod sketch_ellipses;
 mod sketch_first_dimension;
 mod sketch_free;
 mod sketch_keys;
+mod sketch_modify_status;
 mod sketch_patterns;
 mod sketch_regions;
 mod sketch_tangent_circles;
@@ -7528,6 +7529,10 @@ fn sketch_bar_buttons() -> Vec<String> {
             sketch_toolbar::SELECT_ALL_LABEL,
             sketch_toolbar::DELETE_LABEL,
             sketch_toolbar::FINISH_LABEL,
+            sketch_toolbar::CORNER_TOOLS.name,
+            sketch_toolbar::CURVE_FROM_GEOMETRY_TOOLS.name,
+            sketch_toolbar::COPYING_TOOLS.name,
+            sketch_toolbar::MODEL_GEOMETRY_TOOLS.name,
         ])
         .map(str::to_owned)
         .chain(
@@ -18180,10 +18185,11 @@ fn mirror_copies_the_selection_about_the_clicked_line_and_keeps_it_symmetric() {
     harness.use_tool(Key::Y);
     assert_eq!(harness.tool(), Some(Tool::Mirror));
     assert!(harness.shows(mirroring::SELECT_FIRST));
-    harness.click_at(Point2::new(0.0, 20.0));
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
     assert_eq!(
         harness.model.notice().unwrap().text,
-        "Mirror: select the geometry to mirror."
+        "Mirror: select what to mirror first: click it or drag a box around it."
     );
     harness.key(Key::Escape, Modifiers::NONE);
     harness.frame();

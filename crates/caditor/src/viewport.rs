@@ -60,7 +60,7 @@ use crate::{
     shell_tools,
     sketch_drag::{self, BoxMode, Grab, Moving, ScreenArea, Transform, Transforming},
     sketch_placement::{self, DatumTarget, FaceChoice},
-    sketch_toolbar, sketch_tools,
+    sketch_status, sketch_toolbar, sketch_tools,
     snap::{Hold, Pointer, Screen},
     snapshot, solid_tools, toggles,
     trimming::{self, Trimming},
@@ -971,7 +971,7 @@ impl ViewportState {
                         .map(move |entity| Pickable::SketchEntity { feature, entity })
                 })
                 .collect()
-        } else if self.modifying.is_active() {
+        } else if self.modifying.is_active() && !self.modifying.gathers() {
             edited
                 .into_iter()
                 .flat_map(|feature| {
@@ -1640,7 +1640,8 @@ impl ViewportState {
                     actions.push(Action::Drag(grab.finish()));
                 }
                 Some(PrimaryDrag::Box { feature, area }) => {
-                    self.select_within(model, feature, &area, toggle);
+                    let keep = toggle || self.modifying.gathers();
+                    self.select_within(model, feature, &area, keep);
                 }
                 Some(PrimaryDrag::ModelBox { area }) => {
                     self.select_in_model(model, editing, &area, toggle);
@@ -1807,6 +1808,15 @@ impl ViewportState {
             }
             Tool::Offset | Tool::Fillet | Tool::Chamfer => {
                 return Some(PrimaryDrag::Pull { feature });
+            }
+            Tool::Mirror | Tool::RectangularPattern | Tool::CircularPattern
+                if self.modifying.gathers() =>
+            {
+                let at = press.cursor / f64::from(self.pixels_per_point);
+                return Some(PrimaryDrag::Box {
+                    feature,
+                    area: ScreenArea::starting_at(at, self.lasso),
+                });
             }
             Tool::Extend
             | Tool::Mirror
@@ -2159,6 +2169,10 @@ impl ViewportState {
             actions.extend(outcome_action(self.trimming.click(model)));
             return;
         }
+        if self.modifying.gathers() {
+            self.gather_click(editing, self.hovered);
+            return;
+        }
         if self.modifying.is_active() {
             let outcome = match edited_sketch(model, editing) {
                 Some(sketch) => self.modifying.click(model, &sketch),
@@ -2184,6 +2198,20 @@ impl ViewportState {
             return;
         }
         self.select(model, click.toggle);
+    }
+
+    fn gather_click(&mut self, editing: &SketchEditing, hovered: Option<Pickable>) {
+        if let Some(
+            pickable @ Pickable::SketchEntity {
+                feature: owner,
+                entity,
+            },
+        ) = hovered
+            && editing.feature() == Some(owner)
+            && !entity.is_reference()
+        {
+            self.selection.toggle(pickable);
+        }
     }
 
     fn dimension_click(
@@ -2989,6 +3017,25 @@ impl ViewportState {
         {
             self.add_to_selection(feature, free, false);
         }
+        let open = sketch_status::open_ends(model.evaluation(), feature);
+        if commands.invoke(Command::SelectOpenEnds, &open)
+            && let Ok(open) = open
+        {
+            self.add_to_selection(feature, open, false);
+            self.fit_requested = Some(FitAsked::ByUser);
+        }
+        let redundant = sketch_status::redundant_constraints(model.evaluation(), feature);
+        if commands.invoke(Command::SelectRedundant, &redundant)
+            && let Ok(redundant) = redundant
+        {
+            self.selection
+                .replace_with_all(redundant.into_iter().map(|constraint| {
+                    Pickable::SketchConstraint {
+                        feature,
+                        constraint,
+                    }
+                }));
+        }
         self.clipboard_commands(model, feature, &sketch, &selected, commands, actions);
     }
 
@@ -3340,13 +3387,18 @@ impl ViewportState {
             field.action
         );
         let anchor = rect.center_top() + vec2(0.0, TYPED_POINT_OFFSET);
+        let placeholder = self
+            .modifying
+            .last_value()
+            .unwrap_or(field.placeholder)
+            .to_owned();
         let Some(typed) = self.typed_point.show(
             ui.ctx(),
             top_band(rect),
             anchor,
             field.label,
             &hint,
-            field.placeholder,
+            &placeholder,
         ) else {
             return;
         };
@@ -3597,7 +3649,9 @@ impl ViewportState {
             self.trimming.clear_highlight();
         } else if self.modifying.can_back_out() {
             self.modifying.back_out();
-        } else if self.dimensioning.is_some() && !self.selection.is_empty() {
+        } else if (self.dimensioning.is_some() || self.modifying.lets_go_of_selection())
+            && !self.selection.is_empty()
+        {
             self.selection.clear();
         } else if let Some(active) = active
             && active.tool != Tool::Select
@@ -3951,6 +4005,7 @@ impl ViewportState {
                 let keys = match prompt.hint {
                     Hint::Targets => key_hints.targets.clone(),
                     Hint::Keys(keys) => keys.to_owned(),
+                    Hint::Text(keys) => keys,
                 };
                 let keys = match self.modifying.mode(editing.modes()) {
                     Some(mode) => format!("{}   {keys}", key_hints.mode(mode)),
@@ -4054,9 +4109,17 @@ impl ViewportState {
                     .and_then(|hovered| projecting::describe(model, active, hovered))
             } else if self.trimming.is_active() {
                 edited_sketch(model, editing).and_then(|sketch| self.trimming.label(&sketch))
-            } else if self.modifying.is_active() {
+            } else if self.modifying.is_active() && !self.modifying.gathers() {
                 edited_sketch(model, editing)
                     .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
+            } else if let Some(label) = self
+                .modifying
+                .gathers()
+                .then(|| edited_sketch(model, editing))
+                .flatten()
+                .and_then(|sketch| self.modifying.label(&sketch, model.length_unit()))
+            {
+                Some(label)
             } else if let Some(feature) = self.dimensioning {
                 self.dimension_hover(model, feature, hovered)
             } else if let Some((open, copy)) =

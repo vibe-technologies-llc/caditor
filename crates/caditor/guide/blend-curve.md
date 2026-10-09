@@ -1,7 +1,8 @@
 # Blend curve
 
 {command:sketch.blend_curve} joins the ends of two lines, arcs or splines with a smooth spline, and
-keeps the joint smooth as they change. It has two ways:
+keeps the joint smooth as they change. Besides its key, it is in the small menu in the corner of the
+Offset button. It has two ways:
 
 - {command:sketch.blend_curve.tangent}: the spline leaves each end along its curve's direction.
 - {command:sketch.blend_curve.curvature}: it also bends as tightly as each curve does there, so

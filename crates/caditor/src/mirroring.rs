@@ -13,26 +13,54 @@ use crate::{
 };
 
 pub const PROMPT: &str = "Click the line or axis to mirror the selection about";
-pub const SELECT_FIRST: &str = "Select the geometry to mirror first, then choose Mirror";
+pub const SELECT_FIRST: &str =
+    "Select what to mirror: click it or drag a box around it, then press Enter";
+pub const SELECT_MORE: &str = "Click or drag a box to add to what is mirrored, then press Enter";
 pub const TRANSACTION: &str = "Mirror geometry";
-const SELECT_KEYS: &str = "Esc: back to Select, then select what to mirror";
+const GATHER_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the line to mirror about   Esc: back to Select";
+const GATHERED_KEYS: &str = "Click: add or remove   Drag: add what the box takes   Enter: choose the line to mirror about   Esc: let go of the selection";
+const LINE_KEYS: &str = "Esc: change what is mirrored";
+const NOTHING_SELECTED: &str = "select what to mirror first: click it or drag a box around it";
 const NO_LINE_HIGHLIGHTED: &str =
     "Highlight a line or an axis first, with Highlight the next item in the view";
 
 #[derive(Debug, Clone, Default)]
 pub struct Mirroring {
     selected: Vec<EntityId>,
+    gathering: bool,
+    gathered: bool,
     hover: Option<EntityId>,
     highlight: Option<EntityId>,
     image: Option<(EntityId, Result<MirrorImage, MirrorError>)>,
 }
 
 impl Mirroring {
+    pub fn starting(selected: &[EntityId]) -> Self {
+        Self {
+            selected: selected.to_vec(),
+            gathering: selected.is_empty(),
+            gathered: selected.is_empty(),
+            ..Self::default()
+        }
+    }
+
     pub fn sync(&mut self, selected: &[EntityId]) {
         if self.selected != selected {
             self.selected = selected.to_vec();
             self.image = None;
         }
+        if selected.is_empty() {
+            self.gathering = true;
+            self.gathered = true;
+        }
+    }
+
+    pub fn gathers(&self) -> bool {
+        self.gathering
+    }
+
+    pub fn gathered(&self) -> bool {
+        self.gathered
     }
 
     pub fn hover(
@@ -42,6 +70,12 @@ impl Mirroring {
         pointer: Option<Pointer>,
         faceting: Faceting,
     ) {
+        if self.gathering {
+            self.hover = None;
+            self.highlight = None;
+            self.image = None;
+            return;
+        }
         self.hover = pointer.and_then(|pointer| line_under(sketch, screen, pointer));
         self.highlight = self.highlight.filter(|line| is_mirror(sketch, *line));
         self.image = self
@@ -89,24 +123,42 @@ impl Mirroring {
     }
 
     pub fn prompt(&self) -> Prompt {
-        if self.selected.is_empty() {
-            Prompt {
+        match (self.gathering, self.selected.is_empty()) {
+            (true, true) => Prompt {
                 text: SELECT_FIRST,
-                hint: Hint::Keys(SELECT_KEYS),
-            }
-        } else {
-            Prompt {
+                hint: Hint::Keys(GATHER_KEYS),
+            },
+            (true, false) => Prompt {
+                text: SELECT_MORE,
+                hint: Hint::Keys(GATHERED_KEYS),
+            },
+            (false, _) if self.gathered => Prompt {
+                text: PROMPT,
+                hint: Hint::Keys(LINE_KEYS),
+            },
+            (false, _) => Prompt {
                 text: PROMPT,
                 hint: Hint::Targets,
-            }
+            },
         }
     }
 
     pub fn click(&mut self, model: &Model, feature: FeatureId) -> Outcome {
-        match self.hover {
+        match self.hover.filter(|_| !self.gathering) {
             Some(line) => self.mirror(model, feature, line),
             None => Outcome::Nothing,
         }
+    }
+
+    pub fn finish(&mut self, model: &Model, feature: FeatureId) -> Outcome {
+        if !self.gathering {
+            return self.activate(model, feature);
+        }
+        if self.selected.is_empty() {
+            return Outcome::Refused(trimming::refusal(Tool::Mirror, NOTHING_SELECTED));
+        }
+        self.gathering = false;
+        Outcome::Nothing
     }
 
     pub fn activate(&mut self, model: &Model, feature: FeatureId) -> Outcome {
@@ -172,11 +224,14 @@ impl Mirroring {
     }
 
     pub fn can_back_out(&self) -> bool {
-        self.highlight.is_some()
+        self.highlight.is_some() || (self.gathered && !self.gathering)
     }
 
     pub fn back_out(&mut self) {
-        self.highlight = None;
+        if self.highlight.take().is_none() {
+            self.gathering = true;
+            self.image = None;
+        }
     }
 }
 

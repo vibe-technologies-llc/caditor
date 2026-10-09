@@ -38,7 +38,7 @@ use crate::{
     selection::{Pickable, Selection},
     shell_panel,
     sketch_placement::{self, PlacementTarget},
-    sketch_status::{self, SketchSummary},
+    sketch_status::{self, SketchSummary, StatusRequest},
     sketch_tools, solid_panel, solid_tools, split_panel, split_tools, thread_panel,
     tree_row::{self, Look},
     viewport, visibility,
@@ -943,7 +943,15 @@ fn body(
     match &feature.kind {
         FeatureKind::Sketch(sketch) => {
             placement(ui, model, row.selection, actions, feature, sketch);
-            sketch_body(ui, model, state, actions, feature, &sketch.sketch);
+            sketch_body(
+                ui,
+                model,
+                state,
+                actions,
+                feature,
+                &sketch.sketch,
+                row.edited,
+            );
         }
         FeatureKind::Solid(solid) => {
             solid_panel::show(
@@ -2679,12 +2687,13 @@ fn sketch_body(
     actions: &mut Vec<Action>,
     feature: &Feature,
     sketch: &Sketch,
+    edited: bool,
 ) {
     let summary = SketchSummary::of(model.evaluation(), feature.id());
-    ui.horizontal_wrapped(|ui| {
-        if let Some(focus) = sketch_status::show(ui, &summary) {
-            state.request_focus(focus);
-        }
+    ui.horizontal_wrapped(|ui| match sketch_status::show(ui, &summary, edited) {
+        Some(StatusRequest::ShowProblem(focus)) => state.request_focus(focus),
+        Some(StatusRequest::Run(command)) => state.sketch_command = Some(command),
+        None => {}
     });
     ui.label(widgets::muted(
         count(sketch.entities().len(), "entity", "entities"),
@@ -3038,7 +3047,15 @@ mod timing {
             let mut actions = Vec::new();
             let mut output = context.run_ui(input, |ui| {
                 ScrollArea::vertical().show(ui, |ui| {
-                    sketch_body(ui, &model, &mut state, &mut actions, feature, definition);
+                    sketch_body(
+                        ui,
+                        &model,
+                        &mut state,
+                        &mut actions,
+                        feature,
+                        definition,
+                        true,
+                    );
                 });
             });
             output.textures_delta.clear();

@@ -135,7 +135,8 @@ paths:
   that are not `EntityState::FullyConstrained` in the settled solution (`Model::settled_solution`),
   projected and reference geometry left out and a point dropped when a curve using it is taken.
   Without a settled solution (recompute pending, the sketch failing) it is refused with
-  `NOT_SOLVED`, and with nothing free with `NOTHING_FREE`.
+  `NOT_SOLVED`, and with nothing free with `NOTHING_FREE`. The degrees-of-freedom pill runs it
+  (Status pills, below).
 
 ## Drawing tools
 
@@ -252,8 +253,9 @@ paths:
   (`body_result_seen_by`). Geometry made later in the tree, a corner shared by two vertices of one
   name and anything already projected are refused in words. The highlight commands step only
   through projectable items, and the hover says what a click projects.
-- Intersect (`Tool::Intersect`, Alt+I, Sketch menu, palette; not on the sketch bar, whose Edit
-  group would grow a row, `sketch_toolbar::OFF_RIBBON`) draws where the model crosses the sketch
+- Intersect (`Tool::Intersect`, Alt+I, Sketch menu, palette; no button of its own on the sketch
+  bar, whose Edit group would grow a row, but in Project's corner menu,
+  `sketch_toolbar::OFF_RIBBON`, `MODEL_GEOMETRY_TOOLS`) draws where the model crosses the sketch
   plane. It is a projecting tool (`Tool::projects`), so bodies are pickable as for Project, and
   `Context::intersecting` also draws and offers the shown datum planes above the sketch and the
   shown principal planes that cross it (a parallel one is not drawn). A click on a face adds the
@@ -313,12 +315,21 @@ paths:
   now carries it after earlier splits. Extend ignores drags.
 - Offset works on the selected chain; with none, a click on a curve selects its chain. The
   pointer's side and distance choose side and distance, previewed live. Mirror copies the
-  selection about the line or axis under the pointer (sketch lines win a tie with an axis) and
-  asks for a selection first.
+  selection about the line or axis under the pointer (sketch lines win a tie with an axis).
+- Mirror and both patterns select inside the tool, as Smart dimension picks: started with nothing
+  selected (or once the selection empties) they gather (`Modifying::gathers`), where a click on a
+  sketch item toggles it in the selection (`ViewportState::gather_click`), a primary drag draws a
+  box or lasso that adds what it takes, hover describes what a click takes, and the highlight
+  commands step through the scene's pickables with Activate toggling. Enter moves Mirror on to
+  its line and Circular pattern to its centre (`finish`, refused in a notice while nothing is
+  selected); Rectangular pattern, which has no click step, gathers throughout and reads its
+  numbers whenever typed. Escape goes back from the line or centre to gathering, then lets go of
+  what was gathered (`Modifying::lets_go_of_selection`), then leaves the tool; started with a
+  selection they go straight to the line or centre and Escape leaves the tool keeping it.
 - Rectangular pattern and Circular pattern (`Tool::RectangularPattern`, `Tool::CircularPattern`,
-  `patterning.rs`; Sketch menu and palette, no default key since every free one is taken, and
-  not on the sketch bar, `sketch_toolbar::OFF_RIBBON`) repeat the selection (`sketch.md`, Patterns)
-  and ask for it first. Both take their numbers in the typed-point field ("Repeat"), which opens
+  `patterning.rs`; Sketch menu, palette and the corner menu of Mirror on the sketch bar, no
+  default key since every free one is taken, `sketch_toolbar::OFF_RIBBON`) repeat the selection
+  (`sketch.md`, Patterns). Both take their numbers in the typed-point field ("Repeat"), which opens
   on a digit or `=` and previews the copies live while the text parses; Enter makes one undoable
   "Pattern geometry" transaction and an error (a refusal or text it cannot read) keeps the field
   open. Rectangular reads `count x spacing`, optionally `< angle` for a slanted direction, and a
@@ -329,8 +340,8 @@ paths:
   one selected point no selected curve uses, else a point clicked or highlighted (the origin
   included, Highlight the next item steps through points and Space or Enter chooses), shown
   highlighted until Escape lets it go; the preview and Enter use it.
-- Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Sketch menu and palette, no
-  default key and not on the sketch bar, `sketch_toolbar::OFF_RIBBON`) takes the lines, circles
+- Tangent circle (`Tool::TangentCircle`, `tangent_circling.rs`; Sketch menu, palette and
+  Offset's corner menu, no default key, `sketch_toolbar::OFF_RIBBON`) takes the lines, circles
   and arcs the new circle touches (`sketch.md`, Tangent circles): the one or two of them selected
   when it starts, then each one clicked or highlighted and chosen with Space or Enter (an axis
   included; clicking a chosen curve lets it go, Escape lets go of the last). A third curve
@@ -339,8 +350,8 @@ paths:
   excircle. With two chosen the typed-point field ("Radius", opens on a digit or `=`) draws the circle
   of that radius nearest the pointer instead, previewed while the text parses and kept as typed
   with parameters. Each draw is one undoable "Draw tangent circle" transaction.
-- Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Sketch menu and palette, not on the
-  sketch bar, `sketch_toolbar::OFF_RIBBON`) joins two curve ends with a spline (`sketch.md`, Blend
+- Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Sketch menu, palette and
+  Offset's corner menu, `sketch_toolbar::OFF_RIBBON`) joins two curve ends with a spline (`sketch.md`, Blend
   curves). It takes the end of a line, arc or spline (projected ones included) nearest the
   pointer on the curve under it, or a point selected when it starts that ends exactly one curve;
   the highlight commands step through every such end and Space or Enter chooses. Clicking the
@@ -348,17 +359,35 @@ paths:
   end chosen the second under the pointer or highlighted previews the spline and its control
   points live and says in words what it would draw or why not; a click or Activate draws it in one
   undoable "Draw blend curve" transaction, refused in a notice otherwise.
-- Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes a corner (a
-  selected one, else the curve end under the pointer, `Sketch::corner_at`, refused in words when
-  it is no corner); then the pointer sets the radius (`radius_through`). The chosen corner is
-  cleared after each fillet. Sketch chamfer (`Tool::Chamfer`) is the same tool cutting the corner
+- Sketch fillet is named so, to keep it apart from the model's Fillet. It first takes its corners:
+  started with a selection, every selected point that is a corner (`Sketch::corner_at`) and every
+  corner where two selected lines or arcs meet (`Sketch::fillet_corners`), duplicates dropped
+  (`filleting::gathered`), the words saying "Round 4 corners" and how many selected items were
+  left out with the first one's reason (a point that is no corner, a curve meeting no other
+  selected one); else the curve end under the pointer, refused in words when it is no corner. A
+  click, or Space on a highlighted corner, adds further corners. Then the pointer sets the radius
+  through the first corner (`radius_through`), previewed on all of them, and a click, a typed
+  value or Enter rounds them all in one transaction ("Fillet corners" when several, one undo
+  step), each corner found again by its point on the working copy as the ones before change it.
+  The chosen corners are cleared after each fillet. The last value committed (typed as typed, or
+  the pointer's as a length) is kept per cut while caditor runs (`Modifying` keeps it across tool
+  changes, `LastSizes`): it is the field's placeholder, Enter on an empty field or with the field
+  closed and corners chosen reuses it, and the prompt's keys say "Enter: round it with
+  4, as last time"; with none kept, Enter rounds at the pointer as a click does. Sketch chamfer (`Tool::Chamfer`) is the same tool cutting the corner
   instead (`filleting::CornerCut`): the pointer sets one distance for both sides
   (`distance_through`) and the field is "Chamfer", which reads `5` (the same on both curves),
   `5, 3` (a distance on each, in the order of the corner's curves) or `5 < 45` (a distance on the
   first curve and the angle of the cut from it) as a `ChamferSize` (`sketch.md`), previewed
-  while it parses and kept as typed, parameters included. It is not on the sketch bar, whose Modify group would widen past
-  one row (`sketch_toolbar::OFF_RIBBON`, its command still offered there); the Sketch menu, the
-  palette and its key reach it.
+  while it parses and kept as typed, parameters included. It has no button of its own on the
+  sketch bar, whose Modify group would widen past one row (`sketch_toolbar::OFF_RIBBON`, its
+  command still offered there); Sketch fillet's corner menu, the Sketch menu, the palette and its
+  key reach it.
+- The tools without a button of their own sit in the corner menu of a partner's compact button
+  (`sketch_toolbar::Partners`, `widgets::compact_corner_menu_button`, a notch in the button's
+  lower right that adds no width): Sketch fillet with Sketch chamfer (`CORNER_TOOLS`), Offset with
+  Tangent circle and Blend curve (`CURVE_FROM_GEOMETRY_TOOLS`), Mirror with both patterns
+  (`COPYING_TOOLS`), Project with Intersect (`MODEL_GEOMETRY_TOOLS`). The menu lists the partner
+  first, each with its keys, and the notch takes the accent colour while any of them is active.
 - Offset and Sketch fillet take a typed value in the typed-point field ("Offset
   by", "Fillet radius"), and Sketch chamfer its text above: the preview follows the text while it parses, Enter commits the expression as typed
   (parameters included) and an error keeps the field open. A negative offset goes to the other
@@ -583,16 +612,40 @@ paths:
   flaw's own button applies its fix alone; a fix set drops added constraints touching removed
   geometry. A sketch that does not solve is refused in words (`tidying::UNSOLVED`).
 
+## Status pills
+
+- `sketch_status::show` (the sketch's card in the tree) draws the status pill and, in words, a
+  pill each for redundant constraints, open ends and points beyond their curves; the sketch bar's
+  header keeps one height whatever the status: the title on its first line with the counts at its
+  right end as `widgets::count_pill`s (an icon per kind, `icons::REDUNDANT`, `OPEN_ENDS`,
+  `BEYOND`, and the number; the words in the hover and the accessible name;
+  `sketch_status::counts_from_the_right`), the title truncating to leave them room and the line
+  reserving a count's height, and the status pill alone on the second line, the header at least
+  as wide as the widest status (`sketch_status::widest_status`), so the bar and the view below it
+  never move as the status changes.
+- Pills that act are `widgets::PillRole::Button`s (outlined, an outline in their colour on hover,
+  the pointing hand, a focus ring, named "<words>: <what a click does>") and return a
+  `sketch_status::StatusRequest`: a failed or conflicting status shows the problem in the card
+  (`ShowProblem`), the degrees-of-freedom status runs Select what is still free, the open ends
+  count Select the open ends (`Command::SelectOpenEnds`: selects the open ends' points and frames
+  them, `ViewportState::fit_requested`) and the redundant count Select the redundant constraints
+  (`Command::SelectRedundant`: selects each `Redundancy::constraint`, ready for Delete); both are
+  sketch-scope commands in the Sketch menu and palette with no default key, refused in words
+  without a solved sketch or with none (`sketch_status::NOT_SOLVED`, `NO_OPEN_ENDS`,
+  `NOTHING_REDUNDANT`). The other statuses and the points-beyond count stay plain. In the tree
+  card the selecting pills act only for the edited sketch, through `PanelState::sketch_command`,
+  which the app triggers before the viewport runs its commands.
+
 ## Open ends
 
 - The edited sketch's open ends (`SketchResult::open_ends` of its up-to-date result) are ringed in
-  `canvas::WARNING` over the view (`annotations.rs`, only those in view), counted in a warning
-  pill beside the sketch's status in the sketch bar ("2 open ends", its hover saying to join them)
-  and in the 3D view's description, so an outline that will not close is seen while drawing
-  rather than when the extrusion fails.
+  `canvas::WARNING` over the view (`annotations.rs`, only those in view), counted beside the
+  sketch's status (Status pills, its hover saying to join them) and in the 3D view's
+  description, so an outline that will not close is seen while drawing rather than when the
+  extrusion fails.
 - Points held past the drawn ends of their line or arc (`SketchResult::beyond`) are marked the same
   way in `canvas::MUTED`: a dashed extension from the curve's nearer end to the point and a ring,
-  counted in an info pill ("1 point beyond its curve", its hover `sketch_status::BEYOND_HELP`)
+  counted as information ("1 point beyond its curve", its hover `sketch_status::BEYOND_HELP`)
   and in the 3D view's description. It is information, not a warning, since a point on a line's
   extension is often meant (`Target::Extension`).
 - The edited sketch's closed regions (its result's display regions) are tinted `closed_region` on

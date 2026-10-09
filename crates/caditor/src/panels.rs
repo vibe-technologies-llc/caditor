@@ -117,6 +117,7 @@ pub struct PanelState {
     pub requested: Vec<Command>,
     pub chosen_in_tree: Option<Pickable>,
     pub selected_in_tree: Option<Vec<Pickable>>,
+    pub sketch_command: Option<Command>,
     pub in_view: BTreeSet<FeatureId>,
     view_selection: Option<u64>,
     pub shown_place: Option<Point3>,

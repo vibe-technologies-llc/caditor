@@ -1,7 +1,11 @@
 # Patterns in a sketch
 
-Two tools repeat the selected geometry, keeping the copies in step with the original. Select the
-geometry first. Neither has a key or a button; use the Sketch menu or {command:palette}.
+Two tools repeat the selected geometry, keeping the copies in step with the original. Neither has a
+key or a button of its own: open the small menu in the corner of the Mirror button, or use the
+Sketch menu or {command:palette}.
+
+Select the geometry before starting, or select it in the tool: click items to add or remove them,
+or drag a box around them.
 
 ## Rectangular pattern
 
@@ -14,8 +18,9 @@ spacing in the field that opens:
 
 ## Circular pattern
 
-{command:sketch.circular_pattern} repeats about a point. Select that point with the geometry, or
-click it after starting the tool. Then type:
+{command:sketch.circular_pattern} repeats about a point. Select that point with the geometry, or,
+once the geometry is chosen (press Enter if you selected it in the tool), click the point. Then
+type:
 
 - `6` to space six, the original included, over a full turn.
 - `4 over 90` to spread four across 90 degrees.

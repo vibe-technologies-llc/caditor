@@ -126,6 +126,11 @@ paths:
     wrapped row moves one that does not fit to the next line instead of letting it run past the
     edge and widen the side panel, which would shift the 3D view whenever a sketch's status
     changes (`a_pill_that_does_not_fit_beside_another_wraps_instead_of_widening_the_panel`).
+  - `glyph_pill` and `count_pill` (an icon and a number, as tall as a line of small text) take a
+    `PillRole`: `Shown` reads its text, `Named` hides its text from screen readers behind a name
+    (a count's words), and `Button` makes it a button named by what it does, outlined at half its
+    colour, fully on hover, thicker while pressed and with the focus ring when focused, so a pill
+    that acts never looks like one that only reads.
   - `footer_split` puts a destructive action at the far left, away from the primary; the primary
     action is always rightmost.
   - A dialog gives focus to its `primary_button` whenever no widget holds it (opening, Escape
@@ -184,10 +189,14 @@ paths:
   Escape does), so the ribbon keeps its height and every group its place.
 - While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on
   `accent_surface` with an accent line along its top: a header without a caption (sketch badge,
-  "Editing <name>" truncating with the full name on hover, the sketch's `status_pill`s wrapping
-  under it, its width clamped to the title so constraining never moves the groups), Select, Draw, Modify, Constrain
-  and Dimension. Finish sketch is a primary button at the right of the first row. Shape tools with
-  several ways to draw carry a `corner_menu_button` listing them as `menu_choice`s.
+  "Editing <name>" truncating with the full name on hover, with the sketch's counts as
+  `count_pill`s at the right of that line and its status pill under it, two lines whatever the
+  status, its width clamped to the title and at least the widest status so constraining never
+  moves the groups or the view; `app-sketching.md`, Status pills), Select, Draw, Modify,
+  Constrain and Dimension. Finish sketch is a primary button at the right of the first row. Shape
+  tools with several ways to draw carry a `corner_menu_button` listing them as `menu_choice`s, and
+  the compact Sketch fillet, Offset, Mirror and Project buttons a `compact_corner_menu_button` (a
+  notch in the lower right corner) listing the tools without a button of their own beside them.
 - The three arc tools share one Draw button (`sketch_toolbar::ARC_TOOLS`) showing the arc tool last
   used or chosen; each keeps its own key and command, which the button handles whichever is shown.
   Spline, Ellipse, Elliptical arc and Conic share the Curve button (`CURVE_TOOLS`) the same way (a
