@@ -126,8 +126,10 @@ paths:
   - `segmented` falls back to a dropdown when its row is wider than the room, so it never widens
     a panel; that dropdown and `feature_fields::combo` truncate their chosen text rather than wrap
     it.
-  - `small_button` marks its label, not its icon, as the part that shrinks, so in a column
-    narrower than the button the label wraps instead of the button running past the edge.
+  - `small_button` marks its label, not its icon, as the part that shrinks when the button is
+    wider than a whole row of its container (the room left in a non-wrapping layout), so in a
+    column narrower than the button the label wraps instead of the button running past the edge,
+    while in a wrapping row it moves to the next row whole rather than shrinking to what is left.
     `label_before_icon_buttons` wraps a value leaving room for the icon buttons after it, and
     `slider` narrows the track to the room left beside its value (`MIN_SLIDER_WIDTH`).
   - A `properties` grid wraps its values (the grid sets the wrap mode) and its captions once they

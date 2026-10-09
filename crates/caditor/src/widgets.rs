@@ -291,11 +291,19 @@ pub fn removable_row_hovered(ui: &mut Ui, text: RichText, hover: &str) -> Remova
 
 pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Named<Button<'static>> {
     let muted = appearance::tokens(ui).text_muted;
+    let label = RichText::new(text.to_owned()).text_style(TextStyle::Body);
+    let label_width = unwrapped(ui, label.clone(), TextStyle::Body).size().x;
+    let spacing = ui.spacing();
+    let natural = ICON_SIZE + spacing.icon_spacing + label_width + 2.0 * spacing.button_padding.x;
+    let row = if ui.layout().main_wrap() {
+        ui.max_rect().right().min(ui.clip_rect().right()) - ui.max_rect().left()
+    } else {
+        ui.available_width()
+    };
+    let wider_than_a_row = natural > row;
     let button = Button::new((
         icon(glyph).color(muted),
-        RichText::new(text.to_owned())
-            .text_style(TextStyle::Body)
-            .atom_shrink(true),
+        label.atom_shrink(wider_than_a_row),
     ));
     Named::new(button, text)
 }
