@@ -254,7 +254,7 @@ pub fn create_actions(model: &Model, kind: PrimitiveKind, source: &PrimitiveSour
             }
             actions
         }
-        Err(reason) => vec![Action::Inform(Notice::info(format!(
+        Err(reason) => vec![Action::Inform(Notice::warning(format!(
             "{}: {reason}.",
             kind.name()
         )))],
@@ -373,6 +373,6 @@ pub fn place_click(
             Action::Apply(transaction),
             Action::Editing(EditingCommand::StopPicking),
         ],
-        Err(reason) => vec![Action::Inform(Notice::info(reason))],
+        Err(reason) => vec![Action::Inform(Notice::warning(reason))],
     }
 }

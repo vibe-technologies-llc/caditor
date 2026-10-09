@@ -3,8 +3,7 @@ use egui::{Layout, ScrollArea};
 use crate::{
     appearance::{self, SPACE_M, SPACE_S},
     history::ago,
-    icons,
-    model::{Model, NoticeKind},
+    model::Model,
     widgets::{self, DialogWidth},
 };
 
@@ -28,12 +27,10 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> bool {
             .show(ui, |ui| {
                 for recorded in model.recorded_notices() {
                     any = true;
-                    let (glyph, color) = match recorded.notice.kind {
-                        NoticeKind::Info => (icons::INFO, tokens.accent_text),
-                        NoticeKind::Error => (icons::FAILED, tokens.error),
-                    };
+                    let kind = recorded.notice.kind;
+                    let tone = kind.tone();
                     ui.horizontal_top(|ui| {
-                        widgets::icon_label(ui, glyph, color);
+                        widgets::described_icon(ui, tone.icon(), tone.color(tokens), kind.label());
                         ui.vertical(|ui| {
                             ui.label(&recorded.notice.text);
                             ui.label(widgets::muted(ago(recorded.at), ui));

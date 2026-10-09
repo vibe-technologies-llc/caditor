@@ -7,14 +7,15 @@ use egui::{
 use crate::{
     appearance::{self, CONTROL_HEIGHT, DIALOG_MARGIN, SPACE_M, SPACE_S, WIDGET_RADIUS},
     commands::{self, Command, Keymap, Offer, Scope},
-    icons,
+    feature_tree, icons,
     panels::Focus,
+    toggles::{Shown, ToggleStates},
     widgets::{self, Tone},
 };
 
 const TOP_MARGIN: f32 = 72.0;
 const LIST_HEIGHT: f32 = 360.0;
-const RECENT_LIMIT: usize = 6;
+pub const RECENT_LIMIT: usize = 6;
 const ROW_HEIGHT: f32 = CONTROL_HEIGHT + SPACE_S;
 const DETAIL_LINES: f32 = 2.0;
 pub const FIELD_HINT: &str =
@@ -26,6 +27,7 @@ enum Fit {
     Start,
     WordStart,
     Inside,
+    Keyword,
     Scattered,
 }
 
@@ -80,10 +82,18 @@ pub struct Entry {
     glyph: &'static str,
     note: Option<String>,
     keys: Option<String>,
+    pub shown: Option<Shown>,
     pub state: State,
 }
 
 impl Entry {
+    fn name(&self) -> String {
+        match self.shown.and_then(Shown::pill) {
+            Some(state) => format!("{}, {}", self.title, state.to_lowercase()),
+            None => self.title.clone(),
+        }
+    }
+
     fn detail(&self) -> String {
         match (&self.state, self.choice) {
             (State::Unavailable(reason), _) => {
@@ -132,6 +142,17 @@ pub struct Palette {
 }
 
 impl Palette {
+    pub fn with_recent(recent: Vec<Command>) -> Self {
+        Self {
+            recent,
+            ..Self::default()
+        }
+    }
+
+    pub fn recent(&self) -> &[Command] {
+        &self.recent
+    }
+
     pub fn is_open(&self) -> bool {
         self.open
     }
@@ -185,15 +206,22 @@ impl Palette {
             .unwrap_or(RECENT_LIMIT)
     }
 
-    pub fn entries(&self, offers: &[Offer], keymap: &Keymap, document: &Document) -> Vec<Entry> {
+    pub fn entries(
+        &self,
+        offers: &[Offer],
+        keymap: &Keymap,
+        document: &Document,
+        toggles: &ToggleStates,
+    ) -> Vec<Entry> {
         let query = self.query.trim().to_lowercase();
         let searching = !query.is_empty();
-        let matches = |title: &str, text: &str| -> Option<(Fit, usize)> {
+        let matches = |title: &str, text: &str, keywords: &[&str]| -> Option<(Fit, usize)> {
             if !searching {
                 return Some((Fit::Start, 0));
             }
             let title = title.to_lowercase();
-            fit(&query, &title, &text.to_lowercase()).map(|fit| (fit, title.len()))
+            fit_with_keywords(&query, &title, &text.to_lowercase(), keywords)
+                .map(|fit| (fit, title.len()))
         };
         let mut ranked: Vec<(Rank, Entry)> = Vec::new();
         for (order, offer) in offers.iter().enumerate() {
@@ -201,7 +229,8 @@ impl Palette {
                 continue;
             }
             let title = offer.title();
-            let Some((fit, length)) = matches(&title, &entry_text(offer)) else {
+            let Some((fit, length)) = matches(&title, &entry_text(offer), offer.command.keywords())
+            else {
                 continue;
             };
             let state = match &offer.availability {
@@ -214,7 +243,7 @@ impl Palette {
             } else {
                 Group::Commands
             };
-            let entry = command_entry(offer.command, title, state, group, keymap);
+            let entry = command_entry(offer.command, title, state, group, keymap, toggles);
             ranked.push(((fit, entry.rank(), recent, length, order), entry));
         }
         let absent = Command::all().filter(|command| {
@@ -226,16 +255,17 @@ impl Palette {
             };
             let title = command.title();
             let text = format!("{}: {title}", command.category().label());
-            let Some((fit, length)) = matches(&title, &text) else {
+            let Some((fit, length)) = matches(&title, &text, command.keywords()) else {
                 continue;
             };
             let state = State::OutOfContext(reason);
-            let entry = command_entry(command, title, state, Group::Commands, keymap);
+            let entry = command_entry(command, title, state, Group::Commands, keymap, toggles);
             ranked.push(((fit, entry.rank(), RECENT_LIMIT, length, order), entry));
         }
         if searching {
             for (order, feature) in document.features().enumerate() {
-                let Some((fit, length)) = matches(&feature.name, &feature.name) else {
+                let kind = feature_tree::kind_words(&feature.kind);
+                let Some((fit, length)) = matches(&feature.name, &feature.name, kind) else {
                     continue;
                 };
                 let entry = Entry {
@@ -245,12 +275,13 @@ impl Palette {
                     glyph: icons::feature(&feature.kind),
                     note: None,
                     keys: None,
+                    shown: None,
                     state: State::Ready,
                 };
                 ranked.push(((fit, 0, RECENT_LIMIT, length, order), entry));
             }
             for (order, parameter) in document.parameters().iter().enumerate() {
-                let Some((fit, length)) = matches(&parameter.name, &parameter.name) else {
+                let Some((fit, length)) = matches(&parameter.name, &parameter.name, &[]) else {
                     continue;
                 };
                 let entry = Entry {
@@ -260,6 +291,7 @@ impl Palette {
                     glyph: icons::UNIT,
                     note: Some(document.expression_text(&parameter.expression)),
                     keys: None,
+                    shown: None,
                     state: State::Ready,
                 };
                 ranked.push(((fit, 0, RECENT_LIMIT, length, order), entry));
@@ -267,7 +299,7 @@ impl Palette {
         }
         if searching {
             for (index, named) in document.saved_views().named.iter().enumerate() {
-                let Some((fit, length)) = matches(&named.name, &named.name) else {
+                let Some((fit, length)) = matches(&named.name, &named.name, &[]) else {
                     continue;
                 };
                 let entry = Entry {
@@ -277,12 +309,13 @@ impl Palette {
                     glyph: icons::command(Command::SavedViews),
                     note: None,
                     keys: None,
+                    shown: None,
                     state: State::Ready,
                 };
                 ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
             }
             for (index, set) in document.selection_sets().sets.iter().enumerate() {
-                let Some((fit, length)) = matches(&set.name, &set.name) else {
+                let Some((fit, length)) = matches(&set.name, &set.name, &[]) else {
                     continue;
                 };
                 let entry = Entry {
@@ -292,6 +325,7 @@ impl Palette {
                     glyph: icons::command(Command::SelectionSets),
                     note: None,
                     keys: None,
+                    shown: None,
                     state: State::Ready,
                 };
                 ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
@@ -299,7 +333,7 @@ impl Palette {
             let configurations = document.configurations();
             for (index, row) in configurations.rows.iter().enumerate() {
                 let title = format!("Switch to {}", row.name);
-                let Some((fit, length)) = matches(&title, &row.name) else {
+                let Some((fit, length)) = matches(&title, &row.name, &[]) else {
                     continue;
                 };
                 let active = configurations.is_active(row.id);
@@ -310,6 +344,7 @@ impl Palette {
                     glyph: icons::command(Command::Configurations),
                     note: active.then(|| "Active".to_owned()),
                     keys: None,
+                    shown: None,
                     state: if active {
                         State::Unavailable("it is already the active configuration".to_owned())
                     } else {
@@ -373,6 +408,7 @@ impl Palette {
         offers: &[Offer],
         keymap: &Keymap,
         document: &Document,
+        toggles: &ToggleStates,
     ) {
         if !self.open {
             return;
@@ -409,7 +445,7 @@ impl Palette {
                 self.highlighted = 0;
             }
             field.request_focus();
-            let entries = self.entries(offers, keymap, document);
+            let entries = self.entries(offers, keymap, document, toggles);
             let last = entries.len().saturating_sub(1);
             if down {
                 self.highlighted = (self.highlighted + 1).min(last);
@@ -477,6 +513,7 @@ fn command_entry(
     state: State,
     group: Group,
     keymap: &Keymap,
+    toggles: &ToggleStates,
 ) -> Entry {
     Entry {
         group,
@@ -487,6 +524,7 @@ fn command_entry(
         keys: keymap
             .first(command)
             .map(|shortcut| commands::display(&shortcut)),
+        shown: toggles.shown(command),
         state,
     }
 }
@@ -528,6 +566,14 @@ fn row(ui: &mut Ui, entry: &Entry, highlighted: bool) -> Response {
         if let Some(keys) = &entry.keys {
             widgets::key_cap(ui, keys);
         }
+        if let Some(pill) = entry.shown.and_then(Shown::pill) {
+            let tone = if entry.shown.is_some_and(Shown::is_on) {
+                Tone::Info
+            } else {
+                Tone::Neutral
+            };
+            widgets::pill(ui, tone, pill);
+        }
         if let Some(note) = &entry.note {
             ui.add(
                 Label::new(
@@ -546,7 +592,7 @@ fn row(ui: &mut Ui, entry: &Entry, highlighted: bool) -> Response {
             );
         });
     });
-    widgets::named(response, &entry.title).on_hover_text(entry.detail())
+    widgets::named(response, &entry.name()).on_hover_text(entry.detail())
 }
 
 fn detail(ui: &mut Ui, entry: Option<&Entry>) {
@@ -582,6 +628,24 @@ pub fn entry_text(offer: &Offer) -> String {
     format!("{}: {}", offer.command.category().label(), offer.title())
 }
 
+pub fn starts_words(query: &str, text: &str) -> bool {
+    fit(query, text, text).is_some_and(|fitted| fitted <= Fit::WordStart)
+}
+
+fn fit_with_keywords(query: &str, title: &str, text: &str, keywords: &[&str]) -> Option<Fit> {
+    let fitted = fit(query, title, text);
+    if fitted.is_some_and(|fitted| fitted < Fit::Keyword) {
+        return fitted;
+    }
+    let named = keywords.iter().any(|keyword| {
+        keyword.starts_with(query)
+            || query
+                .split_whitespace()
+                .all(|term| keyword.split(' ').any(|word| word.starts_with(term)))
+    });
+    if named { Some(Fit::Keyword) } else { fitted }
+}
+
 fn fit(query: &str, title: &str, text: &str) -> Option<Fit> {
     if title.starts_with(query) || text.starts_with(query) {
         return Some(Fit::Start);
@@ -607,7 +671,11 @@ fn fit(query: &str, title: &str, text: &str) -> Option<Fit> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::editing::Tool;
+    use crate::{editing::Tool, viewport::ViewportState};
+
+    fn toggles() -> ToggleStates {
+        ToggleStates::of(&ViewportState::new(), false)
+    }
 
     fn offer(command: Command, ready: bool) -> Offer {
         Offer {
@@ -623,7 +691,7 @@ mod tests {
 
     fn found(palette: &Palette, offers: &[Offer]) -> Vec<Choice> {
         palette
-            .entries(offers, &Keymap::default(), &Document::default())
+            .entries(offers, &Keymap::default(), &Document::default(), &toggles())
             .iter()
             .filter(|entry| !matches!(entry.state, State::OutOfContext(_)))
             .map(|entry| entry.choice)
@@ -676,6 +744,74 @@ mod tests {
     }
 
     #[test]
+    fn other_names_find_commands_after_title_matches_and_kind_words_find_features() {
+        let offers = [
+            offer(Command::Messages, true),
+            offer(Command::UndoHistory, true),
+            offer(Command::FitView, true),
+            offer(Command::Measure, true),
+        ];
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add a sketch");
+        transaction.add_feature(
+            "Plate outline",
+            caditor_document::FeatureKind::from(caditor_sketch::Sketch::new(
+                caditor_geometry::Plane::XY,
+            )),
+        );
+        document.apply(transaction.finish()).unwrap();
+        let mut palette = Palette::default();
+        let mut found = |query: &str| {
+            palette.query = query.to_owned();
+            palette
+                .entries(&offers, &Keymap::default(), &document, &toggles())
+                .iter()
+                .filter(|entry| !matches!(entry.state, State::OutOfContext(_)))
+                .map(|entry| entry.choice)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(found("zoom ext"), [Choice::Command(Command::FitView)]);
+        assert_eq!(found("ruler"), [Choice::Command(Command::Measure)]);
+        assert_eq!(
+            found("history"),
+            [Command::UndoHistory, Command::Messages].map(Choice::Command)
+        );
+        assert!(
+            found("sketch")
+                .iter()
+                .any(|choice| matches!(choice, Choice::Focus(Focus::Feature(_))))
+        );
+    }
+
+    #[test]
+    fn toggle_rows_say_whether_they_are_on() {
+        let offers = [
+            offer(Command::ToggleSnapping, true),
+            offer(Command::Save, true),
+        ];
+        let palette = Palette::default();
+
+        let entries = palette.entries(
+            &offers,
+            &Keymap::default(),
+            &Document::default(),
+            &toggles(),
+        );
+        let shown: Vec<Option<Shown>> = entries
+            .iter()
+            .filter(|entry| entry.state == State::Ready)
+            .map(|entry| entry.shown)
+            .collect();
+
+        assert_eq!(shown, [Some(Shown::On), None]);
+        assert_eq!(
+            entries.first().unwrap().name(),
+            "Turn snapping on or off, on"
+        );
+    }
+
+    #[test]
     fn commands_that_do_not_fit_the_context_follow_the_rest_with_their_reason() {
         let offers = [offer(Command::Save, true), offer(Command::Fillet, false)];
         let palette = Palette {
@@ -683,7 +819,12 @@ mod tests {
             ..Palette::default()
         };
 
-        let entries = palette.entries(&offers, &Keymap::default(), &Document::default());
+        let entries = palette.entries(
+            &offers,
+            &Keymap::default(),
+            &Document::default(),
+            &toggles(),
+        );
         let line = entries
             .iter()
             .find(|entry| entry.choice == Choice::Command(Command::SketchTool(Tool::Line)))

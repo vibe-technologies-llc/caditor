@@ -19,7 +19,7 @@ use crate::{
     selection::SelectionFilter,
     shape_modes::ShapeMode,
     sketch_tools::ConstraintTool,
-    view_aids::ViewAids,
+    toggles::ToggleStates,
     widgets::{self, Tone},
     window_frame::{self, Chrome},
 };
@@ -113,20 +113,7 @@ pub struct MenuContext<'a> {
     pub editing: &'a SketchEditing,
     pub offers: &'a [Offer],
     pub chrome: Chrome,
-    pub filter: SelectionFilter,
-    pub style: DisplayStyle,
-    pub snapping: bool,
-    pub grid_snapping: bool,
-    pub lasso: bool,
-    pub paint: bool,
-    pub select_through: bool,
-    pub automatic_projection: bool,
-    pub typed_dimensions: bool,
-    pub first_dimension_scales: bool,
-    pub glyphs: bool,
-    pub aids: ViewAids,
-    pub sectioning: bool,
-    pub sketch_slice: bool,
+    pub toggles: ToggleStates,
 }
 
 pub fn show(
@@ -163,20 +150,7 @@ pub fn show(
                     sets: context.sets,
                     picked_sets: Vec::new(),
                     offers: context.offers,
-                    filter: context.filter,
-                    style: context.style,
-                    snapping: context.snapping,
-                    grid_snapping: context.grid_snapping,
-                    lasso: context.lasso,
-                    paint: context.paint,
-                    select_through: context.select_through,
-                    automatic_projection: context.automatic_projection,
-                    typed_dimensions: context.typed_dimensions,
-                    first_dimension_scales: context.first_dimension_scales,
-                    glyphs: context.glyphs,
-                    aids: context.aids,
-                    sectioning: context.sectioning,
-                    sketch_slice: context.sketch_slice,
+                    toggles: context.toggles,
                     commands,
                     chosen: Vec::new(),
                 };
@@ -189,7 +163,7 @@ pub fn show(
                 let visited = std::mem::take(&mut menus.visited);
                 let picked_sets = std::mem::take(&mut menus.picked_sets);
                 for command in chosen {
-                    commands.trigger(command);
+                    commands.trigger_showing_state(command);
                 }
                 actions.extend(
                     visited
@@ -407,20 +381,7 @@ struct Menus<'a, 'b> {
     sets: &'a SelectionSets,
     picked_sets: Vec<usize>,
     offers: &'a [Offer],
-    filter: SelectionFilter,
-    style: DisplayStyle,
-    snapping: bool,
-    grid_snapping: bool,
-    lasso: bool,
-    paint: bool,
-    select_through: bool,
-    automatic_projection: bool,
-    typed_dimensions: bool,
-    first_dimension_scales: bool,
-    glyphs: bool,
-    aids: ViewAids,
-    sectioning: bool,
-    sketch_slice: bool,
+    toggles: ToggleStates,
     commands: &'a CommandFrame<'b>,
     chosen: Vec<Command>,
 }
@@ -453,7 +414,8 @@ impl Menus<'_, '_> {
         }
     }
 
-    fn choice(&mut self, ui: &mut Ui, command: Command, chosen: bool) {
+    fn choice(&mut self, ui: &mut Ui, command: Command) {
+        let chosen = self.toggles.is_on(command);
         let availability = self.availability(command);
         let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
             widgets::menu_choice(
@@ -572,7 +534,7 @@ impl Menus<'_, '_> {
                 "Selection filter",
                 |ui| {
                     for filter in SelectionFilter::ALL {
-                        self.choice(ui, Command::Filter(filter), filter == self.filter);
+                        self.choice(ui, Command::Filter(filter));
                     }
                     ui.separator();
                     self.item(ui, Command::CycleSelectionPriority);
@@ -584,25 +546,21 @@ impl Menus<'_, '_> {
                 "Display style",
                 |ui| {
                     for style in DisplayStyle::ALL {
-                        self.choice(ui, Command::Style(style), style == self.style);
+                        self.choice(ui, Command::Style(style));
                     }
                 },
             );
             ui.separator();
             self.item(ui, Command::ToggleProjection);
-            self.choice(ui, Command::AutomaticProjection, self.automatic_projection);
-            self.choice(ui, Command::ToggleSnapping, self.snapping);
-            self.choice(ui, Command::ToggleGridSnapping, self.grid_snapping);
-            self.choice(ui, Command::ToggleLasso, self.lasso);
-            self.choice(ui, Command::TogglePaintSelection, self.paint);
-            self.choice(ui, Command::ToggleSelectThrough, self.select_through);
-            self.choice(ui, Command::ToggleGlyphs, self.glyphs);
-            self.choice(ui, Command::ToggleCentresOfMass, self.aids.centres_of_mass);
-            self.choice(
-                ui,
-                Command::ToggleControlPolygons,
-                !self.aids.control_polygons_hidden,
-            );
+            self.choice(ui, Command::AutomaticProjection);
+            self.choice(ui, Command::ToggleSnapping);
+            self.choice(ui, Command::ToggleGridSnapping);
+            self.choice(ui, Command::ToggleLasso);
+            self.choice(ui, Command::TogglePaintSelection);
+            self.choice(ui, Command::ToggleSelectThrough);
+            self.choice(ui, Command::ToggleGlyphs);
+            self.choice(ui, Command::ToggleCentresOfMass);
+            self.choice(ui, Command::ToggleControlPolygons);
             ui.separator();
             self.item(ui, Command::FullScreen);
             ui.separator();
@@ -616,11 +574,7 @@ impl Menus<'_, '_> {
             self.item(ui, Command::Analysis(AnalysisCommand::Chrome));
             self.item(ui, Command::Analysis(AnalysisCommand::Comb));
             self.item(ui, Command::Analysis(AnalysisCommand::Isocurves));
-            self.choice(
-                ui,
-                Command::Section(SectionCommand::Toggle),
-                self.sectioning,
-            );
+            self.choice(ui, Command::Section(SectionCommand::Toggle));
             self.item(ui, Command::Section(SectionCommand::Add));
             ui.separator();
             self.items(
@@ -732,17 +686,9 @@ impl Menus<'_, '_> {
                 ui,
                 [Command::ReverseArc, Command::MoreSides, Command::FewerSides],
             );
-            self.choice(ui, Command::ToggleTypedDimensions, self.typed_dimensions);
-            self.choice(
-                ui,
-                Command::Section(SectionCommand::SliceSketch),
-                self.sketch_slice,
-            );
-            self.choice(
-                ui,
-                Command::ToggleFirstDimensionScales,
-                self.first_dimension_scales,
-            );
+            self.choice(ui, Command::ToggleTypedDimensions);
+            self.choice(ui, Command::Section(SectionCommand::SliceSketch));
+            self.choice(ui, Command::ToggleFirstDimensionScales);
             ui.separator();
             self.item(ui, Command::Construction);
             self.items(ui, modifying.into_iter().map(Command::SketchTool));

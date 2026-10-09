@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use caditor_render::{
-    Background, FrameStart, ImageRequest, PickPoll, ProjectionMode, Renderer, SurfaceSize,
-    ViewportFrame, Wake, WindowTarget,
+    Background, FrameStart, ImageRequest, PickPoll, Renderer, SurfaceSize, ViewportFrame, Wake,
+    WindowTarget,
 };
 use egui_winit::accesskit_winit;
 use parking_lot::Mutex;
@@ -78,6 +78,7 @@ use crate::{
     status_bar::{self, StatusContext},
     tidy_panel,
     tidying::Tidying,
+    toggles::ToggleStates,
     toolbar::{self, ToolbarContext},
     undo_history,
     viewport::ViewportState,
@@ -182,6 +183,7 @@ impl Workspace {
         let welcome_open = !preferences.onboarding.welcomed;
         let mut viewport = ViewportState::new();
         viewport.set_navigation(preferences.navigation);
+        let palette = Palette::with_recent(preferences.palette_recent.clone());
         Self {
             viewport,
             panels: PanelState::with_layout(preferences.panels),
@@ -190,7 +192,7 @@ impl Workspace {
             preferences_open: false,
             preferences_tab: PreferencesTab::default(),
             hardware: Hardware::default(),
-            palette: Palette::default(),
+            palette,
             shortcut_editor: None,
             restored: None,
             welcome_open,
@@ -231,7 +233,7 @@ impl Workspace {
         self.editing = SketchEditing::default();
         self.preferences_open = false;
         self.shortcut_editor = None;
-        self.palette = Palette::default();
+        self.palette = Palette::with_recent(self.preferences.palette_recent.clone());
         self.restored = None;
         self.welcome_open = false;
         self.about_open = false;
@@ -358,14 +360,14 @@ impl Workspace {
             }
             PreferencesCommand::SelectSet(index) => {
                 let in_sketch = self.editing.feature().is_some();
-                let report = match selection_sets::choose(model, index, in_sketch) {
+                let notice = match selection_sets::choose(model, index, in_sketch) {
                     Ok(chosen) => {
                         self.viewport.replace_selection(chosen.pickables);
-                        chosen.report
+                        Notice::info(chosen.report)
                     }
-                    Err(reason) => reason,
+                    Err(reason) => Notice::warning(reason),
                 };
-                model.perform(Action::Inform(Notice::info(report)));
+                model.perform(Action::Inform(notice));
             }
             PreferencesCommand::Tab(tab) => {
                 self.preferences_tab = tab;
@@ -385,6 +387,10 @@ impl Workspace {
                 }
             }
             PreferencesCommand::Preview(change) => self.preview_preference(change, model),
+            PreferencesCommand::RememberRecent(recent) => {
+                self.preferences.palette_recent = recent;
+                files.store_settings(self.preferences.settings());
+            }
         }
     }
 }
@@ -552,7 +558,7 @@ pub fn show(
     if let Some(id) = palette.take_configuration() {
         actions.push(match configurations::switching(model.document(), id) {
             Ok(transaction) => Action::Apply(transaction),
-            Err(reason) => Action::Inform(Notice::info(reason)),
+            Err(reason) => Action::Inform(Notice::warning(reason)),
         });
     }
     let mut commands = CommandFrame::new(&preferences.keymap, triggered).with_clipboard(clipboard);
@@ -563,20 +569,7 @@ pub fn show(
         editing,
         offers: last_offers,
         chrome,
-        filter: viewport.filter(),
-        style: viewport.style(),
-        snapping: viewport.snapping(),
-        grid_snapping: viewport.grid_snapping(),
-        lasso: viewport.lasso(),
-        paint: viewport.paint(),
-        select_through: viewport.select_through(),
-        automatic_projection: viewport.projection() == ProjectionMode::Automatic,
-        typed_dimensions: viewport.typed_dimensions(),
-        first_dimension_scales: viewport.first_dimension_scales(),
-        glyphs: viewport.glyphs_shown(),
-        aids: viewport.aids(),
-        sectioning: section.open,
-        sketch_slice: viewport.sketch_slice(),
+        toggles: ToggleStates::of(viewport, section.open),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {
@@ -851,7 +844,7 @@ pub fn show(
     }
     let (offers, refused) = commands.finish();
     for (command, reason) in refused {
-        actions.push(Action::Inform(Notice::info(format!(
+        actions.push(Action::Inform(Notice::warning(format!(
             "{}: {reason}",
             command.title()
         ))));
@@ -889,7 +882,19 @@ pub fn show(
         if open_palette && !dialog_open {
             palette.open();
         }
-        palette.show(ui.ctx(), &offers, &preferences.keymap, model.document());
+        let toggles = ToggleStates::of(viewport, section.open);
+        palette.show(
+            ui.ctx(),
+            &offers,
+            &preferences.keymap,
+            model.document(),
+            &toggles,
+        );
+        if palette.recent() != preferences.palette_recent.as_slice() {
+            actions.push(Action::Preferences(PreferencesCommand::RememberRecent(
+                palette.recent().to_vec(),
+            )));
+        }
         if *welcome_open
             && let Some(choice) = onboarding::welcome(ui.ctx(), &preferences.keymap, files.recent())
         {

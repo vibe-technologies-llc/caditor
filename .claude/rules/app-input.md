@@ -4,6 +4,8 @@ paths:
   - "crates/caditor/src/commands.rs"
   - "crates/caditor/src/palette.rs"
   - "crates/caditor/src/shortcut_editor.rs"
+  - "crates/caditor/src/toggles.rs"
+  - "crates/caditor/src/menu_bar.rs"
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
   - "crates/caditor/src/pick_list.rs"
@@ -58,9 +60,14 @@ paths:
   newer entries survive and a command with no readable binding keeps its defaults. Esc, Enter and
   Tab are reserved and cannot be bound. A binding used in an overlapping scope asks before moving.
 - The shortcut editor (`shortcut_editor.rs`; from Preferences, the File menu or the palette) lists
-  every command by category, filtered by title, category or keys (`commands::is_named_by`: every
-  key named, any order and case). Each binding can be removed, Add records the next key press, and
-  Reset restores a command's defaults. Reset all asks first, then offers Undo through
+  every command by category, filtered by the starts of the words of "category: title" as the
+  palette matches them (`palette::starts_words`) or by keys (`commands::is_named_by`: every key
+  named, any order and case), and with Changed only by the commands whose keys differ from the
+  defaults, each of which carries a Changed pill. Each binding can be removed, Add records the next
+  key press, and Reset restores a command's defaults. Reset first collects the defaults another
+  command now holds (`Keymap::reset_conflicts`) and, when there are any, asks in the same warning
+  callout as Add ("F is used by Undo. Reset Fit view and move it there?") before
+  `Keymap::reset` takes them. Reset all asks first, then offers Undo through
   `Workspace::restored` (`app-files.md`).
 - `app::show` runs `commands::dispatch` each frame and hands a `CommandFrame` to toolbars and
   viewport. Exact modifiers win (extra Shift or Alt are ignored only for punctuation keys);
@@ -125,6 +132,21 @@ paths:
 - A fixed detail line under the list says what Enter does, or why the highlighted entry is not
   available, distinguishing "unavailable now" from "only works while a sketch is edited". The
   chosen command is triggered on the next frame.
+- Matching ranks a start of the title, then starts of words, then text inside, then other names
+  (`Command::keywords`, such as "zoom extents" for Fit view; a feature's kind words from
+  `feature_tree::kind_words`), then scattered letters (`palette::fit_with_keywords`), so a synonym
+  never outranks a title it also matches.
+- `toggles::ToggleStates`, read once from the viewport and section tool when the menus and the
+  palette are drawn, says what each on/off command and each choice (filter, display style) is now
+  (`ToggleStates::shown`); menus draw it as checkmarks (`Menus::choice`) and the palette as an On or
+  Off pill, or Current for a choice, also in the row's accessible name. Toggles with no visible
+  effect (snapping, grid snapping, lasso, paint selection, select through, typed dimensions) post
+  an info notice with their new state (`toggles::quiet_toggle_notice`) unless a menu, which already
+  shows the checkmark, triggered them (`CommandFrame::trigger_showing_state`).
+- Recent holds the last `palette::RECENT_LIMIT` commands run from the palette, kept in the
+  preferences (`palette.recent`, command ids read through `Command::from_id`, unknown or repeated
+  ones skipped), so it outlasts a restart and a failed frame (`Palette::with_recent`); the app
+  stores a changed list through `PreferencesCommand::RememberRecent`.
 
 ## Keyboard-only operation
 

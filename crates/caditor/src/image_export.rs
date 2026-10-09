@@ -359,7 +359,7 @@ pub fn scaled(size: SurfaceSize, scale: ImageScale) -> Result<SurfaceSize, Strin
 fn outcome(name: &str, result: Result<SurfaceSize, ImageFailure>) -> Notice {
     let failure = match result {
         Ok(size) => {
-            return Notice::info(format!(
+            return Notice::success(format!(
                 "Exported a {} × {} image to “{name}”.",
                 size.width, size.height
             ));

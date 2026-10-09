@@ -548,7 +548,7 @@ impl Deletion {
         match self.transaction() {
             Ok(transaction) => actions.push(Action::Apply(transaction.clone())),
             Err(reason) => {
-                actions.push(Action::Inform(Notice::info(reason)));
+                actions.push(Action::Inform(Notice::warning(reason)));
                 return;
             }
         }

@@ -33,12 +33,12 @@ pub fn commands(
         match copied_text(model, targets) {
             Ok(text) => {
                 commands.copy(text);
-                actions.push(Action::Inform(Notice::info(format!(
+                actions.push(Action::Inform(Notice::success(format!(
                     "Copied {}.",
                     described(targets)
                 ))));
             }
-            Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
         }
     }
     let pastable = match editing.active() {
@@ -48,7 +48,7 @@ pub fn commands(
     if commands.invoke(Command::PasteFeatures, &pastable) {
         match commands.pasted() {
             Pasted::Unread => commands.ask_for_paste(Command::PasteFeatures),
-            Pasted::Nothing => actions.push(Action::Inform(Notice::info(NOTHING_TO_PASTE))),
+            Pasted::Nothing => actions.push(Action::Inform(Notice::warning(NOTHING_TO_PASTE))),
             Pasted::Text(text) => paste(model, text, state, actions),
         }
     }
@@ -76,7 +76,7 @@ fn paste(model: &Model, text: &str, state: &mut PanelState, actions: &mut Vec<Ac
     let copied = match caditor_file::read_features_clipboard(text, &clipboard::source(model)) {
         Ok(copied) => copied,
         Err(error) => {
-            actions.push(Action::Inform(Notice::info(format!(
+            actions.push(Action::Inform(Notice::warning(format!(
                 "Nothing was pasted: {error}."
             ))));
             return;
@@ -95,16 +95,16 @@ fn paste(model: &Model, text: &str, state: &mut PanelState, actions: &mut Vec<Ac
             state.choose_all(&paste.pasted);
             actions.push(Action::Apply(paste.transaction));
             if let Some(note) = note {
-                actions.push(Action::Inform(Notice::info(note)));
+                actions.push(Action::Inform(Notice::warning(note)));
             }
         }
         Err(PasteError::NothingPasted { left_out }) => {
             let mut parts = vec!["Nothing was pasted.".to_owned()];
             parts.extend(left_out.iter().map(left_out_sentence));
             parts.extend(copied.notes);
-            actions.push(Action::Inform(Notice::info(parts.join(" "))));
+            actions.push(Action::Inform(Notice::warning(parts.join(" "))));
         }
-        Err(error) => actions.push(Action::Inform(Notice::info(format!(
+        Err(error) => actions.push(Action::Inform(Notice::warning(format!(
             "Nothing was pasted: {error}."
         )))),
     }

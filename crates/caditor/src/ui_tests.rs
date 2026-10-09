@@ -60,7 +60,9 @@ use crate::{
     shape_modes::{CircleMode, RectangleMode, ShapeMode},
     sketch_toolbar,
     sketch_tools::{self, ConstraintTool},
-    solid_panel, split_panel, status_bar, toolbar, trimming, typed_point,
+    solid_panel, split_panel, status_bar,
+    toggles::ToggleStates,
+    toolbar, trimming, typed_point,
     units::LengthUnit,
     view_cube, widgets, window_frame,
 };
@@ -71,6 +73,7 @@ mod dimension_labels;
 mod feature_panels;
 mod import_jobs;
 mod paint_selection;
+mod palette_and_notices;
 mod parameter_files;
 mod pick_list;
 mod primitives;
@@ -8369,6 +8372,7 @@ fn select_through_lets_a_box_take_the_edges_and_corners_hidden_behind_the_model(
     run_from_palette(&mut harness, "select through to what is hidden");
     harness.frame();
     assert!(harness.workspace.viewport.select_through());
+    let (low, high) = plate_on_screen(&harness);
     drag_screen(&mut harness, low - margin, high + margin);
     let through = selected_kinds(&harness);
 
@@ -11888,6 +11892,7 @@ fn the_palette_lists_what_does_not_fit_the_context_last_with_the_reason() {
         &harness.workspace.last_offers,
         &harness.workspace.preferences.keymap,
         harness.model.document(),
+        &ToggleStates::of(&harness.workspace.viewport, false),
     );
     let trim = entries
         .iter()

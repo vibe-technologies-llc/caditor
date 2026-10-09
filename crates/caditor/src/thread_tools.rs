@@ -95,7 +95,9 @@ pub fn create_actions(
             Action::Apply(transaction),
             Action::Editing(EditingCommand::OpenSolid(feature)),
         ],
-        Err(reason) => vec![Action::Inform(Notice::info(format!("{TITLE}: {reason}.")))],
+        Err(reason) => vec![Action::Inform(Notice::warning(format!(
+            "{TITLE}: {reason}."
+        )))],
     }
 }
 

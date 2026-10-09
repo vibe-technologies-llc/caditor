@@ -24,10 +24,12 @@ pub fn create(document: &Document, body: FeatureId) -> Option<(Transaction, Stri
 
 pub fn create_actions(document: &Document, body: FeatureId) -> Vec<Action> {
     let Some((transaction, name)) = create(document, body) else {
-        return vec![Action::Inform(Notice::info("That body no longer exists."))];
+        return vec![Action::Inform(Notice::warning(
+            "That body no longer exists.",
+        ))];
     };
     if let Err(error) = document.check(&transaction) {
-        return vec![Action::Inform(Notice::info(format!(
+        return vec![Action::Inform(Notice::warning(format!(
             "The body could not be removed: {error}."
         )))];
     }

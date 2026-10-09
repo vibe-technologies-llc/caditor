@@ -742,7 +742,9 @@ pub fn create_actions(document: &Document, datum: Datum) -> Vec<Action> {
     let title = datum.title();
     let (transaction, feature) = create(document, datum);
     if let Err(error) = document.check(&transaction) {
-        return vec![Action::Inform(Notice::info(format!("{title}: {error}.")))];
+        return vec![Action::Inform(Notice::warning(format!(
+            "{title}: {error}."
+        )))];
     }
     vec![
         Action::Apply(transaction),

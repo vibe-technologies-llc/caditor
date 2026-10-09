@@ -315,6 +315,6 @@ pub fn click(model: &Model, picking: Picking, pickable: Pickable) -> Vec<Action>
         Err(_) if may_hold(model, picking, pickable) => {
             vec![Action::Editing(EditingCommand::HoldPicked(pickable))]
         }
-        Err(reason) => vec![Action::Inform(Notice::info(reason))],
+        Err(reason) => vec![Action::Inform(Notice::warning(reason))],
     }
 }

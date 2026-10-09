@@ -32,6 +32,40 @@ const BAR_MARGIN: Margin = Margin::symmetric(SPACE_M as i8, SPACE_S as i8);
 const NO_NOTICE: &str = "There is no notice to dismiss";
 const NOT_RECOMPUTING: &str = "Nothing is being recomputed";
 const NOTHING_FAILED: &str = "No feature has failed";
+pub const SHOW_MESSAGES: &str = "Show recent messages";
+
+struct Hovers {
+    cancel: String,
+    recompute: String,
+    restart: String,
+    failed: String,
+    messages: String,
+}
+
+impl Hovers {
+    fn of(commands: &CommandFrame<'_>) -> Self {
+        Self {
+            cancel: commands.with_keys(
+                Command::CancelRecompute,
+                "Stop recomputing; features not yet recomputed stay outdated",
+            ),
+            recompute: commands
+                .with_keys(Command::Recompute, "Bring the outdated features up to date"),
+            restart: commands.with_keys(
+                Command::Recompute,
+                "Start recomputing again. Your model is safe.",
+            ),
+            failed: commands.with_keys(Command::ShowFirstFailed, "Show the first failed feature"),
+            messages: commands.with_keys(Command::Messages, SHOW_MESSAGES),
+        }
+    }
+}
+
+struct TrailingRoom {
+    id: Id,
+    selection: f32,
+    with_notice: bool,
+}
 
 pub struct StatusContext<'a> {
     pub files: &'a Files,
@@ -60,13 +94,14 @@ pub fn show(
         actions.push(Action::DismissNotice);
     }
     let trailing_id = Id::new("status-trailing");
+    let hovers = Hovers::of(commands);
     let frame = Frame::side_top_panel(ui.style()).inner_margin(BAR_MARGIN);
     egui::Panel::bottom("status").frame(frame).show(ui, |ui| {
         let notice_width = notice_width(ui, model);
         let mut trailing_wrapped = false;
         let mut notice_wrapped = false;
         ui.horizontal(|ui| {
-            recompute_status(ui, model, panels, actions);
+            recompute_status(ui, model, panels, &hovers, actions);
             divided(ui, |ui| {
                 files::activity(ui, model, context.files, commands, actions);
             });
@@ -78,35 +113,27 @@ pub fn show(
             });
             notice_wrapped = notice_width.is_some() && inline_notice.is_none();
             if !trailing_wrapped {
-                let selection_room = available - fixed - inline_notice.unwrap_or(0.0);
-                trailing(
-                    ui,
-                    model,
-                    context,
-                    trailing_id,
-                    selection_room,
-                    inline_notice.is_some(),
-                    actions,
-                );
+                let room = TrailingRoom {
+                    id: trailing_id,
+                    selection: available - fixed - inline_notice.unwrap_or(0.0),
+                    with_notice: inline_notice.is_some(),
+                };
+                trailing(ui, model, context, &room, &hovers, actions);
             }
         });
         if trailing_wrapped {
             ui.horizontal(|ui| {
                 let fixed = widgets::remembered_width(ui, trailing_id) + selection_icon_room(ui);
-                let selection_room = ui.available_width() - fixed;
-                trailing(
-                    ui,
-                    model,
-                    context,
-                    trailing_id,
-                    selection_room,
-                    false,
-                    actions,
-                );
+                let room = TrailingRoom {
+                    id: trailing_id,
+                    selection: ui.available_width() - fixed,
+                    with_notice: false,
+                };
+                trailing(ui, model, context, &room, &hovers, actions);
             });
         }
         if notice_wrapped {
-            ui.horizontal(|ui| notice(ui, model, actions, true));
+            ui.horizontal(|ui| notice(ui, model, &hovers, actions, true));
         }
     });
 }
@@ -115,9 +142,8 @@ fn trailing(
     ui: &mut Ui,
     model: &Model,
     context: &StatusContext<'_>,
-    id: Id,
-    selection_room: f32,
-    with_notice: bool,
+    room: &TrailingRoom,
+    hovers: &Hovers,
     actions: &mut Vec<Action>,
 ) {
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -134,17 +160,17 @@ fn trailing(
             ui.label(RichText::new(size).color(appearance::tokens(ui).text_muted));
             divider(ui);
         }
-        widgets::remember_width(ui, id, ui.min_rect().width());
+        widgets::remember_width(ui, room.id, ui.min_rect().width());
         selection(
             ui,
             &context.offers.described,
             context.offers.selected,
-            selection_room,
+            room.selection,
         );
-        if with_notice {
+        if room.with_notice {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 divider(ui);
-                notice(ui, model, actions, false);
+                notice(ui, model, hovers, actions, false);
             });
         }
     });
@@ -219,6 +245,7 @@ fn recompute_status(
     ui: &mut Ui,
     model: &Model,
     panels: &mut PanelState,
+    hovers: &Hovers,
     actions: &mut Vec<Action>,
 ) {
     match model.status() {
@@ -231,7 +258,7 @@ fn recompute_status(
             ui.label(text);
             let cancel = ui
                 .add(widgets::button("Cancel"))
-                .on_hover_text("Stop recomputing; features not yet recomputed stay outdated");
+                .on_hover_text(&hovers.cancel);
             if cancel.clicked() {
                 actions.push(Action::CancelRecompute);
             }
@@ -240,15 +267,15 @@ fn recompute_status(
         RecomputeStatus::Running { since } => {
             ui.ctx()
                 .request_repaint_after(SHOW_PROGRESS_AFTER.saturating_sub(since.elapsed()));
-            summary(ui, model, panels);
+            summary(ui, model, panels, hovers);
         }
-        RecomputeStatus::UpToDate => summary(ui, model, panels),
+        RecomputeStatus::UpToDate => summary(ui, model, panels, hovers),
         RecomputeStatus::Cancelled => {
             widgets::announced_status_pill(ui, Tone::Warning, CANCELLED)
                 .on_hover_text("Some features are outdated until the model is recomputed");
             let recompute = ui
                 .add(widgets::button("Recompute"))
-                .on_hover_text("Bring the outdated features up to date");
+                .on_hover_text(&hovers.recompute);
             if recompute.clicked() {
                 actions.push(Action::Recompute);
             }
@@ -258,7 +285,7 @@ fn recompute_status(
                 .on_hover_text("Recompute stopped unexpectedly. Your model is safe.");
             let restart = ui
                 .add(widgets::button("Restart"))
-                .on_hover_text("Start recomputing again. Your model is safe.");
+                .on_hover_text(&hovers.restart);
             if restart.clicked() {
                 actions.push(Action::Recompute);
             }
@@ -266,7 +293,7 @@ fn recompute_status(
     }
 }
 
-fn summary(ui: &mut Ui, model: &Model, panels: &mut PanelState) {
+fn summary(ui: &mut Ui, model: &Model, panels: &mut PanelState, hovers: &Hovers) {
     let tokens = appearance::tokens(ui);
     match model.evaluation().failed_count() {
         0 => {
@@ -275,7 +302,7 @@ fn summary(ui: &mut Ui, model: &Model, panels: &mut PanelState) {
         }
         failed => {
             let text = format!("{} failed", count(failed, "feature", "features"));
-            if failed_pill(ui, &text).clicked()
+            if failed_pill(ui, &text, &hovers.failed).clicked()
                 && let Some(feature) = first_failed(model)
             {
                 panels.request_focus(Focus::Feature(feature));
@@ -284,12 +311,12 @@ fn summary(ui: &mut Ui, model: &Model, panels: &mut PanelState) {
     }
 }
 
-fn failed_pill(ui: &mut Ui, text: &str) -> Response {
+fn failed_pill(ui: &mut Ui, text: &str, hover: &str) -> Response {
     let tokens = appearance::tokens(ui);
     let pill = widgets::status_pill(ui, Tone::Error, text);
     let response = widgets::named(pill.interact(Sense::click()), text)
         .on_hover_cursor(CursorIcon::PointingHand)
-        .on_hover_text("Show the first failed feature");
+        .on_hover_text(hover);
     widgets::announced(ui, &response, true);
     let pressed = response.is_pointer_button_down_on();
     if pressed || response.hovered() {
@@ -323,7 +350,7 @@ fn first_failed(model: &Model) -> Option<caditor_document::FeatureId> {
 
 fn notice_text(ui: &Ui, notice: &Notice) -> RichText {
     match notice.kind {
-        NoticeKind::Info => RichText::new(&notice.text),
+        NoticeKind::Info | NoticeKind::Success | NoticeKind::Warning => RichText::new(&notice.text),
         NoticeKind::Error => RichText::new(&notice.text).color(appearance::tokens(ui).error),
     }
 }
@@ -336,32 +363,33 @@ fn notice_width(ui: &Ui, model: &Model) -> Option<f32> {
         f32::INFINITY,
         TextStyle::Body,
     );
-    let icons = 2.0 * (ui.spacing().interact_size.y + ui.spacing().item_spacing.x);
+    let icons = 3.0 * (ui.spacing().interact_size.y + ui.spacing().item_spacing.x);
     Some(text.size().x + icons + divider_room(ui))
 }
 
-fn notice(ui: &mut Ui, model: &Model, actions: &mut Vec<Action>, wrap: bool) {
+fn notice(ui: &mut Ui, model: &Model, hovers: &Hovers, actions: &mut Vec<Action>, wrap: bool) {
     let Some(notice) = model.notice() else {
         return;
     };
-    let tokens = appearance::tokens(ui);
-    let (glyph, color) = match notice.kind {
-        NoticeKind::Info => (icons::INFO, tokens.accent_text),
-        NoticeKind::Error => (icons::FAILED, tokens.error),
-    };
-    widgets::icon_label(ui, glyph, color);
+    let tone = notice.kind.tone();
+    widgets::icon_label(ui, tone.icon(), tone.color(appearance::tokens(ui)));
     let text = notice_text(ui, notice);
-    let dismiss_id = Id::new("status-notice-dismiss");
-    let dismiss = widgets::remembered_width(ui, dismiss_id).max(ui.spacing().interact_size.y);
-    let dismiss_width = dismiss + ui.spacing().item_spacing.x;
+    let buttons_id = Id::new("status-notice-buttons");
+    let buttons = widgets::remembered_width(ui, buttons_id)
+        .max(2.0 * ui.spacing().interact_size.y + ui.spacing().item_spacing.x);
+    let buttons_width = buttons + ui.spacing().item_spacing.x;
     ui.scope(|ui| {
-        ui.set_max_width((ui.available_width() - dismiss_width).max(0.0));
+        ui.set_max_width((ui.available_width() - buttons_width).max(0.0));
         let label = Label::new(text);
         let response = ui.add(if wrap { label.wrap() } else { label.truncate() });
-        widgets::announced(ui, &response, notice.kind == NoticeKind::Error);
+        widgets::announced(ui, &response, notice.kind.is_urgent());
     });
+    let messages = widgets::icon_button(ui, icons::command(Command::Messages), &hovers.messages);
     let dismiss = widgets::icon_button(ui, icons::CLOSE, "Dismiss");
-    widgets::remember_width(ui, dismiss_id, dismiss.rect.width());
+    widgets::remember_width(ui, buttons_id, dismiss.rect.right() - messages.rect.left());
+    if messages.clicked() {
+        actions.push(Action::Preferences(PreferencesCommand::ShowMessages));
+    }
     if dismiss.clicked() {
         actions.push(Action::DismissNotice);
     }

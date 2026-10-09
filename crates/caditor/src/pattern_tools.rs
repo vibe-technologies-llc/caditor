@@ -303,7 +303,7 @@ pub fn create_actions(model: &Model, shape: Shape, source: &PatternSource) -> Ve
             Action::Apply(transaction),
             Action::Editing(EditingCommand::OpenSolid(feature)),
         ],
-        Err(reason) => vec![Action::Inform(Notice::info(format!(
+        Err(reason) => vec![Action::Inform(Notice::warning(format!(
             "{}: {reason}.",
             shape.title()
         )))],

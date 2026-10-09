@@ -335,7 +335,7 @@ pub fn show(
     {
         actions.push(match change.transaction(model, feature.id()) {
             Ok(transaction) => Action::Apply(transaction),
-            Err(reason) => Action::Inform(Notice::info(reason)),
+            Err(reason) => Action::Inform(Notice::warning(reason)),
         });
     }
     if request.breaking
@@ -343,7 +343,7 @@ pub fn show(
     {
         actions.push(match change.transaction(model, feature.id()) {
             Ok(transaction) => Action::Apply(transaction),
-            Err(reason) => Action::Inform(Notice::info(reason)),
+            Err(reason) => Action::Inform(Notice::warning(reason)),
         });
     }
     if request.delete && !deletable.is_empty() {

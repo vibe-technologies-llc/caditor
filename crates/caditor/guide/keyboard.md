@@ -8,11 +8,22 @@ Everything in caditor works from the keyboard.
 finds features, parameters, saved views and selection sets by name. The line under the list says
 what Enter will do, or why the highlighted command is not available now.
 
+- Commands are also found by other names they are known by: "zoom extents" finds
+  {command:view.fit}, "ruler" finds {command:view.measure}, "home" the Isometric view. Features are
+  found by their kind too, so "fillet" or "round" finds every fillet whatever it is called.
+- Settings that are on or off, such as snapping or select through, show On or Off beside them.
+  Turning one with no visible effect from the keyboard or the search says in the status bar what it
+  is now.
+- Recent lists the commands you last ran from the search, and caditor remembers them the next
+  time it starts.
+
 ## Shortcuts
 
-{command:file.shortcuts} lists every command with its keys. Search by name or by keys, add or
-remove a binding, or reset one or all of them. Escape, Enter and Tab cannot be bound. Shortcuts
-shown in this guide are your current ones.
+{command:file.shortcuts} lists every command with its keys. Search by the start of its words or
+by keys, add or remove a binding, or reset one or all of them. A command whose keys you changed is
+marked Changed, and Changed only lists just those. Taking keys another command uses, by adding
+them or by resetting a command to keys someone else now has, asks first. Escape, Enter and Tab
+cannot be bound. Shortcuts shown in this guide are your current ones.
 
 ## In the view
 

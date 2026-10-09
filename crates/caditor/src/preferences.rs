@@ -13,6 +13,7 @@ use crate::{
     layout::{PanelLayout, WindowPlacement},
     model::Notice,
     onboarding::{Hint, Onboarding},
+    palette,
     units::{AngleUnit, LengthUnit},
     widgets::{self, DialogWidth, Tab},
 };
@@ -30,6 +31,7 @@ const INVERT_ZOOM_KEY: &str = "navigation.invert_zoom";
 const INPUT_MODE_KEY: &str = "navigation.input_mode";
 const PROJECTION_KEY: &str = "navigation.projection";
 const TITLE_BAR_KEY: &str = "appearance.title_bar";
+const PALETTE_RECENT_KEY: &str = "palette.recent";
 const EMPTY_MODEL: &str = "An empty model";
 const DIALOG_HEIGHT_SHARE: f32 = 0.75;
 const HEIGHT_CHANGE: f32 = 0.5;
@@ -373,6 +375,7 @@ pub struct Preferences {
     pub window: WindowPlacement,
     pub panels: PanelLayout,
     pub default_template: Option<String>,
+    pub palette_recent: Vec<Command>,
     loaded_keymap: Keymap,
     raw: Settings,
 }
@@ -439,6 +442,7 @@ pub enum PreferencesCommand {
     Tab(PreferencesTab),
     Change(PreferenceChange),
     Preview(PreferenceChange),
+    RememberRecent(Vec<Command>),
     Undo,
 }
 
@@ -462,6 +466,17 @@ impl Restored {
     pub fn is_shortcuts(&self) -> bool {
         matches!(self, Self::Shortcuts(_))
     }
+}
+
+fn palette_recent(raw: &Settings) -> Vec<Command> {
+    let mut recent = Vec::new();
+    let stored = raw.texts(PALETTE_RECENT_KEY).unwrap_or_default();
+    for command in stored.iter().filter_map(|id| Command::from_id(id)) {
+        if recent.len() < palette::RECENT_LIMIT && !recent.contains(&command) {
+            recent.push(command);
+        }
+    }
+    recent
 }
 
 fn speed(value: Option<f64>) -> f64 {
@@ -512,6 +527,7 @@ impl Preferences {
             window: WindowPlacement::from_settings(&raw),
             panels: PanelLayout::from_settings(&raw),
             default_template: templates::default_template(&raw),
+            palette_recent: palette_recent(&raw),
             loaded_keymap: Keymap::from_settings(&raw),
             raw,
         }
@@ -536,6 +552,14 @@ impl Preferences {
         self.window.write(&mut settings);
         self.panels.write(&mut settings);
         templates::write_default_template(self.default_template.as_deref(), &mut settings);
+        if !self.palette_recent.is_empty() {
+            let ids: Vec<String> = self
+                .palette_recent
+                .iter()
+                .map(|command| command.id().to_owned())
+                .collect();
+            settings.set_texts(PALETTE_RECENT_KEY, &ids);
+        }
         settings
     }
 
@@ -1128,6 +1152,40 @@ mod tests {
             notice.text,
             "Your preferences file is damaged, so caditor started with its default settings and \
              shortcuts. A copy of it is kept beside it when you next change a preference."
+        );
+    }
+
+    #[test]
+    fn the_palette_remembers_its_recent_commands_skipping_unknown_ones() {
+        let mut raw = Settings::default();
+        raw.set_texts(
+            PALETTE_RECENT_KEY,
+            &[
+                Command::FitView.id().to_owned(),
+                "future.command".to_owned(),
+                Command::Save.id().to_owned(),
+                Command::FitView.id().to_owned(),
+            ],
+        );
+
+        let preferences = Preferences::from_settings(raw);
+
+        assert_eq!(
+            preferences.palette_recent,
+            [Command::FitView, Command::Save]
+        );
+        let again = Preferences::from_settings(preferences.settings());
+        assert_eq!(again.palette_recent, preferences.palette_recent);
+
+        let many: Vec<String> = Command::all()
+            .take(palette::RECENT_LIMIT + 3)
+            .map(|command| command.id().to_owned())
+            .collect();
+        let mut raw = Settings::default();
+        raw.set_texts(PALETTE_RECENT_KEY, &many);
+        assert_eq!(
+            Preferences::from_settings(raw).palette_recent.len(),
+            palette::RECENT_LIMIT
         );
     }
 

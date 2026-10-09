@@ -194,12 +194,22 @@ paths:
   two seconds, from `Progress`) with Cancel, Up to date, or a failed
   `status_pill` that is a button focusing the first failed feature; a cancelled or stopped recompute
   is a warning or error pill with a Recompute or Restart button, its text a live region
-  (`widgets::announced_status_pill`: polite for a warning, assertive for an error). The unit opens Preferences; the
-  interface size, when not 100%, goes back to it.
-- Notices: an edit clears info and refused-edit notices, never a `Notice::failure` from saving,
-  opening, importing, exporting or the journal. The bar shows only the newest, but
-  `Model::set_notice` records recent ones and Help › Recent messages (`messages.rs`) lists them,
-  so a failed save outlives the notice that replaced it.
+  (`widgets::announced_status_pill`: polite for a warning, assertive for an error). The hovers of
+  Cancel, Recompute, Restart and the failed pill name their command's keys (`status_bar::Hovers`,
+  `CommandFrame::with_keys`). The unit opens Preferences; the interface size, when not 100%, goes
+  back to it.
+- Notices have a `NoticeKind` drawn through its `Tone` (icon and colour, `NoticeKind::tone`):
+  `Notice::info` for what simply happened or found nothing, `Notice::success` for a completed
+  operation the user asked for (saved, exported, imported, copied, restored), `Notice::warning`
+  for a refusal, something not done or done only in part (a refused tool, "could not", "nothing
+  was pasted", an import already running), and `Notice::error` or `Notice::failure` for errors.
+  Only an error's text takes its colour; the others keep body text beside their icon. The notice
+  is a live region, assertive only for an error. An edit clears every notice not made to outlast
+  edits, never a `Notice::failure` from saving, opening, importing, exporting or the journal. The
+  bar shows only the newest, with a Recent messages button (`status_bar::SHOW_MESSAGES`) beside
+  Dismiss, but `Model::set_notice` records recent ones and Help › Recent messages (`messages.rs`)
+  lists them, each icon described by its kind (`NoticeKind::label`), so a failed save outlives
+  the notice that replaced it.
 - Edit › Undo history (`undo_history.rs`) lists what Undo and Redo hold (`Editor::undo_steps`,
   `redo_steps`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary
   undoable journal step. Hovering a step sums up what it touched (`Transaction::touched`): the

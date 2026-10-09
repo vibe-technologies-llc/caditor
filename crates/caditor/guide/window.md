@@ -32,5 +32,9 @@ of the window, so the view keeps its room.
 
 From the left: the recompute (with Cancel while it runs, or the failed features), file work such
 as saving or exporting, and the latest message. On the right: what is selected, the length unit
-(click it for [Preferences](preferences)) and the interface size when it is not 100%.
-{command:help.messages} lists earlier messages, so a failed save is never missed.
+(click it for [Preferences](preferences)) and the interface size when it is not 100%. Hovering a
+button there names its keys.
+
+A message's icon says what kind it is: information, done, a warning that something was not done
+or only partly, or an error. The button beside its close button opens
+{command:help.messages}, which lists earlier messages, so a failed save is never missed.

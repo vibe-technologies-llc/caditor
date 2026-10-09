@@ -30,6 +30,7 @@ use crate::{
     scene,
     selection::SelectionFilter,
     units::{AngleUnit, LengthUnit, Units},
+    widgets::Tone,
 };
 
 pub type Waker = Box<dyn Fn() + Send>;
@@ -70,7 +71,33 @@ pub enum RecomputeStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NoticeKind {
     Info,
+    Success,
+    Warning,
     Error,
+}
+
+impl NoticeKind {
+    pub fn tone(self) -> Tone {
+        match self {
+            Self::Info => Tone::Info,
+            Self::Success => Tone::Success,
+            Self::Warning => Tone::Warning,
+            Self::Error => Tone::Error,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Info => "Information",
+            Self::Success => "Done",
+            Self::Warning => "Warning",
+            Self::Error => "Error",
+        }
+    }
+
+    pub fn is_urgent(self) -> bool {
+        self == Self::Error
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,19 +119,27 @@ pub struct Notice {
 
 impl Notice {
     pub fn info(text: impl Into<String>) -> Self {
+        Self::of(NoticeKind::Info, text)
+    }
+
+    pub fn success(text: impl Into<String>) -> Self {
+        Self::of(NoticeKind::Success, text)
+    }
+
+    pub fn warning(text: impl Into<String>) -> Self {
+        Self::of(NoticeKind::Warning, text)
+    }
+
+    fn of(kind: NoticeKind, text: impl Into<String>) -> Self {
         Self {
-            kind: NoticeKind::Info,
+            kind,
             text: text.into(),
             outlasts_edits: false,
         }
     }
 
     pub fn error(text: impl Into<String>) -> Self {
-        Self {
-            kind: NoticeKind::Error,
-            text: text.into(),
-            outlasts_edits: false,
-        }
+        Self::of(NoticeKind::Error, text)
     }
 
     pub fn failure(text: impl Into<String>) -> Self {
@@ -508,8 +543,8 @@ impl Model {
 
     pub fn set_notice(&mut self, notice: Notice) {
         match notice.kind {
-            NoticeKind::Info => log::info!("{}", notice.text),
-            NoticeKind::Error => log::warn!("{}", notice.text),
+            NoticeKind::Info | NoticeKind::Success => log::info!("{}", notice.text),
+            NoticeKind::Warning | NoticeKind::Error => log::warn!("{}", notice.text),
         }
         let repeats = self
             .recorded_notices
@@ -900,7 +935,7 @@ impl Model {
                 ),
                 None => "the sketch could not be solved with it moved there".to_owned(),
             };
-            self.set_notice(Notice::info(format!(
+            self.set_notice(Notice::warning(format!(
                 "{label} did nothing, because {reason}."
             )));
             return;
@@ -960,7 +995,7 @@ impl Model {
     fn judged(&mut self, verdict: Option<Verdict>) -> bool {
         match verdict {
             Some(Verdict::Apply(transaction)) => self.perform(Action::Apply(transaction)),
-            Some(Verdict::Refuse(reason)) => self.set_notice(Notice::info(reason)),
+            Some(Verdict::Refuse(reason)) => self.set_notice(Notice::warning(reason)),
             None => return false,
         }
         true
@@ -1028,7 +1063,7 @@ impl Model {
 
     fn send_save(&mut self, path: PathBuf, replace_outside_changes: bool) {
         if self.is_saving() {
-            self.set_notice(Notice::info("A save is already in progress."));
+            self.set_notice(Notice::warning("A save is already in progress."));
             return;
         }
         if self.storage.is_none() {
@@ -1327,7 +1362,7 @@ impl Model {
             }
             Report::JournalRestored => {
                 self.unprotected = None;
-                self.set_notice(Notice::info(
+                self.set_notice(Notice::success(
                     "Unsaved changes are protected against a crash again.",
                 ));
             }
@@ -1409,7 +1444,7 @@ fn saved_notice(backup: Option<&Path>, dropped_for_size: usize) -> Option<Notice
         )),
     };
     let sentences: Vec<String> = backup.into_iter().chain(dropped).collect();
-    (!sentences.is_empty()).then(|| Notice::info(format!("Saved. {}", sentences.join(" "))))
+    (!sentences.is_empty()).then(|| Notice::warning(format!("Saved. {}", sentences.join(" "))))
 }
 
 fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {

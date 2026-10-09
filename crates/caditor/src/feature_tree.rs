@@ -252,7 +252,7 @@ fn kept_by_filter(
             .is_some_and(|renaming| renaming.feature == id)
 }
 
-fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
+pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
     match kind {
         FeatureKind::Sketch(_) => &["sketch"],
         FeatureKind::Solid(SolidFeature::Extrude(_)) => &["extrude", "extrusion"],
@@ -792,7 +792,7 @@ fn open_feature(
         None => collapsing.toggle(ui),
         Some(command) => match editable(document, feature) {
             Ok(()) => actions.push(Action::Editing(command)),
-            Err(reason) => actions.push(Action::Inform(Notice::info(reason))),
+            Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
         },
     }
 }

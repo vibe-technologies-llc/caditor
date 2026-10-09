@@ -460,7 +460,7 @@ impl Exporter {
                 if exported.left_out.is_empty() {
                     return Notice {
                         outlasts_edits: exported.moved.is_some(),
-                        ..Notice::info(summary)
+                        ..Notice::success(summary)
                     };
                 }
                 let reasons: Vec<String> =
