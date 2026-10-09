@@ -1216,13 +1216,18 @@ fn tool(
                 AngularExtent::full()
             } else {
                 let innermost = innermost(&curves);
-                if innermost <= SMALLEST_RADIUS {
+                let unextended = start.extension() == 0.0 && end.extension() == 0.0;
+                if innermost < -SMALLEST_RADIUS || (innermost <= SMALLEST_RADIUS && !unextended) {
                     return Err(BlendError::TooLarge(geometry.edge));
                 }
-                let (from, to) = (
-                    -start.extension() / innermost,
-                    angle + end.extension() / innermost,
-                );
+                let (from, to) = if unextended {
+                    (0.0, angle)
+                } else {
+                    (
+                        -start.extension() / innermost,
+                        angle + end.extension() / innermost,
+                    )
+                };
                 if to - from >= TAU {
                     return Err(BlendError::WrapsAround(geometry.edge));
                 }

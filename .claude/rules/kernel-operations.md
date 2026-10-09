@@ -188,7 +188,11 @@ paths:
   apart is joined as separate lumps by `Solid::beside`, without a boolean, valid by construction)
   and each group is applied in one boolean, or tool by tool when that fails.
 - Supported: straight edges whose faces run along them (planes, parallel cylinders), swept by
-  extrusion; circles whose faces share their axis, swept by revolution; else `Unsupported`.
+  extrusion; circles whose faces share their axis, swept by revolution; else `Unsupported`. A
+  revolved profile may reach the axis (a fillet as large as the round fill it runs along, where a
+  notch's back edge continues up the ends of its rounded sides) when neither end extends, the
+  touching point becoming a pole; one crossing the axis, or reaching it with an end that extends,
+  is `TooLarge`.
 - `TooLarge` covers a blend that does not fit on both faces at sampled points along the edge, whose
   foot on a face crosses an edge of that face (other than seams and edges at the blended edge's
   ends), whose foot crosses another blend's on that face (`feet.rs`; edges sharing a vertex

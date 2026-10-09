@@ -1298,3 +1298,43 @@ fn a_notch_chamfer_running_out_under_a_rounded_rim_stays_inside_the_puck() {
         );
     }
 }
+
+fn rimmed_notch(floor: f64) -> Solid {
+    let puck = swept(
+        Plane::XY,
+        &[ProfileCurve::circle(1, Point2::new(0.0, 0.0), 40.0)],
+        15.0,
+    );
+    let rim = edge_through(&puck, (-40.0, 0.0, 15.0));
+    let rounded_rim = run(&puck, &[rim], fillet(3.0));
+    let notch = block_at((-10.0, 30.0, floor), (20.0, 20.0, 10.0), 2);
+    boolean(&rounded_rim, &notch, BooleanOperation::Difference).unwrap()
+}
+
+#[test]
+fn a_notch_s_back_edge_is_rounded_after_or_with_its_rounded_sides() {
+    let notched = rimmed_notch(11.0);
+    let sides = [
+        edge_through(&notched, (-10.0, 34.0, 11.0)),
+        edge_through(&notched, (10.0, 34.0, 11.0)),
+    ];
+    let back = edge_through(&notched, (0.0, 30.0, 11.0));
+
+    let all_at_once = blend(&notched, &[sides[0], sides[1], back], fillet(1.5), 50)
+        .unwrap_or_else(|error| panic!("all three at once: {error}"));
+    let sides_first = run(&notched, &sides, fillet(1.5));
+    let back_after = edge_through(&sides_first, (0.0, 30.0, 11.0));
+    let then_back = blend(&sides_first, &[back_after], fillet(1.5), 60)
+        .unwrap_or_else(|error| panic!("the back after the sides: {error}"));
+
+    check("all three at once", &all_at_once, volume(&all_at_once));
+    check("the back after the sides", &then_back, volume(&then_back));
+    assert!(volume(&then_back) > volume(&sides_first) + spandrel(1.5) * 15.0);
+    let added = volume(&then_back) - volume(&sides_first);
+    assert!(
+        added < spandrel(1.5) * (17.0 + 2.0 * 2.5) * 1.5,
+        "added {added}"
+    );
+    assert!(volume(&all_at_once) > volume(&notched) + spandrel(1.5) * (15.0 + 2.0 * 8.0));
+    assert!(farthest_from_axis(&then_back) <= 40.0 + 1e-3);
+}
