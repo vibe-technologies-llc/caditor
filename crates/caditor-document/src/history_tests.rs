@@ -94,3 +94,27 @@ fn results_kept_per_feature_are_bounded_by_count_and_earlier_ones_by_size() {
     );
     assert_eq!(tight.results_kept(model.base), 1);
 }
+
+#[test]
+fn the_size_held_by_earlier_results_is_kept_up_to_date() {
+    let mut model = model();
+    let mut engine = Recompute::default();
+    let first = evaluate(&model.document, &mut engine);
+    let undo = set_depth(&mut model, "6 mm");
+    evaluate(&model.document, &mut engine);
+    model.document.apply(undo).unwrap();
+    evaluate(&model.document, &mut engine);
+    set_depth(&mut model, "7 mm");
+    evaluate(&model.document, &mut engine);
+
+    let base = first.body_result(model.base).unwrap().solid().unwrap();
+    let (held, measured) = engine.earlier_results_held();
+    assert_eq!(held, measured);
+    assert!(held >= 2 * base.solid.approximate_size(), "{held}");
+
+    let mut cleared = Recompute::default().keeping_earlier_results_within(0);
+    evaluate(&model.document, &mut cleared);
+    set_depth(&mut model, "8 mm");
+    evaluate(&model.document, &mut cleared);
+    assert_eq!(cleared.earlier_results_held(), (0, 0));
+}

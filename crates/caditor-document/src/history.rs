@@ -22,6 +22,7 @@ pub(crate) struct ResultHistory {
     features: BTreeMap<FeatureId, Vec<Kept>>,
     clock: u64,
     budget: Option<usize>,
+    earlier_bytes: usize,
 }
 
 impl ResultHistory {
@@ -61,6 +62,14 @@ impl ResultHistory {
         let clock = self.clock;
         let kept = self.features.get_mut(&feature)?;
         let at = kept.iter().position(|kept| matches(&kept.entry))?;
+        if at > 0 {
+            if let Some(found) = kept.get(at) {
+                self.earlier_bytes = self.earlier_bytes.saturating_sub(found.bytes);
+            }
+            if let Some(latest) = kept.first() {
+                self.earlier_bytes += latest.bytes;
+            }
+        }
         kept.get_mut(..=at)?.rotate_right(1);
         let found = kept.first_mut()?;
         found.used = clock;
@@ -71,6 +80,9 @@ impl ResultHistory {
         self.clock += 1;
         let bytes = entry.result.as_deref().map_or(0, result_bytes);
         let kept = self.features.entry(feature).or_default();
+        if let Some(latest) = kept.first() {
+            self.earlier_bytes += latest.bytes;
+        }
         kept.insert(
             0,
             Kept {
@@ -79,12 +91,19 @@ impl ResultHistory {
                 used: self.clock,
             },
         );
-        kept.truncate(RESULTS_KEPT_PER_FEATURE);
+        let dropped: usize = kept
+            .drain(RESULTS_KEPT_PER_FEATURE.min(kept.len())..)
+            .map(|kept| kept.bytes)
+            .sum();
+        self.earlier_bytes = self.earlier_bytes.saturating_sub(dropped);
         self.trim();
     }
 
     fn trim(&mut self) {
         let budget = self.budget.unwrap_or(EARLIER_RESULTS_BUDGET);
+        if self.earlier_bytes <= budget {
+            return;
+        }
         let mut earlier: Vec<(u64, FeatureId, usize)> = self
             .features
             .iter()
@@ -94,19 +113,15 @@ impl ResultHistory {
                     .map(move |kept| (kept.used, *feature, kept.bytes))
             })
             .collect();
-        let mut held: usize = earlier.iter().map(|(_, _, bytes)| bytes).sum();
-        if held <= budget {
-            return;
-        }
         earlier.sort_unstable();
         for (used, feature, bytes) in earlier {
-            if held <= budget {
+            if self.earlier_bytes <= budget {
                 break;
             }
             if let Some(kept) = self.features.get_mut(&feature) {
                 let mut first = true;
                 kept.retain(|kept| std::mem::take(&mut first) || kept.used != used);
-                held = held.saturating_sub(bytes);
+                self.earlier_bytes = self.earlier_bytes.saturating_sub(bytes);
             }
         }
     }
@@ -119,15 +134,38 @@ impl ResultHistory {
 
     pub(crate) fn clear(&mut self) {
         self.features.clear();
+        self.earlier_bytes = 0;
     }
 
     pub(crate) fn retain(&mut self, alive: impl Fn(&FeatureId) -> bool) {
-        self.features.retain(|feature, _| alive(feature));
+        let mut dropped = 0;
+        self.features.retain(|feature, kept| {
+            let keep = alive(feature);
+            if !keep {
+                dropped += kept.iter().skip(1).map(|kept| kept.bytes).sum::<usize>();
+            }
+            keep
+        });
+        self.earlier_bytes = self.earlier_bytes.saturating_sub(dropped);
     }
 
     #[cfg(test)]
     pub(crate) fn kept(&self, feature: FeatureId) -> usize {
         self.features.get(&feature).map_or(0, Vec::len)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn earlier_bytes(&self) -> usize {
+        self.earlier_bytes
+    }
+
+    #[cfg(test)]
+    pub(crate) fn measured_earlier_bytes(&self) -> usize {
+        self.features
+            .values()
+            .flat_map(|kept| kept.iter().skip(1))
+            .map(|kept| kept.entry.result.as_deref().map_or(0, result_bytes))
+            .sum()
     }
 }
 
