@@ -37,6 +37,13 @@ paths:
   have at a distance, so switching an end between a distance and a plane renames nothing.
 - A plane along the direction is `EndAlongDirection`, ends that meet or cross within the profile
   `EndsCross`, a height past `MAX_SIZE` `TooLong`.
+- `extrude_along(plane, regions, extent, direction, feature)` sweeps the same way along a slanted
+  direction: heights and offsets stay measured square to the sketch, each point moving by the
+  direction scaled to rise one unit per unit of height, so caps are the profile shifted and
+  `heights_along` gives a target plane's heights the same way. A line's side is the plane through
+  it and the direction; a circle's, ellipse's or spline's an `Extrusion` along the direction
+  (mapped pcurves stretched by the direction's length per unit of height; a square circle keeps
+  its `Cylinder`). A direction in the sketch plane is `DirectionAlongSketch`.
 - A profile on the right of the revolution axis is revolved about the reversed axis. Lines on the
   axis become shared cap edges or nothing, endpoints on it poles; a full turn has no caps (holes
   become void shells).
@@ -61,6 +68,13 @@ paths:
   (coplanar fragments are one face): several groups are `SeveralFaces`, one curved face `Curved`,
   else the plane with its outward normal and whether the rays enter. Undecided rays are skipped;
   none decided is `Undecided`, every ray missing `Nothing`, some `Partly`.
+- `stop_at_body(tool, body, plane, regions, reversed, far)` cuts a sweep made to `far` back to
+  where it first meets a body, whatever the faces there: it classifies up to `MAX_START_PROBES`
+  points just ahead of the profile (all outside: entering, all inside: leaving, else `Straddles`),
+  takes the difference with the body when entering or the intersection when leaving, and keeps the
+  shells whose mesh reaches back to the start plane (`Solid::shell_spans`, `keeping_shells`, which
+  renumbers the kept topology and keeps every name). A void shell is `Enclosed`, a kept shell
+  reaching `far` `PassesBeside`, nothing kept `Nothing`.
 
 # Booleans (`boolean/`)
 

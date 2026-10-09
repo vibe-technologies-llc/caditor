@@ -1,7 +1,8 @@
 use caditor_document::{
     AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature,
     FeatureId, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
-    SolidStart, Transaction, Wall, capitalized, describe_plane, displayed_axis,
+    SolidStart, Transaction, Wall, capitalized, describe_axis, describe_origin, describe_plane,
+    displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -36,7 +37,15 @@ pub const KEEP_OTHER_SIDE: &str = "Keep the other side of the axis";
 pub const ALSO_CUTS: &str = "Also cuts";
 pub const ADD_CUT_BODY: &str = "Add another body";
 const START_OFFSET: &str = "Start offset";
+pub const END_OFFSET: &str = "Past the face";
+const FORWARD_END_OFFSET: &str = "Forward past face";
+const BACKWARD_END_OFFSET: &str = "Backward past face";
 pub const TAPER: &str = "Taper";
+pub const TURN_UP_TO: &str = "Up to face";
+pub const SQUARE: &str = "Square to the sketch";
+pub const ALONG: &str = "Along an edge or axis";
+const NO_DIRECTION_SELECTED: &str =
+    "Select a straight edge, an axis or a sketch line made before this feature";
 pub const THIN_WALL: &str = "Thin wall";
 pub const WALL_THICKNESS: &str = "Thickness";
 const FILL_SOLID: &str = "Fill the closed regions of the sketch";
@@ -56,8 +65,7 @@ const UP_TO_NEXT_NEEDS_A_BODY: &str = "Up to next stops at the body this feature
      body first";
 const NO_TARGET_SELECTED: &str =
     "Select a flat face or a plane made before this feature, then use it";
-const CURVED_TARGET: &str =
-    "The selected face is curved; an extrusion can only end on a flat face or plane";
+const CURVED_TARGET: &str = "The selected face is curved; only a flat face or plane can be an end";
 const SIDES_CHANGED: &str = "The extrusion no longer has that end; choose the face again";
 
 struct Panel<'a> {
@@ -88,8 +96,8 @@ impl EndKind {
         match end {
             ExtrudeEnd::Distance(_) => Self::Distance,
             ExtrudeEnd::ThroughAll => Self::ThroughAll,
-            ExtrudeEnd::UpToNext => Self::UpToNext,
-            ExtrudeEnd::UpToFace(_) => Self::UpToFace,
+            ExtrudeEnd::UpToNext { .. } => Self::UpToNext,
+            ExtrudeEnd::UpToFace { .. } | ExtrudeEnd::UpToSurface { .. } => Self::UpToFace,
         }
     }
 
@@ -107,6 +115,7 @@ struct EndRows<'a> {
     end: &'a str,
     distance: &'a str,
     face: &'a str,
+    offset: &'a str,
     salt: &'a str,
     side: Side,
     rule: Rule,
@@ -294,10 +303,11 @@ impl Panel<'_> {
                     EndKind::UpToNext => extrude
                         .operation
                         .target()
-                        .map(|_| ExtrudeEnd::UpToNext)
+                        .map(|_| ExtrudeEnd::up_to_next().with_offset(end.offset().cloned()))
                         .ok_or_else(|| UP_TO_NEXT_NEEDS_A_BODY.to_owned()),
-                    EndKind::UpToFace => selected_target(self.model, self.selection, self.id())
-                        .map(ExtrudeEnd::UpToFace),
+                    EndKind::UpToFace => {
+                        selected_end(self.model, self.selection, self.id(), end.offset().cloned())
+                    }
                 };
                 let change = match candidate {
                     Ok(candidate) => self
@@ -342,7 +352,7 @@ impl Panel<'_> {
                 (self.id(), slot),
                 || target_change(self.model, self.selection, self.id(), extrude, rows.side),
             ),
-            hover: "Run up to the selected flat face or plane instead",
+            hover: "Run up to the selected face or plane instead",
         };
         match end {
             ExtrudeEnd::Distance(distance) => {
@@ -355,8 +365,25 @@ impl Panel<'_> {
                     |distance| with_extent_of(extrude, rebuild(ExtrudeEnd::Distance(distance))),
                 );
             }
-            ExtrudeEnd::UpToFace(target) => {
+            ExtrudeEnd::UpToFace { target, .. } => {
                 let shown = Shown::Named(capitalized(&describe_plane(self.document(), target)));
+                feature_fields::reference_row(
+                    ui,
+                    self.model,
+                    rows.face,
+                    shown,
+                    picker,
+                    None,
+                    self.actions,
+                );
+                self.offset_row(ui, rows, extrude, end, rebuild);
+                return;
+            }
+            ExtrudeEnd::UpToSurface { face } => {
+                let shown = Shown::Named(capitalized(&describe_origin(
+                    self.document(),
+                    face.face.origin(),
+                )));
                 feature_fields::reference_row(
                     ui,
                     self.model,
@@ -368,7 +395,8 @@ impl Panel<'_> {
                 );
                 return;
             }
-            ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext => {}
+            ExtrudeEnd::UpToNext { .. } => self.offset_row(ui, rows, extrude, end, rebuild),
+            ExtrudeEnd::ThroughAll => {}
         }
         if self.picking(ui, slot) {
             feature_fields::reference_row(
@@ -381,6 +409,32 @@ impl Panel<'_> {
                 self.actions,
             );
         }
+    }
+
+    fn offset_row(
+        &mut self,
+        ui: &mut Ui,
+        rows: &EndRows<'_>,
+        extrude: &Extrude,
+        end: &ExtrudeEnd,
+        rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
+    ) {
+        let offset = end
+            .offset()
+            .cloned()
+            .unwrap_or_else(|| self.model.length_unit().default_length(0.0));
+        let salt = format!("{}-offset", rows.salt);
+        self.expression(
+            ui,
+            rows.offset,
+            &salt,
+            &offset,
+            (Dimension::LENGTH, Rule::Any),
+            |value| {
+                let kept = (!is_zero(&value)).then_some(value);
+                with_extent_of(extrude, rebuild(end.clone().with_offset(kept)))
+            },
+        );
     }
 
     fn extent_row(&mut self, ui: &mut Ui, extrude: &Extrude) {
@@ -411,6 +465,7 @@ impl Panel<'_> {
                     end: "End",
                     distance: "Distance",
                     face: "Up to",
+                    offset: END_OFFSET,
                     salt: "distance",
                     side: Side::One,
                     rule: Rule::AboveZeroOrReverse,
@@ -451,6 +506,7 @@ impl Panel<'_> {
                     end: "Forward end",
                     distance: "Forward distance",
                     face: "Forward up to",
+                    offset: FORWARD_END_OFFSET,
                     salt: "forward",
                     side: Side::Forward,
                     rule: Rule::AboveZero,
@@ -465,6 +521,7 @@ impl Panel<'_> {
                     end: "Backward end",
                     distance: "Backward distance",
                     face: "Backward up to",
+                    offset: BACKWARD_END_OFFSET,
                     salt: "backward",
                     side: Side::Backward,
                     rule: Rule::AboveZero,
@@ -477,7 +534,76 @@ impl Panel<'_> {
                 });
             }
         }
+        self.direction_rows(ui, extrude);
         self.start_rows(ui, extrude.start.as_ref());
+    }
+
+    fn direction_rows(&mut self, ui: &mut Ui, extrude: &Extrude) {
+        let id = self.id();
+        let along = extrude.direction.as_deref();
+        widgets::caption(ui, "Direction");
+        self.combo(
+            ui,
+            "direction",
+            if along.is_some() { ALONG } else { SQUARE },
+            |panel| {
+                let square = Choice {
+                    label: SQUARE.to_owned(),
+                    selected: along.is_none(),
+                    change: panel
+                        .change(SolidFeature::Extrude(Extrude {
+                            direction: None,
+                            ..extrude.clone()
+                        }))
+                        .map(Action::Apply),
+                };
+                let chosen = Choice {
+                    label: ALONG.to_owned(),
+                    selected: along.is_some(),
+                    change: match direction_change(panel.model, panel.selection, id, extrude) {
+                        Ok(transaction) => Ok(Action::Apply(transaction)),
+                        Err(_) => Ok(Action::Editing(EditingCommand::Pick(Picking::new(
+                            id,
+                            Slot::ExtrudeDirection,
+                        )))),
+                    },
+                };
+                vec![square, chosen]
+            },
+        );
+        ui.end_row();
+        let shown = match along {
+            Some(axis) => Shown::Named(capitalized(&describe_axis(self.document(), axis))),
+            None if self.picking(ui, Slot::ExtrudeDirection) => Shown::NoneChosen,
+            None => return,
+        };
+        let picker = Picker {
+            feature: id,
+            slot: Slot::ExtrudeDirection,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (id, Slot::ExtrudeDirection),
+                || direction_change(self.model, self.selection, id, extrude),
+            ),
+            hover: "Run along the selected edge, axis or line instead",
+        };
+        let removed = feature_fields::reference_row(
+            ui,
+            self.model,
+            "Along",
+            shown,
+            picker,
+            along.map(|_| "Run square to the sketch again"),
+            self.actions,
+        );
+        if removed {
+            self.apply(SolidFeature::Extrude(Extrude {
+                direction: None,
+                ..extrude.clone()
+            }));
+        }
     }
 
     fn taper_row(&mut self, ui: &mut Ui, extrude: &Extrude) {
@@ -599,7 +725,9 @@ impl Panel<'_> {
         let current = turn_name(&revolve.extent);
         self.combo(ui, "revolve-extent", current, |panel| {
             let angle = match &revolve.extent {
-                RevolveExtent::Full => solid_tools::degrees(DEFAULT_PARTIAL_ANGLE),
+                RevolveExtent::Full | RevolveExtent::UpTo { .. } => {
+                    solid_tools::degrees(DEFAULT_PARTIAL_ANGLE)
+                }
                 RevolveExtent::OneSide { angle, .. }
                 | RevolveExtent::Symmetric { angle }
                 | RevolveExtent::TwoSides { forward: angle, .. } => angle.clone(),
@@ -608,9 +736,10 @@ impl Panel<'_> {
                 RevolveExtent::TwoSides { .. } => revolve.extent.clone(),
                 RevolveExtent::Full
                 | RevolveExtent::OneSide { .. }
-                | RevolveExtent::Symmetric { .. } => panel.two_angles(&angle),
+                | RevolveExtent::Symmetric { .. }
+                | RevolveExtent::UpTo { .. } => panel.two_angles(&angle),
             };
-            [
+            let mut choices: Vec<Choice> = [
                 RevolveExtent::Full,
                 RevolveExtent::OneSide {
                     angle: angle.clone(),
@@ -630,7 +759,21 @@ impl Panel<'_> {
                     }))
                     .map(Action::Apply),
             })
-            .collect()
+            .collect();
+            let up_to =
+                match revolve_target_change(panel.model, panel.selection, panel.id(), revolve) {
+                    Ok(transaction) => Ok(Action::Apply(transaction)),
+                    Err(_) => Ok(Action::Editing(EditingCommand::Pick(Picking::new(
+                        panel.id(),
+                        Slot::RevolveTarget,
+                    )))),
+                };
+            choices.push(Choice {
+                label: TURN_UP_TO.to_owned(),
+                selected: current == TURN_UP_TO,
+                change: up_to,
+            });
+            choices
         });
         ui.end_row();
     }
@@ -823,8 +966,22 @@ impl Panel<'_> {
         if revolve.wall.is_none() {
             self.side_rows(ui, revolve);
         }
+        if revolve.extent.target().is_none() {
+            self.revolve_target_row(ui, revolve, None);
+        }
         match &revolve.extent {
             RevolveExtent::Full => {}
+            RevolveExtent::UpTo { target, reversed } => {
+                self.revolve_target_row(ui, revolve, Some(target));
+                if let Some(flipped) = feature_fields::reverse_row(ui, REVERSE_DIRECTION, *reversed)
+                {
+                    let flipped = SolidFeature::Revolve(Revolve {
+                        extent: RevolveExtent::up_to((**target).clone(), flipped),
+                        ..revolve.clone()
+                    });
+                    self.apply(flipped);
+                }
+            }
             RevolveExtent::OneSide { angle, reversed } => {
                 let reversed = *reversed;
                 self.expression(
@@ -906,6 +1063,33 @@ impl Panel<'_> {
             }
         }
         self.start_rows(ui, revolve.start.as_ref());
+    }
+
+    fn revolve_target_row(
+        &mut self,
+        ui: &mut Ui,
+        revolve: &Revolve,
+        target: Option<&PlaneReference>,
+    ) {
+        let id = self.id();
+        let shown = match target {
+            Some(target) => Shown::Named(capitalized(&describe_plane(self.document(), target))),
+            None if self.picking(ui, Slot::RevolveTarget) => Shown::NoneChosen,
+            None => return,
+        };
+        let picker = Picker {
+            feature: id,
+            slot: Slot::RevolveTarget,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (id, Slot::RevolveTarget),
+                || revolve_target_change(self.model, self.selection, id, revolve),
+            ),
+            hover: "Turn up to the selected face or plane through the axis instead",
+        };
+        feature_fields::reference_row(ui, self.model, "Up to", shown, picker, None, self.actions);
     }
 
     fn operation_rows(&mut self, ui: &mut Ui) {
@@ -1037,7 +1221,7 @@ impl Panel<'_> {
     }
 }
 
-fn is_zero(expression: &Expression) -> bool {
+pub fn is_zero(expression: &Expression) -> bool {
     matches!(
         expression,
         Expression::Number(value) | Expression::Measure(value, _) if *value == 0.0
@@ -1159,6 +1343,42 @@ pub fn selected_target(
     }
 }
 
+fn selected_end(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    offset: Option<Expression>,
+) -> Result<ExtrudeEnd, String> {
+    let flat = match selected_target(model, selection, feature) {
+        Ok(target) => return Ok(ExtrudeEnd::up_to_face(target).with_offset(offset)),
+        Err(reason) => reason,
+    };
+    let picked: Vec<Pickable> = selection.iter().collect();
+    let [Pickable::Face { body, face }] = picked.as_slice() else {
+        return Err(flat);
+    };
+    let index = model
+        .document()
+        .feature_index(feature)
+        .ok_or_else(|| "The feature no longer exists".to_owned())?;
+    let choice = FaceChoice {
+        body: *body,
+        face: *face,
+    };
+    sketch_placement::surface_at(model, choice, index)
+        .map(ExtrudeEnd::up_to_surface)
+        .map_err(str::to_owned)
+}
+
+fn end_on(extent: &ExtrudeExtent, side: Side) -> Option<&ExtrudeEnd> {
+    match (extent, side) {
+        (ExtrudeExtent::OneSide { end, .. }, Side::One) => Some(end),
+        (ExtrudeExtent::TwoSides { forward, .. }, Side::Forward) => Some(forward),
+        (ExtrudeExtent::TwoSides { backward, .. }, Side::Backward) => Some(backward),
+        _ => None,
+    }
+}
+
 fn with_end_on(extent: &ExtrudeExtent, side: Side, end: ExtrudeEnd) -> Option<ExtrudeExtent> {
     match (extent, side) {
         (ExtrudeExtent::OneSide { reversed, .. }, Side::One) => Some(ExtrudeExtent::OneSide {
@@ -1188,7 +1408,10 @@ pub fn target_change(
     extrude: &Extrude,
     side: Side,
 ) -> Result<Transaction, String> {
-    let end = ExtrudeEnd::UpToFace(selected_target(model, selection, feature)?);
+    let kept = end_on(&extrude.extent, side)
+        .and_then(ExtrudeEnd::offset)
+        .cloned();
+    let end = selected_end(model, selection, feature, kept)?;
     let extent = with_end_on(&extrude.extent, side, end).ok_or_else(|| SIDES_CHANGED.to_owned())?;
     if extent == extrude.extent {
         return Err("This end already runs up to the selected face or plane".to_owned());
@@ -1202,7 +1425,13 @@ pub fn up_to_selected_change(
     feature: FeatureId,
     extrude: &Extrude,
 ) -> Result<Transaction, String> {
-    let end = ExtrudeEnd::UpToFace(selected_target(model, selection, feature)?);
+    let kept = extrude
+        .extent
+        .ends()
+        .first()
+        .and_then(|end| end.offset())
+        .cloned();
+    let end = selected_end(model, selection, feature, kept)?;
     let extent = match &extrude.extent {
         ExtrudeExtent::OneSide { reversed, .. } => ExtrudeExtent::OneSide {
             end,
@@ -1221,6 +1450,50 @@ pub fn up_to_selected_change(
         return Err("The extrusion already runs up to the selected face or plane".to_owned());
     }
     change(model, feature, with_extent_of(extrude, extent))
+}
+
+pub fn direction_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    extrude: &Extrude,
+) -> Result<Transaction, String> {
+    let index = model.document().feature_index(feature).unwrap_or(0);
+    let axis = datum_tools::only_axis(model, selection, index)?
+        .ok_or_else(|| NO_DIRECTION_SELECTED.to_owned())?;
+    if extrude.direction.as_deref() == Some(&axis) {
+        return Err("The extrusion already runs along the selected edge or axis".to_owned());
+    }
+    change(
+        model,
+        feature,
+        SolidFeature::Extrude(Extrude {
+            direction: Some(Box::new(axis)),
+            ..extrude.clone()
+        }),
+    )
+}
+
+pub fn revolve_target_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    revolve: &Revolve,
+) -> Result<Transaction, String> {
+    let target = selected_target(model, selection, feature)?;
+    let reversed = matches!(revolve.extent, RevolveExtent::UpTo { reversed: true, .. });
+    let extent = RevolveExtent::up_to(target, reversed);
+    if extent == revolve.extent {
+        return Err("The revolution already turns up to the selected face or plane".to_owned());
+    }
+    change(
+        model,
+        feature,
+        SolidFeature::Revolve(Revolve {
+            extent,
+            ..revolve.clone()
+        }),
+    )
 }
 
 pub fn start_change(
@@ -1357,6 +1630,7 @@ fn extent_name(extent: &ExtrudeExtent) -> &'static str {
 
 fn turn_name(extent: &RevolveExtent) -> &'static str {
     match extent {
+        RevolveExtent::UpTo { .. } => TURN_UP_TO,
         RevolveExtent::Full => "Full turn",
         RevolveExtent::OneSide { .. } => "One side",
         RevolveExtent::Symmetric { .. } => "Symmetric",

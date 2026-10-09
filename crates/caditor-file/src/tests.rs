@@ -2162,6 +2162,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let turned = transaction.add_feature(
@@ -2216,6 +2217,7 @@ fn a_cut_through_several_bodies_is_saved_as_its_own_record_kind_and_loaded() {
             other_bodies,
             taper: None,
             wall: None,
+            direction: None,
         }))
     };
     let second = transaction.add_feature("Second", extrusion(BodyOperation::NewBody, Vec::new()));
@@ -5169,6 +5171,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         }))
     };
     let through = transaction.add_feature(
@@ -5181,7 +5184,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
     let between = transaction.add_feature(
         "Between",
         extrude(ExtrudeExtent::TwoSides {
-            forward: ExtrudeEnd::UpToFace(PlaneReference::Face(FaceAttachment {
+            forward: ExtrudeEnd::up_to_face(PlaneReference::Face(FaceAttachment {
                 body: base,
                 face: FaceReference::new(
                     FaceName::from_digest(0xface),
@@ -5191,13 +5194,13 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
                     [FaceName::from_digest(7)],
                 ),
             })),
-            backward: ExtrudeEnd::UpToFace(PlaneReference::Datum(level)),
+            backward: ExtrudeEnd::up_to_face(PlaneReference::Datum(level)),
         }),
     );
     let next = transaction.add_feature(
         "Next",
         extrude(ExtrudeExtent::TwoSides {
-            forward: ExtrudeEnd::UpToNext,
+            forward: ExtrudeEnd::up_to_next(),
             backward: ExtrudeEnd::Distance(transaction.parse("depth / 2").unwrap()),
         }),
     );
@@ -5248,6 +5251,247 @@ fn extents_to_faces_planes_and_the_next_face_and_two_angles_are_saved_and_loaded
     }
 }
 
+#[test]
+fn an_extrusion_along_an_axis_is_a_kind_older_readers_report() {
+    use caditor_document::{
+        AxisReference, BodyOperation, Extrude, ExtrudeExtent, PrincipalAxis, RegionChoice,
+        SolidFeature,
+    };
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
+    let leaning = transaction.add_feature(
+        "Leaning",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(transaction.parse("10 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: Some(Box::new(AxisReference::Principal(PrincipalAxis::Z))),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("extrude_along", "extrude_alonk"));
+    let damaged = decode_text(&text.replacen("\"direction\":{", "\"direction\":{\"x\":0,", 1));
+
+    assert!(text.contains("\"extrude_along\":{\"direction\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(leaning).is_none());
+    assert!(!older.issues.is_empty());
+    let Some(FeatureKind::Solid(SolidFeature::Extrude(restored))) = damaged
+        .document
+        .feature(leaning)
+        .map(|feature| &feature.kind)
+    else {
+        panic!("the extrusion was not loaded");
+    };
+    assert!(restored.direction.is_none());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    let kind = document.feature(leaning).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: leaning, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
+fn a_revolve_up_to_a_plane_is_a_kind_older_readers_report() {
+    use caditor_document::{
+        BodyOperation, PlaneReference, PrincipalPlane, RegionChoice, Revolve, RevolveAxis,
+        RevolveExtent, SolidFeature,
+    };
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XZ)));
+    let turned = transaction.add_feature(
+        "Turned",
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+            extent: RevolveExtent::up_to(PlaneReference::Principal(PrincipalPlane::Yz), true),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            side: None,
+            wall: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("revolve_up_to", "revolve_up_too"));
+    let damaged = decode_text(&text.replacen("\"principal\":", "\"principle\":", 1));
+
+    assert!(text.contains("\"revolve_up_to\":{\"feature\":{\"revolve\":"));
+    assert!(text.contains("\"reversed\":true"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(turned).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    let kind = document.feature(turned).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: turned, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
+fn ends_up_to_curved_faces_are_a_kind_older_readers_report() {
+    use caditor_document::{
+        BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment, RegionChoice,
+        SolidFeature,
+    };
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let sketch = document.features().next().unwrap().id();
+    let mut transaction = document.transaction("Surfaces");
+    let side = FaceAttachment {
+        body: base,
+        face: FaceReference::new(
+            FaceName::from_digest(0x51de),
+            Some(FaceOrigin::EndCap {
+                feature: base.raw(),
+            }),
+            [FaceName::from_digest(7)],
+        ),
+    };
+    let one = transaction.add_feature(
+        "Up to it",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::TwoSides {
+                forward: ExtrudeEnd::up_to_surface(side),
+                backward: ExtrudeEnd::up_to_next()
+                    .with_offset(Some(transaction.parse("1 mm").unwrap())),
+            },
+            operation: BodyOperation::Add(base),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("surface_ends", "surface_endz"));
+    let damaged = decode_text(&text.replacen("\"face\":\"0000", "\"face\":\"zz00", 1));
+
+    assert!(text.contains("\"surface_ends\":{\"feature\":{\"offset_ends\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(one).is_none());
+    assert!(!older.issues.is_empty());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    let kind = document.feature(one).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: one, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
+}
+
+#[test]
+fn ends_offset_from_the_faces_they_reach_are_a_kind_older_readers_report() {
+    use caditor_document::{
+        BodyOperation, Datum, DatumPlane, Extrude, ExtrudeEnd, ExtrudeExtent, PlaneReference,
+        PrincipalPlane, RegionChoice, SolidFeature,
+    };
+    let (mut document, base, _) = solid_model();
+    let sketch = document.features().next().unwrap().id();
+    let mut transaction = document.transaction("Offsets");
+    let level = transaction.add_feature(
+        "Level",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: transaction.parse("20 mm").unwrap(),
+        })),
+    );
+    let extrude = |extent| {
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent,
+            operation: BodyOperation::Remove(base),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        }))
+    };
+    let short = ExtrudeEnd::up_to_face(PlaneReference::Datum(level))
+        .with_offset(Some(transaction.parse("-2 mm").unwrap()));
+    let past = ExtrudeEnd::up_to_next().with_offset(Some(transaction.parse("depth").unwrap()));
+    let one = transaction.add_feature(
+        "Short",
+        extrude(ExtrudeExtent::OneSide {
+            end: short,
+            reversed: false,
+        }),
+    );
+    let two = transaction.add_feature(
+        "Past",
+        extrude(ExtrudeExtent::TwoSides {
+            forward: ExtrudeEnd::ThroughAll,
+            backward: past,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("offset_ends", "offset_endz"));
+
+    assert!(text.contains("\"offset_ends\":{\"feature\":{\"extrude_to\":"));
+    assert!(text.contains("\"forward\":\"-2 mm\""));
+    assert!(text.contains("\"backward\":\"$0\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(one).is_none());
+    assert!(older.document.feature(two).is_none());
+    assert!(!older.issues.is_empty());
+    for feature in [one, two] {
+        let kind = document.feature(feature).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+
+    let damaged = decode_text(&text.replacen("\"forward\":\"-2 mm\"", "\"forward\":\"-2 m(\"", 1));
+    let Some(FeatureKind::Solid(SolidFeature::Extrude(restored))) =
+        damaged.document.feature(one).map(|feature| &feature.kind)
+    else {
+        panic!("the extrusion was not loaded");
+    };
+    assert_eq!(
+        restored.extent.ends()[0].offset(),
+        Some(&Expression::Measure(0.0, Unit::Millimetre))
+    );
+    assert_eq!(damaged.issues.len(), 1);
+}
+
 fn starts_model() -> (Document, [FeatureId; 3]) {
     use caditor_document::{
         BodyOperation, Datum, DatumPlane, Extrude, ExtrudeExtent, PlaneReference, PrincipalPlane,
@@ -5277,6 +5521,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let lifted = transaction.add_feature(
@@ -5424,6 +5669,7 @@ fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
                 thickness: transaction.parse("1.5 mm").unwrap(),
                 side: WallSide::Outside,
             })),
+            direction: None,
         })),
     );
     let cup = transaction.add_feature(
@@ -5454,6 +5700,7 @@ fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -5701,6 +5948,7 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -6007,6 +6255,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             },
         )),
     );
@@ -6027,6 +6276,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             },
         )),
     );
@@ -6045,6 +6295,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             },
         )),
     );
@@ -6095,6 +6346,7 @@ fn combines_are_saved_and_loaded() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let combine = transaction.add_feature(
@@ -6142,6 +6394,7 @@ fn a_combine_with_several_tools_or_a_kept_tool_is_a_kind_older_readers_report_an
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             })),
         )
     };
@@ -6457,6 +6710,88 @@ fn a_hole_ending_in_a_drill_point_is_a_kind_older_readers_report_and_reads_back(
         format::restore_transaction(through_binary(&journaled)),
         Some(transaction)
     );
+}
+
+#[test]
+fn a_hole_drilled_up_to_a_face_or_the_next_face_is_a_kind_older_readers_report() {
+    use caditor_document::{
+        Datum, DatumPlane, Hole, HoleBottom, HoleDepth, HoleShape, HoleSizing, HoleStyle,
+        PlaneReference, PrincipalPlane, SolidFeature, TappedThread,
+    };
+    let parse = |text: &str| Expression::parse_stored(text).unwrap();
+    let (mut document, base, _) = solid_model();
+    let sketch = match &document.feature(base).unwrap().kind {
+        FeatureKind::Solid(SolidFeature::Extrude(extrude)) => extrude.sketch,
+        other => panic!("{other:?}"),
+    };
+    let mut transaction = document.transaction("Hole");
+    let level = transaction.add_feature(
+        "Level",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: parse("-3 mm"),
+        })),
+    );
+    let drilled = |depth| {
+        FeatureKind::Hole(Hole {
+            sketch,
+            body: base,
+            diameter: parse("4 mm"),
+            depth,
+            style: HoleStyle::Plain,
+            reversed: true,
+            shape: HoleShape::Round,
+            standard: None,
+            sizing: HoleSizing::Typed,
+            bottom: HoleBottom::DrillPoint(parse("118 deg")),
+            thread: TappedThread::default(),
+        })
+    };
+    let to_face = transaction.add_feature(
+        "To face",
+        drilled(
+            HoleDepth::up_to_face(PlaneReference::Datum(level)).with_offset(Some(parse("-1 mm"))),
+        ),
+    );
+    let to_next = transaction.add_feature("To next", drilled(HoleDepth::up_to_next()));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("hole_up_to", "hole_up_too"));
+    let damaged = decode_text(&text.replacen(
+        "\"up_to_face\":{\"datum\":",
+        "\"up_to_face\":{\"datom\":",
+        1,
+    ));
+
+    assert!(text.contains("\"hole_up_to\":{\"end\":{\"up_to_face\":{\"datum\":"));
+    assert!(text.contains("\"offset\":\"-1 mm\""));
+    assert!(text.contains("\"hole_up_to\":{\"end\":\"up_to_next\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(to_face).is_none());
+    assert!(older.document.feature(to_next).is_none());
+    assert!(!older.issues.is_empty());
+    let Some(FeatureKind::Hole(restored)) = damaged
+        .document
+        .feature(to_face)
+        .map(|feature| &feature.kind)
+    else {
+        panic!("the hole was not loaded");
+    };
+    assert_eq!(restored.depth, HoleDepth::ThroughAll);
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    for feature in [to_face, to_next] {
+        let kind = document.feature(feature).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
+        let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        assert_eq!(
+            format::restore_transaction(through_binary(&journaled)),
+            Some(transaction)
+        );
+    }
 }
 
 #[test]

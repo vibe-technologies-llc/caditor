@@ -67,6 +67,7 @@ fn shaped(
         other_bodies: Vec::new(),
         taper: taper.map(Box::new),
         wall: wall.map(Box::new),
+        direction: None,
     }))
 }
 
@@ -130,6 +131,7 @@ fn a_tapered_extrusion_follows_a_model_parameter_and_undoes() {
             other_bodies: Vec::new(),
             taper: Some(Box::new(Expression::Parameter(draft))),
             wall: None,
+            direction: None,
         })
         .uses_parameter(draft)
     );

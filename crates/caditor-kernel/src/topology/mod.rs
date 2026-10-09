@@ -504,6 +504,128 @@ impl Solid {
         Some(joined)
     }
 
+    pub(crate) fn keeping_shells(&self, keep: &BTreeSet<ShellId>) -> Option<Self> {
+        fn renumbered<Id: Copy + Ord>(kept: &BTreeSet<Id>) -> BTreeMap<Id, u32> {
+            kept.iter()
+                .enumerate()
+                .filter_map(|(index, id)| Some((*id, u32::try_from(index).ok()?)))
+                .collect()
+        }
+        let faces: BTreeSet<FaceId> = keep
+            .iter()
+            .filter_map(|shell| self.shell(*shell))
+            .flat_map(|shell| shell.faces.iter().copied())
+            .collect();
+        let loops: BTreeSet<LoopId> = faces
+            .iter()
+            .filter_map(|face| self.face(*face))
+            .flat_map(|face| face.loops.iter().copied())
+            .collect();
+        let coedges: BTreeSet<CoedgeId> = loops
+            .iter()
+            .filter_map(|owned| self.face_loop(*owned))
+            .flat_map(|owned| owned.coedges.iter().copied())
+            .collect();
+        let edges: BTreeSet<EdgeId> = coedges
+            .iter()
+            .filter_map(|coedge| self.coedge(*coedge))
+            .map(|coedge| coedge.edge)
+            .collect();
+        let vertices: BTreeSet<VertexId> = edges
+            .iter()
+            .filter_map(|edge| self.edge(*edge))
+            .flat_map(|edge| [edge.start, edge.end])
+            .collect();
+        let (shell_ids, face_ids, loop_ids) =
+            (renumbered(keep), renumbered(&faces), renumbered(&loops));
+        let (coedge_ids, edge_ids, vertex_ids) = (
+            renumbered(&coedges),
+            renumbered(&edges),
+            renumbered(&vertices),
+        );
+        let vertex = |id: VertexId| vertex_ids.get(&id).map(|index| VertexId(*index));
+        let edge = |id: EdgeId| edge_ids.get(&id).map(|index| EdgeId(*index));
+        let coedge = |id: CoedgeId| coedge_ids.get(&id).map(|index| CoedgeId(*index));
+        let face_loop = |id: LoopId| loop_ids.get(&id).map(|index| LoopId(*index));
+        let face = |id: FaceId| face_ids.get(&id).map(|index| FaceId(*index));
+        let shell = |id: ShellId| shell_ids.get(&id).map(|index| ShellId(*index));
+        Some(Self {
+            vertices: vertices
+                .iter()
+                .map(|id| self.vertex(*id).cloned())
+                .collect::<Option<_>>()?,
+            edges: edges
+                .iter()
+                .map(|id| {
+                    let found = self.edge(*id)?;
+                    Some(Edge {
+                        start: vertex(found.start)?,
+                        end: vertex(found.end)?,
+                        coedges: found
+                            .coedges
+                            .iter()
+                            .map(|id| coedge(*id))
+                            .collect::<Option<_>>()?,
+                        ..found.clone()
+                    })
+                })
+                .collect::<Option<_>>()?,
+            coedges: coedges
+                .iter()
+                .map(|id| {
+                    let found = self.coedge(*id)?;
+                    Some(Coedge {
+                        edge: edge(found.edge)?,
+                        owner: face_loop(found.owner)?,
+                        ..found.clone()
+                    })
+                })
+                .collect::<Option<_>>()?,
+            loops: loops
+                .iter()
+                .map(|id| {
+                    let found = self.face_loop(*id)?;
+                    Some(Loop {
+                        face: face(found.face)?,
+                        coedges: found
+                            .coedges
+                            .iter()
+                            .map(|id| coedge(*id))
+                            .collect::<Option<_>>()?,
+                    })
+                })
+                .collect::<Option<_>>()?,
+            faces: faces
+                .iter()
+                .map(|id| {
+                    let found = self.face(*id)?;
+                    Some(Face {
+                        loops: found
+                            .loops
+                            .iter()
+                            .map(|id| face_loop(*id))
+                            .collect::<Option<_>>()?,
+                        shell: shell(found.shell)?,
+                        ..found.clone()
+                    })
+                })
+                .collect::<Option<_>>()?,
+            shells: keep
+                .iter()
+                .map(|id| {
+                    let found = self.shell(*id)?;
+                    Some(Shell {
+                        faces: found
+                            .faces
+                            .iter()
+                            .map(|id| face(*id))
+                            .collect::<Option<_>>()?,
+                    })
+                })
+                .collect::<Option<_>>()?,
+        })
+    }
+
     pub(crate) fn renamed(
         mut self,
         rename: impl Fn(FaceName, Option<FaceOrigin>) -> (FaceName, Option<FaceOrigin>),

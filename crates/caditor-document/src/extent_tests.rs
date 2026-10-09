@@ -81,6 +81,7 @@ fn extrusion(sketch: FeatureId, extent: ExtrudeExtent, operation: BodyOperation)
         other_bodies: Vec::new(),
         taper: None,
         wall: None,
+        direction: None,
     }))
 }
 
@@ -274,7 +275,7 @@ fn up_to_next_fills_the_gap_up_to_the_body_and_follows_it() {
         "Boss",
         extrusion(
             boss,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -298,7 +299,7 @@ fn up_to_next_cuts_until_the_profile_comes_out_of_the_body() {
         "Pocket",
         extrusion(
             pocket,
-            one_side(ExtrudeEnd::UpToNext, true),
+            one_side(ExtrudeEnd::up_to_next(), true),
             BodyOperation::Remove(model.plate),
         ),
     );
@@ -327,7 +328,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Beside",
         extrusion(
             below,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -336,7 +337,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Separate",
         extrusion(
             below,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::NewBody,
         ),
     );
@@ -350,7 +351,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Removing",
         extrusion(
             under,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Remove(model.plate),
         ),
     );
@@ -364,7 +365,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Inside",
         extrusion(
             inner,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -392,7 +393,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Stepped",
         extrusion(
             across,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -418,21 +419,116 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "The profile of Inner sketch starts inside the body of Plate, so extruding it up to the \
          next face adds nothing."
     );
-    let several = failure(&evaluation, stepped);
+    assert!(matches!(
+        evaluation.feature(stepped).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    assert!((volume(&evaluation, model.plate) - (16_000.0 + 4_000.0 + 750.0)).abs() < 1e-6);
+}
+
+fn rod() -> FeatureKind {
+    let across = Plane::from_frame(Point3::new(-10.0, 0.0, 20.0), Vector3::X, Vector3::Y).unwrap();
+    FeatureKind::from(circle(across, (0.0, 0.0), 5.0))
+}
+
+fn under_the_rod(width: f64) -> f64 {
+    let half = width / 2.0;
+    2.0 * (half / 2.0 * (25.0 - half * half).sqrt() + 12.5 * (half / 5.0).asin())
+}
+
+#[test]
+fn up_to_a_curved_next_face_follows_the_face() {
+    let mut document = Document::default();
+    let rod_sketch = add(&mut document, "Rod sketch", rod());
+    let rod = add(
+        &mut document,
+        "Rod",
+        extrusion(
+            rod_sketch,
+            ExtrudeExtent::one_side(millimetres(20.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let strip = add(
+        &mut document,
+        "Strip sketch",
+        FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
+    );
+    let stand = add(
+        &mut document,
+        "Stand",
+        extrusion(
+            strip,
+            one_side(ExtrudeEnd::up_to_next(), false),
+            BodyOperation::Add(rod),
+        ),
+    );
+    let groove = add(
+        &mut document,
+        "Groove sketch",
+        FeatureKind::from(rectangle(at(20.0), (-6.0, -1.0), (-4.0, 1.0))),
+    );
+    let groove_cut = add(
+        &mut document,
+        "Groove",
+        extrusion(
+            groove,
+            one_side(ExtrudeEnd::up_to_next(), false),
+            BodyOperation::Remove(rod),
+        ),
+    );
+    let offset = add(
+        &mut document,
+        "Offset",
+        extrusion(
+            strip,
+            one_side(
+                ExtrudeEnd::up_to_next().with_offset(Some(millimetres(1.0))),
+                false,
+            ),
+            BodyOperation::Add(rod),
+        ),
+    );
+    let both = add(
+        &mut document,
+        "Both ways",
+        extrusion(
+            strip,
+            ExtrudeExtent::TwoSides {
+                forward: ExtrudeEnd::up_to_next(),
+                backward: ExtrudeEnd::Distance(millimetres(2.0)),
+            },
+            BodyOperation::Add(rod),
+        ),
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert!(matches!(
+        evaluation.feature(stand).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    assert!(matches!(
+        evaluation.feature(groove_cut).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    let added = 40.0 - under_the_rod(2.0);
+    let removed = 2.0 * under_the_rod(2.0);
+    let expected = 500.0 * PI + added - removed;
+    let found = volume(&evaluation, rod);
     assert!(
-        several
-            .reason
-            .starts_with("The profile of Across sketch meets several faces of Plate first: "),
-        "{}",
-        several.reason
+        (found - expected).abs() < 2e-3 * expected,
+        "{found} {expected}"
     );
-    assert!(several.reason.contains("Step start face"));
-    assert!(several.reason.contains("Plate start face"));
     assert_eq!(
-        several.remedy,
-        "Use Up to face to choose which one it stops at."
+        failure(&evaluation, offset).remedy,
+        "Clear the end offset, or use Up to face with a flat face or plane."
     );
-    assert!((volume(&evaluation, model.plate) - (16_000.0 + 4_000.0)).abs() < 1e-6);
+    assert_eq!(
+        failure(&evaluation, both).reason,
+        "The profile of Strip sketch first meets curved or several faces, and an extrusion to two \
+         sides can only stop at one flat face."
+    );
 }
 
 #[test]
@@ -449,7 +545,7 @@ fn up_to_face_ends_on_the_face_and_follows_it_when_the_body_changes() {
         "Tower",
         extrusion(
             tower,
-            one_side(ExtrudeEnd::UpToFace(top), true),
+            one_side(ExtrudeEnd::up_to_face(top), true),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -494,6 +590,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         }))
     };
     let lug = add(&mut model.document, "Lug", lug_kind(first));
@@ -508,7 +605,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
         "Post",
         extrusion(
             post,
-            one_side(ExtrudeEnd::UpToFace(lug_top), true),
+            one_side(ExtrudeEnd::up_to_face(lug_top), true),
             BodyOperation::NewBody,
         ),
     );
@@ -581,7 +678,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
         "Upwards",
         extrusion(
             high,
-            one_side(ExtrudeEnd::UpToFace(top.clone()), false),
+            one_side(ExtrudeEnd::up_to_face(top.clone()), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -591,7 +688,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
         extrusion(
             high,
             ExtrudeExtent::TwoSides {
-                forward: ExtrudeEnd::UpToFace(top),
+                forward: ExtrudeEnd::up_to_face(top),
                 backward: ExtrudeEnd::Distance(millimetres(1.0)),
             },
             BodyOperation::NewBody,
@@ -619,7 +716,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
         "Across",
         extrusion(
             centred,
-            one_side(ExtrudeEnd::UpToFace(PlaneReference::Datum(slope)), false),
+            one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(slope)), false),
             BodyOperation::NewBody,
         ),
     );
@@ -629,7 +726,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
         extrusion(
             centred,
             one_side(
-                ExtrudeEnd::UpToFace(PlaneReference::Principal(PrincipalPlane::Xz)),
+                ExtrudeEnd::up_to_face(PlaneReference::Principal(PrincipalPlane::Xz)),
                 false,
             ),
             BodyOperation::NewBody,
@@ -688,7 +785,7 @@ fn up_to_a_tilted_datum_plane_ends_on_it() {
         "Wedge",
         extrusion(
             base,
-            one_side(ExtrudeEnd::UpToFace(PlaneReference::Datum(slope)), false),
+            one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(slope)), false),
             BodyOperation::NewBody,
         ),
     );
@@ -738,7 +835,7 @@ fn each_side_of_a_two_sided_extrusion_takes_its_own_end() {
             middle,
             ExtrudeExtent::TwoSides {
                 forward: ExtrudeEnd::Distance(millimetres(5.0)),
-                backward: ExtrudeEnd::UpToFace(PlaneReference::Principal(PrincipalPlane::Xy)),
+                backward: ExtrudeEnd::up_to_face(PlaneReference::Principal(PrincipalPlane::Xy)),
             },
             BodyOperation::NewBody,
         ),
@@ -755,7 +852,7 @@ fn each_side_of_a_two_sided_extrusion_takes_its_own_end() {
             cut,
             ExtrudeExtent::TwoSides {
                 forward: ExtrudeEnd::ThroughAll,
-                backward: ExtrudeEnd::UpToNext,
+                backward: ExtrudeEnd::up_to_next(),
             },
             BodyOperation::Remove(model.plate),
         ),
@@ -784,7 +881,7 @@ fn a_new_body_up_to_a_face_of_another_body_is_recomputed_when_that_body_changes(
         "Tower",
         extrusion(
             tower_sketch,
-            one_side(ExtrudeEnd::UpToFace(top), true),
+            one_side(ExtrudeEnd::up_to_face(top), true),
             BodyOperation::NewBody,
         ),
     );
@@ -833,7 +930,7 @@ fn a_datum_plane_an_extrusion_runs_up_to_is_one_of_its_features_and_must_stay_ab
         "Block",
         extrusion(
             base,
-            one_side(ExtrudeEnd::UpToFace(PlaneReference::Datum(level)), false),
+            one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(level)), false),
             BodyOperation::NewBody,
         ),
     );
@@ -851,7 +948,7 @@ fn a_datum_plane_an_extrusion_runs_up_to_is_one_of_its_features_and_must_stay_ab
             id: block,
             kind: extrusion(
                 base,
-                one_side(ExtrudeEnd::UpToFace(PlaneReference::Datum(axis)), false),
+                one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(axis)), false),
                 BodyOperation::NewBody,
             ),
         },
@@ -925,6 +1022,7 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let mut engine = Recompute::default();
@@ -983,6 +1081,7 @@ fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let mut engine = Recompute::default();
@@ -1000,4 +1099,363 @@ fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
          similar geometry, and a chosen region of Plate sketch no longer exists and was left out."
     );
     assert!((volume(&after, block) - 160.0).abs() < 1e-6);
+}
+
+#[test]
+fn an_offset_stops_an_end_short_of_or_past_the_face_it_reaches() {
+    let mut model = plate_at(0.0);
+    let top = face_reference(&model.document, model.plate, Vector3::Z, 10.0);
+    let pocket = add(
+        &mut model.document,
+        "Pocket sketch",
+        FeatureKind::from(rectangle(at(10.0), (5.0, 5.0), (15.0, 15.0))),
+    );
+    let short = add(
+        &mut model.document,
+        "Short pocket",
+        extrusion(
+            pocket,
+            one_side(
+                ExtrudeEnd::up_to_next().with_offset(Some(millimetres(-4.0))),
+                true,
+            ),
+            BodyOperation::Remove(model.plate),
+        ),
+    );
+    let tower = add(
+        &mut model.document,
+        "Tower sketch",
+        FeatureKind::from(rectangle(at(30.0), (25.0, 25.0), (35.0, 35.0))),
+    );
+    let short_tower = add(
+        &mut model.document,
+        "Tower",
+        extrusion(
+            tower,
+            one_side(
+                ExtrudeEnd::up_to_face(top.clone()).with_offset(Some(millimetres(-2.0))),
+                true,
+            ),
+            BodyOperation::NewBody,
+        ),
+    );
+    let past = add(
+        &mut model.document,
+        "Past",
+        extrusion(
+            tower,
+            one_side(
+                ExtrudeEnd::up_to_face(top.clone()).with_offset(Some(millimetres(5.0))),
+                true,
+            ),
+            BodyOperation::NewBody,
+        ),
+    );
+    let behind = add(
+        &mut model.document,
+        "Behind",
+        extrusion(
+            tower,
+            one_side(
+                ExtrudeEnd::up_to_face(top).with_offset(Some(millimetres(-25.0))),
+                true,
+            ),
+            BodyOperation::NewBody,
+        ),
+    );
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert!((volume(&evaluation, model.plate) - (16_000.0 - 600.0)).abs() < 1e-6);
+    assert!(matches!(
+        evaluation.feature(short).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    assert!((volume(&evaluation, short_tower) - 1_800.0).abs() < 1e-6);
+    assert!((volume(&evaluation, past) - 2_500.0).abs() < 1e-6);
+    let refused = failure(&evaluation, behind);
+    assert_eq!(
+        refused.reason,
+        "Stopping 25 mm short of Plate end face would end the extrusion before it starts in \
+         places."
+    );
+    assert_eq!(
+        refused.remedy,
+        "Enter a smaller end offset, or choose a face or plane farther from the sketch."
+    );
+    assert_eq!(evaluation.failed_count(), 1);
+}
+
+fn curved_face(solid: &Solid) -> FaceId {
+    solid
+        .faces()
+        .find(|(_, face)| !matches!(face.surface(), Surface::Plane(_)))
+        .map(|(id, _)| id)
+        .unwrap()
+}
+
+#[test]
+fn up_to_a_chosen_curved_face_follows_it_and_refuses_one_met_after_another_face() {
+    let mut document = Document::default();
+    let rod_sketch = add(&mut document, "Rod sketch", rod());
+    let rod = add(
+        &mut document,
+        "Rod",
+        extrusion(
+            rod_sketch,
+            ExtrudeExtent::one_side(millimetres(20.0), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let solid = evaluation.body(rod).unwrap();
+    let side = FaceAttachment {
+        body: rod,
+        face: caditor_kernel::FaceReference::capture(solid, curved_face(solid)).unwrap(),
+    };
+    let strip = add(
+        &mut document,
+        "Strip sketch",
+        FeatureKind::from(rectangle(Plane::XY, (1.0, -1.0), (2.0, 1.0))),
+    );
+    let stand = add(
+        &mut document,
+        "Stand",
+        extrusion(
+            strip,
+            one_side(ExtrudeEnd::up_to_surface(side.clone()), false),
+            BodyOperation::NewBody,
+        ),
+    );
+    let block_sketch = add(
+        &mut document,
+        "Block sketch",
+        FeatureKind::from(rectangle(at(13.0), (0.0, -3.0), (5.0, 3.0))),
+    );
+    add(
+        &mut document,
+        "Block",
+        extrusion(
+            block_sketch,
+            ExtrudeExtent::one_side(millimetres(3.0), false),
+            BodyOperation::Add(rod),
+        ),
+    );
+    let blocked = add(
+        &mut document,
+        "Blocked",
+        extrusion(
+            strip,
+            one_side(ExtrudeEnd::up_to_surface(side), false),
+            BodyOperation::NewBody,
+        ),
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    assert!(matches!(
+        evaluation.feature(stand).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    let expected = 40.0 - under_the_rod(2.0);
+    let found = volume(&evaluation, stand);
+    assert!(
+        (found - expected).abs() < 2e-3 * expected,
+        "{found} {expected}"
+    );
+    let refused = failure(&evaluation, blocked);
+    assert!(
+        refused.reason.starts_with(
+            "The profile of Strip sketch meets Block start face of Rod before it reaches"
+        ),
+        "{}",
+        refused.reason
+    );
+    assert!(
+        document
+            .feature(stand)
+            .unwrap()
+            .kind
+            .bodies_used()
+            .contains(&rod)
+    );
+}
+
+#[test]
+fn a_revolve_turns_up_to_the_first_face_or_plane_through_its_axis_it_reaches() {
+    let mut document = Document::default();
+    let section = add(
+        &mut document,
+        "Section",
+        FeatureKind::from(rectangle(Plane::XZ, (2.0, 0.0), (4.0, 3.0))),
+    );
+    let slanted = add(
+        &mut document,
+        "Slanted",
+        datum_plane(
+            PlaneReference::Principal(PrincipalPlane::Xz),
+            Some(PlaneRotation {
+                axis: AxisReference::Principal(PrincipalAxis::Z),
+                angle: degrees(30.0),
+            }),
+            0.0,
+        ),
+    );
+    let revolve = |target: PlaneReference, reversed: bool| {
+        FeatureKind::Solid(SolidFeature::Revolve(Revolve {
+            sketch: section,
+            regions: RegionChoice::All,
+            axis: RevolveAxis::Sketch(EntityId::VERTICAL_AXIS),
+            extent: RevolveExtent::up_to(target, reversed),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            side: None,
+            wall: None,
+        }))
+    };
+    let square = add(
+        &mut document,
+        "Square",
+        revolve(PlaneReference::Principal(PrincipalPlane::Yz), false),
+    );
+    let forward = add(
+        &mut document,
+        "Forward",
+        revolve(PlaneReference::Datum(slanted), false),
+    );
+    let backward = add(
+        &mut document,
+        "Backward",
+        revolve(PlaneReference::Datum(slanted), true),
+    );
+    let across = add(
+        &mut document,
+        "Across",
+        revolve(PlaneReference::Principal(PrincipalPlane::Xy), false),
+    );
+    let holding = add(
+        &mut document,
+        "Holding",
+        revolve(PlaneReference::Principal(PrincipalPlane::Xz), false),
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let full = PI * (16.0 - 4.0) * 3.0;
+    assert!((volume(&evaluation, square) - full / 4.0).abs() < 1e-3 * full);
+    let (one, other) = (volume(&evaluation, forward), volume(&evaluation, backward));
+    assert!((one + other - full / 2.0).abs() < 1e-3 * full);
+    assert!((one.min(other) - full / 12.0).abs() < 1e-3 * full);
+    assert_eq!(
+        failure(&evaluation, across).reason,
+        "The XY plane does not hold the revolution axis, so the revolution cannot end on it."
+    );
+    assert_eq!(
+        failure(&evaluation, holding).reason,
+        "The XZ plane holds the profile of Section, so the revolution would not turn."
+    );
+    assert!(
+        document
+            .feature(forward)
+            .unwrap()
+            .kind
+            .planes_used()
+            .contains(&slanted)
+    );
+}
+
+#[test]
+fn an_extrusion_runs_along_a_chosen_line_measuring_its_distance_along_it() {
+    let mut document = Document::default();
+    let mut guide = Sketch::new(Plane::XZ);
+    let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    let guide = add(&mut document, "Guide", FeatureKind::from(guide));
+    let level = add(
+        &mut document,
+        "Level",
+        datum_plane(PlaneReference::Principal(PrincipalPlane::Xy), None, 5.0),
+    );
+    let square = add(
+        &mut document,
+        "Square",
+        FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 10.0))),
+    );
+    let along = |extent: ExtrudeExtent, direction: AxisReference, taper: Option<Expression>| {
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: square,
+            regions: RegionChoice::All,
+            extent,
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: taper.map(Box::new),
+            wall: None,
+            direction: Some(Box::new(direction)),
+        }))
+    };
+    let line = AxisReference::Sketch {
+        sketch: guide,
+        entity: slant,
+    };
+    let leaning = add(
+        &mut document,
+        "Leaning",
+        along(
+            ExtrudeExtent::one_side(millimetres(10.0), false),
+            line.clone(),
+            None,
+        ),
+    );
+    let to_level = add(
+        &mut document,
+        "To level",
+        along(
+            one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(level)), false),
+            line.clone(),
+            None,
+        ),
+    );
+    let tapered = add(
+        &mut document,
+        "Tapered",
+        along(
+            ExtrudeExtent::one_side(millimetres(10.0), false),
+            line,
+            Some(degrees(5.0)),
+        ),
+    );
+    let flat = add(
+        &mut document,
+        "Flat",
+        along(
+            ExtrudeExtent::one_side(millimetres(10.0), false),
+            AxisReference::Principal(PrincipalAxis::X),
+            None,
+        ),
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let rise = 10.0 * std::f64::consts::FRAC_1_SQRT_2;
+    assert!((volume(&evaluation, leaning) - 100.0 * rise).abs() < 1e-6);
+    let bounds = evaluation.body(leaning).unwrap().bounding_box().unwrap();
+    assert!((bounds.max().x - (10.0 + rise)).abs() < 1e-9);
+    assert!((volume(&evaluation, to_level) - 500.0).abs() < 1e-6);
+    assert_eq!(
+        failure(&evaluation, tapered).reason,
+        "A tapered extrusion runs square to its sketch, and Tapered follows a direction."
+    );
+    assert_eq!(
+        failure(&evaluation, flat).reason,
+        "The X axis runs along the plane of Square, so the extrusion cannot follow it."
+    );
+    assert!(
+        document
+            .feature(leaning)
+            .unwrap()
+            .kind
+            .features()
+            .contains(&guide)
+    );
 }

@@ -10,11 +10,15 @@ use crate::{
     },
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     edit::{Edit, Transaction},
+    hole::HoleDepth,
     mate::MatePair,
     movement::TurnCentre,
     pattern::PatternKind,
     recompute::Inputs,
-    solid::{ExtrudeEnd, ExtrudeExtent, RegionChoice, RevolveAxis, SolidFeature, SolidStart},
+    solid::{
+        ExtrudeEnd, ExtrudeExtent, RegionChoice, RevolveAxis, RevolveExtent, SolidFeature,
+        SolidStart,
+    },
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,10 +150,12 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visit_axis(&mut axes.target, "axis to mate onto", visitor);
             }
         },
-        FeatureKind::Combine(_)
-        | FeatureKind::Scale(_)
-        | FeatureKind::Hole(_)
-        | FeatureKind::Remove(_) => {}
+        FeatureKind::Hole(hole) => {
+            if let HoleDepth::UpToFace { target, .. } = &mut hole.depth {
+                visit_plane(target, "the face it is drilled up to", visitor);
+            }
+        }
+        FeatureKind::Combine(_) | FeatureKind::Scale(_) | FeatureKind::Remove(_) => {}
         FeatureKind::Mirror(mirror) => {
             visit_plane(&mut mirror.plane, "the face it mirrors across", visitor);
         }
@@ -356,23 +362,35 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
             };
             let count = ends.len();
             for (index, end) in ends.into_iter().enumerate() {
-                if let ExtrudeEnd::UpToFace(target) = end {
-                    let what = match (count, index) {
-                        (1, _) => "the face its end runs up to",
-                        (_, 0) => "the face its forward end runs up to",
-                        _ => "the face its backward end runs up to",
-                    };
-                    visit_plane(target, what, visitor);
+                let what = match (count, index) {
+                    (1, _) => "the face its end runs up to",
+                    (_, 0) => "the face its forward end runs up to",
+                    _ => "the face its backward end runs up to",
+                };
+                match end {
+                    ExtrudeEnd::UpToFace { target, .. } => visit_plane(target, what, visitor),
+                    ExtrudeEnd::UpToSurface { face } => {
+                        visitor.face(face.body, &mut face.face, what);
+                    }
+                    ExtrudeEnd::Distance(_)
+                    | ExtrudeEnd::ThroughAll
+                    | ExtrudeEnd::UpToNext { .. } => {}
                 }
             }
             if let Some(SolidStart::Plane(target)) = &mut extrude.start {
                 visit_plane(target, "the face it starts from", visitor);
+            }
+            if let Some(direction) = extrude.direction.as_deref_mut() {
+                visit_axis(direction, "direction", visitor);
             }
         }
         SolidFeature::Revolve(revolve) => {
             visitor.regions(revolve.sketch, &mut revolve.regions);
             if let RevolveAxis::Model(axis) = &mut revolve.axis {
                 visit_axis(axis, "axis", visitor);
+            }
+            if let RevolveExtent::UpTo { target, .. } = &mut revolve.extent {
+                visit_plane(target, "the face it turns up to", visitor);
             }
             if let Some(SolidStart::Plane(target)) = &mut revolve.start {
                 visit_plane(target, "the face it starts from", visitor);

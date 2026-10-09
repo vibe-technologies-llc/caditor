@@ -191,6 +191,25 @@ pub fn attachment_at(
         .ok_or("The selected face is not flat at this point in the tree")
 }
 
+pub fn surface_at(
+    model: &Model,
+    choice: FaceChoice,
+    index: usize,
+) -> Result<FaceAttachment, &'static str> {
+    let body = bodies::shown(model.evaluation(), choice.body).ok_or(GONE)?;
+    let face = bodies::find_face(body, choice.face).ok_or(GONE)?;
+    let reference = FaceReference::capture(&body.solid, face).ok_or(GONE)?;
+    let state = body_state_before(model, choice.body, index).map_err(StateError::face)?;
+    let there = reference
+        .resolve(state)
+        .map_err(|_| StateError::MadeAfter.face())?;
+    let face = FaceReference::capture(state, there).ok_or(GONE)?;
+    Ok(FaceAttachment {
+        body: choice.body,
+        face,
+    })
+}
+
 pub fn new_sketch(
     model: &Model,
     choice: FaceChoice,

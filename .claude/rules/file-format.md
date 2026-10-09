@@ -236,7 +236,12 @@ paths:
   no hole loads without the steps, reported. A hole ending in a drill point is a `drill_point_hole`
   record: `feature`, the hole record it would be ending flat (itself a `stepped_hole` when stepped),
   and `angle` (stored text; unreadable: 118 deg, reported), since an older reader would drill a
-  flat bottom; an inner record that is no hole loads without it, reported.
+  flat bottom; an inner record that is no hole loads without it, reported. A hole drilled up to
+  the next face or a face is a `hole_up_to` record: `feature`, the hole record it would be drilled
+  through all (itself any of the hole records above), `end` (`up_to_next`, or `up_to_face` with a
+  plane reference) and `offset`, its stored text only when set; an unreadable end loads drilled
+  through all and an unreadable offset as 0 mm, each reported, and an inner record that is no hole
+  loads without the end, reported.
 - A chamfer by two distances or by a distance and an angle is a `shaped_chamfer` record:
   `feature`, the `chamfer` record of its first distance, `form` (`two_distances` with `second`, or
   `distance_angle` with `angle`, stored text; unreadable ones load as 1 mm and 45 deg, reported)
@@ -329,6 +334,22 @@ paths:
   would fail on the crossing profile or turn both sides; an inner record that is no revolve loads
   turning the whole profile, reported. `cut_several` wraps it when the revolve also cuts other
   bodies.
+- An extrusion running along an edge, axis or sketch line is an `extrude_along` record: `feature`,
+  the record it would be running square (any extrusion record, wrappers included) and
+  `direction`, an axis reference; an unreadable one loads running square, reported.
+- A revolve turning up to a face or plane is a `revolve_up_to` record: `feature`, the record it
+  would be turning a full turn (any revolve record, wrappers included), `target` (a plane
+  reference) and `reversed` only when set; an unreadable target loads as a full turn, reported.
+- An extrusion with an end up to a curved face is a `surface_ends` record: `feature`, the
+  record it would be with those ends through all (which `offset_ends` may wrap), and `forward` and
+  `backward` as `offset_ends` names them, each the face's attachment record only when that end
+  runs up to one; an unreadable face loads that end as 10 mm, reported.
+- An extrusion with an up-to end offset from the face it reaches is an `offset_ends` record:
+  `feature`, the record it would be with no offsets (which `shaped_sweep` and the wrappers inside it
+  may wrap), and `forward` (the one end of a one-sided extrusion, or the forward end) and
+  `backward`, each the offset's stored text only when set, since an older reader would end on the
+  face itself. An unreadable offset loads as 0 mm, and one for an end that does not run up to a
+  face is left out, each reported.
 - A tapered or thin-walled extrusion, or a thin-walled revolve, is a `shaped_sweep` record:
   `feature`, the record it would be without them (which `cut_several` or `revolve_one_side` may
   wrap), `taper` (stored text, only when set; unreadable: 0 deg, reported) and `wall` (`thickness`

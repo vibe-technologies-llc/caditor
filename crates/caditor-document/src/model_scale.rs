@@ -15,7 +15,7 @@ use crate::{
     },
     document::{Document, Feature, FeatureKind},
     edit::{Edit, Transaction},
-    hole::{HoleDepth, HoleShape, HoleStyle},
+    hole::{HoleShape, HoleStyle},
     mate::MatePair,
     movement::{MoveAxis, Pivot, TurnCentre},
     pattern::PatternKind,
@@ -523,9 +523,7 @@ impl Rescaler {
             FeatureKind::Hole(hole) => {
                 let before = hole.clone();
                 self.length(&mut hole.diameter, name)?;
-                if let HoleDepth::Blind(depth) = &mut hole.depth {
-                    self.length(depth, name)?;
-                }
+                self.lengths(hole.depth.expressions_mut(), name)?;
                 match &mut hole.style {
                     HoleStyle::Plain => {}
                     HoleStyle::Counterbore { diameter, depth } => {
@@ -595,10 +593,7 @@ impl Rescaler {
     }
 
     fn end(&mut self, end: &mut ExtrudeEnd, name: &str) -> Result<(), ModelScaleError> {
-        match end {
-            ExtrudeEnd::Distance(distance) => self.length(distance, name),
-            ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext | ExtrudeEnd::UpToFace(_) => Ok(()),
-        }
+        self.lengths(end.expressions_mut(), name)
     }
 
     fn start(&mut self, start: &mut Option<SolidStart>, name: &str) -> Result<(), ModelScaleError> {
@@ -762,8 +757,11 @@ fn start_anchor(start: Option<&SolidStart>) -> Option<Anchor> {
 
 fn end_anchor(end: &ExtrudeEnd) -> Option<Anchor> {
     match end {
-        ExtrudeEnd::UpToFace(plane) => plane_anchor(plane),
-        ExtrudeEnd::Distance(_) | ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext => None,
+        ExtrudeEnd::UpToFace { target, .. } => plane_anchor(target),
+        ExtrudeEnd::Distance(_)
+        | ExtrudeEnd::ThroughAll
+        | ExtrudeEnd::UpToNext { .. }
+        | ExtrudeEnd::UpToSurface { .. } => None,
     }
 }
 
@@ -786,6 +784,7 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
             ends.into_iter()
                 .filter_map(end_anchor)
                 .chain(start_anchor(extrude.start.as_ref()))
+                .chain(extrude.direction.as_deref().and_then(axis_anchor))
                 .collect()
         }
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {
@@ -795,6 +794,7 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
             };
             axis.into_iter()
                 .chain(start_anchor(revolve.start.as_ref()))
+                .chain(revolve.extent.target().and_then(plane_anchor))
                 .collect()
         }
         FeatureKind::Primitive(primitive) => plane_anchor(&primitive.plane).into_iter().collect(),
@@ -823,12 +823,17 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
             PatternKind::Linear { .. } => Vec::new(),
         },
         FeatureKind::Datum(datum) => datum_anchors(datum),
+        FeatureKind::Hole(hole) => hole
+            .depth
+            .target()
+            .and_then(plane_anchor)
+            .into_iter()
+            .collect(),
         FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Scale(_)
-        | FeatureKind::Hole(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
         | FeatureKind::Thread(_) => Vec::new(),

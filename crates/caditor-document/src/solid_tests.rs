@@ -36,6 +36,7 @@ pub(crate) fn extrude(
         other_bodies: Vec::new(),
         taper: None,
         wall: None,
+        direction: None,
     }))
 }
 
@@ -88,6 +89,7 @@ fn model() -> Model {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let lug = transaction.add_feature(
@@ -577,6 +579,7 @@ fn both_distances_of_a_two_sided_extrusion_must_be_above_zero() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -620,6 +623,7 @@ fn extruded(extent: ExtrudeExtent) -> FeatureKind {
         other_bodies: Vec::new(),
         taper: None,
         wall: None,
+        direction: None,
     }))
 }
 
@@ -1305,6 +1309,7 @@ fn extrusion_with_start(start: Option<&str>) -> (Document, FeatureId) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -1378,6 +1383,7 @@ fn a_start_offset_follows_the_parameter_it_uses() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

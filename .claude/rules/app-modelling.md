@@ -194,8 +194,16 @@ paths:
   region is chosen until one is clicked. Double-clicking a face opens the feature that made it.
 - Each extrusion side has an end kind; one that cannot apply is offered disabled with the reason
   on hover. Up to face takes the selected face or plane captured where the extrusion sits in the
-  tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), each refusal
-  saying why (curved, made later, an axis); with none usable it starts choosing one in the view.
+  tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), or else one
+  selected curved face as an `UpToSurface` end (`sketch_placement::surface_at`), each refusal
+  saying why (made later, an axis); with none usable it starts choosing one in the view.
+  An end Up to next or Up to face has an offset field below it (`solid_panel::END_OFFSET`, Past
+  the face, and Forward or Backward past face; key `<side>-offset`; any sign, negative stopping
+  short, zero clearing it), kept when the end switches between the two or takes another face.
+- An extrusion's panel has a Direction row (`solid_panel::SQUARE`, `ALONG`): Along an edge or
+  axis takes the one selected edge, axis, round face or sketch line (`datum_tools::only_axis`),
+  else chooses one in the view (`Slot::ExtrudeDirection`), shown as Along with a button going
+  back to square; an extrusion along a direction has no reach arrows.
 - An extrusion's and a revolve's panel ends with a Start row (`solid_panel::start_rows`): the sketch
   plane with a Start offset field (key `start`, zero clears it), or Face or plane, taken like an
   end (`solid_panel::start_change`, slot `Slot::StartPlane`) and shown as Starts at with a button
@@ -215,8 +223,12 @@ paths:
   holds both kinds behind `Manipulator` and `Manipulating`): in steps (Ctrl drags freely),
   previewed with the distance beside the pointer, committed on release as one edit setting that
   distance to a measured value of at least one step. The arrows follow a typed distance's preview
-  (`Model::draft_kind`); an extrusion starting at a face or plane has none.
-- A revolve can also take two angles, refusing a pair that turns more than a full turn. Its
+  (`Model::draft_kind`); an extrusion starting at a face or plane, or running along a direction,
+  has none.
+- A revolve can also take two angles, refusing a pair that turns more than a full turn, or turn
+  Up to face (`solid_panel::TURN_UP_TO`): the selected flat face or plane, taken like an
+  extrusion's end, else choosing one in the view (`Slot::RevolveTarget`), shown as Up to with
+  Reverse direction. Its
   Profile switch (Whole, One side) keeps one side of the axis, starting from the side holding
   more of the chosen regions' area (`solid_panel::larger_side`), with Keep the other side of the
   axis to swap.
@@ -308,7 +320,11 @@ paths:
   last, and Remove the last step), Sized by (Diameter, Circles, which sets `CirclesAndHeads`; shown while the sketch has
   circles or the hole is sized by them, with Scale the counterbore or countersink with each circle
   for a counterbored or countersunk one), Diameter, the style's sizes, Shape (Round, or Slot with its length and angle), Depth
-  (Blind with its field, or Through all), for a blind round hole Drill point (a switch giving the
+  (a combo: Blind with its field, Through all, Up to next, or Up to face, taken from the selection
+  like an extrusion's end through `solid_panel::selected_target`, else choosing one in the view
+  with `Slot::HoleTarget` and shown as Up to with Use selected; either up-to kind has the
+  extrusion's Past the face field, key `end-offset`, kept when switching between them), for a
+  blind round hole Drill point (a switch giving the
   bottom a 118° cone, with its Drill point angle field, key `drill-point-angle`), Reverse direction, and the Sketch and Body rows (the body
   a list of `bodies_before`). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.

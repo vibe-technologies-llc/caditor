@@ -333,6 +333,7 @@ fn a_face_colour_and_opacity_follow_the_face_into_every_fragment_a_later_cut_lea
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     pair.document.apply(transaction.finish()).unwrap();

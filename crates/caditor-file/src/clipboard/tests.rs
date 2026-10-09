@@ -222,6 +222,7 @@ fn features_cross_the_clipboard_and_paste_into_another_model() {
             start: None,
             other_bodies: Vec::new(),
             taper: None,
+            direction: None,
             wall: None,
         })),
     );

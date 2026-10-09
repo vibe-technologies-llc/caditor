@@ -9908,6 +9908,7 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     transaction.edit(Edit::MoveFeature {
@@ -9958,6 +9959,7 @@ fn add_peg(harness: &mut Harness) -> FeatureId {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -10036,6 +10038,7 @@ fn add_post(harness: &mut Harness) -> FeatureId {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -10138,6 +10141,7 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             })),
         ));
     }
@@ -10327,7 +10331,8 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
         Id::new(("hole-field", "countersink-diameter", hole)),
         "14 mm",
     );
-    harness.click("Through all");
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest("Through all");
     harness.settle();
     assert_eq!(rows_named(&harness, "Depth").len(), 1);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
@@ -10348,6 +10353,66 @@ fn a_hole_is_drilled_at_the_points_of_a_sketch_and_its_panel_changes_the_style_a
         plate,
         std::f64::consts::PI * 25.0 * 10.0
     ));
+}
+
+#[test]
+fn a_hole_is_drilled_up_to_the_next_face_or_a_chosen_face_short_of_it_by_its_offset() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let top = Plane::from_frame(
+        caditor_geometry::Point3::new(0.0, 0.0, 10.0),
+        caditor_geometry::Vector3::Z,
+        caditor_geometry::Vector3::X,
+    )
+    .unwrap();
+    let mut sketch = Sketch::new(top);
+    sketch.add_point(Point2::new(20.0, 20.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let bore = std::f64::consts::PI * 3.0 * 3.0;
+
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest(crate::hole_panel::UP_TO_NEXT);
+    harness.settle();
+    let to_next = open_hole(&harness, hole).depth;
+    let through = removed_about(&harness, plate, bore * 10.0);
+    harness.type_into_field(Id::new(("hole-field", "end-offset", hole)), "-4 mm");
+    harness.settle();
+    let short = removed_about(&harness, plate, bore * 6.0);
+
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest(crate::hole_panel::UP_TO_FACE);
+    harness.settle();
+    let asks_for_a_face = harness.shows("Click a flat face or plane to drill up to.");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let bottom = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            pickable.describe(harness.document(), harness.model.evaluation())
+                == "Extrude 1 › Extrude 1 start face"
+        })
+        .expect("the bottom face is pickable");
+    harness.select([bottom]);
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest(crate::hole_panel::UP_TO_FACE);
+    harness.settle();
+    let to_face = open_hole(&harness, hole).depth;
+    let still_short = removed_about(&harness, plate, bore * 6.0);
+
+    assert_eq!(to_next, caditor_document::HoleDepth::up_to_next());
+    assert!(through);
+    assert!(short);
+    assert!(asks_for_a_face);
+    assert!(to_face.target().is_some());
+    assert!(to_face.offset().is_some());
+    assert!(still_short);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
 #[test]
@@ -10404,7 +10469,8 @@ fn a_blind_hole_can_end_in_a_drill_point_whose_angle_is_set_in_its_panel() {
     );
     assert!(harness.shows("Enter an angle above 0° and up to 179°"));
 
-    harness.click("Through all");
+    open_combo(&mut harness, "Depth");
+    harness.click_lowest("Through all");
     harness.settle();
     assert!(!harness.shows(crate::hole_panel::DRILL_POINT));
     assert_eq!(harness.model.evaluation().failed_count(), 0);
@@ -14082,6 +14148,87 @@ fn a_solid_feature_changes_its_extent_result_body_sketch_and_axis_from_its_panel
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
+#[test]
+fn a_revolve_turns_up_to_a_plane_through_its_axis_chosen_in_its_panel() {
+    let mut harness = Harness::new();
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(&mut section, Point2::new(2.0, 0.0), Point2::new(4.0, 3.0));
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = open_solid(&harness);
+
+    choose(&mut harness, "Full turn", crate::solid_panel::TURN_UP_TO);
+    let asks_for_a_plane =
+        harness.shows("Click a flat face or plane through the axis to turn up to.");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([Pickable::Plane(caditor_document::PrincipalPlane::Yz)]);
+    choose(&mut harness, "Full turn", crate::solid_panel::TURN_UP_TO);
+    let turned = match harness.solid(revolve) {
+        SolidFeature::Revolve(revolve) => revolve.extent.clone(),
+        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+    };
+    let volume = harness.body_volume(revolve);
+
+    assert!(asks_for_a_plane);
+    assert_eq!(
+        turned,
+        caditor_document::RevolveExtent::up_to(
+            caditor_document::PlaneReference::Principal(caditor_document::PrincipalPlane::Yz),
+            false
+        )
+    );
+    let quarter = std::f64::consts::PI * (16.0 - 4.0) * 3.0 / 4.0;
+    assert!((volume - quarter).abs() < 0.01 * quarter, "{volume}");
+    assert!(harness.shows("Up to"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
+    let mut harness = Harness::new();
+    let mut guide = Sketch::new(Plane::XZ);
+    let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    let guide = harness.add_sketch(guide);
+    let mut square = Sketch::new(Plane::XY);
+    rectangle(&mut square, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    harness.add_sketch(square);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let leaning = open_solid(&harness);
+
+    harness.select([Pickable::SketchEntity {
+        feature: guide,
+        entity: slant,
+    }]);
+    choose(
+        &mut harness,
+        crate::solid_panel::SQUARE,
+        crate::solid_panel::ALONG,
+    );
+    let direction = match harness.solid(leaning) {
+        SolidFeature::Extrude(extrude) => extrude.direction.clone(),
+        SolidFeature::Revolve(_) => panic!("expected an extrusion"),
+    };
+    let volume = harness.body_volume(leaning);
+    let named = harness.shows("Along");
+
+    assert_eq!(
+        direction.as_deref(),
+        Some(&caditor_document::AxisReference::Sketch {
+            sketch: guide,
+            entity: slant
+        })
+    );
+    let rise = 10.0 * std::f64::consts::FRAC_1_SQRT_2;
+    assert!((volume - 100.0 * rise).abs() < 0.01 * volume, "{volume}");
+    assert!(named);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
 fn extent_of(harness: &Harness, feature: FeatureId) -> ExtrudeExtent {
     match harness.solid(feature) {
         SolidFeature::Extrude(extrude) => extrude.extent.clone(),
@@ -14144,12 +14291,10 @@ fn extrusion_above_plate(harness: &mut Harness, height: f64) -> FeatureId {
 }
 
 fn target_origin(extent: &ExtrudeExtent) -> Option<caditor_kernel::FaceOrigin> {
-    let ExtrudeExtent::OneSide {
-        end:
-            caditor_document::ExtrudeEnd::UpToFace(caditor_document::PlaneReference::Face(attachment)),
-        ..
-    } = extent
-    else {
+    let ExtrudeExtent::OneSide { end, .. } = extent else {
+        return None;
+    };
+    let Some(caditor_document::PlaneReference::Face(attachment)) = end.target() else {
         return None;
     };
     attachment.face.origin()
@@ -14204,13 +14349,135 @@ fn an_extrusion_cuts_through_all_or_up_to_the_next_face_chosen_in_its_panel() {
     assert_eq!(
         next,
         ExtrudeExtent::OneSide {
-            end: caditor_document::ExtrudeEnd::UpToNext,
+            end: caditor_document::ExtrudeEnd::up_to_next(),
             reversed: true
         }
     );
     assert!((next_volume - 15_000.0).abs() < 1.0);
     assert_eq!(undone, through);
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn an_end_up_to_the_next_face_stops_short_of_it_by_the_offset_typed_in_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let cut = extrusion_above_plate(&mut harness, 10.0);
+    choose(&mut harness, "Add to body", "Remove from body");
+    harness.click_lowest(crate::feature_fields::REVERSE_DIRECTION);
+    harness.settle();
+    open_combo(&mut harness, "End");
+    harness.click_lowest("Up to next");
+    harness.settle();
+
+    let offered = harness.shows(crate::solid_panel::END_OFFSET);
+    let field = Id::new(("solid-field", "distance-offset", cut));
+    harness.type_into_field(field, "-4 mm");
+    harness.settle();
+    let short = extent_of(&harness, cut);
+    let volume = harness.body_volume(plate);
+    harness.type_into_field(field, "0 mm");
+    harness.settle();
+    let cleared = extent_of(&harness, cut);
+
+    assert!(offered);
+    assert_eq!(
+        short,
+        ExtrudeExtent::OneSide {
+            end: caditor_document::ExtrudeEnd::up_to_next().with_offset(Some(
+                caditor_expression::Expression::Negate(Box::new(
+                    caditor_expression::Expression::Measure(
+                        4.0,
+                        caditor_expression::Unit::Millimetre
+                    )
+                ))
+            )),
+            reversed: true
+        }
+    );
+    assert!((volume - 15_400.0).abs() < 1.0);
+    assert_eq!(
+        cleared,
+        ExtrudeExtent::OneSide {
+            end: caditor_document::ExtrudeEnd::up_to_next(),
+            reversed: true
+        }
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn an_extrusion_runs_up_to_a_selected_curved_face() {
+    let mut harness = Harness::new();
+    let across = Plane::from_frame(
+        caditor_geometry::Point3::new(-10.0, 0.0, 20.0),
+        caditor_geometry::Vector3::X,
+        caditor_geometry::Vector3::Y,
+    )
+    .unwrap();
+    let mut rod = Sketch::new(across);
+    rod.add_circle(Point2::new(0.0, 0.0), 5.0);
+    harness.add_sketch(rod);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let rod_body = harness.workspace.editing.solid().expect("the rod is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.frame();
+    let mut strip = Sketch::new(Plane::XY);
+    rectangle(&mut strip, Point2::new(-6.0, -1.0), Point2::new(-5.0, 1.0));
+    harness.add_sketch(strip);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let stand = open_solid(&harness);
+    harness.frame();
+
+    let curved = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            matches!(pickable, Pickable::Face { .. })
+                && pickable
+                    .describe(harness.document(), harness.model.evaluation())
+                    .starts_with("Extrude 1 › Extrude 1 side")
+        })
+        .expect("the side of the rod is pickable");
+    harness.select([curved]);
+    run_from_palette(&mut harness, "extrude up to selected");
+    harness.settle();
+    let reached = extent_of(&harness, stand);
+
+    assert!(
+        matches!(
+            reached,
+            ExtrudeExtent::OneSide {
+                end: caditor_document::ExtrudeEnd::UpToSurface { .. },
+                ..
+            }
+        ),
+        "{reached:?}"
+    );
+    assert_eq!(
+        harness.model.evaluation().failed_count(),
+        0,
+        "{:?}",
+        harness
+            .model
+            .evaluation()
+            .feature(stand)
+            .map(|found| &found.state)
+    );
+    let half = 1.0_f64;
+    let under = 2.0 * (half / 2.0 * (25.0 - half * half).sqrt() + 12.5 * (half / 5.0).asin());
+    let expected = 250.0 * std::f64::consts::PI + 40.0 - under;
+    let found = harness.body_volume(rod_body);
+    assert!(
+        (found - expected).abs() < 0.01 * expected,
+        "{found} {expected}"
+    );
 }
 
 #[test]
@@ -14224,7 +14491,7 @@ fn an_extrusion_runs_up_to_a_face_chosen_in_the_view_and_chosen_again() {
     open_combo(&mut harness, "End");
     harness.click_lowest("Up to face");
     harness.settle();
-    let asks_for_a_face = harness.shows("Click a flat face or plane to extrude up to.");
+    let asks_for_a_face = harness.shows("Click a face or plane to extrude up to.");
     let still_a_distance = extent_of(&harness, tower);
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
@@ -16937,6 +17204,7 @@ fn add_block(harness: &mut Harness, name: &str, corners: [Point2; 2], height: &s
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -18320,6 +18588,7 @@ fn chosen_plate() -> (Document, FeatureId, FeatureId) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

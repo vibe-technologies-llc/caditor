@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use caditor_geometry::{Point2, Vector2};
+use caditor_geometry::{Point2, Point3, Vector2, Vector3};
 use thiserror::Error;
 
 use crate::{
@@ -696,7 +696,40 @@ fn shell_meshes(
         .collect())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ShellSpan {
+    pub(crate) void: bool,
+    pub(crate) least: f64,
+    pub(crate) most: f64,
+}
+
 impl Solid {
+    pub(crate) fn shell_spans(
+        &self,
+        origin: Point3,
+        direction: Vector3,
+    ) -> Result<BTreeMap<ShellId, ShellSpan>, TessellationError> {
+        let extent = self.outline_box().map_or(1.0, |bounds| bounds.diagonal());
+        let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);
+        let by_shell = shell_meshes(self, &SamplingTolerance::for_extent(extent * coarseness))?;
+        Ok(by_shell
+            .into_iter()
+            .map(|(shell, shell_mesh)| {
+                let heights = shell_mesh
+                    .triangles
+                    .iter()
+                    .flatten()
+                    .map(|point| (*point - origin).dot(direction));
+                let (least, most) = heights.fold(
+                    (f64::INFINITY, f64::NEG_INFINITY),
+                    |(least, most), height| (least.min(height), most.max(height)),
+                );
+                let void = MassProperties::of(&shell_mesh.triangles).volume < 0.0;
+                (shell, ShellSpan { void, least, most })
+            })
+            .collect())
+    }
+
     pub(crate) fn void_shells(&self) -> Result<BTreeSet<ShellId>, TessellationError> {
         let extent = self.outline_box().map_or(1.0, |bounds| bounds.diagonal());
         let coarseness = VALIDATION_COARSENESS.first().copied().unwrap_or(1.0);

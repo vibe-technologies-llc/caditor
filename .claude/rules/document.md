@@ -346,15 +346,34 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
     and `THROUGH_ALL_MARGIN`, so the result does not depend on how far; a body wholly behind fails.
   - Up to next needs a target body and ends on the plane of the first face the profile meets
     (kernel `next_face`); an addition starting inside the body, or a cut first entering it, would
-    change nothing and fails.
+    change nothing and fails. When the first faces met are curved or several, a one-sided
+    extrusion with no end offset is swept as far as through all and cut back where it first meets
+    the target body (kernel `stop_at_body`, `Stopping` in `solid.rs`), so it follows a cylinder or
+    a step; two sides or an offset still need one flat face and fail in words.
   - Up to face ends on the face's plane extended past the face, which must lie beyond the whole
     profile on its side.
+  - `UpToSurface` (a boxed `FaceAttachment`, no offset) ends on any face, flat or curved,
+    resolved in its body's state at the extrusion's place: a flat one ends on its plane as Up to
+    face does; a curved one is stopped where the profile meets that face's body
+    (`stop_at_body`, as up to next), and fails naming the other faces of that body met first. Its
+    body counts among `end_bodies`, its face's origins among the feature's, and healing keeps it.
+  - Either up-to end may carry an `offset` (a signed length expression, boxed like the target to
+    keep `FeatureKind` small; zero is stored as absent): the end plane moves along its own normal
+    that far past the face, or stops short of it when negative, so a slanted plane stays the same
+    slant. The face must still lie ahead of the whole profile, and an offset bringing the end back
+    across the profile fails naming it and asking for a smaller offset. Offsets count among the
+    feature's expressions (parameters, inlining, model scaling).
   - Every failure names the face or plane and the side, with what to do.
 - A removal also cuts each body of `other_bodies` (an extrusion's or revolve's, any other
   operation with some fails in words), every body with the same tool, so one feature changes them
   all: they are in `bodies_used` and `Feature::bodies`, their results are `SolidResult::others`
   (like a split's), Through all reaches past all of them, the target and repeats are skipped, and
   a body the tool removes entirely fails the feature naming it.
+- `RevolveExtent::UpTo { target, reversed }` turns up to a flat face or plane (a boxed
+  `PlaneReference`, resolved, counted and healed like an extrusion's end) that holds the
+  revolution axis: the profile turns, forward or reversed, until its half-plane first lies in the
+  target's plane (`Turn` in `solid.rs`, from the chosen regions' middle), so a face is taken as
+  its whole plane. A target not holding the axis, or holding the profile itself, fails in words.
 - A `RevolveAxis` is a line or axis of its own sketch (a sketch line used as axis cannot be
   deleted; `AxisNotALine`) or an `AxisReference` to a model axis lying in the sketch plane.
 - A revolve's `side` (`AxisSide`, left or right of the axis's direction in the sketch plane; none
@@ -363,6 +382,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `REVOLUTION_AXIS_ENTITY`, worded "the revolution axis"), the regions whose anchor lies on that
   side inside a chosen region are selected as one, and they are revolved, so a profile crossing
   the axis or lying on both sides turns, and a side holding nothing fails in words.
+- An `Extrude`'s optional `direction` (a boxed `AxisReference`: an edge, an axis, a round face's
+  axis or a sketch line) runs it along that line instead of square to its sketch (kernel
+  `extrude_along`), the way that leaves the sketch on its forward side; a direction in the sketch
+  plane fails naming it. Distances are measured along the direction, while up-to planes, their
+  offsets and through all keep working by height; up to next, a curved face and a taper run
+  square only and fail in words. The axis's body, datum, frame and sketch count as used like a
+  revolve's model axis (`SolidFeature::model_axis`), and healing keeps it.
 - An `Extrude`'s optional `taper` (an angle, boxed with the wall to keep `FeatureKind` small) goes
   to the kernel's `extrude_tapered`; at or past `MAX_TAPER_DEGREES` it fails before the kernel, and
   every taper refusal (a spline, a slanted end, the profile closing) names the extrusion and says
@@ -442,9 +468,17 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Hole { sketch, body, diameter, depth, style, reversed }` drills at every free point of its sketch
   (`Sketch::free_points`: no curve uses it, not construction; a point only a constraint uses still
   counts) and at the centre of every circle that is not construction (`hole::centres`), down into
-  the sketch plane's normal, or up when reversed. `HoleDepth` is blind or
+  the sketch plane's normal, or up when reversed. `HoleDepth` is blind,
   through all (the farthest corner of the body past the point plus a margin, as the extrusion's
-  through all); `HoleStyle` is plain, counterbore (diameter, depth), countersink (diameter,
+  through all), up to next or up to face (a boxed `PlaneReference` resolved like an extrusion's
+  end, its body, datum and frame counted as used, its face healed), each up-to end with an
+  optional signed `offset` as an extrusion's end has. Each hole's depth is where its axis meets
+  the plane, the offset measured along the plane's normal, so a slanted face gives each hole its
+  own depth and a flat bottom square to the hole there. Up to next asks kernel `next_face` along
+  the hole's own outline (circle or slot) in the body before the feature, and fails in words when
+  the hole first enters the body (it would remove nothing), meets several faces, a curved one or
+  passes beside it. An up-to hole's counterbore, countersink or steps must stay shallower than
+  each hole's depth, and it ends flat whatever its bottom says, like a through hole; `HoleStyle` is plain, counterbore (diameter, depth), countersink (diameter,
   angle) or stepped (`HoleStep`s from the mouth down, 1 to `MAX_HOLE_STEPS`, each a diameter and
   its own depth, so a step's floor lies at the sum of the depths down to it). Each step must be
   narrower than the one above it and wider than the hole, and the steps together shallower than a

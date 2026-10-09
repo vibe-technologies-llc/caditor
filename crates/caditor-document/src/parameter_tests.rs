@@ -117,6 +117,7 @@ fn deleting_a_used_parameter_writes_its_expression_into_every_use() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

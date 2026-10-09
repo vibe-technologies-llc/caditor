@@ -29,6 +29,7 @@ fn extrude(sketch: FeatureId, distance: Expression, operation: BodyOperation) ->
         other_bodies: Vec::new(),
         taper: None,
         wall: None,
+        direction: None,
     }))
 }
 

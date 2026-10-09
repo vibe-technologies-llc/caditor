@@ -22,6 +22,7 @@ use crate::{
 };
 
 const ALONG_DIRECTION: f64 = 1e-6;
+const SQUARE: f64 = 1e-12;
 const FLAT: f64 = 0.5 * LINEAR_RESOLUTION;
 const PCURVE_SAMPLING_ANGLE: f64 = 0.1;
 const MAX_PCURVE_BISECTIONS: usize = 24;
@@ -50,10 +51,18 @@ impl Level {
     }
 
     pub(super) fn of(sketch: &Plane, bound: LinearBound) -> Result<Self, SweepError> {
+        Self::along(sketch, sketch.normal(), bound)
+    }
+
+    pub(super) fn along(
+        sketch: &Plane,
+        direction: Vector3,
+        bound: LinearBound,
+    ) -> Result<Self, SweepError> {
         match bound {
             LinearBound::Offset(height) => Ok(Self::flat(height)),
             LinearBound::Plane(target) => {
-                let facing = target.normal().dot(sketch.normal());
+                let facing = target.normal().dot(direction);
                 if facing.abs() <= ALONG_DIRECTION {
                     return Err(SweepError::EndAlongDirection);
                 }
@@ -144,23 +153,37 @@ pub(super) fn settled(level: Level, regions: &[Region]) -> Level {
 struct Cap {
     level: Level,
     plane: Plane,
+    direction: Vector3,
+}
+
+fn moved_plane(sketch: &Plane, direction: Vector3, height: f64) -> Result<Plane, SweepError> {
+    Plane::from_frame(
+        sketch.origin() + direction * height,
+        sketch.normal(),
+        sketch.x_axis(),
+    )
+    .ok_or(SweepError::Geometry(GeometryError::ZeroDirection))
 }
 
 impl Cap {
-    fn new(sketch: &Plane, level: Level) -> Result<Self, SweepError> {
+    fn new(sketch: &Plane, direction: Vector3, level: Level) -> Result<Self, SweepError> {
         let plane = if level.is_flat() {
-            offset_plane(sketch, level.at_origin)?
+            moved_plane(sketch, direction, level.at_origin)?
         } else {
-            let normal = sketch.normal() - lift(sketch, level.slope);
-            let along_x = sketch.x_axis() + sketch.normal() * level.slope.x;
+            let along_x = sketch.x_axis() + direction * level.slope.x;
+            let along_y = sketch.y_axis() + direction * level.slope.y;
             Plane::with_x_axis(
-                sketch.origin() + sketch.normal() * level.at_origin,
-                normal,
+                sketch.origin() + direction * level.at_origin,
+                along_x.cross(along_y),
                 along_x,
             )
             .ok_or(SweepError::Geometry(GeometryError::ZeroDirection))?
         };
-        Ok(Self { level, plane })
+        Ok(Self {
+            level,
+            plane,
+            direction,
+        })
     }
 
     fn is_flat(&self) -> bool {
@@ -171,7 +194,7 @@ impl Cap {
         if self.is_flat() {
             self.plane.to_world(point)
         } else {
-            sketch.to_world(point) + sketch.normal() * self.level.at(point)
+            sketch.to_world(point) + self.direction * self.level.at(point)
         }
     }
 
@@ -236,6 +259,8 @@ struct Walls<'a> {
     base_height: f64,
     low: Cap,
     high: Cap,
+    direction: Vector3,
+    stretch: f64,
 }
 
 impl Walls<'_> {
@@ -253,11 +278,12 @@ impl Walls<'_> {
 
 fn walls<'a>(
     sketch: &'a Plane,
+    direction: Vector3,
     regions: &[Region],
     extent: LinearExtent,
 ) -> Result<(Walls<'a>, bool), SweepError> {
-    let start = settled(Level::of(sketch, extent.start())?, regions);
-    let end = settled(Level::of(sketch, extent.end())?, regions);
+    let start = settled(Level::along(sketch, direction, extent.start())?, regions);
+    let end = settled(Level::along(sketch, direction, extent.end())?, regions);
     for level in [start, end] {
         let (least, most) = span(&level, regions).ok_or(SweepError::NoRegions)?;
         if !least.is_finite() || !most.is_finite() {
@@ -286,10 +312,12 @@ fn walls<'a>(
     Ok((
         Walls {
             sketch,
-            base: offset_plane(sketch, base_height)?,
+            base: moved_plane(sketch, direction, base_height)?,
             base_height,
-            low: Cap::new(sketch, low)?,
-            high: Cap::new(sketch, high)?,
+            low: Cap::new(sketch, direction, low)?,
+            high: Cap::new(sketch, direction, high)?,
+            direction,
+            stretch: direction.length(),
         },
         start_is_low,
     ))
@@ -301,10 +329,35 @@ pub fn extrude(
     extent: LinearExtent,
     feature: u64,
 ) -> Result<Solid, SweepError> {
+    sweep(plane, plane.normal(), regions, extent, feature)
+}
+
+pub fn extrude_along(
+    plane: &Plane,
+    regions: &[Region],
+    extent: LinearExtent,
+    direction: Vector3,
+    feature: u64,
+) -> Result<Solid, SweepError> {
+    let rise = direction.dot(plane.normal());
+    let unit = direction.length();
+    if !rise.is_finite() || !unit.is_finite() || rise.abs() <= ALONG_DIRECTION * unit {
+        return Err(SweepError::DirectionAlongSketch);
+    }
+    sweep(plane, direction / rise, regions, extent, feature)
+}
+
+fn sweep(
+    plane: &Plane,
+    direction: Vector3,
+    regions: &[Region],
+    extent: LinearExtent,
+    feature: u64,
+) -> Result<Solid, SweepError> {
     if regions.is_empty() {
         return Err(SweepError::NoRegions);
     }
-    let (walls, start_is_low) = walls(plane, regions, extent)?;
+    let (walls, start_is_low) = walls(plane, direction, regions, extent)?;
     let mut plan = Plan::default();
     for region in regions {
         interrupt::check()?;
@@ -420,21 +473,27 @@ fn extrude_loop(
             ends(&upper)?,
             EdgeName::between(side, caps.high.0),
         );
-        let (surface, mapped) = side_surface(&walls.base, piece)?;
+        let (surface, mapped) = side_surface(&walls.base, walls.direction, piece)?;
+        let stretch = walls.stretch;
         let middle = piece.range().middle();
         let middle_point = piece.curve().point(middle);
         let (low_middle, high_middle) = walls.heights(middle_point);
         let halfway = 0.5 * (low_middle + high_middle);
-        let probe = walls.base.to_world(middle_point) + walls.base.normal() * halfway;
+        let probe = walls.base.to_world(middle_point) + walls.direction * halfway;
         let outward = lift(sketch, traversal_tangent(piece, middle)).cross(sketch.normal());
-        let near = matches!(surface, Surface::Extrusion(_)).then(|| Point2::new(middle, halfway));
+        let near = matches!(surface, Surface::Extrusion(_))
+            .then(|| Point2::new(middle, halfway * stretch));
         let sense = outward_sense(&surface, probe, outward, near);
         let (entering, leaving) = (at(&verticals, index)?, at(&verticals, index + 1)?);
         let range = piece.range();
         let loop_coedges = if mapped {
             let (u_enter, u_leave) = (piece.start_parameter(), piece.end_parameter());
-            let (bottom_enter, top_enter) = walls.heights(piece.start());
-            let (bottom_leave, top_leave) = walls.heights(piece.end());
+            let stretched = |point: Point2| {
+                let (bottom, top) = walls.heights(point);
+                (bottom * stretch, top * stretch)
+            };
+            let (bottom_enter, top_enter) = stretched(piece.start());
+            let (bottom_leave, top_leave) = stretched(piece.end());
             let (bottom, top) = if walls.mapped() {
                 (
                     PlanCoedge::mapped(
@@ -457,8 +516,7 @@ fn extrude_loop(
                         travel,
                         cap_pcurve(
                             piece,
-                            &walls.low.level,
-                            walls.base_height,
+                            (&walls.low.level, walls.base_height, stretch),
                             travel,
                             bottom_range.start() - range.start(),
                         )?,
@@ -468,8 +526,7 @@ fn extrude_loop(
                         travel.reversed(),
                         cap_pcurve(
                             piece,
-                            &walls.high.level,
-                            walls.base_height,
+                            (&walls.high.level, walls.base_height, stretch),
                             travel.reversed(),
                             top_range.start() - range.start(),
                         )?,
@@ -519,15 +576,17 @@ fn extrude_loop(
 
 fn cap_pcurve(
     piece: &Piece,
-    level: &Level,
-    base_height: f64,
+    (level, base_height, stretch): (&Level, f64, f64),
     sense: Sense,
     shift: f64,
 ) -> Result<Pcurve, SweepError> {
     let curve = piece.curve();
     let sample = |parameter: f64| PcurveSample {
         parameter: parameter + shift,
-        uv: Point2::new(parameter, level.at(curve.point(parameter)) - base_height),
+        uv: Point2::new(
+            parameter,
+            (level.at(curve.point(parameter)) - base_height) * stretch,
+        ),
     };
     let tolerance = SamplingTolerance::new(PCURVE_TOLERANCE, PCURVE_SAMPLING_ANGLE)
         .ok_or(SweepError::Unassembled)?;
@@ -566,16 +625,26 @@ fn cap_pcurve(
     Pcurve::new(samples, PCURVE_TOLERANCE).map_err(|_| SweepError::Unassembled)
 }
 
-fn side_surface(bottom: &Plane, piece: &Piece) -> Result<(Surface, bool), SweepError> {
+fn side_surface(
+    bottom: &Plane,
+    direction: Vector3,
+    piece: &Piece,
+) -> Result<(Surface, bool), SweepError> {
     let normal: Vector3 = bottom.normal();
+    let square = direction.distance(normal) <= SQUARE * direction.length();
     Ok(match piece.curve() {
         Curve2::Line(_) => {
             let start = piece.start();
             let tangent = lift(bottom, traversal_tangent(piece, piece.start_parameter()));
-            let frame = Plane::from_frame(bottom.to_world(start), tangent.cross(normal), tangent)
-                .ok_or(SweepError::Geometry(GeometryError::ZeroDirection))?;
+            let frame =
+                Plane::from_frame(bottom.to_world(start), tangent.cross(direction), tangent)
+                    .ok_or(SweepError::Geometry(GeometryError::ZeroDirection))?;
             (PlaneSurface::new(frame)?.into(), false)
         }
+        Curve2::Circle(_) if !square => (
+            Extrusion::new(piece.curve().on_plane(bottom)?, direction)?.into(),
+            true,
+        ),
         Curve2::Circle(circle) => {
             let frame = Plane::from_frame(
                 bottom.to_world(circle.center()),
@@ -586,7 +655,7 @@ fn side_surface(bottom: &Plane, piece: &Piece) -> Result<(Surface, bool), SweepE
             (Cylinder::new(frame, circle.radius())?.into(), false)
         }
         Curve2::BSpline(_) | Curve2::Ellipse(_) => (
-            Extrusion::new(piece.curve().on_plane(bottom)?, normal)?.into(),
+            Extrusion::new(piece.curve().on_plane(bottom)?, direction)?.into(),
             true,
         ),
     })

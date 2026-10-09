@@ -121,6 +121,9 @@ impl ReachHandles {
         pixels_per_point: f64,
     ) -> Option<Self> {
         let extrude = shown_extrude(model, feature)?;
+        if extrude.direction.is_some() {
+            return None;
+        }
         let start = match &extrude.start {
             None => 0.0,
             Some(SolidStart::Distance(distance)) => length(model, distance)?,

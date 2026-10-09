@@ -271,6 +271,7 @@ pub fn create_on_face(
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let told = format!(
@@ -523,6 +524,7 @@ pub fn create(
                 other_bodies: Vec::new(),
                 taper: None,
                 wall,
+                direction: None,
             })
         }
         Sweep::Revolve => SolidFeature::Revolve(Revolve {
@@ -857,6 +859,7 @@ mod tests {
                     other_bodies: Vec::new(),
                     taper: None,
                     wall: None,
+                    direction: None,
                 })),
             )
         };
