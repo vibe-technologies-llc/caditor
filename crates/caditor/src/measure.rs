@@ -176,7 +176,7 @@ fn shown_face_area(model: &Model, result: &Arc<FeatureResult>, face: FaceId) -> 
 fn body_mass(model: &Model, body: FeatureId) -> Option<BodyMass> {
     let result = body_result(model, body)?;
     match model.display().meshing.lookup(&result) {
-        Converted::Ready(mesh) => Some(mesh.mass),
+        Converted::Ready(mesh) => mesh.mass().copied(),
         Converted::Pending | Converted::Missing => None,
     }
 }
@@ -1015,6 +1015,7 @@ struct Basis {
     revision: u64,
     evaluation: u64,
     relative: Relative,
+    masses: u64,
 }
 
 struct Job {
@@ -1080,6 +1081,7 @@ impl Measurements {
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
             relative,
+            masses: model.masses_measured(),
         };
         if self.basis.as_ref() != Some(&basis) {
             self.basis = Some(basis);

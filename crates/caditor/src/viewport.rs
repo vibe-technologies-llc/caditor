@@ -1062,6 +1062,11 @@ impl ViewportState {
                 evaluation: model.evaluation_generation(),
                 sketches: display.sketches.generation(),
                 bodies: self.bodies.generation(),
+                masses: if self.aids.centres_of_mass {
+                    display.meshing.masses_measured()
+                } else {
+                    0
+                },
                 style: self.style,
                 aids: self.aids,
                 analysed: self.analyses.finished(),

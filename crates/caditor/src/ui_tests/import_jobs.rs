@@ -38,7 +38,7 @@ impl SlowReader {
         let release = Arc::clone(&self.release);
         let finished = Arc::clone(&self.finished);
         let obeys_cancel = self.obeys_cancel;
-        Arc::new(move |path, cancel| {
+        Arc::new(move |path, cancel, _| {
             started.store(true, Ordering::SeqCst);
             let deadline = Instant::now() + FILE_TIMEOUT;
             while !release.load(Ordering::SeqCst) && Instant::now() < deadline {
@@ -51,7 +51,11 @@ impl SlowReader {
                 }
                 std::thread::sleep(Duration::from_millis(1));
             }
-            let read = crate::import::read_model(path, &caditor_document::CancelToken::never());
+            let read = crate::import::read_model(
+                path,
+                &caditor_document::CancelToken::never(),
+                &caditor_file::ReadingProgress::default(),
+            );
             finished.store(true, Ordering::SeqCst);
             read
         })
@@ -167,9 +171,11 @@ fn a_new_import_after_a_cancelled_one_is_not_cancelled_with_it() {
     let path = start_slow_import(&mut harness, dir.path(), &slow);
     harness.click("Cancel");
 
-    harness.files.read_models_with(Arc::new(|path, cancel| {
-        crate::import::read_model(path, cancel)
-    }));
+    harness
+        .files
+        .read_models_with(Arc::new(|path, cancel, progress| {
+            crate::import::read_model(path, cancel, progress)
+        }));
     harness.answer_dialog(Some(path));
     harness.command(FileCommand::Import { into: None });
     slow.release.store(true, Ordering::SeqCst);

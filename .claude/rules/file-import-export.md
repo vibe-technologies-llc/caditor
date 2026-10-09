@@ -142,8 +142,12 @@ paths:
   reader stops between solids (`ReadError::Cancelled`) and meshing stops inside a shell. A
   cancelled read is `ImportError::Cancelled`, never a partial import.
 - `parse_step` reads the copies of each part (`read_step_copies`, `step-read.md`) and canonicalises
-  each part once, unplaced: written by caditor's own writer and read back, so what is stored is
-  exactly what later loads. One `ImportedBody` per copy, or per copy of each lump (each
+  each part once, unplaced: written by caditor's own writer and read back (`read_own_step`, which
+  skips the crossing check the first read already made), so what is stored is exactly what later
+  loads. The distinct parts are canonicalised in parallel, then the copies placed in parallel
+  (`in_parallel`: scoped threads with the caller's interrupt, results in input order), so the bodies
+  and notes are those of a sequential pass. `read_step_file_reporting` fills a `ReadingProgress`
+  the app polls (`ReadingStage`: reading, solids built of solids, parts stored of parts). One `ImportedBody` per copy, or per copy of each lump (each
   canonicalised alone) when a multi-lump solid reads back as several; a part that cannot be stored
   is left out with a note per copy.
 - A copy placed rigidly becomes an `Import` sharing the part's solid and STEP text (`Arc`s, through

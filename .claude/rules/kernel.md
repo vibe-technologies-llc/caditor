@@ -24,7 +24,8 @@ paths:
   once rather than trying the other directions; its caller's next poll reports the cancel.
 - The document installs its `CancelToken` around evaluation and meshing; export around meshing and
   STEP writing; import around reading STEP and meshes. `check_interrupt` lets a crate above the
-  kernel poll the same check (the STEP reader polls it per solid).
+  kernel poll the same check (the STEP reader polls it per solid), and `current_interrupt` lets
+  work it fans out to other threads install the same check there.
 
 ## Curves and surfaces
 
@@ -181,6 +182,11 @@ paths:
 - Edges of one face are intersected with each other; face pairs with overlapping boxes
   (`box_tree.rs`) are intersected, a branch point strictly inside both faces being a `Crossing`
   (neighbours share the known branch, so their other edges are tested against the other face).
+- Past `PAIRS_PER_THREAD` pairs a thread the face pairs are probed in parallel (`probed`, scoped
+  threads with the caller's interrupt), each worker taking the next pair in order and none taking a
+  pair beyond the first crossing found so far, so the answer is the sequential one: the first
+  crossing in pair order, else the first inconclusive pair. A STEP part of a few hundred faces
+  whose boxes all overlap (a lead screw's thread) is the case it serves.
 
 ## Faceted solids (`faceted/`)
 

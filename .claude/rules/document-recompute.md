@@ -125,8 +125,10 @@ paths:
   it. Before each feature it evaluates, the walk hands the display thread a glimpse of the
   evaluation so far, when a feature was computed or a body settled since the last one; the thread
   reports the latest glimpse once the time is up, even while that feature is still running, and
-  again after each body meshed for it. After the loop the run reports once more before the regions
-  and meshes, and after each mesh. A run that recomputes nothing before a slow feature reports
+  again after bodies are meshed for it. After the loop the run reports once more before the regions
+  and meshes, and again as meshes finish. A report that only adds meshes waits until
+  `MESHES_REPORTED_EVERY` has passed since the last one, so an import of a thousand bodies is
+  reported, and its scene rebuilt, a few times rather than once per body. A run that recomputes nothing before a slow feature reports
   nothing early, since nothing shown would change.
 - In a glimpse the features not reached yet are pending (`Evaluation::is_pending`) and keep the
   status and result of their last computation (none if never computed), so the bodies they make or

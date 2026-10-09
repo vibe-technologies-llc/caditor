@@ -76,6 +76,7 @@ mod feature_panels;
 mod feature_tree_choice;
 mod files_and_history;
 mod frame_costs;
+mod import_costs;
 mod import_jobs;
 mod large_interface;
 mod paint_selection;
@@ -8101,7 +8102,11 @@ fn the_constraint_tools_work_out_their_candidates_when_the_selection_or_sketch_c
 fn what_the_selection_offers_is_worked_out_when_it_or_the_model_changes_not_every_frame() {
     let mut harness = Harness::new();
     let (_, top) = extruded_plate(&mut harness);
+    let measured = harness.model.masses_measured();
     harness.select([top]);
+    harness.wait_until("the face's exact area arrives", |harness| {
+        harness.model.masses_measured() > measured
+    });
     let computed = harness.workspace.selection_offers.computations();
 
     for _ in 0..5 {

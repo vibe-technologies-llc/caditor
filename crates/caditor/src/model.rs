@@ -1,5 +1,5 @@
 use std::{
-    collections::VecDeque,
+    collections::{BTreeSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
     time::{Instant, SystemTime},
@@ -513,6 +513,14 @@ impl Model {
 
     pub fn bodies_pending(&self) -> bool {
         self.display.meshing.is_pending()
+    }
+
+    pub fn bodies_preparing(&self) -> Option<(usize, usize)> {
+        self.display.meshing.preparing()
+    }
+
+    pub fn masses_measured(&self) -> u64 {
+        self.display.meshing.masses_measured()
     }
 
     pub fn undo_label(&self) -> Option<&str> {
@@ -1277,9 +1285,10 @@ impl Model {
             .chain(&self.shown_before)
             .cloned()
             .collect();
+        let kept: BTreeSet<*const FeatureResult> = shown.iter().map(Arc::as_ptr).collect();
         self.display
             .meshing
-            .retain(|source| shown.iter().any(|kept| Arc::ptr_eq(kept, source)));
+            .retain(|source| kept.contains(&Arc::as_ptr(source)));
         for source in &shown {
             self.display
                 .meshing

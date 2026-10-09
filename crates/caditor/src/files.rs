@@ -18,10 +18,10 @@ use caditor_file::{
     Closing, Construction, DRAWING_IMPORT_EXTENSIONS, Drawing, DrawingExported, DrawingSheet,
     ExportError, ExportFormat, FILE_EXTENSION, FaceExported, FileJournal, History, ImportError,
     LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch,
-    PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, RecentChange, RecentFiles, Recovered,
-    STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings, SheetLayout,
-    SketchExported, SketchFormat, describe_set_aside, journal_for, load_cancellable, load_version,
-    read_drawing, scan,
+    PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, ReadingProgress, ReadingStage,
+    RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError,
+    SavedState, Settings, SheetLayout, SketchExported, SketchFormat, describe_set_aside,
+    journal_for, load_cancellable, load_version, read_drawing, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -684,6 +684,7 @@ struct Importing {
     into: Option<FeatureId>,
     replacing: Option<FeatureId>,
     stopped: Arc<AtomicBool>,
+    progress: Arc<ReadingProgress>,
 }
 
 impl Importing {
@@ -693,6 +694,7 @@ impl Importing {
             into,
             replacing,
             stopped: Arc::new(AtomicBool::new(false)),
+            progress: Arc::default(),
         }
     }
 
@@ -733,8 +735,9 @@ fn stop_token(stopped: &Arc<AtomicBool>) -> CancelToken {
     CancelToken::new(move || stopped.load(Ordering::Relaxed))
 }
 
-pub type ModelReader =
-    Arc<dyn Fn(&Path, &CancelToken) -> Result<ModelImport, ImportError> + Send + Sync>;
+pub type ModelReader = Arc<
+    dyn Fn(&Path, &CancelToken, &ReadingProgress) -> Result<ModelImport, ImportError> + Send + Sync,
+>;
 
 pub type ModelLoader = Arc<dyn Fn(&Path, &CancelToken) -> Result<Loaded, LoadError> + Send + Sync>;
 
@@ -1616,10 +1619,10 @@ impl Files {
         let failed = path.clone();
         self.start_import(
             Importing::reading(path.clone(), into, None),
-            move |attempt, cancel| {
+            move |attempt, cancel, progress| {
                 if import::is_model(&path) {
                     Event::ImportedModel {
-                        result: reader(&path, &cancel),
+                        result: reader(&path, &cancel, &progress),
                         path,
                         session,
                         attempt,
@@ -1669,8 +1672,8 @@ impl Files {
         let failed = path.clone();
         self.start_import(
             Importing::reading(path.clone(), None, Some(feature)),
-            move |attempt, cancel| Event::ImportedModel {
-                result: reader(&path, &cancel),
+            move |attempt, cancel, progress| Event::ImportedModel {
+                result: reader(&path, &cancel, &progress),
                 path,
                 session,
                 attempt,
@@ -1699,7 +1702,7 @@ impl Files {
         let failed = path.clone();
         self.start_import(
             Importing::reading(path.clone(), into, None),
-            move |attempt, _| Event::Imported {
+            move |attempt, _, _| Event::Imported {
                 result: Ok(import::plan_drawing(
                     base,
                     &path,
@@ -1725,16 +1728,17 @@ impl Files {
     fn start_import(
         &mut self,
         importing: Importing,
-        task: impl FnOnce(u64, CancelToken) -> Event + Send + 'static,
+        task: impl FnOnce(u64, CancelToken, Arc<ReadingProgress>) -> Event + Send + 'static,
         failed: impl FnOnce(u64) -> Event + Send + 'static,
     ) {
         self.import_attempt += 1;
         let attempt = self.import_attempt;
         let cancel = importing.token();
+        let progress = Arc::clone(&importing.progress);
         self.importing = Some(importing);
         self.spawn_own(
             "import",
-            move || task(attempt, cancel),
+            move || task(attempt, cancel, progress),
             move || failed(attempt),
         );
     }
@@ -3068,12 +3072,12 @@ fn import_activity(
     let running = files
         .importing
         .as_ref()
-        .and_then(|importing| importing.path.as_deref())
+        .and_then(|importing| Some((importing.path.as_deref()?, importing.progress.stage())))
         .ok_or(NOT_IMPORTING);
     let mut cancel = commands.invoke(Command::CancelImport, &running);
-    if let Ok(path) = running {
+    if let Ok((path, stage)) = running {
         widgets::spinner(ui);
-        ui.label(format!("Importing “{}”…", display_name(Some(path))));
+        ui.label(import_text(path, stage));
         cancel |= ui
             .add(widgets::button("Cancel"))
             .on_hover_text(commands.with_keys(
@@ -3084,6 +3088,19 @@ fn import_activity(
     }
     if cancel {
         actions.push(Action::File(FileCommand::CancelImport));
+    }
+}
+
+fn import_text(path: &Path, stage: ReadingStage) -> String {
+    let file = display_name(Some(path));
+    match stage {
+        ReadingStage::Reading => format!("Importing “{file}”…"),
+        ReadingStage::Building { built, solids } => {
+            format!("Importing “{file}”: {built} of {solids} solids built…")
+        }
+        ReadingStage::Storing { stored, parts } => {
+            format!("Importing “{file}”: {stored} of {parts} parts stored…")
+        }
     }
 }
 

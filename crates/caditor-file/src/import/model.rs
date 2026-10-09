@@ -1,4 +1,15 @@
-use std::{collections::BTreeMap, path::Path, sync::Arc, time::SystemTime};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    num::NonZeroUsize,
+    panic,
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    thread,
+    time::SystemTime,
+};
 
 use caditor_document::{
     BodyAppearance, BodyPlacement, CancelToken, DEFAULT_BODY_COLOUR, Document, Edit, FaceColour,
@@ -8,11 +19,12 @@ use caditor_document::{
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Point3, Similarity, Vector3};
 use caditor_kernel::{
-    FaceName, FaceOrigin, FaceReference, LINEAR_RESOLUTION, Solid, check_interrupt, interruptible,
+    FaceName, FaceOrigin, FaceReference, LINEAR_RESOLUTION, Solid, check_interrupt,
+    current_interrupt, interruptible,
 };
 use caditor_step::{
-    FaceLook, Misplacement, ReadError, StepBody, StepCopy, lump_faces, read_step, read_step_copies,
-    write_step,
+    FaceLook, Misplacement, ReadError, ReadProgress, StepBody, StepCopy, lump_faces, read_own_step,
+    read_step_copies_reporting, write_step,
 };
 
 use crate::{
@@ -64,7 +76,64 @@ pub struct ModelImport {
     pub notes: Vec<String>,
 }
 
+#[derive(Debug, Default)]
+pub struct ReadingProgress {
+    storing: AtomicBool,
+    done: AtomicUsize,
+    total: AtomicUsize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadingStage {
+    Reading,
+    Building { built: usize, solids: usize },
+    Storing { stored: usize, parts: usize },
+}
+
+impl ReadingProgress {
+    pub fn stage(&self) -> ReadingStage {
+        let (done, total) = (
+            self.done.load(Ordering::Relaxed),
+            self.total.load(Ordering::Relaxed),
+        );
+        match (self.storing.load(Ordering::Relaxed), total) {
+            (true, parts) => ReadingStage::Storing {
+                stored: done.min(parts),
+                parts,
+            },
+            (false, 0) => ReadingStage::Reading,
+            (false, solids) => ReadingStage::Building {
+                built: done.min(solids),
+                solids,
+            },
+        }
+    }
+
+    fn built(&self, progress: ReadProgress) {
+        self.total.store(progress.solids, Ordering::Relaxed);
+        self.done.fetch_max(progress.built, Ordering::Relaxed);
+    }
+
+    fn storing(&self, parts: usize) {
+        self.done.store(0, Ordering::Relaxed);
+        self.total.store(parts, Ordering::Relaxed);
+        self.storing.store(true, Ordering::Relaxed);
+    }
+
+    fn stored(&self) {
+        self.done.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 pub fn read_step_file(path: &Path, cancel: &CancelToken) -> Result<ModelImport, ImportError> {
+    read_step_file_reporting(path, cancel, &ReadingProgress::default())
+}
+
+pub fn read_step_file_reporting(
+    path: &Path,
+    cancel: &CancelToken,
+    progress: &ReadingProgress,
+) -> Result<ModelImport, ImportError> {
     let bytes = read_file(path).map_err(|error| ImportError::Reading(ReadFailure::of(&error)))?;
     ensure_going(cancel)?;
     let bytes = if bytes.starts_with(&GZIP_MAGIC) {
@@ -77,14 +146,14 @@ pub fn read_step_file(path: &Path, cancel: &CancelToken) -> Result<ModelImport, 
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
     let imported = interruptible(cancel.interrupt(), || match String::from_utf8(bytes) {
-        Ok(text) => parse_step(&text, &source),
+        Ok(text) => parse_step_reporting(&text, &source, progress),
         Err(error) => {
             let text: String = error
                 .as_bytes()
                 .iter()
                 .map(|byte| char::from(*byte))
                 .collect();
-            let mut import = parse_step(&text, &source)?;
+            let mut import = parse_step_reporting(&text, &source, progress)?;
             import.notes.push(LATIN_1_NOTE.to_owned());
             Ok(import)
         }
@@ -151,62 +220,88 @@ pub(super) fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
 }
 
 pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> {
-    let model = read_step_copies(text).map_err(|error| match error {
-        ReadError::NotStep => ImportError::NotStep,
-        ReadError::Cancelled => ImportError::Cancelled,
-        other => ImportError::Step(other),
-    })?;
+    parse_step_reporting(text, source, &ReadingProgress::default())
+}
+
+fn parse_step_reporting(
+    text: &str,
+    source: &str,
+    progress: &ReadingProgress,
+) -> Result<ModelImport, ImportError> {
+    let model =
+        read_step_copies_reporting(text, &|built| progress.built(built)).map_err(|error| {
+            match error {
+                ReadError::NotStep => ImportError::NotStep,
+                ReadError::Cancelled => ImportError::Cancelled,
+                other => ImportError::Step(other),
+            }
+        })?;
     let mut imported = ModelImport {
         bodies: Vec::with_capacity(model.copies.len()),
         notes: model.notes,
     };
+    let mut parts: Vec<&StepCopy> = Vec::new();
+    let mut seen: BTreeSet<usize> = BTreeSet::new();
+    for copy in &model.copies {
+        if seen.insert(Arc::as_ptr(&copy.solid).addr()) {
+            parts.push(copy);
+        }
+    }
+    let stored: BTreeMap<usize, Stored> = parts
+        .iter()
+        .map(|copy| Arc::as_ptr(&copy.solid).addr())
+        .zip({
+            progress.storing(parts.len());
+            in_parallel(&parts, |copy| {
+                let stored = shared(canonical(&copy.name, &copy.solid));
+                progress.stored();
+                stored
+            })
+        })
+        .collect();
+    check_interrupt().map_err(|_| ImportError::Cancelled)?;
+    let stored_of = |copy: &StepCopy| {
+        stored
+            .get(&Arc::as_ptr(&copy.solid).addr())
+            .cloned()
+            .flatten()
+    };
+    let placed = in_parallel(&model.copies, |copy| {
+        let lumps = stored_of(copy)?;
+        Some(match placed_copies(source, copy, &lumps) {
+            Some(bodies) => Placed::Rigidly(bodies),
+            None => match copy.solid.mapped(&copy.placement) {
+                Ok(mapped) => Placed::Mapped(canonical(&copy.name, &mapped).map(|lumps| {
+                    let opacity = copy.opacity.and_then(nearest_opacity_step);
+                    let faces = face_looks(&copy.faces, opacity, &mapped, &lumps);
+                    lumps
+                        .into_iter()
+                        .zip(faces)
+                        .map(|((stored, step), faces)| ImportedBody {
+                            import: Import::new(source, stored, step),
+                            name: copy.name.clone(),
+                            colour: copy.colour.map(rgb),
+                            opacity,
+                            group: copy.layer.clone(),
+                            faces,
+                        })
+                        .collect()
+                })),
+                Err(_) => Placed::Unplaceable,
+            },
+        })
+    });
+    check_interrupt().map_err(|_| ImportError::Cancelled)?;
     let mut lost = Vec::new();
     let mut unplaceable: Vec<String> = Vec::new();
-    let mut stored: BTreeMap<*const Solid, Stored> = BTreeMap::new();
-    for copy in model.copies {
-        check_interrupt().map_err(|_| ImportError::Cancelled)?;
-        let lumps = stored
-            .entry(Arc::as_ptr(&copy.solid))
-            .or_insert_with(|| shared(canonical(&copy.name, &copy.solid)))
-            .clone();
-        let Some(lumps) = lumps else {
-            lost.push(copy.name);
-            continue;
-        };
-        match placed_copies(source, &copy, &lumps) {
-            Some(bodies) => imported.bodies.extend(bodies),
-            None => {
-                let StepCopy {
-                    name,
-                    solid,
-                    placement,
-                    colour,
-                    opacity,
-                    layer,
-                    faces,
-                } = copy;
-                match solid.mapped(&placement) {
-                    Ok(mapped) => match canonical(&name, &mapped) {
-                        Some(lumps) => {
-                            let opacity = opacity.and_then(nearest_opacity_step);
-                            let faces = face_looks(&faces, opacity, &mapped, &lumps);
-                            imported.bodies.extend(lumps.into_iter().zip(faces).map(
-                                |((stored, step), faces)| ImportedBody {
-                                    import: Import::new(source, stored, step),
-                                    name: name.clone(),
-                                    colour: colour.map(rgb),
-                                    opacity,
-                                    group: layer.clone(),
-                                    faces,
-                                },
-                            ))
-                        }
-                        None => lost.push(name),
-                    },
-                    Err(_) if unplaceable.contains(&name) => {}
-                    Err(_) => unplaceable.push(name),
-                }
+    for (copy, placed) in model.copies.into_iter().zip(placed) {
+        match placed {
+            Some(Placed::Rigidly(bodies) | Placed::Mapped(Some(bodies))) => {
+                imported.bodies.extend(bodies);
             }
+            None | Some(Placed::Mapped(None)) => lost.push(copy.name),
+            Some(Placed::Unplaceable) if unplaceable.contains(&copy.name) => {}
+            Some(Placed::Unplaceable) => unplaceable.push(copy.name),
         }
     }
     for name in lost {
@@ -223,6 +318,62 @@ pub fn parse_step(text: &str, source: &str) -> Result<ModelImport, ImportError> 
         return Err(ImportError::NothingStorable);
     }
     Ok(imported)
+}
+
+enum Placed {
+    Rigidly(Vec<ImportedBody>),
+    Mapped(Option<Vec<ImportedBody>>),
+    Unplaceable,
+}
+
+fn in_parallel<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let threads = thread::available_parallelism()
+        .map_or(1, NonZeroUsize::get)
+        .min(items.len());
+    if threads <= 1 {
+        return items.iter().map(&work).collect();
+    }
+    let next = AtomicUsize::new(0);
+    let interrupt = current_interrupt();
+    let mut results: Vec<Option<R>> = items.iter().map(|_| None).collect();
+    thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                let (next, work, interrupt) = (&next, &work, interrupt.clone());
+                scope.spawn(move || {
+                    let serve = || {
+                        let mut done = Vec::new();
+                        loop {
+                            let at = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(item) = items.get(at) else {
+                                break;
+                            };
+                            if check_interrupt().is_err() {
+                                break;
+                            }
+                            done.push((at, work(item)));
+                        }
+                        done
+                    };
+                    match interrupt {
+                        Some(interrupt) => interruptible(interrupt, serve),
+                        None => serve(),
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            let done = worker
+                .join()
+                .unwrap_or_else(|panic| panic::resume_unwind(panic));
+            for (at, result) in done {
+                if let Some(slot) = results.get_mut(at) {
+                    *slot = Some(result);
+                }
+            }
+        }
+    });
+    results.into_iter().map_while(|result| result).collect()
 }
 
 fn shared(lumps: Option<Vec<(Solid, String)>>) -> Stored {
@@ -376,7 +527,7 @@ fn written_and_read(name: &str, solid: &Solid) -> Option<(String, Vec<Solid>)> {
         SystemTime::UNIX_EPOCH,
     )
     .ok()?;
-    let again = read_step(&step).ok()?;
+    let again = read_own_step(&step).ok()?;
     Some((
         step,
         again.solids.into_iter().map(|read| read.solid).collect(),

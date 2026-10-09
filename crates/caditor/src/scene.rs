@@ -626,8 +626,11 @@ pub fn build(
             editing.is_none() || context.projecting,
             placement,
         );
-        if aids.centres_of_mass && editing.is_none() {
-            builder.centre_of_mass(body, &mesh.mass, placement);
+        if aids.centres_of_mass
+            && editing.is_none()
+            && let Some(mass) = mesh.mass()
+        {
+            builder.centre_of_mass(body, mass, placement);
         }
     }
     if editing.is_none() {
@@ -2049,37 +2052,34 @@ struct EdgeStroke {
     dashed: bool,
 }
 
-fn edge_lines(
-    points: &[Point3],
-    placed: &impl Fn(Point3) -> Point3,
+fn edge_lines<'a>(
+    points: &'a [Point3],
+    placed: &'a impl Fn(Point3) -> Point3,
     stroke: EdgeStroke,
-) -> Vec<Line> {
+) -> impl Iterator<Item = Line> + 'a {
     let mut along = 0.0;
-    points
-        .windows(2)
-        .filter_map(|pair| match pair {
-            [start, end] => {
-                let line_stroke = if stroke.dashed {
-                    Stroke::Dashed {
-                        along: along as f32,
-                    }
-                } else {
-                    Stroke::Solid
-                };
-                along += start.distance(*end);
-                Some(Line {
-                    start: placed(*start),
-                    end: placed(*end),
-                    color: stroke.color,
-                    width: stroke.width,
-                    layer: stroke.layer,
-                    pick: stroke.pick,
-                    stroke: line_stroke,
-                })
-            }
-            _ => None,
-        })
-        .collect()
+    points.windows(2).filter_map(move |pair| match pair {
+        [start, end] => {
+            let line_stroke = if stroke.dashed {
+                Stroke::Dashed {
+                    along: along as f32,
+                }
+            } else {
+                Stroke::Solid
+            };
+            along += start.distance(*end);
+            Some(Line {
+                start: placed(*start),
+                end: placed(*end),
+                color: stroke.color,
+                width: stroke.width,
+                layer: stroke.layer,
+                pick: stroke.pick,
+                stroke: line_stroke,
+            })
+        }
+        _ => None,
+    })
 }
 
 fn curve_segments(plane: Plane, points: &[Point2], dashed: bool) -> impl Iterator<Item = Segment> {
@@ -2446,7 +2446,8 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .unwrap_or_default(),
         Pickable::CentreOfMass(body) => bodies
             .get(body)
-            .map(|mesh| mesh.mass.properties.centroid)
+            .and_then(BodyMesh::mass)
+            .map(|mass| mass.properties.centroid)
             .into_iter()
             .collect(),
         Pickable::ShellFace { feature, face } => bodies

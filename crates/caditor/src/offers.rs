@@ -34,6 +34,7 @@ struct Basis {
     meshing: bool,
     edited: Option<FeatureId>,
     opened: Option<FeatureId>,
+    masses: u64,
 }
 
 pub type Chosen<'a> = (&'a [FeatureId], &'a [FeatureId]);
@@ -144,6 +145,7 @@ impl SelectionOffers {
             meshing: model.bodies_pending(),
             edited: editing.feature(),
             opened: editing.solid(),
+            masses: model.masses_measured(),
         };
         let (_, offers) = match self.current.take() {
             Some((known, offers)) if known == basis => self.current.insert((known, offers)),

@@ -9,7 +9,7 @@ use caditor_document::{
 };
 use caditor_file::{
     ExportBody, ExportFormat, MeshOptions, MeshResolution, PNG_EXTENSION, PngExportError,
-    RgbaImage, bodies_transaction, export_png,
+    ReadingProgress, RgbaImage, bodies_transaction, export_png,
 };
 use caditor_render::{Background, GraphicsSettings, ImageRequest, OffscreenRenderer, SurfaceSize};
 
@@ -219,8 +219,9 @@ fn open(model: &Path) -> Result<Opened> {
         bail!("“{name}” is a drawing, which holds sketches and no bodies to export");
     }
     if import::is_model(model) {
-        let imported = import::read_model(model, &CancelToken::never())
-            .map_err(|error| anyhow!("could not import “{name}”: {error}"))?;
+        let imported =
+            import::read_model(model, &CancelToken::never(), &ReadingProgress::default())
+                .map_err(|error| anyhow!("could not import “{name}”: {error}"))?;
         let mut document = Document::default();
         let transaction = bodies_transaction(&document, &imported.bodies, format!("Import {name}"));
         document

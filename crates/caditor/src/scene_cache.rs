@@ -26,6 +26,7 @@ pub struct Revisions {
     pub evaluation: u64,
     pub sketches: u64,
     pub bodies: u64,
+    pub masses: u64,
     pub style: DisplayStyle,
     pub aids: ViewAids,
     pub analysed: u64,

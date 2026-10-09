@@ -154,20 +154,35 @@ paths:
   Curve smoothness preference reaches it through `Model::set_mesh_quality` at startup and on each
   change (`app::apply_preferences`), followed by a new submission so every body is meshed again.
 - `BodyMeshing` (`bodies.rs`) converts each body's final mesh (and the state before the open blend
-  or shell and the open cut's tools, `Model::mesh_before`) into a `ShadedMesh` with edge polylines on its own worker, once
-  per result keyed by its `Arc`. A panic leaves that body meshless; without a worker it runs on
-  the UI thread. `BodyMeshes` takes each conversion on arrival, keeping the previous mesh until
-  then, so the UI thread only uploads buffers.
+  or shell and the open cut's tools, `Model::mesh_before`) into a `ShadedMesh` with edge polylines
+  on a pool of its own (`Pool`: threads started as queued work outgrows the idle ones, up to the
+  available parallelism less one, conversions taken before mass properties), once per result
+  keyed by its `Arc`'s address. A panic leaves that body meshless; without a worker it runs on the
+  UI thread. Arrivals are held and shown together: the first at once, then all that arrived
+  whenever `SHOWN_TOGETHER_FOR` has passed since the last showing or nothing is left to convert,
+  so a large import is drawn in a few batches and the base scene is rebuilt a few times rather
+  than once per body. `BodyMeshes` takes each batch, keeping the previous mesh until then, so the
+  UI thread only uploads buffers. While bodies are pending the status bar's summary says how many
+  of them are shown (`Model::bodies_preparing`, "Showing 300 of 954 bodies…"), its spinner's
+  repaints also letting held batches out.
 - A face is `Pickable::Face` with a `FaceKey` (`FaceName` plus occurrence among same-named
   faces), an edge `Pickable::Edge` with its `EdgeName`, a vertex `Pickable::Vertex` with a
   `VertexKey`, found through the result's `NameIndex` and described in words from the
   `FaceOrigin`, never by index.
 - Vertices are colourless markers: they pick (winning over edges and faces nearby) but show only
-  when hovered or selected. The conversion worker also computes each body's `BodyMass` (volume,
-  area, centroid, second moments and bounding-box size) and each face's area (`BodyFace::area`)
-  exactly from the kernel (`mass_properties`, `extent`), independent of the mesh. A face the
-  kernel could not integrate takes the mesh's triangles, and the body is then marked approximate
-  with the mesh's chord (`MassAccuracy::Mesh`).
+  when hovered or selected.
+- A body's `BodyMass` (volume, area, centroid, second moments and bounding-box size) and its faces'
+  areas are worked out exactly from the kernel (`mass_properties`, `extent`), independent of the
+  mesh, only once something asks (`BodyMesh::mass`, `BodyMesh::face_area`): the first asking
+  queues the work on the pool behind the conversions (`MassSlot`, shared by clones of the
+  `BodyMesh`; worked out inline when the pool is gone), since adaptive quadrature over every face
+  of a large import (185 s for the VZ330 assembly on one thread) must not hold its meshes back.
+  Until it arrives Measure's card says it is being worked out, the centre-of-mass aid leaves the
+  body out and a face's area falls back to its mesh triangles (≈); each arrival bumps
+  `Model::masses_measured`, which the offers, Measure and, while the centre-of-mass aid is on, the
+  scene key (`Revisions::masses`) watch. A face the kernel could not integrate takes the mesh's
+  triangles, and the body is then marked approximate with the mesh's chord
+  (`MassAccuracy::Mesh`).
 - A body is drawn in its appearance colour, else the default (`body_appearance::DEFAULT_COLOUR`);
   a failed or outdated feature on it tints it as before. While a sketch is edited, bodies are
   dimmed and not pickable.
@@ -189,7 +204,8 @@ paths:
   width × height (longer first), a full circle its circle parts, any other its perimeter, each
   then its area; a cylinder or sphere face Ø and R, a cone its half angle and a torus its ring
   and tube radii, then the area; a body its Size, which the status bar shows beside the selection;
-  the offers are worked out again when the bodies' meshes finish (`Model::bodies_pending`), since
+  the offers are worked out again when the bodies' meshes finish (`Model::bodies_pending`) and
+  when mass properties arrive (`Model::masses_measured`), since
   areas and sizes read the converted body (a face's area falls back to its mesh triangles,
   marked ≈, until then).
 - `Selection::generation` is globally unique per content change, so caches key on it rather than

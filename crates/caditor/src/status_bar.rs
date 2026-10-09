@@ -305,6 +305,11 @@ fn recompute_status(
 }
 
 fn summary(ui: &mut Ui, model: &Model, panels: &mut PanelState, hovers: &Hovers) {
+    if let Some((shown, bodies)) = model.bodies_preparing() {
+        widgets::spinner(ui);
+        ui.label(format!("Showing {shown} of {bodies} bodies…"));
+        return;
+    }
     let tokens = appearance::tokens(ui);
     match model.evaluation().failed_count() {
         0 => {

@@ -12,7 +12,7 @@ use caditor_kernel::{
 
 use crate::read::{
     conform::{Conformed, LooseBody, LooseEdge, conform},
-    geometry::Geometry,
+    geometry::{Crossings, Geometry},
     graph::{Entity, Graph, Problem, Read, friendly},
     loose::{exact_kind, farthest, met_at_ends},
 };
@@ -303,7 +303,7 @@ impl<'g, 'a> Topology<'g, 'a> {
                 .build()
                 .map_err(|error| Problem::new(id, describe_build(&error, precision)))?
         };
-        let check = if faceted {
+        let check = if faceted || self.geometry.crossings == Crossings::Trusted {
             CrossingCheck::Clear
         } else {
             solid.find_crossing().map_err(|_| {

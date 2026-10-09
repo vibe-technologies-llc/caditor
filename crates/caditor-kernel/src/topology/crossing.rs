@@ -1,10 +1,16 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    num::NonZeroUsize,
+    panic,
+    sync::atomic::{AtomicUsize, Ordering},
+    thread,
+};
 
 use caditor_geometry::{Aabb, Aabb2, Point2, Point3};
 
 use crate::{
     box_tree::BoxTree,
-    interrupt::{self, Interrupted},
+    interrupt::{self, Interrupted, interruptible},
     intersect::{
         SurfaceIntersection, SurfacePatch, intersect_curve_surface, intersect_curves,
         intersect_surfaces, patch_bounds,
@@ -16,6 +22,7 @@ use crate::{
 const BRANCH_SAMPLES: usize = 9;
 const FACE_SAMPLES: usize = 7;
 const NEAR_SHARED_VERTEX: f64 = PCURVE_TOLERANCE;
+const PAIRS_PER_THREAD: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Crossing {
@@ -173,39 +180,43 @@ impl Solid {
         }
         let classifier = self.classifier();
         let tree = BoxTree::new(extents.iter().map(|extent| extent.bounds));
-        for (index, first) in extents.iter().enumerate() {
-            let later = tree
-                .overlapping(&first.bounds, LINEAR_RESOLUTION)
-                .into_iter()
-                .filter(|other| *other > index)
-                .filter_map(|other| extents.get(other));
-            for second in later {
-                interrupt::check()?;
-                let found = if neighbours.contains(&(first.id, second.id)) {
-                    let (Some(first_boundary), Some(second_boundary)) =
-                        (boundaries.get(&first.id), boundaries.get(&second.id))
-                    else {
-                        inconclusive.get_or_insert([first.id, second.id]);
-                        continue;
-                    };
-                    self.edges_piercing(&classifier, first_boundary, second, second_boundary)?
-                        .then_check(|| {
-                            self.edges_piercing(&classifier, second_boundary, first, first_boundary)
-                        })?
-                } else {
-                    self.crossing_between(&classifier, first, second)
-                };
-                match found {
-                    Probe::Clear => {}
-                    Probe::Crossing(point) => {
-                        return Ok(CrossingCheck::Crossing(Crossing {
-                            faces: [first.id, second.id],
-                            point,
-                        }));
-                    }
-                    Probe::Inconclusive => {
-                        inconclusive.get_or_insert([first.id, second.id]);
-                    }
+        let pairs: Vec<(&Extent, &Extent)> = extents
+            .iter()
+            .enumerate()
+            .flat_map(|(index, first)| {
+                tree.overlapping(&first.bounds, LINEAR_RESOLUTION)
+                    .into_iter()
+                    .filter(move |other| *other > index)
+                    .filter_map(|other| extents.get(other))
+                    .map(move |second| (first, second))
+            })
+            .collect();
+        let probe = |&(first, second): &(&Extent, &Extent)| {
+            interrupt::check()?;
+            if !neighbours.contains(&(first.id, second.id)) {
+                return Ok(self.crossing_between(&classifier, first, second));
+            }
+            let (Some(first_boundary), Some(second_boundary)) =
+                (boundaries.get(&first.id), boundaries.get(&second.id))
+            else {
+                return Ok(Probe::Inconclusive);
+            };
+            self.edges_piercing(&classifier, first_boundary, second, second_boundary)?
+                .then_check(|| {
+                    self.edges_piercing(&classifier, second_boundary, first, first_boundary)
+                })
+        };
+        for ((first, second), found) in pairs.iter().zip(probed(&pairs, probe)?) {
+            match found {
+                Probe::Clear => {}
+                Probe::Crossing(point) => {
+                    return Ok(CrossingCheck::Crossing(Crossing {
+                        faces: [first.id, second.id],
+                        point,
+                    }));
+                }
+                Probe::Inconclusive => {
+                    inconclusive.get_or_insert([first.id, second.id]);
                 }
             }
         }
@@ -400,8 +411,91 @@ impl Solid {
     }
 }
 
+fn probed<T: Sync>(
+    items: &[T],
+    probe: impl Fn(&T) -> Result<Probe, Interrupted> + Sync,
+) -> Result<Vec<Probe>, Interrupted> {
+    let threads = thread::available_parallelism()
+        .map_or(1, NonZeroUsize::get)
+        .min(items.len() / PAIRS_PER_THREAD);
+    if threads <= 1 {
+        let mut found = Vec::with_capacity(items.len());
+        for item in items {
+            let probe = probe(item)?;
+            found.push(probe);
+            if matches!(probe, Probe::Crossing(_)) {
+                break;
+            }
+        }
+        return Ok(found);
+    }
+    let next = AtomicUsize::new(0);
+    let crossed = AtomicUsize::new(usize::MAX);
+    let interrupt = interrupt::current();
+    let mut found: Vec<Option<Probe>> = vec![None; items.len()];
+    let mut interrupted = false;
+    thread::scope(|scope| {
+        let workers: Vec<_> = (0..threads)
+            .map(|_| {
+                let (next, crossed, probe, interrupt) =
+                    (&next, &crossed, &probe, interrupt.clone());
+                scope.spawn(move || {
+                    let serve = || {
+                        let mut done = Vec::new();
+                        loop {
+                            let at = next.fetch_add(1, Ordering::Relaxed);
+                            if at > crossed.load(Ordering::Relaxed) {
+                                return Ok(done);
+                            }
+                            let Some(item) = items.get(at) else {
+                                return Ok(done);
+                            };
+                            let found = probe(item)?;
+                            if matches!(found, Probe::Crossing(_)) {
+                                crossed.fetch_min(at, Ordering::Relaxed);
+                            }
+                            done.push((at, found));
+                        }
+                    };
+                    match interrupt {
+                        Some(interrupt) => interruptible(interrupt, serve),
+                        None => serve(),
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            match worker.join() {
+                Ok(Ok(done)) => {
+                    for (at, probe) in done {
+                        if let Some(slot) = found.get_mut(at) {
+                            *slot = Some(probe);
+                        }
+                    }
+                }
+                Ok(Err(Interrupted)) => interrupted = true,
+                Err(panic) => panic::resume_unwind(panic),
+            }
+        }
+    });
+    if interrupted {
+        return Err(Interrupted);
+    }
+    let decided = crossed.into_inner().saturating_add(1);
+    Ok(found
+        .into_iter()
+        .take(decided)
+        .map_while(|probe| probe)
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering::SeqCst},
+    };
+
     use super::*;
 
     #[test]
@@ -437,5 +531,42 @@ mod tests {
         assert_eq!(doubtful.record(Probe::Inconclusive), None);
         assert_eq!(doubtful.record(Probe::Clear), None);
         assert_eq!(doubtful.outcome(), Probe::Inconclusive);
+    }
+
+    #[test]
+    fn pairs_probed_in_parallel_stop_at_the_first_crossing_in_order() {
+        let point = Point3::new(1.0, 2.0, 3.0);
+        let pairs: Vec<usize> = (0..4_000).collect();
+        let probe = |pair: &usize| {
+            Ok(match pair {
+                100 => Probe::Inconclusive,
+                1_500 | 3_000 => Probe::Crossing(point),
+                _ => Probe::Clear,
+            })
+        };
+        let none = |_: &usize| Ok(Probe::Clear);
+        let stop = Arc::new(AtomicBool::new(true));
+        let flag = Arc::clone(&stop);
+
+        let found = probed(&pairs, probe).unwrap();
+        let clear = probed(&pairs, none).unwrap();
+        let few = probed(&pairs[..10], probe).unwrap();
+        let interrupted = interruptible(Arc::new(move || flag.load(SeqCst)), || {
+            probed(&pairs, |_| interrupt::check().map(|()| Probe::Clear))
+        });
+
+        assert_eq!(found.len(), 1_501);
+        assert_eq!(found.get(100), Some(&Probe::Inconclusive));
+        assert_eq!(found.last(), Some(&Probe::Crossing(point)));
+        assert!(
+            found
+                .iter()
+                .take(1_500)
+                .all(|probe| !matches!(probe, Probe::Crossing(_)))
+        );
+        assert_eq!(clear.len(), pairs.len());
+        assert_eq!(few.len(), 10);
+        assert_eq!(interrupted, Err(Interrupted));
+        assert!(stop.load(SeqCst));
     }
 }

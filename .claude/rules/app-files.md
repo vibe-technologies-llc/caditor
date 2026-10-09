@@ -247,8 +247,12 @@ paths:
   through `run_where_possible`: when the thread cannot be started the job runs on the UI thread,
   logged. Each job counts an attempt (`Files::import_attempt`) and carries it in its event; the
   result of a cancelled job is ignored, so a late result never clears or fills a newer one.
-- Importing shows in the status bar with a Cancel button and the palette command Cancel the import
-  (`Command::CancelImport`, offered only while a file is being read). Cancelling raises the job's
+- Importing shows in the status bar with how far it has got and a Cancel button: each job carries a
+  `ReadingProgress` (`Importing::progress`) the reader fills (`ModelReader` takes it,
+  `read_step_file_reporting`), shown as "Importing “x.step”: 340 of 1204 solids built…", then
+  parts stored (`files::import_text`); the palette command Cancel the import
+  (`Command::CancelImport`, offered only while a file is being read) does the same as the button.
+  Cancelling raises the job's
   `CancelToken` (the readers poll it, `file-import-export.md`), forgets the job at once, drops
   its result even if the reader ignores the token, clears dropped files still queued and says so
   in a notice. A pick still waiting on the file dialog is stopped with Stop waiting instead.

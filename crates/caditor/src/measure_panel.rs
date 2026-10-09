@@ -8,7 +8,7 @@ use egui::{ComboBox, Label, Popup, ScrollArea, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
-    bodies::{BodyMass, BodyMeshes, MassAccuracy},
+    bodies::{BodyMass, BodyMesh, BodyMeshes, MassAccuracy},
     datum_tools, field,
     guide::Page,
     guide_panel, icons,
@@ -40,7 +40,7 @@ const MAX_MASS_CARDS: usize = 50;
 const MASS_SECTION: &str = "measure-mass";
 const STALE_OPACITY: f32 = 0.5;
 const DIRECTION_STEP: f64 = 1e-4;
-const MESHING: &str = "Waiting for the body's mesh.";
+const WORKING_OUT_MASS: &str = "Working out this body's mass properties.";
 const NO_DENSITY: &str = "No density set";
 const GRAMS_PER_KILOGRAM: f64 = 1000.0;
 const GRAMS_PER_CUBIC_MILLIMETRE: f64 = 1e-3;
@@ -339,7 +339,7 @@ fn mass_card(
         return Card {
             title: name,
             rows: Vec::new(),
-            notes: vec![(Tone::Neutral, MESHING.to_owned())],
+            notes: vec![(Tone::Neutral, WORKING_OUT_MASS.to_owned())],
         };
     };
     let (approximate, notes) = match mass.accuracy {
@@ -557,7 +557,7 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
             );
             mass_card(
                 name,
-                context.bodies.get(*body).map(|mesh| &mesh.mass),
+                context.bodies.get(*body).and_then(BodyMesh::mass),
                 unit,
                 &substance_of(*body),
             )
@@ -569,7 +569,8 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
             context
                 .bodies
                 .get(*body)
-                .map(|mesh| (&mesh.mass, substance_of(*body)))
+                .and_then(BodyMesh::mass)
+                .map(|mass| (mass, substance_of(*body)))
         })
         .collect();
     Masses {

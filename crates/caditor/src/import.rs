@@ -9,8 +9,8 @@ use caditor_document::{
 };
 use caditor_file::{
     Drawing, ImportError, ImportedBody, MAX_MODEL_RECORDS, MeshFormat, ModelImport,
-    STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction, drawing_transaction, read_mesh_file,
-    read_step_file,
+    ReadingProgress, STEP_IMPORT_EXTENSIONS, SketchTarget, bodies_transaction, drawing_transaction,
+    read_mesh_file, read_step_file_reporting,
 };
 
 use crate::{
@@ -153,10 +153,14 @@ pub fn is_model(path: &Path) -> bool {
     by_extension || MeshFormat::of(path).is_some() || starts_like_step(path)
 }
 
-pub fn read_model(path: &Path, cancel: &CancelToken) -> Result<ModelImport, ImportError> {
+pub fn read_model(
+    path: &Path,
+    cancel: &CancelToken,
+    progress: &ReadingProgress,
+) -> Result<ModelImport, ImportError> {
     let mut imported = match MeshFormat::of(path) {
         Some(_) => read_mesh_file(path, cancel),
-        None => read_step_file(path, cancel),
+        None => read_step_file_reporting(path, cancel, progress),
     }?;
     let kept = path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     for body in &mut imported.bodies {

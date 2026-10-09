@@ -28,5 +28,7 @@ Anything worth knowing (the unit used, objects left out, curves fitted, edges re
 that could not be understood) is listed in a report when the import finishes. A file in inches or feet is converted to millimetres, and the
 report says so.
 
-Reading runs in the background; the status bar shows it with Cancel, and
-{command:file.cancel_import} stops it.
+Reading runs in the background; the status bar shows how far it has got (the solids built, then
+the parts stored) with Cancel, and {command:file.cancel_import} stops it. Once read, the bodies are
+shown as they are ready: the first ones at once, the rest in a few batches, while the status bar
+counts how many of them are shown.

@@ -50,3 +50,9 @@ paths:
   a test calls itself; `Harness::repaint_after` is the repaint delay egui reported for the last
   frame (`Duration::MAX` when nothing asked), so a test can hold that a widget's timer runs only
   while it is shown.
+- The ignored `a_large_step_import_is_timed_stage_by_stage` (`ui_tests/import_costs.rs`) times a
+  STEP import stage by stage (reading and healing, adding, recompute, tessellation, display
+  conversion, mass properties, scene, offscreen upload), then through the harness from the Import
+  command to every body shown, listing each frame over 50 ms. It synthesises a file of copies of the
+  samples and asserts the import stays within `SYNTHESISED_WITHIN`, or times the file
+  `CADITOR_IMPORT_FILE` names; the nightly stress job runs it.

@@ -1,8 +1,11 @@
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     f64::consts::FRAC_PI_2,
-    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use caditor_geometry::{Plane, Point3, Similarity, Vector3};
@@ -125,11 +128,11 @@ fn spline_degree(value: i64, id: u64) -> Read<usize> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Work(Rc<Cell<usize>>);
+pub(crate) struct Work(Arc<AtomicUsize>);
 
 impl Work {
     pub fn new(budget: usize) -> Self {
-        Self(Rc::new(Cell::new(budget)))
+        Self(Arc::new(AtomicUsize::new(budget)))
     }
 
     pub fn charge(&self, id: u64) -> Read<()> {
@@ -137,22 +140,33 @@ impl Work {
     }
 
     pub fn charge_many(&self, id: u64, amount: usize) -> Read<()> {
-        let left = self.0.get();
-        if left < amount {
-            self.0.set(0);
-            return Err(Problem::new(
+        let charged = self
+            .0
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
+                Some(left.saturating_sub(amount))
+            })
+            .is_ok_and(|left| left >= amount);
+        if charged {
+            Ok(())
+        } else {
+            Err(Problem::new(
                 id,
                 "is part of a model too intricate to import in one go",
-            ));
+            ))
         }
-        self.0.set(left - amount);
-        Ok(())
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Crossings {
+    Checked,
+    Trusted,
 }
 
 pub(crate) struct Geometry<'a> {
     pub graph: Graph<'a>,
     pub units: Units,
+    pub crossings: Crossings,
     work: Work,
     curves: RefCell<BTreeMap<u64, Read<Curve>>>,
     surfaces: RefCell<BTreeMap<u64, Read<Surface>>>,
@@ -164,11 +178,16 @@ impl<'a> Geometry<'a> {
         Self {
             graph,
             units,
+            crossings: Crossings::Checked,
             work,
             curves: RefCell::new(BTreeMap::new()),
             surfaces: RefCell::new(BTreeMap::new()),
             reversed: RefCell::new(BTreeSet::new()),
         }
+    }
+
+    pub fn with_crossings(self, crossings: Crossings) -> Self {
+        Self { crossings, ..self }
     }
 
     pub fn charge(&self, id: u64) -> Read<()> {

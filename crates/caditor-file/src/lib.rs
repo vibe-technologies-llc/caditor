@@ -43,10 +43,10 @@ pub use crate::{
     import::{
         DRAWING_IMPORT_EXTENSIONS, DXF_EXTENSION, Drawing, DrawingCurve, DrawingImport,
         DrawingOptions, DrawingUnit, ImportError, ImportedBody, ImportedFace, MAX_DRAWING_CURVES,
-        MAX_SCALE, MESH_IMPORT_EXTENSIONS, MIN_SCALE, MeshFormat, ModelImport,
-        STEP_IMPORT_EXTENSIONS, SVG_EXTENSIONS, SketchTarget, bodies_transaction,
+        MAX_SCALE, MESH_IMPORT_EXTENSIONS, MIN_SCALE, MeshFormat, ModelImport, ReadingProgress,
+        ReadingStage, STEP_IMPORT_EXTENSIONS, SVG_EXTENSIONS, SketchTarget, bodies_transaction,
         drawing_transaction, parse_dxf, parse_mesh, parse_step, parse_svg, read_drawing, read_dxf,
-        read_mesh_file, read_step_file,
+        read_mesh_file, read_step_file, read_step_file_reporting,
     },
     journal::JournalEntry,
     load::{LoadError, Loaded, MAX_RECORDS, decode, history, load, load_cancellable, load_version},
