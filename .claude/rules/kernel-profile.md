@@ -56,6 +56,17 @@ paths:
   `LINEAR_RESOLUTION` are one (an arc sampled from a crossing starts a rounding error off the line
   ending there, and keeping both made the constrained triangulation refuse the region, leaving it
   without a fill to draw or click).
+- `section_of` (and `Region::section`) gives the section properties of a set of regions of one
+  profile: area, perimeter, centroid, and second moments about the centroid along the sketch axes
+  (`AreaMoments`: Ix = ∫y², Iy = ∫x², the product Ixy, the polar moment) with the principal moments
+  and the angle from x to the axis of the larger (`PrincipalMoments`, no angle when the two agree
+  within `ISOTROPIC_SHARE`, as for a circle or square). Green's theorem over each piece as the
+  signed fan from a reference point at the centre of the bounds (so far-off sketches keep their
+  digits): lines and arcs in closed form (an arc as two triangles through its centre plus the
+  sector), splines by adaptive Gauss-Legendre quadrature against `QUADRATURE_TOLERANCE` of the
+  size, which makes the whole section `Accuracy::Approximate`. Regions of a profile are disjoint,
+  so their integrals add; a piece met on both sides (the same `PieceId` left and right) is inside
+  the union and adds no perimeter.
 - A `RegionReference` keeps what a feature chose: the key, the boundary pieces and an anchor (the
   centroid of the largest triangle of `Region::triangulate`, `RegionMesh::anchor`). `resolve` gives
   `Same` when the key still exists, else `Healed` to the region most like it among those sharing at

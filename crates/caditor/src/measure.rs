@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     f64::consts::TAU,
     panic::{self, AssertUnwindSafe},
     sync::{
@@ -9,11 +10,11 @@ use std::{
 };
 
 use caditor_document::{DatumResult, FeatureId, FeatureResult, profile_curve};
-use caditor_geometry::{Point3, Vector3};
+use caditor_geometry::{Plane, Point3, Vector3};
 use caditor_kernel::{
     Accuracy, AngleKind, Axis, Curve, EdgeForm, EdgeId, EdgeMeasure, Element, FaceForm, FaceId,
-    Interval, LINEAR_RESOLUTION, MeasureError, Separation, angle, axis_of, axis_separation,
-    curve_measure, distance, edge_measure, face_form, planar_area,
+    Interval, LINEAR_RESOLUTION, MeasureError, Region, Separation, angle, axis_of, axis_separation,
+    curve_measure, distance, edge_measure, face_form, planar_area, section_of,
 };
 
 use crate::{
@@ -21,13 +22,13 @@ use crate::{
     datum_tools,
     model::{Model, Waker},
     scene,
-    selection::{Pickable, Selection},
+    selection::{self, Pickable, Selection},
 };
 
 pub const TOO_MANY: &str = "Select one or two items to measure between them.";
 pub const FAILED: &str = "The measurement could not be worked out for this selection.";
 pub const UNMEASURABLE: &str =
-    "Only points, edges, faces, sketch curves, planes and axes can be measured.";
+    "Only points, edges, faces, sketch curves, sketch regions, planes and axes can be measured.";
 pub const APPROXIMATELY: &str = "≈ ";
 const FULL_TURN_SLACK: f64 = 1e-9;
 const PARALLEL_SINE: f64 = 1e-9;
@@ -39,6 +40,7 @@ pub enum Value {
     Angle(f64),
     Position(Point3),
     Direction(Vector3),
+    SecondMoment(f64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,6 +110,11 @@ enum Subject {
         normal: Vector3,
     },
     CentreOfMass(Arc<FeatureResult>),
+    Regions {
+        sketch: FeatureId,
+        plane: Plane,
+        regions: Vec<Region>,
+    },
     Unmeasurable,
 }
 
@@ -141,7 +148,7 @@ impl Item {
             Subject::CentreOfMass(result) => Some(Element::Point(
                 result.solid()?.mesh()?.mass_properties().centroid,
             )),
-            Subject::Unmeasurable => None,
+            Subject::Regions { .. } | Subject::Unmeasurable => None,
         }
     }
 }
@@ -210,8 +217,17 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
             DatumResult::Point(point) => Subject::Point(point),
         },
         Pickable::CentreOfMass(body) => Subject::CentreOfMass(body_result(model, body)?),
+        Pickable::SketchRegion { feature, region } => {
+            let found = selection::sketch_regions(evaluation, feature)?
+                .iter()
+                .find(|candidate| candidate.region.key() == region)?;
+            Subject::Regions {
+                sketch: feature,
+                plane: scene::sketch_plane(model.document(), evaluation, feature)?,
+                regions: vec![found.region.clone()],
+            }
+        }
         Pickable::SketchConstraint { .. }
-        | Pickable::SketchRegion { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
         | Pickable::ShellFace { .. } => Subject::Unmeasurable,
@@ -250,6 +266,7 @@ pub fn size_text(model: &Model, pickable: Pickable) -> Option<String> {
     let (label, readings) = match &item.subject {
         Subject::Face { .. } => ("Area", readings_of(&item, item.element()?).ok()?),
         Subject::Edge { .. } => ("Length", readings_of(&item, item.element()?).ok()?),
+        Subject::Regions { plane, regions, .. } => ("Area", section_readings(plane, regions)?),
         _ => return None,
     };
     let reading = readings
@@ -283,13 +300,67 @@ pub fn body_size_text(model: &Model, body: FeatureId) -> Option<String> {
 }
 
 fn items_of(model: &Model, selection: &Selection) -> Vec<Item> {
+    let document = model.document();
+    let mut items: Vec<Item> = Vec::new();
+    for pickable in selection.iter() {
+        let name = || pickable.describe(document, model.evaluation());
+        match subject_of(model, pickable).unwrap_or(Subject::Unmeasurable) {
+            Subject::Regions {
+                sketch,
+                plane,
+                regions,
+            } => match regions_of_sketch(&mut items, sketch) {
+                Some(gathered) => gathered.extend(regions),
+                None => items.push(Item {
+                    name: name(),
+                    subject: Subject::Regions {
+                        sketch,
+                        plane,
+                        regions,
+                    },
+                }),
+            },
+            subject => items.push(Item {
+                name: name(),
+                subject,
+            }),
+        }
+    }
+    for item in &mut items {
+        if let Subject::Regions {
+            sketch, regions, ..
+        } = &item.subject
+            && regions.len() > 1
+        {
+            let sketch = document
+                .feature(*sketch)
+                .map_or("the sketch", |feature| feature.name.as_str());
+            item.name = format!("{sketch} › {} regions", regions.len());
+        }
+    }
+    items
+}
+
+fn regions_of_sketch(items: &mut [Item], sketch: FeatureId) -> Option<&mut Vec<Region>> {
+    items.iter_mut().find_map(|item| match &mut item.subject {
+        Subject::Regions {
+            sketch: gathered,
+            regions,
+            ..
+        } if *gathered == sketch => Some(regions),
+        _ => None,
+    })
+}
+
+fn item_count(selection: &Selection) -> usize {
+    let mut sketches = BTreeSet::new();
     selection
         .iter()
-        .map(|pickable| Item {
-            name: pickable.describe(model.document(), model.evaluation()),
-            subject: subject_of(model, pickable).unwrap_or(Subject::Unmeasurable),
+        .filter(|pickable| match pickable {
+            Pickable::SketchRegion { feature, .. } => sketches.insert(*feature),
+            _ => true,
         })
-        .collect()
+        .count()
 }
 
 fn read(items: &[Item]) -> Readout {
@@ -326,6 +397,13 @@ fn too_many() -> Readout {
 
 fn describe(item: &Item) -> Group {
     let (readings, problem) = match (&item.subject, item.element()) {
+        (Subject::Regions { plane, regions, .. }, _) => match section_readings(plane, regions) {
+            Some(readings) => (readings, None),
+            None => {
+                log::warn!("measuring {} found no area", item.name);
+                (Vec::new(), Some(FAILED.to_owned()))
+            }
+        },
         (Subject::Unmeasurable, _) | (_, None) => (Vec::new(), Some(UNMEASURABLE.to_owned())),
         (_, Some(element)) => match readings_of(item, element) {
             Ok(readings) => (readings, None),
@@ -399,6 +477,48 @@ fn readings_of(item: &Item, element: Element<'_>) -> Result<Vec<Reading>, Measur
             readings
         }
     })
+}
+
+fn section_readings(plane: &Plane, regions: &[Region]) -> Option<Vec<Reading>> {
+    let section = section_of(regions)?;
+    let accuracy = section.accuracy;
+    let moments = section.moments;
+    let principal = moments.principal();
+    let reading = |label, value| Reading::with(label, value, accuracy);
+    let mut readings = vec![
+        reading("Area", Value::Area(section.area)),
+        reading("Perimeter", Value::Length(section.perimeter)),
+        reading(
+            "Centroid",
+            Value::Position(plane.to_world(section.centroid)),
+        ),
+        reading(
+            "Ix about the centroid",
+            Value::SecondMoment(moments.about_x),
+        ),
+        reading(
+            "Iy about the centroid",
+            Value::SecondMoment(moments.about_y),
+        ),
+        reading(
+            "Ixy about the centroid",
+            Value::SecondMoment(moments.product),
+        ),
+        reading("Polar moment J", Value::SecondMoment(moments.polar())),
+        reading("Principal moment I1", Value::SecondMoment(principal.major)),
+        reading("Principal moment I2", Value::SecondMoment(principal.minor)),
+    ];
+    if let Some(turn) = principal.angle {
+        let (sin, cos) = turn.sin_cos();
+        readings.extend([
+            reading("Principal angle from x", Value::Angle(turn)),
+            reading(
+                "Principal axis of I1",
+                Value::Direction(plane.x_axis() * cos + plane.y_axis() * sin),
+            ),
+        ]);
+    }
+    Some(readings)
 }
 
 fn curve_readings(measured: EdgeMeasure) -> Vec<Reading> {
@@ -630,7 +750,7 @@ impl Measurements {
         if self.basis.as_ref() != Some(&basis) {
             self.basis = Some(basis);
             self.restart();
-            match selection.len() {
+            match item_count(selection) {
                 0 => self.arrive(self.ticket, Readout::default()),
                 1 | 2 => self.submit(model, items_of(model, selection)),
                 _ => self.arrive(self.ticket, too_many()),

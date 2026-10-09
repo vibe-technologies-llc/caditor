@@ -70,9 +70,10 @@ pub use crate::{
     },
     pattern::{PatternCopy, PatternError, pattern, pattern_copies},
     profile::{
-        BoundaryPiece, Neighbour, OpenEnd, Piece, PieceBound, PieceId, Profile, ProfileCurve,
-        ProfileError, ProfileLoop, ProfileShape, Region, RegionKey, RegionMatch, RegionMesh,
-        RegionReference, ResolvedRegions, Selection, Side, resolve_regions,
+        AreaMoments, BoundaryPiece, Neighbour, OpenEnd, Piece, PieceBound, PieceId,
+        PrincipalMoments, Profile, ProfileCurve, ProfileError, ProfileLoop, ProfileShape, Region,
+        RegionKey, RegionMatch, RegionMesh, RegionReference, ResolvedRegions, Section, Selection,
+        Side, resolve_regions, section_of,
     },
     sense::Sense,
     shell::{OffsetError, ShellError, offset_faces, shell},
