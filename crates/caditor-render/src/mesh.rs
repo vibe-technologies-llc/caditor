@@ -1,10 +1,11 @@
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
+use ahash::AHashMap;
 use caditor_geometry::{Aabb, Point3, RigidTransform, Vector3};
 use glam::Vec3;
 
 use crate::{
-    by_mesh::{ByMesh, OfMesh},
+    by_mesh::{ByMesh, OfMesh, mesh_key},
     culling::{ClipWindow, placed_corners},
     gpu::{self, Bytes, Pack},
     scene::{Color, PickId},
@@ -517,9 +518,157 @@ impl MeshUpload {
             .all(|part| part.advance(&self.mesh, queue, budget))
     }
 
-    fn finish(self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> GpuMesh {
-        let parts = self.parts.into_iter().map(|part| part.gpu).collect();
-        GpuMesh::with_parts(device, layout, self.mesh, parts)
+    fn into_parts(self) -> Arc<[GpuPart]> {
+        self.parts.into_iter().map(|part| part.gpu).collect()
+    }
+}
+
+enum Pooled {
+    Unstarted,
+    Uploading(MeshUpload),
+    Ready(Arc<[GpuPart]>),
+    Refused,
+}
+
+struct PoolEntry {
+    mesh: Arc<ShadedMesh>,
+    state: Pooled,
+    asked: u64,
+}
+
+enum Parts {
+    Ready(Arc<[GpuPart]>),
+    Uploading,
+    Refused,
+    NewlyRefused,
+}
+
+pub struct MeshPool {
+    entries: AHashMap<usize, PoolEntry>,
+    frame: u64,
+    asked: usize,
+    uploading: bool,
+    uploading_now: bool,
+}
+
+impl Default for MeshPool {
+    fn default() -> Self {
+        Self {
+            entries: AHashMap::new(),
+            frame: 1,
+            asked: 0,
+            uploading: false,
+            uploading_now: false,
+        }
+    }
+}
+
+impl MeshPool {
+    pub fn sibling(&self) -> Self {
+        let entries = self
+            .entries
+            .iter()
+            .filter_map(|(key, entry)| {
+                let state = match &entry.state {
+                    Pooled::Ready(parts) => Pooled::Ready(Arc::clone(parts)),
+                    Pooled::Refused => Pooled::Refused,
+                    Pooled::Unstarted | Pooled::Uploading(_) => return None,
+                };
+                let entry = PoolEntry {
+                    mesh: Arc::clone(&entry.mesh),
+                    state,
+                    asked: 0,
+                };
+                Some((*key, entry))
+            })
+            .collect();
+        Self {
+            entries,
+            ..Self::default()
+        }
+    }
+
+    pub fn is_uploading(&self) -> bool {
+        self.uploading
+    }
+
+    fn keep(&mut self, mesh: &Arc<ShadedMesh>, parts: &Arc<[GpuPart]>) {
+        let entry = self
+            .entries
+            .entry(mesh_key(mesh))
+            .or_insert_with(|| PoolEntry {
+                mesh: Arc::clone(mesh),
+                state: Pooled::Ready(Arc::clone(parts)),
+                asked: 0,
+            });
+        if entry.asked != self.frame {
+            entry.asked = self.frame;
+            self.asked += 1;
+        }
+    }
+
+    fn parts(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mesh: &Arc<ShadedMesh>,
+        budget: &mut UploadBudget,
+    ) -> Parts {
+        let entry = self
+            .entries
+            .entry(mesh_key(mesh))
+            .or_insert_with(|| PoolEntry {
+                mesh: Arc::clone(mesh),
+                state: Pooled::Unstarted,
+                asked: 0,
+            });
+        if entry.asked != self.frame {
+            entry.asked = self.frame;
+            self.asked += 1;
+        }
+        match &entry.state {
+            Pooled::Ready(parts) => return Parts::Ready(Arc::clone(parts)),
+            Pooled::Refused => return Parts::Refused,
+            Pooled::Unstarted | Pooled::Uploading(_) => {}
+        }
+        let started = std::mem::replace(&mut entry.state, Pooled::Refused);
+        let (state, error) = gpu::scoped(device, || {
+            let mut upload = match started {
+                Pooled::Uploading(upload) => upload,
+                _ => MeshUpload::start(device, Arc::clone(&entry.mesh)),
+            };
+            if upload.advance(queue, budget) {
+                Pooled::Ready(upload.into_parts())
+            } else {
+                Pooled::Uploading(upload)
+            }
+        });
+        if let Some(error) = error {
+            log::warn!(
+                "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
+                mesh.vertices.len()
+            );
+            return Parts::NewlyRefused;
+        }
+        let parts = match &state {
+            Pooled::Ready(parts) => Parts::Ready(Arc::clone(parts)),
+            _ => {
+                self.uploading_now = true;
+                Parts::Uploading
+            }
+        };
+        entry.state = state;
+        parts
+    }
+
+    pub fn sweep(&mut self) {
+        if self.asked < self.entries.len() {
+            let frame = self.frame;
+            self.entries.retain(|_, entry| entry.asked == frame);
+        }
+        self.frame += 1;
+        self.asked = 0;
+        self.uploading = std::mem::take(&mut self.uploading_now);
     }
 }
 
@@ -761,9 +910,9 @@ impl GpuMesh {
     }
 }
 
-enum Prepared {
-    Ready(Box<GpuMesh>),
-    Uploading(MeshUpload),
+enum Source {
+    Reused(Box<GpuMesh>),
+    Uploaded(Arc<[GpuPart]>),
 }
 
 impl OfMesh for GpuMesh {
@@ -772,21 +921,14 @@ impl OfMesh for GpuMesh {
     }
 }
 
-impl OfMesh for MeshUpload {
-    fn mesh(&self) -> &Arc<ShadedMesh> {
-        &self.mesh
-    }
-}
-
 pub struct MeshCache {
     layout: wgpu::BindGroupLayout,
     meshes: Vec<GpuMesh>,
-    uploads: Vec<MeshUpload>,
     rejected: Vec<Arc<ShadedMesh>>,
     previous: ByMesh<GpuMesh>,
-    started: ByMesh<MeshUpload>,
     refused: ByMesh<Arc<ShadedMesh>>,
     staging: Bytes,
+    uploading: bool,
 }
 
 impl MeshCache {
@@ -819,12 +961,11 @@ impl MeshCache {
         Self {
             layout,
             meshes: Vec::new(),
-            uploads: Vec::new(),
             rejected: Vec::new(),
             previous: ByMesh::default(),
-            started: ByMesh::default(),
             refused: ByMesh::default(),
             staging: Bytes::default(),
+            uploading: false,
         }
     }
 
@@ -840,30 +981,25 @@ impl MeshCache {
                 .iter()
                 .map(|mesh| mesh.sharing(device, &self.layout))
                 .collect(),
-            uploads: Vec::new(),
             rejected: self.rejected.clone(),
             previous: ByMesh::default(),
-            started: ByMesh::default(),
             refused: ByMesh::default(),
             staging: Bytes::default(),
+            uploading: false,
         }
-    }
-
-    pub fn is_uploading(&self) -> bool {
-        !self.uploads.is_empty()
     }
 
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        (pool, budget): (&mut MeshPool, &mut UploadBudget),
         instances: &[MeshInstance],
         anchor: Point3,
-        budget: &mut UploadBudget,
     ) -> u32 {
         self.previous.refill(&mut self.meshes);
-        self.started.refill(&mut self.uploads);
         self.refused.refill(&mut self.rejected);
+        self.uploading = false;
         let mut newly_rejected = 0;
         for instance in instances
             .iter()
@@ -874,37 +1010,45 @@ impl MeshCache {
                 continue;
             }
             let reused = self.previous.take(&instance.mesh);
-            if let Some(ready) = &reused
-                && !ready.needs_writing(instance, anchor)
-            {
-                self.meshes.extend(reused);
-                continue;
+            if let Some(ready) = &reused {
+                pool.keep(&ready.mesh, &ready.parts);
             }
-            let started = self.started.take(&instance.mesh);
+            let source = match reused {
+                Some(ready) if !ready.needs_writing(instance, anchor) => {
+                    self.meshes.push(ready);
+                    continue;
+                }
+                Some(ready) => Source::Reused(Box::new(ready)),
+                None => match pool.parts(device, queue, &instance.mesh, budget) {
+                    Parts::Ready(parts) => Source::Uploaded(parts),
+                    Parts::Uploading => {
+                        self.uploading = true;
+                        continue;
+                    }
+                    Parts::Refused => continue,
+                    Parts::NewlyRefused => {
+                        newly_rejected += 1;
+                        continue;
+                    }
+                },
+            };
             let staging = &mut self.staging;
             let layout = &self.layout;
-            let (prepared, error) = gpu::scoped(device, || {
-                let mut ready = match reused {
-                    Some(gpu) => gpu,
-                    None => {
-                        let mut upload = started.unwrap_or_else(|| {
-                            MeshUpload::start(device, Arc::clone(&instance.mesh))
-                        });
-                        if !upload.advance(queue, budget) {
-                            return Prepared::Uploading(upload);
-                        }
-                        upload.finish(device, layout)
+            let (ready, error) = gpu::scoped(device, || {
+                let mut ready = match source {
+                    Source::Reused(ready) => *ready,
+                    Source::Uploaded(parts) => {
+                        GpuMesh::with_parts(device, layout, Arc::clone(&instance.mesh), parts)
                     }
                 };
                 ready.write_styles(queue, staging, instance, anchor);
-                Prepared::Ready(Box::new(ready))
+                ready
             });
-            match (prepared, error) {
-                (Prepared::Ready(gpu), None) => self.meshes.push(*gpu),
-                (Prepared::Uploading(upload), None) => self.uploads.push(upload),
-                (_, Some(error)) => {
+            match error {
+                None => self.meshes.push(ready),
+                Some(error) => {
                     log::warn!(
-                        "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
+                        "the graphics device refused the styles of a mesh of {} vertices, so it is not drawn: {error}",
                         instance.mesh.vertices.len()
                     );
                     self.rejected.push(Arc::clone(&instance.mesh));
@@ -912,9 +1056,8 @@ impl MeshCache {
                 }
             }
         }
-        self.started.clear();
         self.refused.clear();
-        if self.is_uploading() {
+        if self.uploading {
             self.keep_previous(device, queue, anchor);
         }
         self.previous.clear();

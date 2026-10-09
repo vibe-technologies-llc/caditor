@@ -9,7 +9,7 @@ use crate::{
     culling::ClipWindow,
     gpu::{self, Bytes, GrowableBuffer, Pack, QuadIndices, Records},
     image::{self, Background, ChannelOrder, ImageRequest, Tile},
-    mesh::{MESH_VERTEX_STRIDE, MeshCache, UploadBudget},
+    mesh::{MESH_VERTEX_STRIDE, MeshCache, MeshPool, UploadBudget},
     picking::{self, PickPrepared, PickTargets, PickWindow, Picking},
     scene::{
         Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickId,
@@ -771,6 +771,7 @@ pub struct ViewportRenderer {
     fill_order: FillOrder,
     #[cfg(test)]
     work: Work,
+    mesh_pool: MeshPool,
     meshes: MeshCache,
     translucent: MeshCache,
     overlay: MeshCache,
@@ -833,6 +834,7 @@ impl ViewportRenderer {
             fill_order: FillOrder::default(),
             #[cfg(test)]
             work: Work::default(),
+            mesh_pool: MeshPool::default(),
             meshes,
             translucent: MeshCache::new(device),
             overlay: MeshCache::new(device),
@@ -908,16 +910,7 @@ impl ViewportRenderer {
     }
 
     pub fn is_uploading(&self) -> bool {
-        [
-            &self.meshes,
-            &self.translucent,
-            &self.overlay,
-            &self.flat,
-            &self.reflective,
-        ]
-        .iter()
-        .any(|cache| cache.is_uploading())
-            || self.silhouettes.is_uploading()
+        self.mesh_pool.is_uploading() || self.silhouettes.is_uploading()
     }
 
     #[cfg(test)]
@@ -1046,6 +1039,7 @@ impl ViewportRenderer {
             fill_order: FillOrder::default(),
             #[cfg(test)]
             work: Work::default(),
+            mesh_pool: self.mesh_pool.sibling(),
             meshes: self.meshes.sibling(device),
             translucent: self.translucent.sibling(device),
             overlay: self.overlay.sibling(device),
@@ -1376,7 +1370,8 @@ impl ViewportRenderer {
         ]
         .into_iter()
         .fold(0, |refused: u32, (cache, instances)| {
-            refused.saturating_add(cache.prepare(device, queue, instances, anchor, &mut budget))
+            let upload = (&mut self.mesh_pool, &mut budget);
+            refused.saturating_add(cache.prepare(device, queue, upload, instances, anchor))
         })
         .saturating_add(self.silhouettes.prepare(
             device,
@@ -1385,6 +1380,7 @@ impl ViewportRenderer {
             anchor,
             &mut budget,
         ));
+        self.mesh_pool.sweep();
         let (changed, refused_batches) = self.upload_batches(device, queue, &scene.batches, anchor);
         faults.batches = refused_batches;
         self.order_fills(Facing::of(view), changed);

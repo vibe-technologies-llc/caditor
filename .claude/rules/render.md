@@ -70,8 +70,12 @@ paths:
 ## Meshes
 
 - A `MeshInstance` is an `Arc<ShadedMesh>` plus a `FaceStyle` (colour, pick id) per face. Buffers
-  upload once per `Arc` and drop when the mesh leaves the scene; a mesh past `max_buffer_size` is
-  split into parts that each fit.
+  upload once per `Arc` into the `MeshPool` the five mesh caches share (keyed by the `Arc`'s
+  address, the entry holding the `Arc`) and drop when no list of the scene holds the mesh; each
+  cache keeps only its styles, placement and bind group per mesh, so moving a mesh between lists
+  (zebra, X-ray, hidden lines) or drawing it in two (a partly see-through body) draws it at once
+  without uploading it again (offscreen test). The pool keeps a refused mesh refused while any
+  list holds it. A mesh past `max_buffer_size` is split into parts that each fit.
 - New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
   shared by the five mesh caches and the silhouette cache): each frame packs the next whole
   vertices and indices into buffers made at the start, so the frame that first shows a large body
@@ -93,8 +97,8 @@ paths:
 - A `MeshInstance` may carry a `placement` (a `RigidTransform`) drawing the mesh moved and turned
   without a new upload: the placement uniform, rewritten only when the placement or the anchor
   moved, holds the turned axes and the placed centre relative to the anchor (worked out in f64), and
-  `vs_mesh` turns positions and normals by them. An `Arc` appears at most once in a scene, since
-  buffers, styles and placement are kept per mesh.
+  `vs_mesh` turns positions and normals by them. An `Arc` appears at most once in each list of a
+  scene, since styles and placement are kept per mesh in each cache.
 - A mesh whose placed bounds lie wholly beyond one side of the clip volume is not drawn
   (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), tested against
   the window in the main pass, the pick window in the pick pass and each tile in image export.

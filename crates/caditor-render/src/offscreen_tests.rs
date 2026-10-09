@@ -1181,10 +1181,10 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
 
     draw(&scene, SIZE as f32);
     drop(scene);
-    assert_eq!(Arc::strong_count(&mesh), 2);
+    assert_eq!(Arc::strong_count(&mesh), 3);
 
     draw(&Scene::default(), 0.0);
-    assert_eq!(Arc::strong_count(&mesh), 2);
+    assert_eq!(Arc::strong_count(&mesh), 3);
 
     draw(&Scene::default(), SIZE as f32);
     assert_eq!(Arc::strong_count(&mesh), 1);
@@ -4172,4 +4172,63 @@ fn a_far_placed_mesh_and_silhouette_draw_as_fresh_ones_once_the_eye_moves_within
     assert!(differing_pixels(&cached, &fresh) <= 2);
     assert_eq!(cached.pick, fresh.pick);
     assert_eq!(cached.pick.hits[0].id, PickId::from_index(0).unwrap());
+}
+
+#[test]
+fn a_mesh_moved_to_another_style_or_also_drawn_see_through_draws_at_once_without_uploading_again() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let green = Color::from_rgb8(40, 200, 40);
+    let shaded = styled_box(green, 10);
+    let opaque = Scene {
+        meshes: vec![shaded.clone()],
+        ..Scene::default()
+    };
+    let flat = Scene {
+        flat_meshes: vec![shaded.clone()],
+        ..Scene::default()
+    };
+    let see_through = Scene {
+        translucent_meshes: vec![MeshInstance {
+            faces: shaded
+                .faces
+                .iter()
+                .map(|style| FaceStyle {
+                    color: style.color.with_alpha(0.5),
+                    ..*style
+                })
+                .collect(),
+            ..shaded.clone()
+        }],
+        ..flat.clone()
+    };
+    let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
+    let on_top = view.project(Point3::new(0.0, 10.0, 20.0)).unwrap();
+    let mut renderer = viewport_renderer(&device, 4);
+    renderer.set_mesh_upload_bytes(200);
+    let mut draw = |scene: &Scene| {
+        let rendered = render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, scene, on_top),
+        );
+        (rendered, renderer.is_uploading())
+    };
+
+    let mut frames = 1;
+    while draw(&opaque).1 {
+        frames += 1;
+        assert!(frames < 20);
+    }
+    let (moved, moved_uploading) = draw(&flat);
+    let (both, both_uploading) = draw(&see_through);
+
+    assert!(frames >= 3, "{frames}");
+    assert!(!moved_uploading);
+    assert_eq!(pixel(&moved, on_top)[..3], [40, 200, 40]);
+    assert_eq!(moved.pick.hits[0].id, PickId::from_index(14).unwrap());
+    assert!(!both_uploading);
+    assert_eq!(both.pick.hits[0].id, PickId::from_index(14).unwrap());
 }
