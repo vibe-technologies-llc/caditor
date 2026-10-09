@@ -4,9 +4,10 @@ use caditor_geometry::{Point3, RigidTransform};
 use glam::Vec3;
 
 use crate::{
+    by_mesh::{ByMesh, OfMesh},
     culling::{ClipWindow, placed_corners},
     gpu::{self, Bytes},
-    mesh::{Corner, Placed, PlacedAt, ShadedMesh, UploadBudget, take_of},
+    mesh::{Corner, Placed, PlacedAt, ShadedMesh, UploadBudget},
     scene::{Color, Layer, Primitive},
 };
 
@@ -270,6 +271,18 @@ impl GpuSilhouette {
     }
 }
 
+impl OfMesh for GpuSilhouette {
+    fn mesh(&self) -> &Arc<ShadedMesh> {
+        &self.mesh
+    }
+}
+
+impl OfMesh for SilhouetteUpload {
+    fn mesh(&self) -> &Arc<ShadedMesh> {
+        &self.mesh
+    }
+}
+
 enum Prepared {
     Ready(Box<GpuSilhouette>),
     Uploading(SilhouetteUpload),
@@ -280,6 +293,9 @@ pub struct SilhouetteCache {
     silhouettes: Vec<GpuSilhouette>,
     uploads: Vec<SilhouetteUpload>,
     rejected: Vec<Arc<ShadedMesh>>,
+    previous: ByMesh<GpuSilhouette>,
+    started: ByMesh<SilhouetteUpload>,
+    refused: ByMesh<Arc<ShadedMesh>>,
     staging: Bytes,
 }
 
@@ -303,6 +319,9 @@ impl SilhouetteCache {
             silhouettes: Vec::new(),
             uploads: Vec::new(),
             rejected: Vec::new(),
+            previous: ByMesh::default(),
+            started: ByMesh::default(),
+            refused: ByMesh::default(),
             staging: Bytes::default(),
         }
     }
@@ -321,6 +340,9 @@ impl SilhouetteCache {
                 .collect(),
             uploads: Vec::new(),
             rejected: self.rejected.clone(),
+            previous: ByMesh::default(),
+            started: ByMesh::default(),
+            refused: ByMesh::default(),
             staging: Bytes::default(),
         }
     }
@@ -337,27 +359,26 @@ impl SilhouetteCache {
         eye: Point3,
         budget: &mut UploadBudget,
     ) -> u32 {
-        let mut previous = std::mem::take(&mut self.silhouettes);
-        let mut uploads = std::mem::take(&mut self.uploads);
-        let mut rejected = std::mem::take(&mut self.rejected);
-        let mut kept_rejected = Vec::new();
+        self.previous.refill(&mut self.silhouettes);
+        self.started.refill(&mut self.uploads);
+        self.refused.refill(&mut self.rejected);
         let mut newly_rejected = 0;
         for silhouette in silhouettes
             .iter()
             .filter(|silhouette| !silhouette.mesh.is_empty())
         {
-            if let Some(refused) = take_of(&mut rejected, &silhouette.mesh, |refused| refused) {
-                kept_rejected.push(refused);
+            if let Some(refused) = self.refused.take(&silhouette.mesh) {
+                self.rejected.push(refused);
                 continue;
             }
-            let reused = take_of(&mut previous, &silhouette.mesh, |cached| &cached.mesh);
+            let reused = self.previous.take(&silhouette.mesh);
             if let Some(ready) = &reused
                 && !ready.needs_writing(silhouette, eye)
             {
                 self.silhouettes.extend(reused);
                 continue;
             }
-            let started = take_of(&mut uploads, &silhouette.mesh, |upload| &upload.mesh);
+            let started = self.started.take(&silhouette.mesh);
             let staging = &mut self.staging;
             let layout = &self.layout;
             let (prepared, error) = gpu::scoped(device, || {
@@ -384,25 +405,22 @@ impl SilhouetteCache {
                         "the graphics device refused the silhouette of a mesh of {} triangles, so it is not drawn: {error}",
                         silhouette.mesh.triangle_count()
                     );
-                    kept_rejected.push(Arc::clone(&silhouette.mesh));
+                    self.rejected.push(Arc::clone(&silhouette.mesh));
                     newly_rejected += 1;
                 }
             }
         }
+        self.started.clear();
+        self.refused.clear();
         if self.is_uploading() {
-            self.keep_previous(device, queue, previous, eye);
+            self.keep_previous(device, queue, eye);
         }
-        self.rejected = kept_rejected;
+        self.previous.clear();
         newly_rejected
     }
 
-    fn keep_previous(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        mut previous: Vec<GpuSilhouette>,
-        eye: Point3,
-    ) {
+    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, eye: Point3) {
+        let mut previous: Vec<GpuSilhouette> = self.previous.rest().collect();
         if previous.iter().all(|silhouette| {
             silhouette
                 .written

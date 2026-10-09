@@ -4,6 +4,7 @@ use caditor_geometry::{Aabb, Point3, RigidTransform, Vector3};
 use glam::Vec3;
 
 use crate::{
+    by_mesh::{ByMesh, OfMesh},
     culling::{ClipWindow, placed_corners},
     gpu::{self, Bytes},
     scene::{Color, PickId},
@@ -772,15 +773,16 @@ enum Prepared {
     Uploading(MeshUpload),
 }
 
-pub(crate) fn take_of<T>(
-    items: &mut Vec<T>,
-    mesh: &Arc<ShadedMesh>,
-    of: impl Fn(&T) -> &Arc<ShadedMesh>,
-) -> Option<T> {
-    items
-        .iter()
-        .position(|item| Arc::ptr_eq(of(item), mesh))
-        .map(|index| items.swap_remove(index))
+impl OfMesh for GpuMesh {
+    fn mesh(&self) -> &Arc<ShadedMesh> {
+        &self.mesh
+    }
+}
+
+impl OfMesh for MeshUpload {
+    fn mesh(&self) -> &Arc<ShadedMesh> {
+        &self.mesh
+    }
 }
 
 pub struct MeshCache {
@@ -788,6 +790,9 @@ pub struct MeshCache {
     meshes: Vec<GpuMesh>,
     uploads: Vec<MeshUpload>,
     rejected: Vec<Arc<ShadedMesh>>,
+    previous: ByMesh<GpuMesh>,
+    started: ByMesh<MeshUpload>,
+    refused: ByMesh<Arc<ShadedMesh>>,
     staging: Bytes,
 }
 
@@ -823,6 +828,9 @@ impl MeshCache {
             meshes: Vec::new(),
             uploads: Vec::new(),
             rejected: Vec::new(),
+            previous: ByMesh::default(),
+            started: ByMesh::default(),
+            refused: ByMesh::default(),
             staging: Bytes::default(),
         }
     }
@@ -841,6 +849,9 @@ impl MeshCache {
                 .collect(),
             uploads: Vec::new(),
             rejected: self.rejected.clone(),
+            previous: ByMesh::default(),
+            started: ByMesh::default(),
+            refused: ByMesh::default(),
             staging: Bytes::default(),
         }
     }
@@ -857,27 +868,26 @@ impl MeshCache {
         eye: Point3,
         budget: &mut UploadBudget,
     ) -> u32 {
-        let mut previous = std::mem::take(&mut self.meshes);
-        let mut uploads = std::mem::take(&mut self.uploads);
-        let mut rejected = std::mem::take(&mut self.rejected);
-        let mut kept_rejected = Vec::new();
+        self.previous.refill(&mut self.meshes);
+        self.started.refill(&mut self.uploads);
+        self.refused.refill(&mut self.rejected);
         let mut newly_rejected = 0;
         for instance in instances
             .iter()
             .filter(|instance| !instance.mesh.is_empty())
         {
-            if let Some(refused) = take_of(&mut rejected, &instance.mesh, |refused| refused) {
-                kept_rejected.push(refused);
+            if let Some(refused) = self.refused.take(&instance.mesh) {
+                self.rejected.push(refused);
                 continue;
             }
-            let reused = take_of(&mut previous, &instance.mesh, |cached| &cached.mesh);
+            let reused = self.previous.take(&instance.mesh);
             if let Some(ready) = &reused
                 && !ready.needs_writing(instance, eye)
             {
                 self.meshes.extend(reused);
                 continue;
             }
-            let started = take_of(&mut uploads, &instance.mesh, |upload| &upload.mesh);
+            let started = self.started.take(&instance.mesh);
             let staging = &mut self.staging;
             let layout = &self.layout;
             let (prepared, error) = gpu::scoped(device, || {
@@ -904,25 +914,22 @@ impl MeshCache {
                         "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
                         instance.mesh.vertices.len()
                     );
-                    kept_rejected.push(Arc::clone(&instance.mesh));
+                    self.rejected.push(Arc::clone(&instance.mesh));
                     newly_rejected += 1;
                 }
             }
         }
+        self.started.clear();
+        self.refused.clear();
         if self.is_uploading() {
-            self.keep_previous(device, queue, previous, eye);
+            self.keep_previous(device, queue, eye);
         }
-        self.rejected = kept_rejected;
+        self.previous.clear();
         newly_rejected
     }
 
-    fn keep_previous(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        mut previous: Vec<GpuMesh>,
-        eye: Point3,
-    ) {
+    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, eye: Point3) {
+        let mut previous: Vec<GpuMesh> = self.previous.rest().collect();
         if !previous.iter().any(|mesh| mesh.needs_unpicking(eye)) {
             self.meshes.append(&mut previous);
             return;

@@ -3374,6 +3374,9 @@ impl<'a> Bench<'a> {
         upload_bytes: Option<u64>,
         frames: impl Fn(u32) -> BenchFrame<'s>,
     ) {
+        if std::env::var("CADITOR_BENCH_CASE").is_ok_and(|only| !name.contains(&only)) {
+            return;
+        }
         let (device, queue) = (self.device, self.queue);
         let mut renderer = viewport_renderer(device, 4);
         if let Some(bytes) = upload_bytes {
