@@ -10,13 +10,34 @@ use caditor_kernel::{MeshQuality, interruptible};
 use parking_lot::{Condvar, Mutex, MutexGuard};
 
 use crate::{
-    document::Feature,
+    document::{Feature, FeatureId},
     presenting::SettledBody,
     recompute::{CancelToken, Computed, Context, Failure, FeatureResult, View, compute},
 };
 
 pub(crate) fn available_workers() -> usize {
     thread::available_parallelism().map_or(1, NonZeroUsize::get)
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct LastMeshes(Mutex<BTreeMap<FeatureId, Arc<FeatureResult>>>);
+
+impl LastMeshes {
+    fn of(&self, body: FeatureId) -> Option<Arc<FeatureResult>> {
+        self.0.lock().get(&body).cloned()
+    }
+
+    fn meshed(&self, body: FeatureId, result: &Arc<FeatureResult>) {
+        self.0.lock().insert(body, Arc::clone(result));
+    }
+
+    pub(crate) fn retain(&self, alive: impl Fn(FeatureId) -> bool) {
+        self.0.lock().retain(|body, _| alive(*body));
+    }
+
+    pub(crate) fn clear(&self) {
+        self.0.lock().clear();
+    }
 }
 
 pub(crate) struct Job {
@@ -88,16 +109,23 @@ impl Queue {
 pub(crate) struct Work<'a> {
     context: Context<'a>,
     quality: MeshQuality,
+    last_meshes: Arc<LastMeshes>,
     queue: Mutex<Queue>,
     ready: Condvar,
     finished: Condvar,
 }
 
 impl<'a> Work<'a> {
-    pub(crate) fn new(context: Context<'a>, quality: MeshQuality, workers: usize) -> Self {
+    pub(crate) fn new(
+        context: Context<'a>,
+        quality: MeshQuality,
+        last_meshes: Arc<LastMeshes>,
+        workers: usize,
+    ) -> Self {
         Self {
             context,
             quality,
+            last_meshes,
             queue: Mutex::new(Queue {
                 limit: workers,
                 ..Queue::default()
@@ -182,9 +210,17 @@ impl<'a> Work<'a> {
         if solid.is_meshed() {
             return false;
         }
+        let earlier = self.last_meshes.of(solid.body);
         interruptible(self.context.cancel.interrupt(), || {
-            solid.tessellate(&body.name, &self.quality);
+            solid.tessellate(
+                &body.name,
+                &self.quality,
+                earlier.as_deref().and_then(FeatureResult::solid),
+            );
         });
+        if solid.mesh().is_some() {
+            self.last_meshes.meshed(solid.body, &body.result);
+        }
         solid.is_meshed()
     }
 }

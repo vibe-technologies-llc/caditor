@@ -13,9 +13,10 @@ use crate::{
     sense::Sense,
     surface::Surface,
     tessellation::{
-        EdgeSampling, Mesh, MeshVertex, POLL_EVERY, TessellationError,
+        EdgeSampling, POLL_EVERY, TessellationError,
         density::{Density, density},
         insertion::insertion_order,
+        patch::{FacePatch, PatchPosition, PatchVertex},
     },
     tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
     topology::{EdgeId, Face, FaceId, Solid},
@@ -33,9 +34,9 @@ const PARALLEL_ENDS: f64 = 1e-6;
 type Cdt = ConstrainedDelaunayTriangulation<PlanePoint<f64>>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct BoundaryPoint {
-    uv: Point2,
-    position: u32,
+pub(crate) struct BoundaryPoint {
+    pub uv: Point2,
+    pub position: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -116,25 +117,21 @@ fn snap(value: f64) -> f64 {
 
 pub(crate) struct Budget {
     pub limit: usize,
+    pub placed: usize,
     pub tolerance: SamplingTolerance,
     pub density: Option<Density>,
 }
 
 pub(crate) fn triangulate(
-    solid: &Solid,
+    face: &Face,
     face_id: FaceId,
-    samplings: &[EdgeSampling],
+    loops: Vec<Vec<BoundaryPoint>>,
     budget: &Budget,
-    mesh: &mut Mesh,
-) -> Result<(), TessellationError> {
+) -> Result<FacePatch, TessellationError> {
     let tolerance = &budget.tolerance;
-    let face = solid
-        .face(face_id)
-        .ok_or(TessellationError::MissingEntity)?;
     let surface = face.surface();
-    let loops = boundary_loops(solid, face, samplings)?;
     let Some(bounds) = Aabb2::from_points(loops.iter().flatten().map(|point| point.uv)) else {
-        return Ok(());
+        return Ok(FacePatch::default());
     };
     let density = budget
         .density
@@ -150,7 +147,8 @@ pub(crate) fn triangulate(
         points.add_loop(boundary)?;
     }
     let grid = grid_points(&loops, &scaled)?;
-    if mesh.positions.len().saturating_add(grid.len()) > budget.limit {
+    let grid_size = grid.len();
+    if budget.placed.saturating_add(grid_size) > budget.limit {
         return Err(TessellationError::TooLarge);
     }
     for (index, uv) in grid.into_iter().enumerate() {
@@ -159,7 +157,7 @@ pub(crate) fn triangulate(
         }
         points.add_interior(uv)?;
     }
-    points.triangulate()?.emit(surface, face.sense(), mesh)
+    points.triangulate()?.emit(surface, face.sense(), grid_size)
 }
 
 pub(crate) struct PoleSampling {
@@ -231,7 +229,7 @@ pub(crate) fn pole_sampling(
     }))
 }
 
-fn boundary_loops(
+pub(crate) fn boundary_loops(
     solid: &Solid,
     face: &Face,
     samplings: &[EdgeSampling],
@@ -676,10 +674,14 @@ impl FaceTriangulation {
         self,
         surface: &Surface,
         sense: Sense,
-        mesh: &mut Mesh,
-    ) -> Result<(), TessellationError> {
+        grid: usize,
+    ) -> Result<FacePatch, TessellationError> {
         let inside = self.inside_faces();
         let mut corners: Vec<Option<u32>> = vec![None; self.points.len()];
+        let mut patch = FacePatch {
+            grid,
+            ..FacePatch::default()
+        };
         for face in self.cdt.inner_faces() {
             if !inside.get(face.fix().index()).copied().unwrap_or(false) {
                 continue;
@@ -689,21 +691,23 @@ impl FaceTriangulation {
                 Sense::Same => [a, b, c],
                 Sense::Reversed => [a, c, b],
             };
-            let mut indices = [0u32; 3];
-            for (slot, index) in indices.iter_mut().zip(triangle) {
-                *slot = self.corner(index, &triangle, &mut corners, surface, sense, mesh)?;
-            }
-            let [pa, pb, pc] = indices.map(|corner| {
-                mesh.vertices
-                    .get(corner as usize)
-                    .map(|vertex| vertex.position)
-            });
-            if pa == pb || pb == pc || pa == pc {
+            if self.collapses(&triangle) {
                 continue;
             }
-            mesh.triangles.push(indices);
+            let mut indices = [0u32; 3];
+            for (slot, index) in indices.iter_mut().zip(triangle) {
+                *slot = self.corner(index, &triangle, &mut corners, surface, sense, &mut patch)?;
+            }
+            patch.triangles.push(indices);
         }
-        Ok(())
+        Ok(patch)
+    }
+
+    fn collapses(&self, triangle: &[usize; 3]) -> bool {
+        let [a, b, c] =
+            triangle.map(|index| self.points.get(index).and_then(|point| point.position));
+        let shared = |first: Option<u32>, second: Option<u32>| first.is_some() && first == second;
+        shared(a, b) || shared(b, c) || shared(a, c)
     }
 
     fn corner(
@@ -713,7 +717,7 @@ impl FaceTriangulation {
         corners: &mut [Option<u32>],
         surface: &Surface,
         sense: Sense,
-        mesh: &mut Mesh,
+        patch: &mut FacePatch,
     ) -> Result<u32, TessellationError> {
         if let Some(corner) = corners.get(index).copied().flatten() {
             return Ok(corner);
@@ -723,10 +727,10 @@ impl FaceTriangulation {
             .get(index)
             .ok_or(TessellationError::Triangulation(self.face))?;
         let position = match point.position {
-            Some(position) => position,
-            None => mesh.push_position(surface.point_at(point.uv))?,
+            Some(position) => PatchPosition::Boundary(position),
+            None => patch.push_interior(surface.point_at(point.uv))?,
         };
-        let corner = mesh.push_vertex(MeshVertex {
+        let corner = patch.push_vertex(PatchVertex {
             position,
             normal: vertex_normal(surface, point.uv, sense, &self.points, triangle),
         })?;

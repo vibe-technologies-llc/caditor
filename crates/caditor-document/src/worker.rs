@@ -603,7 +603,7 @@ fn mesh_pending(
         }
         if let Some(solid) = pending.result.solid() {
             interruptible(cancel.interrupt(), || {
-                solid.tessellate(&pending.name, quality)
+                solid.tessellate(&pending.name, quality, None)
             });
             if !solid.is_meshed() {
                 return;

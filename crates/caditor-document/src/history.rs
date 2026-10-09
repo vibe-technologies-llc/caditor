@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use caditor_kernel::Mesh;
+use caditor_kernel::DisplayMesh;
 
 use crate::{
     document::FeatureId,
@@ -180,7 +180,9 @@ fn result_bytes(result: &FeatureResult) -> usize {
     match result {
         FeatureResult::Solid(solid) => {
             solid.solid.approximate_size()
-                + solid.mesh().map_or(0, Mesh::approximate_size)
+                + solid
+                    .display_mesh()
+                    .map_or(0, DisplayMesh::approximate_size)
                 + solid
                     .others()
                     .iter()

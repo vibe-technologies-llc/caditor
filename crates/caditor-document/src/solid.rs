@@ -9,13 +9,13 @@ use std::{
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Ray, Vector2, Vector3};
 use caditor_kernel::{
-    AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
-    FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE,
-    MAX_TAPER_DEGREES, Mesh, MeshQuality, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError,
-    ReferenceError, Region, RegionMesh, RegionReference, SamplingTolerance, Selection, Solid,
-    StopError, SweepError, TessellationError, VertexId, VertexName, WallError, WallSide, boolean,
-    extrude_along, extrude_tapered, heights, heights_along, next_face, resolve_regions, revolve,
-    stop_at_body, vertex_names, wall_regions,
+    AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName, FaceId,
+    FaceName, FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION, LinearBound, LinearExtent,
+    MAX_SIZE, MAX_TAPER_DEGREES, Mesh, MeshQuality, OpenEnd, Profile, ProfileCurve, ProfileError,
+    ReachError, ReferenceError, Region, RegionMesh, RegionReference, SamplingTolerance, Selection,
+    Solid, StopError, SweepError, TessellationError, VertexId, VertexName, WallError, WallSide,
+    boolean, extrude_along, extrude_tapered, heights, heights_along, next_face, resolve_regions,
+    revolve, stop_at_body, vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -661,7 +661,7 @@ pub struct SolidResult {
     others: Vec<Arc<FeatureResult>>,
     cuts: Vec<Arc<FeatureResult>>,
     joins: Vec<Arc<FeatureResult>>,
-    mesh: OnceLock<Option<Mesh>>,
+    mesh: OnceLock<Option<DisplayMesh>>,
     bounds: OnceLock<Option<Aabb>>,
     names: OnceLock<NameIndex>,
 }
@@ -783,6 +783,10 @@ impl SolidResult {
     }
 
     pub fn mesh(&self) -> Option<&Mesh> {
+        self.display_mesh().map(DisplayMesh::mesh)
+    }
+
+    pub(crate) fn display_mesh(&self) -> Option<&DisplayMesh> {
         self.mesh.get().and_then(Option::as_ref)
     }
 
@@ -794,13 +798,14 @@ impl SolidResult {
         matches!(self.mesh.get(), Some(None))
     }
 
-    pub(crate) fn tessellate(&self, name: &str, quality: &MeshQuality) {
+    pub(crate) fn tessellate(&self, name: &str, quality: &MeshQuality, earlier: Option<&Self>) {
         if self.is_meshed() {
             return;
         }
+        let earlier = earlier.and_then(Self::display_mesh);
         let tessellated = panic::catch_unwind(AssertUnwindSafe(|| {
             self.bounding_box();
-            self.solid.display_mesh(quality)
+            self.solid.display_mesh_reusing(quality, earlier)
         }));
         let mesh = match tessellated {
             Ok(Ok(mesh)) => Some(mesh),
