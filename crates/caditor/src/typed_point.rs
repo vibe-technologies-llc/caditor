@@ -133,14 +133,17 @@ pub fn sides(text: &str) -> Option<usize> {
     digits.then(|| count.parse().unwrap_or(usize::MAX))
 }
 
-pub fn rho(model: &Model, text: &str) -> Option<Result<f64, String>> {
+pub fn rho(model: &Model, text: &str) -> Option<Result<(f64, Expression), String>> {
     let trimmed = text.trim();
     let split = trimmed.len().checked_sub(RHO_WORD.len())?;
     let (value, word) = (trimmed.get(..split)?, trimmed.get(split..)?);
     if !word.eq_ignore_ascii_case(RHO_WORD) {
         return None;
     }
-    Some(typed_value(model, value, RHO, Measured::Angle).map(|typed| typed.value))
+    Some(
+        typed_value(model, value, RHO, Measured::Angle)
+            .map(|typed| (typed.value, typed.expression)),
+    )
 }
 
 fn starts_a_point(text: &str) -> bool {

@@ -165,8 +165,9 @@ paths:
   the pointer as apex; an end on its start (`Refusal::ConicEnds`) or an apex on the line through
   the ends (`ConicApex`) is refused. Its rho, 0.5 until set and kept while caditor runs like the
   polygon's sides, is typed in the point field as `0.3 rho` (`typed_point::rho`, any
-  dimensionless expression with parameters, evaluated then; outside 0.01 to 0.99 refused in
-  words) and shown in the prompt and the readout.
+  dimensionless expression; outside 0.01 to 0.99 refused in words) and shown in the prompt and
+  the readout. An expression using parameters also gives the new conic a `Rho` dimension holding
+  it (`Draft::conic`), so the parameter keeps driving its shape.
 - A tangent arc starts on a point ending a line, arc or spline (the newest if several) and leaves
   along that curve's direction with a `Tangent`.
   Switching between the Line and Tangent arc tools with a segment started (`Drawing::sync`) keeps

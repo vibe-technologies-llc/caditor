@@ -3007,7 +3007,9 @@ impl ViewportState {
             return;
         }
         if let Some(rho) = typed_point::rho(model, &typed.text) {
-            let set = rho.and_then(|rho| self.drawing.set_rho(rho).map_err(str::to_owned));
+            let set = rho.and_then(|(value, typed)| {
+                self.drawing.set_rho(value, typed).map_err(str::to_owned)
+            });
             if let Err(reason) = set {
                 self.typed_point.open_with(typed.text, reason);
             }

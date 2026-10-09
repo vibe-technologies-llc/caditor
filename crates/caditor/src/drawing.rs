@@ -1,6 +1,7 @@
 use std::f64::consts::{PI, TAU};
 
 use caditor_document::{FeatureId, Transaction, TransactionBuilder};
+use caditor_expression::Expression;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
     ArcGeometry, BSpline, Constraint, EllipseGeometry, Entity, EntityId, Faceting, Sketch,
@@ -310,12 +311,18 @@ struct Scrub {
     sides: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Rho(f64);
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rho {
+    value: f64,
+    driven_by: Option<Expression>,
+}
 
 impl Default for Rho {
     fn default() -> Self {
-        Self(DEFAULT_RHO)
+        Self {
+            value: DEFAULT_RHO,
+            driven_by: None,
+        }
     }
 }
 
@@ -688,7 +695,7 @@ impl Drawing {
             *self = Self {
                 context,
                 sides: self.sides,
-                rho: self.rho,
+                rho: self.rho.clone(),
                 acquired,
                 ..Self::default()
             };
@@ -899,7 +906,7 @@ impl Drawing {
         }
         let [first] = self.placed.as_slice() else {
             return match (shape, self.placed.as_slice()) {
-                (Shape::Conic, [_, _]) => Some(format!("rho {:.2}", self.rho.0)),
+                (Shape::Conic, [_, _]) => Some(format!("rho {:.2}", self.rho.value)),
                 (Shape::Slot(SlotMode::Arc), [center, start, end]) => {
                     let (first, last) = arc_ends(self.counter_clockwise(), *start, *end);
                     let arc =
@@ -1161,14 +1168,17 @@ impl Drawing {
         matches!(self.context, Some((_, Shape::Conic)))
     }
 
-    pub fn set_rho(&mut self, rho: f64) -> Result<(), &'static str> {
+    pub fn set_rho(&mut self, value: f64, typed: Expression) -> Result<(), &'static str> {
         if !self.can_type_rho() {
             return Err(NOT_A_CONIC);
         }
-        if !SplineKind::rho_is_valid(rho) {
+        if !SplineKind::rho_is_valid(value) {
             return Err(RHO_OUT_OF_RANGE);
         }
-        self.rho = Rho(rho);
+        self.rho = Rho {
+            value,
+            driven_by: (!typed.parameters().is_empty()).then_some(typed),
+        };
         Ok(())
     }
 
@@ -1321,7 +1331,7 @@ impl Drawing {
                 if off.abs() <= DEGENERATE_LENGTH * chord.length().max(1.0) {
                     return Err(Refusal::ConicApex);
                 }
-                let rho = self.rho.0;
+                let rho = self.rho.clone();
                 draft(shape.name()).map(|mut draft| {
                     draft.conic([start, placement, end], rho);
                     draft
@@ -1845,10 +1855,12 @@ impl Drawing {
             (Shape::Conic, &[start]) => {
                 preview.curves.push(vec![start, cursor]);
             }
-            (Shape::Conic, &[start, end]) => match BSpline::conic(start, cursor, end, self.rho.0) {
-                Some(conic) => preview.curves.push(conic.faceted(faceting)),
-                None => preview.curves.push(vec![start, end]),
-            },
+            (Shape::Conic, &[start, end]) => {
+                match BSpline::conic(start, cursor, end, self.rho.value) {
+                    Some(conic) => preview.curves.push(conic.faceted(faceting)),
+                    None => preview.curves.push(vec![start, end]),
+                }
+            }
             (Shape::Ellipse | Shape::EllipticalArc, &[center]) => {
                 preview.curves.push(vec![center, cursor]);
             }
@@ -2108,7 +2120,7 @@ impl Drawing {
             (Shape::Conic, _) => polygon_prompt(
                 format!(
                     "Click its apex, where the tangents at its ends meet (rho {:.2})",
-                    self.rho.0
+                    self.rho.value
                 ),
                 CONIC_KEYS,
             ),
@@ -2911,12 +2923,15 @@ impl<'a> Draft<'a> {
         });
     }
 
-    fn conic(&mut self, [start, apex, end]: [Placement; 3], rho: f64) {
+    fn conic(&mut self, [start, apex, end]: [Placement; 3], rho: Rho) {
         let points = vec![self.point(start), self.point(apex), self.point(end)];
-        self.entity(Entity::Spline {
+        let conic = self.entity(Entity::Spline {
             points,
-            kind: SplineKind::Conic { rho },
+            kind: SplineKind::Conic { rho: rho.value },
         });
+        if let Some(value) = rho.driven_by {
+            self.constrain(Constraint::Rho { conic, value });
+        }
     }
 
     fn ellipse(&mut self, center: Placement, axis: Placement, minor_radius: f64) {

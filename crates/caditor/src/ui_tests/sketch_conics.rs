@@ -4,7 +4,8 @@ use caditor_sketch::{Constraint, Entity, Sketch, SplineKind};
 use egui::{Key, Modifiers};
 
 use super::{
-    DRAWN, Harness, edit_free_sketch, entities_of_kind, only_constraint, sketch_entity, type_point,
+    Action, DRAWN, Harness, edit_free_sketch, entities_of_kind, only_constraint, sketch_entity,
+    type_point,
 };
 use crate::{annotations, editing::Tool, sketch_toolbar};
 
@@ -87,4 +88,38 @@ fn the_smart_dimension_gives_a_lone_conic_a_rho_that_drives_it() {
     let shoulder = start.lerp(end, 0.5).lerp(apex, 0.25);
     let shown = harness.shown(feature).spline(conic).unwrap().point_at(0.5);
     assert!(shown.distance(shoulder) < 1e-6, "{shown} is not {shoulder}");
+}
+
+#[test]
+fn a_rho_typed_from_a_parameter_keeps_the_conic_driven_by_it() {
+    let mut harness = Harness::new();
+    let mut transaction = harness.document().transaction("Add bulge");
+    transaction.add_parameter("bulge", Expression::Number(0.4));
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    let feature = harness.draw_on_new_sketch();
+
+    harness.click_button(sketch_toolbar::CURVE_WAYS_LABEL);
+    harness.click(Tool::Conic.label());
+    harness.frame();
+    harness.click_at(Point2::new(10.0, 10.0));
+    harness.click_at(Point2::new(50.0, 10.0));
+    type_point(&mut harness, "(bulge) rho");
+    assert!(harness.shows("rho 0.40"));
+    harness.click_at(Point2::new(30.0, 40.0));
+
+    let sketch = harness.sketch(feature);
+    let [conic] = entities_of_kind(sketch, "Conic")[..] else {
+        panic!("expected one conic");
+    };
+    let (_, rho) = only_constraint(sketch);
+    let Constraint::Rho {
+        conic: driven,
+        value,
+    } = rho
+    else {
+        panic!("expected a rho dimension, found {rho:?}");
+    };
+    assert_eq!(driven, conic);
+    assert!(!value.parameters().is_empty());
 }
