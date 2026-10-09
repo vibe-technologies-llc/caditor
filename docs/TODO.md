@@ -228,11 +228,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · medium] A revolve's angles change only by typing, never by dragging a handle in the
   view as an extrusion's distances are, and an extrusion starting at a face or plane shows no
   arrows.
-- [medium · hard] No configurations: a model holds one set of parameter values, so sizes of one part
-  (a bracket in M4, M6 and M8) are separate copies of the file. Named parameter sets, chosen as a
-  whole and kept in the model like versions, with export of each. A configuration could also
-  suppress features and set body colours, as Fusion's configuration table does, so one file holds
-  a part with and without a chamfer or a boss.
 - [medium · hard] Sweep along a path and loft between profiles: the kernel has only extrusion and
   revolution, so both need new kernel operations first. A sweep takes a profile and a path (a
   chain of edges or sketch curves), kept square to the path or parallel to the profile, with an

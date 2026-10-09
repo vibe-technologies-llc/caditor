@@ -5,14 +5,14 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     thread,
 };
 
 use caditor_document::{
-    BodyAppearance, CancelToken, Document, Evaluation, FeatureId, FeatureResult, ModelProperties,
-    Rgb, placed_threads,
+    BodyAppearance, CancelToken, ConfigurationId, Document, Evaluation, FeatureId, FeatureResult,
+    ModelProperties, Rgb, placed_threads,
 };
 use caditor_file::{
     ExportBody, ExportError, ExportFormat, ExportThread, Exported, Look, MeshOptions,
@@ -26,6 +26,7 @@ use parking_lot::Mutex;
 use crate::{
     appearance::SPACE_M,
     commands::{Command, CommandFrame},
+    configuration_export::{self, ConfigurationExported, ConfigurationJob},
     feature_tree::count,
     files::FileCommand,
     icons,
@@ -53,11 +54,23 @@ pub enum ExportCommand {
     SetStlEncoding(StlEncoding),
     Include { body: FeatureId, included: bool },
     IncludeAll(bool),
+    SetEveryConfiguration(bool),
     Choose,
     Cancel,
 }
 
-pub type Finished = Box<dyn FnOnce(PathBuf, Result<Exported, ExportError>) + Send>;
+pub type Finished = Box<dyn FnOnce(PathBuf, ExportReport) + Send>;
+
+#[derive(Debug)]
+pub enum ExportReport {
+    Bodies(Result<Exported, ExportError>),
+    Configurations(Result<Vec<ConfigurationExported>, ExportError>),
+}
+
+struct Progress {
+    done: Arc<AtomicUsize>,
+    total: usize,
+}
 
 pub const THUMBNAIL_SIZE: SurfaceSize = SurfaceSize {
     width: 256,
@@ -67,6 +80,7 @@ pub const THUMBNAIL_SIZE: SurfaceSize = SurfaceSize {
 struct Running {
     path: PathBuf,
     cancelled: Arc<AtomicBool>,
+    progress: Option<Progress>,
 }
 
 struct Job {
@@ -99,6 +113,7 @@ pub struct Exporter {
     resolution: MeshResolution,
     stl: StlEncoding,
     left_out: BTreeSet<FeatureId>,
+    every_configuration: bool,
     running: Option<Running>,
     waiting: Option<Waiting>,
     session: u64,
@@ -221,6 +236,7 @@ impl Exporter {
             ExportCommand::SetFormat(format) => self.format = format,
             ExportCommand::SetResolution(resolution) => self.resolution = resolution,
             ExportCommand::SetStlEncoding(stl) => self.stl = stl,
+            ExportCommand::SetEveryConfiguration(every) => self.every_configuration = every,
             ExportCommand::Include { body, included } => {
                 if included {
                     self.left_out.remove(&body);
@@ -251,6 +267,11 @@ impl Exporter {
         model: &Model,
         finished: Finished,
     ) {
+        let configurations = configuration_export::exportable(model.document());
+        if self.every_configuration && !configurations.is_empty() {
+            self.start_configurations(path, format, model, configurations, finished);
+            return;
+        }
         let (chosen, bodies): (Vec<FeatureId>, Vec<ExportSource>) = self
             .chosen(model)
             .map(|body| (body.id, body.source))
@@ -268,7 +289,11 @@ impl Exporter {
             cancel: CancelToken::new(move || flag.load(Ordering::SeqCst)),
             finished,
         };
-        self.running = Some(Running { path, cancelled });
+        self.running = Some(Running {
+            path,
+            cancelled,
+            progress: None,
+        });
         if format == ExportFormat::ThreeMf {
             self.waiting = Some(Waiting {
                 job,
@@ -325,18 +350,86 @@ impl Exporter {
                 let exported =
                     export_results(&target, format, &options, &bodies, &properties, &cancel);
                 if let Some(finished) = worker_slot.lock().take() {
-                    finished(target, exported);
+                    finished(target, ExportReport::Bodies(exported));
                 }
             });
         if let Err(error) = spawned {
             log::error!("could not start the export: {error}");
             if let Some(finished) = slot.lock().take() {
-                finished(path, Err(ExportError::WorkerUnavailable));
+                finished(
+                    path,
+                    ExportReport::Bodies(Err(ExportError::WorkerUnavailable)),
+                );
             }
         }
     }
 
-    pub fn finished(&mut self, path: &Path, result: Result<Exported, ExportError>) -> Notice {
+    fn start_configurations(
+        &mut self,
+        path: PathBuf,
+        format: ExportFormat,
+        model: &Model,
+        configurations: Vec<(ConfigurationId, String)>,
+        finished: Finished,
+    ) {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&cancelled);
+        let cancel = CancelToken::new(move || flag.load(Ordering::SeqCst));
+        let done = Arc::new(AtomicUsize::new(0));
+        let total = configurations.len();
+        let job = ConfigurationJob {
+            document: model.document().clone(),
+            configurations,
+            left_out: self.left_out.clone(),
+            path: path.clone(),
+            format,
+            done: Arc::clone(&done),
+        };
+        let properties = model.document().properties().clone();
+        let (resolution, stl) = (self.resolution, self.stl);
+        self.running = Some(Running {
+            path: path.clone(),
+            cancelled,
+            progress: Some(Progress { done, total }),
+        });
+        let slot = Arc::new(Mutex::new(Some(finished)));
+        let worker_slot = Arc::clone(&slot);
+        let target = path.clone();
+        let spawned = thread::Builder::new()
+            .name("export".to_owned())
+            .spawn(move || {
+                let options = MeshOptions {
+                    resolution,
+                    stl,
+                    thumbnail: None,
+                };
+                let exported = job.run(&options, &properties, &cancel);
+                if let Some(finished) = worker_slot.lock().take() {
+                    finished(target, ExportReport::Configurations(exported));
+                }
+            });
+        if let Err(error) = spawned {
+            log::error!("could not start the export: {error}");
+            if let Some(finished) = slot.lock().take() {
+                finished(
+                    path,
+                    ExportReport::Configurations(Err(ExportError::WorkerUnavailable)),
+                );
+            }
+        }
+    }
+
+    pub fn reported(&mut self, path: &Path, report: ExportReport) -> Notice {
+        match report {
+            ExportReport::Bodies(result) => self.finished(path, result),
+            ExportReport::Configurations(result) => {
+                self.forget_running(path);
+                configuration_export::finished(result)
+            }
+        }
+    }
+
+    fn forget_running(&mut self, path: &Path) {
         if self
             .running
             .as_ref()
@@ -345,6 +438,10 @@ impl Exporter {
             self.running = None;
             self.waiting = None;
         }
+    }
+
+    pub fn finished(&mut self, path: &Path, result: Result<Exported, ExportError>) -> Notice {
+        self.forget_running(path);
         let name = display_name(Some(path));
         match result {
             Ok(exported) => {
@@ -460,10 +557,22 @@ pub fn activity(
     let mut cancel = commands.invoke(Command::CancelExport, &running);
     if let Ok(running) = running {
         ui.spinner();
-        ui.label(format!(
-            "Exporting “{}”…",
-            display_name(Some(&running.path))
-        ));
+        match &running.progress {
+            Some(progress) => {
+                let done = progress.done.load(Ordering::SeqCst);
+                ui.label(format!(
+                    "Exporting configuration {} of {}…",
+                    (done + 1).min(progress.total),
+                    progress.total
+                ));
+            }
+            None => {
+                ui.label(format!(
+                    "Exporting “{}”…",
+                    display_name(Some(&running.path))
+                ));
+            }
+        }
         cancel |= ui
             .add(widgets::button("Cancel"))
             .on_hover_text(commands.with_keys(
@@ -492,6 +601,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
         if exporter.format.is_mesh() {
             resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
         }
+        configuration_choice(ui, model, exporter, &mut command);
         body_choice(ui, exporter, &bodies, &mut command);
         let blocker = if exporter.is_running() {
             Some("An export is already running.")
@@ -591,6 +701,42 @@ fn format_hint(format: ExportFormat) -> &'static str {
             "Exact faces and edges that other CAD programs can open and keep editing."
         }
     }
+}
+
+fn configuration_choice(
+    ui: &mut Ui,
+    model: &Model,
+    exporter: &Exporter,
+    command: &mut Option<ExportCommand>,
+) {
+    let configurations = configuration_export::exportable(model.document());
+    if configurations.is_empty() {
+        return;
+    }
+    heading(ui, "Configurations");
+    let active = model.document().active_configuration().map_or_else(
+        || "the model as it stands".to_owned(),
+        |row| format!("“{}”", row.name),
+    );
+    let this_hint = format!("Export {active} only.");
+    let every_hint = format!(
+        "Export each of the {} configurations to a file of its own beside the name you choose, \
+         named after it, recomputing each in the background.",
+        configurations.len()
+    );
+    let options = [
+        (false, "This configuration", this_hint.as_str()),
+        (true, "Every configuration", every_hint.as_str()),
+    ];
+    if let Some(every) = preferences::choice(ui, &options, exporter.every_configuration) {
+        *command = Some(ExportCommand::SetEveryConfiguration(every));
+    }
+    let shown = if exporter.every_configuration {
+        every_hint
+    } else {
+        this_hint
+    };
+    ui.label(widgets::muted(shown, ui));
 }
 
 fn stl_choice(ui: &mut Ui, exporter: &Exporter, command: &mut Option<ExportCommand>) {
