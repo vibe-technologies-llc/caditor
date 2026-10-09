@@ -8153,6 +8153,7 @@ fn a_large_selection_is_counted_whole_but_described_and_measured_only_in_part() 
         .refresh(
             &harness.model,
             harness.workspace.viewport.selection(),
+            &harness.workspace.editing,
             (&[], &[]),
         )
         .clone();

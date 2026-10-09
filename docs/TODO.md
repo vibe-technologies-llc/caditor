@@ -392,12 +392,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Interface performance
 
-- [medium · easy] Sketch commands work out their availability every frame by walking the sketch:
-  Select all and Select free each build the full entity list, and Select free also reads every
-  entity's solved state. Together that is about 40% of a `large_sketch` frame in the
-  `ui_tests/frame_costs.rs` benchmark. The toolbar's hole tool scans the sketch every frame too.
-  `sketch_drag::can_select_all` already answers cheaply; Select free needs an early-exit check or a
-  cache, and the hole check could move into the cached `SelectionOffers`.
 - [medium · medium] A body's exact mass properties (adaptive Gauss–Kronrod over every face) and
   extent are computed in `BodyMesh::build` (`bodies.rs`) on the single body-meshes thread before
   the mesh can be shown, though only the measure panel and the centre-of-mass aid read them. They
@@ -408,13 +402,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the scene generation, view, rect, graphics settings and picks are unchanged would save the GPU
   that work.
 - [low · easy] Smaller per-frame costs measured or found in the resource survey:
-  - `CommandFrame::invoke_detailed` runs `retain` over the offers on every call and allocates each
-    reason with `to_string` (`commands.rs`): about 12% of the plate frame.
+  - `CommandFrame::invoke_detailed` allocates each unavailable reason with `to_string`
+    (`commands.rs`).
   - `Highlight::is_hovered` searches a slice for every scene item (`scene.rs`), and `hovered` can
     hold a whole body.
-  - The selection is cloned and compared by content every frame (`app.rs`, `scene_cache.rs`)
-    where `Selection::generation` would do.
-  - `snap::held` runs `curves` twice.
   - Key hints, shortcut lists and the window title are formatted again every frame.
 - [low · easy] Fallback system fonts are held twice in RAM (`font_fallbacks.rs` loads them as owned
   data and epaint copies it again), up to tens of MB with CJK fonts. Face analysis also keeps a

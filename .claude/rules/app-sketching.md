@@ -136,7 +136,8 @@ paths:
   projected and reference geometry left out and a point dropped when a curve using it is taken.
   Without a settled solution (recompute pending, the sketch failing) it is refused with
   `NOT_SOLVED`, and with nothing free with `NOTHING_FREE`. The degrees-of-freedom pill runs it
-  (Status pills, below).
+  (Status pills, below). Select all and Select free state their availability each frame with
+  early-exit checks (`can_select_all`, `can_select_free`) and build their lists only when run.
 
 ## Drawing tools
 
