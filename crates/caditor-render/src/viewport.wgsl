@@ -37,6 +37,8 @@ const GRID_DEPTH_BIAS: f32 = 0.99998;
 const BEHIND: u32 = 0u;
 const DASH_PERIOD_POINTS: f32 = 10.0;
 const DASH_DRAWN_FRACTION: f32 = 0.6;
+const STROKE_FRINGE_PIXELS: f32 = 1.0;
+const OPAQUE_ALPHA: f32 = 0.999;
 const SRGB_LINEAR_SLOPE: f32 = 12.92;
 const SRGB_DECODED_KNEE: f32 = 0.04045;
 const SRGB_ENCODED_KNEE: f32 = 0.0031308;
@@ -53,6 +55,8 @@ struct Varyings {
     @location(5) relative: vec3<f32>,
     @location(6) normal: vec3<f32>,
     @location(7) dash_points: f32,
+    @location(8) stroke: vec3<f32>,
+    @location(9) @interpolate(flat) stroke_extent: vec3<f32>,
 }
 
 struct PickOutput {
@@ -140,6 +144,8 @@ fn empty_varyings() -> Varyings {
     out.relative = vec3<f32>(0.0);
     out.normal = vec3<f32>(0.0);
     out.dash_points = -1.0;
+    out.stroke = vec3<f32>(0.0);
+    out.stroke_extent = vec3<f32>(0.0);
     return out;
 }
 
@@ -206,20 +212,64 @@ fn segment_direction(segment: Segment) -> vec2<f32> {
     return vec2<f32>(1.0, 0.0);
 }
 
-fn stroke(vertex: u32, segment: Segment, width: f32, depth_bias: f32, in_front: u32) -> Varyings {
+fn finishes_strokes() -> bool {
+    return view.fill_light.w > 0.5;
+}
+
+struct Stroke {
+    width: f32,
+    depth_bias: f32,
+    in_front: u32,
+    capped: bool,
+}
+
+fn stroke_reach(stroke: Stroke) -> vec2<f32> {
+    let half_width = stroke.width * pixels_per_point() * 0.5;
+    if !finishes_strokes() {
+        return vec2<f32>(0.0, half_width);
+    }
+    let cap = select(0.0, half_width, stroke.capped);
+    return vec2<f32>(cap + STROKE_FRINGE_PIXELS, half_width + STROKE_FRINGE_PIXELS);
+}
+
+fn stroked(vertex: u32, segment: Segment, stroke: Stroke) -> Varyings {
     let direction = segment_direction(segment);
     let normal = vec2<f32>(-direction.y, direction.x);
     let corner = quad_corner(vertex);
     let at_end = corner.x > 0.0;
-    let half_width = width * pixels_per_point() * 0.5;
-    let offset = normal * corner.y * half_width;
+    let reach = stroke_reach(stroke);
+    let along = corner.x * reach.x;
+    let across = corner.y * reach.y;
     var clip = select(segment.start_clip, segment.end_clip, at_end);
-    clip = vec4<f32>(clip.xy + pixels_to_ndc(offset) * clip.w, clip.zw);
+    clip = vec4<f32>(clip.xy + pixels_to_ndc(direction * along + normal * across) * clip.w, clip.zw);
 
     var out = empty_varyings();
-    out.position = finish(clip, depth_bias, in_front);
+    out.position = finish(clip, stroke.depth_bias, stroke.in_front);
     out.depth = select(view_depth(segment.start), view_depth(segment.end), at_end);
+    if finishes_strokes() {
+        let span = length(segment.along_pixels);
+        let from_start = along + select(0.0, span, at_end);
+        out.stroke = vec3<f32>(from_start, across, 1.0) * clip.w;
+        out.stroke_extent = vec3<f32>(span, stroke.width * pixels_per_point() * 0.5, select(0.0, 1.0, stroke.capped));
+    }
     return out;
+}
+
+fn stroke_coverage(in: Varyings) -> f32 {
+    if in.stroke.z <= 0.0 {
+        return 1.0;
+    }
+    let along = in.stroke.x / in.stroke.z;
+    let across = abs(in.stroke.y / in.stroke.z);
+    let span = in.stroke_extent.x;
+    let half_width = in.stroke_extent.y;
+    let beyond = max(-along, along - span);
+    let across_coverage = clamp(half_width + 0.5 - across, 0.0, 1.0);
+    if in.stroke_extent.z > 0.5 {
+        let from_end = length(vec2<f32>(max(beyond, 0.0), across));
+        return clamp(half_width + 0.5 - from_end, 0.0, 1.0);
+    }
+    return min(across_coverage, clamp(0.5 - beyond, 0.0, 1.0));
 }
 
 @vertex
@@ -231,15 +281,18 @@ fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
     }
     let segment = clipped_segment(line_start, line_end);
 
-    var out = stroke(vertex, segment, line.width, line.depth_bias, line.in_front);
+    let stroke = Stroke(line.width, line.depth_bias, line.in_front, line.color.a >= OPAQUE_ALPHA);
+    var out = stroked(vertex, segment, stroke);
     out.color = line.color;
     out.pick = line.pick;
     if line.along >= 0.0 {
-        let at_end = quad_corner(vertex).x > 0.0;
+        let corner = quad_corner(vertex);
+        let at_end = corner.x > 0.0;
         let clipped_length = distance(segment.start, segment.end);
         let points_per_unit = length(segment.along_pixels) / (max(clipped_length, 1e-12) * pixels_per_point());
         let along_start = line.along + distance(line_start, segment.start);
-        out.dash_points = (along_start + select(0.0, clipped_length, at_end)) * points_per_unit;
+        let beyond_points = corner.x * stroke_reach(stroke).x / pixels_per_point();
+        out.dash_points = max((along_start + select(0.0, clipped_length, at_end)) * points_per_unit + beyond_points, 0.0);
     }
     return out;
 }
@@ -407,7 +460,8 @@ fn vs_silhouette(@builtin(vertex_index) vertex: u32, triangle: SilhouetteTriangl
     }
     let segment = clipped_segment(start, end);
 
-    var out = stroke(vertex, segment, silhouette.offset_width.w, silhouette.turn_x_bias.w, BEHIND);
+    let stroke = Stroke(silhouette.offset_width.w, silhouette.turn_x_bias.w, BEHIND, silhouette.color.a >= OPAQUE_ALPHA);
+    var out = stroked(vertex, segment, stroke);
     out.color = silhouette.color;
     if silhouette.turn_y_dashed.w > 0.5 {
         out.dash_points = screen_dash_points(segment, vertex);
@@ -443,7 +497,11 @@ fn fs_line(in: Varyings) -> @location(0) vec4<f32> {
     if in.dash_points >= 0.0 && fract(in.dash_points / DASH_PERIOD_POINTS) > DASH_DRAWN_FRACTION {
         discard;
     }
-    return in.color;
+    let coverage = stroke_coverage(in);
+    if coverage <= 0.0 {
+        discard;
+    }
+    return vec4<f32>(in.color.rgb, in.color.a * coverage);
 }
 
 const AMBIENT: f32 = 0.07;

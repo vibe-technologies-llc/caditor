@@ -187,6 +187,14 @@ paths:
 
 - Sizes are logical points: `ViewportFrame::pixels_per_point` goes into the view uniform and
   shaders scale line widths, marker diameters and the grid by it.
+- Lines and silhouettes are finished in the colour pass (`Strokes::Finished` in the view uniform's
+  `fill_light.w`): each quad reaches `STROKE_FRINGE_PIXELS` beyond its edges and `fs_line` turns the
+  distance from the segment, carried in screen space (the `stroke` varying times `w`, divided
+  back per fragment), into coverage, so lines are smooth at every multisampling level, Off
+  included, at the same width. An opaque line also reaches half its width past each end and
+  rounds it, which closes the notches where a polyline's segments meet; a translucent one keeps
+  square ends, since overlapping caps would blend twice at every joint. The pick pass
+  (`Strokes::Bare`) draws the bare quads as before, so pick reach is unchanged.
 - `Stroke::Dashed` carries the distance along the curve at its start, so dashes
   (`DASH_PERIOD_POINTS`) run on across a polyline's segments at any zoom and interface size. The
   pick pass draws dashed lines whole, so a gap still picks its curve.

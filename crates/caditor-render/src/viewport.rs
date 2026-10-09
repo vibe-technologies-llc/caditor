@@ -1120,7 +1120,7 @@ impl ViewportRenderer {
             },
             plan.pixels_per_point,
             (self.shading, plan.reflection),
-            transform,
+            (transform, Strokes::Finished),
         );
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
 
@@ -1300,7 +1300,7 @@ impl ViewportRenderer {
             &anchored,
             pixels_per_point,
             (self.shading, scene.reflection),
-            WHOLE_VIEW,
+            (WHOLE_VIEW, Strokes::Finished),
         );
         queue.write_buffer(&self.view_uniform.buffer, 0, self.staging.as_slice());
         let prepared = viewport.pick_at.map(|cursor| {
@@ -1322,7 +1322,7 @@ impl ViewportRenderer {
                 &anchored,
                 pixels_per_point,
                 (self.shading, scene.reflection),
-                transform,
+                (transform, Strokes::Bare),
             );
             queue.write_buffer(&self.pick_view_uniform.buffer, 0, self.staging.as_slice());
         }
@@ -1493,6 +1493,21 @@ pub struct Work {
     pub uploads: usize,
     pub sorts: usize,
     pub pipeline_builds: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Strokes {
+    Finished,
+    Bare,
+}
+
+impl Strokes {
+    fn uniform_flag(self) -> f32 {
+        match self {
+            Self::Finished => 1.0,
+            Self::Bare => 0.0,
+        }
+    }
 }
 
 struct AnchoredView<'a> {
@@ -1912,7 +1927,7 @@ fn view_uniform(
     anchored: &AnchoredView<'_>,
     pixels_per_point: f32,
     (shading, reflection): (Shading, Reflection),
-    transform: [f32; 4],
+    (transform, strokes): ([f32; 4], Strokes),
 ) {
     let [across, along] = reflection.uniform();
     let view = anchored.view;
@@ -1929,7 +1944,7 @@ fn view_uniform(
         ])
         .floats(&transform)
         .vec4(key_light(view).as_vec3(), shading.uniform_flag())
-        .vec4(fill_light(view).as_vec3(), 0.0)
+        .vec4(fill_light(view).as_vec3(), strokes.uniform_flag())
         .vec4(relative_to_eye(anchored.anchor, view.eye()), 0.0)
         .floats(&across)
         .floats(&along);

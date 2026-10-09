@@ -2386,6 +2386,56 @@ fn an_orthographic_view_draws_and_picks_faces_behind_its_eye_with_edges_over_the
     assert!(on_top.distance(under_the_box) < 1e-9);
 }
 
+#[test]
+fn opaque_polylines_join_and_end_round_and_translucent_ones_keep_square_ends() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let pixel_size = view.units_per_pixel_at(100.0);
+    let segment = |start: Point3, end: Point3, alpha: u8| Line {
+        start,
+        end,
+        color: Color::from_rgba8(250, 20, 20, alpha),
+        width: 8.0,
+        layer: Layer::Model,
+        pick: None,
+        stroke: Stroke::Solid,
+    };
+    let corner = Point3::new(0.0, 0.0, 0.0);
+    let polyline = |alpha: u8| {
+        Scene::from(Batch {
+            lines: vec![
+                segment(Point3::new(-20.0, 0.0, 0.0), corner, alpha),
+                segment(corner, Point3::new(0.0, 20.0, 0.0), alpha),
+            ],
+            ..Batch::default()
+        })
+    };
+    let outer_corner = corner + Vector3::new(2.5, -2.5, 0.0) * pixel_size;
+    let past_the_end = Point3::new(0.0, 20.0, 0.0) + Vector3::new(0.0, 2.5, 0.0) * pixel_size;
+    let draw = |scene: &Scene| {
+        let mut renderer = viewport_renderer(&device, 1);
+        render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, scene, DVec2::ZERO),
+        )
+    };
+    let red_at = |rendered: &Rendered, point: Point3| {
+        pixel(rendered, view.project(point).unwrap().floor())[0]
+    };
+
+    let opaque = draw(&polyline(255));
+    let translucent = draw(&polyline(200));
+
+    assert!(red_at(&opaque, outer_corner) > 200);
+    assert!(red_at(&opaque, past_the_end) > 200);
+    assert!(red_at(&translucent, outer_corner) < 100);
+    assert!(red_at(&translucent, past_the_end) < 100);
+}
+
 fn diagonal_line(layer: Layer) -> Line {
     Line {
         start: Point3::new(-50.0, -37.5, 0.0),
@@ -2467,11 +2517,7 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
 
         assert_eq!(renderer.sample_count(), level.samples());
         let softened = partly_covered_pixels(&edges);
-        if level == Msaa::Off {
-            assert_eq!(softened, 0, "{level:?}");
-        } else {
-            assert!(softened > 40, "{level:?} softened only {softened} pixels");
-        }
+        assert!(softened > 40, "{level:?} softened only {softened} pixels");
         let [red, green, blue, _] = pixel(&front, inside);
         assert!(
             red > 230 && green < 40 && blue < 40,

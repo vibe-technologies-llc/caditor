@@ -372,7 +372,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   at once, which only looks into the model and changes nothing. Measure works on what it shows.
 - [low · easy] Silhouettes of curved faces are not drawn again dashed where a face hides them in
   shaded with hidden edges dashed, and never pick (the face beneath does).
-- [low · medium] Line caps, joins and anti-aliasing without MSAA.
+- [low · medium] Translucent lines keep square ends, so a translucent polyline still notches where
+  its segments meet at an angle; joining them without blending twice needs mitred joins built
+  from the neighbouring segments, which instances do not know.
 - [low · medium] On GL and other devices without texture view formats the multisample resolve
   still averages in gamma space: a resolve of its own (a pass reading the samples) would fix it.
 - [low · medium] Dragging a brush over faces to select them (paint selection), and named selection
