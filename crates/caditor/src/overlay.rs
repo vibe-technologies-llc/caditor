@@ -120,19 +120,24 @@ impl Overlay {
                 ViewportCommand::StartDrag | ViewportCommand::BeginResize(_)
             )
         });
+        let mut requested = Vec::new();
         egui_winit::process_viewport_commands(
             &self.context,
             &mut self.window,
             commands,
             window,
-            &mut Vec::new(),
+            &mut requested,
         );
+        let pasting = requested.contains(&egui_winit::ActionRequested::Paste);
+        if pasting && let Some(text) = self.state.clipboard_text() {
+            self.state.egui_input_mut().events.push(Event::Paste(text));
+        }
         let Some(pos) = self
             .context
             .input(|input| input.pointer.interact_pos())
             .filter(|_| grabs_pointer)
         else {
-            return false;
+            return pasting;
         };
         self.state
             .egui_input_mut()

@@ -33,6 +33,13 @@ paths:
 - egui-winit turns Ctrl+C, Ctrl+X and Ctrl+V into `Event::Copy`, `Cut` and `Paste` without a key
   event, so `commands::pressed_shortcut` reads those events as the key presses (a paste event
   arrives only while the system clipboard holds text).
+- The clipboard reaches commands through `CommandFrame`: `pasted()` is the frame's paste text,
+  `copy` puts text on the system clipboard (and keeps it in `Workspace::copied`). A paste command
+  run without text (menu, palette, a key press while the clipboard held none) calls
+  `ask_for_paste`; the app sends `ViewportCommand::RequestPaste`, which the overlay answers with
+  the system clipboard's text as a paste event, and runs the command again next frame
+  (`Workspace::awaiting_paste`) with that text, else the last text copied, else nothing. UI tests
+  answer the request from the text the harness last saw copied.
 - Ctrl and Alt shortcuts run from a text field too, except on `TEXT_EDITING_KEYS`: the field
   loses focus (committing) and the command runs next frame (`Workspace::deferred_commands`), so
   Save saves a value just typed.

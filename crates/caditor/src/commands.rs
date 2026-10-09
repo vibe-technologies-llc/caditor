@@ -1949,11 +1949,28 @@ impl Offer {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Clipboard {
+    #[default]
+    Unread,
+    Read(Option<String>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pasted<'a> {
+    Unread,
+    Text(&'a str),
+    Nothing,
+}
+
 pub struct CommandFrame<'a> {
     keymap: &'a Keymap,
     triggered: Vec<Command>,
     offers: Vec<Offer>,
     refused: Vec<(Command, String)>,
+    clipboard: Clipboard,
+    paste_asked: Option<Command>,
+    copied: Option<String>,
 }
 
 impl<'a> CommandFrame<'a> {
@@ -1963,7 +1980,40 @@ impl<'a> CommandFrame<'a> {
             triggered,
             offers: Vec::new(),
             refused: Vec::new(),
+            clipboard: Clipboard::Unread,
+            paste_asked: None,
+            copied: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_clipboard(mut self, clipboard: Clipboard) -> Self {
+        self.clipboard = clipboard;
+        self
+    }
+
+    pub fn pasted(&self) -> Pasted<'_> {
+        match &self.clipboard {
+            Clipboard::Unread => Pasted::Unread,
+            Clipboard::Read(Some(text)) => Pasted::Text(text),
+            Clipboard::Read(None) => Pasted::Nothing,
+        }
+    }
+
+    pub fn ask_for_paste(&mut self, command: Command) {
+        self.paste_asked = Some(command);
+    }
+
+    pub fn paste_asked(&self) -> Option<Command> {
+        self.paste_asked
+    }
+
+    pub fn copy(&mut self, text: String) {
+        self.copied = Some(text);
+    }
+
+    pub fn take_copied(&mut self) -> Option<String> {
+        self.copied.take()
     }
 
     pub fn keys(&self, command: Command) -> Option<String> {

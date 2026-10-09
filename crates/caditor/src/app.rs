@@ -28,7 +28,7 @@ use crate::{
     body_selection, canvas,
     comb::CombTool,
     comb_panel,
-    commands::{self, Command, CommandFrame, Offer, Situation},
+    commands::{self, Clipboard, Command, CommandFrame, Offer, Situation},
     constraint_trial, drawing_export, drop_target,
     editing::SketchEditing,
     feature_tree,
@@ -148,6 +148,8 @@ pub struct Workspace {
     applied_title_bar: Option<TitleBar>,
     keyboard_was_taken: bool,
     deferred_commands: Vec<Command>,
+    awaiting_paste: Option<Command>,
+    copied: Option<String>,
     session: u64,
 }
 
@@ -193,6 +195,8 @@ impl Workspace {
             applied_title_bar: None,
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
+            awaiting_paste: None,
+            copied: None,
             session: 0,
         }
     }
@@ -223,6 +227,7 @@ impl Workspace {
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
         self.deferred_commands.clear();
+        self.awaiting_paste = None;
     }
 
     fn sync(&mut self, model: &Model) {
@@ -366,6 +371,26 @@ fn tip_commands(
     }
 }
 
+fn read_clipboard(ctx: &egui::Context, awaited: bool, copied: Option<&str>) -> Clipboard {
+    let pasted = ctx.input_mut(|input| {
+        let pasted = input.events.iter().rev().find_map(|event| match event {
+            egui::Event::Paste(text) => Some(text.clone()),
+            _ => None,
+        });
+        if awaited {
+            input
+                .events
+                .retain(|event| !matches!(event, egui::Event::Paste(_)));
+        }
+        pasted
+    });
+    match pasted {
+        Some(text) => Clipboard::Read(Some(text)),
+        None if awaited => Clipboard::Read(copied.map(str::to_owned)),
+        None => Clipboard::Unread,
+    }
+}
+
 pub fn show(
     ui: &mut egui::Ui,
     model: &Model,
@@ -433,6 +458,8 @@ pub fn show(
         comb,
         keyboard_was_taken,
         deferred_commands,
+        awaiting_paste,
+        copied,
         ..
     } = workspace;
     let chosen_rows = panels.chosen();
@@ -446,11 +473,14 @@ pub fn show(
         keys_free,
     };
     let deferred = std::mem::take(deferred_commands);
+    let awaited = awaiting_paste.take().filter(|_| !blocked);
+    let clipboard = read_clipboard(ui.ctx(), awaited.is_some(), copied.as_deref());
     let mut triggered = if blocked {
         Vec::new()
     } else {
         commands::dispatch(ui.ctx(), &preferences.keymap, &situation)
     };
+    triggered.extend(awaited);
     if text_focused && !triggered.is_empty() {
         leave_text_field(ui.ctx());
         *deferred_commands = std::mem::take(&mut triggered);
@@ -468,7 +498,7 @@ pub fn show(
     if let Some(index) = palette.take_selection_set() {
         actions.push(Action::Preferences(PreferencesCommand::SelectSet(index)));
     }
-    let mut commands = CommandFrame::new(&preferences.keymap, triggered);
+    let mut commands = CommandFrame::new(&preferences.keymap, triggered).with_clipboard(clipboard);
     let menu = MenuContext {
         views: model.document().saved_views(),
         sets: model.document().selection_sets(),
@@ -681,6 +711,16 @@ pub fn show(
             .zip(viewport.rect())
     };
     tip_commands(hint.map(|(hint, _)| hint), &mut commands, actions);
+    if let Some(text) = commands.take_copied() {
+        ui.ctx().copy_text(text.clone());
+        *copied = Some(text);
+    }
+    if let Some(command) = commands.paste_asked() {
+        ui.ctx()
+            .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+        ui.ctx().request_repaint();
+        *awaiting_paste = Some(command);
+    }
     let (offers, refused) = commands.finish();
     for (command, reason) in refused {
         actions.push(Action::Inform(Notice::info(format!(
