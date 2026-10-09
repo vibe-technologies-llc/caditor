@@ -391,6 +391,13 @@ paths:
   face other than the sketch's re-attaches the sketch there (`SetSketchPlacement`) and moves the
   hole to that face's body, all in one change. A sketch with more points or constraints is moved
   by editing it.
+- While such a hole is open (and nothing is being chosen in the view), its centre carries handles
+  on the face (`hole_handles.rs`, `Manipulator::Hole`): a square to drag it anywhere on the face
+  and an arrow along the sketch plane's x and y (`HoleGrip`), drawn and hit-tested like the move
+  arrows, in `canvas::SNAP` at `HOLE_ARROW_SHARE` of their length. A drag follows where the
+  pointer's ray meets the sketch plane, in steps (Ctrl drags freely), previewed with Position X
+  and Y beside the pointer and committed on release as one "Move <hole>" change; the handles
+  follow the preview (`Model::draft_transaction`).
 
 ## Thread
 

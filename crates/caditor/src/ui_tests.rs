@@ -9523,6 +9523,90 @@ fn dragging_an_extrusion_arrow_changes_its_distance_in_one_change() {
 }
 
 #[test]
+fn dragging_a_hole_s_handles_moves_it_on_its_face_in_one_change() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let sketch = open_hole(&harness, hole).sketch;
+    let point_of = |harness: &Harness| {
+        harness
+            .sketch(sketch)
+            .entities()
+            .find_map(|(_, entity)| match entity {
+                Entity::Point(at) => Some(*at),
+                _ => None,
+            })
+            .expect("the hole's sketch holds its point")
+    };
+    let on_face = Handle::Hole(crate::move_manipulator::HoleGrip::OnFace);
+    let along_y = Handle::Hole(crate::move_manipulator::HoleGrip::AlongY);
+
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(on_face, 0.0)
+        .expect("the hole's square is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(on_face, 8.0)
+        .unwrap();
+    let step = harness.workspace.viewport.manipulator_step().unwrap();
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+
+    assert!(harness.shows("Drag to move the hole on its face"));
+
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+    let moved = point_of(&harness);
+
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert!(
+        (moved.x - 28.0).abs() <= step,
+        "{moved:?} with steps of {step}"
+    );
+    assert!((moved.y - 20.0).abs() < 1e-9, "{moved:?}");
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 9.0 * 10.0
+    ));
+
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(along_y, 0.0)
+        .expect("the hole's Y arrow is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(along_y, -6.0)
+        .unwrap();
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+    let again = point_of(&harness);
+
+    assert!((again.x - moved.x).abs() < 1e-9, "{again:?}");
+    assert!(
+        (again.y - 14.0).abs() <= step,
+        "{again:?} with steps of {step}"
+    );
+
+    harness.perform(Action::Undo);
+    harness.settle();
+
+    assert_eq!(point_of(&harness), moved);
+}
+
+#[test]
 fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the_origin() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);

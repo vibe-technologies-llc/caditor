@@ -785,6 +785,13 @@ impl Model {
         Some(&draft.kind)
     }
 
+    pub fn draft_transaction(&self, feature: FeatureId) -> Option<&Transaction> {
+        self.draft
+            .as_ref()
+            .filter(|draft| draft.feature == feature)
+            .map(|draft| &draft.transaction)
+    }
+
     pub fn shown_parameters(&self, feature: FeatureId) -> &ParameterValues {
         self.draft
             .as_ref()

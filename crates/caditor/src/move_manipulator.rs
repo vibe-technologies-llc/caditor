@@ -42,6 +42,14 @@ pub enum Handle {
     Turn(MoveAxis),
     TurnAbout,
     Reach(Reach),
+    Hole(HoleGrip),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoleGrip {
+    AlongX,
+    AlongY,
+    OnFace,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +94,7 @@ impl Handle {
                 .into_iter()
                 .filter(|axis| *axis != normal)
                 .collect(),
-            Self::Turn(_) | Self::TurnAbout | Self::Reach(_) => Vec::new(),
+            Self::Turn(_) | Self::TurnAbout | Self::Reach(_) | Self::Hole(_) => Vec::new(),
         }
     }
 
@@ -106,6 +114,9 @@ impl Handle {
                 let names: Vec<&str> = self.moves().iter().map(|axis| axis.name()).collect();
                 format!("Drag to move the body in the {} plane", names.concat())
             }
+            Self::Hole(HoleGrip::AlongX) => "Drag to move the hole along its Position X".to_owned(),
+            Self::Hole(HoleGrip::AlongY) => "Drag to move the hole along its Position Y".to_owned(),
+            Self::Hole(HoleGrip::OnFace) => "Drag to move the hole on its face".to_owned(),
         }
     }
 }
@@ -317,7 +328,7 @@ impl MoveHandles {
                     .find_map(|axis| held(&move_panel::turn_caption(axis), axis.of(&movement.turn)))
             }
             Handle::TurnAbout => held(move_panel::ANGLE, &movement.about.axis_turn()?.angle),
-            Handle::Reach(_) => None,
+            Handle::Reach(_) | Handle::Hole(_) => None,
         }
     }
 
@@ -328,7 +339,11 @@ impl MoveHandles {
                     corners.iter().map(|corner| view.project(*corner)).collect();
                 projected.is_some_and(|projected| within(&projected, cursor))
             }),
-            Handle::Along(_) | Handle::Turn(_) | Handle::TurnAbout | Handle::Reach(_) => false,
+            Handle::Along(_)
+            | Handle::Turn(_)
+            | Handle::TurnAbout
+            | Handle::Reach(_)
+            | Handle::Hole(_) => false,
         });
         let reach = HIT_POINTS * pixels_per_point;
         let arrows = MoveAxis::ALL.into_iter().filter_map(|axis| {
@@ -375,7 +390,7 @@ impl MoveHandles {
                 let index = (along.max(0.0) as usize).min(ring.len() - 1);
                 ring.get(index).copied()
             }
-            Handle::Reach(_) => None,
+            Handle::Reach(_) | Handle::Hole(_) => None,
         }
     }
 
@@ -477,7 +492,7 @@ pub fn step_for(per_point: f64) -> f64 {
     nice_step(per_point * STEP_POINTS)
 }
 
-fn within(polygon: &[Vector2], point: Vector2) -> bool {
+pub fn within(polygon: &[Vector2], point: Vector2) -> bool {
     let turns: Vec<f64> = polygon
         .iter()
         .zip(polygon.iter().cycle().skip(1))
@@ -765,7 +780,7 @@ fn point_on(
             let plane = Plane::new(origin, direction(frame, axis))?;
             Some(ray.at(ray.intersect_plane(&plane)?))
         }
-        Handle::Reach(_) => None,
+        Handle::Reach(_) | Handle::Hole(_) => None,
     }
 }
 
