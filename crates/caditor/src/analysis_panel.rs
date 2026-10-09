@@ -10,7 +10,9 @@ use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::BodyMeshes,
     display_style::DisplayStyle,
-    feature_fields, field, icons, layout,
+    feature_fields, field,
+    guide::Page,
+    guide_panel, icons, layout,
     model::Model,
     scene_palette::Contrast,
     selection::{Axis, Selection},
@@ -341,6 +343,7 @@ pub fn show(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool,
             ui.add_space(SPACE_S);
             widgets::panel_header(ui, icons::ANALYSIS, TITLE, |ui| {
                 close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+                guide_panel::help_button(ui, Page::FaceAnalysis);
             });
             ui.add_space(SPACE_S);
             ScrollArea::vertical().show(ui, |ui| body(ui, context, tool));

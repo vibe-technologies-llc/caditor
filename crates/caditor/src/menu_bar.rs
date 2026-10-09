@@ -799,6 +799,7 @@ impl Menus<'_, '_> {
             self.items(
                 ui,
                 [
+                    Command::Guide,
                     Command::Welcome,
                     Command::Palette,
                     Command::KeyboardShortcuts,

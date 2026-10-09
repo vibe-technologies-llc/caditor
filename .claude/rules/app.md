@@ -36,6 +36,10 @@ paths:
   - "crates/caditor/src/analysis.rs"
   - "crates/caditor/src/analysis_panel.rs"
   - "crates/caditor/src/reach.rs"
+  - "crates/caditor/src/guide.rs"
+  - "crates/caditor/src/guide_panel.rs"
+  - "crates/caditor/src/defender.rs"
+  - "crates/caditor/guide/**"
 ---
 
 # App shell, model and bodies
@@ -416,6 +420,36 @@ paths:
 - `samples.rs` builds parametric models through the document API (so always the current format),
   fully constrained with dimensions naming parameters; a test recomputes each and checks its
   volume. Open sample opens one untitled and unmodified.
+
+## User guide
+
+- The guide ships inside the binary: one page per tool or subject in `crates/caditor/guide/<id>.md`,
+  embedded by `include_str!` through `guide::Page::source`, parsed once (`guide::GUIDE`, a
+  `LazyLock`), so it reads offline and never touches the disk. `Page` is the only list of pages and
+  `Chapter` groups them into the contents in `Page::ALL` order.
+- Pages are a small markup of our own, not Markdown read by a crate: `# ` the title (first line),
+  `## ` a heading, `- ` a list item (indented lines continue it), blank lines between paragraphs,
+  and inline `**strong**`, `` `code` ``, `[text](page-id)` links and `{command:id}`, which renders
+  the command's title with the user's current keys (`guide_panel::command_text`), so pages never
+  repeat default shortcuts. Unclosed marks stay text. Tests hold every link and command id to one
+  that exists, every page to a title, content and an incoming link, and the markup's reading.
+- `guide_panel.rs` draws it as a right-hand side panel sharing the side panels' room (`Guide` in
+  the `Workspace`, reset by a failed frame): back, contents and close buttons, a search field over
+  the titles and text (`guide::search`, title matches first, with a snippet around the first word),
+  the contents by chapter, and a page with a Next link to the following one. Links are underlined
+  `accent_text` labels, focusable and named as links.
+- Help › User guide (`Command::Guide`, F1) opens the page of the current context
+  (`guide::context`): the active sketch tool other than Select, else the open feature
+  (`Page::of_feature`), else the first open side panel (Constrain automatically, face analysis,
+  comb, isocurves, interference, Measure), else the edited sketch or plane choice, else the tree's
+  selected row; with none, the contents with the search field focused. Run again on the page it
+  would open, it closes the guide. The palette's detail names the page.
+- Panels link to their page: each side panel's header has a help button
+  (`guide_panel::help_button`) and an open feature's card ends with "Help on <page>"
+  (`help_link`); both ask through egui temp data (`guide::ask`, taken by `app::guide_commands`
+  next frame), so panels need no new parameters. A new tool, feature kind or side panel gets a page
+  (the exhaustive `Page::of_tool`, `of_feature` and `of_panel` fail to compile otherwise), and a
+  change to what a tool does updates its page in the same commit.
 
 ## About, command line, accessibility, packaging
 

@@ -381,11 +381,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   for Win32). X11 names the window already.
 - [medium · hard] Version history shows when a version was saved and after which change, but no
   preview of what it holds.
-- [medium · hard] No user guide: Help has only the welcome, the command search, the keyboard
-  shortcuts, the notice log and About, besides the tips shown in the view. Nothing explains
-  features, the parameter and expression syntax, or the file workflow, and no panel links to help on
-  itself. A guide shipped with the app (and readable offline) with a page per tool, opened by F1 for
-  the current tool or panel.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge
@@ -494,12 +489,6 @@ Linux is the primary platform and Windows the only other one; macOS is not a goa
   certificate tied to an identity.
 - [low · medium] Linux has only the `.tar.zst` with its installer: no AppImage, `.deb` or `.rpm`, so
   caditor is not in software centres and installs never update themselves.
-- [low · easy · blocked by: the user guide for the repeat link] On Windows,
-  Microsoft Defender's real-time scanning slows the atomic saves, the recovery journal's frequent
-  syncs and version history writes in the folders models live in. Remind the user, once and
-  dismissibly (a callout on first save to a folder, repeatable from Preferences and the user guide),
-  that they can exclude their models' working folder from Defender, saying what that trades away and
-  how to do it; never change Defender settings ourselves.
 - [low · medium · blocked by: the project's decision to publish no maintainer identity or repository
   URL] No Flatpak or AUR package: both need a maintainer identity and repository URL in their
   metadata, which the project does not publish (`docs/RELEASING.md`); `packaging/arch/PKGBUILD` only

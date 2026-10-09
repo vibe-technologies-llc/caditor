@@ -522,11 +522,29 @@ fn screenshots() {
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
 
+        guide_scenes(&mut model, &gpu, &out, look);
         canvas_scenes(&mut model, &gpu, &out, look);
         tree_scenes(&mut model, &gpu, &out, look);
         feature_panel_scenes(&mut model, &gpu, &out, look);
         dialog_scenes(&gpu, &out, look);
     }
+}
+
+fn guide_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    model.workspace.guide.open_at(crate::guide::Page::Extrude);
+    model.frame();
+    shoot(model, gpu, out, "guide", look);
+    model.workspace.guide.toggle_at(None);
+    model.workspace.guide.toggle_at(None);
+    model.click_button(crate::guide_panel::CONTENTS);
+    shoot(model, gpu, out, "guide-contents", look);
+    model.workspace.guide.open = false;
+    model.perform(Action::Preferences(
+        PreferencesCommand::ShowDefenderReminder,
+    ));
+    shoot(model, gpu, out, "defender-reminder", look);
+    model.click(crate::defender::GOT_IT);
+    model.frame();
 }
 
 fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {

@@ -719,6 +719,7 @@ pub struct Files {
     default_template: Option<String>,
     parameter_import: Option<ParameterImportDraft>,
     quit: bool,
+    saved_folder: Option<PathBuf>,
 }
 
 impl Files {
@@ -762,6 +763,7 @@ impl Files {
             default_template: None,
             parameter_import: None,
             quit: false,
+            saved_folder: None,
         }
     }
 
@@ -825,6 +827,10 @@ impl Files {
             || self.history.is_open()
             || self.parameter_import.is_some()
             || self.picking.is_some()
+    }
+
+    pub fn saved_folder(&self) -> Option<&Path> {
+        self.saved_folder.as_deref()
     }
 
     pub fn recent(&self) -> &[PathBuf] {
@@ -1254,6 +1260,7 @@ impl Files {
             changed = true;
             match event {
                 FileEvent::Saved(path) => {
+                    self.saved_folder = path.parent().map(Path::to_path_buf);
                     if self.history.path() == Some(&path) {
                         self.list_versions();
                     }

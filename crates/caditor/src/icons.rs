@@ -39,6 +39,12 @@ pub const INFO: &str = phosphor::INFO;
 pub const WARNING: &str = phosphor::WARNING;
 pub const UPDATE_REFERENCES: &str = phosphor::LINK_SIMPLE;
 pub const TIP: &str = phosphor::LIGHTBULB;
+pub const GUIDE: &str = phosphor::BOOK_OPEN_TEXT;
+pub const HELP: &str = phosphor::QUESTION;
+pub const BACK: &str = phosphor::ARROW_LEFT;
+pub const CONTENTS: &str = phosphor::LIST_BULLETS;
+pub const BULLET: &str = phosphor::DOT;
+pub const DEFENDER: &str = phosphor::SHIELD_CHECK;
 pub const SELECTION: &str = phosphor::SELECTION;
 pub const UNIT: &str = phosphor::RULER;
 pub const RECENT: &str = phosphor::CLOCK;
@@ -301,6 +307,7 @@ pub fn command(command: Command) -> &'static str {
         Command::DismissNotice | Command::DismissTip => CLOSE,
         Command::HideTips => phosphor::EYE_SLASH,
         Command::Welcome => phosphor::HAND_WAVING,
+        Command::Guide => GUIDE,
         Command::About => phosphor::INFO,
         Command::Messages => phosphor::CHAT_TEXT,
     }

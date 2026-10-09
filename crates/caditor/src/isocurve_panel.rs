@@ -3,7 +3,9 @@ use egui::{Label, ScrollArea, Slider, TextWrapMode, Ui};
 
 use crate::{
     appearance::{SPACE_M, SPACE_S},
-    comb, icons,
+    comb,
+    guide::Page,
+    guide_panel, icons,
     isocurves::{self, Directions, FaceLines, IsocurveTool, Isocurves},
     layout,
     units::Units,
@@ -167,6 +169,7 @@ pub fn show(
             ui.add_space(SPACE_S);
             widgets::panel_header(ui, icons::ISOCURVES, TITLE, |ui| {
                 close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+                guide_panel::help_button(ui, Page::Isocurves);
             });
             ui.add_space(SPACE_S);
             ScrollArea::vertical().show(ui, |ui| {

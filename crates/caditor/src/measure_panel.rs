@@ -9,7 +9,9 @@ use egui::{ComboBox, Label, ScrollArea, TextWrapMode, Ui};
 use crate::{
     appearance::{SPACE_M, SPACE_S},
     bodies::{BodyMass, BodyMeshes, MassAccuracy},
-    datum_tools, field, icons, layout,
+    datum_tools, field,
+    guide::Page,
+    guide_panel, icons, layout,
     measure::{APPROXIMATELY, Freshness, MeasureTool, MeasuredLine, Readout, Relative, Value},
     model::Model,
     selection::{Pickable, Selection},
@@ -592,6 +594,7 @@ pub fn show(ui: &mut Ui, context: &MeasureContext<'_>, tool: &mut MeasureTool, r
             ui.add_space(SPACE_S);
             widgets::panel_header(ui, icons::MEASURE, TITLE, |ui| {
                 close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+                guide_panel::help_button(ui, Page::Measure);
                 let everything_text = cards
                     .iter()
                     .flat_map(|(_, cards, _)| cards)

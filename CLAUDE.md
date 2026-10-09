@@ -78,7 +78,8 @@ removed once recorded in the rules file covering it.
 ## Rules
 
 Design detail lives in `.claude/rules/`, each file loading only for the paths it governs. A change
-that makes a rule false updates it in the same commit.
+that makes a rule false updates it in the same commit, and a change to what the user sees updates
+its page of the user guide (`crates/caditor/guide/`, `app.md`).
 
 | File | Covers |
 | --- | --- |
@@ -91,4 +92,4 @@ that makes a rule false updates it in the same commit.
 | `document.md`, `document-recompute.md` | Transactions, undo, model parameters, every feature kind; recompute caching, failure containment, the worker. |
 | `file-format.md`, `file-journal.md`, `file-import-export.md` | Container, version history, atomic saving; recovery journal, storage worker, preferences; DXF, SVG, STEP, STL, 3MF and PNG. |
 | `render.md` | Frames, devices, graphics settings, precision, depth, picking, navigation. |
-| `app.md`, `app-look.md`, `app-modelling.md`, `app-files.md`, `app-input.md`, `app-sketching.md`, `app-tests.md` | App shell, `Model` and `Action`s; theme, widgets, panels, feature tree; modelling tools; file workflow and preferences; input, commands and keymap; sketch editing; the headless UI test harness. |
+| `app.md`, `app-look.md`, `app-modelling.md`, `app-files.md`, `app-input.md`, `app-sketching.md`, `app-tests.md` | App shell, `Model` and `Action`s, the user guide; theme, widgets, panels, feature tree; modelling tools; file workflow and preferences; input, commands and keymap; sketch editing; the headless UI test harness. |

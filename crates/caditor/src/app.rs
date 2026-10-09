@@ -30,13 +30,15 @@ use crate::{
     comb_panel,
     commands::{self, Clipboard, Command, CommandFrame, Offer, Situation},
     configurations::{self, ConfigurationsDraft},
-    constraint_trial, drawing_export, drop_target,
+    constraint_trial, defender, drawing_export, drop_target,
     editing::SketchEditing,
     feature_tree,
     files::{self, FileCommand, Files},
     font_fallbacks::FallbackFonts,
     fonts,
     graphics::{FramePacer, Hardware},
+    guide::{self, SidePanel},
+    guide_panel::{self, Guide},
     image_export::{ReadPixels, RenderedRows},
     interference::InterferenceTool,
     interference_panel::{self, InterferenceContext},
@@ -155,6 +157,8 @@ pub struct Workspace {
     pub isocurves: IsocurveTool,
     pub tidying: Tidying,
     pub section: SectionTool,
+    pub guide: Guide,
+    pub defender_asked: bool,
     pub(crate) frame_failures: FrameFailures,
     fallback_fonts: FallbackFonts,
     applied_appearance: Option<Appearance>,
@@ -207,6 +211,8 @@ impl Workspace {
             isocurves: IsocurveTool::default(),
             tidying: Tidying::default(),
             section: SectionTool::default(),
+            guide: Guide::default(),
+            defender_asked: false,
             frame_failures: FrameFailures::default(),
             fallback_fonts: FallbackFonts::Off,
             applied_appearance: None,
@@ -245,6 +251,8 @@ impl Workspace {
         self.isocurves = IsocurveTool::default();
         self.tidying = Tidying::default();
         self.section = SectionTool::default();
+        self.guide = Guide::default();
+        self.defender_asked = false;
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
@@ -343,6 +351,11 @@ impl Workspace {
                     .get_or_insert_with(ConfigurationsDraft::default);
             }
             PreferencesCommand::CloseConfigurations => self.configurations = None,
+            PreferencesCommand::ShowDefenderReminder => {
+                self.preferences_open = false;
+                self.restored = None;
+                self.defender_asked = true;
+            }
             PreferencesCommand::SelectSet(index) => {
                 let in_sketch = self.editing.feature().is_some();
                 let report = match selection_sets::choose(model, index, in_sketch) {
@@ -492,6 +505,8 @@ pub fn show(
         isocurves,
         tidying,
         section,
+        guide,
+        defender_asked,
         keyboard_was_taken,
         deferred_commands,
         awaiting_paste,
@@ -597,6 +612,22 @@ pub fn show(
     );
     tidy_panel::commands(editing, viewport.selection(), tidying, &mut commands);
     tidying.refresh(model, editing.active().map(|active| active.feature));
+    guide_commands(
+        ui.ctx(),
+        model,
+        editing,
+        &GuideBasis {
+            panels,
+            measure,
+            interference,
+            analysis,
+            comb,
+            isocurves,
+            tidying,
+        },
+        guide,
+        &mut commands,
+    );
     let status = StatusContext {
         files,
         offers,
@@ -630,7 +661,8 @@ pub fn show(
         + usize::from(comb.open)
         + usize::from(isocurves.open)
         + usize::from(tidying.feature().is_some())
-        + usize::from(section.open);
+        + usize::from(section.open)
+        + usize::from(guide.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
     panels::show(
         ui,
@@ -642,6 +674,9 @@ pub fn show(
         actions,
     );
     preferences.panels = panels.layout();
+    if guide.open {
+        guide_panel::show(ui, guide, &preferences.keymap, room);
+    }
     route_dimension_focus(panels, editing, viewport);
     if let Some(chosen) = panels.chosen_in_tree.take() {
         viewport.select_only(chosen);
@@ -785,6 +820,13 @@ pub fn show(
     if commands.available(Command::Messages) {
         actions.push(Action::Preferences(PreferencesCommand::ShowMessages));
     }
+    let defender = defender::due(
+        defender::ON_WINDOWS,
+        preferences.onboarding.defender_reminded,
+        *defender_asked,
+        files.saved_folder(),
+    )
+    .filter(|_| !modal_open && !files.is_blocking());
     let hint = {
         let situation = onboarding::Situation {
             model,
@@ -792,7 +834,7 @@ pub fn show(
             offers: commands.offers(),
         };
         onboarding::current(&preferences.onboarding, &situation)
-            .filter(|_| !modal_open && !files.is_blocking())
+            .filter(|_| !modal_open && !files.is_blocking() && defender.is_none())
             .zip(viewport.rect())
     };
     tip_commands(hint.map(|(hint, _)| hint), &mut commands, actions);
@@ -933,6 +975,18 @@ pub fn show(
         if *messages_open && messages::dialog(ui.ctx(), model) {
             actions.push(Action::Preferences(PreferencesCommand::CloseMessages));
         }
+        if let Some(reminder) = defender.filter(|_| !palette_open) {
+            let room = viewport.rect().unwrap_or_else(|| ui.ctx().content_rect());
+            if let Some(choice) = defender::show(ui.ctx(), room, reminder) {
+                *defender_asked = false;
+                if choice == defender::Choice::ReadMore {
+                    guide.open_at(guide::Page::WindowsDefender);
+                }
+                actions.push(Action::Preferences(PreferencesCommand::Change(
+                    PreferenceChange::DefenderReminded,
+                )));
+            }
+        }
         feature_tree::delete_dialog(ui.ctx(), model.document(), panels, actions);
         parameter_table::note_dialog(ui.ctx(), model.document(), panels, actions);
         if let Some((hint, rect)) = hint.filter(|_| !palette_open)
@@ -965,6 +1019,57 @@ pub fn show(
     window_frame::frame(ui.ctx(), chrome);
     *last_offers = offers;
     *keyboard_was_taken = ui.ctx().egui_wants_keyboard_input();
+}
+
+struct GuideBasis<'a> {
+    panels: &'a PanelState,
+    measure: &'a MeasureTool,
+    interference: &'a InterferenceTool,
+    analysis: &'a AnalysisTool,
+    comb: &'a CombTool,
+    isocurves: &'a IsocurveTool,
+    tidying: &'a Tidying,
+}
+
+fn guide_commands(
+    ctx: &egui::Context,
+    model: &Model,
+    editing: &SketchEditing,
+    basis: &GuideBasis<'_>,
+    guide: &mut Guide,
+    commands: &mut CommandFrame<'_>,
+) {
+    if let Some(page) = guide::take_asked(ctx) {
+        guide.open_at(page);
+    }
+    let document = model.document();
+    let side_panels: Vec<SidePanel> = [
+        (basis.tidying.feature().is_some(), SidePanel::Tidying),
+        (
+            basis.analysis.open,
+            SidePanel::Analysis(basis.analysis.kind),
+        ),
+        (basis.comb.open, SidePanel::Comb),
+        (basis.isocurves.open, SidePanel::Isocurves),
+        (basis.interference.open, SidePanel::Interference),
+        (basis.measure.open, SidePanel::Measure),
+    ]
+    .into_iter()
+    .filter_map(|(open, panel)| open.then_some(panel))
+    .collect();
+    let kind_of = |id| document.feature(id).map(|feature| &feature.kind);
+    let situation = guide::Situation {
+        tool: editing.active().map(|active| active.tool),
+        choosing_plane: editing.is_choosing_plane(),
+        open_feature: editing.solid().and_then(kind_of),
+        panels: &side_panels,
+        tree_row: basis.panels.selected.and_then(kind_of),
+    };
+    let page = guide::context(&situation).map(guide::Context::page);
+    let detail = page.map(|page| format!("Opens “{}”", page.title()));
+    if commands.invoke_detailed(Command::Guide, detail, &Ok::<(), String>(())) {
+        guide.toggle_at(page);
+    }
 }
 
 fn welcome_chosen(choice: WelcomeChoice, model: &Model, actions: &mut Vec<Action>) {
