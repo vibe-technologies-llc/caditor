@@ -347,3 +347,27 @@ fn a_measured_distance_is_copied_or_made_a_parameter_from_its_row_menu() {
     );
     assert!(harness.model.revision() > 0);
 }
+
+#[test]
+fn a_model_parameter_s_owner_line_never_widens_the_panel() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Move body");
+    harness.settle();
+    let movement = harness.workspace.editing.solid().expect("the move is open");
+    harness.type_into_field(Id::new(("move-field", "offset", 0, movement)), "dx = 5 mm");
+    harness.settle();
+    harness.frame();
+    let before = harness.workspace.viewport.rect();
+
+    for step in 0..5 {
+        let across = 1000.0 + 40.0 * step as f32;
+        harness
+            .events
+            .push(egui::Event::PointerMoved(egui::pos2(across, 500.0)));
+        harness.frame();
+    }
+
+    assert_eq!(harness.workspace.viewport.rect(), before);
+}

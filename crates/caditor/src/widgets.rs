@@ -632,7 +632,18 @@ pub fn link(ui: &mut Ui, text: &str, style: Option<TextStyle>) -> Response {
     if let Some(style) = style {
         rich = rich.text_style(style);
     }
-    let response = ui.add(Label::new(rich).selectable(false).sense(Sense::click()));
+    link_from(ui, text, Label::new(rich))
+}
+
+pub fn truncated_link(ui: &mut Ui, text: &str) -> Response {
+    let tokens = appearance::tokens(ui);
+    let rich = RichText::new(text).color(tokens.accent_text).underline();
+    link_from(ui, text, Label::new(rich).truncate())
+}
+
+fn link_from(ui: &mut Ui, text: &str, label: Label) -> Response {
+    let tokens = appearance::tokens(ui);
+    let response = ui.add(label.selectable(false).sense(Sense::click()));
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Link, true, text));
     if response.hovered() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);

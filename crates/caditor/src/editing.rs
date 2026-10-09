@@ -478,7 +478,9 @@ impl SketchEditing {
                     Some(cancel_title(&feature.name, opened.added))
                 });
                 let title = open.unwrap_or_else(|| Command::CancelFeature.title());
-                model.perform(Action::Inform(Notice::info(format!("{title}: {refusal}."))));
+                model.perform(Action::Inform(Notice::warning(format!(
+                    "{title}: {refusal}."
+                ))));
             }
         }
     }

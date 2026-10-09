@@ -261,7 +261,8 @@ paths:
   while the row is hovered or the button has keyboard focus, and stays in the Tab order.
 - Model parameters (those with an owner) are a table of their own below the others, under
   `MODEL_PARAMETERS` (its hover says how a value is named), each row followed by a line naming its
-  owner (`Document::owner_text`), a `widgets::link` that chooses and reveals the owning feature
+  owner (`Document::owner_text`), a `widgets::truncated_link` (cut short, never widening the
+  panel) that chooses and reveals the owning feature
   and focuses it, or the owning dimension's field (`Focus::Feature`, `Focus::Dimension`;
   `parameter_table::go_to_owner`), else a muted line saying it was deleted. Their rows edit, note,
   move and delete like any other; Move up and down stay within the row's table. Deleting a used

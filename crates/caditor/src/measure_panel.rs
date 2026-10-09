@@ -673,7 +673,7 @@ fn perform(
     match choice {
         RowChoice::Copy { label, text } => {
             ui.ctx().copy_text(text.clone());
-            actions.push(Action::Inform(Notice::info(format!(
+            actions.push(Action::Inform(Notice::success(format!(
                 "Copied {}: {text}.",
                 label.to_lowercase()
             ))));
@@ -690,7 +690,7 @@ fn perform(
                 &parameter_stem(&label),
                 expression,
             );
-            actions.push(Action::Inform(Notice::info(format!(
+            actions.push(Action::Inform(Notice::success(format!(
                 "Added the parameter {name} = {text} from the measured {}. Type a new name in \
                  its field in Parameters to rename it.",
                 label.to_lowercase()

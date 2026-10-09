@@ -286,7 +286,7 @@ fn owner_row(
                      Click to go to it.",
                     parameter.name, parameter.name
                 );
-                if widgets::link(ui, &text, None)
+                if widgets::truncated_link(ui, &text)
                     .on_hover_text(hover)
                     .clicked()
                 {
