@@ -8,6 +8,9 @@ struct View {
     anchor: vec4<f32>,
     reflection_across: vec4<f32>,
     reflection_along: vec4<f32>,
+    section: vec4<f32>,
+    section_planes: array<vec4<f32>, 6>,
+    section_hatches: array<vec4<f32>, 6>,
 }
 
 struct Grid {
@@ -35,6 +38,14 @@ const ORTHOGRAPHIC_DEPTH_BIAS: f32 = 0.03;
 const HALF_DEPTH_RANGE: f32 = 0.5;
 const GRID_DEPTH_BIAS: f32 = 0.99998;
 const BEHIND: u32 = 0u;
+const IN_FRONT: u32 = 1u;
+const SECTIONED: u32 = 2u;
+const MAX_SECTION_PLANES: u32 = 6u;
+const FACE_SLOPE_BIAS: f32 = 2.0;
+const CAP_DEPTH_BIAS: f32 = 1.0002;
+const CAP_SHADE: f32 = 0.7;
+const HATCH_SHADE: f32 = 0.25;
+const HATCH_WIDTH_POINTS: f32 = 1.0;
 const DASH_PERIOD_POINTS: f32 = 10.0;
 const DASH_DRAWN_FRACTION: f32 = 0.6;
 const STROKE_FRINGE_PIXELS: f32 = 1.0;
@@ -57,6 +68,7 @@ struct Varyings {
     @location(7) dash_points: f32,
     @location(8) stroke: vec3<f32>,
     @location(9) @interpolate(flat) stroke_extent: vec3<f32>,
+    @location(10) @interpolate(flat) sectioned: u32,
 }
 
 struct PickOutput {
@@ -146,7 +158,28 @@ fn empty_varyings() -> Varyings {
     out.dash_points = -1.0;
     out.stroke = vec3<f32>(0.0);
     out.stroke_extent = vec3<f32>(0.0);
+    out.sectioned = 0u;
     return out;
+}
+
+fn section_count() -> u32 {
+    return min(u32(max(view.section.x, 0.0)), MAX_SECTION_PLANES);
+}
+
+fn beyond(plane: vec4<f32>, relative: vec3<f32>) -> f32 {
+    return dot(plane.xyz, relative) - plane.w;
+}
+
+fn is_cut_away(relative: vec3<f32>) -> bool {
+    var cut = false;
+    for (var index = 0u; index < section_count(); index += 1u) {
+        cut = cut || beyond(view.section_planes[index], relative) > view.section.y;
+    }
+    return cut;
+}
+
+fn is_cut(in: Varyings) -> bool {
+    return in.sectioned != 0u && is_cut_away(in.relative);
 }
 
 fn quad_corner(index: u32) -> vec2<f32> {
@@ -169,7 +202,7 @@ struct LineInstance {
     @location(4) pick: u32,
     @location(5) depth_bias: f32,
     @location(6) along: f32,
-    @location(7) in_front: u32,
+    @location(7) flags: u32,
 }
 
 struct Segment {
@@ -246,6 +279,7 @@ fn stroked(vertex: u32, segment: Segment, stroke: Stroke) -> Varyings {
     var out = empty_varyings();
     out.position = finish(clip, stroke.depth_bias, stroke.in_front);
     out.depth = select(view_depth(segment.start), view_depth(segment.end), at_end);
+    out.relative = select(segment.start, segment.end, at_end);
     if finishes_strokes() {
         let span = length(segment.along_pixels);
         let from_start = along + select(0.0, span, at_end);
@@ -281,10 +315,11 @@ fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
     }
     let segment = clipped_segment(line_start, line_end);
 
-    let stroke = Stroke(line.width, line.depth_bias, line.in_front, line.color.a >= OPAQUE_ALPHA);
+    let stroke = Stroke(line.width, line.depth_bias, line.flags & IN_FRONT, line.color.a >= OPAQUE_ALPHA);
     var out = stroked(vertex, segment, stroke);
     out.color = line.color;
     out.pick = line.pick;
+    out.sectioned = line.flags & SECTIONED;
     if line.along >= 0.0 {
         let corner = quad_corner(vertex);
         let at_end = corner.x > 0.0;
@@ -303,7 +338,7 @@ struct MarkerInstance {
     @location(2) diameter: f32,
     @location(3) pick: u32,
     @location(4) depth_bias: f32,
-    @location(5) in_front: u32,
+    @location(5) flags: u32,
 }
 
 @vertex
@@ -320,10 +355,12 @@ fn vs_marker(@builtin(vertex_index) vertex: u32, marker: MarkerInstance) -> Vary
     let clip = vec4<f32>(center.xy + pixels_to_ndc(corner * radius) * center.w, center.zw);
 
     var out = empty_varyings();
-    out.position = finish(clip, marker.depth_bias, marker.in_front);
+    out.position = finish(clip, marker.depth_bias, marker.flags & IN_FRONT);
     out.color = marker.color;
     out.pick = marker.pick;
     out.depth = depth;
+    out.relative = position;
+    out.sectioned = marker.flags & SECTIONED;
     out.local = corner * radius;
     out.diameter = diameter;
     return out;
@@ -334,17 +371,19 @@ struct FillVertex {
     @location(1) color: vec4<f32>,
     @location(2) pick: u32,
     @location(3) depth_bias: f32,
-    @location(4) in_front: u32,
+    @location(4) flags: u32,
 }
 
 @vertex
 fn vs_fill(fill: FillVertex) -> Varyings {
     var out = empty_varyings();
     let position = from_anchor(fill.position);
-    out.position = finish(to_clip(position), fill.depth_bias, fill.in_front);
+    out.position = finish(to_clip(position), fill.depth_bias, fill.flags & IN_FRONT);
     out.color = fill.color;
     out.pick = fill.pick;
     out.depth = view_depth(position);
+    out.relative = position;
+    out.sectioned = fill.flags & SECTIONED;
     return out;
 }
 
@@ -377,6 +416,7 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     out.depth = view_depth(relative);
     out.relative = relative;
     out.normal = turned(vertex.normal);
+    out.sectioned = SECTIONED;
     return out;
 }
 
@@ -472,6 +512,7 @@ fn silhouette_stroke(vertex: u32, triangle: SilhouetteTriangle, dashed: bool) ->
     let stroke = Stroke(silhouette.offset_width.w, silhouette.turn_x_bias.w, BEHIND, silhouette.color.a >= OPAQUE_ALPHA);
     var out = stroked(vertex, segment, stroke);
     out.color = silhouette.color;
+    out.sectioned = SECTIONED;
     if dashed {
         out.dash_points = screen_dash_points(segment, vertex);
     }
@@ -499,8 +540,16 @@ fn fs_color(in: Varyings) -> @location(0) vec4<f32> {
 }
 
 @fragment
+fn fs_fill(in: Varyings) -> @location(0) vec4<f32> {
+    if is_cut(in) {
+        discard;
+    }
+    return in.color;
+}
+
+@fragment
 fn fs_line(in: Varyings) -> @location(0) vec4<f32> {
-    if in.color.a <= 0.0 {
+    if in.color.a <= 0.0 || is_cut(in) {
         discard;
     }
     if in.dash_points >= 0.0 && fract(in.dash_points / DASH_PERIOD_POINTS) > DASH_DRAWN_FRACTION {
@@ -581,18 +630,139 @@ fn enhanced_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f
     return color * diffuse + (vec3<f32>(highlight) + rim_color * rim) * reflectance;
 }
 
-@fragment
-fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
-    if in.color.a <= 0.0 {
-        discard;
-    }
+fn shade(in: Varyings) -> vec4<f32> {
     let eye = toward_eye(in.relative);
     let normal = facing_normal(in, eye);
-    let color = to_linear(in.color.rgb);
+    return lit(in.color, normal, eye);
+}
+
+fn lit(color: vec4<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec4<f32> {
+    let linear = to_linear(color.rgb);
     if uses_enhanced_shading() {
-        return vec4<f32>(to_srgb(enhanced_shade(color, normal, eye)), in.color.a);
+        return vec4<f32>(to_srgb(enhanced_shade(linear, normal, eye)), color.a);
     }
-    return vec4<f32>(to_srgb(standard_shade(color, normal, eye)), in.color.a);
+    return vec4<f32>(to_srgb(standard_shade(linear, normal, eye)), color.a);
+}
+
+@fragment
+fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
+    if in.color.a <= 0.0 || is_cut(in) {
+        discard;
+    }
+    return shade(in);
+}
+
+fn ray_reach(relative: vec3<f32>) -> vec3<f32> {
+    if is_orthographic() {
+        return view.forward_near.xyz * view_depth(relative);
+    }
+    return relative;
+}
+
+struct Cap {
+    found: bool,
+    relative: vec3<f32>,
+    plane: u32,
+}
+
+fn cap_behind(relative: vec3<f32>) -> Cap {
+    let reach = ray_reach(relative);
+    var entry = 0.0;
+    var plane = MAX_SECTION_PLANES;
+    for (var index = 0u; index < section_count(); index += 1u) {
+        let section = view.section_planes[index];
+        let along = dot(section.xyz, reach);
+        if along < 0.0 {
+            let at = 1.0 - beyond(section, relative) / along;
+            if at > entry {
+                entry = at;
+                plane = index;
+            }
+        }
+    }
+    let found = plane < MAX_SECTION_PLANES && entry < 1.0;
+    return Cap(found, relative - reach * (1.0 - min(entry, 1.0)), min(plane, MAX_SECTION_PLANES - 1u));
+}
+
+fn is_back_face(in: Varyings) -> bool {
+    let flat_normal = cross(dpdx(in.relative), dpdy(in.relative));
+    let outward = select(-flat_normal, flat_normal, dot(flat_normal, in.normal) >= 0.0);
+    return dot(outward, toward_eye(in.relative)) < 0.0;
+}
+
+fn sectioned_face_depth(in: Varyings) -> f32 {
+    let slope = max(abs(dpdx(in.position.z)), abs(dpdy(in.position.z)));
+    return max(in.position.z - FACE_SLOPE_BIAS * slope, 0.0);
+}
+
+fn cap_depth(relative: vec3<f32>) -> f32 {
+    let clip = to_clip(relative);
+    return clamp(layered_depth(clip, CAP_DEPTH_BIAS, BEHIND) / clip.w, 0.0, 1.0);
+}
+
+struct Sectioned {
+    cut: bool,
+    capped: bool,
+    cap: Cap,
+    depth: f32,
+    hatch: f32,
+}
+
+fn sectioned(in: Varyings) -> Sectioned {
+    let back = is_back_face(in);
+    let face_depth = sectioned_face_depth(in);
+    let cap = cap_behind(in.relative);
+    let hatch = view.section_hatches[cap.plane];
+    let across = dot(cap.relative, hatch.xyz) + hatch.w;
+    let width = max(fwidth(across), 1e-6);
+    let distance = abs(fract(across + 0.5) - 0.5) / width;
+    let line = clamp(HATCH_WIDTH_POINTS * pixels_per_point() * 0.5 + 0.5 - distance, 0.0, 1.0);
+    let hatched = select(0.0, line, dot(hatch.xyz, hatch.xyz) > 0.0);
+    let capped = back && cap.found;
+    return Sectioned(is_cut_away(in.relative), capped, cap, select(face_depth, cap_depth(in.relative), capped), hatched);
+}
+
+fn hatched(color: vec3<f32>, section: Sectioned) -> vec4<f32> {
+    return vec4<f32>(mix(color, color * HATCH_SHADE, section.hatch), 1.0);
+}
+
+fn cap_color(in: Varyings, section: Sectioned) -> vec4<f32> {
+    let eye = toward_eye(section.cap.relative);
+    var normal = view.section_planes[section.cap.plane].xyz;
+    if dot(normal, eye) < 0.0 {
+        normal = -normal;
+    }
+    let filled = lit(vec4<f32>(in.color.rgb * CAP_SHADE, 1.0), normal, eye);
+    return hatched(filled.rgb, section);
+}
+
+struct SectionedOutput {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+@fragment
+fn fs_mesh_sectioned(in: Varyings) -> SectionedOutput {
+    let section = sectioned(in);
+    if in.color.a <= 0.0 || section.cut {
+        discard;
+    }
+    if section.capped {
+        return SectionedOutput(cap_color(in, section), section.depth);
+    }
+    return SectionedOutput(shade(in), section.depth);
+}
+
+@fragment
+fn fs_color_sectioned(in: Varyings) -> SectionedOutput {
+    let section = sectioned(in);
+    if section.cut {
+        discard;
+    }
+    if section.capped {
+        return SectionedOutput(hatched(in.color.rgb * CAP_SHADE, section), section.depth);
+    }
+    return SectionedOutput(in.color, section.depth);
 }
 
 const TAU: f32 = 6.2831853;
@@ -642,8 +812,7 @@ fn chrome(color: vec3<f32>, reflected: vec3<f32>) -> vec3<f32> {
     return min(environment(reflected) * tint, vec3<f32>(1.0));
 }
 
-@fragment
-fn fs_reflective(in: Varyings) -> @location(0) vec4<f32> {
+fn reflective(in: Varyings) -> vec4<f32> {
     let eye = toward_eye(in.relative);
     let normal = facing_normal(in, eye);
     let reflected = reflect(-eye, normal);
@@ -653,6 +822,24 @@ fn fs_reflective(in: Varyings) -> @location(0) vec4<f32> {
     return vec4<f32>(chrome(in.color.rgb, reflected), in.color.a);
 }
 
+@fragment
+fn fs_reflective(in: Varyings) -> @location(0) vec4<f32> {
+    return reflective(in);
+}
+
+@fragment
+fn fs_reflective_sectioned(in: Varyings) -> SectionedOutput {
+    let section = sectioned(in);
+    let color = reflective(in);
+    if section.cut {
+        discard;
+    }
+    if section.capped {
+        return SectionedOutput(cap_color(in, section), section.depth);
+    }
+    return SectionedOutput(color, section.depth);
+}
+
 fn marker_coverage(in: Varyings) -> f32 {
     return clamp(in.diameter * 0.5 - length(in.local) + 0.5, 0.0, 1.0);
 }
@@ -660,7 +847,7 @@ fn marker_coverage(in: Varyings) -> f32 {
 @fragment
 fn fs_marker(in: Varyings) -> @location(0) vec4<f32> {
     let coverage = marker_coverage(in);
-    if coverage <= 0.0 || in.color.a <= 0.0 {
+    if coverage <= 0.0 || in.color.a <= 0.0 || is_cut(in) {
         discard;
     }
     return vec4<f32>(in.color.rgb, in.color.a * coverage);
@@ -692,7 +879,7 @@ fn fs_grid(in: Varyings) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_pick(in: Varyings) -> PickOutput {
-    if in.pick == 0u {
+    if in.pick == 0u || is_cut(in) {
         discard;
     }
     return PickOutput(in.pick, bitcast<u32>(in.depth));
@@ -703,9 +890,27 @@ fn fs_mesh_pick(in: Varyings) -> PickOutput {
     return PickOutput(in.pick, bitcast<u32>(in.depth));
 }
 
+struct SectionedPick {
+    @location(0) id: u32,
+    @location(1) depth: u32,
+    @builtin(frag_depth) frag_depth: f32,
+}
+
+@fragment
+fn fs_mesh_pick_sectioned(in: Varyings) -> SectionedPick {
+    let section = sectioned(in);
+    if section.cut {
+        discard;
+    }
+    if section.capped {
+        return SectionedPick(0u, bitcast<u32>(view_depth(section.cap.relative)), section.depth);
+    }
+    return SectionedPick(in.pick, bitcast<u32>(in.depth), section.depth);
+}
+
 @fragment
 fn fs_marker_pick(in: Varyings) -> PickOutput {
-    if in.pick == 0u || marker_coverage(in) <= 0.0 {
+    if in.pick == 0u || marker_coverage(in) <= 0.0 || is_cut(in) {
         discard;
     }
     return PickOutput(in.pick, bitcast<u32>(in.depth));

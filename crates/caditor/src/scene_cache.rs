@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Plane, Point3};
-use caditor_render::{Batch, View};
+use caditor_render::{Batch, SectionPlane, View};
 use caditor_sketch::Faceting;
 
 use crate::{
@@ -115,6 +115,7 @@ pub struct SceneCache {
     overlay: Overlay,
     overlay_batch: Option<Arc<Batch>>,
     highlightable: Option<Vec<Pickable>>,
+    section: Vec<SectionPlane>,
     generation: u64,
 }
 
@@ -130,6 +131,7 @@ impl Default for SceneCache {
             overlay: Overlay::default(),
             overlay_batch: None,
             highlightable: None,
+            section: Vec::new(),
             generation: 0,
         }
     }
@@ -174,6 +176,7 @@ impl SceneCache {
         built.generation = self.generation;
         self.base_batches = built.scene.batches.len();
         built.scene.batches.extend(self.overlay_batch.clone());
+        built.scene.section.clone_from(&self.section);
         self.highlightable = None;
         self.built = Some(built);
         self.highlighted = Some(Highlighted {
@@ -193,6 +196,22 @@ impl SceneCache {
             built.scene.batches.truncate(self.base_batches);
             built.scene.batches.extend(self.overlay_batch.clone());
         }
+    }
+
+    pub fn set_section(&mut self, section: Vec<SectionPlane>) {
+        if section == self.section {
+            return;
+        }
+        self.section = section;
+        self.generation = self.generation.wrapping_add(1);
+        if let Some(built) = &mut self.built {
+            built.scene.section.clone_from(&self.section);
+            built.generation = self.generation;
+        }
+    }
+
+    pub fn section(&self) -> &[SectionPlane] {
+        &self.section
     }
 
     pub fn built(&self) -> Option<&BuiltScene> {

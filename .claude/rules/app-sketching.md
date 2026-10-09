@@ -41,6 +41,13 @@ paths:
   in the sketch bar) animates back to the same facing view at any time while editing.
 - The edited sketch, its origin and axes and the drawing preview go on `Layer::Front`
   (`render.md`), so a body never hides or z-fights with them wherever the sketch lies.
+- Slice the bodies at the sketch plane (`SectionCommand::SliceSketch`, Sketch menu, palette, no
+  default key; kept for the session in `ViewportState::sketch_slice`, not saved) cuts away what
+  lies on the side of the sketch plane the normal points to, the side the sketch is faced from,
+  while a sketch is edited: `ViewportState::shown_section` puts the edited plane, hatched, first
+  among the section planes (`app.md`), so a sketch inside a body is drawn on a section of it.
+  Faces lying on the plane are kept (`section_slack`), and the edited sketch on the front layer is
+  never cut.
 - Clicks and primary drags select with the Select tool; a drawing tool (`Tool::draws`) draws, and
   the modify tools (`Tool::modifies`) act on what is under the pointer. Escape backs out one step
   at a time in the order of `ViewportState::escape`.

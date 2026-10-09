@@ -7,7 +7,7 @@ use crate::{
     culling::placed_corners,
     mesh::MeshInstance,
     picking::PICK_RADIUS_POINTS,
-    scene::{Layer, PickHit, PickId, Scene},
+    scene::{Layer, PickHit, PickId, Scene, SectionPlane, is_cut_away, section_slack},
 };
 
 const PARALLEL: f64 = 1e-12;
@@ -59,6 +59,8 @@ struct Probe<'a> {
     cursor: DVec2,
     ray: Ray,
     pixels_per_point: f64,
+    section: &'a [SectionPlane],
+    slack: f64,
     found: AHashMap<PickId, Found>,
 }
 
@@ -77,6 +79,8 @@ impl Scene {
             } else {
                 1.0
             },
+            section: &self.section,
+            slack: section_slack(view.viewpoint().distance),
             found: AHashMap::new(),
         };
         for instance in self
@@ -104,7 +108,11 @@ impl Scene {
         for fill in self.fills().filter(|fill| fill.layer != Layer::Hidden) {
             if let Some(id) = fill.pick {
                 for triangle in &fill.triangles {
-                    probe.triangle(id, *triangle, Rank::of_fill(fill.layer));
+                    probe.triangle(
+                        id,
+                        *triangle,
+                        (Rank::of_fill(fill.layer), fill.layer.is_sectioned()),
+                    );
                 }
             }
         }
@@ -161,11 +169,15 @@ impl Probe<'_> {
                 Some(placement) => corners.map(|corner| placement.apply_point(corner)),
                 None => corners,
             };
-            self.triangle(id, corners, Rank::Model);
+            self.triangle(id, corners, (Rank::Model, true));
         }
     }
 
-    fn triangle(&mut self, id: PickId, corners: [Point3; 3], rank: Rank) {
+    fn is_cut_away(&self, position: Point3, layer_sectioned: bool) -> bool {
+        layer_sectioned && is_cut_away(self.section, position, self.slack)
+    }
+
+    fn triangle(&mut self, id: PickId, corners: [Point3; 3], (rank, sectioned): (Rank, bool)) {
         let Some(distance) = ray_meets_triangle(&self.ray, corners) else {
             return;
         };
@@ -173,6 +185,9 @@ impl Probe<'_> {
         let Some(depth) = self.in_view(position) else {
             return;
         };
+        if self.is_cut_away(position, sectioned) {
+            return;
+        }
         self.record(
             id,
             Found {
@@ -218,6 +233,9 @@ impl Probe<'_> {
         let Some(depth) = self.in_view(position) else {
             return;
         };
+        if self.is_cut_away(position, layer.is_sectioned()) {
+            return;
+        }
         self.record(
             id,
             Found {
@@ -249,6 +267,9 @@ impl Probe<'_> {
         let Some(depth) = self.in_view(position) else {
             return;
         };
+        if self.is_cut_away(position, layer.is_sectioned()) {
+            return;
+        }
         let Some(at) = self.view.project(position) else {
             return;
         };
@@ -322,13 +343,13 @@ fn crosses_box(ray: &Ray, bounds: &Aabb) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use caditor_geometry::{RigidTransform, Vector3};
+    use caditor_geometry::{Plane, RigidTransform, Vector3};
 
     use super::*;
     use crate::{
         camera::Viewpoint,
         mesh::{FaceStyle, MeshFace, MeshPoint, ShadedMesh},
-        scene::{Batch, Color, Fill, Line, Marker, Stroke},
+        scene::{Batch, Color, CutFace, Fill, Line, Marker, Stroke},
     };
 
     const GREY: Color = Color::from_rgb8(128, 128, 128);
@@ -469,5 +490,24 @@ mod tests {
 
         assert_eq!(at_centre, vec![id(5), id(4), id(7)]);
         assert_eq!(at_placed, vec![id(2), id(1)]);
+    }
+
+    #[test]
+    fn geometry_a_section_cuts_away_is_not_listed_and_reference_geometry_still_is() {
+        let view = view();
+        let centre = DVec2::new(200.0, 150.0);
+        let mut scene = stacked();
+        scene.section = vec![SectionPlane {
+            plane: Plane::new(Point3::new(0.0, 0.0, 1.0), Vector3::Z).unwrap(),
+            cut_face: CutFace::Hatched,
+        }];
+
+        let order: Vec<PickId> = scene
+            .hits_through(&view, centre, 1.0)
+            .iter()
+            .map(|hit| hit.id)
+            .collect();
+
+        assert_eq!(order, vec![id(1), id(4), id(7)]);
     }
 }

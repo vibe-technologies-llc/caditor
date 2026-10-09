@@ -67,6 +67,8 @@ use crate::{
     saved_views::{self, ViewsDraft},
     scale_model::{self, ScaleDraft},
     scene_palette::Contrast,
+    section::{self, SectionCommand, SectionTool},
+    section_panel::{self, SectionContext},
     selection::{Selection, SelectionFilter},
     selection_sets::{self, SetsDraft},
     shortcut_editor::{self, ShortcutEditor},
@@ -152,6 +154,7 @@ pub struct Workspace {
     pub comb: CombTool,
     pub isocurves: IsocurveTool,
     pub tidying: Tidying,
+    pub section: SectionTool,
     pub(crate) frame_failures: FrameFailures,
     fallback_fonts: FallbackFonts,
     applied_appearance: Option<Appearance>,
@@ -203,6 +206,7 @@ impl Workspace {
             comb: CombTool::default(),
             isocurves: IsocurveTool::default(),
             tidying: Tidying::default(),
+            section: SectionTool::default(),
             frame_failures: FrameFailures::default(),
             fallback_fonts: FallbackFonts::Off,
             applied_appearance: None,
@@ -240,6 +244,7 @@ impl Workspace {
         self.comb = CombTool::default();
         self.isocurves = IsocurveTool::default();
         self.tidying = Tidying::default();
+        self.section = SectionTool::default();
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
@@ -261,6 +266,7 @@ impl Workspace {
             self.comb.forget();
             self.isocurves.forget();
             self.tidying.close();
+            self.section.forget();
         }
     }
 
@@ -485,6 +491,7 @@ pub fn show(
         comb,
         isocurves,
         tidying,
+        section,
         keyboard_was_taken,
         deferred_commands,
         awaiting_paste,
@@ -553,6 +560,8 @@ pub fn show(
         first_dimension_scales: viewport.first_dimension_scales(),
         glyphs: viewport.glyphs_shown(),
         aids: viewport.aids(),
+        sectioning: section.open,
+        sketch_slice: viewport.sketch_slice(),
     };
     menu_bar::show(ui, model, &menu, &mut commands, actions);
     let toolbar = ToolbarContext {
@@ -576,6 +585,7 @@ pub fn show(
     if commands.available(Command::Analysis(AnalysisCommand::Isocurves)) {
         isocurves.toggle();
     }
+    section_commands(model, viewport, section, &mut commands);
     sketch_toolbar::show(
         ui,
         model,
@@ -619,7 +629,8 @@ pub fn show(
         + usize::from(analysis.open)
         + usize::from(comb.open)
         + usize::from(isocurves.open)
-        + usize::from(tidying.feature().is_some());
+        + usize::from(tidying.feature().is_some())
+        + usize::from(section.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
     panels::show(
         ui,
@@ -727,6 +738,15 @@ pub fn show(
     let tidied = tidy_panel::show(ui, model, tidying, viewport.selection(), room);
     actions.extend(tidied.actions);
     viewport.preview_entities(tidied.previewed);
+    if section.open {
+        let context = SectionContext {
+            model,
+            selection: viewport.selection(),
+            centre: viewport.model_centre(),
+        };
+        section_panel::show(ui, &context, section, room);
+    }
+    viewport.set_section(section.planes(model));
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
     canvas::set_contrast(ui.ctx(), contrast);
@@ -1806,6 +1826,42 @@ fn surface_size(size: PhysicalSize<u32>) -> SurfaceSize {
     SurfaceSize {
         width: size.width,
         height: size.height,
+    }
+}
+
+fn section_commands(
+    model: &Model,
+    viewport: &ViewportState,
+    section: &mut SectionTool,
+    commands: &mut CommandFrame<'_>,
+) {
+    let selection = viewport.selection();
+    let centre = viewport.model_centre();
+    if commands.available(Command::Section(SectionCommand::Toggle)) {
+        section.toggle(model, centre);
+    }
+    if commands.invoke(Command::Section(SectionCommand::Add), &section.can_add()) {
+        section.add(model, centre);
+    }
+    let current = section.current_cut();
+    let based = current
+        .clone()
+        .and_then(|_| section::base_from(model, selection));
+    if commands.invoke(Command::Section(SectionCommand::UseSelected), &based)
+        && let Ok(base) = based
+        && let Some(cut) = section.current_mut()
+    {
+        cut.base = base;
+    }
+    if commands.invoke(Command::Section(SectionCommand::Flip), &current)
+        && let Some(cut) = section.current_mut()
+    {
+        cut.flipped = !cut.flipped;
+    }
+    if commands.invoke(Command::Section(SectionCommand::Remove), &current)
+        && let Ok(index) = current
+    {
+        section.remove(index);
     }
 }
 

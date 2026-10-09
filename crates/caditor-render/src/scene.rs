@@ -93,6 +93,48 @@ impl Layer {
     pub(crate) fn draws_in_front(self) -> bool {
         self == Self::Front
     }
+
+    pub fn is_sectioned(self) -> bool {
+        matches!(self, Self::Model | Self::Hidden)
+    }
+
+    pub(crate) fn flags(self) -> u32 {
+        u32::from(self.draws_in_front()) | if self.is_sectioned() { SECTIONED } else { 0 }
+    }
+}
+
+const SECTIONED: u32 = 2;
+pub const MAX_SECTION_PLANES: usize = 6;
+const SECTION_SLACK_PER_DISTANCE: f64 = 1e-5;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum CutFace {
+    #[default]
+    Hatched,
+    Filled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SectionPlane {
+    pub plane: Plane,
+    pub cut_face: CutFace,
+}
+
+impl SectionPlane {
+    pub fn cuts_away(&self, point: Point3, slack: f64) -> bool {
+        self.plane.signed_distance(point) > slack
+    }
+}
+
+pub fn section_slack(view_distance: f64) -> f64 {
+    view_distance.abs() * SECTION_SLACK_PER_DISTANCE
+}
+
+pub fn is_cut_away(section: &[SectionPlane], point: Point3, slack: f64) -> bool {
+    section
+        .iter()
+        .take(MAX_SECTION_PLANES)
+        .any(|plane| plane.cuts_away(point, slack))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -196,6 +238,7 @@ pub struct Scene {
     pub reflective_meshes: Vec<MeshInstance>,
     pub silhouettes: Vec<Silhouette>,
     pub reflection: Reflection,
+    pub section: Vec<SectionPlane>,
     pub batches: Vec<Arc<Batch>>,
     pub grid: Option<Grid>,
 }

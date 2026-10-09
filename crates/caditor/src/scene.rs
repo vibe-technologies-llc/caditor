@@ -646,6 +646,7 @@ pub fn build(
             reflective_meshes: builder.reflective_meshes,
             silhouettes: builder.silhouettes,
             reflection: aids.reflection.unwrap_or_default(),
+            section: Vec::new(),
             batches: vec![Arc::new(builder.scene)],
             grid: Some(Grid {
                 plane: grid_plane,

@@ -162,9 +162,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   a curved face along a direction or to the nearest point, and the curve where two faces meet. The
   solver then holds 3D points and directions and the constraints that mean something there
   (coincident, horizontal and vertical in space, parallel, perpendicular, distance, fix).
-- [low · medium · blocked by: section planes ("Viewer")] No slice while sketching: the part of the
-  bodies in front of the sketch plane cannot be cut away for the time of the edit, so a sketch
-  inside a body is seen through its surfaces rather than on a section of it.
 - [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
   corners and the boundaries of faces, but not the outline of a body seen square to the sketch
   plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot
@@ -337,9 +334,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
-- [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
-  distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
-  at once, which only looks into the model and changes nothing. Measure works on what it shows.
+- [low · medium] Section caps are drawn from back faces, so a sheet that is not a closed solid
+  (an imported open shell) shows its far side capped as if cut, and box selection of sketch curves
+  still takes curves a section plane cuts away.
 - [low · medium] Translucent lines keep square ends, so a translucent polyline still notches where
   its segments meet at an angle; joining them without blending twice needs mitred joins built
   from the neighbouring segments, which instances do not know.

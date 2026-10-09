@@ -13,8 +13,8 @@ use crate::{
     image::{self, Background, Image, ImageGpu, ImageRequest},
     mesh::{FaceStyle, MeshFace, MeshInstance, MeshPoint, ShadedMesh},
     scene::{
-        Batch, Color, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Reflection, Scene,
-        Stroke, ViewportRect,
+        Batch, Color, CutFace, Fill, Grid, Layer, Line, Marker, PickId, PickResult, Reflection,
+        Scene, SectionPlane, Stroke, ViewportRect,
     },
     settings::{Msaa, Shading},
     silhouette::Silhouette,
@@ -65,6 +65,7 @@ fn scene() -> Scene {
         reflective_meshes: Vec::new(),
         silhouettes: Vec::new(),
         reflection: Reflection::default(),
+        section: Vec::new(),
         grid: None,
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
@@ -594,6 +595,137 @@ fn draws_and_picks_a_box(device: &wgpu::Device, queue: &wgpu::Queue) {
     );
 }
 
+fn sectioned_box(cut_face: CutFace, normal: Vector3) -> Scene {
+    let styles: Vec<FaceStyle> = (0..6)
+        .map(|index| FaceStyle {
+            color: Color::from_rgb8(40, 200, 40),
+            pick: PickId::from_index(10 + index),
+        })
+        .collect();
+    let line = |z: f64, index: usize| Line {
+        start: Point3::new(-50.0, z, z),
+        end: Point3::new(50.0, z, z),
+        color: LINE_COLOR,
+        width: 3.0,
+        layer: Layer::Model,
+        pick: PickId::from_index(index),
+        stroke: Stroke::Solid,
+    };
+    Scene {
+        meshes: vec![MeshInstance {
+            mesh: Arc::new(box_mesh(20.0)),
+            faces: styles,
+            placement: None,
+        }],
+        section: vec![SectionPlane {
+            plane: Plane::new(Point3::ZERO, normal).unwrap(),
+            cut_face,
+        }],
+        batches: vec![Arc::new(Batch {
+            lines: vec![line(10.0, 0), line(-10.0, 1)],
+            ..Batch::default()
+        })],
+        ..Scene::default()
+    }
+}
+
+fn brightness([red, green, blue, _]: [u8; 4]) -> u32 {
+    u32::from(red) + u32::from(green) + u32::from(blue)
+}
+
+#[test]
+fn a_section_cuts_bodies_and_lines_away_caps_the_cut_and_picks_neither() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
+    let on_cap = view.project(Point3::new(5.0, 10.0, 0.0)).unwrap();
+    let cut_line = view.project(Point3::new(28.0, 10.0, 10.0)).unwrap();
+    let across_cap: Vec<DVec2> = row(on_cap.y, on_cap.x, 20.0).collect();
+
+    let filled = render(
+        &device,
+        &queue,
+        &view,
+        &sectioned_box(CutFace::Filled, Vector3::Z),
+        on_cap,
+    );
+    let hatched = render(
+        &device,
+        &queue,
+        &view,
+        &sectioned_box(CutFace::Hatched, Vector3::Z),
+        cut_line,
+    );
+    let kept = render(
+        &device,
+        &queue,
+        &view,
+        &sectioned_box(CutFace::Filled, Vector3::NEG_Z),
+        on_cap,
+    );
+    let whole = Scene {
+        section: Vec::new(),
+        ..sectioned_box(CutFace::Filled, Vector3::Z)
+    };
+    let whole = render(&device, &queue, &view, &whole, cut_line);
+
+    let [red, green, blue, _] = pixel(&filled, on_cap);
+    assert!(
+        green > 40 && green > red * 2 && green > blue * 2,
+        "the cap pixel was {red} {green} {blue}"
+    );
+    assert!(filled.pick.hits.is_empty(), "{:?}", filled.pick.hits);
+    let filled_row: Vec<u32> = across_cap
+        .iter()
+        .map(|at| brightness(pixel(&filled, *at)))
+        .collect();
+    let hatched_row: Vec<u32> = across_cap
+        .iter()
+        .map(|at| brightness(pixel(&hatched, *at)))
+        .collect();
+    let spread = |row: &[u32]| row.iter().max().unwrap() - row.iter().min().unwrap();
+    assert!(spread(&filled_row) < 20, "{filled_row:?}");
+    assert!(spread(&hatched_row) > 60, "{hatched_row:?}");
+    assert!(is_background(pixel(&hatched, cut_line)));
+    let [red, green, _, _] = pixel(&whole, cut_line);
+    assert!(red > 200 && green < 80, "the line was {red} {green}");
+    assert_eq!(whole.pick.hits[0].id, PickId::from_index(0).unwrap());
+    assert!(hatched.pick.hits.is_empty(), "{:?}", hatched.pick.hits);
+    assert_eq!(kept.pick.hits[0].id, PickId::from_index(14).unwrap());
+}
+
+#[test]
+fn faces_a_section_keeps_draw_as_before_seen_from_an_angle() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::new(1.0, -1.5, 1.2), Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let kept_top = view.project(Point3::new(-5.0, 12.0, 20.0)).unwrap();
+    let kept_side = view.project(Point3::new(20.0, 12.0, -5.0)).unwrap();
+    let on_cap = view.project(Point3::new(-5.0, 0.0, 5.0)).unwrap();
+    let whole = Scene {
+        section: Vec::new(),
+        ..sectioned_box(CutFace::Hatched, Vector3::NEG_Y)
+    };
+
+    let cut = render(
+        &device,
+        &queue,
+        &view,
+        &sectioned_box(CutFace::Filled, Vector3::NEG_Y),
+        kept_top,
+    );
+    let whole = render(&device, &queue, &view, &whole, kept_top);
+
+    assert_eq!(pixel(&cut, kept_top), pixel(&whole, kept_top));
+    assert_eq!(pixel(&cut, kept_side), pixel(&whole, kept_side));
+    assert_ne!(pixel(&cut, on_cap), pixel(&whole, on_cap));
+    assert_eq!(cut.pick.hits[0].id, PickId::from_index(14).unwrap());
+}
+
 #[test]
 fn face_colours_and_the_eye_follow_every_frame_with_one_renderer() {
     let Some((device, queue)) = gpu() else {
@@ -771,6 +903,7 @@ fn the_front_layer_draws_and_picks_over_faces_in_front_of_it() {
         reflective_meshes: Vec::new(),
         silhouettes: Vec::new(),
         reflection: Reflection::default(),
+        section: Vec::new(),
         grid: None,
         batches: vec![Arc::new(Batch {
             lines: vec![Line {
