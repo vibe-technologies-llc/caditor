@@ -358,7 +358,7 @@ paths:
   image export does (`snapshot.rs`: the initial viewpoint fitted to the model, no grid or
   highlights, 1920×1080 unless `--size` says otherwise) on an `OffscreenRenderer`, so it needs a
   graphics adapter and refuses `--size` for any other format; load issues and left-out bodies are warnings, a failed feature a warning that
-  also makes the exit status 2 (`PARTIAL_EXIT_STATUS`), and a model with no body, a DXF drawing,
+  also makes the exit status 2 (`PARTIAL_EXIT_STATUS`), and a model with no body, a DXF or SVG drawing,
   an unreadable file or an unknown extension an error that writes nothing. The desktop entry also
   offers STEP (`model/step`) and DXF (`image/vnd.dxf`).
 - AccessKit (`egui-winit`'s `accesskit` feature): the window is created hidden, the adapter

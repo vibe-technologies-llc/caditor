@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="4in" height="3in" viewBox="-10 -10 400 300">
+  <path d="M0 0 L10 0 H20 V10 l-5 5 h-5 v-5 Z m30 0 l10,0 20 0"/>
+  <path d="M0 50 C10 50 10 60 20 60 S30 70 40 70 Q50 50 60 50 T80 50 c5 5 10 5 15 0 s10-5 15 0 q5-5 10 0 t10 0z"/>
+  <path d="M0 100 A10 10 0 0 1 20 100 a20 10 30 1 0 40 0 A0 5 0 0 1 80 100 A1 1 0 0 0 100 100"/>
+  <path d="M0,150l1e1.5-.5e1 1-1zM5 160"/>
+  <g transform="matrix(1 0.2 -0.2 1 10 10) scale(2) translate(5)">
+    <path transform="skewY(5)" d="m200 0 h20 v20 h-20 z"/>
+  </g>
+</svg>

@@ -8,13 +8,14 @@ use caditor_document::{
     CancelToken, Document, Evaluation, FeatureState, ModelEvaluator, Recompute,
 };
 use caditor_file::{
-    DXF_EXTENSION, ExportBody, ExportFormat, MeshOptions, MeshResolution, PNG_EXTENSION,
-    PngExportError, RgbaImage, bodies_transaction, export_png,
+    ExportBody, ExportFormat, MeshOptions, MeshResolution, PNG_EXTENSION, PngExportError,
+    RgbaImage, bodies_transaction, export_png,
 };
 use caditor_render::{Background, GraphicsSettings, ImageRequest, OffscreenRenderer, SurfaceSize};
 
 use crate::{
     export::{self, ExportSource, THUMBNAIL_SIZE},
+    files,
     image_export::RenderedRows,
     import,
     model::display_name,
@@ -214,10 +215,7 @@ fn draw_image(
 
 fn open(model: &Path) -> Result<Opened> {
     let name = display_name(Some(model));
-    let is_drawing = model
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case(DXF_EXTENSION));
-    if is_drawing {
+    if files::is_drawing_file(model) {
         bail!("“{name}” is a drawing, which holds sketches and no bodies to export");
     }
     if import::is_model(model) {

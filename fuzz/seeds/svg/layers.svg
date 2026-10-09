@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd" [
+	<!ENTITY ns_svg "http://www.w3.org/2000/svg">
+]>
+<svg xmlns="&ns_svg;" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:xlink="http://www.w3.org/1999/xlink" width="60mm" height="40mm" viewBox="0 0 60 40">
+  <!-- outline and holes on their own layers -->
+  <defs>
+    <symbol id="hole"><circle r="2"/></symbol>
+    <clipPath id="clip"><rect width="10" height="10"/></clipPath>
+  </defs>
+  <g inkscape:groupmode="layer" inkscape:label="Outline" transform="translate(1 1)">
+    <rect x="0" y="0" width="58" height="38" rx="4" ry="3"/>
+    <polygon points="5,5 15,5 10,12"/>
+    <polyline points="20 5, 30 5 30 12"/>
+  </g>
+  <g inkscape:groupmode="layer" inkscape:label="Holes" style="stroke-dasharray: 2 1">
+    <use xlink:href="#hole" x="10" y="30"/>
+    <use href="#hole" x="50" y="30" transform="rotate(15 50 30)"/>
+    <ellipse cx="30" cy="25" rx="6" ry="3" transform="skewX(10)"/>
+    <line x1="40" y1="5" x2="55" y2="12" clip-path="url(#clip)"/>
+  </g>
+  <svg x="20" y="20" width="10" height="10" viewBox="0 0 100 100" preserveAspectRatio="xMinYMax meet">
+    <circle cx="50" cy="50" r="40"/>
+  </svg>
+  <switch><foreignObject requiredExtensions="x"/><g><line x1="0" y1="0" x2="5" y2="0"/></g></switch>
+  <text x="2" y="2">Plate</text>
+  <image width="1" height="1" href="x.png"/>
+</svg>

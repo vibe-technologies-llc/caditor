@@ -81,7 +81,7 @@ pub fn read_step_file(path: &Path, cancel: &CancelToken) -> Result<ModelImport, 
     imported
 }
 
-fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
+pub(super) fn unpacked(bytes: &[u8]) -> Result<Vec<u8>, ImportError> {
     let damaged = || ImportError::DamagedArchive;
     let Some([_, _, method, flags, ..]) = bytes.get(..GZIP_FIXED_HEADER) else {
         return Err(damaged());

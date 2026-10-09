@@ -20,7 +20,7 @@ const BLOCKED: &str = "Finish with the open dialog before dropping files on cadi
 const IMPORT_RUNNING: &str =
     "An import is already running. Drop the files again once it has finished.";
 const MIXED: &str = "Drop a single model to open it, or drawings and STEP files to import them.";
-const ANYTHING: &str = "A model opens; DXF drawings and STEP files are imported.";
+const ANYTHING: &str = "A model opens; DXF and SVG drawings and STEP files are imported.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Situation {

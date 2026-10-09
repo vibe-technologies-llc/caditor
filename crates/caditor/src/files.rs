@@ -15,12 +15,12 @@ use std::{
 
 use caditor_document::{CancelToken, Document, FeatureId, FeatureResult};
 use caditor_file::{
-    Closing, Construction, DXF_EXTENSION, Drawing, DrawingSheet, ExportError, ExportFormat,
-    Exported, FILE_EXTENSION, FaceExported, FileJournal, History, ImportError, LoadError, Loaded,
-    MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch, PNG_EXTENSION, RecentChange,
-    RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings,
-    SheetLayout, SketchExported, SketchFormat, describe_set_aside, journal_for, load_cancellable,
-    load_version, read_dxf, scan,
+    Closing, Construction, DRAWING_IMPORT_EXTENSIONS, Drawing, DrawingSheet, ExportError,
+    ExportFormat, Exported, FILE_EXTENSION, FaceExported, FileJournal, History, ImportError,
+    LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch, PNG_EXTENSION,
+    RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState,
+    Settings, SheetLayout, SketchExported, SketchFormat, describe_set_aside, journal_for,
+    load_cancellable, load_version, read_drawing, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
 use caditor_sketch::Sketch;
@@ -71,7 +71,7 @@ const RESTORED_SUPPRESSED: &str = "Restored with every feature suppressed. Unsup
                                    a time in the feature tree to find any that make caditor stop, \
                                    or Undo to bring them all back.";
 const MODEL_KIND: &str = "caditor model";
-const DRAWING_KIND: &str = "DXF drawing";
+const DRAWING_KIND: &str = "DXF and SVG drawings";
 const MODEL_EXCHANGE_KIND: &str = "STEP model";
 const MESH_KIND: &str = "STL, OBJ or 3MF mesh";
 const IMPORTABLE_KIND: &str = "Drawings and models";
@@ -248,13 +248,14 @@ impl Dialogs for NativeDialogs {
     }
 
     fn pick_import(&self, directory: Option<PathBuf>, respond: Respond) {
-        let every: Vec<&str> = std::iter::once(DXF_EXTENSION)
+        let every: Vec<&str> = DRAWING_IMPORT_EXTENSIONS
+            .into_iter()
             .chain(STEP_IMPORT_EXTENSIONS)
             .chain(MESH_IMPORT_EXTENSIONS)
             .collect();
         let filters = vec![
             Filter::new(IMPORTABLE_KIND, &every),
-            Filter::new(DRAWING_KIND, &[DXF_EXTENSION]),
+            Filter::new(DRAWING_KIND, &DRAWING_IMPORT_EXTENSIONS),
             Filter::new(MODEL_EXCHANGE_KIND, &STEP_IMPORT_EXTENSIONS),
             Filter::new(MESH_KIND, &MESH_IMPORT_EXTENSIONS),
             Filter::any(),
@@ -1317,7 +1318,7 @@ impl Files {
                         replacing: None,
                     }
                 } else {
-                    match read_dxf(&path, &cancel) {
+                    match read_drawing(&path, &cancel) {
                         Ok(drawing) => Event::DrawingRead {
                             path,
                             session,
@@ -2500,8 +2501,11 @@ pub fn has_importable_extension(path: &Path) -> bool {
 }
 
 pub fn is_drawing_file(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case(DXF_EXTENSION))
+    path.extension().is_some_and(|extension| {
+        DRAWING_IMPORT_EXTENSIONS
+            .iter()
+            .any(|known| extension.eq_ignore_ascii_case(known))
+    })
 }
 
 pub fn is_model_file(path: &Path) -> bool {
