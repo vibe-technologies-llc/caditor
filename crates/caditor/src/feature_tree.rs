@@ -752,7 +752,7 @@ fn feature_row(
                 }
             });
             if asked_to_focus && has_callout {
-                ui.scroll_to_rect(row_rect.union(callouts.response.rect), None);
+                scroll_into_view(ui, row_rect.union(callouts.response.rect));
             }
             collapsing.show_body_unindented(ui, |ui| {
                 widgets::card(ui, |ui| {
@@ -771,15 +771,21 @@ fn feature_row(
         ui.add_space(SPACE_S);
         if state.revealing(id) {
             let card = below.map_or(row_rect, |below| row_rect.union(below.response.rect));
-            ui.scroll_to_rect(card, None);
+            scroll_into_view(ui, card);
         }
     } else if state.revealing(id) {
-        ui.scroll_to_rect(row_rect, None);
+        scroll_into_view(ui, row_rect);
     }
     collapsing.store(ui.ctx());
     ShownRow {
         rect: row_rect,
         range_to,
+    }
+}
+
+fn scroll_into_view(ui: &Ui, rect: Rect) {
+    if !ui.ctx().will_discard() {
+        ui.scroll_to_rect(rect, None);
     }
 }
 

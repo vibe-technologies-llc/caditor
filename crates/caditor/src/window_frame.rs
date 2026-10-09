@@ -110,8 +110,19 @@ pub fn remember_bar(ctx: &Context, rect: Rect) {
     ctx.data_mut(|data| data.insert_temp(Id::new(BAR_RECT_KEY), rect));
 }
 
-pub fn remember_controls_row(ctx: &Context, rect: Rect) {
-    ctx.data_mut(|data| data.insert_temp(Id::new(CONTROLS_ROW_KEY), rect));
+pub fn remember_controls_row(ctx: &Context, rect: Option<Rect>) {
+    let key = Id::new(CONTROLS_ROW_KEY);
+    ctx.data_mut(|data| match rect {
+        Some(rect) => {
+            data.insert_temp(key, rect);
+        }
+        None => data.remove::<Rect>(key),
+    });
+}
+
+pub fn controls_bottom(ctx: &Context) -> f32 {
+    ctx.data(|data| data.get_temp::<Rect>(Id::new(CONTROLS_ROW_KEY)))
+        .map_or(0.0, |row| row.max.y)
 }
 
 pub fn drags_window(

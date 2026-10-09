@@ -20,10 +20,13 @@ impl BodyRoom {
             .data(|data| data.get_temp::<f32>(id))
             .unwrap_or(CONTROL_HEIGHT);
         let above = ui.cursor().min.y - ui.min_rect().min.y;
-        let height = ui.ctx().content_rect().height() * screen_share
-            - above
-            - below
+        let dialog = widgets::dialog_body(ui.ctx());
+        let heading = dialog.map_or(0.0, |dialog| dialog.heading);
+        let share = ui.ctx().content_rect().height() * screen_share
+            - heading
             - 2.0 * f32::from(DIALOG_MARGIN);
+        let room = dialog.map_or(share, |dialog| share.min(dialog.limit));
+        let height = room - above - below;
         Self {
             id,
             start: 0.0,

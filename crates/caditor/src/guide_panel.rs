@@ -89,7 +89,7 @@ enum Choice {
 
 pub fn show(ui: &mut Ui, state: &mut Guide, keymap: &Keymap, room: f32) {
     let mut choice = None;
-    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+    PANEL.show(ui, room, |ui| {
         ui.add_space(SPACE_S);
         widgets::panel_header(ui, icons::GUIDE, TITLE, |ui| {
             if widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked() {

@@ -307,7 +307,7 @@ pub fn show(ui: &mut Ui, model: &Model, tool: &mut InterferenceTool, room: f32) 
     let scope = scope_text(document, &report.bodies);
     let mut close = false;
     let mut shown = None;
-    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+    PANEL.show(ui, room, |ui| {
         ui.add_space(SPACE_S);
         widgets::panel_header(ui, icons::INTERFERENCE, TITLE, |ui| {
             close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();

@@ -609,7 +609,7 @@ pub fn show(
     let mut close = false;
     let mut chosen = None;
     let mut relative_to = tool.relative_to;
-    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+    PANEL.show(ui, room, |ui| {
         ui.add_space(SPACE_S);
         widgets::panel_header(ui, icons::MEASURE, TITLE, |ui| {
             close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
@@ -825,7 +825,7 @@ fn card_rows(
 
 fn value_with_menu(ui: &mut Ui, row: &Row, value: Option<Value>) -> Option<RowChoice> {
     ui.horizontal(|ui| {
-        let shown = ui.add(Label::new(&row.text).selectable(true));
+        let shown = widgets::label_before_icon_buttons(ui, &row.text, 1);
         let more = widgets::named(
             widgets::icon_button(ui, icons::MORE, MORE_FOR_VALUE),
             &format!("More for {}", row.label),

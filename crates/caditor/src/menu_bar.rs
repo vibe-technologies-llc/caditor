@@ -181,8 +181,9 @@ pub fn show(
                         .map(|index| Action::Preferences(PreferencesCommand::SelectSet(index))),
                 );
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if context.chrome.built_in() {
-                        window_frame::remember_controls_row(ui.ctx(), ui.max_rect());
+                    let built_in = context.chrome.built_in();
+                    window_frame::remember_controls_row(ui.ctx(), built_in.then(|| ui.max_rect()));
+                    if built_in {
                         window_frame::controls(ui, context.chrome.state, commands, actions);
                         ui.add_space(SPACE_S);
                         ui.separator();

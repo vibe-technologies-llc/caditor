@@ -270,7 +270,7 @@ fn body(ui: &mut Ui, context: &SectionContext<'_>, tool: &mut SectionTool) {
 
 pub fn show(ui: &mut Ui, context: &SectionContext<'_>, tool: &mut SectionTool, room: f32) {
     let mut close = false;
-    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+    PANEL.show(ui, room, |ui| {
         ui.add_space(SPACE_S);
         widgets::panel_header(ui, icons::SECTION, TITLE, |ui| {
             close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();

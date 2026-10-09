@@ -7,8 +7,10 @@ and Search commands at the right. Click the model's name for its details: where 
 Save, Version history and Model properties.
 
 The ribbon under it holds the most used tools in groups. Hover a button to see what it does, its
-shortcut, or why it is not available now. While a sketch is edited a second ribbon holds the
-sketch tools. Tools without a button are in the menus and in {command:palette}.
+shortcut, or why it is not available now. When the window is short for the interface size, the
+ribbon shows its tools as icons alone, named on hover, so the view keeps its room. While a sketch
+is edited a second ribbon holds the sketch tools. Tools without a button are in the menus and in
+{command:palette}.
 
 ## The model panel
 

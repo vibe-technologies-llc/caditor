@@ -1,5 +1,5 @@
 use caditor_document::{BlendKind, Datum, PrimitiveKind, describe_axis};
-use egui::{Frame, Response, Ui, Vec2};
+use egui::{Frame, Id, Response, Ui, Vec2};
 
 use crate::{
     blend_panel, blend_tools, combine_tools,
@@ -36,6 +36,9 @@ const MEASURE_HOVER: &str =
     "Measure the selection: distances, angles, lengths, areas and the mass properties of bodies";
 const INTERFERENCE_HOVER: &str = "Find where bodies overlap or touch, with the volume they share";
 const RIBBON: &str = "main-ribbon";
+const COMPACT_RIBBON: &str = "main-ribbon-compact";
+const COMPACT_KEY: &str = "main-ribbon-is-compact";
+const MOST_LABELLED_SHARE: f32 = 0.2;
 
 pub struct ToolbarContext<'a> {
     pub selection: &'a Selection,
@@ -91,15 +94,27 @@ pub fn show(
     egui::Panel::top("toolbar").frame(frame).show(ui, |ui| {
         ui.spacing_mut().item_spacing = Vec2::splat(ribbon::TOOL_GAP);
         let full = ui.available_width();
-        let widths = ribbon::remembered_widths(ui, RIBBON, &Group::ALL);
-        let rows = ribbon::rows(&widths, full, full);
-        let captions = rows.len() == 1;
+        let labelled = ribbon::rows(
+            &ribbon::remembered_widths(ui, RIBBON, &Group::ALL),
+            full,
+            full,
+        );
+        let compact = ribbon::rows_height(ui, labelled.len())
+            > MOST_LABELLED_SHARE * ui.ctx().content_rect().height();
+        let (ribbon_name, rows) = if compact {
+            let widths = ribbon::remembered_widths(ui, COMPACT_RIBBON, &Group::ALL);
+            (COMPACT_RIBBON, ribbon::rows(&widths, full, full))
+        } else {
+            (RIBBON, labelled)
+        };
+        ui.data_mut(|data| data.insert_temp(Id::new(COMPACT_KEY), compact));
+        let captions = !compact && rows.len() == 1;
         for (index, row) in rows.into_iter().enumerate() {
             if index > 0 {
                 ui.add_space(ribbon::ROW_GAP);
             }
             ui.horizontal_top(|ui| {
-                ribbon::row(ui, RIBBON, &row, |ui, group| {
+                ribbon::row(ui, ribbon_name, &row, |ui, group| {
                     let caption = captions.then(|| group.caption());
                     ribbon::captioned(ui, caption, |ui| {
                         ui.horizontal_top(|ui| {
@@ -153,9 +168,17 @@ fn group_buttons(
     }
 }
 
+fn tool_button<'a>(ui: &Ui, glyph: &'a str, label: &'a str) -> ToolButton<'a> {
+    let button = ToolButton::new(glyph, label);
+    let compact = ui
+        .data(|data| data.get_temp::<bool>(Id::new(COMPACT_KEY)))
+        .unwrap_or(false);
+    if compact { button.compact() } else { button }
+}
+
 fn measure_button(ui: &mut Ui, measuring: bool, commands: &mut CommandFrame<'_>) {
     let button =
-        ToolButton::new(icons::command(Command::Measure), MEASURE_LABEL).selected(measuring);
+        tool_button(ui, icons::command(Command::Measure), MEASURE_LABEL).selected(measuring);
     let help = Ok(commands.with_keys(Command::Measure, MEASURE_HOVER));
     if ribbon::explained(ui.add(button), MEASURE_LABEL, &help).clicked() {
         commands.trigger(Command::Measure);
@@ -163,8 +186,12 @@ fn measure_button(ui: &mut Ui, measuring: bool, commands: &mut CommandFrame<'_>)
 }
 
 fn interference_button(ui: &mut Ui, checking: bool, commands: &mut CommandFrame<'_>) {
-    let button = ToolButton::new(icons::command(Command::Interference), INTERFERENCE_LABEL)
-        .selected(checking);
+    let button = tool_button(
+        ui,
+        icons::command(Command::Interference),
+        INTERFERENCE_LABEL,
+    )
+    .selected(checking);
     let help = Ok(commands.with_keys(Command::Interference, INTERFERENCE_HOVER));
     if ribbon::explained(ui.add(button), INTERFERENCE_LABEL, &help).clicked() {
         commands.trigger(Command::Interference);
@@ -172,7 +199,7 @@ fn interference_button(ui: &mut Ui, checking: bool, commands: &mut CommandFrame<
 }
 
 fn tool(ui: &mut Ui, command: Command, label: &str, help: &Result<String, String>) -> Response {
-    let button = ToolButton::new(icons::command(command), label);
+    let button = tool_button(ui, icons::command(command), label);
     ribbon::explained(ui.add_enabled(help.is_ok(), button), label, help)
 }
 
@@ -186,7 +213,7 @@ fn sketch_buttons(
     let editing = context.editing;
     if editing.is_choosing_plane() {
         let button =
-            ToolButton::new(icons::command(Command::NewSketch), NEW_SKETCH_LABEL).selected(true);
+            tool_button(ui, icons::command(Command::NewSketch), NEW_SKETCH_LABEL).selected(true);
         let help = Ok(format!(
             "{CHOOSE_PLANE_PROMPT}, or click here to stop choosing (Esc)"
         ));
