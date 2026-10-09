@@ -6,6 +6,7 @@ paths:
   - "crates/caditor/src/shortcut_editor.rs"
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
+  - "crates/caditor/src/pick_list.rs"
   - "crates/caditor/src/saved_views.rs"
   - "crates/caditor/src/app.rs"
   - "crates/caditor/src/feature_tree.rs"
@@ -134,6 +135,18 @@ paths:
   takes only points, or on anything else, it says what to highlight. With Smart dimension active,
   Activate picks the highlighted item as a click would and Enter adds the dimension of a single
   pick (`app-sketching.md`).
+- What lies behind something is reached from the pick list (`pick_list.rs`): a primary press held
+  still in the view for `HOLD_TO_LIST` (outside drawing, Trim and the modifying tools, which take
+  presses themselves) or List everything under the pointer (`view.list_under_pointer`, View menu,
+  palette; at the pointer, else where it last was in the view, else the view's centre) opens a
+  popup at that spot listing every pickable under it, from `Scene::hits_through` (`render.md`)
+  through `PickTable::listed` (each pick's tolerance and the selection filter; the projectable
+  ones while projecting), named as hover names them, one row per body with the Bodies filter.
+  Its rows are `widgets::menu_choice`s with `icons::pickable`; the first takes focus, arrows move
+  it, and the pointed or focused row is drawn and described as hovered. Choosing one acts as
+  Activate does (`ViewportState::choose`) but replaces the selection, adding to it with Shift or
+  Ctrl; Escape, a press outside it or a document change closes it. The press that opened it
+  never counts as a click, and with nothing under the pointer an info notice says so.
 - The selection filter (`SelectionFilter`, commands `select.*`, View › Selection filter) makes
   `PickTable::best_hit` and the highlight keys skip every pickable but one kind (whole bodies,
   faces, edges, vertices or sketch geometry), reference geometry included. Bodies picks faces

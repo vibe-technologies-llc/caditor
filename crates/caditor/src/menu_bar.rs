@@ -559,6 +559,7 @@ impl Menus<'_, '_> {
                     Command::HighlightNext,
                     Command::HighlightPrevious,
                     Command::ActivateHighlighted,
+                    Command::ListUnderPointer,
                 ],
             );
             ui.separator();

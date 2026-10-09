@@ -151,6 +151,22 @@ impl PickTable {
             })
             .map(|(_, pickable, hit)| (pickable, hit))
     }
+
+    pub fn listed(&self, hits: &[PickHit], filter: SelectionFilter) -> Vec<Pickable> {
+        let mut listed: Vec<Pickable> = Vec::new();
+        for hit in hits {
+            let Some((pickable, priority)) = self.resolve(hit.id) else {
+                continue;
+            };
+            if filter.allows(pickable)
+                && hit.offset_points <= priority.tolerance_points()
+                && !listed.contains(&pickable)
+            {
+                listed.push(pickable);
+            }
+        }
+        listed
+    }
 }
 
 pub struct Highlight<'a> {

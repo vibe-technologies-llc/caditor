@@ -85,6 +85,7 @@ mod parameter_table;
 mod pattern_panel;
 mod pattern_tools;
 mod patterning;
+mod pick_list;
 mod portal;
 mod preferences;
 mod principal_tree;

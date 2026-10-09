@@ -1,11 +1,13 @@
 use caditor_document::{
-    BlendKind, CombineOperation, Datum, FeatureKind, PatternKind, PrincipalGeometry, SolidFeature,
+    BlendKind, CombineOperation, Datum, Document, FeatureKind, PatternKind, PrincipalGeometry,
+    SolidFeature,
 };
 use egui_phosphor::regular as phosphor;
 
 use crate::{
     commands::{CameraMove, Command},
     editing::Tool,
+    selection::Pickable,
     shape_modes::{CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode},
     sketch_tools::ConstraintTool,
 };
@@ -83,6 +85,12 @@ pub const GO_TO: &str = phosphor::ARROW_RIGHT;
 pub const SHOW_PLACE: &str = phosphor::MAP_PIN;
 pub const DETACH: &str = phosphor::LINK_BREAK;
 pub const UNUSED: &str = phosphor::LINK_SIMPLE_BREAK;
+pub const UNDER_POINTER: &str = phosphor::STACK;
+const FACE: &str = phosphor::SQUARE_HALF;
+const EDGE: &str = phosphor::LINE_SEGMENT;
+const VERTEX: &str = phosphor::DOT_OUTLINE;
+const REGION: &str = phosphor::SELECTION;
+const CENTRE_OF_MASS: &str = phosphor::TARGET;
 const ORIGIN: &str = phosphor::CROSSHAIR;
 
 pub fn command(command: Command) -> &'static str {
@@ -175,6 +183,7 @@ pub fn command(command: Command) -> &'static str {
         Command::HighlightNext => phosphor::ARROW_RIGHT,
         Command::HighlightPrevious => phosphor::ARROW_LEFT,
         Command::ActivateHighlighted => phosphor::CURSOR_CLICK,
+        Command::ListUnderPointer => UNDER_POINTER,
         Command::HideSelection | Command::ToggleVisibility => HIDE,
         Command::HideOthers => phosphor::EYE_CLOSED,
         Command::LookAtFace => phosphor::CUBE_FOCUS,
@@ -390,5 +399,23 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Datum(Datum::Point(_) | Datum::PointBy(_)) => POINT,
         FeatureKind::Import(_) => IMPORTED,
         FeatureKind::Remove(_) => REMOVE_BODY,
+    }
+}
+
+pub fn pickable(pickable: Pickable, document: &Document) -> &'static str {
+    match pickable {
+        Pickable::Origin => ORIGIN,
+        Pickable::Axis(_) => AXIS,
+        Pickable::Plane(_) => PLANE,
+        Pickable::SketchEntity { .. } => SKETCH,
+        Pickable::SketchConstraint { .. } => MEASURE,
+        Pickable::SketchRegion { .. } | Pickable::Region { .. } => REGION,
+        Pickable::Face { .. } | Pickable::ShellFace { .. } => FACE,
+        Pickable::Edge { .. } | Pickable::BlendEdge { .. } => EDGE,
+        Pickable::Vertex { .. } => VERTEX,
+        Pickable::Datum(datum) => document
+            .feature(datum)
+            .map_or(PLANE, |feature| self::feature(&feature.kind)),
+        Pickable::CentreOfMass(_) => CENTRE_OF_MASS,
     }
 }

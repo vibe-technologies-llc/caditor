@@ -355,9 +355,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Viewer
 
-- [medium · medium] A face, edge or body hidden behind another can be reached only by hiding the
-  one in front or by stepping the keyboard highlight: a click held on a spot, or a key, should list
-  everything under the pointer to choose from.
 - [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
   distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
   at once, which only looks into the model and changes nothing. Measure works on what it shows.

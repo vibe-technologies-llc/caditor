@@ -11,6 +11,7 @@ mod offscreen_tests;
 mod picking;
 mod scene;
 mod settings;
+mod through;
 mod viewport;
 
 use std::{

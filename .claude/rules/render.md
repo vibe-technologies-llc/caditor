@@ -174,6 +174,13 @@ paths:
   and everything else over them: a translucent plane owns a pixel only where no face, line,
   marker or model or front fill covers it, and a face seen through a plane is picked.
   Front-layer geometry is picked through any face, as it is drawn.
+- `Scene::hits_through` (`through.rs`) answers on the CPU what lies under a pixel at every depth,
+  for the app's pick list: faces of the opaque, flat and translucent meshes (placed, a ray test
+  per triangle after one against the placed bounds) and pickable fills the ray meets, and
+  pickable lines and markers within `PICK_RADIUS_POINTS` of it, each id once with its nearest
+  offset. It lists front-layer geometry first, then the rest nearest first, then reference fills,
+  so the order follows what the pick pass would let win; `Layer::Hidden` and overlay meshes are
+  never listed, as they are never picked.
 
 ## Image export (`image.rs`)
 
