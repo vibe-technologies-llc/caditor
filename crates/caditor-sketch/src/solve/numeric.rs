@@ -374,7 +374,7 @@ impl Solver<'_> {
     }
 
     pub fn cost(&self, component: &Component, values: &[f64]) -> f64 {
-        squared_sum(&self.residuals(&self.part(component), values))
+        self.squared_residuals(&self.part(component), values)
     }
 
     pub fn irreducible(&self, component: &Component, values: &[f64]) -> Vec<usize> {
@@ -410,7 +410,7 @@ impl Solver<'_> {
             .iter()
             .map(|variable| value(values, *variable))
             .collect();
-        let mut lowest_cost = squared_sum(&self.residuals(part, values));
+        let mut lowest_cost = self.squared_residuals(part, values);
         let mut lowest_end = start.clone();
         let mut pressed = false;
         let mut unperturbed_contradicts = None;
@@ -423,7 +423,7 @@ impl Solver<'_> {
                 return Ok(Descent::Solved);
             }
             unperturbed_contradicts.get_or_insert_with(|| self.contradicts(part, values, ending));
-            let cost = squared_sum(&self.residuals(part, values));
+            let cost = self.squared_residuals(part, values);
             if cost < lowest_cost {
                 lowest_cost = cost;
                 lowest_end = component
@@ -449,7 +449,6 @@ impl Solver<'_> {
             Ending::Minimum => {
                 let clear = clear_residual(part);
                 self.residuals(part, values)
-                    .iter()
                     .any(|residual| residual.abs() > clear)
             }
             Ending::Converged | Ending::Unfinished => false,
@@ -511,10 +510,20 @@ impl Solver<'_> {
             .filter_map(|index| self.system.equations.get(*index))
     }
 
-    fn residuals(&self, part: &Part<'_>, values: &[f64]) -> Vec<f64> {
+    fn residuals<'b>(
+        &'b self,
+        part: &'b Part<'b>,
+        values: &'b [f64],
+    ) -> impl Iterator<Item = f64> + 'b {
+        let mut scratch = Gradient::new();
         self.equations(part.component)
-            .map(|equation| equation.residual(values, &part.context))
-            .collect()
+            .map(move |equation| equation.residual(values, &part.context, &mut scratch))
+    }
+
+    fn squared_residuals(&self, part: &Part<'_>, values: &[f64]) -> f64 {
+        self.residuals(part, values)
+            .map(|residual| residual * residual)
+            .sum()
     }
 
     fn admissible(&self, part: &Part<'_>, values: &[f64]) -> bool {
@@ -557,7 +566,6 @@ impl Solver<'_> {
         self.admissible(part, values)
             && self
                 .residuals(part, values)
-                .iter()
                 .all(|residual| residual.abs() <= tolerance)
     }
 
@@ -674,14 +682,16 @@ impl Solver<'_> {
 
     fn line_search(&self, part: &Part<'_>, step: &[f64], values: &mut [f64]) -> Option<f64> {
         let component = part.component;
-        let cost = |values: &[f64]| squared_sum(&self.residuals(part, values));
-        let current = cost(values);
-        let mut trial = values.to_vec();
+        let current = self.squared_residuals(part, values);
+        let start: Vec<f64> = component
+            .variables
+            .iter()
+            .map(|variable| value(values, *variable))
+            .collect();
         let mut fraction = 1.0;
         for _ in 0..LINE_SEARCH_STEPS {
-            for (variable, delta) in component.variables.iter().zip(step) {
-                if let (Some(slot), Some(start)) = (trial.get_mut(*variable), values.get(*variable))
-                {
+            for ((variable, delta), start) in component.variables.iter().zip(step).zip(&start) {
+                if let Some(slot) = values.get_mut(*variable) {
                     let moved = start + fraction * delta;
                     *slot = if self.system.parameter_variables.contains(variable) {
                         moved.clamp(0.0, 1.0)
@@ -690,19 +700,13 @@ impl Solver<'_> {
                     };
                 }
             }
-            let candidate = cost(&trial);
-            if self.admissible(part, &trial) && candidate.is_finite() && candidate < current {
-                for variable in &component.variables {
-                    if let (Some(slot), Some(accepted)) =
-                        (values.get_mut(*variable), trial.get(*variable))
-                    {
-                        *slot = *accepted;
-                    }
-                }
+            let candidate = self.squared_residuals(part, values);
+            if self.admissible(part, values) && candidate.is_finite() && candidate < current {
                 return Some(candidate / current);
             }
             fraction *= 0.5;
         }
+        self.restore(component, &start, values);
         None
     }
 
@@ -958,10 +962,6 @@ fn dense_row(gradient: &Gradient, variables: &[usize]) -> Vec<f64> {
 
 fn clear_residual(part: &Part<'_>) -> f64 {
     CLEAR_RESIDUAL * CONVERGENCE_TOLERANCE * part.context.scale
-}
-
-fn squared_sum(residuals: &[f64]) -> f64 {
-    residuals.iter().map(|residual| residual * residual).sum()
 }
 
 fn norm(row: &[f64]) -> f64 {

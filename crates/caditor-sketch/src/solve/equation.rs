@@ -603,8 +603,9 @@ pub(crate) struct Equation {
 }
 
 impl Equation {
-    pub fn residual(&self, values: &[f64], context: &Context) -> f64 {
-        self.form.evaluate(values, context, &mut Vec::new())
+    pub fn residual(&self, values: &[f64], context: &Context, scratch: &mut Gradient) -> f64 {
+        scratch.clear();
+        self.form.evaluate(values, context, scratch)
     }
 
     pub fn linearize(&self, values: &[f64], context: &Context, gradient: &mut Gradient) -> f64 {
@@ -1722,8 +1723,8 @@ mod tests {
                 plus[index] += STEP;
                 let mut minus = base.clone();
                 minus[index] -= STEP;
-                let numeric = (equation.residual(&plus, &CONTEXT)
-                    - equation.residual(&minus, &CONTEXT))
+                let numeric = (equation.residual(&plus, &CONTEXT, &mut Vec::new())
+                    - equation.residual(&minus, &CONTEXT, &mut Vec::new()))
                     / (2.0 * STEP);
                 assert!(
                     (numeric - expected).abs() < 1e-6 * (1.0 + expected.abs()),
