@@ -92,11 +92,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketch solver and expressions
 
-- [medium · hard] The rank and null-space analysis (`analyze_sparse`, `Echelon::spans_unit` once per
-  column) is near cubic on closed chains and never checks `cancelled`: solving the sketch left by
-  offsetting a closed, fully dimensioned chain takes 0.2 s at 100 lines, 1.8 s at 200 and 15 s at
-  400 in release (the geometry alone solves in milliseconds), and Cancel does nothing meanwhile. Use
-  a sparse factorisation with a fill-reducing order, and poll inside `analyze_component`.
 - [medium · hard] A drag frame solves geometry only (`solve_geometry_from`, no rank or
   degrees-of-freedom analysis), but the dragged part is still never memoised and the solve itself is
   the cost: dragging an end of a fully dimensioned chain of 2,000 lines to a point it cannot reach
@@ -105,8 +100,13 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Conflict diagnosis confirms each constraint of a conflict with a damped
   Gauss–Newton descent over the whole part, so a conflict running through a part of a few hundred
   lines (a chain of 300 with its far end fixed out of reach) still runs out of `DIAGNOSIS_WORK` and
-  is reported as not solving; one factorisation of the Jacobian, updated per constraint left out,
-  would make each confirmation cheap.
+  is reported as not solving. Each confirmation there already converges in one step, but the set
+  found holds all 600 distances and coincidences and each step is charged its ~900 equations, so
+  trimming alone needs ~540,000 units against the ~430,000 left: the cost is quadratic in the
+  conflict's size whatever the descent does. One factorisation of the Jacobian at the set's
+  least-squares point (its left null vector gives every witness as a step through one
+  pseudo-inverse column), checked against the residuals and charged by that work, would make each
+  confirmation cheap; a confirmation that does not converge falls back to the descent.
 - [medium · hard] A sketch solved from a degenerate start can fail to solve again from its own
   result: a spline with four coincident control points, tangent to a zero-size arc on one of them,
   with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases

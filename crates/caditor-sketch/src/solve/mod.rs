@@ -209,20 +209,20 @@ impl Sketch {
                 values,
                 mut recall,
             } = finished;
-            let analyses: Vec<_> = parts
+            let analyses = parts
                 .iter()
                 .map(|component| {
                     recall.analysis(component, &values, || {
                         solver.analyze_component(component, &values)
                     })
                 })
-                .collect();
+                .collect::<Result<Vec<_>, Cancelled>>()?;
             let analysis = Analysis::combine(analyses);
-            Solved {
+            Ok(Solved {
                 geometry: self.with_values(system, &values),
                 solution: SketchSolution::new(dimensions, system, analysis),
                 memo: recall.finish(),
-            }
+            })
         })
     }
 
@@ -247,7 +247,7 @@ impl Sketch {
             for component in parts.iter() {
                 recall.remember_geometry(component, &values);
             }
-            (self.with_values(system, &values), recall.finish())
+            Ok((self.with_values(system, &values), recall.finish()))
         })
     }
 
@@ -257,7 +257,7 @@ impl Sketch {
         cancelled: &dyn Fn() -> bool,
         drags: &[Drag],
         previous: Option<&SolveMemo>,
-        finish: impl FnOnce(Finished<'_>) -> T,
+        finish: impl FnOnce(Finished<'_>) -> Result<T, Cancelled>,
     ) -> Result<T, SketchError>
     where
         F: Fn(ParameterId) -> Result<Quantity, EvalError>,
@@ -314,7 +314,7 @@ impl Sketch {
             parts: parts.at(&system, &values),
             values,
             recall,
-        }))
+        })?)
     }
 
     fn with_values(&self, system: &System, values: &[f64]) -> Self {

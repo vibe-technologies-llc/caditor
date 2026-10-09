@@ -734,7 +734,11 @@ impl Solver<'_> {
         (rows, residuals)
     }
 
-    pub fn analyze_component(&self, component: &Component, values: &[f64]) -> ComponentAnalysis {
+    pub fn analyze_component(
+        &self,
+        component: &Component,
+        values: &[f64],
+    ) -> Result<ComponentAnalysis, Cancelled> {
         let elimination = if component.variables.len() > DENSE_LIMIT {
             Elimination::Sparse
         } else {
@@ -748,13 +752,16 @@ impl Solver<'_> {
         elimination: Elimination,
         component: &Component,
         values: &[f64],
-    ) -> ComponentAnalysis {
+    ) -> Result<ComponentAnalysis, Cancelled> {
+        if (self.cancelled)() {
+            return Err(Cancelled);
+        }
         let mut analysis = ComponentAnalysis::default();
         let mut contributions = BTreeMap::new();
         let part = self.part(component);
         match elimination {
             Elimination::Sparse => {
-                self.analyze_sparse(&part, values, &mut analysis, &mut contributions);
+                self.analyze_sparse(&part, values, &mut analysis, &mut contributions)?;
             }
             Elimination::Dense => {
                 self.analyze_dense(&part, values, &mut analysis, &mut contributions);
@@ -767,7 +774,7 @@ impl Solver<'_> {
                 (constraint, contribution.adds_rank, duplicates)
             })
             .collect();
-        analysis
+        Ok(analysis)
     }
 
     fn analyze_dense(
@@ -832,8 +839,9 @@ impl Solver<'_> {
         values: &[f64],
         analysis: &mut ComponentAnalysis,
         contributions: &mut BTreeMap<ConstraintId, Contribution>,
-    ) {
+    ) -> Result<(), Cancelled> {
         let component = part.component;
+        let width = component.variables.len();
         let mut groups: BTreeMap<Option<ConstraintId>, Vec<sparse::Row>> = BTreeMap::new();
         let mut gradient = Gradient::new();
         for equation in self.equations(component) {
@@ -846,32 +854,37 @@ impl Solver<'_> {
                     &component.variables,
                 )));
         }
-        let mut echelon = sparse::Echelon::default();
+        let mut triangular = sparse::Triangular::ordered_for(width, groups.values().flatten());
         let mut earlier: Vec<(Option<ConstraintId>, sparse::Row)> = Vec::new();
         for (owner, rows) in groups {
+            if (self.cancelled)() {
+                return Err(Cancelled);
+            }
             let mut adds_rank = false;
             for row in &rows {
-                adds_rank |= echelon.insert(row, RANK_TOLERANCE);
+                adds_rank |= triangular.insert(row, RANK_TOLERANCE);
             }
             if let Some(constraint) = owner {
                 let contribution = contributions.entry(constraint).or_default();
                 contribution.adds_rank |= adds_rank;
                 if !contribution.adds_rank {
-                    contribution.duplicates.extend(sparse::duplicates(
-                        &rows,
-                        &earlier,
-                        component.variables.len(),
-                    ));
+                    contribution
+                        .duplicates
+                        .extend(sparse::duplicates(&rows, &earlier, width));
                 }
             }
             earlier.extend(rows.into_iter().map(|row| (owner, row)));
         }
-        analysis.rank += echelon.rank();
-        for (column, variable) in component.variables.iter().enumerate() {
-            if echelon.spans_unit(column, NULL_SPACE_TOLERANCE.sqrt()) {
-                analysis.fixed.push(*variable);
-            }
-        }
+        analysis.rank += triangular.rank();
+        let fixed = triangular.fixed_columns(NULL_SPACE_TOLERANCE.sqrt(), self.cancelled)?;
+        analysis.fixed.extend(
+            component
+                .variables
+                .iter()
+                .zip(fixed)
+                .filter_map(|(variable, is_fixed)| is_fixed.then_some(*variable)),
+        );
+        Ok(())
     }
 }
 

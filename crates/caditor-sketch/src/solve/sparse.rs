@@ -1,11 +1,12 @@
-use std::{
-    cmp::Reverse,
-    collections::{BTreeMap, BTreeSet, BinaryHeap},
-};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     id::ConstraintId,
-    solve::{equation::Gradient, numeric, tally},
+    solve::{
+        equation::Gradient,
+        numeric::{self, Cancelled},
+        tally,
+    },
 };
 
 const STEP_TOLERANCE: f64 = 1e-12;
@@ -13,6 +14,7 @@ const EXTRA_ITERATIONS: usize = 100;
 const ITERATIONS_PER_VARIABLE: usize = 4;
 const NEGLIGIBLE: f64 = 1e-15;
 const NEIGHBOURHOOD_HOPS: usize = 2;
+const CLIQUE_LIMIT: usize = 32;
 
 pub(crate) type Row = Vec<(usize, f64)>;
 
@@ -137,82 +139,284 @@ pub(crate) fn minimal_norm_step(rows: &[Row], residuals: &[f64], width: usize) -
     step.iter().all(|value| value.is_finite()).then_some(step)
 }
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Echelon {
-    rows: Vec<BTreeMap<usize, f64>>,
-    pivots: Vec<usize>,
-    by_column: BTreeMap<usize, usize>,
+#[derive(Debug, Clone)]
+pub(crate) struct Triangular {
+    columns: Vec<usize>,
+    positions: Vec<usize>,
+    rows: Vec<Option<Row>>,
+    rank: usize,
 }
 
-impl Echelon {
-    fn reduce(&self, row: impl IntoIterator<Item = (usize, f64)>) -> BTreeMap<usize, f64> {
-        let mut current: BTreeMap<usize, f64> = row.into_iter().collect();
-        let mut queue: BinaryHeap<Reverse<usize>> = BinaryHeap::new();
-        let mut queued = BTreeSet::new();
-        for column in current.keys() {
-            if let Some(index) = self.by_column.get(column)
-                && queued.insert(*index)
-            {
-                queue.push(Reverse(*index));
+impl Triangular {
+    pub fn ordered_for<'a>(width: usize, rows: impl IntoIterator<Item = &'a Row>) -> Self {
+        let columns = fill_reducing_order(width, rows);
+        let mut positions = vec![0; width];
+        for (position, column) in columns.iter().enumerate() {
+            if let Some(slot) = positions.get_mut(*column) {
+                *slot = position;
             }
         }
-        while let Some(Reverse(index)) = queue.pop() {
-            let (Some(column), Some(pivot_row)) = (self.pivots.get(index), self.rows.get(index))
-            else {
-                continue;
-            };
-            let Some(value) = current.remove(column) else {
-                continue;
-            };
-            let Some(pivot) = pivot_row.get(column) else {
-                continue;
-            };
-            let factor = value / pivot;
-            tally::add(pivot_row.len());
-            for (other, entry) in pivot_row {
-                if other == column {
-                    continue;
-                }
-                let slot = current.entry(*other).or_insert(0.0);
-                *slot -= factor * entry;
-                if let Some(later) = self.by_column.get(other)
-                    && queued.insert(*later)
-                {
-                    queue.push(Reverse(*later));
-                }
-            }
+        Self {
+            rows: vec![None; columns.len()],
+            columns,
+            positions,
+            rank: 0,
         }
-        current.retain(|_, value| value.abs() > NEGLIGIBLE);
-        current
     }
 
     pub fn insert(&mut self, row: &Row, tolerance: f64) -> bool {
-        let remainder = self.reduce(row.iter().copied());
-        let Some((column, value)) = remainder
+        let mut remainder: Row = row
             .iter()
-            .max_by(|a, b| a.1.abs().total_cmp(&b.1.abs()))
-            .map(|(column, value)| (*column, *value))
-        else {
-            return false;
-        };
-        if value.abs() <= tolerance {
-            return false;
+            .filter_map(|(column, value)| Some((*self.positions.get(*column)?, *value)))
+            .collect();
+        remainder.sort_by_key(|(position, _)| *position);
+        loop {
+            let Some(&(position, value)) = remainder.first() else {
+                return false;
+            };
+            let Some(slot) = self.rows.get_mut(position) else {
+                return false;
+            };
+            match slot {
+                Some(pivot_row) => remainder = rotate(pivot_row, &remainder),
+                None if value.abs() > tolerance => {
+                    *slot = Some(remainder);
+                    self.rank += 1;
+                    return true;
+                }
+                None => {
+                    remainder.remove(0);
+                }
+            }
         }
-        self.by_column.insert(column, self.rows.len());
-        self.pivots.push(column);
-        self.rows.push(remainder);
-        true
     }
 
     pub fn rank(&self) -> usize {
-        self.rows.len()
+        self.rank
     }
 
-    pub fn spans_unit(&self, column: usize, tolerance: f64) -> bool {
-        self.reduce([(column, 1.0)])
-            .values()
-            .all(|value| value.abs() <= tolerance)
+    pub fn fixed_columns(
+        &self,
+        tolerance: f64,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<bool>, Cancelled> {
+        let width = self.rows.len();
+        let mut fixed = vec![true; width];
+        let mut reaches_free = vec![false; width];
+        for position in (0..width).rev() {
+            let reaches = match self.rows.get(position) {
+                Some(Some(row)) => row.iter().skip(1).any(|(later, _)| {
+                    reaches_free.get(*later).copied().unwrap_or(false)
+                        || matches!(self.rows.get(*later), Some(None))
+                }),
+                _ => {
+                    if let Some(slot) = fixed.get_mut(position) {
+                        *slot = false;
+                    }
+                    false
+                }
+            };
+            if let Some(slot) = reaches_free.get_mut(position) {
+                *slot = reaches;
+            }
+        }
+        let free: Vec<usize> = (0..width)
+            .filter(|position| matches!(self.rows.get(*position), Some(None)))
+            .collect();
+        let reaching: Vec<usize> = (0..width)
+            .filter(|position| reaches_free.get(*position).copied().unwrap_or(false))
+            .collect();
+        tally::add(width);
+        if free.len() <= reaching.len() {
+            let largest = self.null_space_extent(&free, &reaches_free, cancelled)?;
+            for position in &reaching {
+                if let (Some(slot), Some(extent)) =
+                    (fixed.get_mut(*position), largest.get(*position))
+                {
+                    *slot = *extent <= tolerance;
+                }
+            }
+        } else {
+            for position in &reaching {
+                if cancelled() {
+                    return Err(Cancelled);
+                }
+                if let Some(slot) = fixed.get_mut(*position) {
+                    *slot = self.spans_unit(*position, tolerance);
+                }
+            }
+        }
+        let mut by_column = vec![false; width];
+        for (column, is_fixed) in self.columns.iter().zip(fixed) {
+            if let Some(slot) = by_column.get_mut(*column) {
+                *slot = is_fixed;
+            }
+        }
+        Ok(by_column)
     }
+
+    fn null_space_extent(
+        &self,
+        free: &[usize],
+        reaches_free: &[bool],
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Vec<f64>, Cancelled> {
+        let width = self.rows.len();
+        let mut largest = vec![0.0_f64; width];
+        let mut vector = vec![0.0; width];
+        for &start in free {
+            if cancelled() {
+                return Err(Cancelled);
+            }
+            vector.iter_mut().for_each(|entry| *entry = 0.0);
+            if let Some(slot) = vector.get_mut(start) {
+                *slot = 1.0;
+            }
+            for position in (0..start).rev() {
+                if !reaches_free.get(position).copied().unwrap_or(false) {
+                    continue;
+                }
+                let Some(Some(row)) = self.rows.get(position) else {
+                    continue;
+                };
+                let Some((_, diagonal)) = row.first() else {
+                    continue;
+                };
+                tally::add(row.len());
+                let sum: f64 = row
+                    .iter()
+                    .skip(1)
+                    .map(|(later, entry)| entry * vector.get(*later).copied().unwrap_or(0.0))
+                    .sum();
+                let entry = -sum / diagonal;
+                if let Some(slot) = vector.get_mut(position) {
+                    *slot = entry;
+                }
+                if let Some(slot) = largest.get_mut(position) {
+                    *slot = slot.max(entry.abs());
+                }
+            }
+        }
+        Ok(largest)
+    }
+
+    fn spans_unit(&self, position: usize, tolerance: f64) -> bool {
+        let mut remainder = BTreeMap::from([(position, 1.0_f64)]);
+        while let Some((current, value)) = remainder.pop_first() {
+            if value.abs() <= NEGLIGIBLE {
+                continue;
+            }
+            match self.rows.get(current) {
+                Some(Some(row)) => {
+                    let Some((_, diagonal)) = row.first() else {
+                        continue;
+                    };
+                    let factor = value / diagonal;
+                    tally::add(row.len());
+                    for (later, entry) in row.iter().skip(1) {
+                        *remainder.entry(*later).or_insert(0.0) -= factor * entry;
+                    }
+                }
+                _ if value.abs() > tolerance => return false,
+                _ => {}
+            }
+        }
+        true
+    }
+}
+
+fn rotate(pivot_row: &mut Row, incoming: &[(usize, f64)]) -> Row {
+    let (Some(&(_, diagonal)), Some(&(_, value))) = (pivot_row.first(), incoming.first()) else {
+        return Vec::new();
+    };
+    let radius = diagonal.hypot(value);
+    let (cosine, sine) = (diagonal / radius, value / radius);
+    tally::add(pivot_row.len() + incoming.len());
+    let mut rotated = Vec::with_capacity(pivot_row.len() + incoming.len());
+    let mut remainder = Vec::with_capacity(pivot_row.len() + incoming.len());
+    let mut pivot_entries = pivot_row.iter().skip(1).peekable();
+    let mut incoming_entries = incoming.iter().skip(1).peekable();
+    rotated.extend(pivot_row.first().map(|(position, _)| (*position, radius)));
+    loop {
+        let (position, kept, arriving) = match (pivot_entries.peek(), incoming_entries.peek()) {
+            (Some(&&(a, kept)), Some(&&(b, _))) if a < b => {
+                pivot_entries.next();
+                (a, kept, 0.0)
+            }
+            (Some(&&(a, _)), Some(&&(b, arriving))) if b < a => {
+                incoming_entries.next();
+                (b, 0.0, arriving)
+            }
+            (Some(&&(a, kept)), Some(&&(_, arriving))) => {
+                pivot_entries.next();
+                incoming_entries.next();
+                (a, kept, arriving)
+            }
+            (Some(&&(a, kept)), None) => {
+                pivot_entries.next();
+                (a, kept, 0.0)
+            }
+            (None, Some(&&(b, arriving))) => {
+                incoming_entries.next();
+                (b, 0.0, arriving)
+            }
+            (None, None) => break,
+        };
+        let stays = cosine * kept + sine * arriving;
+        let leaves = cosine * arriving - sine * kept;
+        if stays.abs() > NEGLIGIBLE {
+            rotated.push((position, stays));
+        }
+        if leaves.abs() > NEGLIGIBLE {
+            remainder.push((position, leaves));
+        }
+    }
+    *pivot_row = rotated;
+    remainder
+}
+
+fn fill_reducing_order<'a>(width: usize, rows: impl IntoIterator<Item = &'a Row>) -> Vec<usize> {
+    let mut neighbours: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); width];
+    for row in rows {
+        tally::add(row.len() * row.len());
+        for (column, _) in row {
+            if let Some(adjacent) = neighbours.get_mut(*column) {
+                adjacent.extend(
+                    row.iter()
+                        .map(|(other, _)| *other)
+                        .filter(|other| other != column && *other < width),
+                );
+            }
+        }
+    }
+    let mut queue: BTreeSet<(usize, usize)> = neighbours
+        .iter()
+        .enumerate()
+        .map(|(column, adjacent)| (adjacent.len(), column))
+        .collect();
+    let mut order = Vec::with_capacity(width);
+    while let Some((degree, column)) = queue.pop_first() {
+        order.push(column);
+        let adjacent = neighbours
+            .get_mut(column)
+            .map(std::mem::take)
+            .unwrap_or_default();
+        tally::add(degree * degree.min(CLIQUE_LIMIT) + 1);
+        for other in &adjacent {
+            let Some(theirs) = neighbours.get_mut(*other) else {
+                continue;
+            };
+            let before = theirs.len();
+            theirs.remove(&column);
+            if degree <= CLIQUE_LIMIT {
+                theirs.extend(adjacent.iter().copied().filter(|next| next != other));
+            }
+            if queue.remove(&(before, *other)) {
+                queue.insert((theirs.len(), *other));
+            }
+        }
+    }
+    order
 }
 
 pub(crate) fn duplicates(
