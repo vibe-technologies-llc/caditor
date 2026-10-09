@@ -55,8 +55,12 @@ paths:
 - Head chunk (save time, last change's name, blake3 digest of records), one zstd chunk per record
   (`RECORD_KINDS`), version history. The journal snapshot carries `principal`, `suppressed` and
   `rollback` as fields.
-- A record with unchanged understood content is written back exactly as stored (newer fields kept);
-  old records are matched by the digest of their re-encoded understood content, not their bytes.
+- A record with unchanged understood content is written back exactly as stored (newer fields kept).
+  The new records are encoded first; an old record whose bytes hash like a new one's is matched
+  by them, any other by the digest of its re-encoded understood content (`understood_digest`), so
+  only the records the save changes are parsed. A match by understood content whose bytes differ
+  (fields this version does not know, an older encoding) has the records encoded again around the
+  stored ones (`NewRecords::keeping_understood`), keeping the model held at most twice.
   Unknown chunk kinds are carried unless must-understand; loading reports those as left out, so the
   original is kept as `.damaged`.
 - The model properties are a `properties` record, written only when one is set, each field only
@@ -120,7 +124,9 @@ paths:
   unreadable ones load as 0 mm or 0 deg, reported), since an older reader would put it at the
   origin; one at the origin is still written as `import`. A model or journal snapshot
   (`feature_records`) keeps each STEP text once: a `placed_import` whose text an earlier import in
-  tree order already holds writes `shares`, that text's blake3 digest in hex, instead of `step`,
+  tree order already holds writes `shares`, that text's blake3 digest in hex, instead of `step`
+  (`WrittenTexts` hashes a text only to write that digest or to compare it with an earlier text
+  of its length that is not the same `Arc`),
   and loading (`ImportTexts`) hands every import of one text the same text and solid; a shared
   text that cannot be found loads the import empty, reported. An `import` record always holds its
   text, for older readers, and journaled edits hold theirs whole. Parsing goes through `step_cache.rs`, a process-wide LRU cache of shared solids

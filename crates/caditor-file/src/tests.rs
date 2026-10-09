@@ -1661,6 +1661,42 @@ fn placed_copies_of_one_part_keep_its_step_text_once_and_share_it_when_loaded() 
 }
 
 #[test]
+fn placed_imports_share_a_text_equal_to_an_earlier_one_but_not_one_merely_as_long() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Import");
+    let copy = |text: &str| {
+        let mut placement = caditor_document::BodyPlacement::default();
+        placement.offset[0] = Expression::Measure(5.0, Unit::Millimetre);
+        caditor_document::Import::new(
+            "pin.step",
+            caditor_kernel::Solid::default(),
+            std::sync::Arc::<str>::from(text),
+        )
+        .placed(placement)
+    };
+    transaction.add_feature("Pin", FeatureKind::Import(copy("ISO-10303-21; pin A")));
+    transaction.add_feature("Peg", FeatureKind::Import(copy("ISO-10303-21; peg B")));
+    transaction.add_feature("Pin 2", FeatureKind::Import(copy("ISO-10303-21; pin A")));
+    document.apply(transaction.finish()).unwrap();
+
+    let encoded = encode(&document).unwrap();
+
+    assert_eq!(encoded.matches("ISO-10303-21; pin A").count(), 1);
+    assert_eq!(encoded.matches("ISO-10303-21; peg B").count(), 1);
+    assert_eq!(
+        encoded
+            .matches(&format!(
+                "\"shares\":\"{}\"",
+                blake3::hash(b"ISO-10303-21; pin A").to_hex()
+            ))
+            .count(),
+        1,
+        "{encoded}"
+    );
+    assert_eq!(decode_text(&encoded).document, document);
+}
+
+#[test]
 fn a_placed_import_is_a_record_of_its_own_and_an_unplaced_one_stays_readable_by_older_versions() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Import");

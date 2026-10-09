@@ -1,8 +1,4 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{cell::OnceCell, collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
@@ -1732,15 +1728,56 @@ pub(crate) fn feature_record(feature: &Feature) -> FeatureRecord {
 }
 
 pub(crate) fn feature_records(document: &Document) -> impl Iterator<Item = FeatureRecord> + '_ {
-    let mut written = BTreeSet::new();
+    let mut written = WrittenTexts::default();
     document.features().map(move |feature| {
         let shares = feature.kind.import().and_then(|import| {
-            let digest = blake3::hash(import.step.as_bytes());
-            let seen = !written.insert(*digest.as_bytes());
-            (seen && !import.placement.is_unmoved()).then(|| digest.to_hex().to_string())
+            let seen = written.earlier(&import.step)?;
+            (!import.placement.is_unmoved()).then(|| seen.digest().to_hex().to_string())
         });
         feature_record_sharing(feature, shares)
     })
+}
+
+struct WrittenText {
+    text: Arc<str>,
+    digest: OnceCell<blake3::Hash>,
+}
+
+impl WrittenText {
+    fn digest(&self) -> blake3::Hash {
+        *self
+            .digest
+            .get_or_init(|| blake3::hash(self.text.as_bytes()))
+    }
+}
+
+#[derive(Default)]
+struct WrittenTexts {
+    by_length: BTreeMap<usize, Vec<WrittenText>>,
+}
+
+impl WrittenTexts {
+    fn earlier(&mut self, text: &Arc<str>) -> Option<&WrittenText> {
+        let same_length = self.by_length.entry(text.len()).or_default();
+        if let Some(at) = same_length
+            .iter()
+            .position(|seen| Arc::ptr_eq(&seen.text, text))
+        {
+            return same_length.get(at);
+        }
+        let digest = OnceCell::new();
+        if !same_length.is_empty() {
+            let hash = *digest.get_or_init(|| blake3::hash(text.as_bytes()));
+            if let Some(at) = same_length.iter().position(|seen| seen.digest() == hash) {
+                return same_length.get(at);
+            }
+        }
+        same_length.push(WrittenText {
+            text: Arc::clone(text),
+            digest,
+        });
+        None
+    }
 }
 
 fn feature_record_sharing(feature: &Feature, shares: Option<String>) -> FeatureRecord {

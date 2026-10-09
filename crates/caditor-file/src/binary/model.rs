@@ -1,5 +1,6 @@
 use std::{
     borrow::Cow,
+    collections::BTreeSet,
     ops::Range,
     rc::Rc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -160,11 +161,11 @@ fn seconds_since_epoch(time: SystemTime) -> u64 {
 }
 
 impl StateRecord {
-    fn new(saved_at: SystemTime, label: Option<&str>, snapshot: &[u8]) -> Self {
+    fn new(saved_at: SystemTime, label: Option<&str>, digest: String) -> Self {
         Self {
             saved_at: seconds_since_epoch(saved_at),
             label: label.map(str::to_owned),
-            digest: digest(snapshot),
+            digest,
             kept: false,
         }
     }
@@ -293,7 +294,7 @@ impl<'a> Parsed<'a> {
         digest
     }
 
-    fn prior_records(&self) -> PriorRecords<'a> {
+    fn prior_records(&self, written: &BTreeSet<RecordKey>) -> PriorRecords<'a> {
         let mut budget = Budget::default();
         let mut prior = PriorRecords::default();
         for chunk in &self.records {
@@ -305,9 +306,15 @@ impl<'a> Parsed<'a> {
             push_varint(&mut prior.snapshot, content.len() as u64);
             let start = prior.snapshot.len();
             prior.snapshot.extend_from_slice(&content);
-            if let Some(understood) = understood_digest(&content) {
+            let exact = *blake3::hash(&content).as_bytes();
+            let key = if written.contains(&exact) {
+                Some(exact)
+            } else {
+                understood_digest(&content)
+            };
+            if let Some(key) = key {
                 prior.kept.insert(
-                    understood,
+                    key,
                     KeptRecord {
                         content: start..prior.snapshot.len(),
                         stored: chunk.whole,
@@ -397,7 +404,9 @@ impl<'a> Parsed<'a> {
     }
 }
 
-fn understood_digest(content: &[u8]) -> Option<[u8; blake3::OUT_LEN]> {
+type RecordKey = [u8; blake3::OUT_LEN];
+
+fn understood_digest(content: &[u8]) -> Option<RecordKey> {
     let Ok(Lenient::Read(record)) = value::from_bytes::<Lenient<Record>>(content) else {
         return None;
     };
@@ -409,10 +418,15 @@ fn understood_digest(content: &[u8]) -> Option<[u8; blake3::OUT_LEN]> {
 struct PriorRecords<'a> {
     snapshot: Vec<u8>,
     digest: RecordDigest,
-    kept: UntrustedMap<[u8; blake3::OUT_LEN], KeptRecord<'a>>,
+    kept: UntrustedMap<RecordKey, KeptRecord<'a>>,
 }
 
-impl PriorRecords<'_> {
+impl<'a> PriorRecords<'a> {
+    fn kept_content(&self, key: &RecordKey) -> Option<(&KeptRecord<'a>, &[u8])> {
+        let kept = self.kept.get(key)?;
+        Some((kept, self.snapshot.get(kept.content.clone())?))
+    }
+
     fn head<'p>(&'p self, parsed: &'p Parsed<'_>) -> Option<(&'p StateRecord, &'p [u8])> {
         let head = parsed.head.as_ref()?;
         self.digest
@@ -426,19 +440,67 @@ struct NewRecords<'a> {
     records: Vec<RecordToWrite<'a>>,
 }
 
+struct FreshRecord {
+    content: Range<usize>,
+    key: RecordKey,
+}
+
 impl<'a> NewRecords<'a> {
-    fn of(document: &Document, prior: Option<&PriorRecords<'a>>) -> Result<Self, ValueError> {
+    fn of(
+        document: &Document,
+        previous: Option<&Parsed<'a>>,
+    ) -> Result<(Self, Option<PriorRecords<'a>>), ValueError> {
+        let mut snapshot = Vec::new();
+        let mut fresh = Vec::new();
+        for record in document_records(document) {
+            let record = record?;
+            push_varint(&mut snapshot, record.len() as u64);
+            let start = snapshot.len();
+            snapshot.extend_from_slice(&record);
+            fresh.push(FreshRecord {
+                content: start..snapshot.len(),
+                key: *blake3::hash(&record).as_bytes(),
+            });
+        }
+        let written: BTreeSet<RecordKey> = fresh.iter().map(|record| record.key).collect();
+        let prior = previous.map(|parsed| parsed.prior_records(&written));
+        let Some(prior_records) = &prior else {
+            let records = fresh
+                .into_iter()
+                .map(|record| RecordToWrite::Fresh(record.content))
+                .collect();
+            return Ok((Self { snapshot, records }, prior));
+        };
+        let mut records = Vec::with_capacity(fresh.len());
+        for record in fresh {
+            let content = snapshot.get(record.content.clone()).unwrap_or_default();
+            match prior_records.kept_content(&record.key) {
+                None => records.push(RecordToWrite::Fresh(record.content)),
+                Some((kept, stored)) if stored == content => {
+                    records.push(RecordToWrite::Kept(kept.stored));
+                }
+                Some(_) => {
+                    drop(records);
+                    drop(snapshot);
+                    let rewritten = Self::keeping_understood(document, prior_records)?;
+                    return Ok((rewritten, prior));
+                }
+            }
+        }
+        Ok((Self { snapshot, records }, prior))
+    }
+
+    fn keeping_understood(
+        document: &Document,
+        prior: &PriorRecords<'a>,
+    ) -> Result<Self, ValueError> {
         let mut new = Self {
             snapshot: Vec::new(),
             records: Vec::new(),
         };
         for record in document_records(document) {
             let record = record?;
-            let kept = prior.and_then(|prior| {
-                let kept = prior.kept.get(blake3::hash(&record).as_bytes())?;
-                Some((kept, prior.snapshot.get(kept.content.clone())?))
-            });
-            match kept {
+            match prior.kept_content(blake3::hash(&record).as_bytes()) {
                 Some((kept, content)) => {
                     push_varint(&mut new.snapshot, content.len() as u64);
                     new.snapshot.extend_from_slice(content);
@@ -723,7 +785,7 @@ pub(crate) fn encode_over(
     label: Option<&str>,
 ) -> Result<Encoded, EncodeError> {
     let prior = previous.and_then(Parsed::of);
-    let prior_records = prior.as_ref().map(Parsed::prior_records);
+    let (new, prior_records) = NewRecords::of(document, prior.as_ref())?;
     let read_prior = prior.as_ref().zip(prior_records.as_ref());
     let previous_damaged = match (read_prior, previous) {
         (Some((prior, records)), _) => prior.is_damaged(&records.digest),
@@ -731,7 +793,6 @@ pub(crate) fn encode_over(
         (None, None) => false,
     };
     let prior_head = read_prior.and_then(|(prior, records)| records.head(prior));
-    let new = NewRecords::of(document, prior_records.as_ref())?;
     if new.snapshot.len() > max_decompressed() {
         return Err(EncodeError::ModelTooLarge {
             size: new.snapshot.len(),
@@ -739,10 +800,11 @@ pub(crate) fn encode_over(
         });
     }
     let snapshot = new.snapshot.as_slice();
-    let unchanged = prior_head.is_some_and(|(info, _)| info.holds(snapshot));
+    let snapshot_digest = digest(snapshot);
+    let unchanged = prior_head.is_some_and(|(info, _)| info.digest == snapshot_digest);
     let head = match prior_head {
         Some((info, _)) if unchanged => info.clone(),
-        _ => StateRecord::new(now, label, snapshot),
+        _ => StateRecord::new(now, label, snapshot_digest),
     };
 
     let mut bytes = start_file(&MODEL_MAGIC, FORMAT_VERSION);
@@ -1148,7 +1210,7 @@ fn write_versions<'a>(
 #[cfg(test)]
 pub(crate) fn file_from_records(version: u32, records: &[Vec<u8>]) -> Result<Vec<u8>, EncodeError> {
     let snapshot = snapshot_of(records.iter().map(Vec::as_slice));
-    let head = StateRecord::new(SystemTime::now(), None, &snapshot);
+    let head = StateRecord::new(SystemTime::now(), None, digest(&snapshot));
     let mut bytes = start_file(&MODEL_MAGIC, version);
     push_packed(&mut bytes, ChunkKind::Head, &value::to_bytes(&head)?)?;
     for record in records {
