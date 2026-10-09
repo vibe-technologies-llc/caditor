@@ -6,6 +6,8 @@ paths:
   - "crates/caditor/src/blend_panel.rs"
   - "crates/caditor/src/shell_tools.rs"
   - "crates/caditor/src/shell_panel.rs"
+  - "crates/caditor/src/offset_face_tools.rs"
+  - "crates/caditor/src/offset_face_panel.rs"
   - "crates/caditor/src/combine_tools.rs"
   - "crates/caditor/src/combine_panel.rs"
   - "crates/caditor/src/move_tools.rs"
@@ -188,6 +190,20 @@ paths:
 - Chains and opened faces stay in `BodyBefore::choice` until the references change; each panel's
   list stays in `PanelState::reference_rows` (`reference_rows.rs`) until the state before it or
   the revision changes.
+
+## Offset face
+
+- Offset face (Alt+Q, Model menu, palette; not on the ribbon, which it would widen past one row) takes the selected faces of one body, of
+  any shape (`offset_face_tools::selected_faces`), and creates an `OffsetFace` of 1 mm that opens.
+  The panel has the faces in words (Leave this face out per row), a signed Distance (any
+  expression, a negative one shrinks; typing previews it as a fillet's size does), the switch
+  Move the faces tangent to these too (`tangent`) and Body.
+- While it is open and computed, the result is drawn and its faces are `Pickable::ShellFace`s,
+  the moved ones in the selected colour (`FaceChoice::Moving`, `Builder::choosable_faces`, the
+  tangent chain included), and a click moves a face or leaves it out; faces keep their keys across
+  the feature, so the keys of the state before it find them. A failed or pending one shows the
+  body before it with every face pickable, so the choice can be mended. Hover texts and the prompt
+  say move rather than open.
 
 ## Hole
 

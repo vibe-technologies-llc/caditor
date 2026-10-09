@@ -591,6 +591,7 @@ impl Menus<'_, '_> {
                     Command::Fillet,
                     Command::Chamfer,
                     Command::Shell,
+                    Command::OffsetFace,
                     Command::Combine,
                 ],
             );

@@ -444,6 +444,7 @@ fn opened_solid(document: &Document, feature: FeatureId) -> bool {
             FeatureKind::Solid(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
+            | FeatureKind::OffsetFace(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mirror(_)

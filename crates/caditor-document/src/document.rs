@@ -19,6 +19,7 @@ use crate::{
     import::Import,
     mirror::Mirror,
     movement::Move,
+    offset_face::OffsetFace,
     parameter_list::ParameterList,
     pattern::Pattern,
     projection::ProjectionSource,
@@ -87,6 +88,7 @@ pub enum FeatureKind {
     Solid(SolidFeature),
     Blend(Blend),
     Shell(Shell),
+    OffsetFace(OffsetFace),
     Combine(Combine),
     Move(Move),
     Mirror(Mirror),
@@ -152,6 +154,15 @@ impl FeatureKind {
                         .sum::<usize>()
                     + shell.thickness.heap_size()
             }
+            Self::OffsetFace(offset) => {
+                size_of_val(offset.faces.as_slice())
+                    + offset
+                        .faces
+                        .iter()
+                        .map(FaceReference::heap_size)
+                        .sum::<usize>()
+                    + offset.distance.heap_size()
+            }
             Self::Combine(combine) => size_of_val(combine.more_tools.as_slice()),
             Self::Move(movement) => movement.heap_size(),
             Self::Mirror(mirror) => mirror.heap_size(),
@@ -178,6 +189,7 @@ impl FeatureKind {
             Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -197,6 +209,7 @@ impl FeatureKind {
             Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -216,6 +229,7 @@ impl FeatureKind {
             Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -235,6 +249,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.operation().target(),
             Self::Blend(blend) => Some(blend.body),
             Self::Shell(shell) => Some(shell.body),
+            Self::OffsetFace(offset) => Some(offset.body),
             Self::Combine(combine) => Some(combine.body),
             Self::Move(movement) => Some(movement.body),
             Self::Mirror(mirror) => Some(mirror.body),
@@ -264,6 +279,7 @@ impl FeatureKind {
             Self::Sketch(sketch) => used.extend(sketch.projected_bodies()),
             Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Scale(_)
             | Self::Hole(_)
             | Self::Import(_)
@@ -286,6 +302,7 @@ impl FeatureKind {
             Self::Split(split) => split.plane.datum().into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Scale(_)
@@ -305,6 +322,7 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Mirror(_)
             | Self::Split(_)
@@ -322,6 +340,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -347,6 +366,7 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Mirror(_)
             | Self::Split(_)
@@ -365,6 +385,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Move(_)
             | Self::Mirror(_)
             | Self::Split(_)
@@ -379,7 +400,12 @@ impl FeatureKind {
     pub fn modifies_body(&self) -> bool {
         matches!(
             self,
-            Self::Blend(_) | Self::Shell(_) | Self::Combine(_) | Self::Move(_) | Self::Hole(_)
+            Self::Blend(_)
+                | Self::Shell(_)
+                | Self::OffsetFace(_)
+                | Self::Combine(_)
+                | Self::Move(_)
+                | Self::Hole(_)
         )
     }
 
@@ -389,6 +415,7 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -408,6 +435,7 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Solid(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -427,6 +455,27 @@ impl FeatureKind {
             Self::Sketch(_)
             | Self::Solid(_)
             | Self::Blend(_)
+            | Self::OffsetFace(_)
+            | Self::Combine(_)
+            | Self::Move(_)
+            | Self::Mirror(_)
+            | Self::Split(_)
+            | Self::Scale(_)
+            | Self::Hole(_)
+            | Self::Pattern(_)
+            | Self::Datum(_)
+            | Self::Import(_)
+            | Self::Remove(_) => None,
+        }
+    }
+
+    pub fn offset_face(&self) -> Option<&OffsetFace> {
+        match self {
+            Self::OffsetFace(offset) => Some(offset),
+            Self::Sketch(_)
+            | Self::Solid(_)
+            | Self::Blend(_)
+            | Self::Shell(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -447,6 +496,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -466,6 +516,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Mirror(_)
             | Self::Split(_)
@@ -486,6 +537,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Scale(_)
@@ -504,6 +556,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -523,6 +576,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -542,6 +596,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Move(_)
             | Self::Mirror(_)
             | Self::Split(_)
@@ -561,6 +616,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -580,6 +636,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -599,6 +656,7 @@ impl FeatureKind {
             | Self::Solid(_)
             | Self::Blend(_)
             | Self::Shell(_)
+            | Self::OffsetFace(_)
             | Self::Combine(_)
             | Self::Move(_)
             | Self::Mirror(_)
@@ -617,6 +675,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.parameters(),
             Self::Blend(blend) => blend.parameters(),
             Self::Shell(shell) => shell.parameters(),
+            Self::OffsetFace(offset) => offset.parameters(),
             Self::Combine(_) => BTreeSet::new(),
             Self::Move(movement) => movement.parameters(),
             Self::Mirror(_) | Self::Split(_) => BTreeSet::new(),
@@ -635,6 +694,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.uses_parameter(parameter),
             Self::Blend(blend) => blend.uses_parameter(parameter),
             Self::Shell(shell) => shell.uses_parameter(parameter),
+            Self::OffsetFace(offset) => offset.uses_parameter(parameter),
             Self::Combine(_) => false,
             Self::Move(movement) => movement.uses_parameter(parameter),
             Self::Mirror(_) | Self::Split(_) => false,
@@ -664,6 +724,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.features(),
             Self::Blend(blend) => blend.features(),
             Self::Shell(shell) => shell.features(),
+            Self::OffsetFace(offset) => offset.features(),
             Self::Combine(combine) => combine.features(),
             Self::Move(movement) => movement.features(),
             Self::Mirror(mirror) => mirror.features(),
@@ -700,6 +761,7 @@ impl FeatureKind {
             Self::Solid(solid) => solid.origin_features(),
             Self::Blend(blend) => blend.origin_features(),
             Self::Shell(shell) => shell.origin_features(),
+            Self::OffsetFace(offset) => offset.origin_features(),
             Self::Move(movement) => movement.origin_features(),
             Self::Combine(_) | Self::Scale(_) | Self::Hole(_) => BTreeSet::new(),
             Self::Mirror(mirror) => mirror.plane.origin_features(),
@@ -777,6 +839,7 @@ impl Feature {
             FeatureKind::Solid(solid) => Some(solid.operation().target().unwrap_or(self.id)),
             FeatureKind::Blend(blend) => Some(blend.body),
             FeatureKind::Shell(shell) => Some(shell.body),
+            FeatureKind::OffsetFace(offset) => Some(offset.body),
             FeatureKind::Combine(combine) => Some(combine.body),
             FeatureKind::Move(movement) if movement.copy => Some(self.id),
             FeatureKind::Move(movement) => Some(movement.body),
@@ -814,6 +877,7 @@ impl Feature {
             FeatureKind::Sketch(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
+            | FeatureKind::OffsetFace(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Mirror(_)
             | FeatureKind::Scale(_)

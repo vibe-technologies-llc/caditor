@@ -197,7 +197,7 @@ fn crossing(
         .map(|parameter| edge.curve().point(parameter))
         .collect();
     points.extend([ends.0, ends.1]);
-    let reach = WINDOW_REACH * offsets.thickness;
+    let reach = WINDOW_REACH * offsets.reach;
     let [first_surface, second_surface] = &surfaces;
     let (Some(first_window), Some(second_window)) = (
         window(first_surface, &points, reach),
@@ -225,6 +225,16 @@ fn crossing(
     }))
 }
 
+fn untouched(offsets: &Offsets<'_>, edge: &Edge, faces: &[FaceId], ends: (Point3, Point3)) -> bool {
+    let (start, end) = (
+        edge.curve().point(edge.interval().start()),
+        edge.curve().point(edge.interval().end()),
+    );
+    faces.iter().all(|face| offsets.distance(*face) == 0.0)
+        && start.distance(ends.0) <= LINEAR_RESOLUTION
+        && end.distance(ends.1) <= LINEAR_RESOLUTION
+}
+
 pub(super) fn offset_edge(
     offsets: &Offsets<'_>,
     source: EdgeId,
@@ -237,6 +247,9 @@ pub(super) fn offset_edge(
         .ok_or(ShellError::UnsupportedEdge(source))?;
     if !edge.is_closed() && reverses(edge, from, to) {
         return Err(ShellError::EdgeCollapses(source));
+    }
+    if untouched(offsets, edge, faces, (from, to)) {
+        return Ok((edge.curve().clone(), edge.interval()));
     }
     if let Some((curve, interval)) = rebuilt(edge, source, from, to)?
         && follows(offsets, faces, &curve, interval)

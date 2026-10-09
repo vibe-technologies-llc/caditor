@@ -10303,6 +10303,112 @@ fn the_shell_button_needs_faces_of_a_body_and_opens_every_selected_one() {
     assert!(harness.body_volume(plate) < 16000.0 - 38.0 * 38.0 * 9.0);
 }
 
+fn offset_of(harness: &Harness, feature: FeatureId) -> &caditor_document::OffsetFace {
+    harness
+        .document()
+        .feature(feature)
+        .and_then(|feature| feature.kind.offset_face())
+        .unwrap()
+}
+
+#[test]
+fn offset_face_moves_the_selected_face_and_follows_a_typed_distance_and_clicked_faces() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let Pickable::Face { face: top_key, .. } = top else {
+        panic!("the top is a face");
+    };
+
+    harness.select([top]);
+    harness.use_tool_with(Key::Q, Modifiers::ALT);
+    harness.settle();
+    let offset = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the offset face is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Offset face 1"));
+    assert_eq!(offset_of(&harness, offset).faces.len(), 1);
+    assert!(volume_about(&harness, plate, 40.0 * 40.0 * 11.0));
+    assert!(harness.shows("Click faces to move them or leave them out again"));
+    assert!(harness.shows("Distance"));
+
+    harness.type_into_field(Id::new(("offset-face-distance", offset)), "3 mm");
+    harness.settle();
+    assert!(volume_about(&harness, plate, 40.0 * 40.0 * 13.0));
+
+    harness.type_into_field(Id::new(("offset-face-distance", offset)), "-2 mm");
+    harness.settle();
+    assert!(volume_about(&harness, plate, 40.0 * 40.0 * 8.0));
+
+    let bottom = pickable_described(
+        &mut harness,
+        "Extrude 1 start face: click to move it with Offset face 1 or leave it out",
+    );
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), bottom);
+    harness.settle();
+    assert_eq!(offset_of(&harness, offset).faces.len(), 2);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Move a face with Offset face 1")
+    );
+    assert!(volume_about(&harness, plate, 40.0 * 40.0 * 6.0));
+
+    harness.click_pickable(
+        Plane::XY,
+        Point2::new(20.0, 20.0),
+        Pickable::ShellFace {
+            feature: offset,
+            face: top_key,
+        },
+    );
+    harness.settle();
+    assert_eq!(offset_of(&harness, offset).faces.len(), 1);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Leave a face out of Offset face 1")
+    );
+    assert!(volume_about(&harness, plate, 40.0 * 40.0 * 8.0));
+
+    for _ in 0..2 {
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.frame();
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.editing.solid(), None);
+}
+
+#[test]
+fn the_offset_face_command_needs_faces_of_a_body_and_takes_every_selected_one() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let built = harness.built();
+    let side = built
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Face { .. }) && *pickable != top)
+        .expect("the plate has other faces");
+
+    harness.select([]);
+    harness.use_tool_with(Key::Q, Modifiers::ALT);
+    harness.settle();
+    assert_eq!(harness.workspace.editing.solid(), None);
+    assert_ne!(harness.model.undo_label(), Some("Create Offset face 1"));
+
+    harness.select([top, side]);
+    harness.use_tool_with(Key::Q, Modifiers::ALT);
+    harness.settle();
+    let offset = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the offset face is open");
+    assert_eq!(offset_of(&harness, offset).faces.len(), 2);
+    assert!(harness.body_volume(plate) > 16000.0);
+}
+
 fn pattern_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Pattern {
     harness
         .document()

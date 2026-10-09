@@ -22,7 +22,7 @@ use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
 use crate::{
     blend_tools::{self, ChosenEdges},
     model::Waker,
-    shell_tools,
+    offset_face_tools, shell_tools,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -311,6 +311,12 @@ fn local_corner(
     Some(index)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FaceChoice {
+    Opening,
+    Moving { tangent: bool },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum OpenChoice {
     Edges {
@@ -320,6 +326,7 @@ pub enum OpenChoice {
     Faces {
         references: Vec<FaceReference>,
         opened: BTreeSet<FaceKey>,
+        choice: FaceChoice,
     },
     Nothing,
 }
@@ -337,12 +344,37 @@ impl OpenChoice {
                 },
             },
             Some(FeatureKind::Shell(shell)) => match previous {
-                Some(Self::Faces { references, opened }) if references == shell.open => {
-                    Self::Faces { references, opened }
-                }
+                Some(Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Opening,
+                }) if references == shell.open => Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Opening,
+                },
                 _ => Self::Faces {
                     references: shell.open.clone(),
                     opened: shell_tools::opened_faces(solid, shell),
+                    choice: FaceChoice::Opening,
+                },
+            },
+            Some(FeatureKind::OffsetFace(offset)) => match previous {
+                Some(Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Moving { tangent },
+                }) if references == offset.faces && tangent == offset.tangent => Self::Faces {
+                    references,
+                    opened,
+                    choice: FaceChoice::Moving { tangent },
+                },
+                _ => Self::Faces {
+                    references: offset.faces.clone(),
+                    opened: offset_face_tools::moved_faces(solid, offset),
+                    choice: FaceChoice::Moving {
+                        tangent: offset.tangent,
+                    },
                 },
             },
             Some(_) | None => Self::Nothing,

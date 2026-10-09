@@ -25,7 +25,7 @@ use crate::{
     files::FileCommand,
     fonts, hole_panel, icons, import_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
-    move_panel, move_tools,
+    move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
     pattern_panel,
     pattern_tools::{self, Reference},
@@ -258,6 +258,7 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
             BlendKind::Chamfer => &["chamfer", "bevel"],
         },
         FeatureKind::Shell(_) => &["shell", "hollow"],
+        FeatureKind::OffsetFace(_) => &["offset", "face", "press", "pull", "move face"],
         FeatureKind::Combine(combine) => match combine.operation {
             CombineOperation::Join => &["combine", "join", "union"],
             CombineOperation::Cut => &["combine", "cut", "subtract", "difference"],
@@ -848,6 +849,18 @@ fn body(
             );
             body_display(ui, model, feature);
         }
+        FeatureKind::OffsetFace(offset) => {
+            offset_face_panel::show(
+                ui,
+                model,
+                &mut state.reference_rows,
+                actions,
+                feature,
+                offset,
+                row.edited,
+            );
+            body_display(ui, model, feature);
+        }
         FeatureKind::Combine(combine) => {
             combine_panel::show(ui, model, actions, feature, combine);
             body_display(ui, model, feature);
@@ -932,6 +945,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         FeatureKind::Solid(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
+        | FeatureKind::OffsetFace(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Mirror(_)
@@ -1043,6 +1057,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             FeatureKind::Solid(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
+            | FeatureKind::OffsetFace(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mirror(_)
@@ -1058,6 +1073,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             FeatureKind::Solid(_)
             | FeatureKind::Blend(_)
             | FeatureKind::Shell(_)
+            | FeatureKind::OffsetFace(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
             | FeatureKind::Mirror(_)

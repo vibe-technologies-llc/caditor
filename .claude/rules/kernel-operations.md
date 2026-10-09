@@ -204,3 +204,23 @@ paths:
 - When the outward attempt only fails to keep every wall and the inward one fails with an error
   that names its cause (`ShellError::names_the_cause`), that error is reported instead of
   `TooThick`.
+
+# Offset faces (`shell/offset.rs`)
+
+- `offset_faces(solid, faces, distance)` moves each face along its outward normal (positive grows
+  the body) and lets the faces beside it extend or trim to meet it: valid or an `OffsetError`.
+  It is the shell's inner solid with one distance per face (`Offsets::moving`: the chosen faces
+  `-distance` inward, every other face 0), so vertex solving, edge rebuilding, collapses and
+  corner splitting are the shell's. A face at distance 0 keeps its surface whatever it is
+  (splines, extrusions and revolutions included) and an edge between such faces whose ends did not
+  move keeps its curve; only a moved face must be a plane, cylinder, cone, sphere or torus
+  (`UnsupportedFace` otherwise).
+- Faces keep their names and origins (`Naming::Kept`), so edges and references to them survive
+  and a later feature finds them as before; the shell names its inner faces after the shell instead.
+- A face that would vanish (`Collapses` drops a cylinder, sphere or torus gone to nothing, a face a
+  moved neighbour closes up) is refused as `Vanishes`, never dropped silently. After a valid build,
+  `find_crossing` must find no face pair crossing (`Crosses`); a body failing validation first
+  (a moved face through the opposite one) is `Invalid`. A moved face beside an unmoved face it
+  was tangent to cannot keep that tangency, so its edge is `UnsupportedEdge`; moving the whole
+  tangent chain (`tangent_faces`) keeps every tangency (radii grow by the distance).
+

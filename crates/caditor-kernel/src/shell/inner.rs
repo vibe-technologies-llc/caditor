@@ -15,7 +15,7 @@ use crate::{
     naming::{EdgeName, FaceName, FaceOrigin},
     surface::Surface,
     tolerance::LINEAR_RESOLUTION,
-    topology::{EdgeId, FaceId, Solid, VertexId},
+    topology::{EdgeId, Face, FaceId, Solid, VertexId},
 };
 
 const VERTEX_ITERATIONS: usize = 40;
@@ -674,6 +674,24 @@ fn loops(
     Ok(loops)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Naming {
+    Shell(u64),
+    Kept,
+}
+
+impl Naming {
+    fn name(self, face: &Face) -> (FaceName, Option<FaceOrigin>) {
+        match self {
+            Self::Shell(feature) => (
+                FaceName::shell(feature, face.name()),
+                Some(FaceOrigin::Shell { feature }),
+            ),
+            Self::Kept => (face.name(), face.origin()),
+        }
+    }
+}
+
 pub(super) struct Inner {
     pub solid: Solid,
     pub dropped: BTreeSet<FaceId>,
@@ -695,7 +713,7 @@ fn settled_layout(offsets: &Offsets<'_>, collapses: &mut Collapses) -> Result<La
     Err(ShellError::walls_at(unsettled))
 }
 
-pub(super) fn inner_solid(offsets: &Offsets<'_>, feature: u64) -> Result<Inner, ShellError> {
+pub(super) fn inner_solid(offsets: &Offsets<'_>, naming: Naming) -> Result<Inner, ShellError> {
     let solid = offsets.solid;
     let mut collapses = Collapses::of(offsets);
     for (id, _) in solid.faces() {
@@ -710,13 +728,14 @@ pub(super) fn inner_solid(offsets: &Offsets<'_>, feature: u64) -> Result<Inner, 
         if collapses.contains(id) {
             continue;
         }
+        let (name, origin) = naming.name(face);
         faces.push((
             id,
             PlanFace {
                 surface: offsets.surface(id)?,
                 sense: face.sense(),
-                name: FaceName::shell(feature, face.name()),
-                origin: Some(FaceOrigin::Shell { feature }),
+                name,
+                origin,
                 loops: loops(solid, id, &placed, &layout)?,
             },
         ));

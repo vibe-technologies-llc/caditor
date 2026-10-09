@@ -208,7 +208,7 @@ impl Collapses {
                     .is_some_and(|(residual, _)| {
                         let inside = residual < -OFFSET_TOLERANCE;
                         let through_opening = residual - offsets.distance(*face) > OFFSET_TOLERANCE;
-                        inside && (through_opening || !offsets.outward.contains(face))
+                        inside && (through_opening || !offsets.is_outward(*face))
                     });
             if !covered {
                 return Err(self

@@ -156,6 +156,17 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visitor.face(shell.body, face, &what);
             }
         }
+        FeatureKind::OffsetFace(offset) => {
+            let count = offset.faces.len();
+            for (index, face) in offset.faces.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its moved face".to_owned()
+                } else {
+                    format!("moved face {} of {count}", index + 1)
+                };
+                visitor.face(offset.body, face, &what);
+            }
+        }
         FeatureKind::Pattern(pattern) => match &mut pattern.kind {
             PatternKind::Linear { first, second } => {
                 visit_axis(&mut first.axis, "first direction", visitor);

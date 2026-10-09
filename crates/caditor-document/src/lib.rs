@@ -18,6 +18,7 @@ mod import;
 mod inlining;
 mod mirror;
 mod movement;
+mod offset_face;
 mod origins;
 mod parameter_list;
 mod pattern;
@@ -72,6 +73,7 @@ pub use crate::{
     import::Import,
     mirror::{MIRROR_IMAGE, Mirror},
     movement::{AxisTurn, BodyPlacement, Move, MoveAxis, Pivot, TurnCentre},
+    offset_face::OffsetFace,
     origins::complete_origins,
     pattern::{
         CircularPattern, Instance, LinearDirection, LinearSpacing, MAX_PATTERN_INSTANCES,
@@ -135,6 +137,8 @@ mod hole_tests;
 mod mirror_tests;
 #[cfg(test)]
 mod movement_tests;
+#[cfg(test)]
+mod offset_face_tests;
 #[cfg(test)]
 mod parameter_tests;
 #[cfg(test)]

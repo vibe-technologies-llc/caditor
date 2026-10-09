@@ -75,7 +75,7 @@ pub use crate::{
         RegionReference, ResolvedRegions, Selection, Side, resolve_regions,
     },
     sense::Sense,
-    shell::{ShellError, shell},
+    shell::{OffsetError, ShellError, offset_faces, shell},
     surface::{
         BSplineSurface, BendError, BendTarget, BentSide, Cone, Cylinder, Extrusion,
         MAX_BENT_CONTROL_POINTS, MAX_SIDE_CONTROL_POINTS, PlaneSurface, Pole, Revolution, SideBend,

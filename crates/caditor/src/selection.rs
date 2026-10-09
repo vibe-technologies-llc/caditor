@@ -341,7 +341,14 @@ impl Pickable {
                     || "Face".to_owned(),
                     |solid| bodies::describe_face(document, solid, face),
                 );
-                format!("{described}: click to open it in {owner} or close it again")
+                let moving = document
+                    .feature(feature)
+                    .is_some_and(|owner| owner.kind.offset_face().is_some());
+                if moving {
+                    format!("{described}: click to move it with {owner} or leave it out")
+                } else {
+                    format!("{described}: click to open it in {owner} or close it again")
+                }
             }
         }
     }

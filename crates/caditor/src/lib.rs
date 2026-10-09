@@ -74,6 +74,8 @@ mod move_manipulator;
 mod move_panel;
 mod move_tools;
 mod offers;
+mod offset_face_panel;
+mod offset_face_tools;
 mod offsetting;
 mod onboarding;
 mod overlay;

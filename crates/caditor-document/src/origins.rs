@@ -99,6 +99,7 @@ fn may_hold_references(kind: &FeatureKind) -> bool {
         FeatureKind::Solid(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
+        | FeatureKind::OffsetFace(_)
         | FeatureKind::Pattern(_)
         | FeatureKind::Datum(_) => true,
     }

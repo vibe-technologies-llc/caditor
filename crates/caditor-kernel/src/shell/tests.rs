@@ -12,7 +12,7 @@ use crate::{
     tolerance::SamplingTolerance,
 };
 
-fn polygon(points: &[(f64, f64)]) -> Vec<ProfileCurve> {
+pub(super) fn polygon(points: &[(f64, f64)]) -> Vec<ProfileCurve> {
     (0..points.len())
         .map(|index| {
             line(
@@ -24,7 +24,7 @@ fn polygon(points: &[(f64, f64)]) -> Vec<ProfileCurve> {
         .collect()
 }
 
-fn swept(curves: &[ProfileCurve], height: f64) -> Solid {
+pub(super) fn swept(curves: &[ProfileCurve], height: f64) -> Solid {
     let regions = Profile::new(curves)
         .unwrap()
         .select(&Selection::EvenDepth)
@@ -38,7 +38,7 @@ fn swept(curves: &[ProfileCurve], height: f64) -> Solid {
     .unwrap()
 }
 
-fn volume(solid: &Solid) -> f64 {
+pub(super) fn volume(solid: &Solid) -> f64 {
     solid
         .tessellate(&SamplingTolerance::new(1e-3, 0.05).unwrap())
         .unwrap()
@@ -46,7 +46,7 @@ fn volume(solid: &Solid) -> f64 {
         .volume
 }
 
-fn check(name: &str, solid: &Solid, expected: f64) {
+pub(super) fn check(name: &str, solid: &Solid, expected: f64) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
     assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
     let found = volume(solid);
@@ -56,7 +56,7 @@ fn check(name: &str, solid: &Solid, expected: f64) {
     );
 }
 
-fn face_facing(solid: &Solid, normal: Vector3, through: Point3) -> FaceId {
+pub(super) fn face_facing(solid: &Solid, normal: Vector3, through: Point3) -> FaceId {
     solid
         .faces()
         .find(|(_, face)| match face.surface() {
@@ -588,11 +588,7 @@ fn an_edge_whose_wall_shrinks_past_nothing_is_named() {
 fn an_opening_missing_from_the_offset_body_is_named() {
     let solid = cuboid(Vector3::splat(10.0));
     let top = face_facing(&solid, Vector3::Z, Point3::new(5.0, 5.0, 10.0));
-    let offsets = Offsets {
-        solid: &solid,
-        thickness: 1.0,
-        outward: BTreeSet::new(),
-    };
+    let offsets = Offsets::walls(&solid, 1.0, &BTreeSet::new());
     let unrelated = cylinder(2.0, 3.0);
     assert!(matches!(
         opening(&unrelated, &offsets, top, 1),

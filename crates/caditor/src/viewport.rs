@@ -34,7 +34,7 @@ use crate::{
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome},
     move_manipulator::{Handle, Manipulating, Manipulator},
-    pattern_tools,
+    offset_face_tools, pattern_tools,
     preferences::{InputMode, Navigation, PreferenceChange, PreferencesCommand},
     projecting, reference_picking, saved_views,
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
@@ -88,6 +88,7 @@ const CHOOSE_EDGES_PROMPT: &str = "Click edges to add them or leave them out";
 const PROJECT_PROMPT: &str =
     "Click an edge, corner or face of a body, or a curve of another sketch, to project it";
 const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
+const CHOOSE_MOVED_FACES_PROMPT: &str = "Click faces to move them or leave them out again";
 const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
 const CHOOSE_MOVE_PROMPT: &str =
     "Drag an arrow or a square, or enter the turns and distances in the feature's panel";
@@ -3135,6 +3136,7 @@ impl ViewportState {
             let prompt = match kind {
                 Some(FeatureKind::Blend(_)) => CHOOSE_EDGES_PROMPT,
                 Some(FeatureKind::Shell(_)) => CHOOSE_FACES_PROMPT,
+                Some(FeatureKind::OffsetFace(_)) => CHOOSE_MOVED_FACES_PROMPT,
                 Some(FeatureKind::Combine(_)) => CHOOSE_BODIES_PROMPT,
                 Some(FeatureKind::Move(_)) => CHOOSE_MOVE_PROMPT,
                 Some(FeatureKind::Scale(_)) => CHOOSE_SCALE_PROMPT,
@@ -3495,7 +3497,15 @@ fn pick_action(
             Some(blend_tools::toggle_edge(model, feature, edge))
         }
         Some(Pickable::ShellFace { feature, face }) => {
-            Some(shell_tools::toggle_face(model, feature, face))
+            let offsetting = model
+                .document()
+                .feature(feature)
+                .is_some_and(|owner| owner.kind.offset_face().is_some());
+            Some(if offsetting {
+                offset_face_tools::toggle_face(model, feature, face)
+            } else {
+                shell_tools::toggle_face(model, feature, face)
+            })
         }
         _ => None,
     };

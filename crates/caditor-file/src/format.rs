@@ -13,7 +13,7 @@ use caditor_document::{
     LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView,
-    OPAQUE_PERCENT, ORIGINAL_INSTANCE, Parameter, Pattern, PatternKind, PlaneReference,
+    OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter, Pattern, PatternKind, PlaneReference,
     PlaneRotation, PlaneThrough, PointBy, PointReference, PrincipalAxis, PrincipalGeometry,
     PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
     Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
@@ -193,6 +193,16 @@ pub(crate) enum FeatureKindRecord {
     DrillPointHole(Box<DrillPointHoleRecord>),
     PlaneConstruction(Box<PlaneConstructionRecord>),
     PointConstruction(Box<PointConstructionRecord>),
+    OffsetFace(Box<OffsetFaceRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct OffsetFaceRecord {
+    pub body: u64,
+    pub distance: String,
+    pub faces: Vec<Lenient<FaceRecord>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tangent: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -261,7 +271,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 40] = [
+pub(crate) const FEATURE_KINDS: [&str; 41] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -302,6 +312,7 @@ pub(crate) const FEATURE_KINDS: [&str; 40] = [
     "drill_point_hole",
     "plane_construction",
     "point_construction",
+    "offset_face",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1537,6 +1548,18 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                 .map(|face| Lenient::Read(face_record(face)))
                 .collect(),
         }),
+        FeatureKind::OffsetFace(offset) => {
+            FeatureKindRecord::OffsetFace(Box::new(OffsetFaceRecord {
+                body: offset.body.raw(),
+                distance: offset.distance.to_stored_text(),
+                faces: offset
+                    .faces
+                    .iter()
+                    .map(|face| Lenient::Read(face_record(face)))
+                    .collect(),
+                tangent: offset.tangent,
+            }))
+        }
         FeatureKind::Remove(remove) => FeatureKindRecord::Remove(RemoveRecord {
             body: remove.body.raw(),
         }),
@@ -3416,6 +3439,9 @@ fn restore_kind(
             FeatureKind::Blend(restore_blend(record, BlendKind::Chamfer, name, issues))
         }
         FeatureKindRecord::Shell(record) => FeatureKind::Shell(restore_shell(record, name, issues)),
+        FeatureKindRecord::OffsetFace(record) => {
+            FeatureKind::OffsetFace(restore_offset_face(record, name, issues))
+        }
         FeatureKindRecord::Remove(record) => FeatureKind::Remove(Remove {
             body: FeatureId::from_raw(record.body),
         }),
@@ -4227,6 +4253,35 @@ fn restore_shell(record: &ShellRecord, feature: &str, issues: &mut Vec<String>) 
         body: FeatureId::from_raw(record.body),
         open,
         thickness,
+    }
+}
+
+fn restore_offset_face(
+    record: &OffsetFaceRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> OffsetFace {
+    let distance = restore_value(&record.distance, "distance", "1 mm", feature, issues);
+    let faces: Vec<FaceReference> = record
+        .faces
+        .iter()
+        .filter_map(|face| match face {
+            Lenient::Read(face) => {
+                restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+            }
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if faces.len() < record.faces.len() {
+        issues.push(format!(
+            "Some faces moved by “{feature}” could not be read and were left where they are."
+        ));
+    }
+    OffsetFace {
+        body: FeatureId::from_raw(record.body),
+        faces,
+        distance,
+        tangent: record.tangent,
     }
 }
 

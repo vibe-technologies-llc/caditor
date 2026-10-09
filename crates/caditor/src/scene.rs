@@ -21,7 +21,9 @@ use caditor_sketch::{
 
 use crate::{
     analysis::{Analysed, Analyses, Band, FaceAnalysis, Outcome},
-    bodies::{self, BodyBefore, BodyFace, BodyMass, BodyMesh, BodyMeshes, FaceKey, OpenChoice},
+    bodies::{
+        self, BodyBefore, BodyFace, BodyMass, BodyMesh, BodyMeshes, FaceChoice, FaceKey, OpenChoice,
+    },
     body_appearance, canvas, datum_tools,
     display::DisplayedSketches,
     display_style::DisplayStyle,
@@ -370,6 +372,10 @@ impl OpenView {
         match open.choice {
             OpenChoice::Nothing => Self::Ghost,
             OpenChoice::Edges { .. } if computed => Self::Result,
+            OpenChoice::Faces {
+                choice: FaceChoice::Moving { .. },
+                ..
+            } if computed => Self::Result,
             OpenChoice::Edges { .. } | OpenChoice::Faces { .. } => Self::Before,
         }
     }
@@ -1199,13 +1205,27 @@ impl Builder<'_> {
         mesh: &BodyMesh,
     ) {
         let color = body_color(self.palette, document, evaluation, open.body);
-        self.meshes.push(MeshInstance {
-            mesh: Arc::clone(&mesh.mesh),
-            faces: mesh
+        let moving = match &open.choice {
+            OpenChoice::Faces {
+                opened,
+                choice: choice @ FaceChoice::Moving { .. },
+                ..
+            } => Some((opened, *choice)),
+            OpenChoice::Faces { .. } | OpenChoice::Edges { .. } | OpenChoice::Nothing => None,
+        };
+        let faces = match moving {
+            Some((opened, choice)) => {
+                self.choosable_faces(open.feature, &mesh.faces, opened, choice, color)
+            }
+            None => mesh
                 .faces
                 .iter()
                 .map(|_| FaceStyle { color, pick: None })
                 .collect(),
+        };
+        self.meshes.push(MeshInstance {
+            mesh: Arc::clone(&mesh.mesh),
+            faces,
             placement: None,
         });
         for edge in &mesh.edges {
@@ -1242,6 +1262,42 @@ impl Builder<'_> {
         });
     }
 
+    fn choosable_faces(
+        &mut self,
+        feature: FeatureId,
+        faces: &[BodyFace],
+        chosen: &BTreeSet<FaceKey>,
+        choice: FaceChoice,
+        color: Color,
+    ) -> Vec<FaceStyle> {
+        faces
+            .iter()
+            .map(|face| {
+                if !face.flat && choice == FaceChoice::Opening {
+                    return FaceStyle { color, pick: None };
+                }
+                let pickable = Pickable::ShellFace {
+                    feature,
+                    face: face.key,
+                };
+                let base = if chosen.contains(&face.key) {
+                    self.palette.faces.selected
+                } else {
+                    color
+                };
+                let color = if self.highlight.is_hovered(pickable) {
+                    self.palette.faces.hovered
+                } else {
+                    base
+                };
+                FaceStyle {
+                    color,
+                    pick: self.picks.register(pickable, PickPriority::Surface),
+                }
+            })
+            .collect()
+    }
+
     fn open_before(
         &mut self,
         document: &Document,
@@ -1251,38 +1307,21 @@ impl Builder<'_> {
     ) {
         let (chosen, opened) = match &open.choice {
             OpenChoice::Edges { chosen, .. } => (Some(chosen), None),
-            OpenChoice::Faces { opened, .. } => (None, Some(opened)),
+            OpenChoice::Faces { opened, choice, .. } => (None, Some((opened, *choice))),
             OpenChoice::Nothing => (None, None),
         };
         let color = body_color(self.palette, document, evaluation, open.body);
-        let faces = open
-            .before
-            .faces
-            .iter()
-            .map(|face| match &opened {
-                Some(opened) if face.flat => {
-                    let pickable = Pickable::ShellFace {
-                        feature: open.feature,
-                        face: face.key,
-                    };
-                    let base = if opened.contains(&face.key) {
-                        self.palette.faces.selected
-                    } else {
-                        color
-                    };
-                    let color = if self.highlight.is_hovered(pickable) {
-                        self.palette.faces.hovered
-                    } else {
-                        base
-                    };
-                    FaceStyle {
-                        color,
-                        pick: self.picks.register(pickable, PickPriority::Surface),
-                    }
-                }
-                Some(_) | None => FaceStyle { color, pick: None },
-            })
-            .collect();
+        let faces = match opened {
+            Some((opened, choice)) => {
+                self.choosable_faces(open.feature, &open.before.faces, opened, choice, color)
+            }
+            None => open
+                .before
+                .faces
+                .iter()
+                .map(|_| FaceStyle { color, pick: None })
+                .collect(),
+        };
         if with_faces {
             self.meshes.push(MeshInstance {
                 mesh: Arc::clone(&open.before.mesh),

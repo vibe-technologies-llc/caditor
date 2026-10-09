@@ -1,11 +1,14 @@
 mod collapse;
 mod edge;
 mod inner;
+mod offset;
+#[cfg(test)]
+mod offset_tests;
 mod split;
 #[cfg(test)]
 mod tests;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use thiserror::Error;
@@ -27,6 +30,8 @@ const OFFSET_TOLERANCE: f64 = 10.0 * LINEAR_RESOLUTION;
 const OPENING_REACH: f64 = 2.0;
 const SMOOTH_TOLERANCE: f64 = 1e-6;
 const NAMED_WALL_FACES: usize = 4;
+
+pub use offset::{OffsetError, offset_faces};
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ShellError {
@@ -94,17 +99,45 @@ impl From<BooleanError> for ShellError {
 
 struct Offsets<'a> {
     solid: &'a Solid,
-    thickness: f64,
-    outward: BTreeSet<FaceId>,
+    reach: f64,
+    distances: BTreeMap<FaceId, f64>,
 }
 
-impl Offsets<'_> {
-    fn distance(&self, face: FaceId) -> f64 {
-        if self.outward.contains(&face) {
-            -self.thickness
-        } else {
-            self.thickness
+impl<'a> Offsets<'a> {
+    fn walls(solid: &'a Solid, thickness: f64, outward: &BTreeSet<FaceId>) -> Self {
+        Self {
+            solid,
+            reach: thickness,
+            distances: solid
+                .faces()
+                .map(|(id, _)| {
+                    (
+                        id,
+                        if outward.contains(&id) {
+                            -thickness
+                        } else {
+                            thickness
+                        },
+                    )
+                })
+                .collect(),
         }
+    }
+
+    fn moving(solid: &'a Solid, faces: &[FaceId], inward: f64) -> Self {
+        Self {
+            solid,
+            reach: inward.abs(),
+            distances: faces.iter().map(|face| (*face, inward)).collect(),
+        }
+    }
+
+    fn distance(&self, face: FaceId) -> f64 {
+        self.distances.get(&face).copied().unwrap_or(0.0)
+    }
+
+    fn is_outward(&self, face: FaceId) -> bool {
+        self.distance(face) < 0.0
     }
 
     fn residual(
@@ -123,6 +156,9 @@ impl Offsets<'_> {
 
     fn surface(&self, face: FaceId) -> Result<Surface, ShellError> {
         let definition = self.solid.face(face).ok_or(ShellError::MissingFace(face))?;
+        if self.distance(face) == 0.0 {
+            return Ok(definition.surface().clone());
+        }
         let along_normal = -self.distance(face) * definition.sense().sign();
         let too_thick = |_| ShellError::TooCurved(face);
         Ok(match definition.surface() {
@@ -229,8 +265,7 @@ fn opening_behind(offsets: &Offsets<'_>, open: FaceId, feature: u64) -> Result<S
     let regions = Profile::new(&curves)
         .and_then(|profile| profile.select(&Selection::EvenDepth))
         .map_err(|_| ShellError::Opening(open))?;
-    let extent =
-        LinearExtent::one_side(offsets.thickness).map_err(|_| ShellError::Opening(open))?;
+    let extent = LinearExtent::one_side(offsets.reach).map_err(|_| ShellError::Opening(open))?;
     let prism = extrude(&into_material, &regions, extent, feature)
         .map_err(|_| ShellError::Opening(open))?;
     let offset_name = FaceName::shell(feature, definition.name());
@@ -268,7 +303,7 @@ fn opening(
     let regions = Profile::new(&curves)
         .and_then(|profile| profile.select(&Selection::EvenDepth))
         .map_err(|_| ShellError::Opening(open))?;
-    let extent = LinearExtent::one_side(OPENING_REACH * offsets.thickness)
+    let extent = LinearExtent::one_side(OPENING_REACH * offsets.reach)
         .map_err(|_| ShellError::Opening(open))?;
     let prism =
         extrude(&plane, &regions, extent, feature).map_err(|_| ShellError::Opening(open))?;
@@ -363,8 +398,8 @@ fn hollow(
     let inner::Inner {
         solid: mut inner,
         dropped,
-    } = inner::inner_solid(offsets, feature)?;
-    for face in open.iter().filter(|face| !offsets.outward.contains(face)) {
+    } = inner::inner_solid(offsets, inner::Naming::Shell(feature))?;
+    for face in open.iter().filter(|face| !offsets.is_outward(**face)) {
         let prism = if voids.contains(face) {
             opening_behind(offsets, *face, feature)?
         } else {
@@ -407,19 +442,11 @@ fn hollow_out(
     }
     let voids = void_faces(solid, open)?;
     let outward = extendable(solid, open, &voids);
-    let inward = Offsets {
-        solid,
-        thickness,
-        outward: BTreeSet::new(),
-    };
+    let inward = Offsets::walls(solid, thickness, &BTreeSet::new());
     if outward.is_empty() {
         return hollow(&inward, open, &voids, feature).map(|hollowed| hollowed.solid);
     }
-    let extended = Offsets {
-        solid,
-        thickness,
-        outward,
-    };
+    let extended = Offsets::walls(solid, thickness, &outward);
     let first = match hollow(&extended, open, &voids, feature) {
         Ok(result) if result.keeps_every_wall(&extended, open, feature) => return Ok(result.solid),
         Ok(_) => ShellError::TooThick,

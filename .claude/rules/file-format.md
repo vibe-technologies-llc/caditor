@@ -257,6 +257,9 @@ paths:
   bodies.
 - A `split` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as the
   YZ plane, reported) and `flipped` only when set.
+- An `offset_face` feature record holds `body`, `distance` (stored text; unreadable: 1 mm,
+  reported), `faces` (face records; an unreadable one is left out, reported as left where it is)
+  and `tangent` only when set.
 - A `combine` feature record holds `body`, `tool` and `operation` (`join`, `cut`, `intersect`).
   One with more tool bodies or keeping its tool is a `combine_tools` record: `feature`, the
   `combine` record it would be with the first tool alone, `more_tools` (ids, only when there are

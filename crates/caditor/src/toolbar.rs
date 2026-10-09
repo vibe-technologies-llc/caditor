@@ -11,6 +11,7 @@ use crate::{
     model::{Action, Model},
     move_tools,
     offers::Offers,
+    offset_face_tools,
     pattern_tools::{self, Shape},
     ribbon, scale_tools,
     selection::Selection,
@@ -132,6 +133,7 @@ fn group_buttons(
         Group::Modify => {
             blend_buttons(ui, model, context, commands, actions);
             shell_button(ui, model, context, commands, actions);
+            offset_face_offer(model, context, commands, actions);
             combine_button(ui, model, context, commands, actions);
             move_button(ui, model, context, commands, actions);
             mirror_button(ui, model, context, commands, actions);
@@ -472,6 +474,25 @@ fn shell_button(
         && let Ok(source) = source
     {
         actions.extend(shell_tools::create_actions(
+            model.document(),
+            model.evaluation(),
+            source,
+            model.length_unit(),
+        ));
+    }
+}
+
+fn offset_face_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.offset_face;
+    if commands.invoke(Command::OffsetFace, source)
+        && let Ok(source) = source
+    {
+        actions.extend(offset_face_tools::create_actions(
             model.document(),
             model.evaluation(),
             source,

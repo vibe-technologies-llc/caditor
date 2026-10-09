@@ -241,6 +241,19 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   or tied reference fails the feature. That state is kept (`Evaluation::body_before`) and meshed,
   for showing while choosing.
 
+### Offset face (`offset_face.rs`)
+
+- `OffsetFace { body, faces, distance, tangent }` resolves its `FaceReference`s in the body's state
+  before it, like a shell's open faces (a lost or tied reference fails it), and moves them by a
+  signed length expression along their outward normals (kernel `offset_faces`; positive grows the
+  body, negative shrinks it, zero fails in words). With `tangent` the chosen faces first grow to
+  everything reached across smooth edges (`tangent_faces`), recomputed on every evaluation, so the
+  chain follows upstream edits.
+- It modifies its body (`modifies_body`), keeps every face and edge name, and keeps the state
+  before it for choosing (`Evaluation::body_before`). Kernel refusals become sentences naming the
+  faces or edges involved and what to change (`OffsetError`: a face that would vanish, faces that
+  would cross, a neighbour it cannot follow, a corner where the faces cannot meet).
+
 ### Hole (`hole.rs`)
 
 - `Hole { sketch, body, diameter, depth, style, reversed }` drills at every free point of its sketch

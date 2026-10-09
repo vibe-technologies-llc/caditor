@@ -179,14 +179,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Modelling features
 
-- [high · hard] No offset face (Fusion 360's Offset Face, reached by Press Pull on a face): choosing
-  one or more faces of a body and dragging the arrow on them, or typing a distance or expression,
-  moves each along its normal, the neighbouring faces extending or trimming to meet it, so a wall
-  thickens, a boss grows taller or a bore widens without a sketch. Planes move parallel,
-  cylinders, cones, spheres and tori change radius about the same axis, other faces become their
-  offset surface; tangent faces are offered as one chain. It is a feature of its own, named from
-  the faces it moves and referring to them by name, with a live preview, and refuses in words a
-  distance that would make a face vanish or the body cross itself.
+- [medium · hard] Offset face moves planes, cylinders, cones, spheres and tori only: a spline,
+  extrusion or revolution face becomes its offset surface (which needs a surface fitted within
+  tolerance), a fillet moved beside a plane that stays is refused rather than re-blended, and
+  there is no arrow in the view to drag the distance.
 - [high · hard] Bodies cannot be edited directly beyond offsetting faces: no moving, deleting or
   replacing a face and no deleting a fillet or chamfer by its faces. An imported STEP body has
   no feature history, so today it can only be cut, joined, filleted or shelled; a wall too thick, a

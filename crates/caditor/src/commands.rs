@@ -104,6 +104,7 @@ pub enum Command {
     Fillet,
     Chamfer,
     Shell,
+    OffsetFace,
     Combine,
     Move,
     CopyBody,
@@ -527,6 +528,7 @@ plain_commands! {
     Fillet,
     Chamfer,
     Shell,
+    OffsetFace,
     Combine,
     Move,
     CopyBody,
@@ -716,6 +718,7 @@ impl Command {
             Self::Fillet => "model.fillet",
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
+            Self::OffsetFace => "model.offset_face",
             Self::Combine => "model.combine",
             Self::Move => "model.move",
             Self::CopyBody => "model.copy_body",
@@ -897,6 +900,7 @@ impl Command {
             Self::Fillet => "Fillet",
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
+            Self::OffsetFace => "Offset face",
             Self::Combine => "Combine",
             Self::Move => "Move body",
             Self::CopyBody => "Copy body",
@@ -1095,6 +1099,7 @@ impl Command {
             | Self::Fillet
             | Self::Chamfer
             | Self::Shell
+            | Self::OffsetFace
             | Self::Combine
             | Self::Move
             | Self::CopyBody
@@ -1267,6 +1272,7 @@ impl Command {
             Self::Fillet => vec![alt(Key::F)],
             Self::Chamfer => vec![alt(Key::C)],
             Self::Shell => vec![alt(Key::S)],
+            Self::OffsetFace => vec![alt(Key::Q)],
             Self::Combine => vec![alt(Key::J)],
             Self::Move => vec![alt(Key::M)],
             Self::CopyBody => vec![alt_shift(Key::C)],
@@ -2061,7 +2067,7 @@ mod tests {
             found(press(Key::S, Modifiers::ALT), &sketch),
             Some(Command::Shell)
         );
-        assert_eq!(found(press(Key::Q, Modifiers::ALT), &sketch), None);
+        assert_eq!(found(press(Key::Z, Modifiers::ALT), &sketch), None);
         assert_eq!(
             found(
                 press(Key::Comma, Modifiers::COMMAND | Modifiers::SHIFT),
