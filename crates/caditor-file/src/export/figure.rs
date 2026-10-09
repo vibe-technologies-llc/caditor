@@ -95,6 +95,15 @@ impl Text {
         }
     }
 
+    fn outline(&self) -> Vec<Point2> {
+        match self.corners().as_slice() {
+            &[low_left, low_right, high_left, high_right] => {
+                vec![low_left, low_right, high_right, high_left, low_left]
+            }
+            corners => corners.to_vec(),
+        }
+    }
+
     fn corners(&self) -> Vec<Point2> {
         let along = Vector2::from_angle(self.angle);
         let up = along.perp();
@@ -193,20 +202,34 @@ pub(super) struct Dimension {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Motion {
-    pub(super) turned: bool,
+    pub(super) turn: f64,
     pub(super) offset: Vector2,
 }
 
 impl Motion {
     pub(super) fn shift(offset: Vector2) -> Self {
+        Self { turn: 0.0, offset }
+    }
+
+    pub(super) fn turn(turn: f64) -> Self {
         Self {
-            turned: false,
-            offset,
+            turn,
+            offset: Vector2::ZERO,
         }
     }
 
     pub(super) fn vector(self, vector: Vector2) -> Vector2 {
-        if self.turned { vector.perp() } else { vector }
+        let quarters = self.turn / FRAC_PI_2;
+        if quarters == quarters.round() {
+            match (quarters as i64).rem_euclid(4) {
+                0 => vector,
+                1 => vector.perp(),
+                2 => -vector,
+                _ => -vector.perp(),
+            }
+        } else {
+            Vector2::from_angle(self.turn).rotate(vector)
+        }
     }
 
     pub(super) fn point(self, point: Point2) -> Point2 {
@@ -214,11 +237,7 @@ impl Motion {
     }
 
     fn angle(self, angle: f64) -> f64 {
-        if self.turned {
-            angle + FRAC_PI_2
-        } else {
-            angle
-        }
+        angle + self.turn
     }
 }
 
@@ -329,6 +348,26 @@ impl Shape {
                 .flat_map(Self::outline_points)
                 .chain(dimension.text.corners())
                 .collect(),
+        }
+    }
+}
+
+impl Shape {
+    pub(super) fn traced(&self) -> Vec<Vec<Point2>> {
+        match self {
+            Self::Circle { center, radius } => vec![
+                sweep_angles(0.0, TAU)
+                    .map(|angle| Self::arc_point(*center, *radius, angle))
+                    .collect(),
+            ],
+            Self::Text(text) => vec![text.outline()],
+            Self::Dimension(dimension) => dimension
+                .marks
+                .iter()
+                .flat_map(Self::traced)
+                .chain(std::iter::once(dimension.text.outline()))
+                .collect(),
+            shape => vec![shape.outline_points()],
         }
     }
 }

@@ -15,11 +15,11 @@ use std::{
 
 use caditor_document::{CancelToken, Document, FeatureId, FeatureResult};
 use caditor_file::{
-    Closing, Construction, DRAWING_IMPORT_EXTENSIONS, Drawing, DrawingSheet, ExportError,
-    ExportFormat, Exported, FILE_EXTENSION, FaceExported, FileJournal, History, ImportError,
-    LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch, PNG_EXTENSION,
-    RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError,
-    SavedState, Settings, SheetLayout, SketchExported, SketchFormat, describe_set_aside,
+    Closing, Construction, DRAWING_IMPORT_EXTENSIONS, Drawing, DrawingExported, DrawingSheet,
+    ExportError, ExportFormat, Exported, FILE_EXTENSION, FaceExported, FileJournal, History,
+    ImportError, LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch,
+    PNG_EXTENSION, RecentChange, RecentFiles, Recovered, STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS,
+    SaveError, SavedState, Settings, SheetLayout, SketchExported, SketchFormat, describe_set_aside,
     journal_for, load_cancellable, load_version, read_drawing, scan,
 };
 use caditor_render::{ImageError, SurfaceSize};
@@ -79,6 +79,7 @@ const MODEL_EXCHANGE_KIND: &str = "STEP model";
 const MESH_KIND: &str = "STL, OBJ or 3MF mesh";
 const IMPORTABLE_KIND: &str = "Drawings and models";
 const IMAGE_KIND: &str = "PNG image";
+const MISSING_FACE: &str = "A face is no longer part of the model, so nothing was exported.";
 const FILE_COMMANDS: [Command; 13] = [
     Command::New,
     Command::NewFromTemplate,
@@ -497,6 +498,12 @@ enum Event {
         face: String,
         nested: bool,
         result: Result<FaceExported, ExportError>,
+    },
+    BothExported {
+        path: PathBuf,
+        name: String,
+        nested: bool,
+        result: Result<DrawingExported, ExportError>,
     },
     HistoryListed {
         path: PathBuf,
@@ -1318,6 +1325,14 @@ impl Files {
             } => {
                 model.set_notice(drawing_export::face_finished(&path, &face, nested, result));
             }
+            Event::BothExported {
+                path,
+                name,
+                nested,
+                result,
+            } => {
+                model.set_notice(drawing_export::both_finished(&path, &name, nested, result));
+            }
             Event::HistoryListed { path, result } => self.history.listed(&path, result),
             Event::VersionLoaded {
                 path,
@@ -1609,8 +1624,62 @@ impl Files {
                 self.export_sketches(path, &features, sheet, model);
             }
             Some(DrawingSource::Faces(choices)) => self.export_faces(path, &choices, sheet, model),
+            Some(DrawingSource::Both { sketches, faces }) => {
+                self.export_both(path, &sketches, &faces, sheet, model);
+            }
             None => {}
         }
+    }
+
+    fn export_both(
+        &mut self,
+        path: PathBuf,
+        features: &[FeatureId],
+        choices: &[FaceChoice],
+        sheet: DrawingSheet,
+        model: &mut Model,
+    ) {
+        let Some(sketches) = drawn_sketches(features, model) else {
+            return;
+        };
+        let Some(found) = found_faces(choices, model) else {
+            return;
+        };
+        let name = drawing_export::sources_name(model, features, choices);
+        let failed = (path.clone(), name.clone());
+        let nested = matches!(sheet.layout, SheetLayout::Nested(_));
+        self.spawn(
+            move || {
+                let format = SketchFormat::of(&path).unwrap_or_default();
+                let named: Vec<NamedSketch<'_>> = sketches
+                    .iter()
+                    .map(|(name, sketch)| NamedSketch { name, sketch })
+                    .collect();
+                let result = match named_faces(&found) {
+                    Some(faces) => caditor_file::export_drawing(
+                        &path,
+                        &named,
+                        &faces,
+                        format,
+                        &sheet,
+                        &CancelToken::never(),
+                    ),
+                    None => Err(ExportError::FaceMissing),
+                };
+                Event::BothExported {
+                    path,
+                    name,
+                    nested,
+                    result,
+                }
+            },
+            move || Event::BothExported {
+                path: failed.0,
+                name: failed.1,
+                nested,
+                result: Err(ExportError::Encoding),
+            },
+        );
     }
 
     fn export_faces(
@@ -1620,19 +1689,11 @@ impl Files {
         sheet: DrawingSheet,
         model: &mut Model,
     ) {
-        let evaluation = model.evaluation();
-        let found: Option<Vec<(Arc<FeatureResult>, FaceKey, String)>> = choices
-            .iter()
-            .map(|choice| {
-                let name = drawing_export::face_name(model, *choice)?;
-                let result = evaluation.body_result(choice.body).map(Arc::clone)?;
-                Some((result, choice.face, name))
-            })
-            .collect();
-        let (Some(found), Some(face)) = (found, drawing_export::faces_name(model, choices)) else {
-            model.set_notice(Notice::failure(
-                "A face is no longer part of the model, so nothing was exported.",
-            ));
+        let Some(found) = found_faces(choices, model) else {
+            return;
+        };
+        let Some(face) = drawing_export::faces_name(model, choices) else {
+            model.set_notice(Notice::failure(MISSING_FACE));
             return;
         };
         let face = match choices {
@@ -1644,18 +1705,7 @@ impl Files {
         self.spawn(
             move || {
                 let format = SketchFormat::of(&path).unwrap_or_default();
-                let faces: Option<Vec<NamedFace<'_>>> = found
-                    .iter()
-                    .map(|(result, key, name)| {
-                        let body = result.solid()?;
-                        Some(NamedFace {
-                            name,
-                            solid: &body.solid,
-                            face: bodies::find_face(body, *key)?,
-                        })
-                    })
-                    .collect();
-                let result = match faces {
+                let result = match named_faces(&found) {
                     Some(faces) => caditor_file::export_faces(
                         &path,
                         &faces,
@@ -1688,25 +1738,9 @@ impl Files {
         sheet: DrawingSheet,
         model: &mut Model,
     ) {
-        let document = model.document();
-        let mut sketches = Vec::with_capacity(features.len());
-        for feature in features {
-            let Some(feature) = document.feature(*feature) else {
-                model.set_notice(Notice::failure("The sketch no longer exists."));
-                return;
-            };
-            let Some(sketch) = model
-                .displayed_sketch(feature)
-                .map(|displayed| Sketch::clone(&displayed))
-            else {
-                model.set_notice(Notice::failure(format!(
-                    "“{}” has no solved geometry to export.",
-                    feature.name
-                )));
-                return;
-            };
-            sketches.push((feature.name.clone(), sketch));
-        }
+        let Some(sketches) = drawn_sketches(features, model) else {
+            return;
+        };
         let name = drawing_export::quoted_sketches(model, features);
         let failed = (path.clone(), name.clone());
         self.spawn(
@@ -2247,6 +2281,59 @@ fn open_file(
             missing: !path.exists(),
         },
     }
+}
+
+type FoundFace = (Arc<FeatureResult>, FaceKey, String);
+
+fn drawn_sketches(features: &[FeatureId], model: &mut Model) -> Option<Vec<(String, Sketch)>> {
+    let document = model.document();
+    let mut sketches = Vec::with_capacity(features.len());
+    for feature in features {
+        let Some(feature) = document.feature(*feature) else {
+            model.set_notice(Notice::failure("The sketch no longer exists."));
+            return None;
+        };
+        let Some(sketch) = model
+            .displayed_sketch(feature)
+            .map(|displayed| Sketch::clone(&displayed))
+        else {
+            let reason = format!("“{}” has no solved geometry to export.", feature.name);
+            model.set_notice(Notice::failure(reason));
+            return None;
+        };
+        sketches.push((feature.name.clone(), sketch));
+    }
+    Some(sketches)
+}
+
+fn found_faces(choices: &[FaceChoice], model: &mut Model) -> Option<Vec<FoundFace>> {
+    let evaluation = model.evaluation();
+    let found: Option<Vec<FoundFace>> = choices
+        .iter()
+        .map(|choice| {
+            let name = drawing_export::face_name(model, *choice)?;
+            let result = evaluation.body_result(choice.body).map(Arc::clone)?;
+            Some((result, choice.face, name))
+        })
+        .collect();
+    if found.is_none() {
+        model.set_notice(Notice::failure(MISSING_FACE));
+    }
+    found
+}
+
+fn named_faces(found: &[FoundFace]) -> Option<Vec<NamedFace<'_>>> {
+    found
+        .iter()
+        .map(|(result, key, name)| {
+            let body = result.solid()?;
+            Some(NamedFace {
+                name,
+                solid: &body.solid,
+                face: bodies::find_face(body, *key)?,
+            })
+        })
+        .collect()
 }
 
 fn spawn_worker() -> Option<Sender<Job>> {

@@ -5,8 +5,8 @@ use std::{
 
 use caditor_document::{Feature, FeatureId};
 use caditor_file::{
-    Annotations, Construction, DrawingSheet, ExportError, FaceExported, Nesting, SheetLayout,
-    SketchExported, SketchFormat,
+    Annotations, Construction, DrawingExported, DrawingSheet, ExportError, FaceExported, Nesting,
+    SheetLayout, SketchExported, SketchFormat,
 };
 use egui::Id;
 
@@ -43,22 +43,49 @@ const NOT_A_SPACING: &str = "Enter a spacing of zero or more";
 pub enum DrawingSource {
     Sketches(Vec<FeatureId>),
     Faces(Vec<FaceChoice>),
+    Both {
+        sketches: Vec<FeatureId>,
+        faces: Vec<FaceChoice>,
+    },
 }
 
 impl DrawingSource {
+    pub fn with_faces(sketches: Vec<FeatureId>, faces: Vec<FaceChoice>) -> Self {
+        if faces.is_empty() {
+            Self::Sketches(sketches)
+        } else {
+            Self::Both { sketches, faces }
+        }
+    }
+
     pub fn title(&self) -> &'static str {
         match self {
             Self::Sketches(sketches) if sketches.len() == 1 => "Export sketch",
             Self::Sketches(_) => "Export sketches",
             Self::Faces(faces) if faces.len() == 1 => "Export face",
             Self::Faces(_) => "Export faces",
+            Self::Both { .. } => "Export sketches and faces",
         }
     }
 
-    fn parts(&self) -> usize {
+    fn sketches(&self) -> &[FeatureId] {
         match self {
-            Self::Sketches(sketches) => sketches.len(),
-            Self::Faces(faces) => faces.len(),
+            Self::Sketches(sketches) | Self::Both { sketches, .. } => sketches,
+            Self::Faces(_) => &[],
+        }
+    }
+
+    fn faces(&self) -> &[FaceChoice] {
+        match self {
+            Self::Faces(faces) | Self::Both { faces, .. } => faces,
+            Self::Sketches(_) => &[],
+        }
+    }
+
+    fn without_faces(self) -> Self {
+        match self {
+            Self::Both { sketches, .. } => Self::Sketches(sketches),
+            source => source,
         }
     }
 }
@@ -78,6 +105,7 @@ pub enum DrawingCommand {
     Spacing(f64),
     Turns(bool),
     Annotations(bool),
+    Faces(bool),
     Choose,
 }
 
@@ -90,6 +118,7 @@ pub struct DrawingExporter {
     spacing: f64,
     turns: bool,
     annotations: bool,
+    faces: bool,
 }
 
 impl Default for DrawingExporter {
@@ -102,6 +131,7 @@ impl Default for DrawingExporter {
             spacing: DEFAULT_SPACING,
             turns: true,
             annotations: false,
+            faces: true,
         }
     }
 }
@@ -117,6 +147,7 @@ impl DrawingExporter {
 
     pub fn show(&mut self, source: DrawingSource) {
         self.source = Some(source);
+        self.faces = true;
         self.open = true;
     }
 
@@ -133,13 +164,27 @@ impl DrawingExporter {
             DrawingCommand::Spacing(spacing) => self.spacing = spacing,
             DrawingCommand::Turns(turns) => self.turns = turns,
             DrawingCommand::Annotations(annotations) => self.annotations = annotations,
+            DrawingCommand::Faces(faces) => self.faces = faces,
             DrawingCommand::Choose => {}
         }
     }
 
     pub fn start(&mut self) -> Option<DrawingSource> {
         self.open = false;
-        self.source.take()
+        let source = self.source.take()?;
+        Some(if self.faces {
+            source
+        } else {
+            source.without_faces()
+        })
+    }
+
+    fn included(&self) -> (usize, usize) {
+        let Some(source) = &self.source else {
+            return (0, 0);
+        };
+        let faces = if self.faces { source.faces().len() } else { 0 };
+        (source.sketches().len(), faces)
     }
 
     pub fn sheet(&self, construction: Construction) -> DrawingSheet {
@@ -258,6 +303,7 @@ pub fn face_commands(
 
 pub fn source_file_name(model: &Model, source: Option<&DrawingSource>) -> String {
     match source {
+        Some(DrawingSource::Both { .. }) => file_name(&model.display_name()),
         Some(DrawingSource::Faces(choices)) => choices.first().map_or_else(
             || file_name(&model.display_name()),
             |choice| face_file_name(&body_name(model, *choice)),
@@ -374,6 +420,72 @@ pub fn face_finished(
     }
 }
 
+pub fn sources_name(model: &Model, sketches: &[FeatureId], faces: &[FaceChoice]) -> String {
+    let sketches = quoted_sketches(model, sketches);
+    let faces = match faces {
+        [only] => face_name(model, *only)
+            .map_or_else(|| count(1, "face", "faces"), |name| format!("“{name}”")),
+        several => count(several.len(), "face", "faces"),
+    };
+    format!("{sketches} and {faces}")
+}
+
+pub fn both_finished(
+    path: &Path,
+    name: &str,
+    nested: bool,
+    result: Result<DrawingExported, ExportError>,
+) -> Notice {
+    let file = display_name(Some(path));
+    let Ok(exported) = result else {
+        return finished(path, name, result.map(|exported| exported.sketches));
+    };
+    let (sketches, faces) = (exported.sketches, exported.faces);
+    let dimensions = match sketches.dimensions {
+        0 => String::new(),
+        dimensions => format!(" with {}", count(dimensions, "dimension", "dimensions")),
+    };
+    let arranged = if nested {
+        ", nested on a sheet"
+    } else {
+        ", side by side"
+    };
+    let mut text = format!(
+        "Exported {name} to “{file}”{arranged}: {} from the sketches{dimensions} and {} in {} \
+         from the faces.{}",
+        count(
+            sketches.curves + sketches.points + sketches.construction,
+            "object",
+            "objects"
+        ),
+        count(faces.curves, "curve", "curves"),
+        count(faces.loops, "loop", "loops"),
+        too_wide(exported.too_wide)
+    );
+    if sketches.construction_left_out > 0 {
+        text.push_str(&format!(
+            " {} left out; File › Keep construction geometry in drawings keeps them.",
+            count(
+                sketches.construction_left_out,
+                "construction curve was",
+                "construction curves were"
+            )
+        ));
+    }
+    if faces.approximated > 0 {
+        text.push_str(&format!(
+            " {} with no exact form in a drawing {} fitted within a micrometre.",
+            count(faces.approximated, "curve", "curves"),
+            if faces.approximated == 1 {
+                "was"
+            } else {
+                "were"
+            }
+        ));
+    }
+    Notice::info(text)
+}
+
 pub fn dialog(
     ctx: &egui::Context,
     model: &Model,
@@ -384,8 +496,16 @@ pub fn dialog(
         .source
         .as_ref()
         .map_or("Export drawing", DrawingSource::title);
-    let sketches = matches!(exporter.source, Some(DrawingSource::Sketches(_)));
-    let parts = exporter.source.as_ref().map_or(0, DrawingSource::parts);
+    let (sketches, faces) = exporter.included();
+    let offered_faces = exporter
+        .source
+        .as_ref()
+        .filter(|source| !source.sketches().is_empty())
+        .map_or(0, |source| source.faces().len());
+    let sketches_shown = exporter
+        .source
+        .as_ref()
+        .is_some_and(|source| !source.sketches().is_empty());
     let response = widgets::dialog(ctx, "export-drawing", title, DialogWidth::Medium, |ui| {
         let mut command = None;
         export::heading(ui, "Layout");
@@ -409,14 +529,33 @@ pub fn dialog(
             sheet_fields(ui, model, exporter, &mut command);
         }
         export::heading(ui, "Contents");
+        if offered_faces > 0 {
+            let mut included = exporter.faces;
+            if ui
+                .checkbox(
+                    &mut included,
+                    format!(
+                        "The {} selected in the view",
+                        count(offered_faces, "flat face", "flat faces")
+                    ),
+                )
+                .on_hover_text(
+                    "Write the outlines and holes of the faces selected in the view into the same \
+                     drawing as the sketches",
+                )
+                .changed()
+            {
+                command = Some(FileCommand::DrawingExport(DrawingCommand::Faces(included)));
+            }
+        }
         let mut annotations = exporter.annotations;
-        let hint = if sketches {
+        let hint = if sketches_shown {
             "Write each sketch's dimensions, in millimetres and degrees, on a Dimensions layer, and \
              each sketch's name below it on a Labels layer"
         } else {
             "Write each face's name below it on a Labels layer"
         };
-        let caption = if sketches {
+        let caption = if sketches_shown {
             "Dimensions and names"
         } else {
             "Names"
@@ -430,7 +569,7 @@ pub fn dialog(
                 annotations,
             )));
         }
-        if sketches {
+        if sketches_shown {
             let mut keep = keeps_construction;
             if ui
                 .checkbox(&mut keep, "Construction geometry")
@@ -444,7 +583,10 @@ pub fn dialog(
             }
         }
         ui.add_space(SPACE_M);
-        ui.label(widgets::muted(summary(exporter, parts), ui));
+        ui.label(widgets::muted(
+            summary(exporter.layout, sketches, faces),
+            ui,
+        ));
         widgets::footer(ui, |ui| {
             if ui.add(widgets::primary_button(ui, "Export…")).clicked() {
                 command = Some(FileCommand::DrawingExport(DrawingCommand::Choose));
@@ -461,12 +603,17 @@ pub fn dialog(
     response.inner.or(closed)
 }
 
-fn summary(exporter: &DrawingExporter, parts: usize) -> String {
-    let noun = match exporter.source {
-        Some(DrawingSource::Sketches(_)) => count(parts, "sketch", "sketches"),
-        _ => count(parts, "face", "faces"),
+fn summary(layout: Layout, sketches: usize, faces: usize) -> String {
+    let noun = match (sketches, faces) {
+        (_, 0) => count(sketches, "sketch", "sketches"),
+        (0, _) => count(faces, "face", "faces"),
+        _ => format!(
+            "{} and {}",
+            count(sketches, "sketch", "sketches"),
+            count(faces, "face", "faces")
+        ),
     };
-    match (exporter.layout, parts) {
+    match (layout, sketches + faces) {
         (Layout::SideBySide, 1) => format!("The drawing holds {noun}, in millimetres."),
         (Layout::SideBySide, _) => {
             format!("The drawing holds {noun} side by side, in millimetres.")
@@ -523,11 +670,11 @@ fn sheet_fields(
     });
     let mut turns = exporter.turns;
     if ui
-        .checkbox(
-            &mut turns,
-            "Turn parts a quarter turn where that packs them closer",
+        .checkbox(&mut turns, "Turn parts where that packs them closer")
+        .on_hover_text(
+            "Try each part in quarter turns, and at the angle in 15° steps that boxes it smallest, \
+             and keep whichever fits lowest on the sheet",
         )
-        .on_hover_text("Lay a part on its side when it fits lower on the sheet that way")
         .changed()
     {
         *command = Some(FileCommand::DrawingExport(DrawingCommand::Turns(turns)));

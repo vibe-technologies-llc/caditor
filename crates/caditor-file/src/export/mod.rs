@@ -5,6 +5,7 @@ mod dxf;
 mod figure;
 mod gltf;
 mod image;
+mod nest;
 mod obj;
 mod outline;
 mod sheet;
@@ -200,45 +201,11 @@ pub fn export_sketches(
     sheet: &DrawingSheet,
     cancel: &CancelToken,
 ) -> Result<SketchExported, ExportError> {
-    let mut exported = SketchExported::default();
-    let mut drawn = Vec::with_capacity(sketches.len());
-    for named in sketches {
-        if cancel.is_cancelled() {
-            return Err(ExportError::Cancelled);
-        }
-        let (figure, counted) = Figure::of_sketch(named.sketch, sheet.construction);
-        exported.add(counted);
-        drawn.push((named, figure));
-    }
-    if exported.drawn() == 0 {
-        return Err(ExportError::NoCurves);
-    }
-    let text_height = sheet::text_height(drawn.iter().map(|(_, figure)| figure));
-    let mut parts = Vec::with_capacity(drawn.len());
-    for (named, mut figure) in drawn {
-        if sheet.annotations == Annotations::Included
-            && let Some(bounds) = figure.bounds()
-        {
-            let dimensions = annotation::dimensions(
-                named.sketch,
-                sheet.construction,
-                text_height,
-                bounds.center(),
-            );
-            exported.dimensions += dimensions.len();
-            for dimension in dimensions {
-                figure.push(Layer::Dimensions, Shape::Dimension(Box::new(dimension)));
-            }
-        }
-        parts.push(Part {
-            figure,
-            label: named.name.to_owned(),
-        });
-    }
-    let arranged = sheet::arranged(parts, sheet, text_height, cancel)?;
-    exported.too_wide = arranged.too_wide;
-    write_figure(path, &arranged.figure, format, cancel)?;
-    Ok(exported)
+    let exported = export_drawing(path, sketches, &[], format, sheet, cancel)?;
+    Ok(SketchExported {
+        too_wide: exported.too_wide,
+        ..exported.sketches
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -293,8 +260,39 @@ pub fn export_faces(
     sheet: &DrawingSheet,
     cancel: &CancelToken,
 ) -> Result<FaceExported, ExportError> {
-    let mut exported = FaceExported::default();
-    let mut parts = Vec::with_capacity(faces.len());
+    let exported = export_drawing(path, &[], faces, format, sheet, cancel)?;
+    Ok(FaceExported {
+        too_wide: exported.too_wide,
+        ..exported.faces
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DrawingExported {
+    pub sketches: SketchExported,
+    pub faces: FaceExported,
+    pub too_wide: usize,
+}
+
+pub fn export_drawing(
+    path: &Path,
+    sketches: &[NamedSketch<'_>],
+    faces: &[NamedFace<'_>],
+    format: SketchFormat,
+    sheet: &DrawingSheet,
+    cancel: &CancelToken,
+) -> Result<DrawingExported, ExportError> {
+    let mut exported = DrawingExported::default();
+    let mut drawn = Vec::with_capacity(sketches.len());
+    for named in sketches {
+        if cancel.is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+        let (figure, counted) = Figure::of_sketch(named.sketch, sheet.construction);
+        exported.sketches.add(counted);
+        drawn.push((named, figure));
+    }
+    let mut outlines = Vec::with_capacity(faces.len());
     for named in faces {
         if cancel.is_cancelled() {
             return Err(ExportError::Cancelled);
@@ -306,13 +304,43 @@ pub fn export_faces(
             log::error!("outlining a face for export panicked");
             Err(ExportError::Encoding)
         })?;
-        exported.add(counted);
+        exported.faces.add(counted);
+        outlines.push(Part {
+            figure,
+            label: named.name.to_owned(),
+        });
+    }
+    if exported.sketches.drawn() == 0 && outlines.is_empty() {
+        return Err(ExportError::NoCurves);
+    }
+    let text_height = sheet::text_height(
+        drawn
+            .iter()
+            .map(|(_, figure)| figure)
+            .chain(outlines.iter().map(|part| &part.figure)),
+    );
+    let mut parts = Vec::with_capacity(drawn.len() + outlines.len());
+    for (named, mut figure) in drawn {
+        if sheet.annotations == Annotations::Included
+            && let Some(bounds) = figure.bounds()
+        {
+            let dimensions = annotation::dimensions(
+                named.sketch,
+                sheet.construction,
+                text_height,
+                bounds.center(),
+            );
+            exported.sketches.dimensions += dimensions.len();
+            for dimension in dimensions {
+                figure.push(Layer::Dimensions, Shape::Dimension(Box::new(dimension)));
+            }
+        }
         parts.push(Part {
             figure,
             label: named.name.to_owned(),
         });
     }
-    let text_height = sheet::text_height(parts.iter().map(|part| &part.figure));
+    parts.append(&mut outlines);
     let arranged = sheet::arranged(parts, sheet, text_height, cancel)?;
     exported.too_wide = arranged.too_wide;
     write_figure(path, &arranged.figure, format, cancel)?;

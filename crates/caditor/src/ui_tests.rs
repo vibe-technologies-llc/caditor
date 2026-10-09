@@ -1976,6 +1976,44 @@ fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
     );
 }
 
+#[test]
+fn a_chosen_sketch_and_a_selected_face_nest_into_one_drawing() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let (_, top) = extruded_plate(&mut harness);
+    let mut washer = Sketch::new(Plane::XY);
+    washer.add_circle(Point2::new(100.0, 0.0), 5.0);
+    let washer = harness.add_sketch(washer);
+    harness.settle();
+    let name = harness.document().feature(washer).unwrap().name.clone();
+    harness.workspace.panels.choose_only(washer);
+    harness.select([top]);
+    harness.frame();
+    let written = dir.path().join("mixed.dxf");
+
+    harness.answer_dialog(Some(written.clone()));
+    run_from_palette(&mut harness, "export sketch");
+    let titled = harness.shows("Export sketches and faces");
+    let offered = harness.shows("The 1 flat face selected in the view");
+    harness.click("Nested on a sheet");
+    harness.click("Export…");
+    harness.wait_until("the drawing is written", |_| written.exists());
+    harness.wait_until("the export is announced", |harness| {
+        harness.shows(&format!(
+            "Exported “{name}” and “Extrude 1 end face” to “mixed.dxf”, nested on a sheet: 1 \
+             object from the sketches and 4 curves in 1 loop from the faces."
+        ))
+    });
+    let drawing =
+        caditor_file::read_dxf(&written, &caditor_document::CancelToken::never()).unwrap();
+
+    assert!(titled);
+    assert!(offered);
+    assert_eq!(drawing.curve_count(), 5);
+    assert!(drawing.layers.contains(&"0".to_owned()));
+    assert!(drawing.layers.contains(&"Outline".to_owned()));
+}
+
 fn png_size(path: &Path) -> (u32, u32, u8) {
     const RGBA: u8 = 6;
     let bytes = std::fs::read(path).unwrap();

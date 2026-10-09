@@ -4,6 +4,7 @@ use caditor_geometry::{Aabb2, Point2, Vector2};
 use super::{
     Construction, ExportError,
     figure::{Anchor, Figure, Layer, Motion, Shape, Text},
+    nest::{Item, nest},
 };
 
 const MIN_SIDE_BY_SIDE_GAP: f64 = 10.0;
@@ -12,7 +13,6 @@ const MIN_TEXT_HEIGHT: f64 = 2.5;
 const TEXT_HEIGHT_FRACTION: f64 = 0.02;
 const LABEL_BAND: f64 = 2.0;
 const LABEL_LIFT: f64 = 0.5;
-const FIT: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct DrawingSheet {
@@ -112,30 +112,33 @@ pub(super) fn arranged(
             } else {
                 0.0
             };
-            let items: Vec<Item> = parts
+            let items: Vec<Item<'_>> = parts
                 .iter()
-                .map(|(part, bounds)| {
-                    let label = if labelled {
+                .map(|(part, _)| {
+                    let label = if labelled && !part.label.is_empty() {
                         label_text(&part.label, Point2::ZERO, text_height).width()
                     } else {
                         0.0
                     };
-                    Item::of(bounds.size(), label, band)
+                    Item {
+                        figure: &part.figure,
+                        label,
+                        band,
+                    }
                 })
                 .collect();
             let nested = nest(&items, &nesting, cancel)?;
-            let motions = parts
-                .iter()
-                .zip(&nested.placements)
-                .map(|((_, bounds), placement)| placement.motion(*bounds, band))
-                .collect();
-            (motions, nested.too_wide)
+            (nested.motions, nested.too_wide)
         }
     };
     let mut figure = Figure::default();
     for ((part, bounds), motion) in parts.into_iter().zip(motions) {
-        let placed = moved_bounds(bounds, motion);
-        figure.append_moved(part.figure, motion);
+        let mut moved = Figure::default();
+        moved.append_moved(part.figure, motion);
+        let placed = moved
+            .bounds()
+            .unwrap_or_else(|| moved_bounds(bounds, motion));
+        figure.shapes.append(&mut moved.shapes);
         if labelled && !part.label.is_empty() {
             let baseline = Point2::new(
                 placed.min().x,
@@ -197,165 +200,4 @@ fn side_by_side(parts: &[(Part, Aabb2)]) -> Vec<Motion> {
             motion
         })
         .collect()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Item {
-    pub(super) upright: Vector2,
-    pub(super) turned: Vector2,
-}
-
-impl Item {
-    pub(super) fn of(size: Vector2, label: f64, band: f64) -> Self {
-        Self {
-            upright: Vector2::new(size.x.max(label), size.y + band),
-            turned: Vector2::new(size.y.max(label), size.x + band),
-        }
-    }
-
-    fn size(&self, turned: bool) -> Vector2 {
-        if turned { self.turned } else { self.upright }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Placement {
-    pub(super) at: Point2,
-    pub(super) turned: bool,
-}
-
-impl Placement {
-    fn motion(&self, bounds: Aabb2, band: f64) -> Motion {
-        let turn = Motion {
-            turned: self.turned,
-            offset: Vector2::ZERO,
-        };
-        let low = moved_bounds(bounds, turn).min();
-        Motion {
-            turned: self.turned,
-            offset: self.at + Vector2::new(0.0, band) - low,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct Nested {
-    pub(super) placements: Vec<Placement>,
-    pub(super) too_wide: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Rect {
-    low: Point2,
-    high: Point2,
-}
-
-impl Rect {
-    fn clear_of(&self, other: &Self, spacing: f64) -> bool {
-        self.high.x <= other.low.x - spacing + FIT
-            || other.high.x + spacing <= self.low.x + FIT
-            || self.high.y <= other.low.y - spacing + FIT
-            || other.high.y + spacing <= self.low.y + FIT
-    }
-}
-
-pub(super) fn nest(
-    items: &[Item],
-    nesting: &Nesting,
-    cancel: &CancelToken,
-) -> Result<Nested, ExportError> {
-    let mut order: Vec<usize> = (0..items.len()).collect();
-    order.sort_by(|first, second| {
-        let area = |index: &usize| {
-            items
-                .get(*index)
-                .map_or(0.0, |item| item.upright.x * item.upright.y)
-        };
-        area(second).total_cmp(&area(first))
-    });
-    let mut placed: Vec<Rect> = Vec::with_capacity(items.len());
-    let mut placements = vec![
-        Placement {
-            at: Point2::ZERO,
-            turned: false,
-        };
-        items.len()
-    ];
-    let mut too_wide = 0;
-    for index in order {
-        if cancel.is_cancelled() {
-            return Err(ExportError::Cancelled);
-        }
-        let Some(item) = items.get(index) else {
-            continue;
-        };
-        let orientations: &[bool] = if nesting.turns && item.turned != item.upright {
-            &[false, true]
-        } else {
-            &[false]
-        };
-        let best = orientations
-            .iter()
-            .filter_map(|turned| {
-                let size = item.size(*turned);
-                let at = lowest_spot(&placed, size, nesting)?;
-                Some((at, size, *turned))
-            })
-            .min_by(|(first, first_size, _), (second, second_size, _)| {
-                first
-                    .y
-                    .total_cmp(&second.y)
-                    .then(first.x.total_cmp(&second.x))
-                    .then((first.y + first_size.y).total_cmp(&(second.y + second_size.y)))
-            });
-        let (at, size, turned) = best.unwrap_or_else(|| {
-            too_wide += 1;
-            let turned = nesting.turns && item.turned.x < item.upright.x;
-            let top = placed
-                .iter()
-                .map(|rect| rect.high.y + nesting.spacing)
-                .fold(0.0, f64::max);
-            (Point2::new(0.0, top), item.size(turned), turned)
-        });
-        placed.push(Rect {
-            low: at,
-            high: at + size,
-        });
-        if let Some(placement) = placements.get_mut(index) {
-            *placement = Placement { at, turned };
-        }
-    }
-    Ok(Nested {
-        placements,
-        too_wide,
-    })
-}
-
-fn lowest_spot(placed: &[Rect], size: Vector2, nesting: &Nesting) -> Option<Point2> {
-    if size.x > nesting.width + FIT {
-        return None;
-    }
-    let candidates = |side: fn(&Rect) -> f64| {
-        let mut values: Vec<f64> = std::iter::once(0.0)
-            .chain(placed.iter().map(|rect| side(rect) + nesting.spacing))
-            .collect();
-        values.sort_by(f64::total_cmp);
-        values.dedup();
-        values
-    };
-    let columns = candidates(|rect| rect.high.x);
-    let rows = candidates(|rect| rect.high.y);
-    rows.iter().find_map(|y| {
-        columns.iter().find_map(|x| {
-            let spot = Rect {
-                low: Point2::new(*x, *y),
-                high: Point2::new(x + size.x, y + size.y),
-            };
-            (spot.high.x <= nesting.width + FIT
-                && placed
-                    .iter()
-                    .all(|rect| spot.clear_of(rect, nesting.spacing)))
-            .then_some(spot.low)
-        })
-    })
 }

@@ -24,11 +24,12 @@ mod untrusted;
 pub use crate::{
     binary::{FileDigest, History, MAX_MODEL_RECORDS, SavedState, Version},
     export::{
-        Annotations, Construction, DrawingSheet, ExportBody, ExportError, ExportFormat,
-        ExportThread, Exported, FaceExported, ImageExportError, Look, MeshOptions, MeshResolution,
-        NamedFace, NamedSketch, Nesting, PNG_EXTENSION, PixelRows, PngExportError, RgbaImage,
-        STEP_EXTENSION, STEP_EXTENSIONS, SheetLayout, SketchExported, SketchFormat, StlEncoding,
-        export_bodies, export_face, export_faces, export_png, export_sketch, export_sketches,
+        Annotations, Construction, DrawingExported, DrawingSheet, ExportBody, ExportError,
+        ExportFormat, ExportThread, Exported, FaceExported, ImageExportError, Look, MeshOptions,
+        MeshResolution, NamedFace, NamedSketch, Nesting, PNG_EXTENSION, PixelRows, PngExportError,
+        RgbaImage, STEP_EXTENSION, STEP_EXTENSIONS, SheetLayout, SketchExported, SketchFormat,
+        StlEncoding, export_bodies, export_drawing, export_face, export_faces, export_png,
+        export_sketch, export_sketches,
     },
     format::FORMAT_VERSION,
     import::{
