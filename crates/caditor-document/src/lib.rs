@@ -17,6 +17,7 @@ mod hole_standard;
 mod import;
 mod inlining;
 mod mirror;
+mod model_parameters;
 mod movement;
 mod offset_face;
 mod origins;
@@ -76,6 +77,7 @@ pub use crate::{
     hole_standard::{FinePitch, HeatSetInsert, HoleFit, HoleStandard, MetricSize, pitch_text},
     import::Import,
     mirror::{MIRROR_IMAGE, Mirror},
+    model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner, value_label},
     movement::{AxisTurn, BodyPlacement, Move, MoveAxis, Pivot, TurnCentre},
     offset_face::OffsetFace,
     origins::complete_origins,
@@ -148,6 +150,8 @@ mod history_tests;
 mod hole_tests;
 #[cfg(test)]
 mod mirror_tests;
+#[cfg(test)]
+mod model_parameter_tests;
 #[cfg(test)]
 mod movement_tests;
 #[cfg(test)]

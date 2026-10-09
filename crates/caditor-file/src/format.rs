@@ -13,12 +13,12 @@ use caditor_document::{
     LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
     MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView,
-    OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter, Pattern, PatternKind, PlaneReference,
-    PlaneRotation, PlaneThrough, PointBy, PointReference, Primitive, PrimitiveAnchor,
-    PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView,
-    SavedViews, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split,
-    Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
+    OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind,
+    PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointReference, Primitive,
+    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
+    SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
+    Split, Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
     TurnCentre, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
@@ -44,9 +44,10 @@ pub(crate) enum Record {
     Rollback(RollbackRecord),
     Properties(PropertiesRecord),
     Views(ViewsRecord),
+    NamedValues(NamedValuesRecord),
 }
 
-pub(crate) const RECORD_KINDS: [&str; 8] = [
+pub(crate) const RECORD_KINDS: [&str; 9] = [
     "parameter",
     "feature",
     "next_ids",
@@ -55,7 +56,26 @@ pub(crate) const RECORD_KINDS: [&str; 8] = [
     "rollback",
     "properties",
     "views",
+    "named_values",
 ];
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct NamedValuesRecord {
+    pub values: Vec<Lenient<NamedValueRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct NamedValueRecord {
+    pub parameter: u64,
+    pub owner: OwnerRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum OwnerRecord {
+    Feature { feature: u64, value: String },
+    Dimension { sketch: u64, constraint: u64 },
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub(crate) struct PropertiesRecord {
@@ -1123,6 +1143,8 @@ pub(crate) enum EditRecord {
     InsertParameter {
         index: usize,
         parameter: ParameterRecord,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<OwnerRecord>,
     },
     RemoveParameter {
         id: u64,
@@ -1142,6 +1164,11 @@ pub(crate) enum EditRecord {
     SetParameterNote {
         id: u64,
         note: String,
+    },
+    SetParameterOwner {
+        id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner: Option<OwnerRecord>,
     },
     InsertFeature {
         index: usize,
@@ -2251,6 +2278,48 @@ fn views_record_of(views: &SavedViews) -> ViewsRecord {
     }
 }
 
+pub(crate) fn owner_record(owner: &ParameterOwner) -> OwnerRecord {
+    match owner {
+        ParameterOwner::Feature { feature, value } => OwnerRecord::Feature {
+            feature: feature.raw(),
+            value: value.clone(),
+        },
+        ParameterOwner::Dimension { sketch, constraint } => OwnerRecord::Dimension {
+            sketch: sketch.raw(),
+            constraint: constraint.raw(),
+        },
+    }
+}
+
+pub(crate) fn restore_owner(record: OwnerRecord) -> ParameterOwner {
+    match record {
+        OwnerRecord::Feature { feature, value } => ParameterOwner::Feature {
+            feature: FeatureId::from_raw(feature),
+            value,
+        },
+        OwnerRecord::Dimension { sketch, constraint } => ParameterOwner::Dimension {
+            sketch: FeatureId::from_raw(sketch),
+            constraint: ConstraintId::from_raw(constraint),
+        },
+    }
+}
+
+pub(crate) fn named_values_record(document: &Document) -> Option<NamedValuesRecord> {
+    let values: Vec<Lenient<NamedValueRecord>> = document
+        .parameters()
+        .iter()
+        .filter_map(|parameter| {
+            parameter.owner.as_ref().map(|owner| {
+                Lenient::Read(NamedValueRecord {
+                    parameter: parameter.id().raw(),
+                    owner: owner_record(owner),
+                })
+            })
+        })
+        .collect();
+    (!values.is_empty()).then_some(NamedValuesRecord { values })
+}
+
 pub(crate) fn views_record(document: &Document) -> Option<ViewsRecord> {
     let views = document.saved_views();
     (!views.is_empty()).then(|| views_record_of(views))
@@ -2786,6 +2855,7 @@ fn edit_record(edit: &Edit) -> EditRecord {
         Edit::InsertParameter { index, parameter } => EditRecord::InsertParameter {
             index: *index,
             parameter: parameter_record(parameter),
+            owner: parameter.owner.as_ref().map(owner_record),
         },
         Edit::RemoveParameter { id } => EditRecord::RemoveParameter { id: id.raw() },
         Edit::RenameParameter { id, name } => EditRecord::RenameParameter {
@@ -2803,6 +2873,10 @@ fn edit_record(edit: &Edit) -> EditRecord {
         Edit::SetParameterNote { id, note } => EditRecord::SetParameterNote {
             id: id.raw(),
             note: note.clone(),
+        },
+        Edit::SetParameterOwner { id, owner } => EditRecord::SetParameterOwner {
+            id: id.raw(),
+            owner: owner.as_ref().map(owner_record),
         },
         Edit::InsertFeature { index, feature } => EditRecord::InsertFeature {
             index: *index,
@@ -2961,15 +3035,23 @@ pub(crate) fn restore_transaction(record: TransactionRecord) -> Option<Transacti
 fn restore_edit(record: EditRecord) -> Option<Edit> {
     let parse = |text: &str| Expression::parse_stored(text).ok();
     Some(match record {
-        EditRecord::InsertParameter { index, parameter } => Edit::InsertParameter {
+        EditRecord::InsertParameter {
             index,
-            parameter: Parameter::new(
+            parameter,
+            owner,
+        } => {
+            let mut restored = Parameter::new(
                 ParameterId::from_raw(parameter.id),
                 parameter.name,
                 parse(&parameter.expression)?,
             )
-            .with_note(parameter.note),
-        },
+            .with_note(parameter.note);
+            restored.owner = owner.map(restore_owner);
+            Edit::InsertParameter {
+                index,
+                parameter: restored,
+            }
+        }
         EditRecord::RemoveParameter { id } => Edit::RemoveParameter {
             id: ParameterId::from_raw(id),
         },
@@ -2988,6 +3070,10 @@ fn restore_edit(record: EditRecord) -> Option<Edit> {
         EditRecord::SetParameterNote { id, note } => Edit::SetParameterNote {
             id: ParameterId::from_raw(id),
             note,
+        },
+        EditRecord::SetParameterOwner { id, owner } => Edit::SetParameterOwner {
+            id: ParameterId::from_raw(id),
+            owner: owner.map(restore_owner),
         },
         EditRecord::InsertFeature {
             index,

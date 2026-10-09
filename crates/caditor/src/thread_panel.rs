@@ -263,6 +263,7 @@ impl Panel<'_> {
             return;
         };
         let quantity = Quantity {
+            feature: self.id(),
             id: Id::new(("thread-depth", self.id())),
             expression: &depth,
             dimension: Dimension::LENGTH,

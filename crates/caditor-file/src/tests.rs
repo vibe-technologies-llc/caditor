@@ -2321,6 +2321,120 @@ fn bracket_properties() -> caditor_document::ModelProperties {
     }
 }
 
+fn named_dimension(document: &Document) -> Transaction {
+    let base = document.features().next().unwrap();
+    let sketch = base.kind.sketch().unwrap();
+    let (constraint, _) = sketch
+        .constraints()
+        .find(|(_, constraint)| constraint.dimension().is_some())
+        .unwrap();
+    let mut transaction = document.transaction("Name length");
+    let length = transaction.add_owned_parameter(
+        "length",
+        document.parse("width - 1 mm").unwrap(),
+        caditor_document::ParameterOwner::Dimension {
+            sketch: base.id(),
+            constraint,
+        },
+    );
+    transaction.edit(Edit::SetDimension {
+        feature: base.id(),
+        constraint,
+        value: Expression::Parameter(length),
+    });
+    transaction.finish()
+}
+
+#[test]
+fn named_values_survive_saving_the_journal_and_its_snapshot_in_a_record_of_their_own() {
+    let mut document = sample();
+    let plain = encode(&document).unwrap();
+    let naming = named_dimension(&document);
+    let undo = document.apply(naming.clone()).unwrap();
+    let length = document.parameter_named("length").unwrap().id();
+    let release = Transaction::single(
+        "Release",
+        Edit::SetParameterOwner {
+            id: length,
+            owner: None,
+        },
+    );
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&naming)).unwrap());
+    let released: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&release)).unwrap());
+    let recovered = journal::decode_journal(
+        &journal::encode_journal(
+            &journal::JournalHead {
+                file: None,
+                on_disk: None,
+                loaded_with_problems: false,
+                folded: 0,
+            },
+            &document,
+            &[],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let parameter_line = text
+        .lines()
+        .find(|line| line.contains("\"length\""))
+        .unwrap();
+
+    assert!(!plain.contains("named_values"));
+    assert!(!parameter_line.contains("owner"), "{parameter_line}");
+    assert!(
+        text.contains(r#"{"named_values":{"values":[{"owner":{"dimension":{"constraint":"#),
+        "{text}"
+    );
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(naming));
+    assert_eq!(format::restore_transaction(released), Some(release));
+    assert!(
+        undo.edits()
+            .iter()
+            .any(|edit| matches!(edit, Edit::RemoveParameter { .. }))
+    );
+    assert_eq!(recovered.issues, Vec::<String>::new());
+    assert_eq!(recovered.base, document);
+}
+
+#[test]
+fn an_unreadable_named_value_leaves_its_parameter_listed_with_the_others() {
+    let document = sample();
+    let width = document.parameter_named("width").unwrap().id();
+    let long = "v".repeat(caditor_document::MAX_VALUE_LABEL_CHARS + 5);
+    let text = format!(
+        "{}\n{{\"named_values\":{{\"values\":[{{\"parameter\":{width},\"owner\":{{\"feature\":{{\"feature\":0,\"value\":\"{long}\"}}}}}},{{\"parameter\":{width},\"owner\":\"lost\"}},{{\"parameter\":999,\"owner\":{{\"feature\":{{\"feature\":0,\"value\":\"Gone\"}}}}}}]}}}}",
+        encode(&document).unwrap()
+    );
+
+    let loaded = decode_text(&text);
+    let owner = loaded.document.parameter(width).unwrap().owner.clone();
+
+    assert_eq!(
+        owner,
+        Some(caditor_document::ParameterOwner::Feature {
+            feature: FeatureId::from_raw(0),
+            value: "v".repeat(caditor_document::MAX_VALUE_LABEL_CHARS),
+        })
+    );
+    assert!(issues_mention(
+        &loaded,
+        "was longer than this version keeps"
+    ));
+    assert!(issues_mention(
+        &loaded,
+        "Which dimension or feature value a model parameter names could not be read"
+    ));
+    assert_eq!(loaded.issues.len(), 2, "{:?}", loaded.issues);
+}
+
 #[test]
 fn model_properties_survive_saving_the_journal_and_its_snapshot() {
     let mut document = sample();

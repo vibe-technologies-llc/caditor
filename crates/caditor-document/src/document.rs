@@ -18,6 +18,7 @@ use crate::{
     hole::Hole,
     import::Import,
     mirror::Mirror,
+    model_parameters::ParameterOwner,
     movement::Move,
     offset_face::OffsetFace,
     parameter_list::ParameterList,
@@ -61,6 +62,7 @@ pub struct Parameter {
     pub name: String,
     pub expression: Expression,
     pub note: String,
+    pub owner: Option<ParameterOwner>,
 }
 
 impl Parameter {
@@ -70,7 +72,14 @@ impl Parameter {
             name,
             expression,
             note: String::new(),
+            owner: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_owner(mut self, owner: ParameterOwner) -> Self {
+        self.owner = Some(owner);
+        self
     }
 
     #[must_use]
@@ -1189,11 +1198,10 @@ impl Document {
             .enumerate()
             .map(|(index, parameter)| Edit::InsertParameter {
                 index,
-                parameter: Parameter::new(
-                    parameter.id,
-                    parameter.name.clone(),
-                    Expression::Number(0.0),
-                ),
+                parameter: Parameter {
+                    expression: Expression::Number(0.0),
+                    ..parameter.clone()
+                },
             })
             .chain(
                 target

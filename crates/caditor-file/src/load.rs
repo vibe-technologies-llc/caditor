@@ -7,8 +7,8 @@ use std::{
 
 use caditor_document::{
     CancelToken, DependencyGraph, Document, Edit, EditError, Feature, FeatureId, FeatureKind,
-    MAX_PARAMETER_NOTE_CHARS, Parameter, Revolve, RevolveAxis, RollbackBar, SolidFeature,
-    Transaction, complete_origins,
+    MAX_PARAMETER_NOTE_CHARS, MAX_VALUE_LABEL_CHARS, Parameter, ParameterOwner, Revolve,
+    RevolveAxis, RollbackBar, SolidFeature, Transaction, complete_origins, value_label,
 };
 use caditor_expression::{Expression, ParameterId, check_name};
 use caditor_sketch::EntityId;
@@ -16,9 +16,10 @@ use caditor_sketch::EntityId;
 use crate::{
     binary::{self, FileDigest, History, UnpackError},
     format::{
-        FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, ImportTexts, NextIdsRecord, ParameterRecord,
-        PrincipalGeometryRecord, PropertiesRecord, RECORD_KINDS, Record, Unreadable, ViewsRecord,
-        restore_feature_sharing, restore_principal, restore_properties, restore_views,
+        FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, ImportTexts, Lenient, NamedValuesRecord,
+        NextIdsRecord, ParameterRecord, PrincipalGeometryRecord, PropertiesRecord, RECORD_KINDS,
+        Record, Unreadable, ViewsRecord, restore_feature_sharing, restore_owner, restore_principal,
+        restore_properties, restore_views,
     },
     read::read_file,
     reason::ReadFailure,
@@ -160,6 +161,7 @@ pub(crate) struct Parts {
     pub rollback: Option<u64>,
     pub properties: Option<PropertiesRecord>,
     pub views: Option<ViewsRecord>,
+    pub named_values: Option<NamedValuesRecord>,
     pub lost_parameter_names: BTreeMap<u64, String>,
     pub beyond_limit: usize,
 }
@@ -186,6 +188,7 @@ impl Parts {
             Record::Rollback(rollback) => self.rollback = Some(rollback.before),
             Record::Properties(properties) => self.properties = Some(properties),
             Record::Views(views) => self.views = Some(views),
+            Record::NamedValues(named) => self.named_values = Some(named),
         }
     }
 }
@@ -418,6 +421,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
 
     restore_model_properties(&mut document, parts.properties, issues);
     restore_saved_views(&mut document, parts.views, issues);
+    restore_named_values(&mut document, parts.named_values, issues);
     restore_suppressed(&mut document, &parts.suppressed, issues);
     restore_rollback_bar(&mut document, parts.rollback, issues);
 
@@ -465,6 +469,62 @@ fn restore_saved_views(
     {
         issues.push("The model's saved views could not be restored, so there are none.".to_owned());
     }
+}
+
+fn restore_named_values(
+    document: &mut Document,
+    record: Option<NamedValuesRecord>,
+    issues: &mut Vec<String>,
+) {
+    let Some(record) = record else {
+        return;
+    };
+    let mut owners = Vec::new();
+    for value in record.values {
+        let Lenient::Read(value) = value else {
+            issues.push(
+                "Which dimension or feature value a model parameter names could not be read, so \
+                 it is listed with the other parameters."
+                    .to_owned(),
+            );
+            continue;
+        };
+        let id = ParameterId::from_raw(value.parameter);
+        let Some(name) = document.parameter_name(id).map(str::to_owned) else {
+            continue;
+        };
+        let owner = match restore_owner(value.owner) {
+            ParameterOwner::Feature { feature, value } => {
+                let label = value_label(&value);
+                if label.chars().count() > MAX_VALUE_LABEL_CHARS {
+                    issues.push(format!(
+                        "The description of the value “{name}” names was longer than this \
+                         version keeps, so it was cut to {MAX_VALUE_LABEL_CHARS} characters."
+                    ));
+                }
+                ParameterOwner::Feature {
+                    feature,
+                    value: label.chars().take(MAX_VALUE_LABEL_CHARS).collect(),
+                }
+            }
+            dimension @ ParameterOwner::Dimension { .. } => dimension,
+        };
+        owners.push((id, name, owner));
+    }
+    apply_each(
+        document,
+        &owners,
+        &|_, _, (id, _, owner)| Edit::SetParameterOwner {
+            id: *id,
+            owner: Some(owner.clone()),
+        },
+        &mut |_, (_, name, _), error| {
+            issues.push(format!(
+                "Which value the model parameter “{name}” names could not be restored ({error}), \
+                 so it is listed with the other parameters."
+            ));
+        },
+    );
 }
 
 fn restore_suppressed(document: &mut Document, suppressed: &[u64], issues: &mut Vec<String>) {

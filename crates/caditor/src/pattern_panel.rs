@@ -391,6 +391,7 @@ impl Panel<'_> {
         rebuild: impl Fn(Expression) -> PatternKind,
     ) {
         let quantity = Quantity {
+            feature: self.id(),
             id: Id::new(("pattern-field", salt, self.id())),
             expression,
             dimension,

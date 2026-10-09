@@ -417,6 +417,7 @@ impl Panel<'_> {
         rebuild: impl Fn(&Hole, Expression) -> Hole,
     ) {
         let quantity = Quantity {
+            feature: self.id(),
             id: Id::new(("hole-field", field.key, self.id())),
             expression: shown,
             dimension: field.dimension,
@@ -506,6 +507,7 @@ impl Panel<'_> {
             ];
             for (diameter, caption, shown) in rows {
                 let quantity = Quantity {
+                    feature: self.id(),
                     id: Id::new(("hole-step", index, diameter, self.id())),
                     expression: shown,
                     dimension: Dimension::LENGTH,

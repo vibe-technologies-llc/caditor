@@ -1,5 +1,5 @@
-use caditor_document::{Document, Edit, FeatureId, ParameterValues, Transaction};
-use caditor_expression::{Dimension, Expression};
+use caditor_document::{Document, Edit, FeatureId, ParameterOwner, ParameterValues, Transaction};
+use caditor_expression::{Dimension, Expression, Naming};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{Align, Id, Key, Margin, Response, Stroke, StrokeKind, TextEdit, Ui, vec2};
 
@@ -172,10 +172,116 @@ pub fn parameter_expression(
     })
 }
 
+pub const NOT_NAMEABLE: &str = "This value cannot be given a name here";
+
+pub fn value_text(document: &Document, owner: &ParameterOwner, expression: &Expression) -> String {
+    match document.owned_parameter(owner, expression) {
+        Some(parameter) => format!(
+            "{} = {}",
+            parameter.name,
+            document.expression_text(&parameter.expression)
+        ),
+        None => document.expression_text(expression),
+    }
+}
+
+pub fn shown_value<'a>(
+    document: &'a Document,
+    owner: &ParameterOwner,
+    expression: &'a Expression,
+) -> &'a Expression {
+    document
+        .owned_parameter(owner, expression)
+        .map_or(expression, |parameter| &parameter.expression)
+}
+
+pub struct NamedField<'a> {
+    pub document: &'a Document,
+    pub parameters: &'a ParameterValues,
+    pub units: Units,
+    pub dimension: Option<Dimension>,
+    pub owner: ParameterOwner,
+    pub current: &'a Expression,
+}
+
+impl NamedField<'_> {
+    pub fn transaction(
+        &self,
+        text: &str,
+        parse: impl Fn(&str) -> Result<Expression, String>,
+        hold: impl FnOnce(Expression) -> Result<Transaction, String>,
+    ) -> Result<Transaction, String> {
+        let document = self.document;
+        let held = document.owned_parameter(&self.owner, self.current);
+        match (Naming::split(text), held) {
+            (None, None) => hold(parse(text)?),
+            (None, Some(parameter)) => {
+                let unnamed = hold(parse(text)?)?;
+                checked(document, document.releasing(unnamed, [parameter.id()]))
+            }
+            (Some(naming), Some(parameter)) => {
+                let expression = self.with_unit(parse(naming.expression)?);
+                let id = parameter.id();
+                let renaming = (naming.name != parameter.name).then(|| Edit::RenameParameter {
+                    id,
+                    name: naming.name.to_owned(),
+                });
+                let changing = (expression != parameter.expression)
+                    .then_some(Edit::SetParameterExpression { id, expression });
+                checked(
+                    document,
+                    Transaction::new(
+                        format!("Edit {}", naming.name),
+                        renaming.into_iter().chain(changing).collect(),
+                    ),
+                )
+            }
+            (Some(naming), None) => {
+                let expression = self.with_unit(parse(naming.expression)?);
+                let marker =
+                    Expression::Negate(Box::new(Expression::Negate(Box::new(expression.clone()))));
+                let holding = hold(marker.clone())?;
+                let mut transaction = document.transaction(format!("Name {}", naming.name));
+                let id =
+                    transaction.add_owned_parameter(naming.name, expression, self.owner.clone());
+                let (holding, count) = holding.substituting(&marker, &Expression::Parameter(id));
+                if count == 0 {
+                    return Err(NOT_NAMEABLE.to_owned());
+                }
+                for edit in holding.edits() {
+                    transaction.edit(edit.clone());
+                }
+                checked(document, transaction.finish())
+            }
+        }
+    }
+
+    fn with_unit(&self, expression: Expression) -> Expression {
+        let plain = self
+            .parameters
+            .evaluate_expression(&expression)
+            .is_ok_and(|value| value.dimension.is_plain());
+        match self.dimension {
+            Some(Dimension::LENGTH) if plain => self.units.attach(expression),
+            Some(Dimension::ANGLE) if plain => self.units.angle.attach(expression),
+            _ => expression,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DimensionTarget {
     pub feature: FeatureId,
     pub constraint: ConstraintId,
+}
+
+impl DimensionTarget {
+    pub fn owner(self) -> ParameterOwner {
+        ParameterOwner::Dimension {
+            sketch: self.feature,
+            constraint: self.constraint,
+        }
+    }
 }
 
 pub fn dimension_transaction(
@@ -202,31 +308,48 @@ pub fn dimension_transaction(
         dimension: definition.dimension_kind(),
         non_negative: !offset && !matches!(definition, Constraint::Angle { .. }),
     };
-    let value = parse_expression(document, parameters, text, expected, unit)?;
-    let quantity = parameters
-        .evaluate_expression(&value)
-        .map_err(|error| sentence(&error.to_string()))?;
-    definition
-        .check_dimension_value(quantity.value)
-        .map_err(|error| match error {
-            DimensionError::Negative if offset => format!(
-                "A {} cannot be negative. It keeps the side the points are drawn on, so enter \
-                 its size alone.",
-                definition.kind_name().to_lowercase()
+    let current = definition
+        .dimension()
+        .ok_or_else(|| "The dimension no longer exists".to_owned())?;
+    let parse = |text: &str| {
+        let value = parse_expression(document, parameters, text, expected, unit)?;
+        let quantity = parameters
+            .evaluate_expression(&value)
+            .map_err(|error| sentence(&error.to_string()))?;
+        definition
+            .check_dimension_value(quantity.value)
+            .map_err(|error| match error {
+                DimensionError::Negative if offset => format!(
+                    "A {} cannot be negative. It keeps the side the points are drawn on, so \
+                     enter its size alone.",
+                    definition.kind_name().to_lowercase()
+                ),
+                other => sentence(&other.to_string()),
+            })?;
+        Ok(value)
+    };
+    let hold = |value| {
+        checked(
+            document,
+            Transaction::single(
+                format!("Edit dimension in {}", owner.name),
+                Edit::SetDimension {
+                    feature: target.feature,
+                    constraint: target.constraint,
+                    value,
+                },
             ),
-            other => sentence(&other.to_string()),
-        })?;
-    checked(
+        )
+    };
+    let field = NamedField {
         document,
-        Transaction::single(
-            format!("Edit dimension in {}", owner.name),
-            Edit::SetDimension {
-                feature: target.feature,
-                constraint: target.constraint,
-                value,
-            },
-        ),
-    )
+        parameters,
+        units: unit,
+        dimension: definition.dimension_kind(),
+        owner: target.owner(),
+        current,
+    };
+    field.transaction(text, parse, hold)
 }
 
 pub fn checked(document: &Document, transaction: Transaction) -> Result<Transaction, String> {
@@ -410,6 +533,71 @@ mod tests {
             Some("It gives an angle, but a length is needed".to_owned())
         );
         assert!(edit("width / 8").is_ok());
+    }
+
+    #[test]
+    fn a_dimension_named_in_its_field_holds_a_model_parameter() {
+        let mut document = document();
+        let mut sketch = caditor_sketch::Sketch::new(caditor_geometry::Plane::XY);
+        let circle = sketch.add_circle(caditor_geometry::Point2::ZERO, 5.0);
+        let radius = sketch
+            .add_constraint(Constraint::Radius {
+                entity: circle,
+                value: Expression::Measure(5.0, Unit::Millimetre),
+            })
+            .unwrap();
+        let mut transaction = document.transaction("Sketch");
+        let feature = transaction.add_feature("Holes", caditor_document::FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let target = DimensionTarget {
+            feature,
+            constraint: radius,
+        };
+        let edit = |document: &Document, text| {
+            let parameters = ParameterValues::evaluate(document);
+            dimension_transaction(document, &parameters, target, text, LengthUnit::Millimetre)
+        };
+        let held = |document: &Document| {
+            let value = document
+                .feature(feature)
+                .and_then(|feature| feature.kind.sketch())
+                .and_then(|sketch| sketch.constraint(radius))
+                .and_then(Constraint::dimension)
+                .unwrap()
+                .clone();
+            value_text(document, &target.owner(), &value)
+        };
+
+        assert_eq!(
+            edit(&document, "bore = -1 mm").err(),
+            Some("The value cannot be negative".to_owned())
+        );
+        assert_eq!(
+            edit(&document, "width = 3 mm").err(),
+            Some("There is already a parameter named 'width'".to_owned())
+        );
+        assert_eq!(
+            edit(&document, "sin = 3 mm").err(),
+            Some("'sin' is a function, so it cannot be used as a name".to_owned())
+        );
+
+        document
+            .apply(edit(&document, "bore = 6").unwrap())
+            .unwrap();
+
+        assert_eq!(held(&document), "bore = 6 mm");
+
+        document
+            .apply(edit(&document, "hole = width / 8").unwrap())
+            .unwrap();
+
+        assert_eq!(held(&document), "hole = width / 8");
+        assert!(document.parameter_named("bore").is_none());
+
+        document.apply(edit(&document, "4 mm").unwrap()).unwrap();
+
+        assert_eq!(held(&document), "4 mm");
+        assert!(document.parameter_named("hole").is_none());
     }
 
     #[test]

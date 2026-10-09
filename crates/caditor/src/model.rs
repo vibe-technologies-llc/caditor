@@ -328,7 +328,7 @@ impl Model {
         let revision = self.revision();
         let mut document = self.editor.document().clone();
         let kind = document
-            .apply(transaction)
+            .apply(transaction.clone())
             .ok()
             .and_then(|_| Some(document.feature(feature)?.kind.clone()));
         let Some(kind) = kind else {
@@ -336,7 +336,10 @@ impl Model {
             return;
         };
         let same = self.draft.as_ref().is_some_and(|draft| {
-            draft.feature == feature && draft.revision == revision && draft.kind == kind
+            draft.feature == feature
+                && draft.revision == revision
+                && draft.kind == kind
+                && draft.transaction == transaction
         });
         if same {
             return;
@@ -347,6 +350,7 @@ impl Model {
         self.draft = Some(DraftPreview {
             feature,
             kind,
+            transaction,
             revision,
             serial: self.drafts,
             evaluation: None,
@@ -1379,6 +1383,7 @@ fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {
 struct DraftPreview {
     feature: FeatureId,
     kind: FeatureKind,
+    transaction: Transaction,
     revision: u64,
     serial: u64,
     evaluation: Option<Evaluation>,

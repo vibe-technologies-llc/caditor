@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, ops::Deref};
 
 use caditor_expression::{Expression, ParameterId};
 
-use crate::document::Parameter;
+use crate::{document::Parameter, model_parameters::ParameterOwner};
 
 #[derive(Debug, Clone, Default)]
 pub struct ParameterList {
@@ -71,6 +71,16 @@ impl ParameterList {
         let index = self.position(id)?;
         let parameter = self.items.get_mut(index)?;
         Some(std::mem::replace(&mut parameter.note, note))
+    }
+
+    pub fn set_owner(
+        &mut self,
+        id: ParameterId,
+        owner: Option<ParameterOwner>,
+    ) -> Option<Option<ParameterOwner>> {
+        let index = self.position(id)?;
+        let parameter = self.items.get_mut(index)?;
+        Some(std::mem::replace(&mut parameter.owner, owner))
     }
 
     pub fn rename(&mut self, id: ParameterId, name: String) -> Option<String> {

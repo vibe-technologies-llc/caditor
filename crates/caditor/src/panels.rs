@@ -25,8 +25,9 @@ pub const FEATURES_TITLE: &str = "Features";
 pub const PARAMETERS_TITLE: &str = "Parameters";
 pub const FEATURES_EXPLANATION: &str =
     "The steps that build the model, computed from top to bottom. Drag one to reorder it.";
-pub const PARAMETERS_EXPLANATION: &str = "Named values that any size or dimension can use by name, such as width * 2. Right-click \
-     one to move it, note what it is for or delete it.";
+pub const PARAMETERS_EXPLANATION: &str = "Named values that any size or dimension can use by name, such as width * 2. Typing \
+     depth = 20 mm in a dimension or a feature's field names that value and lists it under Model \
+     parameters. Right-click one to move it, note what it is for or delete it.";
 const FEATURES_SECTION: &str = "features";
 const PARAMETERS_SECTION: &str = "parameters";
 const FOCUS_ATTEMPT_FRAMES: u8 = 30;

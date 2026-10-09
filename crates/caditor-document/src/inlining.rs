@@ -70,7 +70,7 @@ impl Document {
     }
 }
 
-fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
+pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
     match kind {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
             let mut expressions = match &mut extrude.extent {

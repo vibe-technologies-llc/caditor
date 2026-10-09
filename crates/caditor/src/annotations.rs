@@ -767,11 +767,11 @@ impl Annotations {
             return;
         };
         let id = field_id(open.feature, open.constraint);
-        let stored = document.expression_text(expression);
         let target = DimensionTarget {
             feature: open.feature,
             constraint: open.constraint,
         };
+        let stored = field::value_text(document, &target.owner(), expression);
         let field = egui::Area::new(id.with("area"))
             .order(Order::Foreground)
             .fixed_pos(to_pos(surface.rect, mark.layout.label) - vec2(0.0, FIELD_LIFT))

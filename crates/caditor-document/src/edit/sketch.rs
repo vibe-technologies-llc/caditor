@@ -7,7 +7,7 @@ use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchE
 use crate::{
     attachment::SketchFeature,
     document::{Document, FeatureId, FeatureKind, list_names},
-    edit::{Edit, EditError, TransactionBuilder},
+    edit::{Edit, EditError, Transaction, TransactionBuilder},
     projection::ProjectionSource,
 };
 
@@ -99,8 +99,28 @@ impl TransactionBuilder<'_> {
             }
             .edits(feature),
         };
+        let removed: BTreeSet<ConstraintId> = edits
+            .iter()
+            .filter_map(|edit| match edit {
+                Edit::RemoveSketchConstraint { feature: owner, id } if *owner == feature => {
+                    Some(*id)
+                }
+                _ => None,
+            })
+            .collect();
         self.edits.extend(edits);
+        self.release_dimensions(feature, &removed);
         self
+    }
+
+    fn release_dimensions(&mut self, sketch: FeatureId, constraints: &BTreeSet<ConstraintId>) {
+        let owned = self.document.owned_by_dimensions(sketch, constraints);
+        if owned.is_empty() {
+            return;
+        }
+        let pending = Transaction::new(self.label.clone(), std::mem::take(&mut self.edits));
+        let (_, edits) = self.document.releasing(pending, owned).into_parts();
+        self.edits = edits;
     }
 
     pub fn settle_sketch(&mut self, feature: FeatureId, solved: &Sketch) -> &mut Self {

@@ -20,6 +20,8 @@ paths:
   keeps invalid text with its error inline until the stored value changes underneath it (an undo,
   say) while it is not being edited. Expression fields parse, evaluate and check the dimension
   before building a transaction; sketch dimensions go through `field::dimension_transaction`.
+- Feature values and sketch dimensions are `field::NamedField`s, so `name = expression` names the
+  value (`app-modelling.md`).
 
 ## Keyboard focus
 

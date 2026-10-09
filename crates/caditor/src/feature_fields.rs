@@ -1,4 +1,6 @@
-use caditor_document::{Document, FeatureId, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, Transaction};
+use caditor_document::{
+    Document, FeatureId, MAX_CONE_ANGLE, MAX_PATTERN_INSTANCES, ParameterOwner, Transaction,
+};
 use caditor_expression::{Dimension, Expression};
 use egui::{ComboBox, Id, Label, RichText, Ui, WidgetText};
 
@@ -70,6 +72,7 @@ impl Rule {
 }
 
 pub struct Quantity<'a> {
+    pub feature: FeatureId,
     pub id: Id,
     pub expression: &'a Expression,
     pub dimension: Dimension,
@@ -109,7 +112,11 @@ pub fn expression_row_drafting(
     let document = model.document();
     let parameters = model.parameters();
     let unit = model.units();
-    let validate = |text: &str| {
+    let owner = ParameterOwner::Feature {
+        feature: quantity.feature,
+        value: caption.to_owned(),
+    };
+    let parse = |text: &str| {
         let parsed = field::parse_expression(
             document,
             parameters,
@@ -125,20 +132,30 @@ pub fn expression_row_drafting(
             .map_err(|error| field::sentence(&error.to_string()))?
             .value;
         quantity.rule.check(value)?;
-        change(parsed)
+        Ok(parsed)
     };
+    let named = field::NamedField {
+        document,
+        parameters,
+        units: unit,
+        dimension: Some(quantity.dimension),
+        owner: owner.clone(),
+        current: quantity.expression,
+    };
+    let validate = |text: &str| named.transaction(text, parse, &change);
     let (committed, error, draft) = ui
         .horizontal(|ui| {
             let field = field::commit_field(
                 ui,
                 quantity.id,
-                &document.expression_text(quantity.expression),
+                &field::value_text(document, &owner, quantity.expression),
                 FIELD_WIDTH,
                 false,
                 validate,
             );
+            let shown = field::shown_value(document, &owner, quantity.expression);
             if field.error.is_none()
-                && let Some(preview) = field::value_preview(parameters, quantity.expression, unit)
+                && let Some(preview) = field::value_preview(parameters, shown, unit)
             {
                 ui.label(widgets::muted(preview, ui));
             }

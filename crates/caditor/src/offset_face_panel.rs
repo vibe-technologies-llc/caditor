@@ -36,6 +36,7 @@ fn distance_row(
     actions: &mut Vec<Action>,
 ) {
     let quantity = Quantity {
+        feature,
         id: Id::new(("offset-face-distance", feature)),
         expression: &offset.distance,
         dimension: Dimension::LENGTH,

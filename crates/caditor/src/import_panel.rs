@@ -50,6 +50,7 @@ impl Panel<'_> {
     ) {
         let id = self.feature.id();
         let quantity = Quantity {
+            feature: id,
             id: Id::new(("import-field", salt, id)),
             expression,
             dimension,

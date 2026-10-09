@@ -72,6 +72,7 @@ fn size_row(
     actions: &mut Vec<Action>,
 ) {
     let quantity = Quantity {
+        feature,
         id: Id::new(("blend-size", feature)),
         expression: &blend.size,
         dimension: Dimension::LENGTH,

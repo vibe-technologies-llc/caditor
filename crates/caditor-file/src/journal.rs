@@ -9,10 +9,11 @@ use crate::{
         value,
     },
     format::{
-        FeatureRecord, Lenient, NextIdsRecord, ParameterRecord, PrincipalRecord, PropertiesRecord,
-        Record, RollbackRecord, SuppressedRecord, TransactionRecord, ViewsRecord, feature_records,
-        next_ids_record, parameter_record, principal_record, properties_record,
-        restore_transaction, rollback_record, suppressed_record, transaction_record, views_record,
+        FeatureRecord, Lenient, NamedValuesRecord, NextIdsRecord, ParameterRecord, PrincipalRecord,
+        PropertiesRecord, Record, RollbackRecord, SuppressedRecord, TransactionRecord, ViewsRecord,
+        feature_records, named_values_record, next_ids_record, parameter_record, principal_record,
+        properties_record, restore_transaction, rollback_record, suppressed_record,
+        transaction_record, views_record,
     },
     load::{Parts, assemble},
     os,
@@ -66,6 +67,8 @@ struct SnapshotRecord {
     properties: Option<PropertiesRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     views: Option<ViewsRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    named_values: Option<NamedValuesRecord>,
 }
 
 pub(crate) struct JournalHead<'a> {
@@ -196,6 +199,7 @@ fn snapshot_record(document: &Document) -> SnapshotRecord {
         rollback: rollback_record(document),
         properties: properties_record(document),
         views: views_record(document),
+        named_values: named_values_record(document),
     }
 }
 
@@ -312,6 +316,7 @@ fn snapshot_parts(snapshot: SnapshotRecord, issues: &mut Vec<String>) -> Parts {
         rollback: snapshot.rollback.map(|rollback| rollback.before),
         properties: snapshot.properties,
         views: snapshot.views,
+        named_values: snapshot.named_values,
         ..Parts::default()
     };
     for parameter in snapshot.parameters {

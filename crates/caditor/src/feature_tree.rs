@@ -2494,7 +2494,7 @@ fn dimension_field(
         let field = field::commit_field(
             ui,
             focus.field_id(),
-            &document.expression_text(expression),
+            &field::value_text(document, &target.owner(), expression),
             DIMENSION_FIELD_WIDTH,
             state.wants_focus(focus),
             |text| {
@@ -2513,8 +2513,11 @@ fn dimension_field(
             actions.push(Action::Apply(transaction));
         }
         if field.error.is_none()
-            && let Some(preview) =
-                field::value_preview(model.parameters(), expression, model.units())
+            && let Some(preview) = field::value_preview(
+                model.parameters(),
+                field::shown_value(document, &target.owner(), expression),
+                model.units(),
+            )
         {
             ui.label(widgets::muted(preview, ui));
         }

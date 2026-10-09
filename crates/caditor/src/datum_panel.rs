@@ -255,6 +255,7 @@ impl Panel<'_> {
         rebuild: impl Fn(Expression) -> Datum,
     ) {
         let quantity = Quantity {
+            feature: self.id(),
             id: Id::new(("datum-field", salt, self.id())),
             expression,
             dimension,

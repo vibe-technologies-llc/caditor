@@ -139,6 +139,7 @@ impl Panel<'_> {
             return;
         };
         let quantity = Quantity {
+            feature: self.id(),
             id: Id::new(("primitive-field", self.id(), key)),
             expression,
             dimension: Dimension::LENGTH,
