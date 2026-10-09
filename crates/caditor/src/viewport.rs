@@ -1029,6 +1029,10 @@ impl ViewportState {
         self.picks_in_flight = None;
     }
 
+    pub fn pick_again(&mut self) {
+        self.last_pick = None;
+    }
+
     fn view(&self) -> Option<View> {
         let size = self.rect?.size() * self.pixels_per_point;
         let view = (size.x >= 1.0 && size.y >= 1.0)

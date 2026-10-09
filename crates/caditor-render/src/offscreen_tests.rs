@@ -2639,6 +2639,68 @@ fn large_scene() -> Scene {
     }
 }
 
+const LARGE_MESHES: u32 = 4;
+const LARGE_MESH_SIDE: u32 = 350;
+const LARGE_MESH_WIDTH: f64 = 140.0;
+
+fn large_mesh(left: f64) -> ShadedMesh {
+    let step = LARGE_MESH_WIDTH / f64::from(LARGE_MESH_SIDE);
+    let at = |column: u32, row: u32| MeshPoint {
+        position: Point3::new(left + f64::from(column) * step, f64::from(row) * step, -1.0),
+        normal: Vector3::Z,
+    };
+    ShadedMesh::new((0..LARGE_MESH_SIDE).map(|row| {
+        MeshFace {
+            points: (0..=LARGE_MESH_SIDE)
+                .flat_map(|column| [at(column, row), at(column, row + 1)])
+                .collect(),
+            triangles: (0..LARGE_MESH_SIDE)
+                .flat_map(|quad| {
+                    let first = quad * 2;
+                    [[first, first + 2, first + 3], [first, first + 3, first + 1]]
+                })
+                .collect(),
+        }
+    }))
+}
+
+fn large_meshes() -> Vec<MeshInstance> {
+    (0..LARGE_MESHES)
+        .map(|index| MeshInstance {
+            mesh: Arc::new(large_mesh(f64::from(index) * (LARGE_MESH_WIDTH + 10.0))),
+            faces: (0..LARGE_MESH_SIDE)
+                .map(|face| FaceStyle {
+                    color: Color::from_rgb8(160, 164, 172),
+                    pick: PickId::from_index((100_000 + index * LARGE_MESH_SIDE + face) as usize),
+                })
+                .collect(),
+            placement: None,
+        })
+        .collect()
+}
+
+fn hovered(scene: &Scene, frame: u32) -> Scene {
+    let mut hovered = scene.clone();
+    let count = hovered.meshes.len() as u32;
+    if let Some(instance) = hovered.meshes.get_mut((frame % count.max(1)) as usize)
+        && let Some(face) = instance.faces.get_mut((frame % LARGE_MESH_SIDE) as usize)
+    {
+        face.color = Color::from_rgb8(255, 200, 40);
+    }
+    hovered
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Activity {
+    Idle,
+    CameraMoving,
+    Hovering,
+    BatchReplaced,
+    MeshesShown,
+}
+
+const MESHES_SHOWN_EVERY: u32 = 20;
+
 #[test]
 #[ignore = "a timing benchmark: cargo test --release -p caditor-render frame_costs -- --ignored --nocapture"]
 fn frame_costs_of_drawing_a_large_scene() {
@@ -2646,6 +2708,7 @@ fn frame_costs_of_drawing_a_large_scene() {
         return;
     };
     const FRAMES: u32 = 100;
+    const WARM_UP: u32 = 10;
     let size = SurfaceSize {
         width: 1600,
         height: 1000,
@@ -2665,7 +2728,10 @@ fn frame_costs_of_drawing_a_large_scene() {
         view_formats: &[],
     });
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
-    let scene = large_scene();
+    let scene = Scene {
+        meshes: large_meshes(),
+        ..large_scene()
+    };
     let replaced = Scene {
         batches: scene
             .batches
@@ -2674,13 +2740,29 @@ fn frame_costs_of_drawing_a_large_scene() {
             .collect(),
         ..scene.clone()
     };
+    let reshown = Scene {
+        meshes: scene
+            .meshes
+            .iter()
+            .map(|instance| MeshInstance {
+                mesh: Arc::new(ShadedMesh::clone(&instance.mesh)),
+                ..instance.clone()
+            })
+            .collect(),
+        ..scene.clone()
+    };
     let viewpoint =
         Viewpoint::looking_from(Vector3::Z, Point3::new(300.0, 300.0, 0.0), 800.0).unwrap();
-    let time = |name: &str, moving: bool, replacing: bool| {
+    let time = |name: &str, activity: Activity, upload_bytes: Option<u64>| {
         let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+        if let Some(bytes) = upload_bytes {
+            renderer.set_mesh_upload_bytes(bytes);
+        }
         let mut elapsed = std::time::Duration::ZERO;
-        for frame in 0..FRAMES + 3 {
-            let turned = if moving {
+        let mut worst = std::time::Duration::ZERO;
+        let mut uploading_frames = 0;
+        for frame in 0..FRAMES + WARM_UP {
+            let turned = if activity == Activity::CameraMoving {
                 Viewpoint::looking_from(
                     Vector3::new(f64::from(frame) * 0.001, 0.0, 1.0),
                     viewpoint.target,
@@ -2691,6 +2773,19 @@ fn frame_costs_of_drawing_a_large_scene() {
                 viewpoint
             };
             let view = View::new(turned, f64::from(size.width), f64::from(size.height));
+            let hover = hovered(&scene, frame);
+            let shown = match activity {
+                Activity::Hovering => &hover,
+                Activity::BatchReplaced if frame % 2 == 1 => &replaced,
+                Activity::MeshesShown if (frame / MESHES_SHOWN_EVERY) % 2 == 1 => &reshown,
+                _ => &scene,
+            };
+            let pick_at = (activity == Activity::Hovering).then(|| {
+                DVec2::new(
+                    200.0 + f64::from(frame * 7 % 1200),
+                    300.0 + f64::from(frame * 3 % 400),
+                )
+            });
             let started = std::time::Instant::now();
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
@@ -2711,27 +2806,150 @@ fn frame_costs_of_drawing_a_large_scene() {
                         height: size.height as f32,
                     },
                     view: &view,
-                    scene: if replacing && frame % 2 == 1 {
-                        &replaced
-                    } else {
-                        &scene
-                    },
-                    pick_at: None,
+                    scene: shown,
+                    pick_at,
                     pixels_per_point: 1.0,
                 }),
             );
             queue.submit([encoder.finish()]);
-            if frame >= 3 {
-                elapsed += started.elapsed();
-            }
+            renderer.picking().after_submit();
+            let spent = started.elapsed();
             device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            let polled = std::time::Instant::now();
+            if pick_at.is_some() {
+                assert!(matches!(
+                    renderer.picking().poll(&device),
+                    crate::PickPoll::Ready(_)
+                ));
+            }
+            let spent = spent + polled.elapsed();
+            if frame >= WARM_UP {
+                elapsed += spent;
+                worst = worst.max(spent);
+                uploading_frames += u32::from(renderer.is_uploading());
+            }
         }
-        eprintln!("{name}: {:?} per frame on the UI thread", elapsed / FRAMES);
+        eprintln!(
+            "{name}: {:?} per frame on the UI thread, {worst:?} at worst, {uploading_frames} frames still uploading",
+            elapsed / FRAMES
+        );
     };
 
-    time("large scene, idle", false, false);
-    time("large scene, camera moving", true, false);
-    time("large scene, replaced every frame", false, true);
+    time("large scene, idle", Activity::Idle, None);
+    time("large scene, camera moving", Activity::CameraMoving, None);
+    time(
+        "large scene, hovering and picking",
+        Activity::Hovering,
+        None,
+    );
+    time(
+        "large scene, batch replaced every frame",
+        Activity::BatchReplaced,
+        None,
+    );
+    time(
+        "large scene, new meshes shown every 20 frames, uploaded whole",
+        Activity::MeshesShown,
+        Some(u64::MAX),
+    );
+    time(
+        "large scene, new meshes shown every 20 frames",
+        Activity::MeshesShown,
+        None,
+    );
+}
+
+fn styled_box(color: Color, first_pick: usize) -> MeshInstance {
+    MeshInstance {
+        mesh: Arc::new(box_mesh(20.0)),
+        faces: (0..6)
+            .map(|index| FaceStyle {
+                color,
+                pick: PickId::from_index(first_pick + index),
+            })
+            .collect(),
+        placement: None,
+    }
+}
+
+#[test]
+fn a_mesh_over_the_frame_budget_uploads_across_frames_while_the_one_it_replaces_stays_drawn_unpicked()
+ {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let green = Color::from_rgb8(40, 200, 40);
+    let red = Color::from_rgb8(200, 40, 40);
+    let shown = Scene {
+        meshes: vec![styled_box(green, 10)],
+        ..Scene::default()
+    };
+    let replacing = Scene {
+        meshes: vec![styled_box(red, 20)],
+        ..Scene::default()
+    };
+    let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
+    let on_top = view.project(Point3::new(0.0, 10.0, 20.0)).unwrap();
+    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let first = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &shown, on_top),
+    );
+    renderer.set_mesh_upload_bytes(200);
+
+    let mut while_uploading = Vec::new();
+    let finished = loop {
+        let rendered = render_with(
+            &mut renderer,
+            &device,
+            &queue,
+            &full_frame(&view, &replacing, on_top),
+        );
+        if !renderer.is_uploading() {
+            break rendered;
+        }
+        while_uploading.push(rendered);
+        assert!(while_uploading.len() < 10);
+    };
+    render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &shown, on_top),
+    );
+    let shown_again_uploading = renderer.is_uploading();
+    let exported = export_image(
+        &renderer,
+        &device,
+        &queue,
+        &ImageRequest {
+            size: SurfaceSize {
+                width: SIZE,
+                height: SIZE,
+            },
+            view: &view,
+            scene: &shown,
+            pixels_per_point: 1.0,
+            background: Background::Viewport,
+        },
+        SIZE,
+    );
+    let greenest = |[red, green, blue, _]: [u8; 4]| green > red * 2 && green > blue * 2;
+    let reddest = |[red, green, blue, _]: [u8; 4]| red > green * 2 && red > blue * 2;
+
+    assert!(greenest(pixel(&first, on_top)));
+    assert_eq!(first.pick.hits[0].id, PickId::from_index(14).unwrap());
+    assert!(while_uploading.len() >= 3, "{}", while_uploading.len());
+    for rendered in &while_uploading {
+        assert!(greenest(pixel(rendered, on_top)));
+        assert!(rendered.pick.hits.is_empty(), "{:?}", rendered.pick.hits);
+    }
+    assert!(reddest(pixel(&finished, on_top)));
+    assert_eq!(finished.pick.hits[0].id, PickId::from_index(24).unwrap());
+    assert!(shown_again_uploading);
+    assert!(greenest(image_pixel(&exported, on_top)));
 }
 
 fn differing_pixels(a: &Rendered, b: &Rendered) -> usize {

@@ -361,6 +361,10 @@ impl Renderer {
         self.generation
     }
 
+    pub fn is_uploading(&self) -> bool {
+        self.viewport.is_uploading()
+    }
+
     pub fn size(&self) -> SurfaceSize {
         SurfaceSize {
             width: self.gpu.config.width,

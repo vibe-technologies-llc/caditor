@@ -68,6 +68,19 @@ paths:
 - A `MeshInstance` is an `Arc<ShadedMesh>` plus a `FaceStyle` (colour, pick id) per face. Buffers
   upload once per `Arc` and drop when the mesh leaves the scene; a mesh past `max_buffer_size` is
   split into parts that each fit.
+- New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
+  shared by the four mesh caches): each frame packs and writes the next whole vertices and indices
+  into buffers made at the start, so the frame that first shows a large body never stalls (about
+  2 ms at worst instead of 8 to 11 ms for 39 MB in a release build). A mesh is drawn only once it
+  is complete, never half; while any mesh of a cache is still uploading, the meshes the cache drew
+  before that are no longer in the scene stay drawn (the old result of a recomputed body), at their
+  last styles with their pick ids withdrawn, since the app's pick table no longer knows them, so
+  they hide what is behind them in the pick pass but pick nothing. `Renderer::is_uploading` says
+  whether frames must follow (`app.md`); image export uploads whatever is left at once.
+- The ignored `frame_costs_of_drawing_a_large_scene` test times the UI thread's share of a frame
+  for a scene of lines, markers, fills and four 245,000-triangle meshes: idle, with the camera
+  moving, hovering with a pick and a face restyled every frame, with the batch replaced every
+  frame, and with new meshes shown every 20 frames, uploaded whole and under the budget.
 - A `MeshInstance` may carry a `placement` (a `RigidTransform`) drawing the mesh moved and turned
   without a new upload: the placement uniform, rewritten only when the placement or the eye moved,
   holds the turned axes and the placed centre relative to the eye (worked out in f64), and

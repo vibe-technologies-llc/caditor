@@ -361,9 +361,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   groups every glyph of the edited sketch, on screen or not, and an expanded sketch card formats
   the description of each constraint row near view; the `large_sketch` benchmark has no
   constraints.
-- [medium · medium] Meshes are uploaded whole on the UI thread in the frame that first shows them;
-  the render crate's `frame_costs_of_drawing_a_large_scene` benchmark has no meshes, picking or
-  hover.
 - [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of

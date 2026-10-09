@@ -1495,6 +1495,7 @@ impl Session {
         self.export_image(model, files);
         let workspace = &mut self.workspace;
         workspace.viewport.build_scene(model, &workspace.editing);
+        let was_uploading = self.renderer.is_uploading();
         let request = workspace.viewport.request(!self.renderer.is_pick_pending());
         let pick_requested = request
             .as_ref()
@@ -1547,6 +1548,11 @@ impl Session {
         if pick_requested && !self.renderer.is_pick_pending() {
             self.workspace.viewport.pick_was_not_issued();
         }
+        let uploading = self.renderer.is_uploading();
+        let uploads_finished = was_uploading && !uploading;
+        if uploads_finished {
+            self.workspace.viewport.pick_again();
+        }
         self.note_adapter();
         for fault in self.renderer.take_faults() {
             model.set_notice(Notice::error(fault.to_string()));
@@ -1560,7 +1566,11 @@ impl Session {
         self.next_repaint = None;
         if let Some(wait) = wait {
             self.next_repaint = now.checked_add(wait);
-        } else if repaint_now || self.workspace.viewport.is_animating() {
+        } else if repaint_now
+            || uploading
+            || uploads_finished
+            || self.workspace.viewport.is_animating()
+        {
             self.request_redraw();
         } else {
             self.last_redraw = None;
