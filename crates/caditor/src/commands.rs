@@ -201,6 +201,8 @@ pub enum Command {
     MoveFeatureUp,
     MoveFeatureDown,
     DeleteFeature,
+    CopyFeatures,
+    PasteFeatures,
     SuppressFeature,
     RollToHere,
     RollToEnd,
@@ -618,6 +620,8 @@ plain_commands! {
     MoveFeatureUp,
     MoveFeatureDown,
     DeleteFeature,
+    CopyFeatures,
+    PasteFeatures,
     SuppressFeature,
     RollToHere,
     RollToEnd,
@@ -874,6 +878,8 @@ impl Command {
             Self::MoveFeatureUp => "model.move_feature_up",
             Self::MoveFeatureDown => "model.move_feature_down",
             Self::DeleteFeature => "model.delete_feature",
+            Self::CopyFeatures => "model.copy_features",
+            Self::PasteFeatures => "model.paste_features",
             Self::SuppressFeature => "model.suppress_feature",
             Self::RollToHere => "model.roll_to_here",
             Self::RollToEnd => "model.roll_to_end",
@@ -1074,6 +1080,8 @@ impl Command {
             Self::MoveFeatureUp => "Move feature up",
             Self::MoveFeatureDown => "Move feature down",
             Self::DeleteFeature => "Delete feature",
+            Self::CopyFeatures => "Copy features",
+            Self::PasteFeatures => "Paste features",
             Self::SuppressFeature => "Suppress or unsuppress feature",
             Self::RollToHere => "Roll back to here",
             Self::RollToEnd => "Roll to end",
@@ -1242,6 +1250,8 @@ impl Command {
             | Self::MoveFeatureUp
             | Self::MoveFeatureDown
             | Self::DeleteFeature
+            | Self::CopyFeatures
+            | Self::PasteFeatures
             | Self::SuppressFeature
             | Self::RollToHere
             | Self::RollToEnd
@@ -1321,7 +1331,9 @@ impl Command {
             | Self::SketchTool(_)
             | Self::ShapeMode(_)
             | Self::Constraint(_) => Scope::Sketch,
-            Self::TogglePrincipal => Scope::OutsideSketch,
+            Self::TogglePrincipal | Self::CopyFeatures | Self::PasteFeatures => {
+                Scope::OutsideSketch
+            }
             _ => Scope::Anywhere,
         }
     }
@@ -1382,6 +1394,8 @@ impl Command {
             Self::CopyGeometry => vec![command(Key::C)],
             Self::CutGeometry => vec![command(Key::X)],
             Self::PasteGeometry => vec![command(Key::V)],
+            Self::CopyFeatures => vec![command(Key::C)],
+            Self::PasteFeatures => vec![command(Key::V)],
             Self::IntersectBody => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::Space)],
             Self::RenameFeature => vec![plain(Key::F2)],
             Self::GroupFeatures => vec![command(Key::G)],

@@ -241,6 +241,8 @@ pub fn command(command: Command) -> &'static str {
         Command::MoveFeatureUp => MOVE_UP,
         Command::MoveFeatureDown => MOVE_DOWN,
         Command::DeleteFeature => DELETE,
+        Command::CopyFeatures => COPY,
+        Command::PasteFeatures => phosphor::CLIPBOARD,
         Command::SuppressFeature => SUPPRESS,
         Command::RollToHere => ROLL_TO_HERE,
         Command::RollToEnd => ROLL_TO_END,

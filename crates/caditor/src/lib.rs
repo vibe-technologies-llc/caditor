@@ -40,6 +40,7 @@ mod drop_target;
 mod editing;
 mod export;
 mod faceting;
+mod feature_clipboard;
 mod feature_fields;
 mod feature_groups;
 mod feature_tree;

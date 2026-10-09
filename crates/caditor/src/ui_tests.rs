@@ -8766,6 +8766,50 @@ fn a_row_chosen_in_the_tree_highlights_its_body_in_the_view_without_selecting_it
 }
 
 #[test]
+fn features_chosen_in_the_tree_copy_and_paste_as_one_change_following_each_other() {
+    let mut harness = Harness::new();
+    let (extrude, _) = extruded_plate(&mut harness);
+    let sketch = match &harness.document().feature(extrude).unwrap().kind {
+        FeatureKind::Solid(solid) => solid.sketch(),
+        other => panic!("an extrusion, found {other:?}"),
+    };
+    let before = harness.document().features().len();
+
+    harness.workspace.panels.choose_all(&[sketch, extrude]);
+    harness.frame();
+    harness.events.push(Event::Copy);
+    harness.settle();
+    harness.frame();
+    assert!(harness.shows("Copied 2 features."));
+    let copied = harness.clipboard.clone().unwrap();
+    assert!(copied.starts_with("caditor clipboard: features, version 1\n"));
+    harness.events.push(Event::Paste(copied));
+    harness.settle();
+
+    let document = harness.document();
+    assert_eq!(document.features().len(), before + 2);
+    assert_eq!(harness.model.undo_label(), Some("Paste 2 features"));
+    let pasted: Vec<&Feature> = document.features().skip(before).collect();
+    assert_eq!(pasted[1].name, "Extrude 1 copy");
+    let Some(SolidFeature::Extrude(copy)) = pasted[1].kind.solid() else {
+        panic!("an extrusion");
+    };
+    assert_eq!(copy.sketch, pasted[0].id());
+    assert_ne!(pasted[0].id(), sketch);
+
+    harness
+        .events
+        .push(Event::Paste("not a feature".to_owned()));
+    harness.settle();
+    harness.frame();
+    assert!(
+        harness
+            .shows("Nothing was pasted: the clipboard holds text that did not come from caditor.")
+    );
+    assert_eq!(harness.document().features().len(), before + 2);
+}
+
+#[test]
 fn fitting_the_view_frames_the_rows_chosen_in_the_tree_when_nothing_is_selected() {
     let mut harness = Harness::new();
     let mut sketch = Sketch::new(Plane::XY);

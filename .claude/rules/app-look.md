@@ -21,6 +21,7 @@ paths:
   - "crates/caditor/src/undo_history.rs"
   - "crates/caditor/src/panels.rs"
   - "crates/caditor/src/feature_tree.rs"
+  - "crates/caditor/src/feature_clipboard.rs"
   - "crates/caditor/src/parameter_table.rs"
   - "crates/caditor/src/principal_tree.rs"
   - "crates/caditor/src/bodies_tree.rs"
@@ -274,6 +275,13 @@ paths:
 - Rename (F2) and Move up or down act on the primary row, else the open feature
   (`feature_tree::current_feature`); Suppress and Delete act on every chosen row; Delete selection
   deletes them outside sketch editing.
+- Copy features and Paste features (`feature_clipboard.rs`, Ctrl+C and Ctrl+V outside a sketch,
+  the Model menu and the palette) copy every chosen row in tree order to the system clipboard as
+  text (`file-format.md`) and paste the clipboard's features as one change at the rollback bar
+  (`Document::paste_features`, `document.md`), choosing and revealing the copies. A notice names
+  each feature left out with the reason (it picks faces or edges of a copied feature, or uses a
+  feature not in this model) and how many values became numbers; foreign or damaged text, or
+  sketch geometry, is refused in words, and Paste features inside a sketch says to finish it.
 - Principal group rows: hover highlights in the view, a click or tab selects in the view (clearing
   the tree's feature selection), and a row reads as selected while its pickable is.
 - The Bodies group (`bodies_tree.rs`, above the features, closed at first, absent without a body)
