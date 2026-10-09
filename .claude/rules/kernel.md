@@ -31,6 +31,9 @@ paths:
 - `Curve` and `Curve2` share one `BSpline<P>` and generic sampling, length and closest-point code.
   Lines run by arc length, circles and ellipses by angle in a `Plane` frame, splines over their
   knots; reversal maps t to `reversal_pivot() - t`.
+- `CurveDerivatives::curvature` (and `Curve::curvature`) is the curvature vector: towards the
+  centre of curvature, of length one over the radius, zero on a line, `None` where the curve stops
+  (zero speed). An intersection curve's is its Hermite segments', so only approximate.
 - Closest points and `project` take a hint: the search refines near it first and samples the whole
   range only when that foot is not within the resolution, so chained projections stay cheap, and
   the hint's foot is kept unless another is closer by more than the resolution, so self-crossing

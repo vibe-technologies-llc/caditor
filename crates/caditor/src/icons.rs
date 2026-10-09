@@ -4,6 +4,7 @@ use caditor_document::{
 use egui_phosphor::regular as phosphor;
 
 use crate::{
+    analysis::AnalysisCommand,
     commands::{CameraMove, Command},
     editing::Tool,
     shape_modes::{CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode},
@@ -76,6 +77,7 @@ pub const GRAPHICS: &str = phosphor::MONITOR;
 pub const MEASURE: &str = phosphor::RULER;
 pub const INTERFERENCE: &str = phosphor::INTERSECT_SQUARE;
 pub const ANALYSIS: &str = phosphor::GAUGE;
+pub const CURVATURE_COMB: &str = phosphor::CHART_LINE;
 pub const COPY: &str = phosphor::COPY_SIMPLE;
 pub const FEATURES: &str = phosphor::TREE_STRUCTURE;
 pub const PARAMETERS: &str = phosphor::FUNCTION;
@@ -151,6 +153,7 @@ pub fn command(command: Command) -> &'static str {
         Command::FitView => phosphor::FRAME_CORNERS,
         Command::Measure => MEASURE,
         Command::Interference => INTERFERENCE,
+        Command::Analysis(AnalysisCommand::Comb) => CURVATURE_COMB,
         Command::Analysis(_) => ANALYSIS,
         Command::ToggleProjection => phosphor::PERSPECTIVE,
         Command::AutomaticProjection => phosphor::PERSPECTIVE,

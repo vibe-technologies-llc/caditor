@@ -35,6 +35,18 @@ pub struct CurveDerivatives {
     pub second: Vector3,
 }
 
+impl CurveDerivatives {
+    pub fn curvature(&self) -> Option<Vector3> {
+        let speed_squared = self.first.length_squared();
+        if speed_squared <= 0.0 {
+            return None;
+        }
+        let along = self.second.dot(self.first) / speed_squared;
+        let curvature = (self.second - self.first * along) / speed_squared;
+        curvature.is_finite().then_some(curvature)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CurveSample {
     pub parameter: f64,
@@ -71,6 +83,10 @@ impl Curve {
 
     pub fn point(&self, parameter: f64) -> Point3 {
         self.evaluate(parameter).point
+    }
+
+    pub fn curvature(&self, parameter: f64) -> Option<Vector3> {
+        self.evaluate(parameter).curvature()
     }
 
     pub fn period(&self) -> Option<f64> {

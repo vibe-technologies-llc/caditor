@@ -15571,6 +15571,89 @@ fn the_pull_direction_follows_the_selected_face_and_reverses_from_the_palette() 
     assert!(harness.shows_containing(", reversed"));
 }
 
+fn comb_lines(harness: &mut Harness, colour: caditor_render::Color) -> usize {
+    harness
+        .built()
+        .scene
+        .lines()
+        .filter(|line| line.color == colour)
+        .count()
+}
+
+#[test]
+fn the_curvature_comb_combs_the_chosen_sketch_curves_and_names_the_jump_where_they_meet() {
+    use crate::{comb::DEFAULT_TEETH, comb_panel, scene_palette::Contrast};
+
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let line = sketch.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 0.0));
+    let arc = sketch.add_arc(
+        Point2::new(10.0, 5.0),
+        Point2::new(10.0, 0.0),
+        Point2::new(15.0, 5.0),
+    );
+    let feature = harness.add_sketch(sketch);
+    let revision = harness.model.revision();
+    let look = Contrast::Standard.palette().comb;
+
+    harness.select([line, arc].map(|entity| Pickable::SketchEntity { feature, entity }));
+    run_from_palette(&mut harness, "curvature comb");
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.comb.open);
+    assert!(harness.shows(comb_panel::TITLE));
+    assert!(harness.shows_containing("Tangent, but the curvature jumps (G1)"));
+    assert!(harness.shows_containing("smallest radius ≈ 5"));
+    assert_eq!(comb_lines(&mut harness, look.teeth), DEFAULT_TEETH + 1);
+    assert_eq!(
+        comb_lines(&mut harness, look.envelope),
+        2 * DEFAULT_TEETH + 1
+    );
+
+    harness.select([]);
+    harness.frame();
+
+    assert_eq!(comb_lines(&mut harness, look.teeth), DEFAULT_TEETH + 1);
+
+    run_from_palette(&mut harness, "curvature comb");
+    harness.frame();
+    harness.frame();
+
+    assert!(!harness.workspace.comb.open);
+    assert_eq!(comb_lines(&mut harness, look.teeth), 0);
+    assert_eq!(comb_lines(&mut harness, look.envelope), 0);
+    assert_eq!(harness.model.revision(), revision);
+}
+
+#[test]
+fn the_curvature_comb_follows_a_selected_body_edge_and_reads_it_as_straight() {
+    use crate::{comb_panel, scene_palette::Contrast};
+
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    let edge = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Edge { .. }))
+        .expect("an edge is pickable");
+    let look = Contrast::Standard.palette().comb;
+
+    run_from_palette(&mut harness, "curvature comb");
+    harness.frame();
+
+    assert!(harness.shows_containing(comb_panel::NOTHING_CHOSEN));
+
+    harness.select([edge]);
+    harness.frame();
+
+    assert_eq!(harness.workspace.comb.curves(), [edge]);
+    assert!(harness.shows_containing(": straight"));
+    assert_eq!(comb_lines(&mut harness, look.teeth), 0);
+    assert!(comb_lines(&mut harness, look.envelope) > 0);
+}
+
 fn painted_faces(harness: &mut Harness, colour: caditor_render::Color) -> usize {
     harness
         .built_with_meshes(1)

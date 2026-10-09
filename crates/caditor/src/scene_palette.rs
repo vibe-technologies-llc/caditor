@@ -111,6 +111,14 @@ pub struct Bands {
     pub too_tight: Color,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CombLook {
+    pub teeth: Color,
+    pub envelope: Color,
+    pub tooth_width: f32,
+    pub envelope_width: f32,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScenePalette {
     pub grid: Color,
@@ -148,6 +156,7 @@ pub struct ScenePalette {
     pub followed_edge: Color,
     pub centre_of_mass: Color,
     pub bands: Bands,
+    pub comb: CombLook,
     pub datum_edge: Color,
     pub datum_fill: Color,
     pub failed_datum_edge: Color,
@@ -274,6 +283,12 @@ pub const STANDARD: ScenePalette = ScenePalette {
         undercut: Color::from_rgb8(214, 68, 62),
         too_tight: Color::from_rgb8(226, 72, 150),
     },
+    comb: CombLook {
+        teeth: Color::from_rgb8(96, 190, 230),
+        envelope: Color::from_rgb8(170, 228, 255),
+        tooth_width: 1.0,
+        envelope_width: 2.0,
+    },
     datum_edge: Color::from_rgba8(236, 178, 92, 220),
     datum_fill: Color::from_rgba8(236, 178, 92, 26),
     failed_datum_edge: Color::from_rgba8(214, 120, 110, 220),
@@ -363,6 +378,12 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
         too_little_draft: Color::from_rgb8(255, 224, 70),
         undercut: Color::from_rgb8(255, 96, 88),
         too_tight: Color::from_rgb8(255, 110, 190),
+    },
+    comb: CombLook {
+        teeth: Color::from_rgb8(120, 210, 255),
+        envelope: Color::from_rgb8(210, 242, 255),
+        tooth_width: 1.5,
+        envelope_width: 3.0,
     },
     datum_edge: Color::from_rgb8(245, 190, 100),
     datum_fill: Color::from_rgba8(245, 190, 100, 34),
@@ -535,6 +556,27 @@ mod tests {
                     assert_ne!(color, against, "{what} and {other}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn the_curvature_comb_stands_out_from_its_outline_and_the_outline_from_a_body() {
+        let body = Color32::from_rgb(
+            DEFAULT_COLOUR.red,
+            DEFAULT_COLOUR.green,
+            DEFAULT_COLOUR.blue,
+        );
+        for palette in [&STANDARD, &HIGH_CONTRAST] {
+            let outline = opaque32(palette.hole);
+            for (what, color) in [
+                ("comb teeth", palette.comb.teeth),
+                ("comb envelope", palette.comb.envelope),
+            ] {
+                assert_visible(what, color, outline);
+                assert_visible(what, color, canvas());
+            }
+            assert_visible("comb outline", palette.hole, body);
+            assert!(palette.comb.envelope_width > palette.comb.tooth_width);
         }
     }
 

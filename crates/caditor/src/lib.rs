@@ -16,6 +16,8 @@ mod body_selection;
 mod box_selection;
 mod canvas;
 mod cli;
+mod comb;
+mod comb_panel;
 mod combine_panel;
 mod combine_tools;
 mod commands;

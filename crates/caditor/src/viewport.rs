@@ -20,6 +20,7 @@ use crate::{
     body_selection,
     box_selection::{self, Catch},
     canvas,
+    comb::CombDrawing,
     commands::{CameraMove, Command, CommandFrame, StandardView},
     datum_tools, dimensioning,
     display::Displayed,
@@ -258,6 +259,7 @@ pub struct ViewportState {
     measured: Option<(MeasuredLine, String)>,
     problems: Vec<Problem>,
     interference: Vec<Mark>,
+    comb: Option<Arc<CombDrawing>>,
     framed_place: Option<Point3>,
     look_from: Option<Vector3>,
     scenes: SceneCache,
@@ -388,6 +390,7 @@ impl ViewportState {
             measured: None,
             problems: Vec::new(),
             interference: Vec::new(),
+            comb: None,
             framed_place: None,
             look_from: None,
             scenes: SceneCache::default(),
@@ -505,6 +508,10 @@ impl ViewportState {
 
     pub fn set_interference(&mut self, marks: Vec<Mark>) {
         self.interference = marks;
+    }
+
+    pub fn set_comb(&mut self, comb: Option<Arc<CombDrawing>>) {
+        self.comb = comb;
     }
 
     pub fn destination(&self) -> Viewpoint {
@@ -835,6 +842,7 @@ impl ViewportState {
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
             problems: self.problems.iter().map(|problem| problem.place).collect(),
             interference: self.interference.clone(),
+            comb: self.comb.clone(),
             manipulator: self
                 .manipulator
                 .map(|manipulator| manipulator.drawn(self.manipulator_hover)),
