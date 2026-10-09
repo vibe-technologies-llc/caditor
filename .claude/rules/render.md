@@ -99,12 +99,33 @@ paths:
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
   picking alike (everything but `Layer::Front`). A face without a pick id writes id 0 with its
   depth in the pick pass, not discarded. Enhanced shading scales highlight and rim with the face
-  colour's luminance so dimmed and tinted bodies stay dark and keep their hue (offscreen test).
+  colour's lightness so dimmed and tinted bodies stay dark and keep their hue (offscreen test).
+
+## Colour and light
+
+- Colours are sRGB-encoded everywhere (palettes, styles, `BACKGROUND`) and every pass draws on
+  the plain 8-bit view, so blending stays in the space the palettes' contrast tests model
+  (`scene_palette.rs`). Only `fs_mesh` works in linear light: it decodes the face colour
+  (`to_linear`), lights it and encodes the result (`to_srgb`), the light constants tuned so a
+  face lit by ambient alone or fully lit reads about as it did when lighting was in gamma space, the
+  tones between a little lighter. Zebra and chrome keep their sRGB-space look.
+- The multisample resolve averages in linear light where views allow it: the surface is
+  configured with its sRGB twin in `view_formats` when the adapter has both
+  `SURFACE_VIEW_FORMATS` and `VIEW_FORMATS` (else, when that configuration is refused, or once
+  the surface is configured conservatively, without it), `Frame` hands the viewport that view as `SurfaceTarget::linear_view`, and a renderer told
+  so (`set_linear_resolve`, from `gpu::resolves_linearly`) gives its multisampled colour target
+  an sRGB view, stores the scene pass instead of resolving it and resolves in an empty pass
+  through the two sRGB views (`ColorAttachment`), so a half-covered edge pixel is the linear mean
+  of its samples (offscreen test). Image tiles on the viewport background do the same; a
+  transparent image resolves in gamma, since its bands straighten premultiplied colour there.
+  GL and other devices without view formats resolve in gamma as before. The extra pass costs a
+  few microseconds a frame in the frame-cost benchmark (release, 1600 by 1000 at 4x).
 
 ## Depth, buffers and layers
 
-- Reverse-Z, infinite far plane, `Depth32Float`, multisampled at the level in use (resolved into
-  the surface, never stored). The UI is drawn on the resolved surface after the 3D pass.
+- Reverse-Z, infinite far plane, `Depth32Float`, multisampled at the level in use (never stored;
+  colour is resolved into the surface, through the linear resolve pass where views allow it). The
+  UI is drawn on the resolved surface after the 3D pass.
 - Each batch has a `GpuBatch` slot of `GrowableBuffer`s. A slot uploads only when its `Arc`
   differs or the anchor moved, so an idle frame or a camera move writes no vertices. A batch past
   `max_buffer_size` draws only its first whole primitives (logged once).

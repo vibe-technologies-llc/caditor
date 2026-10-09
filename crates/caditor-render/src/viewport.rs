@@ -66,8 +66,107 @@ pub struct ViewportFrame<'a> {
 
 pub struct SurfaceTarget<'a> {
     pub view: &'a wgpu::TextureView,
+    pub linear_view: Option<&'a wgpu::TextureView>,
     pub width: u32,
     pub height: u32,
+}
+
+struct Multisampled {
+    view: wgpu::TextureView,
+    linear: Option<wgpu::TextureView>,
+}
+
+impl Multisampled {
+    fn new(
+        device: &wgpu::Device,
+        label: &'static str,
+        (format, sample_count): (wgpu::TextureFormat, u32),
+        extent: wgpu::Extent3d,
+        linear: bool,
+    ) -> Self {
+        let linear_format = linear.then(|| srgb_view_format(format)).flatten();
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: extent,
+            mip_level_count: 1,
+            sample_count,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: linear_format.as_slice(),
+        });
+        Self {
+            view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            linear: linear_format.map(|format| {
+                texture.create_view(&wgpu::TextureViewDescriptor {
+                    format: Some(format),
+                    ..Default::default()
+                })
+            }),
+        }
+    }
+}
+
+struct ColorAttachment<'a> {
+    view: &'a wgpu::TextureView,
+    resolve_target: Option<&'a wgpu::TextureView>,
+    store: wgpu::StoreOp,
+    linear_resolve: Option<(&'a wgpu::TextureView, &'a wgpu::TextureView)>,
+}
+
+impl<'a> ColorAttachment<'a> {
+    fn of(
+        multisampled: Option<&'a Multisampled>,
+        target: &'a wgpu::TextureView,
+        linear_target: Option<&'a wgpu::TextureView>,
+    ) -> Self {
+        match multisampled {
+            Some(multisampled) => match multisampled.linear.as_ref().zip(linear_target) {
+                Some(linear_resolve) => Self {
+                    view: &multisampled.view,
+                    resolve_target: None,
+                    store: wgpu::StoreOp::Store,
+                    linear_resolve: Some(linear_resolve),
+                },
+                None => Self {
+                    view: &multisampled.view,
+                    resolve_target: Some(target),
+                    store: wgpu::StoreOp::Discard,
+                    linear_resolve: None,
+                },
+            },
+            None => Self {
+                view: target,
+                resolve_target: None,
+                store: wgpu::StoreOp::Store,
+                linear_resolve: None,
+            },
+        }
+    }
+
+    fn resolve(&self, encoder: &mut wgpu::CommandEncoder) {
+        let Some((samples, target)) = self.linear_resolve else {
+            return;
+        };
+        drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("linear resolve"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: samples,
+                depth_slice: None,
+                resolve_target: Some(target),
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Discard,
+                },
+            })],
+            ..Default::default()
+        }));
+    }
+}
+
+fn srgb_view_format(format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
+    let srgb = format.add_srgb_suffix();
+    (srgb != format).then_some(srgb)
 }
 
 struct Uniform {
@@ -146,20 +245,25 @@ impl ImagePlan {
 }
 
 struct ImageTargets {
-    multisampled: Option<wgpu::TextureView>,
+    multisampled: Option<Multisampled>,
     resolved: wgpu::Texture,
     resolved_view: wgpu::TextureView,
+    resolved_linear: Option<wgpu::TextureView>,
     depth: wgpu::TextureView,
 }
 
 impl ImageTargets {
     fn new(
         device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-        sample_count: u32,
+        (format, sample_count): (wgpu::TextureFormat, u32),
         extent: wgpu::Extent3d,
+        linear: bool,
     ) -> Self {
-        let texture = |label, format, sample_count, usage| {
+        let linear_format = linear
+            .then(|| srgb_view_format(format))
+            .flatten()
+            .filter(|_| sample_count > 1);
+        let texture = |label, format, sample_count, usage, view_formats| {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
                 size: extent,
@@ -168,7 +272,7 @@ impl ImageTargets {
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage,
-                view_formats: &[],
+                view_formats,
             })
         };
         let view = |texture: &wgpu::Texture| texture.create_view(&Default::default());
@@ -177,25 +281,42 @@ impl ImageTargets {
             format,
             1,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            linear_format.as_slice(),
         );
         Self {
             multisampled: (sample_count > 1).then(|| {
-                view(&texture(
+                Multisampled::new(
+                    device,
                     "multisampled image tile",
-                    format,
-                    sample_count,
-                    wgpu::TextureUsages::RENDER_ATTACHMENT,
-                ))
+                    (format, sample_count),
+                    extent,
+                    linear_format.is_some(),
+                )
             }),
             resolved_view: view(&resolved),
+            resolved_linear: linear_format.map(|format| {
+                resolved.create_view(&wgpu::TextureViewDescriptor {
+                    format: Some(format),
+                    ..Default::default()
+                })
+            }),
             resolved,
             depth: view(&texture(
                 "image tile depth",
                 DEPTH_FORMAT,
                 sample_count,
                 wgpu::TextureUsages::RENDER_ATTACHMENT,
+                &[],
             )),
         }
+    }
+
+    fn attachment(&self) -> ColorAttachment<'_> {
+        ColorAttachment::of(
+            self.multisampled.as_ref(),
+            &self.resolved_view,
+            self.resolved_linear.as_ref(),
+        )
     }
 
     fn begin_pass<'a>(
@@ -203,23 +324,16 @@ impl ImageTargets {
         encoder: &'a mut wgpu::CommandEncoder,
         clear: wgpu::Color,
     ) -> wgpu::RenderPass<'a> {
-        let (view, resolve_target, store) = match &self.multisampled {
-            Some(multisampled) => (
-                multisampled,
-                Some(&self.resolved_view),
-                wgpu::StoreOp::Discard,
-            ),
-            None => (&self.resolved_view, None, wgpu::StoreOp::Store),
-        };
+        let attachment = self.attachment();
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("image tile"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
+                view: attachment.view,
                 depth_slice: None,
-                resolve_target,
+                resolve_target: attachment.resolve_target,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(clear),
-                    store,
+                    store: attachment.store,
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -235,10 +349,16 @@ impl ImageTargets {
     }
 }
 
-struct SceneTargets {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TargetSize {
     width: u32,
     height: u32,
-    multisampled_color: Option<wgpu::TextureView>,
+    linear: bool,
+}
+
+struct SceneTargets {
+    size: TargetSize,
+    multisampled_color: Option<Multisampled>,
     depth: wgpu::TextureView,
 }
 
@@ -247,33 +367,36 @@ impl SceneTargets {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
         sample_count: u32,
-        width: u32,
-        height: u32,
+        size: TargetSize,
     ) -> Self {
-        let texture = |label, format| {
-            device
+        let extent = wgpu::Extent3d {
+            width: size.width,
+            height: size.height,
+            depth_or_array_layers: 1,
+        };
+        Self {
+            size,
+            multisampled_color: (sample_count > 1).then(|| {
+                Multisampled::new(
+                    device,
+                    "multisampled viewport color",
+                    (format, sample_count),
+                    extent,
+                    size.linear,
+                )
+            }),
+            depth: device
                 .create_texture(&wgpu::TextureDescriptor {
-                    label: Some(label),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
+                    label: Some("viewport depth"),
+                    size: extent,
                     mip_level_count: 1,
                     sample_count,
                     dimension: wgpu::TextureDimension::D2,
-                    format,
+                    format: DEPTH_FORMAT,
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                     view_formats: &[],
                 })
-                .create_view(&wgpu::TextureViewDescriptor::default())
-        };
-        Self {
-            width,
-            height,
-            multisampled_color: (sample_count > 1)
-                .then(|| texture("multisampled viewport color", format)),
-            depth: texture("viewport depth", DEPTH_FORMAT),
+                .create_view(&wgpu::TextureViewDescriptor::default()),
         }
     }
 }
@@ -648,7 +771,8 @@ pub struct ViewportRenderer {
     silhouettes: SilhouetteCache,
     staging: Bytes,
     targets: Option<SceneTargets>,
-    targets_refused: Option<(u32, u32)>,
+    targets_refused: Option<TargetSize>,
+    linear_resolve: bool,
     picking: Picking,
     pick_refused: bool,
     pick_window: Option<ClipWindow>,
@@ -708,6 +832,7 @@ impl ViewportRenderer {
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
+            linear_resolve: false,
             picking: Picking::new(device, DEPTH_FORMAT),
             pick_refused: false,
             pick_window: None,
@@ -796,8 +921,14 @@ impl ViewportRenderer {
         surface: &SurfaceTarget<'_>,
         viewport: Option<&ViewportFrame<'_>>,
     ) -> Faults {
+        let linear_view = surface.linear_view.filter(|_| self.linear_resolve);
+        let size = TargetSize {
+            width: surface.width,
+            height: surface.height,
+            linear: linear_view.is_some(),
+        };
         let mut faults = Faults {
-            targets: self.ensure_targets(device, surface.width, surface.height),
+            targets: self.ensure_targets(device, size),
             ..Faults::default()
         };
         let viewport =
@@ -814,20 +945,21 @@ impl ViewportRenderer {
             clear_surface(encoder, surface);
             return faults;
         };
-        let (color_view, resolve_target, store) = match &targets.multisampled_color {
-            Some(multisampled) => (multisampled, Some(surface.view), wgpu::StoreOp::Discard),
-            None => (surface.view, None, wgpu::StoreOp::Store),
-        };
+        let attachment = ColorAttachment::of(
+            targets.multisampled_color.as_ref(),
+            surface.view,
+            linear_view,
+        );
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("viewport"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: color_view,
+                view: attachment.view,
                 depth_slice: None,
-                resolve_target,
+                resolve_target: attachment.resolve_target,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(BACKGROUND),
-                    store,
+                    store: attachment.store,
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -840,32 +972,43 @@ impl ViewportRenderer {
             }),
             ..Default::default()
         });
-        let Some(viewport) = viewport else {
-            return faults;
-        };
-        let Some(scissor) = scissor_rect(viewport.rect, surface.width, surface.height) else {
-            return faults;
-        };
-        pass.set_viewport(
-            viewport.rect.x,
-            viewport.rect.y,
-            viewport.rect.width,
-            viewport.rect.height,
-            0.0,
-            1.0,
-        );
-        pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
-        self.draw_scene(
-            &mut pass,
-            viewport.scene.grid.is_some(),
-            &ClipWindow::new(viewport.view, WHOLE_VIEW),
-        );
+        let drawn = viewport.filter(|viewport| {
+            let Some(scissor) = scissor_rect(viewport.rect, surface.width, surface.height) else {
+                return false;
+            };
+            pass.set_viewport(
+                viewport.rect.x,
+                viewport.rect.y,
+                viewport.rect.width,
+                viewport.rect.height,
+                0.0,
+                1.0,
+            );
+            pass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
+            self.draw_scene(
+                &mut pass,
+                viewport.scene.grid.is_some(),
+                &ClipWindow::new(viewport.view, WHOLE_VIEW),
+            );
+            true
+        });
         drop(pass);
+        attachment.resolve(encoder);
 
-        if let Some(cursor) = viewport.pick_at {
+        if let Some(viewport) = drawn
+            && let Some(cursor) = viewport.pick_at
+        {
             self.draw_pick(encoder, viewport.view, cursor);
         }
         faults
+    }
+
+    pub fn set_linear_resolve(&mut self, allowed: bool) {
+        if allowed != self.linear_resolve {
+            self.linear_resolve = allowed;
+            self.targets = None;
+            self.targets_refused = None;
+        }
     }
 
     pub fn image_sibling(&self, device: &wgpu::Device) -> Self {
@@ -900,6 +1043,7 @@ impl ViewportRenderer {
             staging: Bytes::default(),
             targets: None,
             targets_refused: None,
+            linear_resolve: self.linear_resolve,
             picking: Picking::new(device, DEPTH_FORMAT),
             pick_refused: false,
             pick_window: None,
@@ -935,13 +1079,13 @@ impl ViewportRenderer {
         }
         let targets = ImageTargets::new(
             device,
-            self.format,
-            self.sample_count,
+            (self.format, self.sample_count),
             wgpu::Extent3d {
                 width: tile_side.min(size.width),
                 height: tile_side.min(size.height),
                 depth_or_array_layers: 1,
             },
+            self.linear_resolve && request.background == Background::Viewport,
         );
         Some(ImagePlan {
             size,
@@ -992,6 +1136,7 @@ impl ViewportRenderer {
             &ClipWindow::new(&plan.view, transform),
         );
         drop(pass);
+        plan.targets.attachment().resolve(&mut encoder);
         encoder.copy_texture_to_buffer(
             plan.targets.resolved.as_image_copy(),
             wgpu::TexelCopyBufferInfo {
@@ -1104,16 +1249,17 @@ impl ViewportRenderer {
         self.picking.encode_readback(encoder, *view, cursor);
     }
 
-    fn ensure_targets(&mut self, device: &wgpu::Device, width: u32, height: u32) -> bool {
+    fn ensure_targets(&mut self, device: &wgpu::Device, size: TargetSize) -> bool {
+        let TargetSize { width, height, .. } = size;
         let current = self
             .targets
             .as_ref()
-            .is_some_and(|targets| targets.width == width && targets.height == height);
-        if current || self.targets_refused == Some((width, height)) {
+            .is_some_and(|targets| targets.size == size);
+        if current || self.targets_refused == Some(size) {
             return false;
         }
         let (targets, error) = gpu::scoped(device, || {
-            SceneTargets::new(device, self.format, self.sample_count, width, height)
+            SceneTargets::new(device, self.format, self.sample_count, size)
         });
         match error {
             None => {
@@ -1127,7 +1273,7 @@ impl ViewportRenderer {
                     self.sample_count
                 );
                 self.targets = None;
-                self.targets_refused = Some((width, height));
+                self.targets_refused = Some(size);
                 true
             }
         }

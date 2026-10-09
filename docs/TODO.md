@@ -373,7 +373,8 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · easy] Silhouettes of curved faces are not drawn again dashed where a face hides them in
   shaded with hidden edges dashed, and never pick (the face beneath does).
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
-- [low · medium] Lighting and the MSAA resolve happen in gamma space.
+- [low · medium] On GL and other devices without texture view formats the multisample resolve
+  still averages in gamma space: a resolve of its own (a pass reading the samples) would fix it.
 - [low · medium] Dragging a brush over faces to select them (paint selection), and named selection
   sets: a group of faces, edges or bodies saved under a name, picked again later as the input of a
   fillet, a hide or a pattern, and healed like other references when the model changes.

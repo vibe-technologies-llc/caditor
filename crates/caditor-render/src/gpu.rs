@@ -283,6 +283,13 @@ impl Bytes {
     }
 }
 
+pub fn resolves_linearly(adapter: &wgpu::Adapter) -> bool {
+    adapter
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::VIEW_FORMATS)
+}
+
 pub fn buffer_limit(device: &wgpu::Device) -> u64 {
     device.limits().max_buffer_size / wgpu::COPY_BUFFER_ALIGNMENT * wgpu::COPY_BUFFER_ALIGNMENT
 }

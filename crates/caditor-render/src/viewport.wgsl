@@ -37,6 +37,11 @@ const GRID_DEPTH_BIAS: f32 = 0.99998;
 const BEHIND: u32 = 0u;
 const DASH_PERIOD_POINTS: f32 = 10.0;
 const DASH_DRAWN_FRACTION: f32 = 0.6;
+const SRGB_LINEAR_SLOPE: f32 = 12.92;
+const SRGB_DECODED_KNEE: f32 = 0.04045;
+const SRGB_ENCODED_KNEE: f32 = 0.0031308;
+const SRGB_OFFSET: f32 = 0.055;
+const SRGB_EXPONENT: f32 = 2.4;
 
 struct Varyings {
     @builtin(position) position: vec4<f32>,
@@ -53,6 +58,19 @@ struct Varyings {
 struct PickOutput {
     @location(0) id: u32,
     @location(1) depth: u32,
+}
+
+fn to_linear(color: vec3<f32>) -> vec3<f32> {
+    let low = color / SRGB_LINEAR_SLOPE;
+    let high = pow((max(color, vec3<f32>(0.0)) + SRGB_OFFSET) / (1.0 + SRGB_OFFSET), vec3<f32>(SRGB_EXPONENT));
+    return select(high, low, color <= vec3<f32>(SRGB_DECODED_KNEE));
+}
+
+fn to_srgb(color: vec3<f32>) -> vec3<f32> {
+    let clamped = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+    let low = clamped * SRGB_LINEAR_SLOPE;
+    let high = (1.0 + SRGB_OFFSET) * pow(clamped, vec3<f32>(1.0 / SRGB_EXPONENT)) - SRGB_OFFSET;
+    return select(high, low, clamped <= vec3<f32>(SRGB_ENCODED_KNEE));
 }
 
 fn from_anchor(position: vec3<f32>) -> vec3<f32> {
@@ -428,22 +446,22 @@ fn fs_line(in: Varyings) -> @location(0) vec4<f32> {
     return in.color;
 }
 
-const AMBIENT: f32 = 0.3;
-const KEY_LIGHT: f32 = 0.55;
-const HEADLIGHT: f32 = 0.2;
-const SPECULAR: f32 = 0.12;
+const AMBIENT: f32 = 0.07;
+const KEY_LIGHT: f32 = 0.76;
+const HEADLIGHT: f32 = 0.28;
+const SPECULAR: f32 = 0.15;
 const SHININESS: f32 = 40.0;
 
-const GROUND_AMBIENT: f32 = 0.17;
-const SKY_AMBIENT: f32 = 0.34;
-const ENHANCED_KEY_LIGHT: f32 = 0.5;
-const ENHANCED_FILL_LIGHT: f32 = 0.17;
-const ENHANCED_HEADLIGHT: f32 = 0.12;
-const ENHANCED_SPECULAR: f32 = 0.24;
+const GROUND_AMBIENT: f32 = 0.02;
+const SKY_AMBIENT: f32 = 0.093;
+const ENHANCED_KEY_LIGHT: f32 = 0.77;
+const ENHANCED_FILL_LIGHT: f32 = 0.26;
+const ENHANCED_HEADLIGHT: f32 = 0.185;
+const ENHANCED_SPECULAR: f32 = 0.4;
 const ENHANCED_SHININESS: f32 = 72.0;
-const SHEEN: f32 = 0.05;
+const SHEEN: f32 = 0.08;
 const SHEEN_SHININESS: f32 = 8.0;
-const RIM: f32 = 0.16;
+const RIM: f32 = 0.05;
 const RIM_EXPONENT: f32 = 3.0;
 const RIM_WHITENING: f32 = 0.5;
 const REFLECTANCE_PER_LUMINANCE: f32 = 1.6;
@@ -486,7 +504,8 @@ fn enhanced_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f
         + ENHANCED_FILL_LIGHT * fill
         + ENHANCED_HEADLIGHT * facing;
 
-    let reflectance = clamp(dot(color, LUMINANCE) * REFLECTANCE_PER_LUMINANCE, 0.0, 1.0);
+    let lightness = to_srgb(vec3<f32>(dot(color, LUMINANCE))).x;
+    let reflectance = clamp(lightness * REFLECTANCE_PER_LUMINANCE, 0.0, 1.0);
     let alignment = max(dot(normal, normalize(key_light + eye)), 0.0);
     let highlight = ENHANCED_SPECULAR * pow(alignment, ENHANCED_SHININESS)
         + SHEEN * pow(alignment, SHEEN_SHININESS);
@@ -499,10 +518,11 @@ fn enhanced_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f
 fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
     let eye = toward_eye(in.relative);
     let normal = facing_normal(in, eye);
+    let color = to_linear(in.color.rgb);
     if uses_enhanced_shading() {
-        return vec4<f32>(enhanced_shade(in.color.rgb, normal, eye), in.color.a);
+        return vec4<f32>(to_srgb(enhanced_shade(color, normal, eye)), in.color.a);
     }
-    return vec4<f32>(standard_shade(in.color.rgb, normal, eye), in.color.a);
+    return vec4<f32>(to_srgb(standard_shade(color, normal, eye)), in.color.a);
 }
 
 const TAU: f32 = 6.2831853;

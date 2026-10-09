@@ -220,6 +220,7 @@ impl Gpu {
         );
         let mut viewport = ViewportRenderer::new(&self.device, self.config.format, msaa.samples());
         viewport.set_shading(graphics.shading);
+        viewport.set_linear_resolve(gpu::resolves_linearly(&self.adapter));
         viewport
     }
 
@@ -255,6 +256,7 @@ impl Gpu {
         let msaa = self.info.msaa.closest(&offered);
         let mut viewport = ViewportRenderer::new(&self.device, IMAGE_FORMAT, msaa.samples());
         viewport.set_shading(shading);
+        viewport.set_linear_resolve(gpu::resolves_linearly(&self.adapter));
         viewport
     }
 }
@@ -274,15 +276,45 @@ async fn configure(
         config.format = format;
     }
     config.present_mode = present_mode;
-    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-    surface.configure(device, &config);
-    match scope.pop().await {
-        None => Ok(config),
-        Some(error) => {
-            log::warn!("the drawing surface could not be configured: {error}");
-            Err(RenderError::ConfigureSurface)
+    config.view_formats = srgb_view(adapter, config.format).into_iter().collect();
+    if try_configure(device, surface, &config).await.is_ok() {
+        return Ok(config);
+    }
+    if !config.view_formats.is_empty() {
+        config.view_formats.clear();
+        if try_configure(device, surface, &config).await.is_ok() {
+            return Ok(config);
         }
     }
+    Err(RenderError::ConfigureSurface)
+}
+
+async fn try_configure(
+    device: &wgpu::Device,
+    surface: &wgpu::Surface<'static>,
+    config: &wgpu::SurfaceConfiguration,
+) -> Result<(), wgpu::Error> {
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    surface.configure(device, config);
+    match scope.pop().await {
+        None => Ok(()),
+        Some(error) => {
+            log::warn!(
+                "the drawing surface could not be configured with views in {:?}: {error}",
+                config.view_formats
+            );
+            Err(error)
+        }
+    }
+}
+
+fn srgb_view(adapter: &wgpu::Adapter, format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
+    let srgb = format.add_srgb_suffix();
+    let views_allowed = adapter
+        .get_downlevel_capabilities()
+        .flags
+        .contains(wgpu::DownlevelFlags::SURFACE_VIEW_FORMATS | wgpu::DownlevelFlags::VIEW_FORMATS);
+    (views_allowed && srgb != format).then_some(srgb)
 }
 
 pub struct Renderer {
@@ -461,8 +493,23 @@ impl Renderer {
         let view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        let linear_view = self
+            .gpu
+            .config
+            .view_formats
+            .iter()
+            .find(|format| format.is_srgb())
+            .map(|format| {
+                surface_texture
+                    .texture
+                    .create_view(&wgpu::TextureViewDescriptor {
+                        format: Some(*format),
+                        ..Default::default()
+                    })
+            });
         let target = SurfaceTarget {
             view: &view,
+            linear_view: linear_view.as_ref(),
             width: surface_texture.texture.width(),
             height: surface_texture.texture.height(),
         };

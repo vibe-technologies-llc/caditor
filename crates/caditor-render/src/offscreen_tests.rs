@@ -128,8 +128,14 @@ fn render(
     render_frame(device, queue, &full_frame(view, scene, pick_at))
 }
 
+fn viewport_renderer(device: &wgpu::Device, sample_count: u32) -> ViewportRenderer {
+    let mut renderer = ViewportRenderer::new(device, FORMAT, sample_count);
+    renderer.set_linear_resolve(true);
+    renderer
+}
+
 fn render_frame(device: &wgpu::Device, queue: &wgpu::Queue, frame: &ViewportFrame<'_>) -> Rendered {
-    let mut renderer = ViewportRenderer::new(device, FORMAT, 4);
+    let mut renderer = viewport_renderer(device, 4);
     render_with(&mut renderer, device, queue, frame)
 }
 
@@ -149,11 +155,15 @@ fn render_with(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: FORMAT,
+        format: renderer.format(),
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
+        view_formats: &[renderer.format().add_srgb_suffix()],
     });
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let linear_view = target.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(renderer.format().add_srgb_suffix()),
+        ..Default::default()
+    });
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("offscreen readback"),
         size: u64::from(ROW_PITCH * SIZE),
@@ -168,6 +178,7 @@ fn render_with(
         &mut encoder,
         &SurfaceTarget {
             view: &target_view,
+            linear_view: Some(&linear_view),
             width: SIZE,
             height: SIZE,
         },
@@ -588,7 +599,7 @@ fn face_colours_and_the_eye_follow_every_frame_with_one_renderer() {
     let Some((device, queue)) = gpu() else {
         return;
     };
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let mesh = Arc::new(box_mesh(20.0));
     let painted = |color: Color| Scene {
         meshes: vec![MeshInstance {
@@ -894,7 +905,7 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read_once_an
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 100.0).unwrap();
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
     let on_line = view.project(Point3::new(5.0, 0.0, 0.0)).unwrap();
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("offscreen target"),
         size: wgpu::Extent3d {
@@ -919,6 +930,7 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read_once_an
             &mut encoder,
             &SurfaceTarget {
                 view: &target_view,
+                linear_view: None,
                 width: SIZE,
                 height: SIZE,
             },
@@ -969,7 +981,7 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
     let Some((device, queue)) = gpu() else {
         return;
     };
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("offscreen target"),
         size: wgpu::Extent3d {
@@ -995,6 +1007,7 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
             &mut encoder,
             &SurfaceTarget {
                 view: &target_view,
+                linear_view: None,
                 width: SIZE,
                 height: SIZE,
             },
@@ -1439,6 +1452,111 @@ fn bumped_square(half: f64, steps: u32) -> ShadedMesh {
     ShadedMesh::new([MeshFace { points, triangles }])
 }
 
+fn half_covered_column(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    linear: bool,
+) -> ([u8; 4], [u8; 4], [u8; 4], [u8; 4]) {
+    let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
+    let half_pixel = view.units_per_pixel_at(100.0) * 0.5;
+    let quad = |left: f64, right: f64, color: Color| {
+        Fill::convex(
+            &[
+                Point3::new(left, -30.0, 0.0),
+                Point3::new(right, -30.0, 0.0),
+                Point3::new(right, 30.0, 0.0),
+                Point3::new(left, 30.0, 0.0),
+            ],
+            color,
+            Layer::Model,
+            None,
+        )
+    };
+    let scene = Scene::from(Batch {
+        fills: vec![
+            quad(half_pixel, 40.0, Color::from_rgb8(255, 255, 255)),
+            quad(-40.0, -20.0, Color::from_rgb8(128, 128, 128)),
+        ],
+        ..Batch::default()
+    });
+    let centre = view.project(Point3::ZERO).unwrap();
+    let mut renderer = viewport_renderer(device, 4);
+    renderer.set_linear_resolve(linear);
+    let rendered = render_with(
+        &mut renderer,
+        device,
+        queue,
+        &full_frame(&view, &scene, centre),
+    );
+    let image = export_image(
+        &renderer,
+        device,
+        queue,
+        &ImageRequest {
+            size: SurfaceSize {
+                width: SIZE,
+                height: SIZE,
+            },
+            view: &view,
+            scene: &scene,
+            pixels_per_point: 1.0,
+            background: Background::Viewport,
+        },
+        64,
+    );
+    let at = |point: Point3| pixel(&rendered, view.project(point).unwrap().floor());
+    (
+        pixel(&rendered, centre.floor()),
+        at(Point3::new(-30.0, 0.0, 0.0)),
+        at(Point3::new(-10.0, 25.0, 0.0)),
+        image_pixel(&image, centre.floor()),
+    )
+}
+
+#[test]
+fn multisampled_edges_resolve_in_linear_light_and_opaque_colours_keep_their_bytes() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let canvas = [
+        crate::viewport::BACKGROUND.r,
+        crate::viewport::BACKGROUND.g,
+        crate::viewport::BACKGROUND.b,
+    ]
+    .map(|channel| (channel * 255.0).round() as u8);
+    let decode = |encoded: f64| {
+        if encoded <= 0.04045 {
+            encoded / 12.92
+        } else {
+            ((encoded + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let encode = |linear: f64| 1.055 * linear.powf(1.0 / 2.4) - 0.055;
+    let canvas_red = f64::from(canvas[0]) / 255.0;
+
+    let (linear_edge, linear_grey, linear_canvas, linear_image) =
+        half_covered_column(&device, &queue, true);
+    let (gamma_edge, gamma_grey, gamma_canvas, gamma_image) =
+        half_covered_column(&device, &queue, false);
+    let linear_half = encode((1.0 + decode(canvas_red)) / 2.0) * 255.0;
+    let gamma_half = (255.0 + f64::from(canvas[0])) / 2.0;
+
+    assert!(
+        (f64::from(linear_edge[0]) - linear_half).abs() <= 3.0,
+        "{linear_edge:?} against {linear_half}"
+    );
+    assert!(
+        (f64::from(gamma_edge[0]) - gamma_half).abs() <= 3.0,
+        "{gamma_edge:?} against {gamma_half}"
+    );
+    assert_eq!(linear_image, linear_edge);
+    assert_eq!(gamma_image, gamma_edge);
+    assert_eq!(linear_grey[..3], [128, 128, 128]);
+    assert_eq!(gamma_grey[..3], [128, 128, 128]);
+    assert_eq!(linear_canvas[..3], canvas);
+    assert_eq!(gamma_canvas[..3], canvas);
+}
+
 fn cylinder(radius: f64, length: f64, segments: u32) -> ShadedMesh {
     let points = (0..=segments)
         .flat_map(|step| {
@@ -1566,7 +1684,7 @@ fn flat_faces_upload_no_silhouette_and_curved_ones_upload_theirs() {
     let view = looking_down(200.0, f64::from(SIZE), f64::from(SIZE));
     let flat = Arc::new(box_mesh(20.0));
     let curved = Arc::new(cylinder(15.0, 60.0, 48));
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let mut silhouettes_of = |mesh: &Arc<ShadedMesh>| {
         let scene = silhouetted(mesh, true);
         render_with(
@@ -1699,7 +1817,7 @@ fn invisible_lines_and_markers_stay_out_of_the_colour_pass_but_are_still_picked(
         ..Batch::default()
     });
     let at = |x: f64, y: f64| view.project(Point3::new(x, y, 0.0)).unwrap();
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
 
     let on_hidden_line = render_with(
         &mut renderer,
@@ -2025,7 +2143,7 @@ fn a_failed_readback_replaces_the_pick_buffer_and_the_next_pick_is_read() {
     let view = looking_down(100.0, f64::from(SIZE), f64::from(SIZE));
     let on_line = view.project(Point3::new(5.0, 0.0, 0.0)).unwrap();
     let scene = scene();
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("offscreen target"),
         size: wgpu::Extent3d {
@@ -2050,6 +2168,7 @@ fn a_failed_readback_replaces_the_pick_buffer_and_the_next_pick_is_read() {
             &mut encoder,
             &SurfaceTarget {
                 view: &target_view,
+                linear_view: None,
                 width: SIZE,
                 height: SIZE,
             },
@@ -2299,7 +2418,7 @@ fn every_offered_anti_aliasing_level_smooths_edges_and_keeps_front_geometry_and_
         FORMAT,
         crate::viewport::DEPTH_FORMAT,
     );
-    let mut renderer = ViewportRenderer::new(device, FORMAT, 1);
+    let mut renderer = viewport_renderer(device, 1);
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
     let bare = Scene {
@@ -2390,7 +2509,7 @@ fn enhanced_shading_sets_faces_apart_keeps_their_tint_and_keeps_dimmed_bodies_da
     let Some((device, queue)) = gpu() else {
         return;
     };
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let mesh = Arc::new(box_mesh(20.0));
     let painted = |color: Color| Scene {
         meshes: vec![MeshInstance {
@@ -2521,7 +2640,7 @@ fn an_exported_image_is_drawn_in_tiles_at_its_own_size_with_the_chosen_backgroun
         pixels_per_point: 1.0,
         background,
     };
-    let renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let renderer = viewport_renderer(&device, 4);
     let bgra = ViewportRenderer::new(&device, wgpu::TextureFormat::Bgra8Unorm, 1);
 
     let whole = export_image(
@@ -2624,7 +2743,7 @@ fn an_exported_image_streams_in_bands_through_a_few_reused_readback_buffers() {
         pixels_per_point: 1.0,
         background: Background::Viewport,
     };
-    let renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let renderer = viewport_renderer(&device, 4);
 
     let mut bands = image::drawn_inline(
         image_gpu(&device, &queue),
@@ -2666,7 +2785,7 @@ fn image_tiles_wake_for_each_returned_buffer_and_stop_once_the_bands_are_dropped
         pixels_per_point: 1.0,
         background: Background::Viewport,
     };
-    let renderer = ViewportRenderer::new(&device, FORMAT, 1);
+    let renderer = viewport_renderer(&device, 1);
     let wakes = Arc::new(AtomicUsize::new(0));
     let counted = Arc::clone(&wakes);
 
@@ -2796,7 +2915,7 @@ fn lines_in_an_exported_image_widen_with_its_pixels_per_point() {
     let view = looking_down(100.0, f64::from(size.width), f64::from(size.height));
     let scene = line_and_marker();
     let across = view.project(Point3::new(-10.0, 0.0, 0.0)).unwrap();
-    let renderer = ViewportRenderer::new(&device, FORMAT, 1);
+    let renderer = viewport_renderer(&device, 1);
     let width = |pixels_per_point: f32| {
         let image = export_image(
             &renderer,
@@ -2975,9 +3094,13 @@ fn frame_costs_of_drawing_a_large_scene() {
         dimension: wgpu::TextureDimension::D2,
         format: FORMAT,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
+        view_formats: &[FORMAT.add_srgb_suffix()],
     });
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let linear_view = target.create_view(&wgpu::TextureViewDescriptor {
+        format: Some(FORMAT.add_srgb_suffix()),
+        ..Default::default()
+    });
     let meshes = large_meshes();
     let scene = Scene {
         silhouettes: silhouettes_of(&meshes),
@@ -3008,7 +3131,7 @@ fn frame_costs_of_drawing_a_large_scene() {
     let viewpoint =
         Viewpoint::looking_from(Vector3::Z, Point3::new(300.0, 300.0, 0.0), 800.0).unwrap();
     let time = |name: &str, activity: Activity, upload_bytes: Option<u64>| {
-        let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+        let mut renderer = viewport_renderer(&device, 4);
         if let Some(bytes) = upload_bytes {
             renderer.set_mesh_upload_bytes(bytes);
         }
@@ -3049,6 +3172,7 @@ fn frame_costs_of_drawing_a_large_scene() {
                 &mut encoder,
                 &SurfaceTarget {
                     view: &target_view,
+                    linear_view: Some(&linear_view),
                     width: size.width,
                     height: size.height,
                 },
@@ -3144,7 +3268,7 @@ fn a_mesh_over_the_frame_budget_uploads_across_frames_while_the_one_it_replaces_
     };
     let view = looking_down(150.0, f64::from(SIZE), f64::from(SIZE));
     let on_top = view.project(Point3::new(0.0, 10.0, 20.0)).unwrap();
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let first = render_with(
         &mut renderer,
         &device,
@@ -3237,7 +3361,7 @@ fn an_unchanged_scene_is_uploaded_once_and_the_camera_moves_without_uploading_it
     );
     let first_at = first_view.project(marker_at(&scene)).unwrap();
     let turned_at = turned_view.project(marker_at(&scene)).unwrap();
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
 
     let first = render_with(
         &mut renderer,
@@ -3315,7 +3439,7 @@ fn only_a_changed_batch_is_uploaded_again_and_a_dropped_one_stops_drawing() {
     };
     let left = view.project(Point3::new(-10.0, 20.0, 0.0)).unwrap();
     let right = view.project(Point3::new(10.0, 20.0, 0.0)).unwrap();
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let mut draw = |scene: &Scene| {
         render_with(
             &mut renderer,
@@ -3353,7 +3477,7 @@ fn zooming_in_a_hundredfold_keeps_the_uploaded_scene_since_its_rounding_stays_fa
     };
     let wide = view_at(100.0);
     let close = view_at(1.0);
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 1);
+    let mut renderer = viewport_renderer(&device, 1);
     let point = DVec2::new(100.0, 100.0);
 
     render_with(
@@ -3405,7 +3529,7 @@ fn moving_far_from_where_the_scene_was_uploaded_uploads_it_again_as_exactly_as_e
     let on_line = arrived
         .project(far + Vector3::new(-10.0, 0.0, 0.0))
         .unwrap();
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let draw = |renderer: &mut ViewportRenderer, view: &View| {
         render_with(
             renderer,
@@ -3461,7 +3585,7 @@ fn translucent_fills_are_ordered_again_when_the_view_turns_over() {
     let above = from(Vector3::new(0.0, -0.1, 1.0));
     let below = from(Vector3::new(0.0, -0.1, -1.0));
     let middle = DVec2::splat(f64::from(SIZE) / 2.0);
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
 
     let from_above = render_with(
         &mut renderer,
@@ -3527,7 +3651,7 @@ fn viewport_targets_the_device_refuses_are_reported_once_and_the_frame_is_still_
     let Some((device, queue)) = gpu() else {
         return;
     };
-    let mut renderer = ViewportRenderer::new(&device, FORMAT, 4);
+    let mut renderer = viewport_renderer(&device, 4);
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("offscreen target"),
         size: wgpu::Extent3d {
@@ -3551,6 +3675,7 @@ fn viewport_targets_the_device_refuses_are_reported_once_and_the_frame_is_still_
             &mut encoder,
             &SurfaceTarget {
                 view: &target_view,
+                linear_view: None,
                 width: side,
                 height: side,
             },
