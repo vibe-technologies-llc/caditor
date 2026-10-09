@@ -15,6 +15,10 @@ use crate::{
         BodyAppearance, MAX_BODY_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MIN_OPACITY_PERCENT,
         OPAQUE_PERCENT, material_name,
     },
+    configurations::{
+        ConfigurationId, Configurations, ConfiguredValue, MAX_CONFIGURATION_NAME_CHARS,
+        MAX_CONFIGURATIONS, MAX_CONFIGURED_VALUES,
+    },
     datum::{Datum, PrincipalGeometry},
     dependencies::DependencyGraph,
     document::{
@@ -107,6 +111,12 @@ pub enum Edit {
     },
     SetSelectionSets {
         sets: Box<SelectionSets>,
+    },
+    SetConfigurations {
+        configurations: Box<Configurations>,
+    },
+    SetActiveConfiguration {
+        active: Option<ConfigurationId>,
     },
     SetFeatureKind {
         id: FeatureId,
@@ -266,6 +276,9 @@ impl Transaction {
                 Edit::SetModelProperties { .. } => touched.properties = true,
                 Edit::SetSavedViews { .. } => touched.views = true,
                 Edit::SetSelectionSets { .. } => touched.selection_sets = true,
+                Edit::SetConfigurations { .. } | Edit::SetActiveConfiguration { .. } => {
+                    touched.configurations = true;
+                }
             }
         }
         touched
@@ -299,6 +312,9 @@ impl Transaction {
                 }
                 Edit::SetSavedViews { views } => size_of::<SavedViews>() + views.heap_size(),
                 Edit::SetSelectionSets { sets } => size_of::<SelectionSets>() + sets.heap_size(),
+                Edit::SetConfigurations { configurations } => {
+                    size_of::<Configurations>() + configurations.heap_size()
+                }
                 Edit::SetParameterExpression { expression, .. }
                 | Edit::SetDimension {
                     value: expression, ..
@@ -314,6 +330,7 @@ impl Transaction {
                 | Edit::SetFeatureHidden { .. }
                 | Edit::SetFeatureSuppressed { .. }
                 | Edit::SetRollbackBar { .. }
+                | Edit::SetActiveConfiguration { .. }
                 | Edit::SetPrincipalHidden { .. }
                 | Edit::SetSketchPlacement { .. }
                 | Edit::RemoveSketchEntity { .. }
@@ -401,6 +418,28 @@ pub enum EditError {
         "A selection set holds at most {MAX_SET_MEMBERS} faces, edges and bodies, and '{name}' has {members}"
     )]
     SetTooLarge { name: String, members: usize },
+    #[error("A configuration needs a name")]
+    ConfigurationNameEmpty,
+    #[error(
+        "A configuration's name may be at most {MAX_CONFIGURATION_NAME_CHARS} characters long, and this one has {length}"
+    )]
+    ConfigurationNameTooLong { length: usize },
+    #[error("There is already a configuration named '{0}'. Choose another name.")]
+    ConfigurationNameTaken(String),
+    #[error("A model keeps at most {MAX_CONFIGURATIONS} configurations. Delete one first.")]
+    TooManyConfigurations,
+    #[error(
+        "Configurations set at most {MAX_CONFIGURED_VALUES} values. Stop configuring one first."
+    )]
+    TooManyConfiguredValues,
+    #[error("That configuration no longer exists")]
+    MissingConfiguration,
+    #[error("That value cannot be set that way in a configuration")]
+    SettingMismatch,
+    #[error(
+        "The model does not hold the values of {0}, so it cannot become the active configuration"
+    )]
+    ConfigurationOutOfStep(String),
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
     #[error("The rollback bar sits right above {0}; move the bar before deleting it")]
@@ -508,6 +547,37 @@ fn check_storable(raw: u64) -> Result<(), EditError> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy)]
+enum FollowedValue {
+    Parameter(ParameterId),
+    Feature(FeatureId),
+}
+
+impl FollowedValue {
+    fn covers(self, column: ConfiguredValue) -> bool {
+        match (self, column) {
+            (Self::Parameter(id), ConfiguredValue::Parameter(other)) => id == other,
+            (
+                Self::Feature(id),
+                ConfiguredValue::Suppressed(other) | ConfiguredValue::Colour(other),
+            ) => id == other,
+            _ => false,
+        }
+    }
+}
+
+fn followed_value(edit: &Edit) -> Option<FollowedValue> {
+    match edit {
+        Edit::InsertParameter { parameter, .. } => Some(FollowedValue::Parameter(parameter.id())),
+        Edit::SetParameterExpression { id, .. } => Some(FollowedValue::Parameter(*id)),
+        Edit::InsertFeature { feature, .. } => Some(FollowedValue::Feature(feature.id())),
+        Edit::SetFeatureSuppressed { id, .. } | Edit::SetBodyAppearance { id, .. } => {
+            Some(FollowedValue::Feature(*id))
+        }
+        _ => None,
+    }
+}
+
 #[derive(Default)]
 struct ParameterGraph(Option<DependencyGraph>);
 
@@ -542,6 +612,7 @@ pub struct Touched {
     pub properties: bool,
     pub views: bool,
     pub selection_sets: bool,
+    pub configurations: bool,
 }
 
 pub struct TransactionBuilder<'a> {
@@ -667,6 +738,19 @@ impl Document {
     }
 
     fn apply_edit(&mut self, edit: Edit, graph: &mut ParameterGraph) -> Result<Edit, EditError> {
+        let followed = followed_value(&edit);
+        let undo = self.apply_bare_edit(edit, graph)?;
+        if let Some(value) = followed {
+            self.follow_active_configuration(value);
+        }
+        Ok(undo)
+    }
+
+    fn apply_bare_edit(
+        &mut self,
+        edit: Edit,
+        graph: &mut ParameterGraph,
+    ) -> Result<Edit, EditError> {
         match edit {
             Edit::InsertParameter { index, parameter } => {
                 self.insert_parameter(index, parameter, graph)
@@ -696,6 +780,8 @@ impl Document {
             Edit::SetModelProperties { properties } => self.set_model_properties(*properties),
             Edit::SetSavedViews { views } => self.set_saved_views(*views),
             Edit::SetSelectionSets { sets } => self.set_selection_sets(*sets),
+            Edit::SetConfigurations { configurations } => self.set_configurations(*configurations),
+            Edit::SetActiveConfiguration { active } => self.set_active_configuration(active),
             Edit::SetFeatureKind { id, kind } => self.set_feature_kind(id, kind),
             Edit::SetSketchPlacement {
                 feature,
@@ -1340,6 +1426,93 @@ impl Document {
         Ok(Edit::SetSelectionSets {
             sets: Box::new(Arc::unwrap_or_clone(previous)),
         })
+    }
+
+    fn set_configurations(&mut self, configurations: Configurations) -> Result<Edit, EditError> {
+        let mut configurations = configurations.checked()?;
+        let live = self.live_settings_of(&configurations.values);
+        if let Some(active) = configurations.active
+            && let Some(row) = configurations.rows.iter_mut().find(|row| row.id == active)
+        {
+            row.settings.extend(live);
+        }
+        for id in configurations.parameters_named() {
+            check_storable(id.raw())?;
+        }
+        for id in configurations.features_named() {
+            check_storable(id.raw())?;
+        }
+        check_storable(configurations.next_id)?;
+        let parameters_beyond = configurations
+            .parameters_named()
+            .map(|id| id.raw().saturating_add(1))
+            .max()
+            .unwrap_or(0);
+        let features_beyond = configurations
+            .features_named()
+            .map(|id| id.raw().saturating_add(1))
+            .max()
+            .unwrap_or(0);
+        self.next_parameter_id = self.next_parameter_id.max(parameters_beyond);
+        self.next_feature_id = self.next_feature_id.max(features_beyond);
+        configurations.next_id = configurations.next_id.max(self.configurations.next_id);
+        let previous = std::mem::replace(&mut self.configurations, Arc::new(configurations));
+        Ok(Edit::SetConfigurations {
+            configurations: Box::new(Arc::unwrap_or_clone(previous)),
+        })
+    }
+
+    fn set_active_configuration(
+        &mut self,
+        active: Option<ConfigurationId>,
+    ) -> Result<Edit, EditError> {
+        if let Some(id) = active {
+            let row = self
+                .configurations
+                .row(id)
+                .ok_or(EditError::MissingConfiguration)?;
+            if self.out_of_step(row).is_some() {
+                return Err(EditError::ConfigurationOutOfStep(row.name.clone()));
+            }
+        }
+        let previous = if self.configurations.active == active {
+            active
+        } else {
+            std::mem::replace(&mut Arc::make_mut(&mut self.configurations).active, active)
+        };
+        Ok(Edit::SetActiveConfiguration { active: previous })
+    }
+
+    fn follow_active_configuration(&mut self, value: FollowedValue) {
+        let Some(active) = self.configurations.active else {
+            return;
+        };
+        let columns: Vec<ConfiguredValue> = self
+            .configurations
+            .values
+            .iter()
+            .copied()
+            .filter(|column| value.covers(*column))
+            .collect();
+        for column in columns {
+            let Some(live) = self.live_setting(column) else {
+                continue;
+            };
+            let current = self
+                .configurations
+                .row(active)
+                .and_then(|row| row.setting(column));
+            if current == Some(&live) {
+                continue;
+            }
+            if let Some(row) = Arc::make_mut(&mut self.configurations)
+                .rows
+                .iter_mut()
+                .find(|row| row.id == active)
+            {
+                row.settings.insert(column, live);
+            }
+        }
     }
 
     fn set_principal_hidden(&mut self, geometry: PrincipalGeometry, hidden: bool) -> Edit {

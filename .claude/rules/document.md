@@ -198,6 +198,36 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   reference in its body's shown solid (a tie takes every candidate). What it cannot find is a
   `SetLoss` per body (no solid now, a face or an edge not found), which the app puts in words.
 
+## Configurations (`configurations.rs`)
+
+- `Configurations` is a table kept in the model: columns are `ConfiguredValue`s (a parameter's
+  expression, a feature's suppression, a body's colour), rows are named `Configuration`s with a
+  stable `ConfigurationId` from the table's own counter (`next_id`, never lowered, ignored by
+  `same_content`), each holding a `Setting` per column. It is content like the selection sets:
+  compared by `same_content`, carried by `transaction_to` (deactivating first), counted by
+  `heap_size`.
+- One row may be `active`. The active row's settings are always the model's live values: an edit
+  changing a configured value (`SetParameterExpression`, `InsertParameter`,
+  `SetFeatureSuppressed`, `SetBodyAppearance`, `InsertFeature`) also writes it into the active
+  row, so its inverse writes it back, and `SetConfigurations` overwrites the active row from the
+  live values. `configuration_setting` reads a row, the live value for the active one.
+- `Edit::SetConfigurations` sets the table whole (names trimmed, on one line, unique ignoring
+  case, at most `MAX_CONFIGURATION_NAME_CHARS`; at most `MAX_CONFIGURATIONS` rows and
+  `MAX_CONFIGURED_VALUES` columns; settings of the wrong kind or for no column dropped).
+  Columns, cells' parameters and feature columns may name things no longer in the model, like a
+  selection set naming a deleted body: such a column is skipped when switching, and the ID
+  counters are raised past every ID named.
+- `Edit::SetActiveConfiguration` changes only which row is active, refused
+  (`ConfigurationOutOfStep`) when the row's settings are not the live values. `activating` is the
+  one undoable switch: none active, then the row's settings applied as ordinary edits (values that
+  use parameters first set to 0, then those using none, then the rest, so values referring to each
+  other never pass a cycle), then the row active. Recompute sees only the changed values.
+- The builders (`adding_configuration`, `duplicating_configuration`, `renaming_configuration`,
+  `moving_configuration`, `deleting_configuration`, `configuring`, `unconfiguring`,
+  `setting_configuration`) each make one transaction. A new row copies the live values and is
+  active when none is; deleting the active row first switches to the next one; setting a cell
+  of the active row is the live edit itself.
+
 ## Body appearance (`body_appearance.rs`)
 
 - A feature's `appearance` (`BodyAppearance`: an sRGB `Rgb` colour, a material name, a density

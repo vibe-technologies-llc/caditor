@@ -1,4 +1,4 @@
-use caditor_document::Document;
+use caditor_document::{ConfigurationId, Document};
 use egui::{
     Align, Align2, CornerRadius, Id, Key, Label, Layout, Margin, Modal, Modifiers, Rect, Response,
     RichText, ScrollArea, Sense, TextEdit, TextStyle, TextWrapMode, Ui, UiBuilder, vec2,
@@ -17,7 +17,8 @@ const LIST_HEIGHT: f32 = 360.0;
 const RECENT_LIMIT: usize = 6;
 const ROW_HEIGHT: f32 = CONTROL_HEIGHT + SPACE_S;
 const DETAIL_LINES: f32 = 2.0;
-pub const FIELD_HINT: &str = "Search commands, features, parameters, views and selection sets";
+pub const FIELD_HINT: &str =
+    "Search commands, features, parameters, views, selection sets and configurations";
 const SKETCH_ONLY: &str = "works only while a sketch is edited";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -38,6 +39,7 @@ enum Group {
     Parameters,
     Views,
     SelectionSets,
+    Configurations,
 }
 
 impl Group {
@@ -49,6 +51,7 @@ impl Group {
             Self::Parameters => "Parameters",
             Self::Views => "Views",
             Self::SelectionSets => "Selection sets",
+            Self::Configurations => "Configurations",
         }
     }
 }
@@ -59,6 +62,7 @@ pub enum Choice {
     Focus(Focus),
     View(usize),
     SelectionSet(usize),
+    Configuration(ConfigurationId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +103,9 @@ impl Entry {
             (State::Ready, Choice::SelectionSet(_)) => {
                 "Press Enter to select what this set holds.".to_owned()
             }
+            (State::Ready, Choice::Configuration(_)) => {
+                "Press Enter to switch the model to this configuration.".to_owned()
+            }
         }
     }
 
@@ -120,6 +127,7 @@ pub struct Palette {
     focus: Option<Focus>,
     view: Option<usize>,
     selection_set: Option<usize>,
+    configuration: Option<ConfigurationId>,
     recent: Vec<Command>,
 }
 
@@ -150,6 +158,10 @@ impl Palette {
         self.selection_set.take()
     }
 
+    pub fn take_configuration(&mut self) -> Option<ConfigurationId> {
+        self.configuration.take()
+    }
+
     fn choose(&mut self, choice: Choice) {
         self.open = false;
         match choice {
@@ -162,6 +174,7 @@ impl Palette {
             Choice::Focus(focus) => self.focus = Some(focus),
             Choice::View(index) => self.view = Some(index),
             Choice::SelectionSet(index) => self.selection_set = Some(index),
+            Choice::Configuration(id) => self.configuration = Some(id),
         }
     }
 
@@ -283,6 +296,28 @@ impl Palette {
                 };
                 ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
             }
+            let configurations = document.configurations();
+            for (index, row) in configurations.rows.iter().enumerate() {
+                let title = format!("Switch to {}", row.name);
+                let Some((fit, length)) = matches(&title, &row.name) else {
+                    continue;
+                };
+                let active = configurations.is_active(row.id);
+                let entry = Entry {
+                    group: Group::Configurations,
+                    choice: Choice::Configuration(row.id),
+                    title,
+                    glyph: icons::command(Command::Configurations),
+                    note: active.then(|| "Active".to_owned()),
+                    keys: None,
+                    state: if active {
+                        State::Unavailable("it is already the active configuration".to_owned())
+                    } else {
+                        State::Ready
+                    },
+                };
+                ranked.push(((fit, 0, RECENT_LIMIT, length, index), entry));
+            }
         }
         let best = |group: Group| {
             ranked
@@ -305,6 +340,7 @@ impl Palette {
             Group::Parameters,
             Group::Views,
             Group::SelectionSets,
+            Group::Configurations,
         ]
         .into_iter()
         .map(|group| (group_order(group), group))

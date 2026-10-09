@@ -2,6 +2,7 @@ mod attachment;
 mod blend;
 mod body_appearance;
 mod combine;
+mod configurations;
 mod datum;
 mod datum_construction;
 mod dependencies;
@@ -60,6 +61,11 @@ pub use crate::{
         density_of, material_name, nearest_opacity_step,
     },
     combine::{Combine, CombineOperation},
+    configurations::{
+        Configuration, ConfigurationId, Configurations, ConfiguredValue,
+        MAX_CONFIGURATION_NAME_CHARS, MAX_CONFIGURATIONS, MAX_CONFIGURED_VALUES, Setting,
+        configuration_name,
+    },
     datum::{
         AxisReference, CurveStation, Datum, DatumAxis, DatumFrame, DatumKind, DatumPlane,
         DatumPoint, DatumResult, FaceTangent, PlaneReference, PlaneRotation, PlaneThrough, PointBy,
@@ -156,6 +162,8 @@ mod blend_tests;
 mod body_appearance_tests;
 #[cfg(test)]
 mod combine_tests;
+#[cfg(test)]
+mod configurations_tests;
 #[cfg(test)]
 mod cut_several_tests;
 #[cfg(test)]

@@ -1,5 +1,6 @@
 mod binary;
 mod clipboard;
+mod configurations;
 mod export;
 mod format;
 #[cfg(feature = "fuzzing")]

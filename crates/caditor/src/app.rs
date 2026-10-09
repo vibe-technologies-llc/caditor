@@ -29,6 +29,7 @@ use crate::{
     comb::CombTool,
     comb_panel,
     commands::{self, Clipboard, Command, CommandFrame, Offer, Situation},
+    configurations::{self, ConfigurationsDraft},
     constraint_trial, drawing_export, drop_target,
     editing::SketchEditing,
     feature_tree,
@@ -141,6 +142,7 @@ pub struct Workspace {
     pub model_properties: Option<PropertiesDraft>,
     pub saved_views: Option<ViewsDraft>,
     pub selection_sets: Option<SetsDraft>,
+    pub configurations: Option<ConfigurationsDraft>,
     pub scale_model: Option<ScaleDraft>,
     pub last_offers: Vec<Offer>,
     pub selection_offers: SelectionOffers,
@@ -191,6 +193,7 @@ impl Workspace {
             model_properties: None,
             saved_views: None,
             selection_sets: None,
+            configurations: None,
             scale_model: None,
             last_offers: Vec::new(),
             selection_offers: SelectionOffers::default(),
@@ -227,6 +230,7 @@ impl Workspace {
         self.model_properties = None;
         self.saved_views = None;
         self.selection_sets = None;
+        self.configurations = None;
         self.scale_model = None;
         self.last_offers.clear();
         self.selection_offers = SelectionOffers::default();
@@ -251,6 +255,7 @@ impl Workspace {
             self.model_properties = None;
             self.saved_views = None;
             self.selection_sets = None;
+            self.configurations = None;
             self.scale_model = None;
             self.interference.interference.forget();
             self.comb.forget();
@@ -327,6 +332,11 @@ impl Workspace {
                 self.scale_model.get_or_insert_with(ScaleDraft::default);
             }
             PreferencesCommand::CloseScaleModel => self.scale_model = None,
+            PreferencesCommand::ShowConfigurations => {
+                self.configurations
+                    .get_or_insert_with(ConfigurationsDraft::default);
+            }
+            PreferencesCommand::CloseConfigurations => self.configurations = None,
             PreferencesCommand::SelectSet(index) => {
                 let in_sketch = self.editing.feature().is_some();
                 let report = match selection_sets::choose(model, index, in_sketch) {
@@ -440,6 +450,7 @@ pub fn show(
         || workspace.model_properties.is_some()
         || workspace.saved_views.is_some()
         || workspace.selection_sets.is_some()
+        || workspace.configurations.is_some()
         || workspace.scale_model.is_some()
         || workspace.panels.deleting.is_some()
         || workspace.panels.noting.is_some();
@@ -464,6 +475,7 @@ pub fn show(
         model_properties,
         saved_views,
         selection_sets,
+        configurations,
         scale_model,
         last_offers,
         selection_offers,
@@ -514,6 +526,12 @@ pub fn show(
     }
     if let Some(index) = palette.take_selection_set() {
         actions.push(Action::Preferences(PreferencesCommand::SelectSet(index)));
+    }
+    if let Some(id) = palette.take_configuration() {
+        actions.push(match configurations::switching(model.document(), id) {
+            Ok(transaction) => Action::Apply(transaction),
+            Err(reason) => Action::Inform(Notice::info(reason)),
+        });
     }
     let mut commands = CommandFrame::new(&preferences.keymap, triggered).with_clipboard(clipboard);
     let menu = MenuContext {
@@ -741,6 +759,9 @@ pub fn show(
     if commands.invoke(Command::ScaleModel, &outside_sketch) {
         actions.push(Action::Preferences(PreferencesCommand::ShowScaleModel));
     }
+    if commands.available(Command::Configurations) {
+        actions.push(Action::Preferences(PreferencesCommand::ShowConfigurations));
+    }
     if commands.available(Command::Messages) {
         actions.push(Action::Preferences(PreferencesCommand::ShowMessages));
     }
@@ -874,6 +895,18 @@ pub fn show(
                 }
                 selection_sets::Outcome::Select(index) => {
                     actions.push(Action::Preferences(PreferencesCommand::SelectSet(index)));
+                }
+            }
+        }
+        if let Some(draft) = configurations
+            && let Some(outcome) = configurations::dialog(ui.ctx(), model, draft)
+        {
+            match outcome {
+                configurations::Outcome::Close => {
+                    actions.push(Action::Preferences(PreferencesCommand::CloseConfigurations));
+                }
+                configurations::Outcome::Apply(transaction) => {
+                    actions.push(Action::Apply(transaction));
                 }
             }
         }

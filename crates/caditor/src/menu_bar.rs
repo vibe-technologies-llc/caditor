@@ -59,6 +59,7 @@ const MODEL_BODIES: [&[Command]; 2] = [
         Command::Scale,
         Command::Mate,
         Command::ScaleModel,
+        Command::Configurations,
     ],
     &[
         Command::BodyAppearance,

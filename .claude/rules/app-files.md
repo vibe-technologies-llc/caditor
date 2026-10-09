@@ -6,6 +6,7 @@ paths:
   - "crates/caditor/src/portal/**"
   - "crates/caditor/src/onboarding.rs"
   - "crates/caditor/src/export.rs"
+  - "crates/caditor/src/configuration_export.rs"
   - "crates/caditor/src/image_export.rs"
   - "crates/caditor/src/drawing_export.rs"
   - "crates/caditor/src/import.rs"
@@ -121,6 +122,17 @@ paths:
   `snapshot::of_bodies`), with `Renderer::render_image`; the export thread reads the bands before
   writing. When the renderer is busy with an image export or drawing fails, the 3MF goes without
   one. The command line draws it offscreen when a graphics adapter exists.
+- With two or more configurations (`document.md`) the dialog adds a Configurations choice: This
+  configuration, or Every configuration (`Exporter::every_configuration`), which writes each
+  configuration to a file of its own beside the chosen one, its name added to the stem with
+  characters no file name may hold replaced (`configuration_export::file_for`: "bracket M4.stl").
+  That export runs a `ConfigurationJob` on the export thread: for each configuration a copy of
+  the document is switched to it (`Document::activating`), recomputed without display data (one
+  `Recompute` for all, so unchanged features are reused) and its bodies not left out exported,
+  the status bar saying which configuration of how many and Cancel stopping between and inside
+  them, keeping the files already written. The model itself never switches. One notice lists the
+  files and, per configuration, a refused switch, failed features or bodies left out. A 3MF
+  written this way has no thumbnail, since the view shows only the active configuration.
 - A path lacking the format's extension gets it appended, so an export never replaces a model
   file; when the appended name exists, `files.rs` asks "Replace …?" as Save As does, and Cancel
   returns to the export dialog.

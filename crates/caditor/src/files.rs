@@ -16,8 +16,8 @@ use std::{
 use caditor_document::{CancelToken, Document, FeatureId, FeatureResult, ImportedParameter};
 use caditor_file::{
     Closing, Construction, DRAWING_IMPORT_EXTENSIONS, Drawing, DrawingExported, DrawingSheet,
-    ExportError, ExportFormat, Exported, FILE_EXTENSION, FaceExported, FileJournal, History,
-    ImportError, LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch,
+    ExportError, ExportFormat, FILE_EXTENSION, FaceExported, FileJournal, History, ImportError,
+    LoadError, Loaded, MESH_IMPORT_EXTENSIONS, ModelImport, NamedFace, NamedSketch,
     PARAMETERS_EXTENSION, PNG_EXTENSION, ParameterFileError, RecentChange, RecentFiles, Recovered,
     STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SaveError, SavedState, Settings, SheetLayout,
     SketchExported, SketchFormat, describe_set_aside, journal_for, load_cancellable, load_version,
@@ -42,7 +42,7 @@ use crate::{
         SKETCH_HINT,
     },
     editing::{self, SketchEditing},
-    export::{self, ExportCommand, Exporter, ThumbnailJob},
+    export::{self, ExportCommand, ExportReport, Exporter, ThumbnailJob},
     history::{self, HistoryCommand, VersionHistory},
     icons,
     image_export::{
@@ -538,7 +538,7 @@ enum Event {
     },
     Exported {
         path: PathBuf,
-        result: Result<Exported, ExportError>,
+        report: ExportReport,
     },
     ImageExported {
         path: PathBuf,
@@ -1381,8 +1381,8 @@ impl Files {
                     (None, _) => {}
                 }
             }
-            Event::Exported { path, result } => {
-                let notice = self.exporter.finished(&path, result);
+            Event::Exported { path, report } => {
+                let notice = self.exporter.reported(&path, report);
                 model.set_notice(notice);
             }
             Event::ImageExported { path, result } => {
@@ -1860,8 +1860,8 @@ impl Files {
             path,
             format,
             model,
-            Box::new(move |path, result| {
-                if events.send(Event::Exported { path, result }).is_ok() {
+            Box::new(move |path, report| {
+                if events.send(Event::Exported { path, report }).is_ok() {
                     wake();
                 }
             }),

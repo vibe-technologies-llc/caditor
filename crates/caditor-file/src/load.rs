@@ -15,6 +15,7 @@ use caditor_sketch::EntityId;
 
 use crate::{
     binary::{self, FileDigest, History, UnpackError},
+    configurations::{ConfigurationsRecord, restore_configurations},
     format::{
         FEATURE_FIELDS, FEATURE_KINDS, FeatureRecord, ImportTexts, Lenient, NamedValuesRecord,
         NextIdsRecord, ParameterRecord, PrincipalGeometryRecord, PropertiesRecord, RECORD_KINDS,
@@ -164,6 +165,7 @@ pub(crate) struct Parts {
     pub views: Option<ViewsRecord>,
     pub named_values: Option<NamedValuesRecord>,
     pub selection_sets: Option<SelectionSetsRecord>,
+    pub configurations: Option<ConfigurationsRecord>,
     pub lost_parameter_names: BTreeMap<u64, String>,
     pub beyond_limit: usize,
 }
@@ -192,6 +194,9 @@ impl Parts {
             Record::Views(views) => self.views = Some(views),
             Record::NamedValues(named) => self.named_values = Some(named),
             Record::SelectionSets(sets) => self.selection_sets = Some(sets),
+            Record::Configurations(configurations) => {
+                self.configurations = Some(configurations);
+            }
         }
     }
 }
@@ -428,6 +433,7 @@ pub(crate) fn assemble(parts: Parts, issues: &mut Vec<String>) -> Document {
     restore_document_sets(&mut document, parts.selection_sets, issues);
     restore_suppressed(&mut document, &parts.suppressed, issues);
     restore_rollback_bar(&mut document, parts.rollback, issues);
+    restore_document_configurations(&mut document, parts.configurations, issues);
 
     if let Some(next) = parts.next_ids {
         document.reserve_ids_below(next.parameter, next.feature);
@@ -549,6 +555,30 @@ fn restore_document_sets(
     {
         issues.push(
             "The model's selection sets could not be restored, so there are none.".to_owned(),
+        );
+    }
+}
+
+fn restore_document_configurations(
+    document: &mut Document,
+    record: Option<ConfigurationsRecord>,
+    issues: &mut Vec<String>,
+) {
+    let Some(record) = record else {
+        return;
+    };
+    let configurations = restore_configurations(record, issues);
+    let edit = Edit::SetConfigurations {
+        configurations: Box::new(configurations),
+    };
+    if document
+        .apply(Transaction::single("Configurations", edit))
+        .is_err()
+    {
+        issues.push(
+            "The model's configurations could not be restored, so there are none; the model \
+             keeps its values."
+                .to_owned(),
         );
     }
 }
