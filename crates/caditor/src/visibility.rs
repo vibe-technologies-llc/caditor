@@ -7,8 +7,8 @@ use caditor_document::{
 use crate::selection::{Axis, Pickable, Selection};
 
 const NOTHING_TO_HIDE: &str =
-    "Select a body, sketch, datum, principal plane or axis in the view first";
-const NOTHING_TO_ISOLATE: &str = "Select what to keep in the view first";
+    "Select a body, sketch, datum, principal plane or axis in the view or the tree first";
+const NOTHING_TO_ISOLATE: &str = "Select what to keep in the view or the tree first";
 const ALREADY_ISOLATED: &str = "Everything else is already hidden";
 const NOTHING_HIDDEN: &str = "Nothing is hidden";
 const NOT_HIDEABLE: &str = "Only sketches, datums and features that make a body can be hidden";
@@ -149,6 +149,54 @@ pub fn toggle(feature: &Feature) -> Result<Transaction, String> {
     ))
 }
 
+pub fn hideable_rows(document: &Document, rows: &[FeatureId]) -> Vec<FeatureId> {
+    let wanted: BTreeSet<FeatureId> = rows
+        .iter()
+        .filter_map(|id| document.feature(*id))
+        .filter_map(|feature| {
+            if can_hide(feature) {
+                Some(feature.id())
+            } else {
+                feature.body()
+            }
+        })
+        .collect();
+    document
+        .features()
+        .filter(|feature| wanted.contains(&feature.id()) && can_hide(feature))
+        .map(Feature::id)
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowToggle {
+    pub hiding: bool,
+    pub transaction: Transaction,
+}
+
+pub fn toggle_rows(document: &Document, rows: &[FeatureId]) -> Result<RowToggle, String> {
+    let toggled: Vec<&Feature> = hideable_rows(document, rows)
+        .into_iter()
+        .filter_map(|id| document.feature(id))
+        .collect();
+    let hiding = toggled.iter().any(|feature| !feature.hidden);
+    let verb = if hiding { "Hide" } else { "Show" };
+    let label = match toggled.as_slice() {
+        [] => return Err(NOT_HIDEABLE.to_owned()),
+        [only] => format!("{verb} {}", only.name),
+        many => format!("{verb} {} features", many.len()),
+    };
+    let edits = toggled
+        .iter()
+        .filter(|feature| feature.hidden != hiding)
+        .map(|feature| set_hidden(feature.id(), hiding))
+        .collect();
+    Ok(RowToggle {
+        hiding,
+        transaction: Transaction::new(label, edits),
+    })
+}
+
 pub fn toggle_principal(document: &Document, geometry: PrincipalGeometry) -> Transaction {
     let shown = is_principal_shown(document, geometry);
     let verb = if shown { "Hide" } else { "Show" };
@@ -206,11 +254,13 @@ pub fn toggle_kind(
 pub fn hide_selection(
     document: &Document,
     selection: &Selection,
+    rows: &[FeatureId],
     edited: Option<FeatureId>,
 ) -> Result<Transaction, String> {
     let owners: BTreeSet<FeatureId> = selection
         .iter()
         .filter_map(owner)
+        .chain(hideable_rows(document, rows))
         .filter(|owner| Some(*owner) != edited)
         .collect();
     let hiding: Vec<&Feature> = owners
@@ -250,9 +300,14 @@ pub fn hide_selection(
 pub fn hide_others(
     document: &Document,
     selection: &Selection,
+    rows: &[FeatureId],
     edited: Option<FeatureId>,
 ) -> Result<Transaction, String> {
-    let kept_features: BTreeSet<FeatureId> = selection.iter().filter_map(owner).collect();
+    let kept_features: BTreeSet<FeatureId> = selection
+        .iter()
+        .filter_map(owner)
+        .chain(hideable_rows(document, rows))
+        .collect();
     let kept_principal: BTreeSet<PrincipalGeometry> =
         selection.iter().filter_map(principal).collect();
     let kept = kept_features
@@ -352,9 +407,9 @@ mod tests {
 
         let xy = PrincipalGeometry::Plane(crate::selection::PrincipalPlane::Xy);
 
-        let hide = hide_selection(&document, &selection, None).unwrap();
+        let hide = hide_selection(&document, &selection, &[], None).unwrap();
         document.apply(hide.clone()).unwrap();
-        let again = hide_selection(&document, &selection, None);
+        let again = hide_selection(&document, &selection, &[], None);
         let hidden_xy = document.is_principal_hidden(xy);
         let show = show_all(&document).unwrap();
         document.apply(show).unwrap();
@@ -386,10 +441,10 @@ mod tests {
             entity: caditor_sketch::EntityId::ORIGIN,
         });
 
-        let nothing = hide_others(&document, &Selection::default(), None);
-        let isolate = hide_others(&document, &selection, None).unwrap();
+        let nothing = hide_others(&document, &Selection::default(), &[], None);
+        let isolate = hide_others(&document, &selection, &[], None).unwrap();
         document.apply(isolate.clone()).unwrap();
-        let again = hide_others(&document, &selection, None);
+        let again = hide_others(&document, &selection, &[], None);
 
         assert_eq!(nothing, Err(NOTHING_TO_ISOLATE.to_owned()));
         assert_eq!(isolate.label(), "Hide everything but First");

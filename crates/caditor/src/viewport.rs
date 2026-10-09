@@ -5,6 +5,7 @@ use caditor_document::{
 };
 use caditor_file::PastedGeometry;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
+use caditor_kernel::EdgeName;
 use caditor_render::{
     Camera, MAX_SECTION_PLANES, PickResult, ProjectionMode, Reflection, Scene, SectionPlane,
     SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing, is_cut_away, section_slack,
@@ -286,6 +287,8 @@ pub struct ViewportState {
     hovered_in_tree: Option<Pickable>,
     previewed: Vec<Pickable>,
     chosen_rows: Vec<FeatureId>,
+    hovered_row: Option<FeatureId>,
+    tree_dismissed: bool,
     home_applied: bool,
     session: u64,
     fit_when_computed: bool,
@@ -453,6 +456,8 @@ impl ViewportState {
             hovered_in_tree: None,
             previewed: Vec::new(),
             chosen_rows: Vec::new(),
+            hovered_row: None,
+            tree_dismissed: false,
             home_applied: false,
             session: 0,
             fit_when_computed: false,
@@ -660,11 +665,23 @@ impl ViewportState {
         self.chosen_rows = rows;
     }
 
+    pub fn hover_row(&mut self, row: Option<FeatureId>) {
+        self.hovered_row = row;
+    }
+
+    pub fn take_tree_dismissal(&mut self) -> bool {
+        std::mem::take(&mut self.tree_dismissed)
+    }
+
     fn rows_to_highlight(&self, context: editing::Context) -> Vec<FeatureId> {
-        match context.sketch.is_none() && context.solid.is_none() {
-            true => self.chosen_rows.clone(),
-            false => Vec::new(),
+        if context.sketch.is_some() || context.solid.is_some() {
+            return Vec::new();
         }
+        let mut rows = self.chosen_rows.clone();
+        if let Some(hovered) = self.hovered_row.filter(|row| !rows.contains(row)) {
+            rows.push(hovered);
+        }
+        rows
     }
 
     fn shown_section(&self, edited: Option<Plane>) -> Vec<SectionPlane> {
@@ -681,6 +698,7 @@ impl ViewportState {
     pub fn forget_document(&mut self) {
         self.selection.clear();
         self.chosen_rows.clear();
+        self.hovered_row = None;
         self.previewed.clear();
         self.hovered = None;
         self.hover_source = None;
@@ -2188,6 +2206,7 @@ impl ViewportState {
                 let chosen = self.whole_body_of(model, pickable);
                 self.selection.replace_with_all(chosen);
             }
+            (None, false) if self.selection.is_empty() => self.tree_dismissed = true,
             (None, false) => self.selection.clear(),
             (None, true) => {}
         }
@@ -3408,6 +3427,8 @@ impl ViewportState {
             actions.push(Action::Editing(EditingCommand::Finish));
         } else if editing.solid().is_some() {
             actions.push(Action::Editing(EditingCommand::CloseSolid));
+        } else {
+            self.tree_dismissed = true;
         }
     }
 
@@ -4016,16 +4037,41 @@ fn outcome_action(outcome: Result<Option<Transaction>, String>) -> Option<Action
 }
 
 fn open_command(pickable: Option<Pickable>, model: &Model) -> Option<EditingCommand> {
-    match pickable? {
-        Pickable::SketchEntity { feature, .. } => Some(EditingCommand::Enter(feature)),
-        Pickable::Datum(datum)
-        | Pickable::FrameAxis { feature: datum, .. }
-        | Pickable::FramePlane { feature: datum, .. } => Some(EditingCommand::OpenSolid(datum)),
-        Pickable::Face { body, face } => bodies::shown(model.evaluation(), body)
-            .and_then(|shown| bodies::face_origin(shown, face))
-            .map(|origin| EditingCommand::OpenSolid(bodies::origin_feature(origin))),
+    let pickable = pickable?;
+    match pickable {
+        Pickable::SketchEntity { .. } => feature_of(pickable, model).map(EditingCommand::Enter),
+        Pickable::Datum(_)
+        | Pickable::FrameAxis { .. }
+        | Pickable::FramePlane { .. }
+        | Pickable::Face { .. } => feature_of(pickable, model).map(EditingCommand::OpenSolid),
         _ => None,
     }
+}
+
+pub fn feature_of(pickable: Pickable, model: &Model) -> Option<FeatureId> {
+    match pickable {
+        Pickable::SketchEntity { feature, .. }
+        | Pickable::SketchRegion { feature, .. }
+        | Pickable::Datum(feature)
+        | Pickable::FrameAxis { feature, .. }
+        | Pickable::FramePlane { feature, .. } => Some(feature),
+        Pickable::Face { body, face } => bodies::shown(model.evaluation(), body)
+            .and_then(|shown| bodies::face_origin(shown, face))
+            .map(bodies::origin_feature),
+        Pickable::Edge { body, edge } => edge_feature(model, body, edge),
+        _ => None,
+    }
+}
+
+fn edge_feature(model: &Model, body: FeatureId, edge: EdgeName) -> Option<FeatureId> {
+    let shown = bodies::shown(model.evaluation(), body)?;
+    let found = bodies::find_edge(shown, edge)?;
+    let document = model.document();
+    caditor_document::edge_faces(&shown.solid, found)
+        .into_iter()
+        .filter_map(|face| shown.solid.face(face)?.origin())
+        .map(bodies::origin_feature)
+        .max_by_key(|feature| document.feature_index(*feature))
 }
 
 fn pick_action(

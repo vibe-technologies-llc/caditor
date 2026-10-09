@@ -5,7 +5,7 @@ use crate::{
     appearance::{self, SPACE_S},
     body_appearance, body_selection,
     commands::{Command, CommandFrame},
-    feature_tree::CommandContext,
+    feature_tree::{self, CommandContext},
     icons,
     model::{Action, Model, Notice},
     move_tools,
@@ -96,8 +96,8 @@ pub fn show(
         collapsing.toggle(ui);
     }
     collapsing.show_body_unindented(ui, |ui| {
-        for body in bodies {
-            item(ui, model, selection, state, actions, body);
+        for body in &bodies {
+            item(ui, model, selection, state, actions, (*body, &bodies));
         }
     });
     collapsing.store(ui.ctx());
@@ -109,7 +109,7 @@ fn item(
     selection: &Selection,
     state: &mut PanelState,
     actions: &mut Vec<Action>,
-    body: FeatureId,
+    (body, listed): (FeatureId, &[FeatureId]),
 ) {
     let Some(feature) = model.document().feature(body) else {
         return;
@@ -156,7 +156,13 @@ fn item(
     if row_name.has_focus() {
         tree_row::focus_outline(ui, row.rect);
     }
-    if row_name.clicked() || row_name.gained_focus() {
+    if ui.rect_contains_pointer(row.rect) {
+        state.hovered_row = Some(body);
+    }
+    if row_name.clicked() {
+        let modifiers = ui.input(|input| input.modifiers);
+        feature_tree::choose_among(state, listed, body, modifiers);
+    } else if row_name.gained_focus() {
         state.choose_only(body);
     }
     row_name.context_menu(|ui| {

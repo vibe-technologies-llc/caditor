@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use caditor_document::{FeatureState, Progress};
+use caditor_document::{FeatureId, FeatureState, Progress};
 use egui::{
     Align, CornerRadius, CursorIcon, Frame, Id, Label, Layout, Margin, Rect, Response, RichText,
     Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui, UiBuilder, WidgetText, vec2,
@@ -49,11 +49,16 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     recompute_commands(model, commands, actions);
-    let failed = first_failed(model).ok_or(NOTHING_FAILED);
-    if commands.invoke(Command::ShowFirstFailed, &failed)
-        && let Ok(feature) = failed
-    {
-        panels.request_focus(Focus::Feature(feature));
+    for (command, way) in [
+        (Command::ShowNextFailed, Step::Next),
+        (Command::ShowPreviousFailed, Step::Previous),
+    ] {
+        let failed = failed_after(model, panels.selected, way).ok_or(NOTHING_FAILED);
+        if commands.invoke(command, &failed)
+            && let Ok(feature) = failed
+        {
+            panels.request_focus(Focus::Feature(feature));
+        }
     }
     let dismissible = model.notice().map(|_| ()).ok_or(NO_NOTICE);
     if commands.invoke(Command::DismissNotice, &dismissible) {
@@ -276,7 +281,7 @@ fn summary(ui: &mut Ui, model: &Model, panels: &mut PanelState) {
         failed => {
             let text = format!("{} failed", count(failed, "feature", "features"));
             if failed_pill(ui, &text).clicked()
-                && let Some(feature) = first_failed(model)
+                && let Some(feature) = failed_after(model, panels.selected, Step::Next)
             {
                 panels.request_focus(Focus::Feature(feature));
             }
@@ -289,7 +294,7 @@ fn failed_pill(ui: &mut Ui, text: &str) -> Response {
     let pill = widgets::status_pill(ui, Tone::Error, text);
     let response = widgets::named(pill.interact(Sense::click()), text)
         .on_hover_cursor(CursorIcon::PointingHand)
-        .on_hover_text("Show the first failed feature");
+        .on_hover_text("Show the next failed feature");
     widgets::announced(ui, &response, true);
     let pressed = response.is_pointer_button_down_on();
     if pressed || response.hovered() {
@@ -308,17 +313,40 @@ fn failed_pill(ui: &mut Ui, text: &str) -> Response {
     response
 }
 
-fn first_failed(model: &Model) -> Option<caditor_document::FeatureId> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Next,
+    Previous,
+}
+
+fn failed_after(model: &Model, current: Option<FeatureId>, way: Step) -> Option<FeatureId> {
     let evaluation = model.evaluation();
-    model
+    let failed: Vec<FeatureId> = model
         .document()
         .features()
         .map(|feature| feature.id())
-        .find(|id| {
+        .filter(|id| {
             evaluation
                 .feature(*id)
                 .is_some_and(|status| matches!(status.state, FeatureState::Failed(_)))
         })
+        .collect();
+    let at = current.and_then(|id| model.document().feature_index(id));
+    let index_of = |id: &FeatureId| model.document().feature_index(*id);
+    match (way, at) {
+        (Step::Next, Some(at)) => failed
+            .iter()
+            .find(|id| index_of(id).is_some_and(|index| index > at))
+            .or(failed.first()),
+        (Step::Previous, Some(at)) => failed
+            .iter()
+            .rev()
+            .find(|id| index_of(id).is_some_and(|index| index < at))
+            .or(failed.last()),
+        (Step::Next, None) => failed.first(),
+        (Step::Previous, None) => failed.last(),
+    }
+    .copied()
 }
 
 fn notice_text(ui: &Ui, notice: &Notice) -> RichText {

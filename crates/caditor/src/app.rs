@@ -675,6 +675,7 @@ pub fn show(
         actions,
     );
     preferences.panels = panels.layout();
+    deferred_commands.append(&mut panels.requested);
     if guide.open {
         guide_panel::show(ui, guide, &preferences.keymap, room);
     }
@@ -687,6 +688,7 @@ pub fn show(
     }
     viewport.hover_from_tree(panels.hovered_in_tree.take());
     viewport.show_chosen_rows(panels.chosen());
+    viewport.hover_row(panels.hovered_row.take());
     if let Some(place) = panels.shown_place.take() {
         viewport.show_place(place);
     }
@@ -773,7 +775,9 @@ pub fn show(
     viewport.set_isocurves(lines);
     let tidied = tidy_panel::show(ui, model, tidying, viewport.selection(), room);
     actions.extend(tidied.actions);
-    viewport.preview_entities(tidied.previewed);
+    let mut previewed = tidied.previewed;
+    previewed.extend(panels.reference_rows.take_previewed());
+    viewport.preview_entities(previewed);
     if section.open {
         let context = SectionContext {
             model,
@@ -790,6 +794,9 @@ pub fn show(
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
     if viewport.selection() != &selected_before && !viewport.selection().is_empty() {
         panels.selected = None;
+    }
+    if viewport.take_tree_dismissal() {
+        panels.choose_nothing();
     }
     panels.follow_view_selection(viewport.selection());
     interface_size(&preferences.appearance, &mut commands, actions);

@@ -2,7 +2,7 @@
 
 The Bodies section above the features lists the bodies standing at the end of the model, by their
 own name or the name of the feature that made them. Click one to choose its feature in the tree;
-the eye hides or shows it.
+Ctrl-click and Shift-click choose several, as in the feature tree. The eye hides or shows it.
 
 ## Colour, material and name
 

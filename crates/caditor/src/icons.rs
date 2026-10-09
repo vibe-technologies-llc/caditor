@@ -102,6 +102,8 @@ pub const TEMPLATE: &str = phosphor::STAMP;
 pub const FEATURES: &str = phosphor::TREE_STRUCTURE;
 pub const PARAMETERS: &str = phosphor::FUNCTION;
 pub const GO_TO: &str = phosphor::ARROW_RIGHT;
+pub const USES: &str = phosphor::ARROW_ELBOW_LEFT_UP;
+pub const USED_BY: &str = phosphor::ARROW_ELBOW_RIGHT_DOWN;
 pub const SHOW_PLACE: &str = phosphor::MAP_PIN;
 pub const DETACH: &str = phosphor::LINK_BREAK;
 pub const UNUSED: &str = phosphor::LINK_SIMPLE_BREAK;
@@ -303,7 +305,7 @@ pub fn command(command: Command) -> &'static str {
         Command::MoveParameterUp => MOVE_UP,
         Command::MoveParameterDown => MOVE_DOWN,
         Command::ParameterNote => EDIT_NOTE,
-        Command::ShowFirstFailed => FAILED,
+        Command::ShowNextFailed | Command::ShowPreviousFailed => FAILED,
         Command::UpdateReferences => UPDATE_REFERENCES,
         Command::ReplaceImport => phosphor::FILE_ARROW_UP,
         Command::ReloadImport => phosphor::ARROW_CLOCKWISE,

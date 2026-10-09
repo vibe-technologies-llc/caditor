@@ -598,8 +598,28 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.perform(Action::Apply(suppression));
         model.settle();
         shoot(model, gpu, out, "failed", look);
+        let suppressed = model.document().feature(*first).map(|row| row.name.clone());
+        if let Some(name) = suppressed {
+            model.click_button(&format!("Show details of {name}"));
+            model.frame();
+            shoot(model, gpu, out, "suppressed-card", look);
+            model.click_button(&format!("Hide details of {name}"));
+            model.frame();
+        }
         model.perform(Action::Undo);
         model.settle();
+
+        let menu_row = model
+            .document()
+            .feature(*second)
+            .map(|row| row.name.clone());
+        if let Some(name) = menu_row {
+            model.click_beside(crate::icons::MORE, &name);
+            model.hover("Uses");
+            shoot(model, gpu, out, "row-menu-uses", look);
+            model.key(Key::Escape, Modifiers::NONE);
+            model.frame();
+        }
 
         model.workspace.panels.renaming = Some(Renaming {
             feature: *second,

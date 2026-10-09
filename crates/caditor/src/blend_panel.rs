@@ -15,7 +15,7 @@ use crate::{
     field,
     model::{Action, Model},
     reference_rows::{ReferenceRows, RowCache},
-    selection::Selection,
+    selection::{Pickable, Selection},
     widgets,
 };
 
@@ -250,6 +250,7 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
     let id = feature.id();
     widgets::caption(ui, "Edges");
     let evaluation = model.evaluation();
+    let mut previewed = Vec::new();
     let listed = cache.rows(id, evaluation.body_before(id), model.revision(), || {
         edge_rows(model.document(), bodies::input(evaluation, id), blend)
     });
@@ -257,7 +258,11 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
         ui.label(&listed.summary);
         for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
-            if widgets::removable_row(ui, text, "Leave this edge out") {
+            let row = widgets::removable_row_hovered(ui, text, "Leave this edge out");
+            if row.hovered && opened {
+                previewed = edge_pickables(model, id, blend, index);
+            }
+            if row.removed {
                 let mut changed = blend.clone();
                 changed.edges.remove(index);
                 actions.push(feature_fields::applied(
@@ -279,7 +284,32 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
             actions.push(Action::Editing(EditingCommand::OpenSolid(id)));
         }
     });
+    if !previewed.is_empty() {
+        cache.preview(previewed);
+    }
     ui.end_row();
+}
+
+fn edge_pickables(model: &Model, feature: FeatureId, blend: &Blend, index: usize) -> Vec<Pickable> {
+    let Some(input) = bodies::input(model.evaluation(), feature) else {
+        return Vec::new();
+    };
+    let solid = &input.solid;
+    blend
+        .resolutions(solid)
+        .get(index)
+        .map(|resolution| {
+            resolution
+                .found()
+                .iter()
+                .filter_map(|edge| solid.edge(*edge))
+                .map(|edge| Pickable::BlendEdge {
+                    feature,
+                    edge: edge.name(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub fn show(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mut Vec<Action>) {

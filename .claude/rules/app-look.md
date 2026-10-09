@@ -192,7 +192,9 @@ paths:
 - The status bar (`status_bar.rs`) runs recompute | file activity | notice, then right-aligned
   selection | unit | size. Recompute is progress (the feature running, and for how long once past
   two seconds, from `Progress`) with Cancel, Up to date, or a failed
-  `status_pill` that is a button focusing the first failed feature; a cancelled or stopped recompute
+  `status_pill` that is a button focusing the next failed feature after the tree's primary row
+  (`status_bar::failed_after`, wrapping, as Go to the next failed feature, F8, does; Shift+F8 goes
+  to the previous one); a cancelled or stopped recompute
   is a warning or error pill with a Recompute or Restart button, its text a live region
   (`widgets::announced_status_pill`: polite for a warning, assertive for an error). The unit opens Preferences; the
   interface size, when not 100%, goes back to it.
@@ -265,8 +267,13 @@ paths:
   by recolouring the icon or name; an outdated row the same with a Recompute button. A row a
   running recompute has not reached yet (`Evaluation::is_pending`) shows the waiting icon over its
   last status. A suppressed
-  row is struck through and muted, a rolled-back row muted; neither offers the edit button. A
-  failure caused by a suppressed feature offers Unsuppress (`FixTarget::Unsuppress`). A failure
+  row is struck through and muted, a rolled-back row muted; neither offers the edit button, and
+  the card under either is drawn disabled below a muted line giving `editable`'s reason, with
+  Unsuppress or Roll forward to here (`feature_tree::inactive_note`), since its pickers could not
+  open it. A failure caused by a suppressed feature offers Unsuppress (`FixTarget::Unsuppress`); one
+  whose fix is the failing feature itself (`FixTarget::Feature` of its own row: a blend, shell,
+  combine, region choice…) offers Edit <name> (`edit_itself`), hidden while it is open, since
+  going to the row it sits under would do nothing. A failure
   with a `place` offers Show where, which frames the view around it (`PanelState::shown_place`,
   `ViewportState::show_place`). Callout actions are `small_button`s with icons.
 - A feature computed with a healed reference (`FeatureStatus::healing`) shows the warning icon and
@@ -286,17 +293,32 @@ paths:
   geometry is: the faces and edges of a body, the curves of a sketch, a datum
   (`Highlight::chosen_rows`, part of the scene cache's highlight key), never vertices or regions.
   It is only a look: the view's selection stays as it was, so commands keep taking the tree's
-  choice, and nothing is highlighted while a sketch or feature is open for editing. Fit view
+  choice, and nothing is highlighted while a sketch or feature is open for editing. A feature or
+  body row under the pointer (`PanelState::hovered_row`, `ViewportState::hover_row`) is lit the
+  same way while hovered, without counting as chosen. Escape with the view's selection already
+  empty and nothing open, or a click on empty space in the view with nothing selected
+  (`ViewportState::take_tree_dismissal`), lets go of the chosen rows
+  (`PanelState::choose_nothing`), so Move, Pattern or Measure never act on a row left chosen
+  unseen; a non-empty view selection clears it as before. Fit view
   (F) with nothing selected in the view frames the chosen rows' bodies, sketches and datums
   (`BuiltScene::bounds_of_features`) and everything when none is chosen.
 - A click on a row's name only selects it (`PanelState::selected`, cleared when the view selection
-  changes); Ctrl+click toggles and Shift+click extends (`PanelState::chosen`, primary first); the
+  changes); Ctrl+click toggles and Shift+click extends (`PanelState::chosen`, primary first) over
+  the rows drawn this frame, so a filtered tree or a folded folder never adds rows it hides
+  (`feature_tree::choose_among`, resolved after the rows are laid out); the
   chevron alone shows the details. A double-click, Enter, the edit button or the menu's Edit opens
   the feature (a sketch for editing, another feature as its panel, an imported body by showing
   its details); a suppressed or rolled-back one leaves a notice with the reason instead.
 - Rename (F2) and Move up or down act on the primary row, else the open feature
-  (`feature_tree::current_feature`); Suppress and Delete act on every chosen row; Delete selection
-  deletes them outside sketch editing.
+  (`feature_tree::current_feature`); Suppress, Hide or show feature and Delete act on every chosen
+  row; Delete selection deletes them outside sketch editing. The row menu's Hide or Show
+  (`visibility::toggle_rows`) acts on every chosen row as Suppress does, when the row itself can
+  be hidden. The menu also has Copy features (asked of the command next frame through
+  `PanelState::requested`, choosing the row first when it was not among the chosen), Update
+  references, and Uses and Used by submenus listing the features the row's kind depends on
+  (`FeatureKind::dependencies`) and those depending on it directly, in tree order, at most
+  `MAX_LISTED_RELATIONS` and then how many more, disabled with the reason when empty; choosing one
+  chooses and reveals its row (`Focus::Feature`).
 - Copy features and Paste features (`feature_clipboard.rs`, Ctrl+C and Ctrl+V outside a sketch,
   the Model menu and the palette) copy every chosen row in tree order to the system clipboard as
   text (`file-format.md`) and paste the clipboard's features as one change at the rollback bar
@@ -308,7 +330,9 @@ paths:
   the tree's feature selection), and a row reads as selected while its pickable is.
 - The Bodies group (`bodies_tree.rs`, above the features, closed at first, absent without a body)
   lists the bodies standing at the end of the model, by their own name or else the name of the
-  feature that made each. A click or tab chooses that feature in the tree and the eye hides or
+  feature that made each. A click or tab chooses that feature in the tree (Ctrl+click toggles and
+  Shift+click extends over the listed bodies, through `feature_tree::choose_among`) and the eye
+  hides or
   shows it like the feature's own. A body a Combine or Remove consumed is not listed. Right-clicking
   a row offers Rename body… (the card below with its Body name field focused), Select the whole
   body (its faces in the view, through `PanelState::selected_in_tree`) and Remove body, which adds
@@ -339,7 +363,8 @@ paths:
 - A filter field (`PanelState::tree_filter`) heads the feature rows once there are
   `FILTER_FROM_FEATURES` of them, or while it holds text or focus; Filter the feature tree (Ctrl+F,
   Model menu, palette) shows and focuses it at any size. It keeps the features whose name, or one
-  of whose kind words (`feature_tree::kind_words`: "extrusion", "fillet", "cut", "datum plane"…),
+  of whose kind words (`feature_tree::kind_words`: "extrusion", "fillet", "cut", "datum plane"…)
+  or state words (`state_words`: "failed", "outdated", "suppressed", "hidden"),
   contains the text in any case, plus the edited, renamed, revealed or focused one, so going to a feature
   never lands on a hidden row. While it filters, the rollback bar is hidden and rows do not drag,
   since gaps between the shown rows are not the model's; with no match an empty state offers

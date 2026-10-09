@@ -4,8 +4,8 @@
 or more edges of one body, then choose the tool.
 
 While it is open, the edges of the body before it can be clicked in the view to add or leave them
-out; the panel lists the chosen ones in words, each with a button to leave it out. Edges that
-continue smoothly are taken together as a chain.
+out; the panel lists the chosen ones in words, each with a button to leave it out, and hovering
+one lights it in the view. Edges that continue smoothly are taken together as a chain.
 
 - Fillet takes a **Radius**, Chamfer a **Distance**.
 - A chamfer's **Distances** row chooses **Equal** (one distance on both faces), **Two** (a second

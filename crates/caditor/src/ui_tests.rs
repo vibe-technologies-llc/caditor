@@ -69,6 +69,7 @@ mod configurations;
 mod coordinate_systems;
 mod dimension_labels;
 mod feature_panels;
+mod feature_tree_choice;
 mod import_jobs;
 mod paint_selection;
 mod parameter_files;
@@ -1828,7 +1829,6 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
 
     let cut = dir.path().join("cut.svg");
     harness.answer_dialog(Some(cut.clone()));
-    harness.key(Key::Escape, Modifiers::NONE);
     run_from_palette(&mut harness, "export sketch");
     harness.click("Export…");
     harness.wait_until("the SVG is written", |_| cut.exists());
@@ -1838,7 +1838,6 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
 
     harness.answer_dialog(Some(dir.path().join("outline")));
     std::fs::write(&written, b"precious").unwrap();
-    harness.key(Key::Escape, Modifiers::NONE);
     run_from_palette(&mut harness, "export sketch");
     harness.click("Export…");
     harness.wait_until("the replacement is confirmed", |harness| {
@@ -13232,7 +13231,7 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
     assert_eq!(harness.model.undo_label(), Some("Delete parameter1"));
 
     assert!(
-        offer(&harness, Command::ShowFirstFailed)
+        offer(&harness, Command::ShowNextFailed)
             .availability
             .is_err()
     );
@@ -13687,7 +13686,8 @@ fn the_feature_tree_is_filtered_by_name_from_the_keyboard() {
     harness.type_text("SIDE");
     let side_only = harness.shows("Side sketch") && !harness.shows("Base sketch");
     harness.replace_text("bracket");
-    let none_named = harness.shows("No feature is named like “bracket” or is of that kind.");
+    let none_named =
+        harness.shows("No feature is named like “bracket” or is of that kind or state.");
     harness.click(crate::feature_tree::CLEAR_FILTER_LABEL);
     harness.frame();
 
