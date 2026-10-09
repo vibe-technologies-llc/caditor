@@ -29,6 +29,9 @@ paths:
   - "crates/caditor/src/interference_panel.rs"
   - "crates/caditor/src/comb.rs"
   - "crates/caditor/src/comb_panel.rs"
+  - "crates/caditor/src/analysis.rs"
+  - "crates/caditor/src/analysis_panel.rs"
+  - "crates/caditor/src/reach.rs"
 ---
 
 # App shell, model and bodies
@@ -230,9 +233,9 @@ paths:
 
 ## Face analysis
 
-- Analyse draft and Analyse minimum radius (`AnalysisCommand::Draft`, `Radius`, View menu, palette)
-  toggle `AnalysisTool` in the `Workspace` (`Kind` is its Draft or Minimum radius switch, which the
-  panel's segmented control changes too); while open, `analysis_panel.rs` draws a right-hand panel
+- Analyse draft, Analyse minimum radius and Analyse tool reach (`AnalysisCommand::Draft`, `Radius`,
+  `Reach`, View menu, palette) toggle `AnalysisTool` in the `Workspace` (`Kind` is its Draft,
+  Minimum radius or Reach switch, which the panel's segmented control changes too); while open, `analysis_panel.rs` draws a right-hand panel
   beside any other. Like
   centres of mass it is a view aid: `ViewAids::analysis` (a `FaceAnalysis`, worked out each frame
   from the tool by `AnalysisTool::analysis` and handed over with `ViewportState::set_analysis`)
@@ -248,6 +251,19 @@ paths:
   again each frame through `measure::direction_of`, so it follows edits) or the X, Y and Z buttons;
   `AnalysisCommand::Reverse` flips it. The limit is an angle expression of named parameters
   (3° at first, 0° to 90°).
+- Reach judges undercuts for a three-axis machine: the tool comes from the direction (`Kind::Reach`
+  shares the pull, Use selected and Reverse with Draft, captioned Reach from), and per triangle a
+  face turned from it (`FACING_SLACK`, so walls square to it are reached) is `Band::FacesAway`;
+  otherwise the triangle's centroid, nudged off its face along its normal, is `Band::Blocked` when
+  any triangle of the shown bodies lies over it along the direction, else `Band::Reachable`.
+  `reach.rs` projects every triangle along the direction into a 2D uniform `Grid` (at most
+  `MOST_CELLS_ACROSS` cells a side; triangles seen edge-on cast no shadow) with slacks of
+  `SLACK_PER_SIZE` of the bodies' size, so a face sharing an edge with the sample never blocks it.
+  Since the result depends on every shown body, `Analyses::prepare` keeps one `Occluders` (the
+  direction and weak references to the shown meshes, `analysis::shown_meshes`) and stamps its
+  generation into `FaceAnalysis::Reach`, so a change of bodies, visibility or direction is a new
+  analysis; the grid is built once on first use, on the analysis thread when the mesh and the
+  occluders together pass `INLINE_TRIANGLES`. Any other analysis, or none, drops the occluders.
 - Minimum radius colours `Band::TooTight` the concave triangles whose surface curves tighter than
   the Smallest radius (a length expression, 2 mm at first, above zero), where a cutter or a nozzle
   of that radius cannot reach. The curvature is read from the display mesh along each triangle edge,
@@ -259,7 +275,8 @@ paths:
   caches one `Analysed` per body mesh and analysis: `ShadedMesh::divide` splits each face into a
   piece per band (`render.md`), the pieces carrying their source face and area, and the scene draws
   that mesh with a `FaceStyle` per piece (`Builder::analysed_faces`): a band's colour from
-  `ScenePalette::bands`, or the face's own colour for no band, and the source face's pick id
+  `ScenePalette::bands` (Reach reuses the drafted and undercut colours, with `blocked` of its own),
+  or the face's own colour for no band, and the source face's pick id
   registered once, so hover, selection and picking read as before. Up to `INLINE_TRIANGLES` the
   work is done in the frame; a larger mesh is worked out on a thread that wakes the app and bumps
   `Analyses::finished`, which `Revisions::analysed` watches, the body drawn plain meanwhile. Entries

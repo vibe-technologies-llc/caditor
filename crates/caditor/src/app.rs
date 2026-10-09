@@ -22,7 +22,7 @@ use winit::{
 
 use crate::{
     about,
-    analysis::{AnalysisCommand, AnalysisTool, Kind},
+    analysis::{self, AnalysisCommand, AnalysisTool, Kind},
     analysis_panel::{self, AnalysisContext},
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     body_selection, canvas,
@@ -576,6 +576,12 @@ pub fn show(
     } else {
         None
     };
+    let shown = if analysing.is_some() {
+        analysis::shown_meshes(model, viewport.bodies())
+    } else {
+        Vec::new()
+    };
+    let analysing = viewport.analyses().prepare(analysing, &shown);
     viewport.set_analysis(analysing);
     let combing = if comb.open {
         comb.follow(model, viewport.selection());
@@ -1593,7 +1599,8 @@ fn surface_size(size: PhysicalSize<u32>) -> SurfaceSize {
     }
 }
 
-const ANALYSIS_CLOSED: &str = "Open the draft analysis to choose its pull direction";
+const ANALYSIS_CLOSED: &str =
+    "Open the draft or reach analysis to choose its pull or reach direction";
 
 fn analysis_commands(
     model: &Model,
@@ -1604,12 +1611,13 @@ fn analysis_commands(
     for (command, kind) in [
         (AnalysisCommand::Draft, Kind::Draft),
         (AnalysisCommand::Radius, Kind::Radius),
+        (AnalysisCommand::Reach, Kind::Reach),
     ] {
         if commands.available(Command::Analysis(command)) {
             analysis.toggle(kind);
         }
     }
-    let drafting = analysis.open && analysis.kind == Kind::Draft;
+    let drafting = analysis.open && analysis.kind.is_directed();
     let pull = if drafting {
         AnalysisTool::pull_from(model, selection).map_err(|refusal| refusal.to_string())
     } else {

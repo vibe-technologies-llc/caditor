@@ -9,16 +9,19 @@ use std::{
 };
 
 use caditor_expression::{Dimension, Expression, Unit};
-use caditor_geometry::Vector3;
+use caditor_geometry::{Point3, Vector3};
 use caditor_render::{Color, Corner, Piece, ShadedMesh};
 use parking_lot::Mutex;
 
 use crate::{
+    bodies::BodyMeshes,
     measure,
     model::{Model, Waker},
+    reach::{FACING_SLACK, Grid, Occluders},
     scene_palette::ScenePalette,
     selection::{Axis, Pickable, Selection},
     variants::all_variants,
+    visibility,
 };
 
 pub const INLINE_TRIANGLES: usize = 40_000;
@@ -33,18 +36,20 @@ const RADIUS_SLACK: f64 = 1e-3;
 pub enum AnalysisCommand {
     Draft,
     Radius,
+    Reach,
     UseSelected,
     Reverse,
     Comb,
 }
 
-all_variants!(AnalysisCommand: Draft, Radius, UseSelected, Reverse, Comb);
+all_variants!(AnalysisCommand: Draft, Radius, Reach, UseSelected, Reverse, Comb);
 
 impl AnalysisCommand {
     pub fn id(self) -> &'static str {
         match self {
             Self::Draft => "view.analysis_draft",
             Self::Radius => "view.analysis_radius",
+            Self::Reach => "view.analysis_reach",
             Self::UseSelected => "view.analysis_pull_selected",
             Self::Reverse => "view.analysis_pull_reverse",
             Self::Comb => "view.curvature_comb",
@@ -55,8 +60,9 @@ impl AnalysisCommand {
         match self {
             Self::Draft => "Analyse draft",
             Self::Radius => "Analyse minimum radius",
-            Self::UseSelected => "Pull along the selected axis, edge or face",
-            Self::Reverse => "Reverse the pull direction",
+            Self::Reach => "Analyse tool reach",
+            Self::UseSelected => "Pull or reach along the selected axis, edge or face",
+            Self::Reverse => "Reverse the pull or reach direction",
             Self::Comb => "Show or hide the curvature comb",
         }
     }
@@ -66,6 +72,7 @@ impl AnalysisCommand {
 pub enum FaceAnalysis {
     Draft { pull: Vector3, limit: f64 },
     Radius { limit: f64 },
+    Reach { reach: Vector3, occluders: u64 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -74,22 +81,28 @@ pub enum Band {
     TooLittleDraft,
     Undercut,
     TooTight,
+    Reachable,
+    Blocked,
+    FacesAway,
 }
 
 impl Band {
+    const ALL: [Self; 7] = [
+        Self::Drafted,
+        Self::TooLittleDraft,
+        Self::Undercut,
+        Self::TooTight,
+        Self::Reachable,
+        Self::Blocked,
+        Self::FacesAway,
+    ];
+
     pub const fn class(self) -> u8 {
         self as u8 + 1
     }
 
     pub fn of_class(class: u8) -> Option<Self> {
-        [
-            Self::Drafted,
-            Self::TooLittleDraft,
-            Self::Undercut,
-            Self::TooTight,
-        ]
-        .into_iter()
-        .find(|band| band.class() == class)
+        Self::ALL.into_iter().find(|band| band.class() == class)
     }
 
     pub fn title(self) -> &'static str {
@@ -98,6 +111,9 @@ impl Band {
             Self::TooLittleDraft => "Too little draft",
             Self::Undercut => "Faces away from the pull",
             Self::TooTight => "Too tight to reach",
+            Self::Reachable => "Reached by the tool",
+            Self::Blocked => "Hidden behind other faces",
+            Self::FacesAway => "Faces away from the tool",
         }
     }
 
@@ -116,6 +132,18 @@ impl Band {
                 "These concave faces curve tighter than the radius, so a cutter or nozzle that \
                  size cannot reach into them"
             }
+            Self::Reachable => {
+                "These faces look toward the tool and nothing lies between them and it, so a \
+                 three-axis machine reaches them from this direction"
+            }
+            Self::Blocked => {
+                "These faces look toward the tool, but another part of the bodies lies over them \
+                 along the direction, so the tool cannot get to them from this side"
+            }
+            Self::FacesAway => {
+                "These faces turn from the tool and are undercuts from this direction; reverse it \
+                 or choose another setup to reach them"
+            }
         }
     }
 
@@ -125,6 +153,9 @@ impl Band {
             Self::TooLittleDraft => palette.bands.too_little_draft,
             Self::Undercut => palette.bands.undercut,
             Self::TooTight => palette.bands.too_tight,
+            Self::Reachable => palette.bands.drafted,
+            Self::Blocked => palette.bands.blocked,
+            Self::FacesAway => palette.bands.undercut,
         }
     }
 }
@@ -134,22 +165,46 @@ impl FaceAnalysis {
         match self {
             Self::Draft { .. } => &[Band::Drafted, Band::TooLittleDraft, Band::Undercut],
             Self::Radius { .. } => &[Band::TooTight],
+            Self::Reach { .. } => &[Band::Reachable, Band::Blocked, Band::FacesAway],
         }
     }
 
-    fn classify(self, corners: [Corner; 3]) -> u8 {
+    fn classify(self, origin: Point3, grid: Option<&Grid>, corners: [Corner; 3]) -> u8 {
         match self {
             Self::Draft { pull, limit } => draft_class(pull, limit, corners),
             Self::Radius { limit } => radius_class(limit, corners),
+            Self::Reach { reach, .. } => {
+                grid.map_or(0, |grid| reach_class(reach, grid, origin, corners))
+            }
         }
     }
 }
 
-fn draft_class(pull: Vector3, limit_degrees: f64, corners: [Corner; 3]) -> u8 {
-    let normal = corners
+fn mean_normal(corners: [Corner; 3]) -> Vector3 {
+    corners
         .iter()
         .fold(Vector3::ZERO, |sum, corner| sum + corner.normal.as_dvec3())
-        .normalize_or_zero();
+        .normalize_or_zero()
+}
+
+fn reach_class(reach: Vector3, grid: &Grid, origin: Point3, corners: [Corner; 3]) -> u8 {
+    let normal = mean_normal(corners);
+    if normal.dot(reach) < -FACING_SLACK {
+        return Band::FacesAway.class();
+    }
+    let centroid = origin
+        + corners.iter().fold(Vector3::ZERO, |sum, corner| {
+            sum + corner.position.as_dvec3()
+        }) / 3.0;
+    if grid.blocks(centroid, normal) {
+        Band::Blocked.class()
+    } else {
+        Band::Reachable.class()
+    }
+}
+
+fn draft_class(pull: Vector3, limit_degrees: f64, corners: [Corner; 3]) -> u8 {
+    let normal = mean_normal(corners);
     if normal == Vector3::ZERO {
         return Band::TooLittleDraft.class();
     }
@@ -186,8 +241,10 @@ pub struct Analysed {
 }
 
 impl Analysed {
-    fn of(mesh: &ShadedMesh, analysis: FaceAnalysis) -> Self {
-        let division = mesh.divide(|corners| analysis.classify(corners));
+    fn of(mesh: &ShadedMesh, analysis: FaceAnalysis, occluders: Option<&Occluders>) -> Self {
+        let origin = mesh.origin();
+        let grid = occluders.map(Occluders::grid);
+        let division = mesh.divide(|corners| analysis.classify(origin, grid, corners));
         Self {
             mesh: Arc::new(division.mesh),
             pieces: division.pieces,
@@ -224,6 +281,7 @@ pub struct Analyses {
     entries: Arc<Mutex<Vec<Entry>>>,
     finished: Arc<AtomicU64>,
     wake: Arc<Mutex<Option<Waker>>>,
+    occluders: Mutex<Option<Arc<Occluders>>>,
     inline_triangles: usize,
 }
 
@@ -239,6 +297,7 @@ impl Analyses {
             entries: Arc::default(),
             finished: Arc::default(),
             wake: Arc::default(),
+            occluders: Mutex::default(),
             inline_triangles,
         }
     }
@@ -254,7 +313,50 @@ impl Analyses {
         self.finished.load(Ordering::Acquire)
     }
 
+    pub fn prepare(
+        &self,
+        analysis: Option<FaceAnalysis>,
+        meshes: &[Arc<ShadedMesh>],
+    ) -> Option<FaceAnalysis> {
+        let mut occluders = self.occluders.lock();
+        let Some(FaceAnalysis::Reach { reach, .. }) = analysis else {
+            *occluders = None;
+            return analysis;
+        };
+        let kept = occluders
+            .as_ref()
+            .map(|current| (current.generation, current.is_of(reach, meshes)));
+        let generation = match kept {
+            Some((generation, true)) => generation,
+            Some((generation, false)) => generation + 1,
+            None => 1,
+        };
+        if kept != Some((generation, true)) {
+            *occluders = Some(Arc::new(Occluders::new(generation, reach, meshes)));
+        }
+        Some(FaceAnalysis::Reach {
+            reach,
+            occluders: generation,
+        })
+    }
+
+    fn occluders_of(&self, analysis: FaceAnalysis) -> Result<Option<Arc<Occluders>>, Outcome> {
+        let FaceAnalysis::Reach { occluders, .. } = analysis else {
+            return Ok(None);
+        };
+        self.occluders
+            .lock()
+            .as_ref()
+            .filter(|current| current.generation == occluders)
+            .map(|current| Some(Arc::clone(current)))
+            .ok_or(Outcome::Working)
+    }
+
     pub fn of(&self, mesh: &Arc<ShadedMesh>, analysis: FaceAnalysis) -> Outcome {
+        let occluders = match self.occluders_of(analysis) {
+            Ok(occluders) => occluders,
+            Err(outcome) => return outcome,
+        };
         let weak = Arc::downgrade(mesh);
         let mut entries = self.entries.lock();
         entries.retain(|entry| entry.mesh.strong_count() > 0);
@@ -266,8 +368,12 @@ impl Analyses {
             };
         }
         entries.retain(|entry| !entry.mesh.ptr_eq(&weak));
-        if mesh.triangle_count() <= self.inline_triangles {
-            let analysed = Arc::new(Analysed::of(mesh, analysis));
+        let work = mesh.triangle_count()
+            + occluders
+                .as_ref()
+                .map_or(0, |occluders| occluders.triangles);
+        if work <= self.inline_triangles {
+            let analysed = Arc::new(Analysed::of(mesh, analysis, occluders.as_deref()));
             entries.push(Entry {
                 mesh: weak,
                 analysis,
@@ -281,11 +387,17 @@ impl Analyses {
             state: State::Working,
         });
         drop(entries);
-        self.spawn(Arc::clone(mesh), weak, analysis);
+        self.spawn(Arc::clone(mesh), weak, analysis, occluders);
         Outcome::Working
     }
 
-    fn spawn(&self, mesh: Arc<ShadedMesh>, weak: Weak<ShadedMesh>, analysis: FaceAnalysis) {
+    fn spawn(
+        &self,
+        mesh: Arc<ShadedMesh>,
+        weak: Weak<ShadedMesh>,
+        analysis: FaceAnalysis,
+        occluders: Option<Arc<Occluders>>,
+    ) {
         let entries = Arc::clone(&self.entries);
         let finished = Arc::clone(&self.finished);
         let wake = Arc::clone(&self.wake);
@@ -293,12 +405,13 @@ impl Analyses {
             .name("analysis".to_owned())
             .spawn(move || {
                 let analysed = panic::catch_unwind(AssertUnwindSafe(|| {
-                    Arc::new(Analysed::of(&mesh, analysis))
+                    Arc::new(Analysed::of(&mesh, analysis, occluders.as_deref()))
                 }));
                 if analysed.is_err() {
                     log::error!("analysing the faces of a body panicked");
                 }
                 drop(mesh);
+                drop(occluders);
                 {
                     let mut entries = entries.lock();
                     if let Some(entry) = entries
@@ -369,6 +482,13 @@ pub enum Kind {
     #[default]
     Draft,
     Radius,
+    Reach,
+}
+
+impl Kind {
+    pub fn is_directed(self) -> bool {
+        matches!(self, Self::Draft | Self::Reach)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -493,6 +613,13 @@ impl AnalysisTool {
                 check_radius_limit(limit)?;
                 Ok(FaceAnalysis::Radius { limit })
             }
+            Kind::Reach => {
+                let reach = self.direction(model)?;
+                Ok(FaceAnalysis::Reach {
+                    reach: if self.reversed { -reach } else { reach },
+                    occluders: 0,
+                })
+            }
         }
     }
 
@@ -524,6 +651,14 @@ impl AnalysisTool {
     }
 }
 
+pub fn shown_meshes(model: &Model, bodies: &BodyMeshes) -> Vec<Arc<ShadedMesh>> {
+    bodies
+        .iter()
+        .filter(|(body, _)| visibility::is_shown(model.document(), *body))
+        .map(|(_, mesh)| Arc::clone(&mesh.mesh))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -532,6 +667,7 @@ mod tests {
     };
 
     use caditor_document::{CancelToken, ModelEvaluator, Recompute};
+    use caditor_render::{MeshFace, MeshPoint};
 
     use super::*;
     use crate::{bodies::BodyMeshes, samples::Sample, snapshot};
@@ -572,7 +708,7 @@ mod tests {
             Vector3::Z,
             -Vector3::Z,
         ]
-        .map(|normal| Band::of_class(analysis.classify(flat(normal))));
+        .map(|normal| Band::of_class(analysis.classify(Point3::ZERO, None, flat(normal))));
 
         assert_eq!(
             bands,
@@ -601,11 +737,11 @@ mod tests {
         };
 
         assert_eq!(
-            Band::of_class(up.classify(flat(Vector3::Z))),
+            Band::of_class(up.classify(Point3::ZERO, None, flat(Vector3::Z))),
             Some(Band::Drafted)
         );
         assert_eq!(
-            Band::of_class(down.classify(flat(Vector3::Z))),
+            Band::of_class(down.classify(Point3::ZERO, None, flat(Vector3::Z))),
             Some(Band::Undercut)
         );
     }
@@ -624,22 +760,20 @@ mod tests {
     fn only_a_concave_face_tighter_than_the_radius_is_too_tight() {
         let limit = |limit: f64| FaceAnalysis::Radius { limit };
 
-        assert_eq!(limit(5.0).classify(arc(4.0, false)), Band::TooTight.class());
-        assert_eq!(limit(3.0).classify(arc(4.0, false)), 0);
-        assert_eq!(limit(4.0).classify(arc(4.0, false)), 0);
-        assert_eq!(limit(5.0).classify(arc(4.0, true)), 0);
-        assert_eq!(limit(5.0).classify(flat(Vector3::Z)), 0);
+        assert_eq!(
+            limit(5.0).classify(Point3::ZERO, None, arc(4.0, false)),
+            Band::TooTight.class()
+        );
+        assert_eq!(limit(3.0).classify(Point3::ZERO, None, arc(4.0, false)), 0);
+        assert_eq!(limit(4.0).classify(Point3::ZERO, None, arc(4.0, false)), 0);
+        assert_eq!(limit(5.0).classify(Point3::ZERO, None, arc(4.0, true)), 0);
+        assert_eq!(limit(5.0).classify(Point3::ZERO, None, flat(Vector3::Z)), 0);
     }
 
     #[test]
     fn classes_round_trip_through_their_bands_and_zero_is_no_band() {
         assert_eq!(Band::of_class(0), None);
-        for band in [
-            Band::Drafted,
-            Band::TooLittleDraft,
-            Band::Undercut,
-            Band::TooTight,
-        ] {
+        for band in Band::ALL {
             assert_eq!(Band::of_class(band.class()), Some(band));
         }
     }
@@ -695,6 +829,107 @@ mod tests {
         assert!((area_of(&tally, Band::Drafted) - face).abs() / face < 0.03);
         assert!((area_of(&tally, Band::Undercut) - face).abs() / face < 0.03);
         assert!((area_of(&tally, Band::TooLittleDraft) - walls).abs() / walls < 0.03);
+    }
+
+    fn reach_of(
+        analyses: &Analyses,
+        meshes: &[Arc<ShadedMesh>],
+        reach: Vector3,
+    ) -> (FaceAnalysis, Tally) {
+        let analysis = analyses
+            .prepare(
+                Some(FaceAnalysis::Reach {
+                    reach,
+                    occluders: 0,
+                }),
+                meshes,
+            )
+            .unwrap();
+        (analysis, Tally::of(analyses, meshes, analysis))
+    }
+
+    #[test]
+    fn reaching_a_plate_from_above_gets_its_top_and_walls_and_not_its_bottom() {
+        let meshes = plate();
+        let analyses = Analyses::default();
+        let face = 80.0 * 50.0 - 2.0 * std::f64::consts::PI * 16.0;
+        let walls = 2.0 * (80.0 + 50.0) * 6.0 + 2.0 * std::f64::consts::TAU * 4.0 * 6.0;
+
+        let (_, tally) = reach_of(&analyses, &meshes, Vector3::Z);
+
+        assert!((area_of(&tally, Band::Reachable) - face - walls).abs() / (face + walls) < 0.03);
+        assert!((area_of(&tally, Band::FacesAway) - face).abs() / face < 0.03);
+        assert_eq!(area_of(&tally, Band::Blocked), 0.0);
+    }
+
+    fn slab(low: Point3, high: Point3) -> Arc<ShadedMesh> {
+        let side = |normal: Vector3, corners: [Point3; 4]| MeshFace {
+            points: corners
+                .into_iter()
+                .map(|position| MeshPoint { position, normal })
+                .collect(),
+            triangles: vec![[0, 1, 2], [0, 2, 3]],
+        };
+        let at = |x: f64, y: f64, z: f64| Point3::new(x, y, z);
+        let (a, b) = (low, high);
+        Arc::new(ShadedMesh::new([
+            side(
+                Vector3::Z,
+                [
+                    at(a.x, a.y, b.z),
+                    at(b.x, a.y, b.z),
+                    at(b.x, b.y, b.z),
+                    at(a.x, b.y, b.z),
+                ],
+            ),
+            side(
+                -Vector3::Z,
+                [
+                    at(a.x, a.y, a.z),
+                    at(a.x, b.y, a.z),
+                    at(b.x, b.y, a.z),
+                    at(b.x, a.y, a.z),
+                ],
+            ),
+        ]))
+    }
+
+    #[test]
+    fn a_body_over_another_hides_the_part_of_it_below_from_a_tool_above() {
+        let analyses = Analyses::default();
+        let floor = slab(Point3::ZERO, Point3::new(10.0, 10.0, 1.0));
+        let roof = slab(Point3::new(-1.0, -1.0, 4.0), Point3::new(5.0, 12.0, 5.0));
+        let meshes = vec![Arc::clone(&floor), roof];
+
+        let (_, from_above) = reach_of(&analyses, &meshes, Vector3::Z);
+        let (_, from_below) = reach_of(&analyses, &meshes, -Vector3::Z);
+        let (_, floor_alone) = reach_of(&analyses, &[floor], Vector3::Z);
+
+        assert_eq!(area_of(&from_above, Band::Blocked), 50.0);
+        assert_eq!(area_of(&from_above, Band::Reachable), 50.0 + 78.0);
+        assert_eq!(area_of(&from_above, Band::FacesAway), 100.0 + 78.0);
+        assert_eq!(area_of(&from_below, Band::Blocked), 78.0);
+        assert_eq!(area_of(&floor_alone, Band::Blocked), 0.0);
+    }
+
+    #[test]
+    fn a_changed_set_of_bodies_or_direction_is_a_new_reach_analysis() {
+        let analyses = Analyses::default();
+        let meshes = plate();
+
+        let (first, _) = reach_of(&analyses, &meshes, Vector3::Z);
+        let (again, _) = reach_of(&analyses, &meshes, Vector3::Z);
+        let (turned, _) = reach_of(&analyses, &meshes, Vector3::X);
+        let (alone, _) = reach_of(&analyses, &[], Vector3::X);
+
+        assert_eq!(first, again);
+        assert_ne!(first, turned);
+        assert_ne!(turned, alone);
+        assert!(matches!(
+            analyses.of(meshes.first().unwrap(), first),
+            Outcome::Working
+        ));
+        assert_eq!(analyses.prepare(None, &meshes), None);
     }
 
     #[test]

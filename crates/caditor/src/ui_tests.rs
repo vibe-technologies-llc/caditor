@@ -15589,6 +15589,38 @@ fn draft_analysis_bands_the_faces_of_a_plate_and_leaves_the_model_alone() {
 }
 
 #[test]
+fn reach_analysis_colours_what_a_tool_from_above_gets_to_and_reverses_to_the_other_side() {
+    use crate::{analysis::Band, scene_palette::Contrast};
+
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+    let revision = harness.model.revision();
+    let palette = Contrast::Standard.palette();
+    let on_screen =
+        |harness: &mut Harness, band: Band| painted_faces(harness, band.colour(palette));
+
+    run_from_palette(&mut harness, "analyse tool reach");
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.shows(crate::analysis_panel::TITLE));
+    assert!(harness.shows("Reach from"));
+    assert!(harness.shows_containing("Hidden behind other faces"));
+    assert_eq!(on_screen(&mut harness, Band::Reachable), 5);
+    assert_eq!(on_screen(&mut harness, Band::FacesAway), 1);
+    assert_eq!(on_screen(&mut harness, Band::Blocked), 0);
+
+    run_from_palette(&mut harness, "reverse the pull or reach direction");
+    harness.frame();
+    harness.frame();
+
+    assert!(harness.workspace.analysis.reversed);
+    assert_eq!(on_screen(&mut harness, Band::Reachable), 5);
+    assert_eq!(on_screen(&mut harness, Band::FacesAway), 1);
+    assert_eq!(harness.model.revision(), revision);
+}
+
+#[test]
 fn the_pull_direction_follows_the_selected_face_and_reverses_from_the_palette() {
     use crate::{
         analysis::{AnalysisCommand, Pull, Refusal},
@@ -15619,10 +15651,10 @@ fn the_pull_direction_follows_the_selected_face_and_reverses_from_the_palette() 
 
     harness.select([top]);
     harness.frame();
-    run_from_palette(&mut harness, "pull along the selected");
+    run_from_palette(&mut harness, "pull or reach along the selected");
     harness.frame();
     harness.frame();
-    run_from_palette(&mut harness, "reverse the pull direction");
+    run_from_palette(&mut harness, "reverse the pull or reach direction");
     harness.frame();
     harness.frame();
 

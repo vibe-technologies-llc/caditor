@@ -12,7 +12,6 @@ use crate::{
     scene_palette::Contrast,
     selection::{Axis, Selection},
     units::Units,
-    visibility,
     widgets::{self, FIELD_WIDTH, Tone},
 };
 
@@ -29,6 +28,10 @@ pub const DRAFT_ABOUT: &str = "Faces are coloured by the angle between their sur
 pub const RADIUS_ABOUT: &str = "Concave faces curving tighter than the radius are coloured, \
                                 where a cutter or a nozzle that size cannot reach. Sharp inside \
                                 corners have no radius and are not coloured.";
+pub const REACH_ABOUT: &str = "Faces are coloured by whether a tool coming from the direction, as \
+                               on a three-axis machine, gets to them: faces turned from it are \
+                               undercuts, and faces with another part of the bodies over them are \
+                               hidden. It never changes the model.";
 const PANEL_WIDTH: f32 = 300.0;
 const MIN_PANEL_WIDTH: f32 = 220.0;
 const SWATCH_SIDE: f32 = 14.0;
@@ -100,7 +103,19 @@ fn limit_row(
 }
 
 fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool) {
-    widgets::caption(ui, "Pull along");
+    let (caption, use_selected, reverse) = match tool.kind {
+        Kind::Reach => (
+            "Reach from",
+            "Reach from along the selected axis, edge or face",
+            "Reverse the reach direction",
+        ),
+        Kind::Draft | Kind::Radius => (
+            "Pull along",
+            "Pull along the selected axis, edge or face",
+            "Reverse the pull direction",
+        ),
+    };
+    widgets::caption(ui, caption);
     let chosen = match tool.pull {
         Pull::Axis(axis) => AXES.iter().position(|candidate| *candidate == axis),
         Pull::Picked(_) => None,
@@ -124,7 +139,7 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
         let selected = AnalysisTool::pull_from(context.model, context.selection);
         let button = widgets::small_button(ui, icons::USE_SELECTED, feature_fields::USE_SELECTED);
         let hover = match &selected {
-            Ok(_) => "Pull along the selected axis, edge or face".to_owned(),
+            Ok(_) => use_selected.to_owned(),
             Err(refusal) => refusal.to_string(),
         };
         if ui
@@ -138,9 +153,7 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
     });
     ui.end_row();
 
-    if let Some(reversed) =
-        feature_fields::reverse_row(ui, "Reverse the pull direction", tool.reversed)
-    {
+    if let Some(reversed) = feature_fields::reverse_row(ui, reverse, tool.reversed) {
         tool.reversed = reversed;
     }
 }
@@ -148,17 +161,15 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
 fn legend(ui: &mut Ui, context: &AnalysisContext<'_>, analysis: FaceAnalysis) {
     let palette = context.contrast.palette();
     let units: Units = context.model.units();
-    let meshes: Vec<_> = context
-        .bodies
-        .iter()
-        .filter(|(body, _)| visibility::is_shown(context.model.document(), *body))
-        .map(|(_, mesh)| &mesh.mesh)
-        .collect();
+    let meshes = analysis::shown_meshes(context.model, context.bodies);
     if meshes.is_empty() {
         ui.label(widgets::muted(NO_BODIES, ui));
         return;
     }
-    let tally = Tally::of(context.analyses, meshes, analysis);
+    let Some(analysis) = context.analyses.prepare(Some(analysis), &meshes) else {
+        return;
+    };
+    let tally = Tally::of(context.analyses, &meshes, analysis);
     widgets::card(ui, |ui| {
         for band in analysis.bands() {
             let area = tally.areas.get(band).copied().unwrap_or(0.0);
@@ -201,6 +212,7 @@ pub fn show(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool,
                 let chosen = match tool.kind {
                     Kind::Draft => 0,
                     Kind::Radius => 1,
+                    Kind::Reach => 2,
                 };
                 if let Some(index) = widgets::segmented(
                     ui,
@@ -213,19 +225,24 @@ pub fn show(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool,
                             "Minimum radius",
                             "Colour concave faces tighter than a radius",
                         ),
+                        (
+                            "Reach",
+                            "Colour faces by whether a tool from a direction reaches them",
+                        ),
                     ],
                     chosen,
                 ) {
-                    tool.kind = if index == 0 {
-                        Kind::Draft
-                    } else {
-                        Kind::Radius
+                    tool.kind = match index {
+                        0 => Kind::Draft,
+                        1 => Kind::Radius,
+                        _ => Kind::Reach,
                     };
                 }
                 ui.add_space(SPACE_S);
                 let about = match tool.kind {
                     Kind::Draft => DRAFT_ABOUT,
                     Kind::Radius => RADIUS_ABOUT,
+                    Kind::Reach => REACH_ABOUT,
                 };
                 ui.label(widgets::muted(about, ui));
                 ui.add_space(SPACE_S);
@@ -247,6 +264,7 @@ pub fn show(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool,
                         &mut tool.radius_limit,
                         analysis::check_radius_limit,
                     ),
+                    Kind::Reach => pull_rows(ui, context, tool),
                 });
                 ui.add_space(SPACE_M);
                 if !context.style.shows_faces() || context.style.is_translucent() {

@@ -79,6 +79,8 @@ paths:
 - `ShadedMesh::divide` makes another mesh in which every face is split into one face per class a
   caller's classifier gives each triangle (from its corners' positions and normals), with the
   source face and the area of every piece; analysis colouring uses it, since styles are per face.
+  `ShadedMesh::origin` and `face_triangles` (world corners with their face) let the app's reach
+  analysis and `through.rs` work on the triangles without a copy of the mesh.
 - Per-face styles live in an `Rg32Uint` texture (`StyleLayout`) read by face index in the vertex
   shader, rewritten only when they differ, so hover and selection cost nothing in geometry.
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and

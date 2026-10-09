@@ -92,6 +92,7 @@ mod portal;
 mod preferences;
 mod principal_tree;
 mod projecting;
+mod reach;
 mod reference_picking;
 mod reference_rows;
 mod removal;

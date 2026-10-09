@@ -294,8 +294,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] No surface quality analyses: zebra stripes, a curvature map (Gaussian and the
   principal curvatures), isocurves with combs, and a chrome reflection of the surroundings, all
   shown on the bodies without changing the model.
-- [low · medium] No accessibility analysis: faces reachable from a chosen plane or direction
-  coloured against those that are not, to judge undercuts for a three-axis machine.
 
 ## STEP import and export
 
