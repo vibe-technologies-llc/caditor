@@ -458,7 +458,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
         .unwrap();
     lines[base] = lines[base].replacen(
         "\"entities\":[",
-        "\"entities\":[{\"id\":90,\"conic\":{\"start\":0}},",
+        "\"entities\":[{\"id\":90,\"clothoid\":{\"start\":0}},",
         1,
     );
     let side = lines
@@ -484,7 +484,7 @@ fn content_from_a_newer_version_is_reported_and_the_rest_is_kept() {
             "Record 6 holds something this version of caditor does not know (assembly), so it was \
              left out. It may come from a newer version.",
             "In “Base sketch”, an entity of a kind this version of caditor does not know \
-             (conic) was left out. It may come from a newer version.",
+             (clothoid) was left out. It may come from a newer version.",
         ]
     );
     let base_sketch = loaded.document.features().next().unwrap();
