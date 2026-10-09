@@ -117,6 +117,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
+- [medium · easy] The sketch bar's header wraps the sketch's status pills under its title, so the
+  bar grows a line, and the view under it moves down, when a second pill ("2 open ends", "1 point
+  beyond its curve") appears while drawing. Keep the header one height whatever the status: the
+  status pill alone with the others as compact counts beside it (their words on hover), or room
+  reserved for them.
 - [medium · hard] Tools missing: a pattern of sketch geometry along a path (copies tied to the
   path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
   font, a height, bold and italic, set along a curve, its letters becoming closed regions that
@@ -432,12 +437,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Checks and CI
 
-- [medium · medium] Three UI tests fail now and then when the app suite runs in a release build
-  (`cargo test --release -p caditor`, about one run in two), never in debug or alone:
-  `a_fillet_starts_from_the_selected_edge_and_takes_more_edges_clicked_in_the_view` finds no body
-  mesh yet in `built_with_meshes(1)`, and `a_point_placed_where_two_lines_cross_is_held_on_both`
-  and `a_point_placed_at_the_centre_of_a_triangle_lands_there_but_is_not_kept_there` find the point
-  away from where it was placed. The race behind them has not been found yet.
 - [medium · medium] `tests/crash_flush.rs` runs the crash protection with a real storage worker in a
   child process, not the app itself. `check-install.sh` only runs `--version`; start the packaged
   binary to a first frame under Xvfb and lavapipe, kill it there and recover its journal, check its

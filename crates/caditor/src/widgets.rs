@@ -626,21 +626,16 @@ pub fn link_label(ui: &mut Ui, text: impl Into<WidgetText>) -> Response {
 
 pub fn pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
     let tokens = appearance::tokens(ui);
-    Frame::new()
-        .fill(tone.fill(tokens))
-        .corner_radius(CornerRadius::same(PILL_RADIUS))
-        .inner_margin(PILL_MARGIN)
-        .show(ui, |ui| {
-            ui.add(
-                Label::new(
-                    RichText::new(text)
-                        .text_style(TextStyle::Small)
-                        .color(tone.color(tokens)),
-                )
-                .selectable(false),
-            )
-        })
-        .inner
+    let text = RichText::new(text)
+        .text_style(TextStyle::Small)
+        .color(tone.color(tokens));
+    let room = pill_room(&[unwrapped(ui, text.clone(), TextStyle::Small)], 0.0);
+    ui.allocate_ui(room, |ui| {
+        pill_frame(tokens, tone)
+            .show(ui, |ui| ui.add(Label::new(text).selectable(false)))
+            .inner
+    })
+    .inner
 }
 
 pub fn status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
@@ -656,34 +651,50 @@ pub fn announced_status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -
 fn status_pill_parts(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> (Response, Response) {
     let tokens = appearance::tokens(ui);
     let color = tone.color(tokens);
-    let shown = Frame::new()
+    let icon = RichText::new(tone.icon())
+        .font(icon_font(SMALL_SIZE))
+        .color(color);
+    let text = RichText::new(text)
+        .text_style(TextStyle::Small)
+        .color(color);
+    let room = pill_room(
+        &[
+            unwrapped(ui, icon.clone(), TextStyle::Small),
+            unwrapped(ui, text.clone(), TextStyle::Small),
+        ],
+        ui.spacing().interact_size.y,
+    );
+    let shown = ui
+        .allocate_ui(room, |ui| {
+            pill_frame(tokens, tone).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = PILL_ICON_GAP;
+                    let glyph = ui.add(Label::new(icon).selectable(false));
+                    decorative(ui, &glyph);
+                    ui.add(Label::new(text).selectable(false))
+                })
+                .inner
+            })
+        })
+        .inner;
+    (shown.response, shown.inner)
+}
+
+fn pill_frame(tokens: &Tokens, tone: Tone) -> Frame {
+    Frame::new()
         .fill(tone.fill(tokens))
         .corner_radius(CornerRadius::same(PILL_RADIUS))
         .inner_margin(PILL_MARGIN)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = PILL_ICON_GAP;
-                let glyph = ui.add(
-                    Label::new(
-                        RichText::new(tone.icon())
-                            .font(icon_font(SMALL_SIZE))
-                            .color(color),
-                    )
-                    .selectable(false),
-                );
-                decorative(ui, &glyph);
-                ui.add(
-                    Label::new(
-                        RichText::new(text)
-                            .text_style(TextStyle::Small)
-                            .color(color),
-                    )
-                    .selectable(false),
-                )
-            })
-            .inner
-        });
-    (shown.response, shown.inner)
+}
+
+fn pill_room(parts: &[Arc<Galley>], row_height: f32) -> Vec2 {
+    let gaps = PILL_ICON_GAP * parts.len().saturating_sub(1) as f32;
+    let width = parts.iter().map(|part| part.size().x).sum::<f32>() + gaps;
+    let height = parts
+        .iter()
+        .map(|part| part.size().y)
+        .fold(row_height, f32::max);
+    vec2(width, height) + PILL_MARGIN.sum()
 }
 
 pub fn callout<R>(ui: &mut Ui, tone: Tone, add: impl FnOnce(&mut Ui) -> R) -> R {
@@ -1483,6 +1494,53 @@ mod tests {
     use egui::{Context, RawInput, Rect, pos2};
 
     use super::*;
+
+    fn pills_in_a_wrapped_row(width: f32, texts: [&str; 2]) -> (Vec<Rect>, Vec<Rect>, Rect) {
+        let context = Context::default();
+        context.set_fonts(fonts::definitions_with(&[]));
+        let screen = Rect::from_min_size(pos2(0.0, 0.0), vec2(width, 400.0));
+        let mut measured = None;
+
+        for _ in 0..2 {
+            let input = RawInput {
+                screen_rect: Some(screen),
+                ..RawInput::default()
+            };
+            let mut output = context.run_ui(input, |ui| {
+                let row = ui.horizontal_wrapped(|ui| {
+                    let status = texts.map(|text| status_pill(ui, Tone::Info, text).rect);
+                    let plain = texts.map(|text| pill(ui, Tone::Warning, text).rect);
+                    (status, plain)
+                });
+                let (status, plain) = row.inner;
+                measured = Some((status.to_vec(), plain.to_vec(), ui.max_rect()));
+            });
+            output.textures_delta.clear();
+        }
+        measured.unwrap()
+    }
+
+    #[test]
+    fn a_pill_that_does_not_fit_beside_another_wraps_instead_of_widening_the_panel() {
+        let texts = ["8 degrees of freedom left", "4 open ends"];
+        let (roomy_status, roomy_plain, _) = pills_in_a_wrapped_row(2000.0, texts);
+        let first = roomy_status[0];
+        let width = first.width() + roomy_status[1].width() / 2.0;
+
+        let (status, plain, panel) = pills_in_a_wrapped_row(width, texts);
+
+        for (pill, roomy) in status
+            .iter()
+            .chain(&plain)
+            .zip(roomy_status.iter().chain(&roomy_plain))
+        {
+            assert!(pill.right() <= panel.right(), "{pill:?} in {panel:?}");
+            assert_eq!(pill.size(), roomy.size());
+        }
+        assert!(status[1].top() >= status[0].bottom(), "{status:?}");
+        assert!(plain[0].top() >= status[1].bottom(), "{status:?} {plain:?}");
+        assert!(plain[1].top() >= plain[0].bottom(), "{plain:?}");
+    }
 
     #[test]
     fn a_long_removable_row_wraps_to_keep_its_button_in_the_panel() {

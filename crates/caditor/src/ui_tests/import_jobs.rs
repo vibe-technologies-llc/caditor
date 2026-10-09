@@ -10,7 +10,7 @@ use std::{
 use caditor_document::Document;
 use tempfile::TempDir;
 
-use super::{FILE_TIMEOUT, Harness, cube_stl, run_from_palette};
+use super::{FILE_TIMEOUT, Harness, canonical, cube_stl, run_from_palette};
 use crate::files::FileCommand;
 
 struct SlowReader {
@@ -192,10 +192,11 @@ fn a_new_import_after_a_cancelled_one_is_not_cancelled_with_it() {
 #[test]
 fn opening_a_model_does_not_wait_for_a_slow_import() {
     let dir = TempDir::new().unwrap();
-    let mut harness = Harness::with_directories(Some(dir.path()));
+    let root = canonical(&dir);
+    let mut harness = Harness::with_directories(Some(root.as_path()));
     let slow = SlowReader::new(true);
-    start_slow_import(&mut harness, dir.path(), &slow);
-    let model = dir.path().join("plate.caditor");
+    start_slow_import(&mut harness, root.as_path(), &slow);
+    let model = root.as_path().join("plate.caditor");
     caditor_file::save(&Document::default(), &model, false).unwrap();
 
     harness.command(FileCommand::OpenPath(model.clone()));
@@ -253,9 +254,10 @@ fn closing_the_window_during_a_load_asks_about_unsaved_changes_instead_of_hiding
 #[test]
 fn cancelling_a_slow_open_stops_its_read_and_leaves_the_files_worker_free() {
     let dir = TempDir::new().unwrap();
-    let mut harness = Harness::with_directories(Some(dir.path()));
-    let slow_model = dir.path().join("slow.caditor");
-    let next_model = dir.path().join("next.caditor");
+    let root = canonical(&dir);
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+    let slow_model = root.as_path().join("slow.caditor");
+    let next_model = root.as_path().join("next.caditor");
     caditor_file::save(&Document::default(), &slow_model, false).unwrap();
     caditor_file::save(&Document::default(), &next_model, false).unwrap();
     let slow = SlowLoader::default();

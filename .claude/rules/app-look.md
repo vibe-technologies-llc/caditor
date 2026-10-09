@@ -117,6 +117,10 @@ paths:
     primary. `strong` is semibold text, since egui's `.strong()` only recolours here.
   - `segmented` falls back to a dropdown when its row is wider than the room, so it never widens
     a panel.
+  - `pill` and `status_pill` measure their text and reserve that room before drawing, so a
+    wrapped row moves one that does not fit to the next line instead of letting it run past the
+    edge and widen the side panel, which would shift the 3D view whenever a sketch's status
+    changes (`a_pill_that_does_not_fit_beside_another_wraps_instead_of_widening_the_panel`).
   - `footer_split` puts a destructive action at the far left, away from the primary; the primary
     action is always rightmost.
   - A dialog gives focus to its `primary_button` whenever no widget holds it (opening, Escape
@@ -175,8 +179,8 @@ paths:
   Escape does), so the ribbon keeps its height and every group its place.
 - While a sketch is edited the sketch ribbon (`sketch_toolbar.rs`) sits under it on
   `accent_surface` with an accent line along its top: a header without a caption (sketch badge,
-  "Editing <name>" truncating with the full name on hover, the sketch's `status_pill`s, its width
-  clamped to the title so constraining never moves the groups), Select, Draw, Modify, Constrain
+  "Editing <name>" truncating with the full name on hover, the sketch's `status_pill`s wrapping
+  under it, its width clamped to the title so constraining never moves the groups), Select, Draw, Modify, Constrain
   and Dimension. Finish sketch is a primary button at the right of the first row. Shape tools with
   several ways to draw carry a `corner_menu_button` listing them as `menu_choice`s.
 - The three arc tools share one Draw button (`sketch_toolbar::ARC_TOOLS`) showing the arc tool last

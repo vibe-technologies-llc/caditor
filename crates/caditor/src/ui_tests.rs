@@ -495,15 +495,23 @@ impl Harness {
 
     fn settle(&mut self) {
         let deadline = Instant::now() + RECOMPUTE_TIMEOUT;
-        while matches!(self.model.status(), RecomputeStatus::Running { .. })
-            || self.model.bodies_pending()
-        {
-            assert!(Instant::now() < deadline, "the recompute did not finish");
-            self.model.poll();
-            std::thread::yield_now();
+        loop {
+            while self.computing() {
+                assert!(Instant::now() < deadline, "the recompute did not finish");
+                self.model.poll();
+                std::thread::yield_now();
+            }
+            self.frame();
+            self.frame();
+            if !self.computing() {
+                return;
+            }
         }
-        self.frame();
-        self.frame();
+    }
+
+    fn computing(&self) -> bool {
+        matches!(self.model.status(), RecomputeStatus::Running { .. })
+            || self.model.bodies_pending()
     }
 
     fn wait_until(&mut self, what: &str, done: impl Fn(&Self) -> bool) {
@@ -782,6 +790,9 @@ impl Harness {
     }
 
     fn point_at(&mut self, point: Point2) {
+        if self.computing() {
+            self.settle();
+        }
         let position = self.on_screen(point);
         self.events.push(Event::PointerMoved(position));
         self.frame();
@@ -5813,7 +5824,8 @@ fn a_point_placed_where_two_lines_cross_is_held_on_both() {
 
     let sketch = harness.sketch(feature);
     let point = *entities_of_kind(sketch, "Point").last().unwrap();
-    assert!(near(sketch.point(point).unwrap(), crossing));
+    let landed = sketch.point(point).unwrap();
+    assert!(near(landed, crossing), "{landed} is not at {crossing}");
     let held: Vec<EntityId> = constraints_of_kind(sketch, "Coincident")
         .into_iter()
         .filter_map(|constraint| match constraint {
@@ -15545,7 +15557,11 @@ fn a_point_placed_at_the_centre_of_a_triangle_lands_there_but_is_not_kept_there(
     else {
         panic!("one lone point should be placed");
     };
-    assert!(near(sketch.point(placed).unwrap(), Point2::new(20.0, 20.0)));
+    let landed = sketch.point(placed).unwrap();
+    assert!(
+        near(landed, Point2::new(20.0, 20.0)),
+        "{landed} is not at the centre"
+    );
     assert!(
         !sketch
             .constraints()

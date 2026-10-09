@@ -18,9 +18,19 @@ paths:
   the button across frames (`hold_drag`, `release_drag`) so a test can read mid-drag state.
 - Overlap checks compare only the visible part of each text (`Harness::text_clips`), since
   content scrolled under a bar is clipped there.
+- `settle` waits for the recompute and body meshing, runs two frames, and starts over while those
+  frames started more (opening a feature meshes the body before it from a frame), so the scene
+  after it is the finished one. `point_at`, and so `click_at`, settles first when a recompute or
+  meshing is still running: its result changes the panels (a sketch's status pills), and a
+  layout change landing between working out a screen position and the frame that reads the
+  pointer would put the pointer somewhere else in the sketch.
 - A constraint trial (`app-sketching.md`) is waited for at the end of each harness frame
   (`Model::finish_checking_constraints`), so a constraint button's result is in the document by
   the next check as if applied at once.
 - Slow file work is staged with test-only seams on `Files`: `read_models_with` swaps the reader an
   import thread calls and `load_models_with` the loader an open thread calls
   (`ui_tests/import_jobs.rs` blocks either until released or cancelled).
+- Opening a model resolves its path (`dunce::canonicalize`), and a Windows runner's temporary
+  folder is an 8.3 short name (`C:\Users\RUNNER~1\...`) that resolving spells out in full, so a test
+  comparing `Model::path` with a file it wrote builds that file under `canonical(&dir)`, never
+  `dir.path()`; the comparison then holds on Linux and fails only on Windows CI.
