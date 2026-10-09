@@ -5,11 +5,12 @@ use caditor_kernel::{LinearExtent, Profile, ProfileCurve, Selection, extrude};
 use caditor_step::{StepBody, write_step};
 
 use super::*;
-use crate::journal::{JournalHead, Logged, encode_entry, encode_journal};
+use crate::journal::{JournalHead, Logged, Mirror, encode_entry, encode_journal};
 
 const PRISM_SIDES: usize = 6000;
 const SKETCHES: usize = 2000;
 const RUNS: usize = 5;
+const DRAWN_LINES: usize = 2000;
 
 fn prism_text(sides: usize) -> String {
     let corner = |index: usize| {
@@ -79,6 +80,17 @@ fn many_sketches() -> Document {
     document
 }
 
+fn drawing_transaction(document: &Document) -> Transaction {
+    let mut sketch = Sketch::new(Plane::XY);
+    for index in 0..DRAWN_LINES {
+        let y = index as f64;
+        sketch.add_line(Point2::new(0.0, y), Point2::new(10.0, y));
+    }
+    let mut transaction = document.transaction("Drawing");
+    transaction.add_feature("Drawing", FeatureKind::from(sketch));
+    transaction.finish()
+}
+
 fn edited(document: &Document, text: &str) -> Document {
     let mut edited = document.clone();
     edited.apply(edit_width(document, text)).unwrap();
@@ -122,6 +134,25 @@ fn report_costs(name: &str, document: &Document, appended: &Transaction) {
     let append = best_of(|| {
         encode_entry(&entry).unwrap();
     });
+    let mut unfollowed: Vec<(Mirror, JournalEntry)> = (0..RUNS)
+        .map(|_| {
+            (
+                Mirror::new(document.clone()),
+                JournalEntry::Apply(appended.clone()),
+            )
+        })
+        .collect();
+    let mut followed = Vec::with_capacity(RUNS);
+    let follow = best_of(|| {
+        let (mut mirror, entry) = unfollowed.pop().unwrap();
+        let logged = mirror.log(entry);
+        followed.push((mirror, logged));
+    });
+    assert!(
+        followed
+            .iter()
+            .all(|(_, logged)| matches!(logged, Logged::Entry(_)))
+    );
     let load_time = best_of(|| {
         load(&path).unwrap();
     });
@@ -132,7 +163,7 @@ fn report_costs(name: &str, document: &Document, appended: &Transaction) {
     println!(
         "{name}: save new {fresh:.1?}, save over {over:.1?} ({file} bytes with versions), \
          journal rewrite {rewrite:.1?} ({journal} bytes), journal append {append:.1?} \
-         ({appended_bytes} bytes), load {load_time:.1?}"
+         ({appended_bytes} bytes), following it {follow:.1?}, load {load_time:.1?}"
     );
 }
 
@@ -155,6 +186,6 @@ fn save_and_journal_costs() {
     report_costs(
         &format!("{SKETCHES} sketches"),
         &sketches,
-        &edit_width(&sketches, "43 mm"),
+        &drawing_transaction(&sketches),
     );
 }
