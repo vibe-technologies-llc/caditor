@@ -181,6 +181,12 @@ paths:
   `rotation_change`, and `pattern_tools::selected_change`; they act on the open feature before the
   tree's row, so a row only being looked at is never changed. Each feature row has a "⋯" menu with
   what its right-click menu holds.
+- The transactions those commands would apply (visibility, move, suppress, group, roll, delete,
+  update references, detach and the selection-taking and reverse changes) are built and checked
+  once per `OfferBasis` (revision, evaluation, draft, units, the selection's generation, the
+  current, open and chosen rows and the editing context) and kept in `PanelState::tree_offers`
+  (`feature_tree::TreeOffers`), so a still frame builds and checks none; anything new such an
+  offer reads must join the basis.
 - Tree order and the rollback bar are commands too (move, suppress, update references, roll back
   to here, roll to end, move the bar one row), so nothing needs a drag. Edit feature takes the
   tree's primary row, else the feature of the one item selected in the view (a face's origin, an

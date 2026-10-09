@@ -1,10 +1,11 @@
 use std::time::Instant;
 
-use caditor_document::Document;
-use caditor_geometry::Point2;
+use caditor_document::{Document, FeatureKind};
+use caditor_geometry::{Plane, Point2};
+use caditor_sketch::Sketch;
 use egui::{Event, Key, Pos2};
 
-use super::{CAMERA_SETTLE, Harness, feature_named};
+use super::{CAMERA_SETTLE, Harness, feature_named, rectangle};
 use crate::{
     app::Workspace,
     viewport::timing::{large_sketch, plate_document, sketch_document},
@@ -12,6 +13,7 @@ use crate::{
 
 const FRAMES: u32 = 100;
 const SMALL_MODEL_FRAMES: u32 = 2000;
+const MANY_FEATURES: usize = 300;
 const WARM_UP: u32 = 3;
 
 fn started_with(document: Document) -> Harness {
@@ -19,6 +21,22 @@ fn started_with(document: Document) -> Harness {
     let harness = Harness::starting(None, document, Workspace::new());
     eprintln!("started and settled in {:?}", started.elapsed());
     harness
+}
+
+fn with_many_sketches(mut document: Document) -> Document {
+    let mut transaction = document.transaction("Add sketches");
+    for index in 0..MANY_FEATURES {
+        let mut sketch = Sketch::new(Plane::XY);
+        let at = Point2::new(500.0 + index as f64 * 20.0, 0.0);
+        rectangle(
+            &mut sketch,
+            at,
+            at + caditor_geometry::Vector2::new(10.0, 10.0),
+        );
+        transaction.add_feature(format!("Sketch {index}"), FeatureKind::from(sketch));
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
 }
 
 fn time(harness: &mut Harness, name: &str, frames: u32, mut change: impl FnMut(&mut Harness, u32)) {
@@ -92,5 +110,16 @@ fn app_frame_costs_while_editing_a_large_sketch_and_with_a_row_chosen() {
         "plate, a tree row chosen, pointer moving",
         SMALL_MODEL_FRAMES,
         moving_between([centre, centre + egui::vec2(3.0, 2.0)]),
+    );
+
+    let mut harness = started_with(with_many_sketches(plate_document()));
+    let plate = feature_named(&harness, "Plate");
+    harness.workspace.panels.choose_only(plate);
+    harness.frame();
+    time(
+        &mut harness,
+        "plate and 300 sketches, a tree row chosen, idle",
+        SMALL_MODEL_FRAMES,
+        |_, _| {},
     );
 }
