@@ -2301,7 +2301,7 @@ fn sketch_entity_points(sketch: &Sketch, entity: EntityId, reference_size: f64) 
     }
 }
 
-fn sketch_points_bounds(sketch: &Sketch) -> Option<Aabb> {
+pub fn sketch_points_bounds(sketch: &Sketch) -> Option<Aabb> {
     Aabb::from_points(
         sketch
             .entities()

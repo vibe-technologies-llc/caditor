@@ -12,7 +12,7 @@ use crate::{
     editing::Context,
     faceting::FacetLevel,
     interference_panel::Mark,
-    move_manipulator::Drawn,
+    manipulator::Drawn,
     scene::{self, BuiltScene, Highlight, SketchShapes, Sources},
     scene_palette::Contrast,
     selection::{Pickable, Selection},

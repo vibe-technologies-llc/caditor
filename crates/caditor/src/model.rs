@@ -15,7 +15,7 @@ use caditor_file::{
     Closing, FileDigest, Flusher, JournalEntry, JournalFailure, KeepRequest, Recovered, Report,
     SaveRequest, Start, Storage, StorageConfig,
 };
-use caditor_geometry::{Plane, RigidTransform};
+use caditor_geometry::{Aabb, Plane, RigidTransform};
 use caditor_kernel::MeshQuality;
 use caditor_sketch::{Constraint, Sketch, SketchSolution};
 use parking_lot::Mutex;
@@ -27,6 +27,7 @@ use crate::{
     editing::EditingCommand,
     files::FileCommand,
     preferences::PreferencesCommand,
+    scene,
     selection::SelectionFilter,
     units::{AngleUnit, LengthUnit, Units},
 };
@@ -703,6 +704,20 @@ impl Model {
         let body = self.document().feature(draft.feature)?.body()?;
         let result = draft.evaluation.as_ref()?.body_result(body)?;
         Some((body, Arc::clone(result)))
+    }
+
+    pub fn draft_kind(&self, feature: FeatureId) -> Option<&FeatureKind> {
+        let draft = self
+            .draft
+            .as_ref()
+            .filter(|draft| draft.feature == feature)?;
+        Some(&draft.kind)
+    }
+
+    pub fn sketch_bounds(&self, sketch: &Feature) -> Option<Aabb> {
+        self.display
+            .sketches
+            .bounds(&self.evaluation, sketch, scene::sketch_points_bounds)
     }
 
     pub fn draft_failure(&self, feature: FeatureId) -> Option<&FeatureError> {

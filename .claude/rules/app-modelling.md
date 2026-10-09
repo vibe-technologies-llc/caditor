@@ -19,6 +19,8 @@ paths:
   - "crates/caditor/src/thread_panel.rs"
   - "crates/caditor/src/move_panel.rs"
   - "crates/caditor/src/move_manipulator.rs"
+  - "crates/caditor/src/manipulator.rs"
+  - "crates/caditor/src/reach_handles.rs"
   - "crates/caditor/src/mirror_tools.rs"
   - "crates/caditor/src/mirror_panel.rs"
   - "crates/caditor/src/scale_tools.rs"
@@ -204,6 +206,15 @@ paths:
   a Wall switch (Inside, Outside, Centred); Regions then only says the wall follows every curve.
   A new extrusion or revolve of every region of a sketch whose curves enclose nothing starts as a
   thin wall, and such a sketch, unused, is one Extrude guesses (`solid_tools::is_open_profile`).
+- While an extrusion is open (and nothing is being chosen in the view), each end set by a distance
+  has an arrow (`reach_handles.rs`, `Handle::Reach`) standing at that end over the middle of its
+  sketch's bounds and pointing the way that side runs, in `canvas::SNAP` at the move arrows' size,
+  left out when it points at the eye; a symmetric extrusion has one, on its forward side, whose
+  drag grows the whole distance twice as fast. It drags as a move arrow does (`manipulator.rs`
+  holds both kinds behind `Manipulator` and `Manipulating`): in steps (Ctrl drags freely),
+  previewed with the distance beside the pointer, committed on release as one edit setting that
+  distance to a measured value of at least one step. The arrows follow a typed distance's preview
+  (`Model::draft_kind`); an extrusion starting at a face or plane has none.
 - A revolve can also take two angles, refusing a pair that turns more than a full turn. Its
   Profile switch (Whole, One side) keeps one side of the axis, starting from the side holding
   more of the chosen regions' area (`solid_panel::larger_side`), with Keep the other side of the
@@ -345,7 +356,7 @@ paths:
   world axis in the axis colours (`selection::Axis::rgb`) and a square for each plane, drawn on the
   front layer in the overlay batch at a constant size in points (`ARROW_POINTS`), an arrow pointing
   at the eye or a square seen edge-on left out. Hit-testing is on the UI thread in screen space
-  (`Manipulator::hit`, arrows within `HIT_POINTS` winning over squares), so it needs no pick; the
+  (`MoveHandles::hit`, arrows within `HIT_POINTS` winning over squares), so it needs no pick; the
   hovered or dragged handle turns `canvas::HOVERED`, the hover says what a drag does, and a click
   on a handle selects nothing.
 - A primary drag on a handle (`PrimaryDrag::Manipulate`, `Manipulating`) follows the point of its

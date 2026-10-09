@@ -9188,6 +9188,60 @@ fn dragging_a_move_arrow_moves_the_body_along_it_in_one_change() {
 }
 
 #[test]
+fn dragging_an_extrusion_arrow_changes_its_distance_in_one_change() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let extrude = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the extrusion is open");
+    let reach = Handle::Reach(crate::move_manipulator::Reach::Only);
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(reach, 0.0)
+        .expect("the distance arrow is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(reach, 15.0)
+        .unwrap();
+    let step = harness.workspace.viewport.manipulator_step().unwrap();
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+    assert!(harness.shows("Drag to change the extrusion's distance"));
+
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
+    let top = harness
+        .model
+        .evaluation()
+        .body(extrude)
+        .unwrap()
+        .bounding_box()
+        .unwrap()
+        .max()
+        .z;
+    assert!((top - 25.0).abs() <= step, "{top} with steps of {step}");
+    assert!(((top / step).round() * step - top).abs() < 1e-9);
+
+    harness.perform(Action::Undo);
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Create Extrude 1"));
+}
+
+#[test]
 fn dragging_a_ring_turns_the_body_about_its_centre_and_the_panel_switches_to_the_origin() {
     let mut harness = Harness::new();
     let (plate, top) = extruded_plate(&mut harness);

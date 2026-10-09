@@ -10,18 +10,18 @@ use crate::{
     units::Units,
 };
 
-const ARROW_POINTS: f64 = 96.0;
-const GAP_POINTS: f64 = 14.0;
-const HEAD_POINTS: f64 = 18.0;
-const HEAD_HALF_POINTS: f64 = 7.0;
-const SHAFT_WIDTH: f32 = 3.0;
+pub const ARROW_POINTS: f64 = 96.0;
+pub const GAP_POINTS: f64 = 14.0;
+pub const HEAD_POINTS: f64 = 18.0;
+pub const HEAD_HALF_POINTS: f64 = 7.0;
+pub const SHAFT_WIDTH: f32 = 3.0;
 const SQUARE_FROM: f64 = 0.3;
 const SQUARE_TO: f64 = 0.5;
 const SQUARE_ALPHA: f32 = 0.45;
-const HIT_POINTS: f64 = 8.0;
-const END_ON: f64 = 0.97;
+pub const HIT_POINTS: f64 = 8.0;
+pub const END_ON: f64 = 0.97;
 const EDGE_ON: f64 = 0.2;
-const STEP_POINTS: f64 = 4.0;
+pub const STEP_POINTS: f64 = 4.0;
 const RING_REACH: f64 = 1.25;
 const RING_SEGMENTS: usize = 72;
 const TURN_STEP_DEGREES: f64 = 5.0;
@@ -33,6 +33,25 @@ pub enum Handle {
     Across(MoveAxis),
     Turn(MoveAxis),
     TurnAbout,
+    Reach(Reach),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    Only,
+    Symmetric,
+    Forward,
+    Backward,
+}
+
+impl Reach {
+    pub fn caption(self) -> &'static str {
+        match self {
+            Self::Only | Self::Symmetric => "Distance",
+            Self::Forward => "Forward distance",
+            Self::Backward => "Backward distance",
+        }
+    }
 }
 
 impl Handle {
@@ -52,7 +71,7 @@ impl Handle {
                 .into_iter()
                 .filter(|axis| *axis != normal)
                 .collect(),
-            Self::Turn(_) | Self::TurnAbout => Vec::new(),
+            Self::Turn(_) | Self::TurnAbout | Self::Reach(_) => Vec::new(),
         }
     }
 
@@ -64,6 +83,10 @@ impl Handle {
                 axis.name()
             ),
             Self::TurnAbout => "Drag to turn the body about its axis".to_owned(),
+            Self::Reach(reach) => format!(
+                "Drag to change the extrusion's {}",
+                reach.caption().to_lowercase()
+            ),
             Self::Across(_) => {
                 let names: Vec<&str> = self.moves().iter().map(|axis| axis.name()).collect();
                 format!("Drag to move the body in the {} plane", names.concat())
@@ -80,8 +103,8 @@ fn axis_colour(palette: &ScenePalette, axis: MoveAxis) -> Color {
     })
 }
 
-const HIGHLIGHTED: Color = scene::opaque(canvas::HOVERED);
-const ABOUT_AXIS: Color = scene::opaque(canvas::SNAP);
+pub const HIGHLIGHTED: Color = scene::opaque(canvas::HOVERED);
+pub const ABOUT_AXIS: Color = scene::opaque(canvas::SNAP);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Turning {
@@ -108,7 +131,7 @@ impl Turning {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Manipulator {
+pub struct MoveHandles {
     pub feature: FeatureId,
     origin: Point3,
     reach: f64,
@@ -121,13 +144,7 @@ fn direction(frame: &Plane, axis: MoveAxis) -> Vector3 {
     axis.direction_in(Some(frame))
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Drawn {
-    manipulator: Manipulator,
-    highlighted: Option<Handle>,
-}
-
-impl Manipulator {
+impl MoveHandles {
     pub fn of(
         model: &Model,
         open: Option<FeatureId>,
@@ -197,7 +214,7 @@ impl Manipulator {
     }
 
     pub fn step(&self) -> f64 {
-        nice_step(self.per_point() * STEP_POINTS)
+        step_for(self.per_point())
     }
 
     fn direction(&self, axis: MoveAxis) -> Vector3 {
@@ -268,7 +285,7 @@ impl Manipulator {
                     corners.iter().map(|corner| view.project(*corner)).collect();
                 projected.is_some_and(|projected| within(&projected, cursor))
             }),
-            Handle::Along(_) | Handle::Turn(_) | Handle::TurnAbout => false,
+            Handle::Along(_) | Handle::Turn(_) | Handle::TurnAbout | Handle::Reach(_) => false,
         });
         let reach = HIT_POINTS * pixels_per_point;
         let arrows = MoveAxis::ALL.into_iter().filter_map(|axis| {
@@ -315,22 +332,14 @@ impl Manipulator {
                 let index = (along.max(0.0) as usize).min(ring.len() - 1);
                 ring.get(index).copied()
             }
+            Handle::Reach(_) => None,
         }
     }
 
-    pub fn drawn(self, highlighted: Option<Handle>) -> Drawn {
-        Drawn {
-            manipulator: self,
-            highlighted,
-        }
-    }
-}
-
-impl Drawn {
-    pub fn add_to(&self, batch: &mut Batch, palette: &ScenePalette) {
-        let manipulator = &self.manipulator;
+    pub fn add_to(&self, batch: &mut Batch, palette: &ScenePalette, highlighted: Option<Handle>) {
+        let manipulator = self;
         let colour = |handle: Handle, axis: MoveAxis| {
-            if self.highlighted == Some(handle) {
+            if highlighted == Some(handle) {
                 HIGHLIGHTED
             } else {
                 axis_colour(palette, axis)
@@ -353,7 +362,7 @@ impl Drawn {
             };
             let colour = match handle {
                 Handle::Turn(axis) => colour(handle, axis),
-                _ if self.highlighted == Some(handle) => HIGHLIGHTED,
+                _ if highlighted == Some(handle) => HIGHLIGHTED,
                 _ => ABOUT_AXIS,
             };
             for pair in ring.windows(2) {
@@ -376,30 +385,53 @@ impl Drawn {
             };
             let handle = Handle::Along(axis);
             let colour = colour(handle, axis);
-            let direction = manipulator.direction(axis);
-            let head = HEAD_POINTS * manipulator.per_point();
-            let base = tip - direction * head;
-            batch.lines.push(Line {
-                start: from,
-                end: base,
-                color: colour,
-                width: SHAFT_WIDTH,
-                layer: Layer::Front,
-                pick: None,
-                stroke: Stroke::Solid,
-            });
-            let Some(side) = direction.cross(manipulator.forward).try_normalize() else {
-                continue;
+            let arrow = Arrow {
+                from,
+                tip,
+                direction: manipulator.direction(axis),
+                per_point: manipulator.per_point(),
+                forward: manipulator.forward,
             };
-            let half = side * HEAD_HALF_POINTS * manipulator.per_point();
-            batch.fills.push(Fill::convex(
-                &[tip, base + half, base - half],
-                colour,
-                Layer::Front,
-                None,
-            ));
+            arrow.add_to(batch, colour);
         }
     }
+}
+
+pub struct Arrow {
+    pub from: Point3,
+    pub tip: Point3,
+    pub direction: Vector3,
+    pub per_point: f64,
+    pub forward: Vector3,
+}
+
+impl Arrow {
+    pub fn add_to(&self, batch: &mut Batch, colour: Color) {
+        let base = self.tip - self.direction * HEAD_POINTS * self.per_point;
+        batch.lines.push(Line {
+            start: self.from,
+            end: base,
+            color: colour,
+            width: SHAFT_WIDTH,
+            layer: Layer::Front,
+            pick: None,
+            stroke: Stroke::Solid,
+        });
+        let Some(side) = self.direction.cross(self.forward).try_normalize() else {
+            return;
+        };
+        let half = side * HEAD_HALF_POINTS * self.per_point;
+        batch.fills.push(Fill::convex(
+            &[self.tip, base + half, base - half],
+            colour,
+            Layer::Front,
+            None,
+        ));
+    }
+}
+
+pub fn step_for(per_point: f64) -> f64 {
+    nice_step(per_point * STEP_POINTS)
 }
 
 fn within(polygon: &[Vector2], point: Vector2) -> bool {
@@ -411,7 +443,7 @@ fn within(polygon: &[Vector2], point: Vector2) -> bool {
     turns.iter().all(|turn| *turn >= 0.0) || turns.iter().all(|turn| *turn <= 0.0)
 }
 
-fn segment_distance(from: Vector2, to: Vector2, point: Vector2) -> f64 {
+pub fn segment_distance(from: Vector2, to: Vector2, point: Vector2) -> f64 {
     let along = to - from;
     let length_squared = along.length_squared();
     if length_squared == 0.0 {
@@ -434,7 +466,7 @@ fn nice_step(at_least: f64) -> f64 {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Manipulating {
+pub struct MoveDrag {
     pub feature: FeatureId,
     pub handle: Handle,
     start: Move,
@@ -451,10 +483,10 @@ pub struct Manipulating {
     frame: Plane,
 }
 
-impl Manipulating {
+impl MoveDrag {
     pub fn begin(
         model: &Model,
-        manipulator: &Manipulator,
+        manipulator: &MoveHandles,
         handle: Handle,
         ray: Ray,
     ) -> Option<Self> {
@@ -665,6 +697,7 @@ fn point_on(
             let plane = Plane::new(origin, direction(frame, axis))?;
             Some(ray.at(ray.intersect_plane(&plane)?))
         }
+        Handle::Reach(_) => None,
     }
 }
 
@@ -680,9 +713,9 @@ mod tests {
         View::new(viewpoint, 800.0, 600.0)
     }
 
-    fn manipulator(view: &View) -> Manipulator {
+    fn manipulator(view: &View) -> MoveHandles {
         let depth = view.view_depth(Point3::ZERO);
-        Manipulator {
+        MoveHandles {
             feature: FeatureId::from_raw(3),
             origin: Point3::ZERO,
             reach: ARROW_POINTS * view.units_per_pixel_at(depth),
