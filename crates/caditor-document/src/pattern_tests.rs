@@ -645,6 +645,7 @@ fn seeded(repeated: impl FnOnce(&Seeded) -> Vec<FeatureId>) -> Seeded {
             standard: None,
             sizing: HoleSizing::Typed,
             bottom: HoleBottom::Flat,
+            thread: TappedThread::default(),
         }),
     );
     let boss_outline = transaction.add_feature(

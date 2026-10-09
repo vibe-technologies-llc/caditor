@@ -235,6 +235,7 @@ fn tapped(pair: &mut Pair) -> FeatureId {
             }),
             sizing: HoleSizing::Typed,
             bottom: HoleBottom::Flat,
+            thread: TappedThread::default(),
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -383,4 +384,104 @@ fn designations_follow_each_standard_s_notation() {
             .id(),
         "M12"
     );
+}
+
+fn set_hole(pair: &mut Pair, hole: FeatureId, change: impl FnOnce(&mut Hole)) {
+    let mut kind = pair.document.feature(hole).unwrap().kind.clone();
+    if let FeatureKind::Hole(hole) = &mut kind {
+        change(hole);
+    }
+    pair.document
+        .apply(Transaction::single(
+            "Edit",
+            Edit::SetFeatureKind { id: hole, kind },
+        ))
+        .unwrap();
+}
+
+#[test]
+fn a_tapped_hole_takes_its_class_hand_and_depth_from_the_hole() {
+    let mut pair = pair();
+    let hole = tapped(&mut pair);
+    let depth = pair.document.parse("2 mm").unwrap();
+    set_hole(&mut pair, hole, |hole| {
+        hole.thread = TappedThread {
+            class: Some(class(ThreadFamily::MetricCoarse, "5H")),
+            hand: ThreadHand::Left,
+            depth: Some(depth),
+        };
+    });
+    let mut engine = Recompute::default();
+
+    let evaluation = evaluate(&pair.document, &mut engine);
+    let placed = placed_threads(&pair.document, &evaluation);
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0].designation, "M6-5H-LH");
+    assert!(near(placed[0].placement.start, Point3::new(5.0, 5.0, 4.0)));
+    assert!(near(placed[0].placement.end(), Point3::new(5.0, 5.0, 2.0)));
+
+    let external = class(ThreadFamily::MetricCoarse, "6g");
+    set_hole(&mut pair, hole, |hole| hole.thread.class = Some(external));
+    let evaluation = evaluate(&pair.document, &mut engine);
+    let error = failure(&evaluation, hole);
+
+    assert_eq!(
+        error.reason,
+        "The class 6g is not one ISO metric coarse offers for a tapped hole."
+    );
+    assert_eq!(
+        error.remedy,
+        "Choose a class for an internal thread, such as 6H."
+    );
+
+    let zero = pair.document.parse("0 mm").unwrap();
+    set_hole(&mut pair, hole, |hole| {
+        hole.thread = TappedThread {
+            depth: Some(zero),
+            ..TappedThread::default()
+        };
+    });
+    let evaluation = evaluate(&pair.document, &mut engine);
+
+    assert_eq!(
+        failure(&evaluation, hole).reason,
+        "The thread depth must be more than zero."
+    );
+}
+
+#[test]
+fn a_pattern_threads_the_copies_of_a_tapped_hole() {
+    let mut pair = pair();
+    let hole = tapped(&mut pair);
+    let pattern = Pattern::new(
+        pair.plate,
+        PatternKind::Linear {
+            first: LinearDirection {
+                axis: AxisReference::Principal(PrincipalAxis::X),
+                count: Expression::Number(2.0),
+                spacing: pair.document.parse("8 mm").unwrap(),
+                measured: LinearSpacing::BetweenCopies,
+                reversed: false,
+            },
+            second: None,
+        },
+    )
+    .repeating(vec![hole]);
+    let mut transaction = pair.document.transaction("Pattern");
+    let pattern = transaction.add_feature("Pattern 1", FeatureKind::from(pattern));
+    pair.document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&pair.document, &mut Recompute::default());
+    let mut starts: Vec<Point3> = placed_threads(&pair.document, &evaluation)
+        .into_iter()
+        .map(|thread| thread.placement.start)
+        .collect();
+    starts.sort_by(|first, second| first.x.total_cmp(&second.x));
+
+    assert_eq!(evaluation.failed_count(), 0, "{pattern:?}");
+    assert_eq!(starts.len(), 2);
+    assert!(near(starts[0], Point3::new(5.0, 5.0, 4.0)));
+    assert!(near(starts[1], Point3::new(13.0, 5.0, 4.0)));
 }

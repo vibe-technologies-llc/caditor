@@ -5936,6 +5936,7 @@ fn holed_model(style: caditor_document::HoleStyle, through: bool) -> (Document, 
             standard: None,
             sizing: caditor_document::HoleSizing::Typed,
             bottom: caditor_document::HoleBottom::Flat,
+            thread: caditor_document::TappedThread::default(),
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -6633,6 +6634,72 @@ fn a_slotted_hole_of_a_standard_size_is_saved_journaled_and_loaded() {
     };
     assert_eq!(read.standard, None);
     assert!(matches!(read.shape, HoleShape::Slot { .. }));
+}
+
+#[test]
+fn a_tapped_holes_thread_class_hand_and_depth_are_saved_journaled_and_loaded() {
+    use caditor_document::{
+        HoleFit, HoleStandard, HoleStyle, MetricSize, TappedThread, ThreadFamily, ThreadHand,
+    };
+    let (mut document, hole) = holed_model(HoleStyle::Plain, false);
+    let FeatureKind::Hole(definition) = document.feature(hole).unwrap().kind.clone() else {
+        panic!("a hole");
+    };
+    let tapped = caditor_document::Hole {
+        standard: Some(HoleStandard {
+            size: MetricSize::M6,
+            fit: HoleFit::Tapped,
+        }),
+        ..definition
+    };
+    document
+        .apply(Transaction::single(
+            "Tap",
+            Edit::SetFeatureKind {
+                id: hole,
+                kind: FeatureKind::Hole(tapped.clone()),
+            },
+        ))
+        .unwrap();
+    let plain = encode(&document).unwrap();
+    let change = Transaction::single(
+        "Thread",
+        Edit::SetFeatureKind {
+            id: hole,
+            kind: FeatureKind::Hole(caditor_document::Hole {
+                thread: TappedThread {
+                    class: ThreadFamily::MetricCoarse.class_from_id("5H"),
+                    hand: ThreadHand::Left,
+                    depth: Some(Expression::parse_stored("3 mm").unwrap()),
+                },
+                ..tapped
+            }),
+        },
+    );
+    document.apply(change.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&change)).unwrap());
+
+    assert!(!plain.contains("\"thread\""));
+    assert!(text.contains("\"thread\":{"), "{text}");
+    assert!(text.contains("\"class\":\"5H\""));
+    assert!(text.contains("\"left_handed\":true"));
+    assert!(text.contains("\"depth\":\"3 mm\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(change));
+
+    let unknown = decode_text(&text.replace("\"5H\"", "\"9Q\""));
+
+    assert!(issues_mention(&unknown, "(9Q) could not be read"));
+    let FeatureKind::Hole(read) = &unknown.document.feature(hole).unwrap().kind else {
+        panic!("a hole");
+    };
+    assert_eq!(read.thread.class, None);
+    assert_eq!(read.thread.hand, ThreadHand::Left);
 }
 
 #[test]

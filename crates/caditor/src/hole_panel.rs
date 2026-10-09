@@ -1,6 +1,7 @@
 use caditor_document::{
     Feature, FeatureId, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard,
-    HoleStep, HoleStyle, MAX_HOLE_STEPS, MetricSize, Transaction, circle_sizes, pitch_text,
+    HoleStep, HoleStyle, MAX_HOLE_STEPS, MetricSize, TappedThread, ThreadHand, ThreadSide,
+    Transaction, circle_sizes, hole_thread, pitch_text,
 };
 use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
@@ -29,6 +30,13 @@ pub const DRILL_POINT: &str = "Drill point";
 pub const DRILL_POINT_ANGLE: &str = "Drill point angle";
 pub const ADD_STEP: &str = "Add a step";
 pub const REMOVE_STEP: &str = "Remove the last step";
+pub const THREAD_CLASS: &str = "Thread class";
+pub const THREAD_HAND: &str = "Thread hand";
+pub const THREAD_LENGTH: &str = "Thread length";
+pub const THREAD_DEPTH: &str = "Thread depth";
+pub const WHOLE_BORE: &str = "Whole bore";
+pub const TO_A_DEPTH: &str = "To a depth";
+const DEFAULT_THREAD_DEPTH: f64 = 10.0;
 
 fn sizing_label(sizing: HoleSizing) -> &'static str {
     match sizing {
@@ -151,6 +159,120 @@ impl Panel<'_> {
                 ),
             );
         }
+        self.thread_rows(ui);
+    }
+
+    fn thread_rows(&mut self, ui: &mut Ui) {
+        let Some(designation) = hole_thread(self.hole) else {
+            return;
+        };
+        let family = designation.size.family();
+        let current = designation.class;
+        let default = family.default_class(ThreadSide::Internal);
+        let name = self.feature.name.clone();
+        widgets::caption(ui, THREAD_CLASS);
+        let chosen = feature_fields::combo(
+            ui,
+            Id::new(("hole-thread-class", self.id())),
+            current.label(),
+            || {
+                family
+                    .classes(ThreadSide::Internal)
+                    .iter()
+                    .map(|class| Choice {
+                        label: class.label().to_owned(),
+                        selected: *class == current,
+                        change: self
+                            .with_thread(TappedThread {
+                                class: (*class != default).then_some(*class),
+                                ..self.hole.thread.clone()
+                            })
+                            .map(|transaction| feature_fields::applied(&name, Ok(transaction))),
+                    })
+                    .collect()
+            },
+        );
+        self.actions.extend(chosen);
+        ui.end_row();
+        let hands = ThreadHand::ALL
+            .into_iter()
+            .map(|hand| Segment {
+                label: hand.label(),
+                hover: match hand {
+                    ThreadHand::Right => "Tightens turning clockwise, as most threads do",
+                    ThreadHand::Left => "Tightens turning anticlockwise",
+                },
+                change: (hand != self.hole.thread.hand).then(|| {
+                    self.with_thread(TappedThread {
+                        hand,
+                        ..self.hole.thread.clone()
+                    })
+                }),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, THREAD_HAND, &self.feature.name, hands);
+        self.actions.extend(chosen);
+        self.thread_length_rows(ui);
+    }
+
+    fn thread_length_rows(&mut self, ui: &mut Ui) {
+        let unit = self.model.length_unit();
+        let depth = self.hole.thread.depth.clone();
+        let options = [
+            (
+                WHOLE_BORE,
+                "Thread the whole wall of each bore",
+                None,
+                depth.is_none(),
+            ),
+            (
+                TO_A_DEPTH,
+                "Thread a length down from the mouth of each bore",
+                Some(unit.default_length(DEFAULT_THREAD_DEPTH)),
+                depth.is_some(),
+            ),
+        ];
+        let segments = options
+            .into_iter()
+            .map(|(label, hover, depth, current)| Segment {
+                label,
+                hover,
+                change: (!current).then(|| {
+                    self.with_thread(TappedThread {
+                        depth,
+                        ..self.hole.thread.clone()
+                    })
+                }),
+            })
+            .collect();
+        let chosen = feature_fields::segmented_row(ui, THREAD_LENGTH, &self.feature.name, segments);
+        self.actions.extend(chosen);
+        if let Some(depth) = &depth {
+            self.length_row(
+                ui,
+                Field {
+                    caption: THREAD_DEPTH,
+                    key: "thread-depth",
+                    dimension: Dimension::LENGTH,
+                    rule: Rule::AboveZero,
+                },
+                depth,
+                |hole, value| Hole {
+                    thread: TappedThread {
+                        depth: Some(value),
+                        ..hole.thread.clone()
+                    },
+                    ..hole.clone()
+                },
+            );
+        }
+    }
+
+    fn with_thread(&self, thread: TappedThread) -> Result<Transaction, String> {
+        self.change(Hole {
+            thread,
+            ..self.hole.clone()
+        })
     }
 
     fn pitch_row(&mut self, ui: &mut Ui, standard: HoleStandard) {

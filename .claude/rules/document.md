@@ -410,8 +410,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   (names kept) and lands on the body a combine joined it into; a face no longer found there is
   not placed. Failed threads are not placed. A tapped round hole (`hole_thread`: a `standard`
   with a tapped or fine fit, its size found in the metric tables) places one thread per wall face
-  (`Hole::is_wall`, grouped by entity so a split bore is one thread) over the whole wall, class 6H,
-  right-handed; a pattern's copies of the hole are not threaded.
+  (`Hole::is_wall`, grouped by copy and entity so a split bore is one thread), the copies a
+  pattern or mirror makes of the hole (`FaceOrigin::Copy` of its walls) included, as its
+  `TappedThread` says: the class (none is the family's first internal class, 6H), the hand, and
+  the whole wall or a depth (a length expression, a parameter user like the hole's sizes) from the
+  bore's open end, one past the wall stopping at its end. The hole fails alone, in words, when the
+  class is not an internal one of the family or the depth is not a length above zero.
 
 ### Move (`movement.rs`)
 

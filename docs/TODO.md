@@ -195,10 +195,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] Mirror reflects a whole body or chosen features (extrusions, revolves, holes), but
   not chosen faces: reflecting a set of faces (a pocket's walls and floor of an imported body
   with no features) across a plane, kept linked to the faces it copies, is missing.
-- [low · medium] A tapped hole's cosmetic thread always runs its whole bore, class 6H and
-  right-handed, and a pattern's copies of a tapped hole are not threaded: choosing the class,
-  hand and depth in the Hole panel and threading the copies are missing. 3MF exports carry no
-  thread, since naming one needs object metadata in a namespace of caditor's own.
+- [low · medium] 3MF exports carry no cosmetic thread: naming one needs object metadata
+  (`metadatagroup`) under a name in a namespace of caditor's own, and that namespace's URI, kept
+  for good once files carry it, has not been chosen.
 - [medium · hard] The whole model cannot be scaled: no command or feature resizes every body, sketch
   and datum by a factor (uniform, about the origin or a chosen point) as one undoable change.
   Scaling must keep references and names stable, and say what happens to dimensions and parameters

@@ -13,6 +13,8 @@ use crate::{
     hole_standard::HoleStandard,
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::SolidResult,
+    thread::hole_thread,
+    thread_standard::{ThreadClass, ThreadHand, ThreadSide},
     trouble::boolean_trouble,
 };
 
@@ -129,6 +131,14 @@ pub struct Hole {
     pub standard: Option<HoleStandard>,
     pub sizing: HoleSizing,
     pub bottom: HoleBottom,
+    pub thread: TappedThread,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TappedThread {
+    pub class: Option<ThreadClass>,
+    pub hand: ThreadHand,
+    pub depth: Option<Expression>,
 }
 
 impl Hole {
@@ -144,6 +154,7 @@ impl Hole {
         if let HoleBottom::DrillPoint(angle) = &self.bottom {
             expressions.push(angle);
         }
+        expressions.extend(&self.thread.depth);
         expressions
     }
 
@@ -159,6 +170,7 @@ impl Hole {
         if let HoleBottom::DrillPoint(angle) = &mut self.bottom {
             expressions.push(angle);
         }
+        expressions.extend(&mut self.thread.depth);
         expressions
     }
 
@@ -438,6 +450,33 @@ impl Context<'_> {
             ));
         }
         Ok(value)
+    }
+
+    fn tapped_thread(&self, definition: &Hole) -> Result<(), Failure> {
+        let Some(designation) = hole_thread(definition) else {
+            return Ok(());
+        };
+        let family = designation.size.family();
+        if !family
+            .classes(ThreadSide::Internal)
+            .contains(&designation.class)
+        {
+            return Err(self.error(
+                format!(
+                    "The class {} is not one {} offers for a tapped hole.",
+                    designation.class.id(),
+                    family.label()
+                ),
+                format!(
+                    "Choose a class for an internal thread, such as {}.",
+                    family.default_class(ThreadSide::Internal).id()
+                ),
+            ));
+        }
+        if let Some(depth) = &definition.thread.depth {
+            self.length(depth, "thread depth")?;
+        }
+        Ok(())
     }
 
     fn steps(
@@ -834,6 +873,7 @@ pub(crate) fn evaluate(
 ) -> Result<FeatureResult, Failure> {
     let context = Context { feature, inputs };
     let values = context.values(definition, None)?;
+    context.tapped_thread(definition)?;
     let sketch_name = context.name(definition.sketch);
     let Some(FeatureResult::Sketch(sketch)) =
         inputs.features.get(&definition.sketch).map(AsRef::as_ref)

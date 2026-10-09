@@ -264,7 +264,9 @@ paths:
   blind hole of 6 mm by 10 mm, hides the sketch and opens the panel: Size (Custom or a metric
   screw), Fit when sized (Close, Normal, Loose, Tapped, Fine, and Insert from M2 to M8, the size's
   `fits`; with the thread named for the tapped ones, a Pitch row of the size's fine pitches when it
-  has several, and for an insert a note giving the insert's length and least wall), Style
+  has several, and for an insert a note giving the insert's length and least wall), for a tapped
+  round hole Thread class (a combo of the internal classes), Thread hand (Right, Left) and Thread
+  length (Whole bore, To a depth with its Thread depth field, key `thread-depth`), Style
   (Plain, Counterbore, Countersink, Stepped; switching takes the size's head dimensions, else the
   defaults; Stepped starts from the counterbore and a step midway to the hole, and lists Step n
   diameter and depth with Add a step, a step midway between the last and the hole as deep as the

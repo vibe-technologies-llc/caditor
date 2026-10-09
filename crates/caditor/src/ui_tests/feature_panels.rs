@@ -592,3 +592,47 @@ fn a_hole_chosen_in_the_tree_is_mirrored_onto_its_body_instead_of_the_whole_body
     assert_eq!(mirrored_features(&harness, mirror), vec![hole]);
     assert!(volume_about(&harness, plate, 16000.0 - 2.0 * drilled));
 }
+
+#[test]
+fn a_tapped_holes_thread_takes_its_hand_and_depth_from_the_hole_panel() {
+    use caditor_document::{HoleFit, HoleStandard, MetricSize, ThreadHand, placed_threads};
+
+    use crate::hole_panel::{TO_A_DEPTH, WHOLE_BORE};
+
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    let hole = harness.workspace.editing.solid().expect("the hole is open");
+    let tapped = crate::hole_tools::with_standard(
+        &super::open_hole(&harness, hole),
+        HoleStandard {
+            size: MetricSize::M6,
+            fit: HoleFit::Tapped,
+        },
+        crate::units::LengthUnit::Millimetre,
+    );
+    let change = crate::hole_tools::edit(harness.document(), hole, tapped).unwrap();
+    harness.perform(Action::Apply(change));
+    harness.settle();
+
+    assert!(harness.shows(crate::hole_panel::THREAD_CLASS));
+    assert!(harness.shows("6H"));
+
+    super::choose(&mut harness, "Right", "Left");
+    super::choose(&mut harness, WHOLE_BORE, TO_A_DEPTH);
+    harness.type_into_field(Id::new(("hole-field", "thread-depth", hole)), "4 mm");
+    harness.settle();
+
+    let thread = super::open_hole(&harness, hole).thread;
+    assert_eq!(thread.hand, ThreadHand::Left);
+    assert_eq!(
+        thread.depth.map(|depth| depth.to_stored_text()).as_deref(),
+        Some("4 mm")
+    );
+    let placed = placed_threads(harness.document(), harness.model.evaluation());
+    assert_eq!(placed.len(), 1);
+    assert_eq!(placed[0].designation, "M6-6H-LH");
+    assert!((placed[0].placement.length - 4.0).abs() < 1e-6);
+}

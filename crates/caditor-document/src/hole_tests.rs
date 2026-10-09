@@ -41,6 +41,7 @@ fn drilled(
         standard: None,
         sizing: HoleSizing::Typed,
         bottom: HoleBottom::Flat,
+        thread: TappedThread::default(),
     };
     let mut transaction = pair.document.transaction("Drill");
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
@@ -102,6 +103,7 @@ fn each_point_of_the_sketch_gets_a_hole_and_curve_ends_do_not() {
             standard: None,
             sizing: HoleSizing::Typed,
             bottom: HoleBottom::Flat,
+            thread: TappedThread::default(),
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -342,6 +344,7 @@ fn a_hole_that_misses_the_body_or_a_sketch_without_points_fails_in_words() {
             standard: None,
             sizing: HoleSizing::Typed,
             bottom: HoleBottom::Flat,
+            thread: TappedThread::default(),
         }),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -519,6 +522,7 @@ fn a_circle_drawn_where_a_hole_goes_drills_at_its_centre() {
         standard: None,
         sizing: HoleSizing::Typed,
         bottom: HoleBottom::Flat,
+        thread: TappedThread::default(),
     };
     let mut transaction = pair.document.transaction("Drill");
     let sketch = transaction.add_feature("Hole sketch", FeatureKind::from(sketch));
@@ -742,6 +746,7 @@ fn circled(
         standard: None,
         sizing,
         bottom: HoleBottom::Flat,
+        thread: TappedThread::default(),
     };
     let feature = transaction.add_feature("Hole 1", FeatureKind::Hole(hole));
     pair.document.apply(transaction.finish()).unwrap();

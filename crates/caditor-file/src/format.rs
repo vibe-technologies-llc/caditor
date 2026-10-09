@@ -18,8 +18,8 @@ use caditor_document::{
     PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
     ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
     SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
-    Split, Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
-    TurnCentre, group_name, material_name, view_name,
+    Split, TappedThread, Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize,
+    Transaction, TurnCentre, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -646,6 +646,18 @@ pub(crate) struct HoleRecord {
     pub slot: Option<SlotRecord>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub standard: Option<HoleStandardRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread: Option<TappedThreadRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TappedThreadRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub left_handed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depth: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1969,6 +1981,53 @@ fn revolve_record(revolve: &Revolve) -> FeatureKindRecord {
     })
 }
 
+fn tapped_thread_record(thread: &TappedThread) -> Option<TappedThreadRecord> {
+    (*thread != TappedThread::default()).then(|| TappedThreadRecord {
+        class: thread.class.map(|class| class.id().to_owned()),
+        left_handed: thread.hand == ThreadHand::Left,
+        depth: thread.depth.as_ref().map(Expression::to_stored_text),
+    })
+}
+
+fn restore_tapped_thread(
+    record: Option<&TappedThreadRecord>,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> TappedThread {
+    let Some(record) = record else {
+        return TappedThread::default();
+    };
+    let class = record.class.as_ref().and_then(|id| {
+        let class = ThreadFamily::MetricCoarse
+            .classes(ThreadSide::Internal)
+            .iter()
+            .copied()
+            .find(|class| class.id() == id);
+        if class.is_none() {
+            issues.push(format!(
+                "The thread class of “{feature}” ({id}) could not be read, so its tapped thread \
+                 is class {}.",
+                ThreadFamily::MetricCoarse
+                    .default_class(ThreadSide::Internal)
+                    .id()
+            ));
+        }
+        class
+    });
+    TappedThread {
+        class,
+        hand: if record.left_handed {
+            ThreadHand::Left
+        } else {
+            ThreadHand::Right
+        },
+        depth: record
+            .depth
+            .as_ref()
+            .map(|depth| restore_value(depth, "thread depth", "10 mm", feature, issues)),
+    }
+}
+
 fn hole_record(hole: &Hole) -> FeatureKindRecord {
     let record = HoleRecord {
         sketch: hole.sketch.raw(),
@@ -2008,6 +2067,7 @@ fn hole_record(hole: &Hole) -> FeatureKindRecord {
             size: standard.size.name().to_owned(),
             fit: standard.fit.id().to_owned(),
         }),
+        thread: tapped_thread_record(&hole.thread),
     };
     let feature = match hole.sizing {
         HoleSizing::Typed => FeatureKindRecord::Hole(record),
@@ -4459,6 +4519,7 @@ fn restore_hole(
         standard,
         sizing,
         bottom: HoleBottom::Flat,
+        thread: restore_tapped_thread(record.thread.as_ref(), feature, issues),
     }
 }
 
