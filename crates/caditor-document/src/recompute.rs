@@ -369,7 +369,7 @@ pub struct Evaluation {
     bodies: BTreeMap<FeatureId, FeatureId>,
     stale_bodies: BTreeSet<FeatureId>,
     inputs_before: BTreeMap<FeatureId, FeatureId>,
-    seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>>,
+    seen_bodies: BTreeMap<FeatureId, Arc<BodiesSeen>>,
     pending: BTreeSet<FeatureId>,
     meshed: bool,
 }
@@ -474,6 +474,7 @@ impl Evaluation {
 }
 
 type ParameterFingerprint = Vec<(ParameterId, Option<Quantity>)>;
+type BodiesSeen = BTreeMap<FeatureId, FeatureId>;
 
 #[derive(Debug, Clone)]
 struct Names {
@@ -888,22 +889,7 @@ impl Recompute {
             }
             let view = walk.view(feature);
             let key = Key::of(run, (feature, index), (&tree, &suppressed), &view);
-            if feature.kind.sketch().is_some() {
-                let standing: Vec<(FeatureId, FeatureId)> = walk
-                    .bodies
-                    .iter()
-                    .map(|(body, (state, _))| (*body, *state))
-                    .collect();
-                walk.seen_bodies.entry(id).or_default().extend(standing);
-            }
-            for body in feature.kind.bodies_used() {
-                if let Some((state, _)) = walk.bodies.get(&body) {
-                    walk.seen_bodies.entry(id).or_default().insert(body, *state);
-                    if feature.kind.modifies_body() && feature.kind.body_input() == Some(body) {
-                        walk.inputs_before.insert(id, *state);
-                    }
-                }
-            }
+            walk.see_bodies(feature);
             let reusable = self.cache.reuse(id, |entry| entry.matches(feature, &key));
             let previous = self.cache.latest(id);
             let entry = if let Some(entry) = reusable {
@@ -1207,7 +1193,7 @@ struct Walk {
     consumers: BTreeMap<FeatureId, Vec<FeatureId>>,
     recomputed: Vec<FeatureId>,
     inputs_before: BTreeMap<FeatureId, FeatureId>,
-    seen_bodies: BTreeMap<FeatureId, BTreeMap<FeatureId, FeatureId>>,
+    seen_bodies: BTreeMap<FeatureId, Arc<BodiesSeen>>,
 }
 
 impl Walk {
@@ -1223,6 +1209,29 @@ impl Walk {
             self.bodies.remove(&body);
             self.consumed.insert(body);
             self.consumers.entry(body).or_default().push(id);
+        }
+    }
+
+    fn see_bodies(&mut self, feature: &Feature) {
+        let id = feature.id();
+        let mut seen: BodiesSeen = if feature.kind.sketch().is_some() {
+            self.bodies
+                .iter()
+                .map(|(body, (state, _))| (*body, *state))
+                .collect()
+        } else {
+            BodiesSeen::new()
+        };
+        for body in feature.kind.bodies_used() {
+            if let Some((state, _)) = self.bodies.get(&body) {
+                seen.insert(body, *state);
+                if feature.kind.modifies_body() && feature.kind.body_input() == Some(body) {
+                    self.inputs_before.insert(id, *state);
+                }
+            }
+        }
+        if !seen.is_empty() {
+            self.seen_bodies.insert(id, Arc::new(seen));
         }
     }
 
