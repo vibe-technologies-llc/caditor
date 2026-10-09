@@ -593,6 +593,16 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   or all three sharing a line fail) and `Along` a `CurveStation`. The stations' bodies and edge
   origins count as used like an axis edge's, their distance is a parameter user, and healing
   matches their edges and faces like any reference.
+- Curved faces at a point (a `FaceTangent`'s face and `toward` point, `face_foot`): the point of
+  the face's surface nearest the point (`Surface::project`) and the face's outward normal there,
+  turned to face the point's side. `PlaneThrough::TangentAt` touches the face there and
+  `DatumAxis::SquareToFace` stands square to it there, on any curved face (sphere, torus, spline,
+  revolution, extrusion, cylinder, cone); a flat face, a point at a sphere's centre or on the axis
+  of a round face (every side equally near) fail alone in words. `PointBy::EdgeMiddle` sits halfway
+  along an edge by arc length, and `PointBy::FaceCentre` at the area centroid of a face (every
+  piece of a split one), taken from the body tessellated at `MeshQuality::SMOOTH`, so a curved
+  face's centre may lie off the face, as a cylinder's lies on its axis. Their bodies and the
+  origins of their edges and faces count as used and healing matches them.
 - Whether geometry lies on a line or plane, runs along a plane or is parallel is decided in one
   place (`tolerance.rs`) for revolve axes, datums, attachments, patterns and blend pieces, so noisy
   imported geometry is accepted or refused the same way everywhere.

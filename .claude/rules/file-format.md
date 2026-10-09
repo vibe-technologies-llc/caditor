@@ -231,7 +231,11 @@ paths:
   (`lines_cross`, two axis references; `axis_and_plane`; `three_planes`; `along`, a station like
   `square_to_curve`'s), each a kind of its own so an older reader reports it. An unreadable
   reference loads as the XY plane or a point at the origin, reported, and an unreadable distance
-  as 0 mm.
+  as 0 mm. The datums at curved faces, edge middles and face centres are `datum_construction`
+  records (`tangent_at` and `square_to_face`, each `body`, `face` and `toward`; `edge_middle` with
+  `body` and an `edge` record; `face_centre` with `body` and a `face` record), a kind of its own
+  added later so an older reader reports it rather than calling the feature damaged; an unreadable
+  reference loads as the XY plane, the Z axis or a point at the origin, reported.
 - A `move` feature record holds `body` and the stored text of its three distances (`offset`) and
   three turns (`turn`); an unreadable one loads as 0 mm or 0 deg, reported. A copying move is a
   `copy` record of the same fields, since an older reader taking it for a move would move the

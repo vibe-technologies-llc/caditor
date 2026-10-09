@@ -5,6 +5,7 @@ use caditor_document::{
     describe_point, describe_points,
 };
 use caditor_expression::{Dimension, Expression};
+use caditor_kernel::{EdgeReference, FaceReference, Surface};
 use egui::{Id, Ui};
 
 use crate::{
@@ -25,6 +26,7 @@ const SQUARE_TO_AXIS: &str = "Square to it";
 const TANGENT_TO_FACE: &str = "Tangent to it";
 const CENTRE_OF_EDGE: &str = "Its centre";
 const ALONG_THE_EDGE: &str = "Along it";
+pub const MIDDLE_OF_EDGE: &str = "Its middle";
 const OFFSET_AXES: [(&str, &str); 3] = [
     ("Offset X", "offset-x"),
     ("Offset Y", "offset-y"),
@@ -163,6 +165,17 @@ fn keeping_plane_mode(held: &PlaneThrough, chosen: Datum) -> Datum {
                 toward,
             )),
         ) => Datum::PlaneThrough(PlaneThrough::Tangent(Box::new(FaceTangent {
+            body,
+            face,
+            toward,
+        }))),
+        (
+            PlaneThrough::TangentAt(_),
+            Datum::PlaneThrough(PlaneThrough::AxisAndPoint(
+                AxisReference::Face { body, face },
+                toward,
+            )),
+        ) => Datum::PlaneThrough(PlaneThrough::TangentAt(Box::new(FaceTangent {
             body,
             face,
             toward,
@@ -398,6 +411,14 @@ impl Panel<'_> {
                     describe_point(document, point)
                 ),
             ),
+            DatumAxis::SquareToFace(tangent) => (
+                "Defined by",
+                format!(
+                    "Square to {} nearest {}",
+                    describe_origin(document, tangent.face.origin()),
+                    describe_point(document, &tangent.toward)
+                ),
+            ),
         };
         self.defined_by_row(
             ui,
@@ -405,7 +426,8 @@ impl Panel<'_> {
             text,
             &Datum::Axis(axis.clone()),
             "Run along the selected edge, round face or axis, where the two selected planes \
-             meet, through two selected points, or square to a selected plane through a point",
+             meet, through two selected points, square to a selected plane through a point, or \
+             square to a selected curved face nearest a point",
         );
     }
 
@@ -459,6 +481,15 @@ impl Panel<'_> {
                 tangent.toward.clone(),
                 2,
             ),
+            PlaneThrough::TangentAt(tangent) if self.has_axis(tangent.body, &tangent.face) => (
+                AxisReference::Face {
+                    body: tangent.body,
+                    face: tangent.face.clone(),
+                },
+                tangent.toward.clone(),
+                2,
+            ),
+            PlaneThrough::TangentAt(_) => return,
             PlaneThrough::SquareToCurve(station) => {
                 self.station_row(ui, station, |distance| {
                     Datum::PlaneThrough(PlaneThrough::SquareToCurve(Box::new(CurveStation {
@@ -498,15 +529,77 @@ impl Panel<'_> {
             (Some(0), _) => PlaneThrough::AxisAndPoint(axis, point),
             (Some(1), _) => PlaneThrough::NormalTo(axis, point),
             (Some(_), AxisReference::Face { body, face }) => {
-                PlaneThrough::Tangent(Box::new(FaceTangent {
+                let tangent = Box::new(FaceTangent {
                     body: *body,
                     face: face.clone(),
                     toward: point,
-                }))
+                });
+                match self.is_cylinder_or_cone(*body, face) {
+                    true => PlaneThrough::Tangent(tangent),
+                    false => PlaneThrough::TangentAt(tangent),
+                }
             }
             _ => return,
         };
         let change = self.change(Datum::PlaneThrough(switched));
+        self.apply(change);
+    }
+
+    fn surface(&self, body: FeatureId, face: &FaceReference) -> Option<Surface> {
+        datum_tools::face_surface(self.model, body, face, self.index)
+    }
+
+    fn has_axis(&self, body: FeatureId, face: &FaceReference) -> bool {
+        matches!(
+            self.surface(body, face),
+            Some(
+                Surface::Cylinder(_)
+                    | Surface::Cone(_)
+                    | Surface::Torus(_)
+                    | Surface::Revolution(_)
+            )
+        )
+    }
+
+    fn is_cylinder_or_cone(&self, body: FeatureId, face: &FaceReference) -> bool {
+        matches!(
+            self.surface(body, face),
+            Some(Surface::Cylinder(_) | Surface::Cone(_))
+        )
+    }
+
+    fn edge_mode_row(&mut self, ui: &mut Ui, body: FeatureId, edge: &EdgeReference, mode: usize) {
+        let round = mode == 0;
+        let choices = [
+            (CENTRE_OF_EDGE, "Sit at the centre of the round edge"),
+            (
+                ALONG_THE_EDGE,
+                "Sit a distance along the edge from where it starts",
+            ),
+            (MIDDLE_OF_EDGE, "Sit halfway along the edge"),
+        ];
+        let offered: Vec<(&str, &str)> = choices
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| *index > 0 || round)
+            .map(|(_, choice)| choice)
+            .collect();
+        let shown = if round { mode } else { mode - 1 };
+        let chosen = widgets::property(ui, "Edge", |ui| widgets::segmented(ui, &offered, shown))
+            .map(|chosen| if round { chosen } else { chosen + 1 });
+        let switched = match chosen {
+            Some(1) if mode != 1 => PointBy::Along(Box::new(CurveStation {
+                body,
+                edge: Box::new(*edge),
+                distance: self.model.length_unit().default_length(0.0),
+            })),
+            Some(2) if mode != 2 => PointBy::EdgeMiddle {
+                body,
+                edge: Box::new(*edge),
+            },
+            _ => return,
+        };
+        let change = self.change(Datum::PointBy(switched));
         self.apply(change);
     }
 
@@ -535,15 +628,24 @@ impl Panel<'_> {
             describe_point_by(document, by),
             &Datum::PointBy(by.clone()),
             "Sit where the two selected lines cross, the selected line meets the selected plane, \
-             the three selected planes meet, or a distance along the selected edge",
+             the three selected planes meet, a distance along the selected edge, or at the centre \
+             of the selected face",
         );
-        if let PointBy::Along(station) = by {
-            self.station_row(ui, station, |distance| {
-                Datum::PointBy(PointBy::Along(Box::new(CurveStation {
-                    distance,
-                    ..station.as_ref().clone()
-                })))
-            });
+        match by {
+            PointBy::Along(station) => {
+                self.edge_mode_row(ui, station.body, &station.edge, 1);
+                self.station_row(ui, station, |distance| {
+                    Datum::PointBy(PointBy::Along(Box::new(CurveStation {
+                        distance,
+                        ..station.as_ref().clone()
+                    })))
+                });
+            }
+            PointBy::EdgeMiddle { body, edge } => self.edge_mode_row(ui, *body, edge, 2),
+            PointBy::LinesCross(..)
+            | PointBy::AxisAndPlane(..)
+            | PointBy::ThreePlanes(_)
+            | PointBy::FaceCentre { .. } => {}
         }
     }
 
@@ -558,22 +660,7 @@ impl Panel<'_> {
             "Sit at the selected corner, round edge's centre, sketch point or datum point",
         );
         if let PointReference::Centre { body, edge } = &point.base {
-            let choices = [
-                (CENTRE_OF_EDGE, "Sit at the centre of the round edge"),
-                (
-                    ALONG_THE_EDGE,
-                    "Sit a distance along the edge from where it starts",
-                ),
-            ];
-            let chosen = widgets::property(ui, "Edge", |ui| widgets::segmented(ui, &choices, 0));
-            if chosen == Some(1) {
-                let change = self.change(Datum::PointBy(PointBy::Along(Box::new(CurveStation {
-                    body: *body,
-                    edge: edge.clone(),
-                    distance: self.model.length_unit().default_length(0.0),
-                }))));
-                self.apply(change);
-            }
+            self.edge_mode_row(ui, *body, edge, 0);
         }
         for (index, (caption, salt)) in OFFSET_AXES.into_iter().enumerate() {
             let Some(offset) = point.offset.get(index) else {
@@ -619,6 +706,11 @@ fn describe_through(document: &Document, through: &PlaneThrough) -> String {
             describe_origin(document, tangent.face.origin()),
             describe_point(document, &tangent.toward)
         ),
+        PlaneThrough::TangentAt(tangent) => format!(
+            "Tangent to {} nearest {}",
+            describe_origin(document, tangent.face.origin()),
+            describe_point(document, &tangent.toward)
+        ),
         PlaneThrough::SquareToCurve(station) => {
             format!("Square to {}", describe_curve(document, station))
         }
@@ -628,6 +720,13 @@ fn describe_through(document: &Document, through: &PlaneThrough) -> String {
             describe_axis(document, second)
         ),
     }
+}
+
+fn feature_name_of(document: &Document, feature: FeatureId) -> String {
+    document.feature(feature).map_or_else(
+        || "a deleted feature".to_owned(),
+        |feature| feature.name.clone(),
+    )
 }
 
 fn describe_point_by(document: &Document, by: &PointBy) -> String {
@@ -649,6 +748,13 @@ fn describe_point_by(document: &Document, by: &PointBy) -> String {
             describe_plane(document, third)
         ),
         PointBy::Along(station) => format!("Along {}", describe_curve(document, station)),
+        PointBy::EdgeMiddle { body, .. } => format!(
+            "The middle of an edge of {}",
+            feature_name_of(document, *body)
+        ),
+        PointBy::FaceCentre { face, .. } => {
+            format!("The centre of {}", describe_origin(document, face.origin()))
+        }
     }
 }
 

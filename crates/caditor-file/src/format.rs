@@ -215,6 +215,7 @@ pub(crate) enum FeatureKindRecord {
     DrillPointHole(Box<DrillPointHoleRecord>),
     PlaneConstruction(Box<PlaneConstructionRecord>),
     PointConstruction(Box<PointConstructionRecord>),
+    DatumConstruction(Box<DatumConstructionRecord>),
     OffsetFace(Box<OffsetFaceRecord>),
     FeatureMirror(Box<FeatureMirrorRecord>),
     Primitive(Box<PrimitiveRecord>),
@@ -374,7 +375,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 44] = [
+pub(crate) const FEATURE_KINDS: [&str; 45] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -419,6 +420,7 @@ pub(crate) const FEATURE_KINDS: [&str; 44] = [
     "feature_mirror",
     "primitive",
     "thread",
+    "datum_construction",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -572,6 +574,22 @@ pub(crate) enum PlaneConstructionRecord {
     },
     SquareToCurve(CurveStationRecord),
     Lines([AxisReferenceRecord; 2]),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FaceTangentRecord {
+    pub body: u64,
+    pub face: FaceRecord,
+    pub toward: PointReferenceRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DatumConstructionRecord {
+    TangentAt(FaceTangentRecord),
+    SquareToFace(FaceTangentRecord),
+    EdgeMiddle { body: u64, edge: EdgeRecord },
+    FaceCentre { body: u64, face: FaceRecord },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1636,6 +1654,9 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     point: point_record(point),
                 }))
             }
+            DatumAxis::SquareToFace(tangent) => FeatureKindRecord::DatumConstruction(Box::new(
+                DatumConstructionRecord::SquareToFace(face_tangent_record(tangent)),
+            )),
         },
         FeatureKind::Datum(Datum::Point(point)) => {
             FeatureKindRecord::Point(Box::new(DatumPointRecord {
@@ -1681,21 +1702,44 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
                     axis_record(second),
                 ])))
             }
+            PlaneThrough::TangentAt(tangent) => FeatureKindRecord::DatumConstruction(Box::new(
+                DatumConstructionRecord::TangentAt(face_tangent_record(tangent)),
+            )),
         },
         FeatureKind::Datum(Datum::PointBy(by)) => {
-            FeatureKindRecord::PointConstruction(Box::new(match by {
+            let constructed = |record| FeatureKindRecord::PointConstruction(Box::new(record));
+            match by {
                 PointBy::LinesCross(first, second) => {
-                    PointConstructionRecord::LinesCross([axis_record(first), axis_record(second)])
+                    constructed(PointConstructionRecord::LinesCross([
+                        axis_record(first),
+                        axis_record(second),
+                    ]))
                 }
-                PointBy::AxisAndPlane(axis, plane) => PointConstructionRecord::AxisAndPlane {
-                    axis: axis_record(axis),
-                    plane: plane_reference_record(plane),
-                },
-                PointBy::ThreePlanes(planes) => PointConstructionRecord::ThreePlanes(
+                PointBy::AxisAndPlane(axis, plane) => {
+                    constructed(PointConstructionRecord::AxisAndPlane {
+                        axis: axis_record(axis),
+                        plane: plane_reference_record(plane),
+                    })
+                }
+                PointBy::ThreePlanes(planes) => constructed(PointConstructionRecord::ThreePlanes(
                     planes.each_ref().map(plane_reference_record),
+                )),
+                PointBy::Along(station) => {
+                    constructed(PointConstructionRecord::Along(station_record(station)))
+                }
+                PointBy::EdgeMiddle { body, edge } => FeatureKindRecord::DatumConstruction(
+                    Box::new(DatumConstructionRecord::EdgeMiddle {
+                        body: body.raw(),
+                        edge: edge_record(edge),
+                    }),
                 ),
-                PointBy::Along(station) => PointConstructionRecord::Along(station_record(station)),
-            }))
+                PointBy::FaceCentre { body, face } => FeatureKindRecord::DatumConstruction(
+                    Box::new(DatumConstructionRecord::FaceCentre {
+                        body: body.raw(),
+                        face: face_record(face),
+                    }),
+                ),
+            }
         }
         FeatureKind::Shell(shell) => FeatureKindRecord::Shell(ShellRecord {
             body: shell.body.raw(),
@@ -3900,6 +3944,9 @@ fn restore_kind(
         FeatureKindRecord::PointConstruction(record) => {
             FeatureKind::Datum(restore_point_construction(record, name, issues))
         }
+        FeatureKindRecord::DatumConstruction(record) => {
+            FeatureKind::Datum(restore_datum_construction(record, name, issues))
+        }
         FeatureKindRecord::Import(record) => FeatureKind::Import(restore_import(
             &StoredShape {
                 source: &record.source,
@@ -4295,6 +4342,80 @@ fn restore_plane_construction(
         },
         Datum::PlaneThrough,
     )
+}
+
+fn face_tangent_record(tangent: &FaceTangent) -> FaceTangentRecord {
+    FaceTangentRecord {
+        body: tangent.body.raw(),
+        face: face_record(&tangent.face),
+        toward: point_record(&tangent.toward),
+    }
+}
+
+fn restore_face_tangent(record: &FaceTangentRecord) -> Option<Box<FaceTangent>> {
+    let face = &record.face;
+    let restored = restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+        .zip(restore_point(&record.toward))
+        .map(|(face, toward)| FaceTangent {
+            body: FeatureId::from_raw(record.body),
+            face,
+            toward,
+        });
+    restored.map(Box::new)
+}
+
+fn restore_datum_construction(
+    record: &DatumConstructionRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Datum {
+    let restored = match record {
+        DatumConstructionRecord::TangentAt(tangent) => restore_face_tangent(tangent)
+            .map(|tangent| Datum::PlaneThrough(PlaneThrough::TangentAt(tangent))),
+        DatumConstructionRecord::SquareToFace(tangent) => restore_face_tangent(tangent)
+            .map(|tangent| Datum::Axis(DatumAxis::SquareToFace(tangent))),
+        DatumConstructionRecord::EdgeMiddle { body, edge } => restore_edge(edge).map(|edge| {
+            Datum::PointBy(PointBy::EdgeMiddle {
+                body: FeatureId::from_raw(*body),
+                edge: Box::new(edge),
+            })
+        }),
+        DatumConstructionRecord::FaceCentre { body, face } => {
+            restore_face(&face.face, face.origin, face.copy, &face.neighbours).map(|face| {
+                Datum::PointBy(PointBy::FaceCentre {
+                    body: FeatureId::from_raw(*body),
+                    face,
+                })
+            })
+        }
+    };
+    restored.unwrap_or_else(|| match record {
+        DatumConstructionRecord::TangentAt(_) => {
+            issues.push(format!(
+                "What “{feature}” is placed by could not be read, so it is the XY plane."
+            ));
+            Datum::Plane(DatumPlane {
+                base: PlaneReference::Principal(PrincipalPlane::Xy),
+                rotation: None,
+                offset: Expression::Measure(0.0, Unit::Millimetre),
+            })
+        }
+        DatumConstructionRecord::SquareToFace(_) => {
+            issues.push(format!(
+                "What “{feature}” runs through could not be read, so it runs along the Z axis."
+            ));
+            Datum::Axis(DatumAxis::Along(AxisReference::Principal(PrincipalAxis::Z)))
+        }
+        DatumConstructionRecord::EdgeMiddle { .. } | DatumConstructionRecord::FaceCentre { .. } => {
+            issues.push(format!(
+                "What “{feature}” is placed by could not be read, so it is at the origin."
+            ));
+            Datum::Point(DatumPoint {
+                base: PointReference::Origin,
+                offset: [0, 1, 2].map(|_| Expression::Measure(0.0, Unit::Millimetre)),
+            })
+        }
+    })
 }
 
 fn restore_point_construction(

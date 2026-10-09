@@ -264,10 +264,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] No user coordinate system: Measure, Move and the patterns read from the origin and
   the principal axes. A coordinate system placed at a point, its axes taken from edges or faces,
   would be a second origin to measure and place from.
-- [low · medium] Datums on curved faces: a plane is tangent only to a cylinder or cone, never to a
-  sphere, torus or spline face at a point; no axis stands square to a curved face at a point on
-  it; and a datum point cannot sit at the middle of an edge or the centre of a face, only at a
-  distance along an edge.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
   axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
   surfaces do not have).

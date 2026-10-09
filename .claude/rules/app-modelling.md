@@ -441,14 +441,21 @@ paths:
   nothing else stands square to it at 0 mm along (`PlaneThrough::SquareToCurve`); Point with two
   axes or straight edges selected sits where they cross, with an axis and a plane where they meet,
   with three planes where they meet, with one edge that is not round at 0 mm along it
-  (`PointBy::Along`) and with one sphere or torus face at its centre. Combinations keeping an
-  older meaning (an axis and a plane turn a plane; one round edge is a centre) keep it.
+  (`PointBy::Along`) and with one sphere or torus face at its centre, with any other one face at
+  its centre (`PointBy::FaceCentre`). A curved face and a point that give no other form
+  (`datum_tools::face_tangent`: a curved face giving no axis, such as a sphere, spline or
+  extruded face, for Plane; any curved face but a sphere for Axis) make Plane touch the face nearest the point (`PlaneThrough::TangentAt`) and Axis stand
+  square to it there (`DatumAxis::SquareToFace`). Combinations keeping an older meaning (an axis
+  and a plane turn a plane; one round edge is a centre; a round face and a point are a plane
+  through its axis; a sphere and a point an axis through both) keep it.
 - A plane through references, a point and the new axis forms show a Defined by (or At) row
   re-chosen from the selection, refused while nothing is selected; a plane through an axis and a
   point switches between Contains it and Square to it, and for a round face's axis also Tangent to
-  it (`PlaneThrough::Tangent`, the point picking the side), going back keeping the face and point;
-  a plane square to an edge and a point along an edge have a Distance along field; a point at a
-  round edge's centre switches to Along it; a point has Offset X, Y and Z fields. Choosing again
+  it (`PlaneThrough::Tangent` for a cylinder or cone, the point picking the side, else
+  `TangentAt`), going back keeping the face and point; a plane square to an edge and a point
+  along an edge have a Distance along field; a point at an edge switches between Its centre (a
+  round edge's), Along it and Its middle (`PointBy::EdgeMiddle`); a point has Offset X, Y and Z
+  fields. Choosing again
   from the selection keeps the form a panel was switched to and its distance (`keeping_plane_mode`,
   `keeping_point_mode`).
   Choosing them in the view holds up to two clicks (`Picking::pending`) until the selection makes

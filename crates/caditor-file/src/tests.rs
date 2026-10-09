@@ -4091,6 +4091,72 @@ fn constructed_planes_and_points_are_kinds_older_readers_report_and_read_back() 
 }
 
 #[test]
+fn datums_on_curved_faces_edge_middles_and_face_centres_are_a_kind_older_readers_report() {
+    use caditor_document::{Datum, DatumAxis, FaceTangent, PlaneThrough, PointBy, PointReference};
+    use caditor_kernel::{EdgeName, EdgeReference, FaceName, FaceReference, VertexName};
+    let (mut document, base, _) = solid_model();
+    let face = || FaceReference::new(FaceName::from_digest(0xfa), None, Vec::new());
+    let tangent = || {
+        Box::new(FaceTangent {
+            body: base,
+            face: face(),
+            toward: PointReference::Origin,
+        })
+    };
+    let mut transaction = document.transaction("Datums");
+    transaction.add_feature(
+        "Plane 1",
+        FeatureKind::Datum(Datum::PlaneThrough(PlaneThrough::TangentAt(tangent()))),
+    );
+    transaction.add_feature(
+        "Axis 1",
+        FeatureKind::Datum(Datum::Axis(DatumAxis::SquareToFace(tangent()))),
+    );
+    transaction.add_feature(
+        "Point 1",
+        FeatureKind::Datum(Datum::PointBy(PointBy::EdgeMiddle {
+            body: base,
+            edge: Box::new(EdgeReference::new(
+                EdgeName::from_digest(0xed),
+                [FaceName::from_digest(1), FaceName::from_digest(2)],
+                [VertexName::from_digest(3), VertexName::from_digest(4)],
+            )),
+        })),
+    );
+    transaction.add_feature(
+        "Point 2",
+        FeatureKind::Datum(Datum::PointBy(PointBy::FaceCentre {
+            body: base,
+            face: face(),
+        })),
+    );
+    let add = transaction.finish();
+    document.apply(add.clone()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("datum_construction", "datum_built"));
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&add)).unwrap());
+
+    assert!(
+        text.contains("\"datum_construction\":{\"tangent_at\":{"),
+        "{text}"
+    );
+    assert!(text.contains("\"datum_construction\":{\"square_to_face\":{"));
+    assert!(text.contains("\"datum_construction\":{\"edge_middle\":{"));
+    assert!(text.contains("\"datum_construction\":{\"face_centre\":{"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert_eq!(older.issues.len(), 4);
+    assert!(issues_mention(
+        &older,
+        "a kind this version of caditor does not know"
+    ));
+    assert_eq!(format::restore_transaction(journaled), Some(add));
+}
+
+#[test]
 fn an_unreadable_constructed_datum_falls_back_and_is_reported() {
     use caditor_document::Datum;
     let (document, _) = constructed_datums_model();

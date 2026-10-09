@@ -199,6 +199,14 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
             visit_point(first, "first point", visitor);
             visit_point(second, "second point", visitor);
         }
+        FeatureKind::Datum(Datum::Axis(DatumAxis::SquareToFace(tangent))) => {
+            visitor.face(
+                tangent.body,
+                &mut tangent.face,
+                "the face it stands square to",
+            );
+            visit_point(&mut tangent.toward, "point", visitor);
+        }
         FeatureKind::Datum(Datum::Axis(DatumAxis::NormalTo(plane, point))) => {
             visit_plane(plane, "the face it stands square to", visitor);
             visit_point(point, "point", visitor);
@@ -222,7 +230,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visit_axis(axis, "axis", visitor);
                 visit_point(point, "point", visitor);
             }
-            PlaneThrough::Tangent(tangent) => {
+            PlaneThrough::Tangent(tangent) | PlaneThrough::TangentAt(tangent) => {
                 visitor.face(
                     tangent.body,
                     &mut tangent.face,
@@ -255,6 +263,14 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 }
             }
             PointBy::Along(station) => visit_station(station, visitor),
+            PointBy::EdgeMiddle { body, edge } => {
+                visitor.edges(*body, std::slice::from_mut(edge.as_mut()), &|_| {
+                    "the edge it sits at the middle of".to_owned()
+                });
+            }
+            PointBy::FaceCentre { body, face } => {
+                visitor.face(*body, face, "the face it sits at the centre of");
+            }
         },
         FeatureKind::Import(_) => {}
     }
