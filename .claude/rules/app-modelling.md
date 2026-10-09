@@ -380,7 +380,11 @@ paths:
   (`Slot::HolePlace`). Such a hole (`hole_on_curve::mount`) moves by rewriting the datum point to
   the spot the pointer's ray first meets the body (`SolidClassifier::first_crossing`), projected
   onto the clicked face, and the tangent plane to that face; its panel's Placed on names the face
-  and has no Position rows, and it has no placement handles, which would slide it off square.
+  and has no Position rows. Its placement handles (`place_handles.rs`, `Subject::Curved`) stand on
+  the tangent plane at its foot (from the draft's evaluation while one is shown, so they follow
+  the preview); a drag's point on that plane is projected onto the face's surface
+  (`hole_on_curve::moved_to`) and only the datum point moves, so the plane, and the hole with it,
+  stays square to the face wherever it is dragged.
   Otherwise it takes the sketch the way Extrude does (edited,
   selected, or with nothing selected the opened or last one; else `NOTHING_TO_DRILL`) and needs at least one free point or circle in it (`hole_centres`);
   its body is the one the sketch is attached to, else the one whose faces are selected, else the

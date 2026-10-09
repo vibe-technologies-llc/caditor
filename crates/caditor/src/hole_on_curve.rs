@@ -212,3 +212,38 @@ pub fn face_words(document: &Document, mount: Mount) -> Option<String> {
     };
     Some(bodies::describe_origin(document, tangent.face.origin()))
 }
+
+pub fn moved_to(
+    model: &Model,
+    feature: FeatureId,
+    hole: &Hole,
+    near: Point3,
+) -> Result<Transaction, String> {
+    let document = model.document();
+    let name = &document.feature(feature).ok_or(GONE)?.name;
+    let mount = mount(document, hole).ok_or(NOT_ON_A_CURVE)?;
+    let Some(Datum::PlaneThrough(PlaneThrough::TangentAt(tangent))) = document
+        .feature(mount.plane)
+        .and_then(|plane| plane.kind.datum())
+    else {
+        return Err(NOT_ON_A_CURVE.to_owned());
+    };
+    let body = bodies::shown(model.evaluation(), tangent.body).ok_or(NO_SPOT)?;
+    let face = tangent.face.resolve(&body.solid).map_err(|_| NO_SPOT)?;
+    let surface = body.solid.face(face).ok_or(NO_SPOT)?.surface();
+    let at = surface.point_at(surface.project(near, None));
+    let transaction = Transaction::single(
+        format!("Move {name}"),
+        Edit::SetFeatureKind {
+            id: mount.point,
+            kind: FeatureKind::Datum(Datum::Point(DatumPoint {
+                base: PointReference::Origin,
+                offset: offsets(model, at),
+            })),
+        },
+    );
+    document
+        .check(&transaction)
+        .map_err(|_| "The hole cannot stand there".to_owned())?;
+    Ok(transaction)
+}

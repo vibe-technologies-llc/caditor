@@ -19901,6 +19901,48 @@ fn a_hole_on_a_round_face_drills_square_into_it_where_it_is_clicked() {
         |(_, face)| matches!(face.surface(), caditor_kernel::Surface::Cylinder(cylinder)
                 if cylinder.radius() < 4.0 && cylinder.frame().normal().y.abs() < 0.99)
     ));
+
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let on_face = Handle::Place(crate::move_manipulator::PlaceGrip::OnPlane);
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(on_face, 0.0)
+        .expect("the hole on the round wall has a square to drag");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(on_face, 6.0)
+        .unwrap();
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+    let dragged = harness
+        .model
+        .evaluation()
+        .body(puck)
+        .unwrap()
+        .faces()
+        .find_map(|(_, face)| match face.surface() {
+            caditor_kernel::Surface::Cylinder(cylinder) if cylinder.radius() < 4.0 => {
+                Some(*cylinder.frame())
+            }
+            _ => None,
+        })
+        .expect("the dragged hole has a bore");
+    let radial = Vector3::new(dragged.origin().x, dragged.origin().y, 0.0).normalize();
+
+    assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
+    assert!(
+        dragged.origin().distance(bore.origin()) > 3.0,
+        "{dragged:?}"
+    );
+    assert!((dragged.origin().z - 4.0).abs() < 1e-3, "{dragged:?}");
+    assert!(
+        dragged.normal().dot(radial).abs() > 1.0 - 1e-6,
+        "{dragged:?}"
+    );
 }
 
 #[test]
