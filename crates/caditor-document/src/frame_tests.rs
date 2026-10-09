@@ -316,3 +316,116 @@ fn a_reference_to_a_coordinate_system_must_name_one() {
         Some(EditError::NotACoordinateSystem("Point 1".to_owned()))
     );
 }
+
+fn framed_at_corner(model: &mut Model) -> FeatureId {
+    let origin = corner(model, Point3::new(10.0, 0.0, 0.0));
+    add(
+        &mut model.document,
+        "Coordinate system 1",
+        FeatureKind::Datum(coordinate_system(origin, PrincipalAxis::Y)),
+    )
+}
+
+#[test]
+fn a_point_at_a_coordinate_system_origin_follows_it() {
+    let mut model = model();
+    let system = framed_at_corner(&mut model);
+    let mut transaction = model.document.transaction("Point");
+    let offset = ["1 mm", "2 mm", "3 mm"].map(|text| transaction.parse(text).unwrap());
+    let point = transaction.add_feature(
+        "Point 1",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: PointReference::Frame(system),
+            offset,
+        })),
+    );
+    model.document.apply(transaction.finish()).unwrap();
+
+    let placed = datum(&evaluate(&model.document), point).point().unwrap();
+
+    assert!(near(placed, [11.0, 2.0, 3.0]), "{placed:?}");
+    assert_eq!(
+        describe_point(&model.document, &PointReference::Frame(system)),
+        "the origin of Coordinate system 1"
+    );
+    assert!(
+        model
+            .document
+            .feature(point)
+            .unwrap()
+            .kind
+            .features()
+            .contains(&system)
+    );
+}
+
+#[test]
+fn a_coordinate_system_origin_must_name_one() {
+    let mut model = model();
+    let mut transaction = model.document.transaction("Point");
+    transaction.add_feature(
+        "Point 1",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: PointReference::Frame(model.base),
+            offset: std::array::from_fn(|_| Expression::Measure(0.0, Unit::Millimetre)),
+        })),
+    );
+
+    let refused = model.document.apply(transaction.finish());
+
+    assert_eq!(
+        refused.err(),
+        Some(EditError::NotACoordinateSystem("Base".to_owned()))
+    );
+}
+
+#[test]
+fn a_scale_centre_in_a_coordinate_system_is_measured_from_its_origin_along_its_axes() {
+    let mut model = model();
+    let system = framed_at_corner(&mut model);
+    let mut transaction = model.document.transaction("Scale");
+    let center = ["1 mm", "0 mm", "0 mm"].map(|text| transaction.parse(text).unwrap());
+    transaction.add_feature(
+        "Scale 1",
+        FeatureKind::Scale(Scale {
+            body: model.base,
+            factor: Expression::Number(2.0),
+            center,
+            frame: Some(system),
+        }),
+    );
+    model.document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&model.document);
+    let scaled = evaluation.body(model.base).unwrap().bounding_box().unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(near(scaled.min(), [-10.0, -1.0, 0.0]), "{:?}", scaled.min());
+    assert!(near(scaled.max(), [10.0, 15.0, 8.0]), "{:?}", scaled.max());
+}
+
+#[test]
+fn an_import_placed_in_a_coordinate_system_takes_its_origin_and_axes() {
+    let mut model = model();
+    let system = framed_at_corner(&mut model);
+    let solid = evaluate(&model.document).body(model.base).unwrap().clone();
+    let mut placement = BodyPlacement::default();
+    placement.offset[0] = model.document.parse("5 mm").unwrap();
+    placement.frame = Some(system);
+    let imported = add(
+        &mut model.document,
+        "Bracket",
+        FeatureKind::Import(Import::new("bracket.step", solid, "text").placed(placement)),
+    );
+
+    let evaluation = evaluate(&model.document);
+    let placed = evaluation.body(imported).unwrap().bounding_box().unwrap();
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert!(near(placed.min(), [2.0, 5.0, 0.0]), "{:?}", placed.min());
+    assert!(near(placed.max(), [10.0, 15.0, 4.0]), "{:?}", placed.max());
+    assert_eq!(
+        model.document.feature(imported).unwrap().kind.frames_used(),
+        std::collections::BTreeSet::from([system])
+    );
+}

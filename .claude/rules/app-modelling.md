@@ -389,8 +389,11 @@ paths:
   Face the same way or Point the other way checkbox, and the body. A mate keeps the kind it was
   made with; another kind is another mate.
 - Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 (the body unchanged until
-  a factor is typed) about the origin. The panel has the factor (a plain number above zero) and
-  the centre's three coordinates, all expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
+  a factor is typed) about the origin. The panel has the factor (a plain number above zero), a
+  Centre in combo (World, or a coordinate system above it, through the shared
+  `feature_fields::frame_row`, shown once the model has one; a description says the centre is
+  measured from its origin along its axes) and the centre's three coordinates, all expressions
+  (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
 
 ## Patterns
 
@@ -507,7 +510,11 @@ paths:
 - A move's Directions combo (World, or a coordinate system above it; shown once the model has
   one) sets `Move::frame`, with a description saying it turns and shifts along that system's axes;
   the manipulator's arrows, squares and rings follow the system's axes (`Model::move_frame`, the
-  world being `Plane::XY`).
+  world being `Plane::XY`). The scale's Centre in and the import's Placed in combos are the same
+  row (`feature_fields::frame_row`).
+- Its origin marker is a point wherever one is taken from the selection
+  (`datum_tools::point_reference` gives `PointReference::Frame`), so a datum point, plane or axis
+  through a system's origin needs no point of its own.
 
 ## Sketches on faces and planes
 

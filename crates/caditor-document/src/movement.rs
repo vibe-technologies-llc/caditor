@@ -242,6 +242,7 @@ impl Move {
 pub struct BodyPlacement {
     pub offset: [Expression; 3],
     pub turn: [Expression; 3],
+    pub frame: Option<FeatureId>,
 }
 
 impl Default for BodyPlacement {
@@ -249,12 +250,17 @@ impl Default for BodyPlacement {
         Self {
             offset: std::array::from_fn(|_| Expression::Measure(0.0, Unit::Millimetre)),
             turn: std::array::from_fn(|_| Expression::Measure(0.0, Unit::Degree)),
+            frame: None,
         }
     }
 }
 
 impl BodyPlacement {
     pub fn is_at_origin(&self) -> bool {
+        self.frame.is_none() && self.is_unmoved()
+    }
+
+    pub fn is_unmoved(&self) -> bool {
         self.expressions().all(|expression| {
             matches!(expression, Expression::Number(value) | Expression::Measure(value, _) if *value == 0.0)
         })
@@ -396,16 +402,23 @@ pub(crate) fn placement_transform(
     placement: &BodyPlacement,
 ) -> Result<RigidTransform, Failure> {
     let context = Context { feature, inputs };
-    placed(
+    let unusable = || {
+        context.error(
+            "The placement is too large or too small to place the body.".to_owned(),
+            "Enter smaller distances and turns.".to_owned(),
+        )
+    };
+    let local = placed(
         Placing::at_origin(&placement.offset, &placement.turn),
         |expression, dimension, what| context.value(expression, dimension, what),
-        || {
-            context.error(
-                "The placement is too large or too small to place the body.".to_owned(),
-                "Enter smaller distances and turns.".to_owned(),
-            )
-        },
-    )
+        unusable,
+    )?;
+    let Some(frame) = placement.frame else {
+        return Ok(local);
+    };
+    let frame = Resolver { feature, inputs }.frame(frame)?;
+    let into_frame = RigidTransform::from_frame(&frame).ok_or_else(unusable)?;
+    Ok(local.then(&into_frame))
 }
 
 fn placed<E>(

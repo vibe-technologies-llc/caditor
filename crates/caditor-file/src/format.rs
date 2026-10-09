@@ -232,6 +232,9 @@ pub(crate) enum FeatureKindRecord {
     CoordinateSystem(Box<CoordinateSystemRecord>),
     MoveInFrame(Box<MoveInFrameRecord>),
     SketchOnFrame(Box<SketchOnFrameRecord>),
+    FrameOriginDatum(Box<FrameOriginRecord>),
+    ScaleInFrame(Box<MoveInFrameRecord>),
+    ImportInFrame(Box<MoveInFrameRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -277,6 +280,11 @@ pub(crate) struct CoordinateSystemRecord {
 pub(crate) struct MoveInFrameRecord {
     pub feature: FeatureKindRecord,
     pub frame: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FrameOriginRecord {
+    pub feature: FeatureKindRecord,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -444,7 +452,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 50] = [
+pub(crate) const FEATURE_KINDS: [&str; 53] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -495,6 +503,9 @@ pub(crate) const FEATURE_KINDS: [&str; 50] = [
     "move_in_frame",
     "sketch_on_frame",
     "datum_construction",
+    "frame_origin_datum",
+    "scale_in_frame",
+    "import_in_frame",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -622,6 +633,7 @@ pub(crate) enum PointReferenceRecord {
     Centre { body: u64, edge: Box<EdgeRecord> },
     SurfaceCentre { body: u64, face: FaceRecord },
     Sketch { sketch: u64, entity: u64 },
+    Frame(u64),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1538,7 +1550,7 @@ pub(crate) fn feature_records(document: &Document) -> impl Iterator<Item = Featu
         let shares = feature.kind.import().and_then(|import| {
             let digest = blake3::hash(import.step.as_bytes());
             let seen = !written.insert(*digest.as_bytes());
-            (seen && !import.placement.is_at_origin()).then(|| digest.to_hex().to_string())
+            (seen && !import.placement.is_unmoved()).then(|| digest.to_hex().to_string())
         });
         feature_record_sharing(feature, shares)
     })
@@ -1711,6 +1723,20 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             },
         }));
     }
+    if let FeatureKind::Datum(datum) = kind
+        && datum
+            .points()
+            .into_iter()
+            .any(|point| point.frame().is_some())
+    {
+        return FeatureKindRecord::FrameOriginDatum(Box::new(FrameOriginRecord {
+            feature: kind_record(kind),
+        }));
+    }
+    kind_record(kind)
+}
+
+fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
     match kind {
         FeatureKind::Sketch(sketch) => {
             let record = FeatureKindRecord::Sketch(sketch_record(sketch));
@@ -1941,11 +1967,20 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
         }
         FeatureKind::Split(split) => split_record(split),
         FeatureKind::Mate(mate) => FeatureKindRecord::Mate(Box::new(mate_record(mate))),
-        FeatureKind::Scale(scale) => FeatureKindRecord::Scale(ScaleRecord {
-            body: scale.body.raw(),
-            factor: scale.factor.to_stored_text(),
-            center: scale.center.each_ref().map(Expression::to_stored_text),
-        }),
+        FeatureKind::Scale(scale) => {
+            let record = FeatureKindRecord::Scale(ScaleRecord {
+                body: scale.body.raw(),
+                factor: scale.factor.to_stored_text(),
+                center: scale.center.each_ref().map(Expression::to_stored_text),
+            });
+            match scale.frame {
+                Some(frame) => FeatureKindRecord::ScaleInFrame(Box::new(MoveInFrameRecord {
+                    feature: record,
+                    frame: frame.raw(),
+                })),
+                None => record,
+            }
+        }
         FeatureKind::Hole(hole) => hole_record(hole),
         FeatureKind::Pattern(pattern) => pattern_record(pattern),
         FeatureKind::Import(import) => import_record(import, None),
@@ -1953,13 +1988,24 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
 }
 
 fn import_record(import: &Import, shares: Option<String>) -> FeatureKindRecord {
+    let record = unframed_import_record(import, shares);
+    match import.placement.frame {
+        Some(frame) => FeatureKindRecord::ImportInFrame(Box::new(MoveInFrameRecord {
+            feature: record,
+            frame: frame.raw(),
+        })),
+        None => record,
+    }
+}
+
+fn unframed_import_record(import: &Import, shares: Option<String>) -> FeatureKindRecord {
     let source = import.source.clone();
     let path = import
         .path
         .as_ref()
         .and_then(|path| path.to_str())
         .map(str::to_owned);
-    if import.placement.is_at_origin() {
+    if import.placement.is_unmoved() {
         return FeatureKindRecord::Import(ImportRecord {
             source,
             path,
@@ -2791,6 +2837,7 @@ fn point_record(reference: &PointReference) -> PointReferenceRecord {
             sketch: sketch.raw(),
             entity: entity.raw(),
         },
+        PointReference::Frame(frame) => PointReferenceRecord::Frame(frame.raw()),
     }
 }
 
@@ -3768,6 +3815,42 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::FrameOriginDatum(framed) => {
+            let kind = restore_kind(&framed.feature, name, texts, issues);
+            if !matches!(kind, FeatureKind::Datum(_)) {
+                issues.push(format!(
+                    "“{name}” was to use the origin of a coordinate system, but it is not a \
+                     datum, so that was left out."
+                ));
+            }
+            kind
+        }
+        FeatureKindRecord::ScaleInFrame(framed) => {
+            let mut kind = restore_kind(&framed.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Scale(scale) => {
+                    scale.frame = Some(FeatureId::from_raw(framed.frame));
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to scale about a centre in a coordinate system, but it is not \
+                     a scale, so that was left out."
+                )),
+            }
+            kind
+        }
+        FeatureKindRecord::ImportInFrame(framed) => {
+            let mut kind = restore_kind(&framed.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Import(import) => {
+                    import.placement.frame = Some(FeatureId::from_raw(framed.frame));
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to be placed in a coordinate system, but it is not an import, \
+                     so that was left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::SketchOnFrame(placed) => {
             let mut kind = restore_kind(&placed.feature, name, texts, issues);
             match &mut kind {
@@ -4317,6 +4400,7 @@ fn restore_placed_import(
     let placement = BodyPlacement {
         offset: read(&record.offset, "placement distance", "0 mm"),
         turn: read(&record.turn, "placement turn", "0 deg"),
+        frame: None,
     };
     import.placed(placement)
 }
@@ -4477,6 +4561,7 @@ fn restore_point(record: &PointReferenceRecord) -> Option<PointReference> {
             sketch: FeatureId::from_raw(*sketch),
             entity: EntityId::from_raw(*entity),
         },
+        PointReferenceRecord::Frame(frame) => PointReference::Frame(FeatureId::from_raw(*frame)),
     })
 }
 
@@ -5233,6 +5318,7 @@ fn restore_scale(record: &ScaleRecord, feature: &str, issues: &mut Vec<String>) 
             .center
             .each_ref()
             .map(|text| restore_value(text, "centre", "0 mm", feature, issues)),
+        frame: None,
     }
 }
 

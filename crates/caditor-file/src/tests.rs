@@ -6565,6 +6565,7 @@ fn scaled_model(factor: &str) -> (Document, FeatureId) {
                 transaction.parse("-4 mm").unwrap(),
                 transaction.parse("0 mm").unwrap(),
             ],
+            frame: None,
         }),
     );
     document.apply(transaction.finish()).unwrap();
@@ -7257,4 +7258,101 @@ fn coordinate_systems_and_what_uses_them_are_kinds_older_readers_report_and_read
     assert!(older.document.feature(movement).is_none());
     assert!(older.document.feature(sketch).is_none());
     assert!(!older.issues.is_empty());
+}
+
+#[test]
+fn a_coordinate_system_origin_a_scale_centre_and_an_import_in_one_are_kinds_older_readers_report() {
+    use caditor_document::{
+        AxisReference, Datum, DatumFrame, DatumPoint, PointReference, PrincipalAxis, Scale,
+    };
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("In a coordinate system");
+    let frame = transaction.add_feature(
+        "Coordinate system 1",
+        FeatureKind::Datum(Datum::Frame(Box::new(DatumFrame {
+            origin: PointReference::Origin,
+            x_axis: AxisReference::Principal(PrincipalAxis::X),
+            plane: PlaneReference::Principal(PrincipalPlane::Xy),
+            reverse_x: false,
+            reverse_z: false,
+        }))),
+    );
+    let point = transaction.add_feature(
+        "Point 1",
+        FeatureKind::Datum(Datum::Point(DatumPoint {
+            base: PointReference::Frame(frame),
+            offset: std::array::from_fn(|_| transaction.parse("1 mm").unwrap()),
+        })),
+    );
+    let scale = transaction.add_feature(
+        "Scale 1",
+        FeatureKind::Scale(Scale {
+            body: base,
+            factor: transaction.parse("2").unwrap(),
+            center: std::array::from_fn(|_| transaction.parse("3 mm").unwrap()),
+            frame: Some(frame),
+        }),
+    );
+    let placement = caditor_document::BodyPlacement {
+        frame: Some(frame),
+        ..Default::default()
+    };
+    let import = transaction.add_feature(
+        "Cube",
+        FeatureKind::Import(
+            caditor_document::Import::new("cube.step", caditor_kernel::Solid::default(), "")
+                .placed(placement),
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let edited = Transaction::new(
+        "Edit",
+        [point, scale]
+            .map(|id| Edit::SetFeatureKind {
+                id,
+                kind: document.feature(id).unwrap().kind.clone(),
+            })
+            .to_vec(),
+    );
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let journaled: format::TransactionRecord =
+        through_binary(&serde_json::to_string(&format::transaction_record(&edited)).unwrap());
+    let older = decode_text(
+        &text
+            .replace("frame_origin_datum", "datum_at_frame")
+            .replace("scale_in_frame", "scale_in_axes")
+            .replace("import_in_frame", "import_in_axes"),
+    );
+
+    assert!(
+        text.contains("\"frame_origin_datum\":{\"feature\":{\"point\":{\"base\":{\"frame\":"),
+        "{text}"
+    );
+    assert!(text.contains("\"scale_in_frame\":{\"feature\":{\"scale\":"));
+    assert!(text.contains("\"import_in_frame\":{\"feature\":{\"import\":"));
+    assert!(
+        loaded
+            .issues
+            .iter()
+            .all(|issue| issue.contains("it is not a STEP file")),
+        "{:?}",
+        loaded.issues
+    );
+    assert_eq!(loaded.document, document);
+    assert_eq!(format::restore_transaction(journaled), Some(edited));
+    assert!(older.document.feature(point).is_none());
+    assert!(older.document.feature(scale).is_none());
+    assert!(older.document.feature(import).is_none());
+    assert!(
+        older
+            .issues
+            .iter()
+            .filter(|issue| issue.contains("It may come from a newer version"))
+            .count()
+            == 3,
+        "{:?}",
+        older.issues
+    );
 }

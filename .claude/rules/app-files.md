@@ -184,7 +184,9 @@ paths:
   (`Drawing::chosen_curve_count`); Cancel adds nothing, and a queue of dropped files waits behind
   it. A drawing that fails to read skips it and reports as
   before.
-- An import's details (`import_panel.rs`) end with its placement: Turn about X, Y and Z, then Move
+- An import's details (`import_panel.rs`) end with its placement: Placed in (World, or a
+  coordinate system above it, `feature_fields::frame_row`, the description then saying the file's
+  origin and axes are the system's), Turn about X, Y and Z, then Move
   along X, Y and Z, all expressions (key `import-field`, `turn` or `offset`, axis index), each
   entered value one undoable `SetFeatureKind` named "Place <name>".
 - Replace from file (`Command::ReplaceImport`, an import's details, its right-click menu, the

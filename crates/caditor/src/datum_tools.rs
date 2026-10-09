@@ -269,6 +269,12 @@ pub fn point_reference(model: &Model, pickable: Pickable, index: usize) -> Optio
         {
             Some(PointReference::Datum(feature))
         }
+        Pickable::Datum(feature)
+            if is_datum(document, feature, DatumKind::Frame)
+                && comes_before(document, feature, index) =>
+        {
+            Some(PointReference::Frame(feature))
+        }
         Pickable::Vertex { body, vertex } => {
             let state = sketch_placement::body_state_before(model, body, index).ok()?;
             let named = vertex_names(state)

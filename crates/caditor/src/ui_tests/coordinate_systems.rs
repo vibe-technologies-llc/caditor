@@ -237,3 +237,51 @@ fn a_move_in_a_coordinate_system_shifts_along_its_axes_from_the_panel_and_the_ar
     assert!((bounds.min().y - x).abs() < CLOSE, "{bounds:?} after {x}");
     assert!(bounds.min().x.abs() < CLOSE);
 }
+
+#[test]
+fn a_coordinate_system_origin_is_a_point_and_a_scale_centre_can_be_measured_in_it() {
+    let mut harness = Harness::new();
+    let (body, top) = extruded_plate(&mut harness);
+    let system = coordinate_system_at_far_corner(&mut harness, body);
+
+    harness.select([Pickable::Datum(system)]);
+    harness.click("Point");
+    harness.settle();
+    let point = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the point is open");
+    let based = match harness
+        .document()
+        .feature(point)
+        .map(|feature| &feature.kind)
+    {
+        Some(FeatureKind::Datum(Datum::Point(point))) => point.base.clone(),
+        other => panic!("a datum point was expected, found {other:?}"),
+    };
+    assert_eq!(based, PointReference::Frame(system));
+    assert!(harness.shows_containing("origin of Coordinate system 1"));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    harness.select([top]);
+    harness.click(crate::scale_tools::TITLE);
+    harness.settle();
+    let scale = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the scale is open");
+    open_combo(&mut harness, crate::scale_panel::CENTRE_IN);
+    harness.click_lowest("Coordinate system 1");
+    harness.settle();
+
+    let framed = harness
+        .document()
+        .feature(scale)
+        .and_then(|feature| feature.kind.scale())
+        .and_then(|scale| scale.frame);
+    assert_eq!(framed, Some(system));
+    assert!(harness.shows(crate::scale_panel::FRAME_DESCRIPTION));
+}

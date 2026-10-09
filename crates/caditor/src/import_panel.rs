@@ -13,6 +13,9 @@ use crate::{
 
 pub const DESCRIPTION: &str =
     "Places the imported body: turned about the axes through the origin, then shifted";
+pub const FRAME_DESCRIPTION: &str = "Places the imported body in the coordinate system: its file's origin and axes are the \
+     system's, then it is turned about those axes and shifted along them";
+pub const PLACED_IN: &str = "Placed in";
 
 pub fn placed(document: &Document, feature: FeatureId, import: Import) -> Option<Transaction> {
     let name = &document.feature(feature)?.name;
@@ -81,7 +84,23 @@ pub fn placement(
         actions,
     };
     widgets::properties(ui, ("import-placement", feature.id()), |ui| {
-        feature_fields::description_row(ui, DESCRIPTION);
+        let description = match import.placement.frame {
+            Some(_) => FRAME_DESCRIPTION,
+            None => DESCRIPTION,
+        };
+        feature_fields::description_row(ui, description);
+        let row = feature_fields::FrameRow {
+            feature: feature.id(),
+            salt: "import-frame",
+            caption: PLACED_IN,
+            current: import.placement.frame,
+        };
+        let chosen = feature_fields::frame_row(ui, model.document(), &row, |frame| {
+            let mut changed = import.clone();
+            changed.placement.frame = frame;
+            change(model, feature.id(), changed)
+        });
+        panel.actions.extend(chosen);
         for axis in MoveAxis::ALL {
             panel.row(
                 ui,

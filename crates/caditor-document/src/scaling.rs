@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, Expression, ParameterId, format_number};
-use caditor_geometry::{Point3, Similarity};
+use caditor_geometry::{Plane, Point3, Similarity};
 use caditor_kernel::{GeometryError, TransformError};
 
 use crate::{
@@ -20,6 +20,7 @@ pub struct Scale {
     pub body: FeatureId,
     pub factor: Expression,
     pub center: [Expression; 3],
+    pub frame: Option<FeatureId>,
 }
 
 impl Scale {
@@ -91,13 +92,17 @@ impl Context<'_> {
     }
 
     fn center(&self, definition: &Scale) -> Result<Point3, Failure> {
-        let mut center = Point3::ZERO;
+        let frame = match definition.frame {
+            Some(frame) => Some(self.resolver.frame(frame)?),
+            None => None,
+        };
+        let mut center = frame.as_ref().map_or(Point3::ZERO, Plane::origin);
         for axis in MoveAxis::ALL {
             let what = format!("centre {}", axis.name());
             let value =
                 self.resolver
                     .value(axis.of(&definition.center), &what, Dimension::LENGTH)?;
-            *axis.of_mut(center.as_mut()) = value;
+            center += axis.direction_in(frame.as_ref()) * value;
         }
         Ok(center)
     }

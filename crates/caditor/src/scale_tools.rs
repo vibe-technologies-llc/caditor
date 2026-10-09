@@ -32,6 +32,7 @@ pub fn create(document: &Document, body: FeatureId, unit: LengthUnit) -> (Transa
             body,
             factor: Expression::Number(DEFAULT_FACTOR),
             center: std::array::from_fn(|_| unit.default_length(0.0)),
+            frame: None,
         }),
     );
     (transaction.finish(), feature)

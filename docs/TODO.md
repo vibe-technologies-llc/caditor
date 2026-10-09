@@ -262,10 +262,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   be kept in the model: a named reading between two references, updated on every recompute and
   drawn in the view, by which a clearance is watched while upstream features change and which
   expressions could then use.
-- [low · easy] Coordinate systems reach only Measure, Move and what takes an axis or plane: a
-  scale's centre and an imported body's placement still read from the world origin and axes, and
-  a coordinate system's origin cannot be chosen where a point is wanted (no `PointReference` names
-  it), so a datum point or plane through it needs a point of its own.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
   axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
   surfaces do not have).

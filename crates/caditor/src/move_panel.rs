@@ -6,7 +6,6 @@ use caditor_expression::{Dimension, Expression};
 use egui::{Id, Ui};
 
 use crate::{
-    datum_tools,
     feature_fields::{self, Choice, Picker, Quantity, Rule, Segment},
     model::{Action, Model},
     move_tools, pattern_tools,
@@ -33,7 +32,6 @@ pub const AXIS: &str = "Axis";
 pub const ANGLE: &str = "Angle";
 pub const MAKE_A_COPY: &str = "Make a copy";
 pub const DIRECTIONS: &str = "Directions";
-pub const WORLD: &str = "World";
 pub const FRAME_DESCRIPTION: &str = "Turns about and shifts along the X, Y and Z axes of the \
                                      coordinate system, and about its origin when turning about \
                                      the origin";
@@ -144,36 +142,18 @@ impl Panel<'_> {
     }
 
     fn frame_row(&mut self, ui: &mut Ui) {
-        let document = self.model.document();
-        let before = document.feature_index(self.id()).unwrap_or(usize::MAX);
-        let frames = datum_tools::frames_before(document, before);
-        if frames.is_empty() && self.movement.frame.is_none() {
-            return;
-        }
-        let name = |frame: FeatureId| {
-            document.feature(frame).map_or_else(
-                || "A deleted coordinate system".to_owned(),
-                |feature| feature.name.clone(),
-            )
+        let row = feature_fields::FrameRow {
+            feature: self.id(),
+            salt: "move-frame",
+            caption: DIRECTIONS,
+            current: self.movement.frame,
         };
-        let current = self.movement.frame.map_or_else(|| WORLD.to_owned(), name);
-        widgets::caption(ui, DIRECTIONS);
-        let chosen = feature_fields::combo(ui, Id::new(("move-frame", self.id())), current, || {
-            std::iter::once(None)
-                .chain(frames.into_iter().map(Some))
-                .map(|frame| Choice {
-                    label: frame.map_or_else(|| WORLD.to_owned(), name),
-                    selected: frame == self.movement.frame,
-                    change: self
-                        .change(Move {
-                            frame,
-                            ..self.movement.clone()
-                        })
-                        .map(Action::Apply),
-                })
-                .collect()
+        let chosen = feature_fields::frame_row(ui, self.model.document(), &row, |frame| {
+            self.change(Move {
+                frame,
+                ..self.movement.clone()
+            })
         });
-        ui.end_row();
         self.actions.extend(chosen);
         if self.movement.frame.is_some() {
             feature_fields::description_row(ui, FRAME_DESCRIPTION);

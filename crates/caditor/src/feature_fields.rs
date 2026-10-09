@@ -6,7 +6,7 @@ use caditor_expression::{Dimension, Expression};
 use egui::{ComboBox, Id, Label, RichText, Ui, WidgetText};
 
 use crate::{
-    appearance,
+    appearance, datum_tools,
     editing::EditingCommand,
     field::{self, Expected},
     icons,
@@ -235,6 +235,48 @@ pub fn feature_row(ui: &mut Ui, document: &Document, caption: &str, feature: Fea
         None => missing(ui, MISSING_BODY),
     }
     ui.end_row();
+}
+
+pub const WORLD: &str = "World";
+
+pub struct FrameRow<'a> {
+    pub feature: FeatureId,
+    pub salt: &'a str,
+    pub caption: &'a str,
+    pub current: Option<FeatureId>,
+}
+
+pub fn frame_row(
+    ui: &mut Ui,
+    document: &Document,
+    row: &FrameRow<'_>,
+    change: impl Fn(Option<FeatureId>) -> Result<Transaction, String>,
+) -> Option<Action> {
+    let before = document.feature_index(row.feature).unwrap_or(usize::MAX);
+    let frames = datum_tools::frames_before(document, before);
+    if frames.is_empty() && row.current.is_none() {
+        return None;
+    }
+    let name = |frame: FeatureId| {
+        document.feature(frame).map_or_else(
+            || "A deleted coordinate system".to_owned(),
+            |feature| feature.name.clone(),
+        )
+    };
+    let current = row.current.map_or_else(|| WORLD.to_owned(), name);
+    widgets::caption(ui, row.caption);
+    let chosen = combo(ui, Id::new((row.salt, row.feature)), current, || {
+        std::iter::once(None)
+            .chain(frames.into_iter().map(Some))
+            .map(|frame| Choice {
+                label: frame.map_or_else(|| WORLD.to_owned(), name),
+                selected: frame == row.current,
+                change: change(frame).map(Action::Apply),
+            })
+            .collect()
+    });
+    ui.end_row();
+    chosen
 }
 
 pub fn combo_text(ui: &mut Ui, name: Option<&str>, missing: &str) -> WidgetText {

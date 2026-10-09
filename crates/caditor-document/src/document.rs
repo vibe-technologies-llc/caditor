@@ -396,13 +396,13 @@ impl FeatureKind {
                 .collect(),
             Self::Mate(mate) => mate.frames(),
             Self::Primitive(primitive) => primitive.plane.frame().into_iter().collect(),
+            Self::Scale(scale) => scale.frame.into_iter().collect(),
+            Self::Import(import) => import.placement.frame.into_iter().collect(),
             Self::Blend(_)
             | Self::Shell(_)
             | Self::OffsetFace(_)
             | Self::Combine(_)
-            | Self::Scale(_)
             | Self::Hole(_)
-            | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
         }

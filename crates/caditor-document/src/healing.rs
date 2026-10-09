@@ -326,7 +326,8 @@ fn visit_point(point: &mut PointReference, role: &str, visitor: &mut impl Refere
         PointReference::Origin
         | PointReference::Datum(_)
         | PointReference::Vertex { .. }
-        | PointReference::Sketch { .. } => {}
+        | PointReference::Sketch { .. }
+        | PointReference::Frame(_) => {}
     }
 }
 

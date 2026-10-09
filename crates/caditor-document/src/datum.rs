@@ -279,6 +279,7 @@ pub enum PointReference {
         sketch: FeatureId,
         entity: EntityId,
     },
+    Frame(FeatureId),
 }
 
 impl PointReference {
@@ -286,7 +287,11 @@ impl PointReference {
         match self {
             Self::Centre { .. } => size_of::<EdgeReference>(),
             Self::SurfaceCentre { face, .. } => face.heap_size(),
-            Self::Origin | Self::Datum(_) | Self::Vertex { .. } | Self::Sketch { .. } => 0,
+            Self::Origin
+            | Self::Datum(_)
+            | Self::Vertex { .. }
+            | Self::Sketch { .. }
+            | Self::Frame(_) => 0,
         }
     }
 
@@ -294,6 +299,19 @@ impl PointReference {
         match self {
             Self::Datum(feature) => Some(*feature),
             Self::Origin
+            | Self::Vertex { .. }
+            | Self::Centre { .. }
+            | Self::SurfaceCentre { .. }
+            | Self::Sketch { .. }
+            | Self::Frame(_) => None,
+        }
+    }
+
+    pub fn frame(&self) -> Option<FeatureId> {
+        match self {
+            Self::Frame(frame) => Some(*frame),
+            Self::Origin
+            | Self::Datum(_)
             | Self::Vertex { .. }
             | Self::Centre { .. }
             | Self::SurfaceCentre { .. }
@@ -306,7 +324,7 @@ impl PointReference {
             Self::Vertex { body, .. }
             | Self::Centre { body, .. }
             | Self::SurfaceCentre { body, .. } => Some(*body),
-            Self::Origin | Self::Datum(_) | Self::Sketch { .. } => None,
+            Self::Origin | Self::Datum(_) | Self::Sketch { .. } | Self::Frame(_) => None,
         }
     }
 
@@ -317,7 +335,8 @@ impl PointReference {
             | Self::Datum(_)
             | Self::Vertex { .. }
             | Self::Centre { .. }
-            | Self::SurfaceCentre { .. } => None,
+            | Self::SurfaceCentre { .. }
+            | Self::Frame(_) => None,
         }
     }
 
@@ -325,9 +344,11 @@ impl PointReference {
         match self {
             Self::Centre { edge, .. } => origins::of_edge(edge),
             Self::SurfaceCentre { face, .. } => origins::of_face(face).into_iter().collect(),
-            Self::Origin | Self::Datum(_) | Self::Vertex { .. } | Self::Sketch { .. } => {
-                BTreeSet::new()
-            }
+            Self::Origin
+            | Self::Datum(_)
+            | Self::Vertex { .. }
+            | Self::Sketch { .. }
+            | Self::Frame(_) => BTreeSet::new(),
         }
     }
 
@@ -786,6 +807,7 @@ impl Datum {
             .into_iter()
             .filter_map(PlaneReference::frame)
             .chain(self.axes().into_iter().filter_map(AxisReference::frame))
+            .chain(self.points().into_iter().filter_map(PointReference::frame))
             .collect()
     }
 
@@ -937,6 +959,9 @@ pub fn describe_point(document: &Document, reference: &PointReference) -> String
                     |definition| definition.entity_label(*entity),
                 );
             format!("{label} of {}", feature_name(document, *sketch))
+        }
+        PointReference::Frame(frame) => {
+            format!("the origin of {}", feature_name(document, *frame))
         }
     }
 }
@@ -1295,6 +1320,7 @@ impl Resolver<'_> {
         let document = self.inputs.document;
         match reference {
             PointReference::Origin => Ok(Point3::ZERO),
+            PointReference::Frame(frame) => Ok(self.frame(*frame)?.origin()),
             PointReference::Datum(feature) => self.datum(*feature)?.point().ok_or_else(|| {
                 self.own_error(
                     format!("{} is not a point.", feature_name(document, *feature)),
