@@ -10,7 +10,9 @@ use crate::{
     editing::Tool,
     icon_font,
     selection::Pickable,
-    shape_modes::{BlendMode, CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode},
+    shape_modes::{
+        BlendMode, CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode, SplineMode,
+    },
     sketch_tools::ConstraintTool,
 };
 
@@ -348,6 +350,10 @@ pub fn shape_mode(mode: ShapeMode) -> &'static str {
         ShapeMode::Slot(SlotMode::Ends) => tool(Tool::Slot),
         ShapeMode::Slot(SlotMode::Center) => phosphor::ARROWS_LEFT_RIGHT,
         ShapeMode::Slot(SlotMode::Arc) => phosphor::MAGNET,
+        ShapeMode::Spline(SplineMode::Control) => tool(Tool::Spline),
+        ShapeMode::Spline(SplineMode::Fit) => phosphor::PATH,
+        ShapeMode::Spline(SplineMode::ClosedControl) => phosphor::POLYGON,
+        ShapeMode::Spline(SplineMode::ClosedFit) => phosphor::CIRCLE_DASHED,
         ShapeMode::Blend(BlendMode::Tangent) => tool(Tool::BlendCurve),
         ShapeMode::Blend(BlendMode::Curvature) => phosphor::WAVE_SINE,
     }

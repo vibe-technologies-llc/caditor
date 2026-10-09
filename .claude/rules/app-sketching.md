@@ -144,7 +144,8 @@ paths:
   place a point at an enormous distance.
 - Lines chain, each joined to the last end by `Coincident`, until Escape, a click on the last
   point, or a line closing the outline on the chain's first point. Splines finish on Enter or a
-  click on the last control point. Each continuing segment records its anchor (`ChainStep`);
+  click on the last point, and close (periodic, `SplineKind`) on a click on the first once three
+  are placed ("Close the spline"; a typed point there does the same). Each continuing segment records its anchor (`ChainStep`);
   Backspace undoes the last segment when it is the newest undo step, and when the anchor's point
   is gone (undo, a deletion) the chain steps back to the newest anchor still there rather than
   ending.
@@ -182,6 +183,10 @@ paths:
   grouped on the ribbon under one Arc button, and so do Spline, Ellipse and Elliptical arc under
   one Curve button (`app-look.md`), since an ellipse is a curve of its own, not a way to draw
   another.
+- Spline has four ways (`SplineMode`): by control points, through fit points (the curve passes
+  each placed point, which stays a point to constrain and dimension), and both closed, where
+  Enter closes the loop. Clicking the first point closes either open way too. The preview is the
+  curve of that kind through the placed points and the pointer.
 - Blend curve keeps its two ways the same way: tangent (G1) and curvature-continuous (G2)
   (`ShapeMode::Blend`, `ShapeModes::blend`), listed with the shapes under Sketch › Ways to draw
   shapes; the modify tool reads the way each frame and its prompt leads with it.

@@ -25,6 +25,12 @@ pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<B
     }
 }
 
+impl SplineKind {
+    pub fn curve(self, points: &[Point2]) -> Option<BSpline> {
+        spline_through(points, self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SketchError {
     #[error("the constraint no longer exists")]

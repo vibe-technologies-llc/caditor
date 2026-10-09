@@ -3,13 +3,15 @@ use std::f64::consts::{PI, TAU};
 use caditor_document::{FeatureId, Transaction, TransactionBuilder};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    ArcGeometry, BSpline, Constraint, EllipseGeometry, Entity, EntityId, Faceting, Sketch,
+    ArcGeometry, Constraint, EllipseGeometry, Entity, EntityId, Faceting, Sketch, SplineKind,
 };
 
 use crate::{
     editing::{self, ActiveSketch, Tool},
     model::Model,
-    shape_modes::{CircleMode, PolygonMode, RectangleMode, ShapeMode, ShapeModes, SlotMode},
+    shape_modes::{
+        CircleMode, PolygonMode, RectangleMode, ShapeMode, ShapeModes, SlotMode, SplineMode,
+    },
     shapes::{self, ArcSlot, Circular, DEGENERATE_LENGTH, MAX_SIDES, MIN_SIDES, Slot},
     sketch_tools,
     snap::{self, Accept, Held, Hold, Lookup, ON_THE_GRID, Pointer, Screen, Snapped, Target},
@@ -26,6 +28,7 @@ const MIN_ALIGN_LENGTH: f64 = 12.0;
 const NEARBY_LINES: usize = 6;
 const HELD_TOLERANCE: f64 = 1e-9;
 const TYPED_TOLERANCE: f64 = 1e-6;
+const MIN_CLOSED_SPLINE_POINTS: usize = 3;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
 const CANCEL_RECTANGLE: &str = "Esc: cancel the rectangle";
 const CANCEL_CIRCLE: &str = "Esc: cancel the circle";
@@ -125,7 +128,7 @@ enum Shape {
     TangentArc,
     Slot(SlotMode),
     Polygon(PolygonMode),
-    Spline,
+    Spline(SplineMode),
     Ellipse,
     EllipticalArc,
 }
@@ -137,13 +140,14 @@ impl Shape {
             ShapeMode::Circle(mode) => Some(Self::Circle(mode)),
             ShapeMode::Polygon(mode) => Some(Self::Polygon(mode)),
             ShapeMode::Slot(mode) => Some(Self::Slot(mode)),
+            ShapeMode::Spline(mode) => Some(Self::Spline(mode)),
             ShapeMode::Blend(_) => None,
         }
     }
 
     fn of(tool: Tool, modes: ShapeModes) -> Option<Self> {
         match tool {
-            Tool::Rectangle | Tool::Circle | Tool::Polygon | Tool::Slot => {
+            Tool::Rectangle | Tool::Circle | Tool::Polygon | Tool::Slot | Tool::Spline => {
                 modes.of(tool).and_then(Self::drawn)
             }
             Tool::Point => Some(Self::Point),
@@ -151,7 +155,6 @@ impl Shape {
             Tool::Arc => Some(Self::Arc),
             Tool::ThreePointArc => Some(Self::ThreePointArc),
             Tool::TangentArc => Some(Self::TangentArc),
-            Tool::Spline => Some(Self::Spline),
             Tool::Ellipse => Some(Self::Ellipse),
             Tool::EllipticalArc => Some(Self::EllipticalArc),
             Tool::Select
@@ -177,12 +180,12 @@ impl Shape {
             Self::Circle(mode) => Some(ShapeMode::Circle(mode)),
             Self::Polygon(mode) => Some(ShapeMode::Polygon(mode)),
             Self::Slot(mode) => Some(ShapeMode::Slot(mode)),
+            Self::Spline(mode) => Some(ShapeMode::Spline(mode)),
             Self::Point
             | Self::Line
             | Self::Arc
             | Self::ThreePointArc
             | Self::TangentArc
-            | Self::Spline
             | Self::Ellipse
             | Self::EllipticalArc => None,
         }
@@ -200,7 +203,7 @@ impl Shape {
             Self::Slot(SlotMode::Arc) => "arc slot",
             Self::Slot(SlotMode::Ends | SlotMode::Center) => "slot",
             Self::Polygon(_) => "polygon",
-            Self::Spline => "spline",
+            Self::Spline(_) => "spline",
             Self::Ellipse => "ellipse",
             Self::EllipticalArc => "elliptical arc",
         }
@@ -218,7 +221,7 @@ impl Shape {
             | Self::TangentArc
             | Self::Slot(SlotMode::Ends | SlotMode::Center)
             | Self::Polygon(_)
-            | Self::Spline
+            | Self::Spline(_)
             | Self::Ellipse => None,
         }
     }
@@ -238,7 +241,7 @@ impl Shape {
             | Self::ThreePointArc
             | Self::TangentArc
             | Self::Polygon(_)
-            | Self::Spline => false,
+            | Self::Spline(_) => false,
         }
     }
 
@@ -265,7 +268,7 @@ impl Shape {
             | Self::TangentArc
             | Self::Slot(SlotMode::Arc)
             | Self::Polygon(PolygonMode::Corner | PolygonMode::SideMiddle)
-            | Self::Spline
+            | Self::Spline(_)
             | Self::Ellipse
             | Self::EllipticalArc => false,
         }
@@ -857,7 +860,7 @@ impl Drawing {
             )
         };
         let sides = self.sides.0;
-        if let (Shape::Spline, [.., last]) = (shape, self.placed.as_slice()) {
+        if let (Shape::Spline(_), [.., last]) = (shape, self.placed.as_slice()) {
             return Some(leg(last.position));
         }
         let [first] = self.placed.as_slice() else {
@@ -1206,9 +1209,9 @@ impl Drawing {
         let (Some((feature, shape)), Some(placement)) = (self.context, self.hover) else {
             return Ok(None);
         };
-        if let Snap::Target(Target::Pending(_)) = placement.snap {
+        if let Snap::Target(Target::Pending(index)) = placement.snap {
             return Ok(match shape {
-                Shape::Spline => self.finish(model),
+                Shape::Spline(_) => self.finish_spline(model, self.closes_at(index)),
                 Shape::Point
                 | Shape::Line
                 | Shape::Rectangle(_)
@@ -1552,7 +1555,7 @@ impl Drawing {
                 | Shape::TangentArc
                 | Shape::Slot(_)
                 | Shape::Polygon(_)
-                | Shape::Spline
+                | Shape::Spline(_)
                 | Shape::Ellipse
                 | Shape::EllipticalArc,
                 _,
@@ -1582,16 +1585,28 @@ impl Drawing {
     }
 
     pub fn finish(&mut self, model: &Model) -> Option<Transaction> {
+        self.finish_spline(model, false)
+    }
+
+    fn closes_at(&self, pending: usize) -> bool {
+        pending == 0 && self.placed.len() >= MIN_CLOSED_SPLINE_POINTS
+    }
+
+    fn finish_spline(&mut self, model: &Model, closing: bool) -> Option<Transaction> {
         let (feature, shape) = self.context?;
-        if shape != Shape::Spline {
+        let Shape::Spline(mode) = shape else {
+            return None;
+        };
+        let kind = mode.kind(closing);
+        if self.placed.len() < kind.fewest_points() {
+            if !kind.is_closed() {
+                self.placed.clear();
+            }
             return None;
         }
         let placed = std::mem::take(&mut self.placed);
-        if placed.len() < 2 {
-            return None;
-        }
         let mut draft = Draft::new(model, feature, shape.name(), self.construction)?;
-        draft.spline(&placed);
+        draft.spline(&placed, kind);
         Some(draft.finish(&std::mem::take(&mut self.typed)))
     }
 
@@ -1793,8 +1808,19 @@ impl Drawing {
                     preview.points = vec![center, axis, start, end];
                 }
             }
-            (Shape::Spline, _) if !placed.is_empty() => {
-                if let Some(spline) = BSpline::clamped(preview.points.clone()) {
+            (Shape::Spline(mode), _) if !placed.is_empty() => {
+                let closing = matches!(
+                    self.hover.map(|hover| hover.snap),
+                    Some(Snap::Target(Target::Pending(index))) if self.closes_at(index)
+                );
+                let (points, kind) = if closing {
+                    (placed.clone(), mode.kind(true))
+                } else if mode.closes() && preview.points.len() >= MIN_CLOSED_SPLINE_POINTS {
+                    (preview.points.clone(), mode.kind(false))
+                } else {
+                    (preview.points.clone(), mode.kind(false).opened())
+                };
+                if let Some(spline) = kind.curve(&points) {
                     preview.curves.push(spline.faceted(faceting));
                 }
             }
@@ -1841,7 +1867,14 @@ impl Drawing {
 
     fn target_label(&self, shape: Shape, sketch: &Sketch, target: Target) -> String {
         match target {
-            Target::Pending(_) if shape == Shape::Spline => "Finish the spline".to_owned(),
+            Target::Pending(index)
+                if matches!(shape, Shape::Spline(_)) && self.closes_at(index) =>
+            {
+                "Close the spline".to_owned()
+            }
+            Target::Pending(_) if matches!(shape, Shape::Spline(_)) => {
+                "Finish the spline".to_owned()
+            }
             Target::Pending(_) => "Stop here".to_owned(),
             Target::Point(_)
                 if shape == Shape::TangentArc
@@ -1994,10 +2027,24 @@ impl Drawing {
                 "The arc follows your sweep around the centre, a typed end the shorter way   Esc: \
                  cancel the elliptical arc",
             ),
-            (Shape::Spline, 0) => prompt("Click the spline's first control point", BACK_TO_SELECT),
-            (Shape::Spline, _) => prompt(
-                "Click the next control point",
-                "Enter or double-click: finish   Backspace: remove the last point   Esc: cancel",
+            (Shape::Spline(mode), 0) if mode.passes_its_points() => {
+                prompt("Click the first point the spline passes", BACK_TO_SELECT)
+            }
+            (Shape::Spline(_), 0) => {
+                prompt("Click the spline's first control point", BACK_TO_SELECT)
+            }
+            (Shape::Spline(mode), _) => prompt(
+                if mode.passes_its_points() {
+                    "Click the next point the spline passes"
+                } else {
+                    "Click the next control point"
+                },
+                if mode.closes() {
+                    "Enter: close the loop   Backspace: remove the last point   Esc: cancel"
+                } else {
+                    "Enter or double-click: finish   Click the first point: close the loop   \
+                     Backspace: remove the last point   Esc: cancel"
+                },
             ),
         }
     }
@@ -2140,7 +2187,7 @@ impl Drawing {
                 | Shape::EllipticalArc,
                 &[from],
             )
-            | (Shape::Spline, &[.., from]) => Some(from),
+            | (Shape::Spline(_), &[.., from]) => Some(from),
             _ => None,
         }
     }
@@ -2164,11 +2211,24 @@ impl Drawing {
 
     fn pending(&self, shape: Shape) -> Vec<(usize, Point2)> {
         match shape {
-            Shape::Line | Shape::TangentArc => self.placed.first().map(|start| (0, start.position)),
-            Shape::Spline => self
+            Shape::Line | Shape::TangentArc => self
                 .placed
-                .last()
-                .map(|last| (self.placed.len() - 1, last.position)),
+                .first()
+                .map(|start| (0, start.position))
+                .into_iter()
+                .collect(),
+            Shape::Spline(_) => {
+                let last = self
+                    .placed
+                    .last()
+                    .map(|last| (self.placed.len() - 1, last.position));
+                let first = self
+                    .placed
+                    .first()
+                    .filter(|_| self.closes_at(0))
+                    .map(|first| (0, first.position));
+                last.into_iter().chain(first).collect()
+            }
             Shape::Point
             | Shape::Rectangle(_)
             | Shape::Circle(_)
@@ -2177,12 +2237,11 @@ impl Drawing {
             | Shape::Slot(_)
             | Shape::Polygon(_)
             | Shape::Ellipse
-            | Shape::EllipticalArc => None,
+            | Shape::EllipticalArc => Vec::new(),
         }
-        .into_iter()
-        .collect()
     }
 }
+
 fn round_under(sketch: &Sketch, start: Placement) -> Option<(EntityId, Point2)> {
     let curve = match start.snap.target()? {
         Target::Curve(curve) | Target::Quadrant { curve, .. } | Target::Tangent(curve) => curve,
@@ -3002,7 +3061,7 @@ impl<'a> Draft<'a> {
         }
     }
 
-    fn spline(&mut self, placed: &[Placement]) {
+    fn spline(&mut self, placed: &[Placement], kind: SplineKind) {
         let control_points: Vec<EntityId> = placed
             .iter()
             .map(|placement| self.point(*placement))
@@ -3014,7 +3073,10 @@ impl<'a> Draft<'a> {
         {
             self.level(*from, *to, *placement);
         }
-        self.entity(Entity::spline(control_points));
+        self.entity(Entity::Spline {
+            points: control_points,
+            kind,
+        });
     }
 }
 

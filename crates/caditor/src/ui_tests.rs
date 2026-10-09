@@ -16,7 +16,7 @@ use caditor_file::{
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::MeshQuality;
 use caditor_render::{Background, GraphicsInfo, ImageError, Msaa, Shading};
-use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, Entity, EntityId, Sketch, SplineKind};
 use egui::{
     Color32, Event, Id, Key, Modifiers, PointerButton, Pos2, RawInput, Rect, Shape,
     ViewportCommand, ViewportId, ViewportIdMap, ViewportInfo,
@@ -7164,6 +7164,38 @@ fn a_spline_takes_clicked_control_points_until_enter() {
     }
     assert_eq!(harness.model.undo_label(), Some("Draw spline"));
     assert!(harness.shows("Click the spline's first control point"));
+}
+
+#[test]
+fn a_fit_point_spline_closes_on_its_first_point_and_passes_every_point() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::S);
+    harness.use_tool(Key::S);
+    assert!(harness.shows("Click the first point the spline passes"));
+    let clicked = [
+        Point2::new(10.0, 10.0),
+        Point2::new(40.0, 12.0),
+        Point2::new(35.0, 40.0),
+        Point2::new(12.0, 35.0),
+    ];
+    for point in clicked {
+        harness.click_at(point);
+    }
+    harness.click_at(clicked[0]);
+
+    let sketch = harness.sketch(feature);
+    let spline = entities_of_kind(sketch, "Closed fit-point spline")[0];
+    let Some(Entity::Spline { points, kind }) = sketch.entity(spline) else {
+        panic!("expected a spline");
+    };
+    assert_eq!(*kind, SplineKind::Fit { closed: true });
+    assert_eq!(points.len(), 4);
+    let curve = sketch.spline(spline).unwrap();
+    for (index, expected) in clicked.iter().enumerate() {
+        let at = curve.point_at(index as f64 / clicked.len() as f64);
+        assert!(near(at, *expected), "{at} is not {expected}");
+    }
 }
 
 #[test]

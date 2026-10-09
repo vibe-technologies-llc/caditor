@@ -211,6 +211,14 @@ impl SplineKind {
         }
     }
 
+    pub fn opened(self) -> Self {
+        match self {
+            Self::Control { .. } => Self::Control { closed: false },
+            Self::Fit { .. } => Self::Fit { closed: false },
+            Self::Conic { .. } => self,
+        }
+    }
+
     pub fn same_form(self, other: Self) -> bool {
         match (self, other) {
             (Self::Conic { .. }, Self::Conic { .. }) => true,
