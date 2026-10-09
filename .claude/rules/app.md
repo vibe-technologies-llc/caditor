@@ -181,9 +181,14 @@ paths:
   feature change, not every frame (the Hole tool's start is one of the offers). It
   describes only the first `MAX_DESCRIBED` items and counts the rest (the status bar's tooltip
   ends "and N more"), since describing an item can scan its body.
-- A lone selected face, edge or sketch region, or a lone body chosen in the tree with nothing
-  selected, also gets its size in `Offers::size` (Area, Length or Size, `measure::size_text` and
-  `body_size_text`, marked ≈ when approximate), which the status bar shows beside the selection;
+- A lone selected face, edge, sketch curve or sketch region, or a lone body chosen in the tree
+  with nothing selected, also gets its size in `Offers::size` (`measure::size_text` and
+  `body_size_text`, marked ≈ when approximate, parts joined by a middle dot): a full circle Ø, R
+  and circumference, an arc R, length and sweep, an ellipse its radii and length, a line its
+  length; a flat face or one region whose outer loop is four straight sides at right angles its
+  width × height (longer first), a full circle its circle parts, any other its perimeter, each
+  then its area; a cylinder or sphere face Ø and R, a cone its half angle and a torus its ring
+  and tube radii, then the area; a body its Size, which the status bar shows beside the selection;
   the offers are worked out again when the bodies' meshes finish (`Model::bodies_pending`), since
   areas and sizes read the converted body (a face's area falls back to its mesh triangles,
   marked ≈, until then).

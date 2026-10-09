@@ -38,9 +38,14 @@ open at that width from then on, also the next time caditor starts.
 ## The status bar
 
 From the left: the recompute (with Cancel while it runs, or the failed features), file work such
-as saving or exporting or loading bodies to the graphics card, and the latest message. On the right: what is selected, the length unit
-(click it for [Preferences](preferences)) and the interface size when it is not 100%. Hovering a
-button there names its keys.
+as saving or exporting or loading bodies to the graphics card, and the latest message. On the
+right: what is selected with its size, the length unit (click it for [Preferences](preferences))
+and the interface size when it is not 100%. Hovering a button there names its keys.
+
+The size depends on what is selected: a circle or round edge gives its diameter, radius and
+circumference, an arc its radius, length and sweep, a line its length, a rectangular face or
+region its width × height and area, a round face its diameter, any other flat face or region its
+perimeter and area, and a body its size along each axis.
 
 A message's icon says what kind it is: information, done, a warning that something was not done
 or only partly, or an error. The button beside its close button opens

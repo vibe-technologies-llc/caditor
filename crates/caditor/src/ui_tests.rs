@@ -11253,6 +11253,7 @@ fn the_status_bar_gives_the_size_of_the_selected_face_edge_or_body() {
     harness.select([top]);
     harness.settle();
     assert!(harness.shows_containing("Area 1600"));
+    assert!(harness.shows_containing("40.000 mm × 40.000 mm"));
 
     let edge = top_edge_along_x(&harness, plate, 0.0);
     harness.select([Pickable::Edge { body: plate, edge }]);
@@ -11264,6 +11265,18 @@ fn the_status_bar_gives_the_size_of_the_selected_face_edge_or_body() {
     harness.workspace.panels.choose_only(plate);
     harness.settle();
     assert!(harness.shows_containing("Size 40.000 × 40.000 × 10.000"));
+
+    let mut round = Sketch::new(Plane::XY);
+    let circle = round.add_circle(Point2::new(80.0, 0.0), 5.0);
+    let sketch = harness.add_sketch(round);
+    harness.select([Pickable::SketchEntity {
+        feature: sketch,
+        entity: circle,
+    }]);
+    harness.settle();
+    assert!(harness.shows_containing("Ø 10.000 mm"));
+    assert!(harness.shows_containing("R 5.000 mm"));
+    assert!(harness.shows_containing("Circumference 31.416 mm"));
 }
 
 fn shell_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Shell {

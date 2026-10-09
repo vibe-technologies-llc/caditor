@@ -12,9 +12,9 @@ use std::{
 use caditor_document::{DatumResult, FeatureId, FeatureResult, displayed_frame, profile_curve};
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 use caditor_kernel::{
-    Accuracy, AngleKind, Axis, Curve, EdgeForm, EdgeId, EdgeMeasure, Element, FaceForm, FaceId,
-    Interval, LINEAR_RESOLUTION, MeasureError, Region, Separation, angle, axis_of, axis_separation,
-    curve_measure, distance, edge_measure, face_area, face_form, section_of,
+    Accuracy, AngleKind, Axis, Curve, Curve2, EdgeForm, EdgeId, EdgeMeasure, Element, FaceForm,
+    FaceId, Interval, LINEAR_RESOLUTION, MeasureError, Region, Separation, Solid, angle, axis_of,
+    axis_separation, curve_measure, distance, edge_measure, face_area, face_form, section_of,
 };
 
 use crate::{
@@ -307,31 +307,262 @@ pub fn direction_of(model: &Model, pickable: Pickable) -> Option<Vector3> {
 }
 
 pub fn size_text(model: &Model, pickable: Pickable) -> Option<String> {
-    let item = Item {
-        name: String::new(),
-        subject: subject_of(model, pickable)?,
-    };
-    let (label, readings) = match &item.subject {
-        Subject::Face { result, face } => ("Area", vec![shown_face_area(model, result, *face)?]),
-        Subject::Edge { .. } => ("Length", readings_of(&item, item.element()?).ok()?),
-        Subject::Regions { plane, regions, .. } => ("Area", section_readings(plane, regions)?),
+    let subject = subject_of(model, pickable)?;
+    let unit = model.length_unit();
+    let parts = match &subject {
+        Subject::Face { result, face } => {
+            let solid = &result.solid()?.solid;
+            let area = shown_face_area(model, result, *face)?;
+            face_parts(model, solid, *face, &area)
+        }
+        Subject::Edge { result, edge } => {
+            curve_parts(model, edge_measure(&result.solid()?.solid, *edge).ok()?)
+        }
+        Subject::Curve { curve, interval } => curve_parts(model, curve_measure(curve, *interval)),
+        Subject::Regions { regions, .. } => {
+            let section = section_of(regions)?;
+            let approximately = approximately(section.accuracy);
+            let area = format!("Area {approximately}{}", unit.measured_area(section.area));
+            match regions.as_slice() {
+                [region] => outline_parts(model, &region_sides(region))
+                    .map(|mut parts| {
+                        parts.push(area.clone());
+                        parts
+                    })
+                    .unwrap_or_else(|| {
+                        vec![
+                            area.clone(),
+                            format!(
+                                "Perimeter {approximately}{}",
+                                unit.measured_length(section.perimeter)
+                            ),
+                        ]
+                    }),
+                _ => vec![
+                    area,
+                    format!(
+                        "Perimeter {approximately}{}",
+                        unit.measured_length(section.perimeter)
+                    ),
+                ],
+            }
+        }
         _ => return None,
     };
-    let reading = readings
-        .into_iter()
-        .find(|reading| reading.label == label)?;
-    let units = model.units();
-    let text = match reading.value {
-        Value::Area(area) => units.measured_area(area),
-        Value::Length(length) => units.measured_length(length),
-        _ => return None,
-    };
-    let approximately = if reading.accuracy == Accuracy::Approximate {
+    (!parts.is_empty()).then(|| parts.join(SIZE_SEPARATOR))
+}
+
+const SIZE_SEPARATOR: &str = "  ·  ";
+const RIGHT_ANGLE_SLACK: f64 = 1e-6;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum OutlineSide {
+    Line { start: Point3, end: Point3 },
+    Arc { radius: f64, sweep: f64 },
+    Other,
+}
+
+fn approximately(accuracy: Accuracy) -> &'static str {
+    if accuracy == Accuracy::Approximate {
         APPROXIMATELY
     } else {
         ""
+    }
+}
+
+fn circle_parts(model: &Model, radius: f64) -> Vec<String> {
+    let unit = model.length_unit();
+    vec![
+        format!("Ø {}", unit.measured_length(2.0 * radius)),
+        format!("R {}", unit.measured_length(radius)),
+        format!("Circumference {}", unit.measured_length(TAU * radius)),
+    ]
+}
+
+fn curve_parts(model: &Model, measured: EdgeMeasure) -> Vec<String> {
+    let unit = model.length_unit();
+    let length = format!(
+        "Length {}{}",
+        approximately(measured.length_accuracy),
+        unit.measured_length(measured.length)
+    );
+    match measured.form {
+        EdgeForm::Circle { radius, sweep, .. } if sweep >= TAU - FULL_TURN_SLACK => {
+            circle_parts(model, radius)
+        }
+        EdgeForm::Circle { radius, sweep, .. } => vec![
+            format!("R {}", unit.measured_length(radius)),
+            length,
+            format!(
+                "Sweep {}",
+                model.units().angle.readout_text(sweep.to_degrees())
+            ),
+        ],
+        EdgeForm::Ellipse {
+            major_radius,
+            minor_radius,
+            ..
+        } => vec![
+            format!(
+                "Radii {} × {}",
+                unit.measured_length(major_radius),
+                unit.measured_length(minor_radius)
+            ),
+            length,
+        ],
+        EdgeForm::Line { .. } | EdgeForm::Curve => vec![length],
+    }
+}
+
+fn outline_parts(model: &Model, sides: &[OutlineSide]) -> Option<Vec<String>> {
+    let unit = model.length_unit();
+    match sides {
+        [OutlineSide::Arc { radius, sweep }] if *sweep >= TAU - FULL_TURN_SLACK => {
+            Some(circle_parts(model, *radius))
+        }
+        [first, second, third, fourth] => {
+            let directions: Option<Vec<(Vector3, f64)>> = [first, second, third, fourth]
+                .into_iter()
+                .map(|side| match side {
+                    OutlineSide::Line { start, end } => {
+                        let along = *end - *start;
+                        Some((along.try_normalize()?, along.length()))
+                    }
+                    OutlineSide::Arc { .. } | OutlineSide::Other => None,
+                })
+                .collect();
+            let directions = directions?;
+            let square = directions
+                .iter()
+                .zip(directions.iter().cycle().skip(1))
+                .all(|((a, _), (b, _))| a.dot(*b).abs() <= RIGHT_ANGLE_SLACK);
+            let [(_, width), (_, height), ..] = directions.as_slice() else {
+                return None;
+            };
+            square.then(|| {
+                vec![format!(
+                    "{} × {}",
+                    unit.measured_length(width.max(*height)),
+                    unit.measured_length(width.min(*height))
+                )]
+            })
+        }
+        _ => None,
+    }
+}
+
+fn region_sides(region: &Region) -> Vec<OutlineSide> {
+    region
+        .outer()
+        .pieces()
+        .iter()
+        .map(|piece| {
+            let range = piece.range();
+            let point = |at: f64| {
+                let point = piece.curve().point(at);
+                Point3::new(point.x, point.y, 0.0)
+            };
+            match piece.curve() {
+                Curve2::Line(_) => OutlineSide::Line {
+                    start: point(range.start()),
+                    end: point(range.end()),
+                },
+                Curve2::Circle(circle) => OutlineSide::Arc {
+                    radius: circle.radius(),
+                    sweep: piece.curve().length(range) / circle.radius(),
+                },
+                _ => OutlineSide::Other,
+            }
+        })
+        .collect()
+}
+
+fn face_sides(solid: &Solid, face: FaceId) -> Vec<OutlineSide> {
+    let Some(outer) = solid
+        .face(face)
+        .and_then(|face| face.loops().first().copied())
+        .and_then(|id| solid.face_loop(id))
+    else {
+        return Vec::new();
     };
-    Some(format!("{label} {approximately}{text}"))
+    outer
+        .coedges()
+        .iter()
+        .filter_map(|coedge| solid.coedge(*coedge).map(|coedge| coedge.edge()))
+        .filter(|edge| !bodies::is_seam(solid, *edge))
+        .map(
+            |edge| match edge_measure(solid, edge).map(|measured| measured.form) {
+                Ok(EdgeForm::Line { start, end }) => OutlineSide::Line { start, end },
+                Ok(EdgeForm::Circle { radius, sweep, .. }) => OutlineSide::Arc { radius, sweep },
+                Ok(EdgeForm::Ellipse { .. } | EdgeForm::Curve) | Err(_) => OutlineSide::Other,
+            },
+        )
+        .collect()
+}
+
+fn face_parts(model: &Model, solid: &Solid, face: FaceId, area: &Reading) -> Vec<String> {
+    let unit = model.length_unit();
+    let area_text = match area.value {
+        Value::Area(value) => Some(format!(
+            "Area {}{}",
+            approximately(area.accuracy),
+            unit.measured_area(value)
+        )),
+        _ => None,
+    };
+    let mut parts = match face_form(solid, face) {
+        Ok(FaceForm::Cylinder { radius, .. }) => vec![
+            format!("Ø {}", unit.measured_length(2.0 * radius)),
+            format!("R {}", unit.measured_length(radius)),
+        ],
+        Ok(FaceForm::Sphere { radius, .. }) => vec![
+            format!("Ø {}", unit.measured_length(2.0 * radius)),
+            format!("R {}", unit.measured_length(radius)),
+        ],
+        Ok(FaceForm::Cone { half_angle, .. }) => vec![format!(
+            "Half angle {}",
+            model.units().angle.readout_text(half_angle.to_degrees())
+        )],
+        Ok(FaceForm::Torus {
+            major_radius,
+            minor_radius,
+            ..
+        }) => vec![
+            format!("Ring R {}", unit.measured_length(major_radius)),
+            format!("Tube R {}", unit.measured_length(minor_radius)),
+        ],
+        Ok(FaceForm::Plane { .. }) => {
+            let sides = face_sides(solid, face);
+            outline_parts(model, &sides).unwrap_or_else(|| {
+                let perimeter: Option<f64> = face_boundary_length(solid, face);
+                perimeter
+                    .map(|length| vec![format!("Perimeter {}", unit.measured_length(length))])
+                    .unwrap_or_default()
+            })
+        }
+        Ok(FaceForm::Surface) | Err(_) => Vec::new(),
+    };
+    parts.extend(area_text);
+    parts
+}
+
+fn face_boundary_length(solid: &Solid, face: FaceId) -> Option<f64> {
+    let outer = solid
+        .face(face)?
+        .loops()
+        .first()
+        .and_then(|id| solid.face_loop(*id))?;
+    outer
+        .coedges()
+        .iter()
+        .filter_map(|coedge| solid.coedge(*coedge).map(|coedge| coedge.edge()))
+        .filter(|edge| !bodies::is_seam(solid, *edge))
+        .map(|edge| {
+            edge_measure(solid, edge)
+                .ok()
+                .map(|measured| measured.length)
+        })
+        .sum()
 }
 
 pub fn body_size_text(model: &Model, body: FeatureId) -> Option<String> {
