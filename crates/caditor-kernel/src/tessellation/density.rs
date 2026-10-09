@@ -113,6 +113,10 @@ impl Density {
             && self.u.has_extent()
             && self.v.has_extent()
     }
+
+    pub(crate) fn heap_size(&self) -> usize {
+        size_of_val(self.u.lines.as_slice()) + size_of_val(self.v.lines.as_slice())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

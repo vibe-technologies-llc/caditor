@@ -26,7 +26,7 @@ use crate::{
     hole, import,
     lookahead::Lookahead,
     mate, mirror, movement, offset_face, pattern,
-    pool::{Claim, Job, Landed, Pool, Work, available_workers},
+    pool::{Claim, Job, Landed, LastMeshes, Pool, Work, available_workers},
     presenting::{Glimpse, Presentation, SettledBody},
     primitive, projection, removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
@@ -677,6 +677,7 @@ const MAX_UNSWEPT_REGION_ENTITIES: usize = 2_000;
 #[derive(Debug, Clone)]
 pub struct Recompute {
     cache: ResultHistory,
+    last_meshes: Arc<LastMeshes>,
     mesh_quality: MeshQuality,
     features_done_after: Duration,
     workers: usize,
@@ -697,6 +698,7 @@ impl Recompute {
     pub fn with_mesh_quality(mesh_quality: MeshQuality) -> Self {
         Self {
             cache: ResultHistory::default(),
+            last_meshes: Arc::default(),
             mesh_quality,
             features_done_after: FEATURES_DONE_AFTER,
             workers: available_workers(),
@@ -736,6 +738,7 @@ impl Recompute {
     pub(crate) fn draft_copy(&self) -> Self {
         Self {
             cache: self.cache.clone(),
+            last_meshes: Arc::clone(&self.last_meshes),
             mesh_quality: self.mesh_quality,
             features_done_after: self.features_done_after,
             workers: self.workers,
@@ -763,6 +766,7 @@ impl Recompute {
 
     pub(crate) fn clear_cache(&mut self) {
         self.cache.clear();
+        self.last_meshes.clear();
     }
 
     pub fn run(
@@ -823,7 +827,12 @@ impl Recompute {
             cancel,
             progress: reports.progress,
         };
-        let work = Work::new(run.context(), self.mesh_quality, self.workers);
+        let work = Work::new(
+            run.context(),
+            self.mesh_quality,
+            Arc::clone(&self.last_meshes),
+            self.workers,
+        );
         let evaluation = std::thread::scope(|scope| {
             let pool = Pool::new(scope, &work);
             let _closing = pool.closing();
@@ -852,6 +861,7 @@ impl Recompute {
 
         let alive: BTreeSet<FeatureId> = document.features().map(Feature::id).collect();
         self.cache.retain(|id| alive.contains(id));
+        self.last_meshes.retain(|body| alive.contains(&body));
         evaluation
     }
 

@@ -2,6 +2,9 @@ mod density;
 mod face;
 mod insertion;
 mod mass;
+mod parallel;
+mod patch;
+mod reuse;
 #[cfg(test)]
 mod tests;
 
@@ -13,8 +16,15 @@ use std::{
 use caditor_geometry::{Point3, Vector3};
 use thiserror::Error;
 
-pub use self::mass::{MassProperties, SecondMoment};
 pub(crate) use self::mass::{Moments, TriangleIndex};
+pub use self::{
+    mass::{MassProperties, SecondMoment},
+    reuse::DisplayMesh,
+};
+use self::{
+    patch::{FacePatch, PatchPosition},
+    reuse::{FaceKey, KeptFace},
+};
 use crate::{
     interrupt::{self, Interrupted},
     tolerance::{MeshQuality, SamplingTolerance},
@@ -160,7 +170,7 @@ impl Mesh {
         Ok(index)
     }
 
-    fn drop_unused(&mut self) {
+    fn drop_unused(&mut self) -> Vec<u32> {
         let mut used_vertices = vec![false; self.vertices.len()];
         let mut used_positions = vec![false; self.positions.len()];
         for corner in self.triangles.iter().flatten() {
@@ -195,6 +205,7 @@ impl Mesh {
         for position in self.edges.iter_mut().flat_map(|edge| &mut edge.positions) {
             *position = renumber(&position_map, *position);
         }
+        position_map
     }
 
     fn push_vertex(&mut self, vertex: MeshVertex) -> Result<u32, TessellationError> {
@@ -273,6 +284,12 @@ impl Tolerances {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Keys<'a> {
+    Skipped,
+    Kept { earlier: Option<&'a DisplayMesh> },
+}
+
 pub(crate) fn tessellate(
     solid: &Solid,
     tolerance: &SamplingTolerance,
@@ -285,11 +302,19 @@ pub(crate) fn tessellate_for_display(
     extent: f64,
     quality: &MeshQuality,
     limit: usize,
-) -> Result<Mesh, TessellationError> {
+    keys: Keys<'_>,
+) -> Result<DisplayMesh, TessellationError> {
     let fallback = quality.at_least(&MeshQuality::COARSE);
-    match tessellate_within(solid, &quality.tolerance(extent), limit) {
+    let threads = parallel::available_threads();
+    match mesh_faces(solid, &quality.tolerance(extent), limit, keys, threads) {
         Err(error) if !matches!(error, TessellationError::Cancelled(_)) && fallback != *quality => {
-            tessellate(solid, &fallback.tolerance(extent))
+            mesh_faces(
+                solid,
+                &fallback.tolerance(extent),
+                MAX_POINTS,
+                keys,
+                threads,
+            )
         }
         meshed => meshed,
     }
@@ -300,7 +325,24 @@ pub(crate) fn tessellate_within(
     tolerance: &SamplingTolerance,
     limit: usize,
 ) -> Result<Mesh, TessellationError> {
-    let mut tessellator = Tessellator::new(solid, tolerance, limit)?;
+    mesh_faces(
+        solid,
+        tolerance,
+        limit,
+        Keys::Skipped,
+        parallel::available_threads(),
+    )
+    .map(DisplayMesh::into_mesh)
+}
+
+fn mesh_faces(
+    solid: &Solid,
+    tolerance: &SamplingTolerance,
+    limit: usize,
+    keys: Keys<'_>,
+    threads: usize,
+) -> Result<DisplayMesh, TessellationError> {
+    let mut tessellator = Tessellator::new(solid, tolerance, limit, keys, threads)?;
     let mut crossed = tessellator.first_pass()?;
     for _ in 0..MAX_REFINEMENTS {
         let Some(faces) = crossed.faces() else {
@@ -335,9 +377,17 @@ struct SampledWith {
     least: usize,
 }
 
+struct MadeFace {
+    patch: FacePatch,
+    key: Option<FaceKey>,
+    reused: bool,
+}
+
 struct Tessellator<'a> {
     solid: &'a Solid,
     limit: usize,
+    keys: Keys<'a>,
+    threads: usize,
     tolerances: Tolerances,
     mesh: Mesh,
     vertex_positions: Vec<u32>,
@@ -345,6 +395,8 @@ struct Tessellator<'a> {
     samplings: Vec<EdgeSampling>,
     sampled_with: Vec<SampledWith>,
     triangles: BTreeMap<FaceId, Vec<[u32; 3]>>,
+    kept: BTreeMap<FaceId, (FaceKey, usize)>,
+    reused: BTreeSet<FaceId>,
     orphans: bool,
 }
 
@@ -353,6 +405,8 @@ impl<'a> Tessellator<'a> {
         solid: &'a Solid,
         tolerance: &SamplingTolerance,
         limit: usize,
+        keys: Keys<'a>,
+        threads: usize,
     ) -> Result<Self, TessellationError> {
         let mut mesh = Mesh::default();
         let mut vertex_positions = Vec::new();
@@ -362,6 +416,8 @@ impl<'a> Tessellator<'a> {
         Ok(Self {
             solid,
             limit,
+            keys,
+            threads,
             tolerances: Tolerances {
                 base: *tolerance,
                 faces: BTreeMap::new(),
@@ -372,6 +428,8 @@ impl<'a> Tessellator<'a> {
             samplings: Vec::new(),
             sampled_with: Vec::new(),
             triangles: BTreeMap::new(),
+            kept: BTreeMap::new(),
+            reused: BTreeSet::new(),
             orphans: false,
         })
     }
@@ -428,9 +486,12 @@ impl<'a> Tessellator<'a> {
     }
 
     fn find_poles(&mut self, faces: &[FaceId]) -> Result<(), TessellationError> {
-        for face in faces {
-            let found = face::pole_sampling(self.solid, *face, &self.tolerances.face(*face))?;
-            match found {
+        let found = parallel::each_in_order(faces.len(), self.threads, |index| {
+            let face = faces.get(index).ok_or(TessellationError::MissingEntity)?;
+            face::pole_sampling(self.solid, *face, &self.tolerances.face(*face))
+        });
+        for (face, found) in faces.iter().zip(found) {
+            match found? {
                 Some(found) => self.poles.insert(*face, found),
                 None => self.poles.remove(face),
             };
@@ -586,26 +647,23 @@ impl<'a> Tessellator<'a> {
             if self.triangles.remove(face).is_some() {
                 self.orphans = true;
             }
+            self.kept.remove(face);
+            self.reused.remove(face);
         }
+        let made = parallel::each_in_order(faces.len(), self.threads, |index| {
+            faces
+                .get(index)
+                .ok_or(TessellationError::MissingEntity)
+                .and_then(|id| self.make_face(*id))
+        });
         let mut crossed = Crossed::default();
-        for id in &faces {
-            interrupt::check()?;
-            let budget = face::Budget {
-                limit: self.limit,
-                tolerance: self.tolerances.face(*id),
-                density: self.poles.get(id).map(|poles| poles.density.clone()),
-            };
-            let start = self.mesh.triangles.len();
-            match face::triangulate(self.solid, *id, &self.samplings, &budget, &mut self.mesh) {
-                Ok(()) => {
-                    let triangles = self.mesh.triangles.split_off(start);
-                    self.triangles.insert(*id, triangles);
-                }
+        for (id, made) in faces.iter().zip(made) {
+            match made {
+                Ok(made) => self.place(*id, made)?,
                 Err(
                     error @ (TessellationError::SelfIntersectingBoundary(_)
                     | TessellationError::DuplicateBoundaryPoint(_)),
                 ) => {
-                    self.mesh.triangles.truncate(start);
                     self.orphans = true;
                     crossed.faces.push(*id);
                     crossed.first.get_or_insert(error);
@@ -616,11 +674,104 @@ impl<'a> Tessellator<'a> {
         Ok(crossed)
     }
 
-    fn finish(self) -> Mesh {
+    fn make_face(&self, id: FaceId) -> Result<MadeFace, TessellationError> {
+        interrupt::check()?;
+        let face = self
+            .solid
+            .face(id)
+            .ok_or(TessellationError::MissingEntity)?;
+        let loops = face::boundary_loops(self.solid, face, &self.samplings)?;
+        let budget = face::Budget {
+            limit: self.limit,
+            placed: self.mesh.positions.len(),
+            tolerance: self.tolerances.face(id),
+            density: self.poles.get(&id).map(|poles| poles.density.clone()),
+        };
+        let Keys::Kept { earlier } = self.keys else {
+            return Ok(MadeFace {
+                patch: face::triangulate(face, id, loops, &budget)?,
+                key: None,
+                reused: false,
+            });
+        };
+        let key = FaceKey {
+            surface: face.surface().clone(),
+            sense: face.sense(),
+            tolerance: budget.tolerance,
+            density: budget.density.clone(),
+            loops: loops.clone(),
+        };
+        if let Some(patch) = earlier.and_then(|earlier| earlier.patch(face.name(), &key)) {
+            return Ok(MadeFace {
+                patch,
+                key: Some(key),
+                reused: true,
+            });
+        }
+        Ok(MadeFace {
+            patch: face::triangulate(face, id, loops, &budget)?,
+            key: Some(key),
+            reused: false,
+        })
+    }
+
+    fn place(&mut self, id: FaceId, made: MadeFace) -> Result<(), TessellationError> {
+        let MadeFace {
+            patch:
+                FacePatch {
+                    interior,
+                    vertices,
+                    triangles,
+                    grid,
+                },
+            key,
+            reused,
+        } = made;
+        let placed = self.mesh.positions.len();
+        if placed.saturating_add(grid) > self.limit {
+            return Err(TessellationError::TooLarge);
+        }
+        let first_position = u32::try_from(placed).map_err(|_| TessellationError::TooLarge)?;
+        let first_vertex =
+            u32::try_from(self.mesh.vertices.len()).map_err(|_| TessellationError::TooLarge)?;
+        for point in interior {
+            self.mesh.push_position(point)?;
+        }
+        for vertex in vertices {
+            let position = match vertex.position {
+                PatchPosition::Boundary(position) => position,
+                PatchPosition::Interior(index) => first_position
+                    .checked_add(index)
+                    .ok_or(TessellationError::TooLarge)?,
+            };
+            self.mesh.push_vertex(MeshVertex {
+                position,
+                normal: vertex.normal,
+            })?;
+        }
+        let triangles = triangles
+            .into_iter()
+            .map(|triangle| {
+                let [a, b, c] = triangle.map(|corner| first_vertex.checked_add(corner));
+                Some([a?, b?, c?])
+            })
+            .collect::<Option<Vec<[u32; 3]>>>()
+            .ok_or(TessellationError::TooLarge)?;
+        self.triangles.insert(id, triangles);
+        if let Some(key) = key {
+            self.kept.insert(id, (key, grid));
+        }
+        if reused {
+            self.reused.insert(id);
+        }
+        Ok(())
+    }
+
+    fn finish(mut self) -> DisplayMesh {
         let mut mesh = self.mesh;
         mesh.chord = self.tolerances.base.chord();
-        mesh.triangles.clear();
-        for (id, _) in self.solid.faces() {
+        let mut kept = Vec::with_capacity(self.kept.len());
+        for (slot, (id, face)) in self.solid.faces().enumerate() {
             let start = mesh.triangles.len();
             mesh.triangles
                 .extend(self.triangles.get(&id).into_iter().flatten());
@@ -628,6 +779,14 @@ impl<'a> Tessellator<'a> {
                 face: id,
                 triangles: start..mesh.triangles.len(),
             });
+            if let Some((key, grid)) = self.kept.remove(&id) {
+                kept.push(KeptFace {
+                    name: face.name(),
+                    key,
+                    slot,
+                    grid,
+                });
+            }
         }
         mesh.edges = self
             .solid
@@ -638,9 +797,7 @@ impl<'a> Tessellator<'a> {
                 positions: sampling.positions.clone(),
             })
             .collect();
-        if self.orphans {
-            mesh.drop_unused();
-        }
-        mesh
+        let renumbered = self.orphans.then(|| mesh.drop_unused());
+        DisplayMesh::new(mesh, kept, renumbered.as_deref(), self.reused.len())
     }
 }

@@ -18,6 +18,23 @@ pub fn interruptible<T>(interrupt: Interrupt, work: impl FnOnce() -> T) -> T {
     work()
 }
 
+pub(crate) fn current() -> Option<Interrupt> {
+    CURRENT.with(|current| {
+        let lent = Lent {
+            slot: current,
+            interrupt: current.take(),
+        };
+        lent.interrupt.clone()
+    })
+}
+
+pub(crate) fn within<T>(interrupt: Option<Interrupt>, work: impl FnOnce() -> T) -> T {
+    match interrupt {
+        Some(interrupt) => interruptible(interrupt, work),
+        None => work(),
+    }
+}
+
 pub fn check() -> Result<(), Interrupted> {
     let interrupted = CURRENT.with(|current| {
         let lent = Lent {

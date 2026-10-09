@@ -40,7 +40,7 @@ use crate::{
     naming::{EdgeName, FaceName, FaceOrigin, VertexName, occurrence_order},
     sense::Sense,
     surface::{Surface, Torus},
-    tessellation::{self, Mesh, TessellationError},
+    tessellation::{self, DisplayMesh, Mesh, TessellationError},
     tolerance::{MeshQuality, SamplingTolerance},
 };
 
@@ -789,6 +789,22 @@ impl Solid {
             self.extent(),
             quality,
             tessellation::DISPLAY_POINTS,
+            tessellation::Keys::Skipped,
+        )
+        .map(DisplayMesh::into_mesh)
+    }
+
+    pub fn display_mesh_reusing(
+        &self,
+        quality: &MeshQuality,
+        earlier: Option<&DisplayMesh>,
+    ) -> Result<DisplayMesh, TessellationError> {
+        tessellation::tessellate_for_display(
+            self,
+            self.extent(),
+            quality,
+            tessellation::DISPLAY_POINTS,
+            tessellation::Keys::Kept { earlier },
         )
     }
 

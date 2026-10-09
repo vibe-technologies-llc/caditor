@@ -90,6 +90,12 @@ paths:
   too and the walk's own thread helps mesh them, so bodies mesh in parallel. A body queued twice
   is meshed once (`Arc` identity). A run without display data (`run_without_display`) meshes
   nothing and starts no display thread.
+- A body's new state is meshed from the state last meshed for it (`LastMeshes` in `pool.rs`,
+  through `Solid::display_mesh_reusing`), so faces an edit left alone keep their triangles and
+  only changed faces are triangulated again (`kernel-tessellation.md`). `Recompute` holds one
+  result per body, shared with its draft copies, cleared with the cache and dropped with the
+  body's feature; requested meshes neither use nor replace it. The history measures a mesh with
+  its face keys (`DisplayMesh::approximate_size`).
 - A sketch's profile arrangement is built once per result, shared by every feature sweeping it and
   the display, under the run's cancel token (a build cancelled midway is not kept). A sketch that
   solves again to the same geometry (`Sketch::same_geometry`) shares the last result's arrangement

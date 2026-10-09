@@ -246,3 +246,51 @@ fn a_run_that_changes_nothing_before_a_slow_feature_shows_nothing_until_it_ends(
 
     assert!(early.is_empty());
 }
+
+#[test]
+fn a_changed_body_meshes_again_only_the_faces_that_changed() {
+    let model = two_bodies();
+    let mut recompute = Recompute::default();
+    let run = |recompute: &mut Recompute, document: &Document| {
+        recompute.run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
+    };
+    let reused = |evaluation: &Evaluation| {
+        let solid = evaluation
+            .body_result(model.second)
+            .unwrap()
+            .solid()
+            .unwrap();
+        let faces = solid.solid.faces().count();
+        (solid.display_mesh().unwrap().reused_faces(), faces)
+    };
+    let mesh = |evaluation: &Evaluation| {
+        let solid = evaluation
+            .body_result(model.second)
+            .unwrap()
+            .solid()
+            .unwrap();
+        solid.mesh().unwrap().clone()
+    };
+    let deeper = Transaction::single(
+        "Deeper",
+        Edit::SetFeatureKind {
+            id: model.pocket,
+            kind: extrude(
+                model.hole,
+                "3 mm",
+                true,
+                BodyOperation::Remove(model.second),
+            ),
+        },
+    );
+
+    let before = run(&mut recompute, &model.document);
+    let mut document = model.document.clone();
+    document.apply(deeper).unwrap();
+    let after = run(&mut recompute, &document);
+    let fresh = run(&mut Recompute::default(), &document);
+
+    assert_eq!(reused(&before), (0, 11));
+    assert_eq!(reused(&after), (6, 11));
+    assert_eq!(mesh(&after), mesh(&fresh));
+}

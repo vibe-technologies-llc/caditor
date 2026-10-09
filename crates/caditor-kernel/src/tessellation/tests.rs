@@ -409,7 +409,8 @@ fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
     curves.push(circle(6, (8.999 * cos, 8.999 * sin), 1.0));
     let both = sweep(&curves);
     let tolerance = SamplingTolerance::new(0.05, 0.5).unwrap();
-    let mut tessellator = Tessellator::new(&both, &tolerance, MAX_POINTS).unwrap();
+    let mut tessellator =
+        Tessellator::new(&both, &tolerance, MAX_POINTS, Keys::Skipped, 1).unwrap();
     let mut crossed = tessellator.first_pass().unwrap().faces().unwrap();
     let before = tessellator.triangles.clone();
     let mut refined_faces: Vec<FaceId> = Vec::new();
@@ -424,7 +425,7 @@ fn only_faces_whose_boundary_crosses_itself_are_meshed_finer() {
         .filter(|id| !refined_faces.contains(id) && tessellator.triangles.get(id) == before.get(id))
         .collect();
     assert!(untouched.len() >= 3, "{untouched:?}");
-    let refined = tessellator.finish();
+    let refined = tessellator.finish().into_mesh();
     let mut used = vec![false; refined.positions().len()];
     for position in refined.position_triangles().flatten().chain(
         refined
@@ -614,11 +615,13 @@ fn a_display_mesh_over_its_budget_falls_back_to_the_coarse_quality() {
 
     assert!(smooth.positions().len() > coarse.positions().len());
     assert_eq!(
-        tessellate_for_display(&ball, extent, &MeshQuality::SMOOTH, limit),
+        tessellate_for_display(&ball, extent, &MeshQuality::SMOOTH, limit, Keys::Skipped)
+            .map(DisplayMesh::into_mesh),
         Ok(coarse.clone())
     );
     assert_eq!(
-        tessellate_for_display(&ball, extent, &MeshQuality::COARSE, 10),
+        tessellate_for_display(&ball, extent, &MeshQuality::COARSE, 10, Keys::Skipped)
+            .map(DisplayMesh::into_mesh),
         Err(TessellationError::TooLarge)
     );
 }
@@ -725,4 +728,166 @@ fn indexed_containment_agrees_with_testing_every_triangle() {
             );
         }
     }
+}
+
+fn perforated_plate(holes: usize, dimples: usize) -> Solid {
+    let pitch = 15.0;
+    let side = pitch * holes as f64;
+    let placed = |solid: Solid, at: Vector3| {
+        solid
+            .transformed(&RigidTransform::translation(at).unwrap())
+            .unwrap()
+    };
+    let mut plate = fixtures::cuboid(Vector3::new(side, side, 10.0));
+    for row in 0..holes {
+        for column in 0..holes {
+            let at = Vector3::new(
+                pitch * (column as f64 + 0.5),
+                pitch * (row as f64 + 0.5),
+                -1.0,
+            );
+            let drill = placed(fixtures::cylinder(3.0, 12.0), at);
+            plate = boolean(&plate, &drill, BooleanOperation::Difference).unwrap();
+        }
+    }
+    for row in 0..dimples {
+        for column in 0..dimples {
+            let at = Vector3::new(
+                pitch * (column as f64 + 1.0),
+                pitch * (row as f64 + 1.0),
+                10.0,
+            );
+            let ball = placed(fixtures::sphere(4.0), at);
+            plate = boolean(&plate, &ball, BooleanOperation::Difference).unwrap();
+        }
+    }
+    plate
+}
+
+#[test]
+#[ignore = "a timing benchmark: cargo test --release -p caditor-kernel display_mesh_costs -- --ignored --nocapture"]
+fn display_mesh_costs() {
+    let plate = perforated_plate(8, 7);
+    let dimple = fixtures::sphere(2.0)
+        .transformed(&RigidTransform::translation(Vector3::new(0.0, 60.0, 5.0)).unwrap())
+        .unwrap();
+    let dimpled = boolean(&plate, &dimple, BooleanOperation::Difference).unwrap();
+    let quality = MeshQuality::SMOOTH;
+    let tolerance = plate.tolerance_for(&quality);
+    let earlier = plate.display_mesh_reusing(&quality, None).unwrap();
+    let median = |mesh: &dyn Fn() -> usize| {
+        let runs = 9;
+        let mut times: Vec<std::time::Duration> = (0..runs)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                assert!(mesh() > 0);
+                started.elapsed()
+            })
+            .collect();
+        times.sort();
+        times[runs / 2]
+    };
+
+    let one_thread = median(&|| {
+        let meshed = mesh_faces(&plate, &tolerance, DISPLAY_POINTS, Keys::Skipped, 1);
+        meshed.unwrap().mesh().triangles().len()
+    });
+    let every_thread = median(&|| plate.display_mesh(&quality).unwrap().triangles().len());
+    let changed = median(&|| dimpled.display_mesh(&quality).unwrap().triangles().len());
+    let reusing = median(&|| {
+        let meshed = dimpled.display_mesh_reusing(&quality, Some(&earlier));
+        meshed.unwrap().reused_faces()
+    });
+    let reused = dimpled.display_mesh_reusing(&quality, Some(&earlier));
+    let small = perforated_plate(3, 2);
+    let coarse = small.default_tolerance();
+    let small_alone = median(&|| {
+        let meshed = mesh_faces(&small, &coarse, MAX_POINTS, Keys::Skipped, 1);
+        meshed.unwrap().mesh().triangles().len()
+    });
+    let small_shared = median(&|| small.tessellate(&coarse).unwrap().triangles().len());
+
+    println!(
+        "{} faces, {} triangles: one thread {one_thread:?}, every thread {every_thread:?}; \
+         one face added: {changed:?} afresh, {reusing:?} reusing {} faces",
+        plate.faces().count(),
+        earlier.mesh().triangles().len(),
+        reused.unwrap().reused_faces()
+    );
+    println!(
+        "{} faces coarsely: one thread {small_alone:?}, every thread {small_shared:?}",
+        small.faces().count()
+    );
+}
+
+#[test]
+fn faces_meshed_on_many_threads_make_the_mesh_of_one_thread() {
+    let plate = perforated_plate(4, 3);
+    let tolerance = plate.tolerance_for(&MeshQuality::SMOOTH);
+
+    let alone = mesh_faces(&plate, &tolerance, MAX_POINTS, Keys::Skipped, 1).unwrap();
+    let keyed = mesh_faces(
+        &plate,
+        &tolerance,
+        MAX_POINTS,
+        Keys::Kept { earlier: None },
+        8,
+    );
+
+    assert_eq!(plate.faces().count(), 31);
+    assert_eq!(keyed.unwrap().mesh(), alone.mesh());
+    for threads in [2, 3, 4, 16] {
+        let shared = mesh_faces(&plate, &tolerance, MAX_POINTS, Keys::Skipped, threads);
+        assert_eq!(shared.unwrap(), alone, "on {threads} threads");
+    }
+}
+
+#[test]
+fn a_changed_body_reuses_the_mesh_of_every_face_it_kept() {
+    let plate = perforated_plate(3, 2);
+    let dimple = fixtures::sphere(2.0)
+        .transformed(&RigidTransform::translation(Vector3::new(15.0, 3.0, 10.0)).unwrap())
+        .unwrap();
+    let dimpled = boolean(&plate, &dimple, BooleanOperation::Difference).unwrap();
+    let quality = MeshQuality::SMOOTH;
+
+    let earlier = plate.display_mesh_reusing(&quality, None).unwrap();
+    let again = plate
+        .display_mesh_reusing(&quality, Some(&earlier))
+        .unwrap();
+    let reusing = dimpled
+        .display_mesh_reusing(&quality, Some(&earlier))
+        .unwrap();
+    let coarser = plate
+        .display_mesh_reusing(&MeshQuality::COARSE, Some(&earlier))
+        .unwrap();
+
+    assert_eq!(earlier.reused_faces(), 0);
+    assert_eq!(again.reused_faces(), plate.faces().count());
+    assert_eq!(again.mesh(), earlier.mesh());
+    assert_eq!(reusing.mesh(), &dimpled.display_mesh(&quality).unwrap());
+    assert_eq!(dimpled.faces().count(), plate.faces().count() + 1);
+    assert!(
+        reusing.reused_faces() >= plate.faces().count() - 1,
+        "{} of {} faces reused",
+        reusing.reused_faces(),
+        dimpled.faces().count()
+    );
+    assert_eq!(coarser.reused_faces(), 0);
+    assert_eq!(
+        coarser.mesh(),
+        &plate.display_mesh(&MeshQuality::COARSE).unwrap()
+    );
+}
+
+#[test]
+fn meshing_faces_on_many_threads_cancelled_anywhere_stops_with_cancelled() {
+    let plate = perforated_plate(4, 0);
+    let tolerance = plate.default_tolerance();
+
+    assert_cancelled_anywhere(
+        "plate",
+        || mesh_faces(&plate, &tolerance, MAX_POINTS, Keys::Skipped, 4),
+        |error| matches!(error, TessellationError::Cancelled(_)),
+    );
 }

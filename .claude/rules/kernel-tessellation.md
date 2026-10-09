@@ -44,6 +44,29 @@ paths:
   sampled with one piece per grid row it crosses, else the triangles beside it fan from the apex
   with no area.
 
+## Threads and reuse
+
+- Edges are sampled on the calling thread, which numbers their positions in edge order; then pole
+  samplings, and faces once the overlapping ends are parted, are made on scoped threads
+  (`parallel.rs`: up to the available parallelism, at least `FACES_PER_THREAD` faces each, so a
+  small body stays on the caller). Helpers run under the caller's interrupt and a panic in one is
+  resumed on the caller.
+- A face makes a `FacePatch` (`patch.rs`): its interior points, its vertices, each on a boundary
+  position or one of its own interior points, and its triangles in its own indices. Patches are
+  placed in face order, numbering positions, vertices and triangles exactly as one thread would
+  (`faces_meshed_on_many_threads_make_the_mesh_of_one_thread`); the point budget is checked as each
+  is placed, against the positions placed before it.
+- A vertex is made only for a triangle that is kept, in the order triangles are emitted, so each
+  face's vertices and interior positions are contiguous in the mesh and in order of first use.
+- `Solid::display_mesh_reusing(quality, earlier)` returns a `DisplayMesh`: the mesh and, per face,
+  a key (`reuse.rs`) of everything triangulating it reads: surface, sense, tolerance, pole
+  density, and its boundary loops in uv with their position labels. A face whose name has a key
+  in the earlier mesh equal in all of that (uv to the bit, labels equal in the same pattern) reads
+  its patch back from the earlier mesh, labels mapped, instead of being triangulated, and the mesh
+  is the one meshing afresh gives. The tolerance follows the solid's extent, so a change to the
+  body's box meshes every face again. `display_mesh_costs` (ignored, release) times both: on 16
+  threads a 119-face plate takes 18 ms against 69 ms on one, and 6 ms when one face is added.
+
 ## Quality
 
 - `MeshQuality` (`tolerance.rs`) is a chord as a fraction of the solid's extent (bounding-box
