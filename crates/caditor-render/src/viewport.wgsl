@@ -379,6 +379,9 @@ fn enhanced_shade(color: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>) -> vec3<f
 
 @fragment
 fn fs_mesh(in: Varyings) -> @location(0) vec4<f32> {
+    if in.color.a <= 0.0 {
+        discard;
+    }
     let eye = toward_eye(in.relative);
     let normal = facing_normal(in, eye);
     if uses_enhanced_shading() {

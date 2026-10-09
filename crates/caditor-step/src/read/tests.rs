@@ -827,24 +827,253 @@ fn faces_on_offsets_of_elementary_surfaces_are_imported_in_place() {
     assert_same_shape("cylinder", &plate, &cylinder.solids[0].solid);
 }
 
-#[test]
-fn a_face_on_an_offset_that_leaves_no_surface_is_refused_naming_the_offset() {
-    let plate = fixtures::plate_with_hole();
-    let collapsed = offset_of(&plate, "CYLINDRICAL_SURFACE", -6.0, ("5.0", "5.0"));
-    let offset = collapsed
-        .lines()
+fn entity_using(text: &str, kind: &str, reference: &str) -> String {
+    text.lines()
+        .find(|line| line.contains(&format!("={kind}(")) && line.contains(&format!("{reference},")))
+        .and_then(|line| line.split_once('='))
+        .map(|(id, _)| id.to_owned())
+        .unwrap()
+}
+
+fn offset_entity(text: &str) -> String {
+    text.lines()
         .find_map(|line| line.split_once("=OFFSET_SURFACE"))
         .map(|(id, _)| id.to_owned())
-        .unwrap();
+        .unwrap()
+}
 
-    let refusal = read_step(&collapsed).unwrap_err().to_string();
+#[test]
+fn a_face_on_an_offset_that_leaves_no_surface_is_lost_and_its_hole_closed_with_a_note() {
+    let plate = fixtures::plate_with_hole();
+    let collapsed = offset_of(&plate, "CYLINDRICAL_SURFACE", -6.0, ("5.0", "5.0"));
+    let offset = offset_entity(&collapsed);
+    let face = entity_using(&collapsed, "ADVANCED_FACE", &offset);
 
-    assert!(
-        refusal.contains(&format!(
-            "{offset} is offset by more than the radius of its cylinder, which leaves no surface"
-        )),
-        "{refusal}"
+    let model = sample(&collapsed);
+
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(
+        model.notes,
+        vec![format!(
+            "“Offset” was imported without its face {face}, because its entity {offset} is \
+             offset by more than the radius of its cylinder, which leaves no surface; the hole \
+             it left was closed with flat facets, so its curved faces are approximated by flat \
+             ones."
+        )]
     );
+    assert_volume(&model.solids[0].solid, 40.0 * 30.0 * 10.0);
+}
+
+#[test]
+fn a_hollow_with_a_face_that_cannot_be_read_is_left_out_and_the_rest_kept_exact() {
+    let ring = fixtures::hollow_ring();
+    let collapsed = offset_of(&ring, "TOROIDAL_SURFACE", -6.0, ("20.0,4.0", "20.0,4.0"));
+    let offset = offset_entity(&collapsed);
+    let face = entity_using(&collapsed, "ADVANCED_FACE", &offset);
+
+    let model = sample(&collapsed);
+
+    assert_eq!(model.solids.len(), 1);
+    assert_eq!(
+        model.notes,
+        vec![format!(
+            "“Offset” was imported without 1 hollow of it, holding its face {face} that could \
+             not be read, because its entity {offset} is offset by more than the radius of its \
+             torus's tube, which leaves no surface."
+        )]
+    );
+    assert_eq!(model.solids[0].solid.shells().count(), 1);
+    assert_volume(
+        &model.solids[0].solid,
+        std::f64::consts::PI * (30.0f64.powi(2) - 10.0f64.powi(2)) * 20.0,
+    );
+}
+
+fn half_round_prism() -> caditor_kernel::Solid {
+    use caditor_geometry::{Plane, Point2};
+    use caditor_kernel::ProfileCurve;
+
+    fixtures::swept(
+        Plane::XY,
+        &[
+            ProfileCurve::line(1, Point2::new(-5.0, 0.0), Point2::new(5.0, 0.0)),
+            ProfileCurve::arc(
+                2,
+                Point2::ZERO,
+                Point2::new(5.0, 0.0),
+                Point2::new(-5.0, 0.0),
+            ),
+        ],
+        10.0,
+    )
+}
+
+#[test]
+fn a_face_on_an_offset_of_an_extruded_spline_arc_is_fitted_within_the_resolution() {
+    let prism = half_round_prism();
+    let half = std::f64::consts::FRAC_1_SQRT_2;
+    let arc = format!(
+        "#9101=CARTESIAN_POINT('',(3.,0.,0.));\n#9102=CARTESIAN_POINT('',(3.,3.,0.));\n\
+         #9103=CARTESIAN_POINT('',(0.,3.,0.));\n#9104=CARTESIAN_POINT('',(-3.,3.,0.));\n\
+         #9105=CARTESIAN_POINT('',(-3.,0.,0.));\n\
+         #9110=(BOUNDED_CURVE() B_SPLINE_CURVE(2,(#9101,#9102,#9103,#9104,#9105),\
+         .CIRCULAR_ARC.,.F.,.F.) B_SPLINE_CURVE_WITH_KNOTS((3,2,3),(0.,0.5,1.),.UNSPECIFIED.) \
+         CURVE() GEOMETRIC_REPRESENTATION_ITEM() RATIONAL_B_SPLINE_CURVE((1.,{half:?},1.,\
+         {half:?},1.)) REPRESENTATION_ITEM(''));\n\
+         #9111=DIRECTION('',(0.,0.,1.));\n#9112=VECTOR('',#9111,1.);\n\
+         #9100=SURFACE_OF_LINEAR_EXTRUSION('',#9110,#9112);\nENDSEC;\nEND-ISO-10303-21;"
+    );
+    let text = written("Half round", &prism);
+    let cylinder = text
+        .lines()
+        .find(|line| line.contains("=CYLINDRICAL_SURFACE("))
+        .unwrap();
+    let id = cylinder.split_once('=').unwrap().0;
+    let offset = text
+        .replace(cylinder, &format!("{id}=OFFSET_SURFACE('',#9100,2.,.F.);"))
+        .replace("ENDSEC;\nEND-ISO-10303-21;", &arc);
+
+    let model = sample(&offset);
+
+    assert!(model.notes.is_empty(), "{:?}", model.notes);
+    assert!(matches!(
+        model.solids[0]
+            .solid
+            .faces()
+            .find_map(|(_, face)| match face.surface() {
+                caditor_kernel::Surface::Extrusion(extrusion) => Some(extrusion.profile().clone()),
+                _ => None,
+            }),
+        Some(caditor_kernel::Curve::BSpline(_))
+    ));
+    let read = &model.solids[0].solid;
+    let surfaces: Vec<&caditor_kernel::Surface> =
+        prism.faces().map(|(_, face)| face.surface()).collect();
+    let mesh = read
+        .tessellate(&caditor_kernel::SamplingTolerance::new(0.05, 0.3).unwrap())
+        .unwrap();
+    for point in mesh.positions() {
+        let gap = surfaces
+            .iter()
+            .map(|surface| surface.distance(*point))
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            gap <= caditor_kernel::LINEAR_RESOLUTION,
+            "{point} is {gap} mm off"
+        );
+    }
+    assert_eq!(read.faces().count(), prism.faces().count());
+    assert_eq!(read.edges().count(), prism.edges().count());
+    assert_volume(read, std::f64::consts::PI * 25.0 / 2.0 * 10.0);
+}
+
+fn replica_operator(id: u64, origin: [f64; 3], mirrored: bool) -> String {
+    let second = if mirrored {
+        format!("#{}", id + 2)
+    } else {
+        "$".to_owned()
+    };
+    format!(
+        "#{}=CARTESIAN_POINT('',({:?},{:?},{:?}));\n#{}=DIRECTION('',(0.,-1.,0.));\n\
+         #{id}=CARTESIAN_TRANSFORMATION_OPERATOR_3D('','',$,{second},#{},1.,$);\n",
+        id + 1,
+        origin[0],
+        origin[1],
+        origin[2],
+        id + 2,
+        id + 1,
+    )
+}
+
+fn line_of<'t>(text: &'t str, kind: &str) -> (&'t str, &'t str) {
+    let line = text
+        .lines()
+        .find(|line| line.contains(&format!("={kind}(")))
+        .unwrap();
+    (line, line.split_once('=').unwrap().0)
+}
+
+fn coordinates(text: &str, id: &str) -> Vec<f64> {
+    arguments(text, id)[1..]
+        .iter()
+        .map(|value| value.parse().unwrap())
+        .collect()
+}
+
+fn top_of(text: &str) -> (String, String) {
+    let top = text
+        .lines()
+        .filter_map(|line| line.split_once("=PLANE('',"))
+        .find(|(_, placement)| {
+            let at = arguments(text, placement.trim_end_matches(");"));
+            coordinates(text, at[1])[2] == 10.0 && coordinates(text, at[2])[2].abs() == 1.0
+        })
+        .map(|(id, _)| id.to_owned())
+        .unwrap();
+    let face = entity_using(text, "ADVANCED_FACE", &top);
+    (top, face)
+}
+
+#[test]
+fn replicas_of_points_curves_and_surfaces_are_their_parents_transformed() {
+    let plate = fixtures::plate_with_hole();
+    let text = written("Plate", &plate);
+    let (cylinder, cylinder_id) = line_of(&text, "CYLINDRICAL_SURFACE");
+    let (line, line_id) = line_of(&text, "LINE");
+    let (vertex, vertex_id) = line_of(&text, "VERTEX_POINT");
+    let corner = coordinates(&text, arguments(&text, vertex_id)[1]);
+    let axis = arguments(&text, cylinder_id)[1];
+    let [_, centre, along, reference] = arguments(&text, axis)[..] else {
+        panic!("{axis}");
+    };
+    let centre = coordinates(&text, centre);
+    let (top, top_face) = top_of(&text);
+    let face_line = text
+        .lines()
+        .find(|line| line.starts_with(&format!("{top_face}=")))
+        .unwrap();
+    let flipped_face = match face_line.strip_suffix(&format!(",{top},.T.);")) {
+        Some(start) => format!("{start},#9500,.F.);"),
+        None => face_line.replace(&format!(",{top},.F.);"), ",#9500,.T.);"),
+    };
+    let mut extra = format!(
+        "#9200=CYLINDRICAL_SURFACE('',#9202,5.0);\n\
+         #9201=CARTESIAN_POINT('',({:?},{:?},{:?}));\n\
+         #9202=AXIS2_PLACEMENT_3D('',#9201,{along},{reference});\n\
+         {}\n",
+        centre[0] - 3.0,
+        centre[1],
+        centre[2],
+        line.replacen(line_id, "#9300", 1),
+    );
+    extra.push_str(&replica_operator(9210, [3.0, 0.0, 0.0], false));
+    extra.push_str(&replica_operator(9310, [0.0, 0.0, 0.0], false));
+    extra.push_str(&replica_operator(9410, [1.0, -2.0, 0.5], false));
+    extra.push_str(&replica_operator(9510, [0.0, 0.0, 0.0], true));
+    extra.push_str(&format!(
+        "#9400=CARTESIAN_POINT('',({:?},{:?},{:?}));\n\
+         #9401=POINT_REPLICA('',#9400,#9410);\n\
+         #9500=SURFACE_REPLICA('',{top},#9510);\n\
+         ENDSEC;\nEND-ISO-10303-21;",
+        corner[0] - 1.0,
+        corner[1] + 2.0,
+        corner[2] - 0.5,
+    ));
+    let replicated = text
+        .replace(
+            cylinder,
+            &format!("{cylinder_id}=SURFACE_REPLICA('',#9200,#9210);"),
+        )
+        .replace(line, &format!("{line_id}=CURVE_REPLICA('',#9300,#9310);"))
+        .replace(vertex, &format!("{vertex_id}=VERTEX_POINT('',#9401);"))
+        .replace(face_line, &flipped_face)
+        .replace("ENDSEC;\nEND-ISO-10303-21;", &extra);
+
+    let model = sample(&replicated);
+
+    assert!(replicated.contains(",#9500,."), "{flipped_face}");
+    assert!(model.notes.is_empty(), "{:?}", model.notes);
+    assert_same_shape("replicas", &plate, &model.solids[0].solid);
 }
 
 fn with_precision(text: &str, representation: &str, brep: u64, precision: &str) -> String {
@@ -1223,6 +1452,97 @@ fn a_body_whose_faces_all_share_one_colour_takes_it_and_mixed_faces_give_none() 
 
     assert_eq!(styled(&["#900007"]), Some([0, 0, 255]));
     assert_eq!(styled(&["#900007", "#900017"]), None);
+}
+
+fn styled_faces(
+    text: &str,
+    solid_style: Option<&str>,
+    top_style: &str,
+    rest: Option<&str>,
+) -> StepSolid {
+    let (_, top) = top_of(text);
+    let faces: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.split_once("=ADVANCED_FACE("))
+        .map(|(id, _)| id)
+        .collect();
+    let mut extra = String::from(
+        "#900001=DRAUGHTING_PRE_DEFINED_COLOUR('blue');\n\
+         #900002=FILL_AREA_STYLE_COLOUR('',#900001);\n\
+         #900003=FILL_AREA_STYLE('',(#900002));\n\
+         #900004=SURFACE_STYLE_FILL_AREA(#900003);\n\
+         #900005=SURFACE_SIDE_STYLE('',(#900004));\n\
+         #900006=SURFACE_STYLE_USAGE(.BOTH.,#900005);\n\
+         #900007=PRESENTATION_STYLE_ASSIGNMENT((#900006));\n\
+         #900011=COLOUR_RGB('',1.,0.,0.);\n\
+         #900012=SURFACE_STYLE_TRANSPARENT(0.5);\n\
+         #900013=SURFACE_STYLE_RENDERING_WITH_PROPERTIES(.NORMAL_SHADING.,#900011,(#900012));\n\
+         #900015=SURFACE_SIDE_STYLE('',(#900013));\n\
+         #900016=SURFACE_STYLE_USAGE(.BOTH.,#900015);\n\
+         #900017=PRESENTATION_STYLE_ASSIGNMENT((#900016));\n\
+         #900021=COLOUR_RGB('',0.,1.,0.);\n\
+         #900022=FILL_AREA_STYLE_COLOUR('',#900021);\n\
+         #900023=FILL_AREA_STYLE('',(#900022));\n\
+         #900024=SURFACE_STYLE_FILL_AREA(#900023);\n\
+         #900025=SURFACE_SIDE_STYLE('',(#900024));\n\
+         #900026=SURFACE_STYLE_USAGE(.BOTH.,#900025);\n\
+         #900027=PRESENTATION_STYLE_ASSIGNMENT((#900026));\n",
+    );
+    if let Some(style) = solid_style {
+        let solid = text
+            .lines()
+            .find_map(|line| line.split_once("=MANIFOLD_SOLID_BREP("))
+            .map(|(id, _)| id)
+            .unwrap();
+        extra.push_str(&format!("#900030=STYLED_ITEM('',({style}),{solid});\n"));
+    }
+    for (index, face) in faces.iter().enumerate() {
+        let style = if *face == top { Some(top_style) } else { rest };
+        if let Some(style) = style {
+            extra.push_str(&format!(
+                "#{}=STYLED_ITEM('',({style}),{face});\n",
+                910_000 + index
+            ));
+        }
+    }
+    let mut styled = text.to_owned();
+    let end = styled.rfind("ENDSEC;").unwrap();
+    styled.insert_str(end, &extra);
+    read_step(&styled).unwrap().solids.remove(0)
+}
+
+fn is_top(solid: &caditor_kernel::Solid, face: usize) -> bool {
+    let (_, face) = solid.faces().nth(face).unwrap();
+    matches!(face.surface(), caditor_kernel::Surface::Plane(plane)
+        if (plane.frame().origin().z - 10.0).abs() < 1e-9)
+}
+
+#[test]
+fn faces_of_their_own_colour_or_see_through_carry_their_look_onto_the_imported_faces() {
+    let plate = fixtures::plate_with_hole();
+    let text = written("Plate", &plate);
+    let faces = plate.faces().count();
+
+    let two_colours = styled_faces(&text, None, "#900017", Some("#900007"));
+    let overridden = styled_faces(&text, Some("#900007"), "#900027", None);
+    let shared = styled_faces(&text, None, "#900007", Some("#900007"));
+
+    assert_eq!((two_colours.colour, two_colours.opacity), (None, None));
+    assert_eq!(two_colours.faces.len(), faces);
+    for look in &two_colours.faces {
+        let expected = if is_top(&two_colours.solid, look.face) {
+            (Some([255, 0, 0]), Some(50))
+        } else {
+            (Some([0, 0, 255]), None)
+        };
+        assert_eq!((look.colour, look.opacity), expected, "{look:?}");
+    }
+    assert_eq!(overridden.colour, Some([0, 0, 255]));
+    assert_eq!(overridden.faces.len(), 1);
+    assert!(is_top(&overridden.solid, overridden.faces[0].face));
+    assert_eq!(overridden.faces[0].colour, Some([0, 255, 0]));
+    assert_eq!(shared.colour, Some([0, 0, 255]));
+    assert!(shared.faces.is_empty());
 }
 
 #[test]

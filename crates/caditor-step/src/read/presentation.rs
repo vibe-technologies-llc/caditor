@@ -23,6 +23,14 @@ pub(crate) struct Look {
     pub colour: Option<[u8; 3]>,
     pub opacity: Option<u8>,
     pub layer: Option<String>,
+    pub faces: Vec<FaceLook>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FaceLook {
+    pub face: usize,
+    pub colour: Option<[u8; 3]>,
+    pub opacity: Option<u8>,
 }
 
 pub(crate) struct Presentation {
@@ -90,7 +98,33 @@ impl Presentation {
             opacity: shared(&self.opacities, solid.id, &shells, &faces)
                 .filter(|opacity| *opacity < OPAQUE_PERCENT),
             layer: shared(&self.layers, solid.id, &shells, &faces),
+            faces: Vec::new(),
         }
+    }
+
+    pub fn of_faces(&self, look: &Look, faces: &[u64]) -> Vec<FaceLook> {
+        let body_opacity = look.opacity.unwrap_or(OPAQUE_PERCENT);
+        faces
+            .iter()
+            .enumerate()
+            .filter_map(|(face, entity)| {
+                let colour = self
+                    .colours
+                    .get(entity)
+                    .copied()
+                    .filter(|colour| look.colour != Some(*colour));
+                let opacity = self
+                    .opacities
+                    .get(entity)
+                    .copied()
+                    .filter(|opacity| *opacity != body_opacity);
+                (colour.is_some() || opacity.is_some()).then_some(FaceLook {
+                    face,
+                    colour,
+                    opacity,
+                })
+            })
+            .collect()
     }
 }
 

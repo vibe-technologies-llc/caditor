@@ -6,8 +6,8 @@ mod write;
 
 pub use crate::{
     read::{
-        Held, Misplacement, ReadError, StepCopies, StepCopy, StepModel, StepSolid, read_step,
-        read_step_copies,
+        FaceLook, Held, Misplacement, ReadError, StepCopies, StepCopy, StepModel, StepSolid,
+        read_step, read_step_copies,
     },
     write::{
         SCHEMA, StepBody, StepDetails, StepThread, StepWritten, WriteError, write_step,

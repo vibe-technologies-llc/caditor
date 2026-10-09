@@ -159,10 +159,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `Feature::uses_parameter` (which parameter deletion, `parameter_users` and loading's stand-ins
   use) include it. It is evaluated where shown (`density_value`, `mass_grams`): above zero and at
   most `MAX_DENSITY`, else a `DensityError` saying why.
-- `faces` lists `FaceColour`s, a `FaceReference` with its colour, later entries winning.
-  `face_colours` maps a solid's faces to them in one pass: every face of the reference's name (so
-  each fragment of a face a later feature splits keeps its colour), else the face the reference
-  resolves to; a face found by neither keeps the body's colour.
+- `faces` lists `FaceColour`s, a `FaceReference` with its colour and an optional opacity (a
+  percent, 100 solid on a see-through body, below `MIN_OPACITY_PERCENT` refused like the body's),
+  later entries winning. `face_colours` and `face_opacities` map a solid's faces to them in one
+  pass: every face of the reference's name (so each fragment of a face a later feature splits
+  keeps its colour), else the face the reference resolves to; a face found by neither keeps the
+  body's colour and opacity.
 
 ## Suppression, the rollback bar and tree order (`tree.rs`)
 

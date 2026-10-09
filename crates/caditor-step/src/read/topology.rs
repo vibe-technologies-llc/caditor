@@ -7,7 +7,7 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 use caditor_kernel::{
     BSpline, BuildError, Circle, CrossingCheck, Curve, EdgeId, FaceId, FacetedError,
     IntersectionCurve, Interval, LINEAR_RESOLUTION, MeshQuality, PlaneSurface, Sense, ShellId,
-    Solid, SolidBuilder, Surface, ValidationError, VertexId, faceted_solids,
+    Solid, SolidBuilder, Surface, TriangleMesh, ValidationError, VertexId, faceted_solids,
 };
 
 use crate::read::{
@@ -29,6 +29,7 @@ const COARSER_FACTOR: f64 = 2.0;
 const MAX_VERTEX_DAMPING: f64 = 1e6;
 const DAMPING_GROWTH: f64 = 10.0;
 const DAMPING_RELIEF: f64 = 0.1;
+const WELD_FRACTION: f64 = 1e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Healing {
@@ -52,6 +53,7 @@ pub(crate) struct Topology<'g, 'a> {
     sides: BTreeMap<(VertexId, VertexId), EdgeId>,
     fins: BTreeSet<u64>,
     face_entities: Vec<u64>,
+    left_out: BTreeSet<u64>,
     healed: usize,
     loosest: f64,
     conformed: Conformed,
@@ -98,6 +100,82 @@ impl SolidShells {
             voids,
         })
     }
+
+    pub fn all(&self) -> impl Iterator<Item = u64> + '_ {
+        std::iter::once(self.outer)
+            .chain(self.lumps.iter().copied())
+            .chain(self.voids.iter().copied())
+    }
+
+    pub fn outer(&self) -> u64 {
+        self.outer
+    }
+
+    pub fn is_void(&self, shell: u64) -> bool {
+        self.voids.contains(&shell)
+    }
+
+    pub fn without(&self, left_out: &BTreeSet<u64>) -> Self {
+        let kept = |shells: &[u64]| {
+            shells
+                .iter()
+                .copied()
+                .filter(|shell| !left_out.contains(shell))
+                .collect()
+        };
+        Self {
+            outer: self.outer,
+            lumps: kept(&self.lumps),
+            voids: kept(&self.voids),
+        }
+    }
+}
+
+pub(crate) struct Unreadable {
+    pub shell: u64,
+    pub face: u64,
+    pub problem: Problem,
+}
+
+pub(crate) fn unreadable_faces(geometry: &Geometry<'_>, shells: &SolidShells) -> Vec<Unreadable> {
+    let graph = geometry.graph;
+    let mut found = Vec::new();
+    for shell in shells.all() {
+        for face in shell_faces(graph, shell).unwrap_or_default() {
+            let surface = graph
+                .entity(face)
+                .and_then(|entity| match entity.kind() {
+                    "ADVANCED_FACE" | "FACE_SURFACE" => entity.fields()?.reference(2),
+                    _ => Err(Problem::new(face, "has no surface")),
+                })
+                .ok();
+            if let Some(Err(problem)) = surface.map(|surface| geometry.surface(surface)) {
+                found.push(Unreadable {
+                    shell,
+                    face,
+                    problem,
+                });
+            }
+        }
+    }
+    found
+}
+
+fn shell_faces(graph: Graph<'_>, shell: u64) -> Read<Vec<u64>> {
+    let mut entity = graph.entity(shell)?;
+    if entity.kind() == "ORIENTED_CLOSED_SHELL" {
+        entity = graph.entity(entity.record("ORIENTED_CLOSED_SHELL")?.reference(2)?)?;
+    }
+    let mut faces = Vec::new();
+    for face in entity.fields()?.references(1)? {
+        let face_entity = graph.entity(face)?;
+        faces.push(if face_entity.kind() == "ORIENTED_FACE" {
+            face_entity.record("ORIENTED_FACE")?.reference(2)?
+        } else {
+            face
+        });
+    }
+    Ok(faces)
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +185,16 @@ pub(crate) struct Built {
     pub unchecked: Option<[u64; 2]>,
     pub faceted: bool,
     pub bent: Option<Bending>,
+    pub faces: Vec<u64>,
+    pub lost: Option<Lost>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Lost {
+    pub faces: Vec<u64>,
+    pub problem: Problem,
+    pub voids: usize,
+    pub lumps: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -147,10 +235,16 @@ impl<'g, 'a> Topology<'g, 'a> {
             sides: BTreeMap::new(),
             fins: BTreeSet::new(),
             face_entities: Vec::new(),
+            left_out: BTreeSet::new(),
             healed: 0,
             loosest: 0.0,
             conformed: Conformed::default(),
         }
+    }
+
+    pub fn leaving_out(mut self, faces: BTreeSet<u64>) -> Self {
+        self.left_out = faces;
+        self
     }
 
     pub fn solid(mut self, id: u64, shells: &SolidShells) -> Read<Built> {
@@ -196,7 +290,8 @@ impl<'g, 'a> Topology<'g, 'a> {
                     ),
                 ));
             }
-            facets(&self.builder).map_err(|reason| Problem::new(id, reason))?
+            facets(&self.builder, !self.left_out.is_empty())
+                .map_err(|reason| Problem::new(id, reason))?
         } else {
             self.builder
                 .build()
@@ -237,12 +332,19 @@ impl<'g, 'a> Topology<'g, 'a> {
             faces: self.conformed.faces_bent,
             farthest: self.conformed.farthest,
         });
+        let faces = if faceted {
+            Vec::new()
+        } else {
+            self.face_entities
+        };
         Ok(Built {
             solid,
             healed,
             unchecked,
             faceted,
             bent,
+            faces,
+            lost: None,
         })
     }
 
@@ -335,6 +437,9 @@ impl<'g, 'a> Topology<'g, 'a> {
                 face_flipped ^= !fields.logical(3)?;
                 entity = graph.entity(fields.reference(2)?)?;
             }
+            if self.left_out.contains(&entity.id) {
+                continue;
+            }
             self.plan_face(entity)?;
             planned.push((entity.id, face_flipped));
         }
@@ -367,7 +472,9 @@ impl<'g, 'a> Topology<'g, 'a> {
             );
             return Ok(());
         }
-        let (surface, transposed) = upright(self.geometry.surface(fields.reference(2)?)?);
+        let surface_id = fields.reference(2)?;
+        let reversed = self.geometry.reversed(surface_id);
+        let (surface, transposed) = upright(self.geometry.surface(surface_id)?);
         let surface = match surface {
             Surface::BSpline(spline) if self.healing == Healing::Extended => Surface::BSpline(
                 spline
@@ -407,7 +514,7 @@ impl<'g, 'a> Topology<'g, 'a> {
             entity.id,
             FacePlan {
                 surface,
-                same_sense: fields.logical(3)? != transposed,
+                same_sense: fields.logical(3)? != (transposed != reversed),
                 bounds,
             },
         );
@@ -1089,7 +1196,7 @@ fn solve3(matrix: [[f64; 3]; 3], right: [f64; 3]) -> Option<Vector3> {
     solution.is_finite().then_some(solution)
 }
 
-fn facets(builder: &SolidBuilder) -> Result<Solid, String> {
+fn facets(builder: &SolidBuilder, open: bool) -> Result<Solid, String> {
     let mut last = String::new();
     let coarse = MeshQuality::COARSE;
     let coarser = (1..=COARSER_STEPS).filter_map(|step| {
@@ -1100,6 +1207,7 @@ fn facets(builder: &SolidBuilder) -> Result<Solid, String> {
         let mesh = builder
             .unvalidated_mesh(&quality)
             .map_err(|error| format!("could not be meshed ({error})"))?;
+        let mesh = if open { closed_over(mesh) } else { mesh };
         match faceted_solids(&mesh) {
             Ok(mut built) if built.solids.len() == 1 => {
                 return built
@@ -1115,6 +1223,76 @@ fn facets(builder: &SolidBuilder) -> Result<Solid, String> {
         }
     }
     Err(last)
+}
+
+fn closed_over(mut mesh: TriangleMesh) -> TriangleMesh {
+    let Some(first) = mesh.positions.first().copied() else {
+        return mesh;
+    };
+    let (low, high) = mesh
+        .positions
+        .iter()
+        .fold((first, first), |(low, high), point| {
+            (low.min(*point), high.max(*point))
+        });
+    let cell = (high - low).length().max(LINEAR_RESOLUTION) * WELD_FRACTION;
+    let mut welded: BTreeMap<[i64; 3], usize> = BTreeMap::new();
+    let same: Vec<usize> = mesh
+        .positions
+        .iter()
+        .enumerate()
+        .map(|(index, point)| {
+            let key = ((*point - low) / cell)
+                .round()
+                .to_array()
+                .map(|value| value as i64);
+            *welded.entry(key).or_insert(index)
+        })
+        .collect();
+    let corner = |index: usize| same.get(index).copied().unwrap_or(index);
+    let mut sides: BTreeSet<(usize, usize)> = BTreeSet::new();
+    for triangle in &mesh.triangles {
+        let [a, b, c] = triangle.map(corner);
+        sides.extend([(a, b), (b, c), (c, a)]);
+    }
+    let mut open: BTreeMap<usize, usize> = BTreeMap::new();
+    for (from, to) in &sides {
+        if !sides.contains(&(*to, *from)) && open.insert(*from, *to).is_some() {
+            return mesh;
+        }
+    }
+    let mut holes = Vec::new();
+    while let Some((&start, _)) = open.first_key_value() {
+        let mut hole = vec![start];
+        let mut at = start;
+        loop {
+            let Some(next) = open.remove(&at) else {
+                return mesh;
+            };
+            if next == start {
+                break;
+            }
+            hole.push(next);
+            at = next;
+        }
+        holes.push(hole);
+    }
+    for hole in holes {
+        let points: Vec<Point3> = hole
+            .iter()
+            .filter_map(|index| mesh.positions.get(*index).copied())
+            .collect();
+        let centre = points.iter().fold(Point3::ZERO, |sum, point| sum + *point)
+            / points.len().max(1) as f64;
+        let middle = mesh.positions.len();
+        mesh.positions.push(centre);
+        for (index, from) in hole.iter().enumerate() {
+            if let Some(to) = hole.get((index + 1) % hole.len()) {
+                mesh.triangles.push([*to, *from, middle]);
+            }
+        }
+    }
+    mesh
 }
 
 fn upright(surface: Surface) -> (Surface, bool) {

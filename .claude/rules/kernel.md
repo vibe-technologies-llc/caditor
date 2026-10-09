@@ -57,7 +57,9 @@ paths:
   on the stack at the width the degree needs (`CUBIC_WIDTH` up to cubic, `NARROW_WIDTH` up to
   degree 9, `WIDE_WIDTH` above), so the common cubic never zeroes a table sized for degree 25.
 - `BSpline::interpolating` passes a clamped spline through points at chord-length parameters with
-  averaged knots (a banded solve, no pivoting, as the collocation matrix is totally positive).
+  averaged knots (a banded solve, no pivoting, as the collocation matrix is totally positive);
+  `BSpline::interpolating_at` does the same at given increasing parameters, so rows of a grid
+  share their knots (the STEP reader's fitted offsets).
 - `BSpline::restricted` is the exact piece of a spline over a range, by knot insertion in
   homogeneous coordinates; drawing export writes a trimmed spline edge with it.
   `BSplineSurface::restricted` is the same over a uv box, `side` gives a side as a curve, and
@@ -134,6 +136,9 @@ paths:
   normal to keep its parameter; a mirrored plane negates v and a mirrored rotational surface turns u
   back (`2π − u`), so du × dv stays outward on elementary surfaces. A face whose uv map keeps its
   orientation under a mirror (extrusions and spline surfaces) reverses its sense instead.
+- `Curve::similar` and `Surface::similar` map one curve or surface by a `Similarity`; the surface
+  comes with the `Sense` of its normal against the mapped parameterisation's (`Reversed` when the
+  uv map turns orientation, so a STEP `SURFACE_REPLICA` face flips its sense).
 - A mirror reverses every loop: coedge order, coedge senses and pcurve samples.
 - Enlarging re-traces every intersection edge and any other edge that drifts beyond
   `INTERSECTION_TOLERANCE` from its faces (`IntersectionCurve::through`, ends pinned to the

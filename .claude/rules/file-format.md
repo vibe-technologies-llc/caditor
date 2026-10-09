@@ -278,8 +278,9 @@ paths:
   `factor` (unreadable: 1) and of the three `center` lengths (unreadable: 0 mm).
 - A feature record carries `appearance` only when a body has one: `colour` as `#rrggbb`,
   `material`, `density` as stored text, the body's own `name`, `opacity` (a percent) and `faces`
-  (each a face record with its `colour`), each optional; an unreadable face colour is left out,
-  reported. Losing it changes nothing computed, so
+  (each a face record with its `colour` and an optional `opacity`), each optional; an unreadable
+  face colour is left out, reported, and a face opacity outside `MIN_OPACITY_PERCENT` to 100 is
+  dropped, reported (a reader older than face opacities draws the face like its body). Losing it changes nothing computed, so
   it is a field, not a record kind; an unreadable part is left out and reported, the rest kept.
   The journal's `set_body_appearance` holds the same record. `describe_unreadable_record` skips
   the feature fields (`FEATURE_FIELDS`) when naming an unknown kind.

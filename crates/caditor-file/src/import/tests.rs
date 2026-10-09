@@ -1239,6 +1239,69 @@ mod step {
     }
 
     #[test]
+    fn faces_of_two_colours_and_a_see_through_one_import_onto_their_faces_and_are_saved() {
+        let mut text = step_text();
+        let faces: Vec<String> = text
+            .lines()
+            .filter_map(|line| line.split_once("=ADVANCED_FACE("))
+            .map(|(id, _)| id.to_owned())
+            .collect();
+        let mut styles = String::from(
+            "#900001=COLOUR_RGB('',0.,0.,1.);\n\
+             #900002=FILL_AREA_STYLE_COLOUR('',#900001);\n\
+             #900003=FILL_AREA_STYLE('',(#900002));\n\
+             #900004=SURFACE_STYLE_FILL_AREA(#900003);\n\
+             #900005=SURFACE_SIDE_STYLE('',(#900004));\n\
+             #900006=SURFACE_STYLE_USAGE(.BOTH.,#900005);\n\
+             #900007=PRESENTATION_STYLE_ASSIGNMENT((#900006));\n\
+             #900011=COLOUR_RGB('',1.,0.,0.);\n\
+             #900012=SURFACE_STYLE_TRANSPARENT(0.5);\n\
+             #900013=SURFACE_STYLE_RENDERING_WITH_PROPERTIES(.NORMAL_SHADING.,#900011,(#900012));\n\
+             #900015=SURFACE_SIDE_STYLE('',(#900013));\n\
+             #900016=SURFACE_STYLE_USAGE(.BOTH.,#900015);\n\
+             #900017=PRESENTATION_STYLE_ASSIGNMENT((#900016));\n",
+        );
+        for (index, face) in faces.iter().enumerate() {
+            let style = if index % 2 == 0 { "#900017" } else { "#900007" };
+            styles.push_str(&format!(
+                "#{}=STYLED_ITEM('',({style}),{face});\n",
+                910_000 + index
+            ));
+        }
+        let end = text.rfind("ENDSEC;").unwrap();
+        text.insert_str(end, &styles);
+        let import = parse_step(&text, "block.step").unwrap();
+        let mut document = Document::default();
+        document
+            .apply(bodies_transaction(&document, &import.bodies, "Import"))
+            .unwrap();
+        let id = document.features().next().unwrap().id();
+        let evaluation = evaluated(&document);
+        let solid = evaluation.body(id).unwrap();
+        let appearance = &document.feature(id).unwrap().appearance;
+        let colours = appearance.face_colours(solid);
+        let opacities = appearance.face_opacities(solid);
+        let loaded = decode(&encode(&document).unwrap()).unwrap();
+
+        assert_eq!(faces.len(), 6);
+        assert_eq!((appearance.colour, appearance.opacity), (None, None));
+        for (index, (face, _)) in solid.faces().enumerate() {
+            let expected = if index % 2 == 0 {
+                (Some(Rgb::new(255, 0, 0)), Some(50))
+            } else {
+                (Some(Rgb::new(0, 0, 255)), None)
+            };
+            assert_eq!(
+                (colours.get(&face).copied(), opacities.get(&face).copied()),
+                expected,
+                "face {index}"
+            );
+        }
+        assert_eq!(loaded.issues, Vec::<String>::new());
+        assert_eq!(loaded.document.feature(id).unwrap().appearance, *appearance);
+    }
+
+    #[test]
     fn bodies_on_one_layer_import_together_into_a_folder_named_after_it() {
         let solid = block();
         let body = |name, layer| StepBody {

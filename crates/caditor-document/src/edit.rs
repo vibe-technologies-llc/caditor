@@ -480,10 +480,15 @@ fn check_appearance(appearance: &BodyAppearance) -> Result<(), EditError> {
             return Err(EditError::BodyNameTooLong(length));
         }
     }
-    if let Some(opacity) = appearance.opacity
-        && opacity < MIN_OPACITY_PERCENT
-    {
-        return Err(EditError::OpacityTooLow(opacity));
+    let opacities = appearance
+        .faces
+        .iter()
+        .filter_map(|face| face.opacity)
+        .chain(appearance.opacity);
+    for opacity in opacities {
+        if opacity < MIN_OPACITY_PERCENT {
+            return Err(EditError::OpacityTooLow(opacity));
+        }
     }
     Ok(())
 }

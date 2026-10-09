@@ -62,6 +62,7 @@ pub struct BodyAppearance {
 pub struct FaceColour {
     pub face: FaceReference,
     pub colour: Rgb,
+    pub opacity: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -105,28 +106,42 @@ impl BodyAppearance {
     }
 
     pub fn face_colours(&self, solid: &Solid) -> BTreeMap<FaceId, Rgb> {
+        self.face_looks(solid)
+            .into_iter()
+            .map(|(face, coloured)| (face, coloured.colour))
+            .collect()
+    }
+
+    pub fn face_opacities(&self, solid: &Solid) -> BTreeMap<FaceId, u8> {
+        self.face_looks(solid)
+            .into_iter()
+            .filter_map(|(face, coloured)| coloured.opacity.map(|opacity| (face, opacity)))
+            .collect()
+    }
+
+    fn face_looks(&self, solid: &Solid) -> BTreeMap<FaceId, &FaceColour> {
         let mut named: BTreeMap<FaceName, Vec<FaceId>> = BTreeMap::new();
         if !self.faces.is_empty() {
             for (id, face) in solid.faces() {
                 named.entry(face.name()).or_default().push(id);
             }
         }
-        let mut colours = BTreeMap::new();
+        let mut looks = BTreeMap::new();
         for coloured in &self.faces {
             match named.get(&coloured.face.name()) {
                 Some(faces) => {
                     for face in faces {
-                        colours.insert(*face, coloured.colour);
+                        looks.insert(*face, coloured);
                     }
                 }
                 None => {
                     if let Ok(face) = coloured.face.resolve(solid) {
-                        colours.insert(face, coloured.colour);
+                        looks.insert(face, coloured);
                     }
                 }
             }
         }
-        colours
+        looks
     }
 
     pub fn density_value(&self, values: &ParameterValues) -> Option<Result<f64, DensityError>> {

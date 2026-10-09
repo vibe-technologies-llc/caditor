@@ -117,6 +117,7 @@ pub fn parse_mesh(
             colour: None,
             opacity: None,
             group: None,
+            faces: Vec::new(),
         }));
     }
     if bodies.is_empty() {

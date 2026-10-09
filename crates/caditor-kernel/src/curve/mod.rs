@@ -231,6 +231,10 @@ impl Curve {
             .map(|(curve, _)| curve)
     }
 
+    pub fn similar(&self, similarity: &Similarity) -> Result<Self, GeometryError> {
+        self.mapped(similarity).map(|(curve, _)| curve)
+    }
+
     pub(crate) fn mapped(&self, similarity: &Similarity) -> Result<(Self, Affine), GeometryError> {
         let scale = similarity.scale();
         let stretch = Affine::scaling(scale);

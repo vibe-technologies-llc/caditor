@@ -1,20 +1,22 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     f64::consts::FRAC_PI_2,
     rc::Rc,
 };
 
-use caditor_geometry::{Plane, Point3, Vector3};
+use caditor_geometry::{Plane, Point3, Similarity, Vector3};
 use caditor_kernel::{
     BSpline, BSplineSurface, Circle, Cone, Curve, Cylinder, Ellipse, Extrusion, GeometryError,
-    Interval, Line, MAX_SPLINE_DEGREE, MODEL_EXTENT, PlaneSurface, Revolution, Sphere, Surface,
-    Torus,
+    Interval, Line, MAX_SPLINE_DEGREE, MODEL_EXTENT, PlaneSurface, Revolution, Sense, Sphere,
+    Surface, Torus,
 };
 
 use crate::read::{
     graph::{Entity, Graph, Problem, Read, friendly},
+    offset::{Fit, OffsetRefusal, offset},
     spline::{Homogeneous, bezier_knots, clamp, expand_knots, knot_count, uniform_knots},
+    structure::operator,
     units::Units,
 };
 
@@ -131,14 +133,19 @@ impl Work {
     }
 
     pub fn charge(&self, id: u64) -> Read<()> {
+        self.charge_many(id, 1)
+    }
+
+    pub fn charge_many(&self, id: u64, amount: usize) -> Read<()> {
         let left = self.0.get();
-        if left == 0 {
+        if left < amount {
+            self.0.set(0);
             return Err(Problem::new(
                 id,
                 "is part of a model too intricate to import in one go",
             ));
         }
-        self.0.set(left - 1);
+        self.0.set(left - amount);
         Ok(())
     }
 }
@@ -149,6 +156,7 @@ pub(crate) struct Geometry<'a> {
     work: Work,
     curves: RefCell<BTreeMap<u64, Read<Curve>>>,
     surfaces: RefCell<BTreeMap<u64, Read<Surface>>>,
+    reversed: RefCell<BTreeSet<u64>>,
 }
 
 impl<'a> Geometry<'a> {
@@ -159,6 +167,7 @@ impl<'a> Geometry<'a> {
             work,
             curves: RefCell::new(BTreeMap::new()),
             surfaces: RefCell::new(BTreeMap::new()),
+            reversed: RefCell::new(BTreeSet::new()),
         }
     }
 
@@ -166,7 +175,30 @@ impl<'a> Geometry<'a> {
         self.work.charge(id)
     }
 
+    pub fn reversed(&self, surface: u64) -> bool {
+        self.reversed.borrow().contains(&surface)
+    }
+
     pub fn point(&self, id: u64) -> Read<Point3> {
+        self.point_at(id, 0)
+    }
+
+    fn point_at(&self, id: u64, depth: usize) -> Read<Point3> {
+        let entity = self.graph.entity(id)?;
+        if entity.kind() != "POINT_REPLICA" {
+            return self.cartesian_point(id);
+        }
+        if depth > MAX_CURVE_DEPTH {
+            return Err(Problem::new(id, "refers to itself"));
+        }
+        let fields = entity.record("POINT_REPLICA")?;
+        let parent = self.point_at(fields.reference(1)?, depth + 1)?;
+        Ok(self
+            .transformation(id, fields.reference(2)?)?
+            .apply_point(parent))
+    }
+
+    pub fn cartesian_point(&self, id: u64) -> Read<Point3> {
         let fields = self.graph.entity(id)?.record("CARTESIAN_POINT")?;
         let coordinates = fields.reals(1)?;
         let coordinate = |index: usize| coordinates.get(index).copied().unwrap_or(0.0);
@@ -214,6 +246,16 @@ impl<'a> Geometry<'a> {
         };
         Plane::with_x_axis(origin, axis, reference)
             .ok_or_else(|| Problem::new(id, "has its reference direction along its axis"))
+    }
+
+    fn transformation(&self, replica: u64, operator_id: u64) -> Read<Similarity> {
+        operator(self, operator_id).ok_or_else(|| {
+            Problem::new(
+                replica,
+                "is a copy whose transformation cannot be read or scales it beyond what caditor \
+                 can model",
+            )
+        })
     }
 
     fn length(&self, fields: &crate::read::graph::Fields<'_>, index: usize) -> Read<f64> {
@@ -290,6 +332,12 @@ impl<'a> Geometry<'a> {
                 self.curve_at(fields.reference(1)?, depth + 1)
             }
             "OFFSET_CURVE_3D" => self.offset_curve(entity, depth),
+            "CURVE_REPLICA" => {
+                let fields = entity.record("CURVE_REPLICA")?;
+                let parent = self.curve_at(fields.reference(1)?, depth + 1)?;
+                let similarity = self.transformation(id, fields.reference(2)?)?;
+                Ok(parent.similar(&similarity).map_err(kernel)?)
+            }
             _ if entity.is("COMPOSITE_CURVE") => self.composite_curve(entity, depth),
             "POLYLINE" => {
                 let fields = entity.record("POLYLINE")?;
@@ -435,6 +483,15 @@ impl<'a> Geometry<'a> {
                 let vector = entity.record("LINE")?.reference(2)?;
                 let magnitude = self.graph.entity(vector)?.record("VECTOR")?.real(2)?;
                 magnitude.abs() * self.units.length
+            }
+            "CURVE_REPLICA" => {
+                let fields = entity.record("CURVE_REPLICA")?;
+                let parent = fields.reference(1)?;
+                let stretch = match self.graph.entity(parent)?.kind() {
+                    "LINE" => self.transformation(basis, fields.reference(2)?)?.scale(),
+                    _ => 1.0,
+                };
+                self.parameter_scale(parent)? * stretch
             }
             _ => 1.0,
         })
@@ -649,13 +706,39 @@ impl<'a> Geometry<'a> {
             }
             "OFFSET_SURFACE" => {
                 let fields = entity.record("OFFSET_SURFACE")?;
-                let basis = self.surface_at(fields.reference(1)?, depth + 1)?;
-                let distance = self.length(&fields, 2)?;
-                offset(&basis, distance).map_err(|refusal| Problem::new(id, refusal.to_string()))
+                let basis_id = fields.reference(1)?;
+                let basis = self.surface_at(basis_id, depth + 1)?;
+                let reversed = self.reversed(basis_id);
+                let distance = self.length(&fields, 2)? * if reversed { -1.0 } else { 1.0 };
+                let charge = |amount: usize| {
+                    self.work
+                        .charge_many(id, amount)
+                        .map_err(|_| OffsetRefusal::TooIntricate)
+                };
+                let fit = Fit {
+                    tolerance: self.units.uncertainty(),
+                    charge: &charge,
+                };
+                let surface = offset(&basis, distance, &fit)
+                    .map_err(|refusal| Problem::new(id, refusal.to_string()))?;
+                self.follow_sense(id, reversed);
+                Ok(surface)
+            }
+            "SURFACE_REPLICA" => {
+                let fields = entity.record("SURFACE_REPLICA")?;
+                let parent_id = fields.reference(1)?;
+                let parent = self.surface_at(parent_id, depth + 1)?;
+                let similarity = self.transformation(id, fields.reference(2)?)?;
+                let (surface, sense) = parent.similar(&similarity).map_err(kernel)?;
+                self.follow_sense(id, self.reversed(parent_id) != (sense == Sense::Reversed));
+                Ok(surface)
             }
             "RECTANGULAR_TRIMMED_SURFACE" => {
                 let fields = entity.record("RECTANGULAR_TRIMMED_SURFACE")?;
-                self.surface_at(fields.reference(1)?, depth + 1)
+                let basis_id = fields.reference(1)?;
+                let surface = self.surface_at(basis_id, depth + 1)?;
+                self.follow_sense(id, self.reversed(basis_id));
+                Ok(surface)
             }
             other => Err(Problem::new(
                 id,
@@ -665,74 +748,12 @@ impl<'a> Geometry<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-enum OffsetRefusal {
-    #[error("is offset by more than the radius of its {0}, which leaves no surface")]
-    PastCentre(&'static str),
-    #[error("is offset so far that the tube of its torus reaches the axis")]
-    TubeReachesAxis,
-    #[error("is an offset of {0}, which caditor cannot import yet")]
-    Unsupported(&'static str),
-    #[error("is not a usable surface ({0})")]
-    Kernel(#[from] GeometryError),
-}
-
-fn offset(basis: &Surface, distance: f64) -> Result<Surface, OffsetRefusal> {
-    let grown = |radius: f64, what: &'static str| {
-        let offset = radius + distance;
-        if offset > 0.0 {
-            Ok(offset)
-        } else {
-            Err(OffsetRefusal::PastCentre(what))
+impl Geometry<'_> {
+    fn follow_sense(&self, id: u64, reversed: bool) {
+        if reversed {
+            self.reversed.borrow_mut().insert(id);
         }
-    };
-    Ok(match basis {
-        Surface::Plane(plane) => {
-            let frame = plane.frame();
-            let moved = Plane::from_frame(
-                frame.origin() + frame.normal() * distance,
-                frame.normal(),
-                frame.x_axis(),
-            )
-            .ok_or(GeometryError::NonFinite)?;
-            PlaneSurface::new(moved)?.into()
-        }
-        Surface::Cylinder(cylinder) => {
-            Cylinder::new(*cylinder.frame(), grown(cylinder.radius(), "cylinder")?)?.into()
-        }
-        Surface::Sphere(sphere) => {
-            Sphere::new(*sphere.frame(), grown(sphere.radius(), "sphere")?)?.into()
-        }
-        Surface::Torus(torus) => {
-            let minor = grown(torus.minor_radius(), "torus's tube")?;
-            if minor >= torus.major_radius() {
-                return Err(OffsetRefusal::TubeReachesAxis);
-            }
-            Torus::new(*torus.frame(), torus.major_radius(), minor)?.into()
-        }
-        Surface::Cone(cone) => {
-            let frame = cone.frame();
-            let (sin, cos) = cone.half_angle().sin_cos();
-            let radius = cone.radius() + distance * cos;
-            let (slide, radius) = if radius < 0.0 {
-                (radius / sin, 0.0)
-            } else {
-                (0.0, radius)
-            };
-            let origin = frame.origin() - frame.normal() * (distance * sin + slide * cos);
-            let moved = Plane::from_frame(origin, frame.normal(), frame.x_axis())
-                .ok_or(GeometryError::NonFinite)?;
-            Cone::new(moved, radius, cone.half_angle())?.into()
-        }
-        other => {
-            return Err(OffsetRefusal::Unsupported(match other {
-                Surface::Extrusion(_) => "a surface of extrusion",
-                Surface::Revolution(_) => "a surface of revolution",
-                Surface::BSpline(_) => "a spline surface",
-                _ => "a surface of its kind",
-            }));
-        }
-    })
+    }
 }
 
 fn spindle(
@@ -1026,108 +1047,5 @@ mod tests {
         assert!(refused.to_string().contains("up to degree 25"), "{refused}");
         assert!(spline_degree(1_000_000_000, 7).is_err());
         assert!(spline_degree(-1, 7).is_err());
-    }
-
-    fn frame() -> Plane {
-        Plane::from_frame(
-            Point3::new(1.0, -2.0, 3.0),
-            Vector3::new(0.2, 0.3, 1.0),
-            Vector3::X,
-        )
-        .unwrap()
-    }
-
-    fn assert_offset(name: &str, basis: Surface, distance: f64, v: Interval) {
-        let offset = offset(&basis, distance).unwrap();
-        for row in 0..=12 {
-            for column in 0..12 {
-                let (u, v) = (column as f64 * 0.5, v.at(row as f64 / 12.0));
-                let normal = basis.normal(u, v).unwrap();
-                let moved = basis.point_at(caditor_geometry::Point2::new(u, v)) + normal * distance;
-                let foot = offset.project(moved, None);
-
-                assert!(
-                    offset.point_at(foot).distance(moved) < 1e-9,
-                    "{name}: {moved} is off its offset"
-                );
-                assert!(
-                    offset.normal(foot.x, foot.y).unwrap().dot(normal) > 1.0 - 1e-9,
-                    "{name}: the normal turned at {moved}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn offsets_of_elementary_surfaces_are_exact_and_keep_their_normals() {
-        let span = |start: f64, end: f64| Interval::new(start, end).unwrap();
-        let cone =
-            |radius: f64, angle: f64| Surface::Cone(Cone::new(frame(), radius, angle).unwrap());
-
-        assert_offset(
-            "plane",
-            Surface::Plane(PlaneSurface::new(frame()).unwrap()),
-            -2.5,
-            span(-5.0, 5.0),
-        );
-        for distance in [2.0, -3.0] {
-            assert_offset(
-                "cylinder",
-                Surface::Cylinder(Cylinder::new(frame(), 5.0).unwrap()),
-                distance,
-                span(-5.0, 5.0),
-            );
-            assert_offset(
-                "sphere",
-                Surface::Sphere(Sphere::new(frame(), 5.0).unwrap()),
-                distance,
-                span(-1.4, 1.4),
-            );
-            assert_offset(
-                "torus",
-                Surface::Torus(Torus::new(frame(), 10.0, 4.0).unwrap()),
-                distance,
-                span(0.0, 6.0),
-            );
-        }
-        assert_offset("cone", cone(4.0, 0.5), 1.5, span(-2.0, 6.0));
-        assert_offset(
-            "cone past its apex",
-            cone(4.0, 0.5),
-            -10.0,
-            span(11.0, 20.0),
-        );
-        assert_offset(
-            "opening downwards",
-            cone(4.0, -0.4),
-            -6.0,
-            span(-20.0, -12.0),
-        );
-    }
-
-    #[test]
-    fn offsets_that_leave_no_surface_or_of_other_kinds_are_refused_in_words() {
-        let cylinder = Surface::Cylinder(Cylinder::new(frame(), 2.0).unwrap());
-        let torus = Surface::Torus(Torus::new(frame(), 10.0, 3.0).unwrap());
-        let profile = Curve::Circle(Circle::new(Plane::XZ, 1.0).unwrap());
-        let revolution = Surface::Revolution(
-            Revolution::new(profile, Point3::new(-5.0, 0.0, 0.0), Vector3::Z).unwrap(),
-        );
-
-        let refusal =
-            |basis: &Surface, distance: f64| offset(basis, distance).unwrap_err().to_string();
-
-        assert_eq!(
-            refusal(&cylinder, -2.0),
-            "is offset by more than the radius of its cylinder, which leaves no surface"
-        );
-        assert_eq!(
-            refusal(&torus, 8.0),
-            "is offset so far that the tube of its torus reaches the axis"
-        );
-        assert_eq!(
-            refusal(&revolution, 1.0),
-            "is an offset of a surface of revolution, which caditor cannot import yet"
-        );
     }
 }

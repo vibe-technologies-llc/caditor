@@ -2,6 +2,7 @@ mod conform;
 mod geometry;
 mod graph;
 mod loose;
+mod offset;
 mod presentation;
 mod spline;
 mod structure;
@@ -18,6 +19,7 @@ use std::{
 use caditor_geometry::Similarity;
 use caditor_kernel::{Solid, check_interrupt};
 
+pub use crate::read::presentation::FaceLook;
 use crate::{
     part21::{Exchange, SyntaxError, parse},
     read::{
@@ -25,7 +27,7 @@ use crate::{
         graph::{Entity, Graph, Problem},
         presentation::{Look, Presentation},
         structure::{MAX_DEPTH, MAX_INSTANCES as MAX_PLACEMENTS, Placements, Structure, Unplaced},
-        topology::{Bending, Built, Healing, SolidShells, Topology, short},
+        topology::{Bending, Built, Healing, Lost, SolidShells, Topology, short, unreadable_faces},
         units::Units,
     },
 };
@@ -48,6 +50,7 @@ pub struct StepSolid {
     pub colour: Option<[u8; 3]>,
     pub opacity: Option<u8>,
     pub layer: Option<String>,
+    pub faces: Vec<FaceLook>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -64,6 +67,7 @@ pub struct StepCopy {
     pub colour: Option<[u8; 3]>,
     pub opacity: Option<u8>,
     pub layer: Option<String>,
+    pub faces: Vec<FaceLook>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -223,6 +227,7 @@ pub fn read_step(text: &str) -> Result<StepModel, ReadError> {
                 colour: look.colour,
                 opacity: look.opacity,
                 layer: look.layer,
+                faces: look.faces,
             })
             .collect(),
         notes: read.notes,
@@ -244,6 +249,7 @@ pub fn read_step_copies(text: &str) -> Result<StepCopies, ReadError> {
                 colour: look.colour,
                 opacity: look.opacity,
                 layer: look.layer,
+                faces: look.faces,
             })
             .collect(),
         notes: read.notes,
@@ -274,6 +280,7 @@ fn read_placed<T>(
     let mut faceted_bodies = Vec::new();
     let mut bent_bodies = Vec::new();
     let mut unchecked_notes = Vec::new();
+    let mut lost_notes = Vec::new();
     let encloses = |entity: &Entity<'_>| {
         entity.fields().is_ok_and(|fields| {
             fields.references(1).is_ok_and(|shells| {
@@ -363,10 +370,15 @@ fn read_placed<T>(
                 unchecked,
                 faceted,
                 bent,
+                faces,
+                lost,
             }) => {
-                if faceted {
-                    faceted_bodies.push(name.clone());
-                } else {
+                match lost {
+                    Some(lost) => lost_notes.push(lost_note(&name, &lost)),
+                    None if faceted => faceted_bodies.push(name.clone()),
+                    None => {}
+                }
+                if !faceted {
                     repaired += healed;
                 }
                 if let Some(bending) = bent.filter(|bending| bending.faces > 0) {
@@ -376,7 +388,8 @@ fn read_placed<T>(
                     unchecked_notes.push(unchecked_note(&name, faces));
                 }
                 let count = transforms.len();
-                let look = presentation.of_solid(&graph, entity);
+                let mut look = presentation.of_solid(&graph, entity);
+                look.faces = presentation.of_faces(&look, &faces);
                 let mut misplaced = false;
                 let solid = Arc::new(solid);
                 for (instance, (placement, occurrence)) in transforms.into_iter().enumerate() {
@@ -407,6 +420,7 @@ fn read_placed<T>(
             "“{name}” could not be imported, because its entity {problem}."
         ));
     }
+    model.notes.extend(lost_notes);
     model.notes.extend(
         unplaced
             .iter()
@@ -565,6 +579,43 @@ fn faceted_note(name: &str) -> String {
     )
 }
 
+fn lost_note(name: &str, lost: &Lost) -> String {
+    let reason = format!("its entity {}", lost.problem);
+    let faces: Vec<String> = lost.faces.iter().map(|face| format!("#{face}")).collect();
+    let listed = match faces.as_slice() {
+        [] => String::new(),
+        [only] => only.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    let plural = faces.len() > 1;
+    if lost.voids + lost.lumps == 0 {
+        return format!(
+            "“{name}” was imported without its {} {listed}, because {reason}; the {} left \
+             {} closed with flat facets, so its curved faces are approximated by flat ones.",
+            if plural { "faces" } else { "face" },
+            if plural { "holes they" } else { "hole it" },
+            if plural { "were" } else { "was" },
+        );
+    }
+    let mut parts = Vec::new();
+    for (count, one, many) in [
+        (lost.voids, "hollow", "hollows"),
+        (lost.lumps, "separate piece", "separate pieces"),
+    ] {
+        match count {
+            0 => {}
+            1 => parts.push(format!("1 {one}")),
+            count => parts.push(format!("{count} {many}")),
+        }
+    }
+    format!(
+        "“{name}” was imported without {} of it, holding its {} {listed} that could not be read, \
+         because {reason}.",
+        parts.join(" and "),
+        if plural { "faces" } else { "face" },
+    )
+}
+
 fn bent_note(name: &str, bending: Bending, precision: Option<f64>) -> String {
     let faces = if bending.faces == 1 {
         "1 curved face was".to_owned()
@@ -648,23 +699,81 @@ impl<'a> Builder<'a> {
             .geometries
             .get(position)
             .ok_or_else(|| Problem::new(id, "could not be read"))?;
-        let built = Topology::new(geometry, Healing::Exact)
-            .solid(id, &key.0)
-            .or_else(|problem| {
-                Topology::new(geometry, Healing::Extended)
-                    .solid(id, &key.0)
-                    .map_err(|_| problem)
-            })
-            .or_else(|problem| match geometry.units.precision {
-                Some(_) => Topology::new(geometry, Healing::Bent)
-                    .solid(id, &key.0)
-                    .or_else(|_| Topology::new(geometry, Healing::Faceted).solid(id, &key.0))
-                    .map_err(|_| problem),
-                None => Err(problem),
-            });
+        let built = healed(geometry, id, &key.0)
+            .or_else(|problem| without_unreadable(geometry, id, &key.0, problem));
         self.builds.insert(key, (id, built.clone()));
         built
     }
+}
+
+fn healed(geometry: &Geometry<'_>, id: u64, shells: &SolidShells) -> Result<Built, Problem> {
+    Topology::new(geometry, Healing::Exact)
+        .solid(id, shells)
+        .or_else(|problem| {
+            Topology::new(geometry, Healing::Extended)
+                .solid(id, shells)
+                .map_err(|_| problem)
+        })
+        .or_else(|problem| match geometry.units.precision {
+            Some(_) => Topology::new(geometry, Healing::Bent)
+                .solid(id, shells)
+                .or_else(|_| Topology::new(geometry, Healing::Faceted).solid(id, shells))
+                .map_err(|_| problem),
+            None => Err(problem),
+        })
+}
+
+fn without_unreadable(
+    geometry: &Geometry<'_>,
+    id: u64,
+    shells: &SolidShells,
+    problem: Problem,
+) -> Result<Built, Problem> {
+    let unreadable = unreadable_faces(geometry, shells);
+    let Some(first) = unreadable.first() else {
+        return Err(problem);
+    };
+    let outer = shells.outer();
+    let dropped: BTreeSet<u64> = unreadable
+        .iter()
+        .map(|face| face.shell)
+        .filter(|shell| *shell != outer)
+        .collect();
+    let kept = shells.without(&dropped);
+    let lost_faces: BTreeSet<u64> = unreadable
+        .iter()
+        .filter(|face| face.shell == outer)
+        .map(|face| face.face)
+        .collect();
+    let built = if lost_faces.is_empty() {
+        healed(geometry, id, &kept)
+    } else {
+        Topology::new(geometry, Healing::Faceted)
+            .leaving_out(lost_faces.clone())
+            .solid(id, &kept)
+    };
+    let Ok(mut built) = built else {
+        return Err(problem);
+    };
+    let named = unreadable
+        .iter()
+        .find(|face| lost_faces.is_empty() || face.shell == outer)
+        .unwrap_or(first);
+    let voids = dropped
+        .iter()
+        .filter(|shell| shells.is_void(**shell))
+        .count();
+    built.lost = Some(Lost {
+        faces: if lost_faces.is_empty() {
+            unreadable.iter().map(|face| face.face).collect()
+        } else {
+            lost_faces.into_iter().collect()
+        },
+        problem: named.problem.clone(),
+        voids,
+        lumps: dropped.len() - voids,
+    });
+    Ok(built)
 }
 
 fn solid_name(

@@ -2696,10 +2696,12 @@ fn face_colours_are_saved_and_a_damaged_one_is_left_out_in_words() {
             FaceColour {
                 face: face(0xface),
                 colour: Rgb::new(200, 64, 52),
+                opacity: Some(25),
             },
             FaceColour {
                 face: face(0xbeef),
                 colour: Rgb::new(38, 150, 150),
+                opacity: None,
             },
         ],
         ..Default::default()
@@ -2717,8 +2719,18 @@ fn face_colours_are_saved_and_a_damaged_one_is_left_out_in_words() {
     let text = encode(&document).unwrap();
     let loaded = decode_text(&text);
     let damaged = decode_text(&text.replace("#269696", "teal"));
+    let faint = decode_text(&text.replace("\"opacity\":25", "\"opacity\":3"));
 
     assert!(text.contains("\"colour\":\"#c84034\""), "{text}");
+    assert!(text.contains("\"opacity\":25"), "{text}");
+    assert_eq!(
+        faint.issues,
+        ["The opacity of a face of “Base” could not be used, so it is drawn like the body."]
+    );
+    assert_eq!(
+        faint.document.feature(base).unwrap().appearance.faces[0].opacity,
+        None
+    );
     assert_eq!(loaded.issues, Vec::<String>::new());
     assert_eq!(loaded.document, document);
     assert_eq!(

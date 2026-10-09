@@ -65,8 +65,10 @@ paths:
   it styles; the first layer naming an item keeps it.
 - A solid takes the value on itself, else on one of its shells, else the value every face shares;
   a face without one, or faces differing, give none, so a part of mixed face colours (or of some
-  see-through faces) keeps the default look rather than one of them. Colours and opacities are
-  per body until face colours are mapped.
+  see-through faces) keeps the default look rather than one of them.
+- Each face whose own colour or opacity differs from its solid's becomes a `FaceLook` on the solid,
+  by its index among the kernel faces (`Built::faces` maps them to file faces; faceted bodies have
+  none): its colour when it differs, its opacity (100 is explicitly solid) when it differs.
 
 ## Units and precision
 
@@ -111,8 +113,24 @@ paths:
 - `DEGENERATE_TOROIDAL_SURFACE`: a spindle is the revolution of the tube's rational arc on one side
   of the axis; a horn turns the whole tube circle about its touch point, so its two poles are one
   vertex. The inside of a horn is refused (no volume).
-- `OFFSET_SURFACE` of a plane, cylinder, sphere, torus or cone is the exact surface of the same
-  kind; one leaving no surface, or of a spline, extrusion or revolution, is refused in words.
+- `OFFSET_SURFACE` (`offset.rs`) of a plane, cylinder, sphere, torus or cone is the exact surface
+  of the same kind; one leaving no surface is refused in words. Of an extrusion or revolution it is
+  the same sweep of the offset profile: a line or a circle whose offset stays concentric exactly,
+  any other profile fitted; of a spline surface, a fitted bicubic spline. A fit samples the exact
+  offset at the basis's own parameters, each basis span (at most `MAX_SURFACE_SAMPLES` or
+  `MAX_CURVE_SAMPLES` a direction, neighbouring spans grouped past that) cut into pieces
+  interpolated cubically and joined C0 at the span ends, since an offset is only C1 at the basis's
+  knots; a point at a pole takes a nudged normal and a collapsed row or column of the basis stays
+  one point. Pieces are halved in the direction whose midpoints miss until every midpoint is within
+  `TIGHT_FIT`; the fit is accepted within the file's precision (`LINEAR_RESOLUTION` when none is
+  declared) and otherwise refused saying how close it came, as is an offset whose normal turns
+  against the basis's (`Folds`) anywhere in the basis's domain. Fitting charges the work budget
+  and polls the interrupt each round. A reversed basis (below) offsets the other way.
+- `POINT_REPLICA`, `CURVE_REPLICA` and `SURFACE_REPLICA` are their parent mapped by their
+  `CARTESIAN_TRANSFORMATION_OPERATOR_3D` (read as for assemblies, `structure::operator`, its origin a
+  plain point); a mirrored surface replica whose kernel normal runs against STEP's (`similar`'s
+  `Sense`) is recorded in `Geometry::reversed`, which offsets and trimmed surfaces inherit and
+  `plan_face` folds into the face's sense. A line replica's trims by value scale with it.
 - Vertices off their faces move onto all of them by Levenberg–Marquardt least squares (the damping
   grows until a step lowers the worst gap, so nearly tangent faces cannot make it overshoot); edges
   farther than a quarter of the resolution from either face are rebuilt with
@@ -155,6 +173,16 @@ paths:
   held. The edge is the slave's side curve between its vertices, exact on the slave and within the
   tolerance on the master. A vertex or side moving farther than the precision refuses the mode; the
   note gives the faces bent and the largest bend.
+
+## Unreadable faces
+
+- A body every build refuses is tried once more without the faces whose surface cannot be read
+  (`unreadable_faces`; edges and other entities still refuse the body). A void or extra lump
+  holding one is left out and the rest built as usual, exact. Faces lost from the outer shell are
+  left out of a `Healing::Faceted` build whose mesh is closed by `closed_over`: the open loops
+  after welding are fanned from their centres (a lost face with holes does not close and the
+  original refusal stands). `Built::lost` words the note: which faces were lost, why, and that the
+  hole was closed with flat facets or which hollows or pieces were left out.
 
 ## Faceted fallback
 

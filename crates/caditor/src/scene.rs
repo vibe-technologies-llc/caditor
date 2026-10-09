@@ -580,9 +580,9 @@ pub fn build(
         };
         let faces = match color {
             Some(color) if color == painted(document, body) => {
-                face_colours(document, evaluation, body)
+                face_looks(document, evaluation, body)
             }
-            Some(_) | None => BTreeMap::new(),
+            Some(_) | None => FaceLooks::default(),
         };
         let dashed = palette.troubled_edges_dashed
             && editing.is_none()
@@ -1031,7 +1031,7 @@ impl Builder<'_> {
         &mut self,
         body: FeatureId,
         mesh: &BodyMesh,
-        (color, face_colours, dashed): (Option<Color>, &BTreeMap<FaceKey, Color>, bool),
+        (color, looks, dashed): (Option<Color>, &FaceLooks, bool),
         opacity: Option<f32>,
         pickable: bool,
         placement: Option<RigidTransform>,
@@ -1039,10 +1039,19 @@ impl Builder<'_> {
         let placed =
             |point: Point3| placement.map_or(point, |placement| placement.apply_point(point));
         let own =
-            |face: &BodyFace, base: Color| face_colours.get(&face.key).copied().unwrap_or(base);
+            |face: &BodyFace, base: Color| looks.colours.get(&face.key).copied().unwrap_or(base);
         let style = match color {
             Some(_) => self.style,
             None => DisplayStyle::default(),
+        };
+        let own_alpha = |face: &BodyFace, alpha: f32| {
+            looks.opacities.get(&face.key).map_or(alpha, |own| {
+                if style.is_translucent() {
+                    own.min(XRAY_FACE_ALPHA)
+                } else {
+                    *own
+                }
+            })
         };
         let see_through = match (style.is_translucent(), opacity) {
             (true, Some(opacity)) => Some(opacity.min(XRAY_FACE_ALPHA)),
@@ -1061,6 +1070,7 @@ impl Builder<'_> {
                         face: face.key,
                     };
                     let base = own(face, base);
+                    let alpha = own_alpha(face, alpha);
                     match picked {
                         true => FaceStyle {
                             color: self
@@ -1133,7 +1143,7 @@ impl Builder<'_> {
                     })
                     .collect(),
             };
-            let instance = MeshInstance {
+            let mut instance = MeshInstance {
                 mesh: analysed.as_ref().map_or_else(
                     || Arc::clone(&mesh.mesh),
                     |analysed| Arc::clone(&analysed.mesh),
@@ -1146,6 +1156,27 @@ impl Builder<'_> {
             } else if style.is_drawing() {
                 self.flat_meshes.push(instance);
             } else {
+                if analysed.is_none() && !looks.opacities.is_empty() {
+                    let alphas: Vec<f32> =
+                        mesh.faces.iter().map(|face| own_alpha(face, 1.0)).collect();
+                    if alphas.iter().any(|alpha| *alpha < 1.0) {
+                        let mut see_through = instance.clone();
+                        for ((solid, clear), alpha) in instance
+                            .faces
+                            .iter_mut()
+                            .zip(&mut see_through.faces)
+                            .zip(alphas)
+                        {
+                            if alpha < 1.0 {
+                                solid.color = solid.color.with_alpha(0.0);
+                                clear.color = clear.color.with_alpha(alpha);
+                            } else {
+                                clear.color = clear.color.with_alpha(0.0);
+                            }
+                        }
+                        self.translucent_meshes.push(see_through);
+                    }
+                }
                 self.meshes.push(instance);
             }
         }
@@ -2077,29 +2108,45 @@ pub fn region_references(
         .collect()
 }
 
-fn face_colours(
-    document: &Document,
-    evaluation: &Evaluation,
-    body: FeatureId,
-) -> BTreeMap<FaceKey, Color> {
+#[derive(Debug, Clone, Default)]
+struct FaceLooks {
+    colours: BTreeMap<FaceKey, Color>,
+    opacities: BTreeMap<FaceKey, f32>,
+}
+
+fn face_looks(document: &Document, evaluation: &Evaluation, body: FeatureId) -> FaceLooks {
     let Some(appearance) = document
         .feature(body)
         .map(|feature| &feature.appearance)
         .filter(|appearance| !appearance.faces.is_empty())
     else {
-        return BTreeMap::new();
+        return FaceLooks::default();
     };
     let Some(shown) = bodies::shown(evaluation, body) else {
-        return BTreeMap::new();
+        return FaceLooks::default();
     };
     let coloured = appearance.face_colours(&shown.solid);
-    bodies::face_keys(&shown.solid)
-        .into_iter()
-        .filter_map(|(id, key)| {
-            let colour = coloured.get(&id)?;
-            Some((key, Color::from_rgb8(colour.red, colour.green, colour.blue)))
-        })
-        .collect()
+    let see_through = appearance.face_opacities(&shown.solid);
+    let keys = bodies::face_keys(&shown.solid);
+    FaceLooks {
+        colours: keys
+            .iter()
+            .filter_map(|(id, key)| {
+                let colour = coloured.get(id)?;
+                Some((
+                    *key,
+                    Color::from_rgb8(colour.red, colour.green, colour.blue),
+                ))
+            })
+            .collect(),
+        opacities: keys
+            .iter()
+            .filter_map(|(id, key)| {
+                let percent = see_through.get(id)?;
+                Some((*key, (f32::from(*percent) / 100.0).min(1.0)))
+            })
+            .collect(),
+    }
 }
 
 fn painted(document: &Document, body: FeatureId) -> Color {

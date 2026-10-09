@@ -421,7 +421,7 @@ fn operator_fields(graph: &Graph<'_>, entity: Entity<'_>) -> Option<Operator> {
     })
 }
 
-fn operator(geometry: &Geometry<'_>, id: u64) -> Option<Similarity> {
+pub(crate) fn operator(geometry: &Geometry<'_>, id: u64) -> Option<Similarity> {
     let entity = geometry.graph.entity(id).ok()?;
     let fields = operator_fields(&geometry.graph, entity)?;
     let scale = fields.scale.unwrap_or(1.0);
@@ -447,7 +447,7 @@ fn operator(geometry: &Geometry<'_>, id: u64) -> Option<Similarity> {
         }
         None => right_handed,
     };
-    let origin = geometry.point(fields.origin).ok()?;
+    let origin = geometry.cartesian_point(fields.origin).ok()?;
     Similarity::from_axes(origin, [x, y, z], scale)
 }
 

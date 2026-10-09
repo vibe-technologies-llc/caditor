@@ -144,6 +144,9 @@ paths:
   no depth write (`translucent_meshes` pipeline), so edges and what lies behind show through. The
   pick pass draws them with `fs_pick`, which discards faces without a pick id, so an unpickable
   see-through face (X-ray) never occludes or takes a pick while one carrying an id picks as usual.
+- `fs_mesh` discards a face of no alpha, so a body with only some faces see-through is drawn as
+  two instances of one mesh: in `meshes` with those faces at alpha 0 and in `translucent_meshes`
+  with only those faces visible, both carrying every face's pick id.
 
 ## Lines, markers and sizes
 
