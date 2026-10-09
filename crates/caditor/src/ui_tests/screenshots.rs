@@ -326,6 +326,9 @@ fn screenshots() {
         let mut empty = Harness::styled(look, dir.path(), false);
         shoot(&mut empty, &gpu, &out, "empty", look);
         combine_nearly_touching_blocks(&mut empty);
+        empty.key(Key::F8, Modifiers::NONE);
+        empty.frame();
+        empty.frame();
         empty.click("Show where");
         empty.frame();
         empty.workspace.viewport.advance(CAMERA_SETTLE);

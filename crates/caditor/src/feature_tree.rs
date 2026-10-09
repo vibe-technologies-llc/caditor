@@ -709,6 +709,7 @@ fn feature_row(
     if toggled {
         collapsing.toggle(ui);
     }
+    let asked_to_focus = state.wants_focus(Focus::Feature(id));
     let range_to = match name {
         Name::Shown(name) => {
             if name.has_focus() {
@@ -733,18 +734,25 @@ fn feature_row(
         );
     if has_callout || collapsing.openness(ui.ctx()) > 0.0 {
         let below = tree_row::indented(ui, |ui| {
-            match state_shown {
-                Some(FeatureState::Failed(error)) => {
-                    failure(ui, document, state, actions, row, error);
+            let callouts = ui.scope(|ui| {
+                match state_shown {
+                    Some(FeatureState::Failed(error)) => {
+                        failure(ui, document, state, actions, row, error);
+                    }
+                    Some(FeatureState::Outdated) => outdated(ui, actions),
+                    Some(
+                        FeatureState::UpToDate
+                        | FeatureState::Suppressed
+                        | FeatureState::RolledBack,
+                    )
+                    | None => {}
                 }
-                Some(FeatureState::Outdated) => outdated(ui, actions),
-                Some(
-                    FeatureState::UpToDate | FeatureState::Suppressed | FeatureState::RolledBack,
-                )
-                | None => {}
-            }
-            if let Some(healing) = healing {
-                healed(ui, document, actions, healing);
+                if let Some(healing) = healing {
+                    healed(ui, document, actions, healing);
+                }
+            });
+            if asked_to_focus && has_callout {
+                ui.scroll_to_rect(row_rect.union(callouts.response.rect), None);
             }
             collapsing.show_body_unindented(ui, |ui| {
                 widgets::card(ui, |ui| {

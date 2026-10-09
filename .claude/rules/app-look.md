@@ -93,7 +93,8 @@ paths:
 - Key hints (`canvas::Hints`) are `Key: action` text, items three spaces apart, laid out as key
   caps (alternatives joined by " or ") beside a muted action, plain where the part before ": " is
   not keys. Each key, "or" and action is its own text, so tests use `shows_hint`.
-- Overlay text keeps clear of the view cube: the prompt and its hints centre in the band left of
+- Overlay text keeps clear of the view cube: a failure or interference label that would cover the
+  cube or the buttons under it moves left of them, staying in the view (`viewport::clear_of`); the prompt and its hints centre in the band left of
   `view_cube::area` (capped width, wrapping), the hover description starts at the band's top left
   and moves under the prompt when they would meet, the grid spacing label (a screen-reader `Label`)
   and cursor readout sit bottom left, the navigation hints bottom right and are left out when
@@ -322,7 +323,8 @@ paths:
   combine, region choice…) offers Edit <name> (`edit_itself`), hidden while it is open, since
   going to the row it sits under would do nothing. A failure
   with a `place` offers Show where, which frames the view around it (`PanelState::shown_place`,
-  `ViewportState::show_place`). Callout actions are `small_button`s with icons.
+  `ViewportState::show_place`). A row asked to take focus (`Focus::Feature`: F8, the failed pill,
+  the palette) scrolls so its callouts show with it, so the remedy is in view, not only the name. Callout actions are `small_button`s with icons.
 - A feature computed with a healed reference (`FeatureStatus::healing`) shows the warning icon and
   a callout with the reason, the remedy and an Update references button, offered only while the
   evaluation was checked against the feature as it now stands (`Healing::update`).

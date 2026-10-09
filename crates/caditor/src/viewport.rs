@@ -109,7 +109,9 @@ const CHOOSE_MOVED_FACES_PROMPT: &str = "Click faces to move them or leave them 
 const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
 const CHOOSE_MOVE_PROMPT: &str =
     "Drag an arrow or a square, or enter the turns and distances in the feature's panel";
-const CHOOSE_SCALE_PROMPT: &str = "Enter the factor and the centre in the feature's panel";
+const CHOOSE_SCALE_PROMPT: &str = "Enter the factor and the centre in the feature's panel, or choose the centre in the view from it";
+const CHOOSE_THREAD_PROMPT: &str = "Choose the thread's size and length in the feature's panel, or choose its face in the view from it";
+const CHANGE_IN_PANEL_PROMPT: &str = "Change the feature in its panel";
 const CHOOSE_MIRROR_PROMPT: &str =
     "Choose the plane in the feature's panel, or select a plane or flat face and use it from there";
 const CHOOSE_SPLIT_PROMPT: &str = "Choose what to split along in the feature's panel, or select a \
@@ -412,6 +414,16 @@ fn clipped(clip: &SketchClip) -> String {
         [only] => only.clone(),
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
+}
+
+fn clear_of(label: Rect, keep_out: Rect, view: Rect) -> Rect {
+    if !label.intersects(keep_out) {
+        return label;
+    }
+    let shift = keep_out.left() - canvas::MARGIN - label.right();
+    let moved = label.translate(vec2(shift, 0.0));
+    let past_left = (view.left() - moved.left()).max(0.0);
+    moved.translate(vec2(past_left, 0.0))
 }
 
 fn problems(model: &Model) -> Vec<Problem> {
@@ -3792,14 +3804,12 @@ impl ViewportState {
                 let position = rect.min
                     + egui::Vec2::new(pixel.x as f32, pixel.y as f32) / self.pixels_per_point;
                 if rect.contains(position) {
-                    let shown = canvas::label(
-                        painter,
-                        position + vec2(0.0, -PROBLEM_LABEL_LIFT),
-                        Align2::CENTER_BOTTOM,
-                        label,
-                        canvas::small(),
-                        color,
-                    );
+                    let chip =
+                        canvas::Label::new(painter, label, canvas::small(), color, f32::INFINITY);
+                    let wanted = Align2::CENTER_BOTTOM
+                        .anchor_size(position + vec2(0.0, -PROBLEM_LABEL_LIFT), chip.size());
+                    let placed = clear_of(wanted, view_cube::area(rect), rect);
+                    let shown = chip.paint(painter, placed.min);
                     canvas::announce(ui, shown, &format!("problem {index}"), label, None);
                 }
             }
@@ -3979,7 +3989,10 @@ impl ViewportState {
                 Some(FeatureKind::Hole(_)) => CHOOSE_HOLE_PROMPT,
                 Some(FeatureKind::Primitive(_)) => CHOOSE_PRIMITIVE_PROMPT,
                 Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,
-                _ => CHOOSE_REGIONS_PROMPT,
+                Some(FeatureKind::Thread(_)) => CHOOSE_THREAD_PROMPT,
+                Some(FeatureKind::Solid(_)) => CHOOSE_REGIONS_PROMPT,
+                Some(FeatureKind::Sketch(_) | FeatureKind::Import(_) | FeatureKind::Remove(_))
+                | None => CHANGE_IN_PANEL_PROMPT,
             };
             Some((prompt.to_owned(), CHOOSE_REGIONS_HINT.to_owned()))
         } else if editing
@@ -4576,6 +4589,24 @@ mod tests {
 
     const ORIGIN_PICK_INDEX: usize = 6;
     const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(60);
+
+    #[test]
+    fn a_problem_label_moves_left_of_the_view_cube_and_stays_in_the_view() {
+        let view = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let cube = Rect::from_min_max(pos2(640.0, 0.0), pos2(800.0, 200.0));
+        let clear = Rect::from_min_max(pos2(100.0, 300.0), pos2(300.0, 320.0));
+        let over = Rect::from_min_max(pos2(560.0, 150.0), pos2(700.0, 170.0));
+        let wide = Rect::from_min_max(pos2(0.0, 150.0), pos2(700.0, 170.0));
+
+        let moved = clear_of(over, cube, view);
+        let kept_in = clear_of(wide, cube, view);
+
+        assert_eq!(clear_of(clear, cube, view), clear);
+        assert!(!moved.intersects(cube));
+        assert_eq!(moved.size(), over.size());
+        assert_eq!(moved.top(), over.top());
+        assert_eq!(kept_in.left(), view.left());
+    }
 
     #[test]
     fn a_clicked_point_beyond_the_reach_of_typed_ones_is_not_on_the_sketch() {
