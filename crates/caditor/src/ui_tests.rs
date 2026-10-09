@@ -80,6 +80,7 @@ mod shaped_sweeps;
 mod sketch_blend_curves;
 mod sketch_breaks;
 mod sketch_chamfers;
+mod sketch_conics;
 mod sketch_ellipses;
 mod sketch_first_dimension;
 mod sketch_free;

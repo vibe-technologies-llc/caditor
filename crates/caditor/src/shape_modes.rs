@@ -325,6 +325,7 @@ impl ShapeModes {
             | Tool::TangentArc
             | Tool::Ellipse
             | Tool::EllipticalArc
+            | Tool::Conic
             | Tool::Trim
             | Tool::Extend
             | Tool::Offset

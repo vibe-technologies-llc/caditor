@@ -3,7 +3,8 @@ use std::f64::consts::{PI, TAU};
 use caditor_document::{FeatureId, Transaction, TransactionBuilder};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    ArcGeometry, Constraint, EllipseGeometry, Entity, EntityId, Faceting, Sketch, SplineKind,
+    ArcGeometry, BSpline, Constraint, EllipseGeometry, Entity, EntityId, Faceting, Sketch,
+    SplineKind,
 };
 
 use crate::{
@@ -30,6 +31,12 @@ const HELD_TOLERANCE: f64 = 1e-9;
 const TYPED_TOLERANCE: f64 = 1e-6;
 const MIN_CLOSED_SPLINE_POINTS: usize = 3;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
+const CANCEL_CONIC: &str = "Esc: cancel the conic";
+const NOT_A_CONIC: &str = "Only a conic takes a rho; choose the Conic tool first";
+const RHO_OUT_OF_RANGE: &str = "Rho must lie between 0.01 and 0.99: below 0.5 the conic is part \
+                                of an ellipse, 0.5 a parabola, above 0.5 a hyperbola";
+const CONIC_KEYS: &str = "Type 0.3 rho (or any expression and rho) for its shape: below 0.5 an \
+                          ellipse, 0.5 a parabola, above a hyperbola   Esc: cancel the conic";
 const CANCEL_RECTANGLE: &str = "Esc: cancel the rectangle";
 const CANCEL_CIRCLE: &str = "Esc: cancel the circle";
 const CANCEL_SLOT: &str = "Esc: cancel the slot";
@@ -66,6 +73,8 @@ pub enum Refusal {
     EllipseAxis,
     EllipseWidth,
     EllipticalArcSweep,
+    ConicEnds,
+    ConicApex,
 }
 
 impl Refusal {
@@ -113,6 +122,11 @@ impl Refusal {
                 "An ellipse needs a minor radius: click away from the line of its major axis"
             }
             Self::EllipticalArcSweep => "An elliptical arc needs its end away from its start",
+            Self::ConicEnds => "A conic needs its end away from its start",
+            Self::ConicApex => {
+                "A conic needs its apex off the line between its ends, where the tangents at its \
+                 ends meet"
+            }
         }
     }
 }
@@ -131,6 +145,7 @@ enum Shape {
     Spline(SplineMode),
     Ellipse,
     EllipticalArc,
+    Conic,
 }
 
 impl Shape {
@@ -157,6 +172,7 @@ impl Shape {
             Tool::TangentArc => Some(Self::TangentArc),
             Tool::Ellipse => Some(Self::Ellipse),
             Tool::EllipticalArc => Some(Self::EllipticalArc),
+            Tool::Conic => Some(Self::Conic),
             Tool::Select
             | Tool::Trim
             | Tool::Extend
@@ -187,7 +203,8 @@ impl Shape {
             | Self::ThreePointArc
             | Self::TangentArc
             | Self::Ellipse
-            | Self::EllipticalArc => None,
+            | Self::EllipticalArc
+            | Self::Conic => None,
         }
     }
 
@@ -206,6 +223,7 @@ impl Shape {
             Self::Spline(_) => "spline",
             Self::Ellipse => "ellipse",
             Self::EllipticalArc => "elliptical arc",
+            Self::Conic => "conic",
         }
     }
 
@@ -222,7 +240,8 @@ impl Shape {
             | Self::Slot(SlotMode::Ends | SlotMode::Center)
             | Self::Polygon(_)
             | Self::Spline(_)
-            | Self::Ellipse => None,
+            | Self::Ellipse
+            | Self::Conic => None,
         }
     }
 
@@ -241,7 +260,8 @@ impl Shape {
             | Self::ThreePointArc
             | Self::TangentArc
             | Self::Polygon(_)
-            | Self::Spline(_) => false,
+            | Self::Spline(_)
+            | Self::Conic => false,
         }
     }
 
@@ -270,7 +290,8 @@ impl Shape {
             | Self::Polygon(PolygonMode::Corner | PolygonMode::SideMiddle)
             | Self::Spline(_)
             | Self::Ellipse
-            | Self::EllipticalArc => false,
+            | Self::EllipticalArc
+            | Self::Conic => false,
         }
     }
 }
@@ -288,6 +309,17 @@ struct Scrub {
     from: f64,
     sides: usize,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rho(f64);
+
+impl Default for Rho {
+    fn default() -> Self {
+        Self(DEFAULT_RHO)
+    }
+}
+
+const DEFAULT_RHO: f64 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Sides(usize);
@@ -577,6 +609,7 @@ pub struct Drawing {
     chain: Vec<ChainStep>,
     chain_start: Vec<EntityId>,
     sides: Sides,
+    rho: Rho,
     scrub: Option<Scrub>,
     free: bool,
     grid: Option<f64>,
@@ -655,6 +688,7 @@ impl Drawing {
             *self = Self {
                 context,
                 sides: self.sides,
+                rho: self.rho,
                 acquired,
                 ..Self::default()
             };
@@ -865,6 +899,7 @@ impl Drawing {
         }
         let [first] = self.placed.as_slice() else {
             return match (shape, self.placed.as_slice()) {
+                (Shape::Conic, [_, _]) => Some(format!("rho {:.2}", self.rho.0)),
                 (Shape::Slot(SlotMode::Arc), [center, start, end]) => {
                     let (first, last) = arc_ends(self.counter_clockwise(), *start, *end);
                     let arc =
@@ -1122,6 +1157,21 @@ impl Drawing {
         Ok(())
     }
 
+    pub fn can_type_rho(&self) -> bool {
+        matches!(self.context, Some((_, Shape::Conic)))
+    }
+
+    pub fn set_rho(&mut self, rho: f64) -> Result<(), &'static str> {
+        if !self.can_type_rho() {
+            return Err(NOT_A_CONIC);
+        }
+        if !SplineKind::rho_is_valid(rho) {
+            return Err(RHO_OUT_OF_RANGE);
+        }
+        self.rho = Rho(rho);
+        Ok(())
+    }
+
     pub fn can_type_sides(&self) -> bool {
         self.polygon_sides().is_ok()
     }
@@ -1222,7 +1272,8 @@ impl Drawing {
                 | Shape::Slot(_)
                 | Shape::Polygon(_)
                 | Shape::Ellipse
-                | Shape::EllipticalArc => {
+                | Shape::EllipticalArc
+                | Shape::Conic => {
                     self.cancel();
                     None
                 }
@@ -1259,6 +1310,23 @@ impl Drawing {
             }
         };
         let finished = match (shape, self.placed.as_slice()) {
+            (Shape::Conic, &[start]) => {
+                apart(start, Refusal::ConicEnds)?;
+                self.placed.push(placement);
+                return Ok(None);
+            }
+            (Shape::Conic, &[start, end]) => {
+                let chord = end.position - start.position;
+                let off = chord.perp_dot(placement.position - start.position);
+                if off.abs() <= DEGENERATE_LENGTH * chord.length().max(1.0) {
+                    return Err(Refusal::ConicApex);
+                }
+                let rho = self.rho.0;
+                draft(shape.name()).map(|mut draft| {
+                    draft.conic([start, placement, end], rho);
+                    draft
+                })
+            }
             (Shape::Point, _) => draft(shape.name()).map(|mut draft| {
                 draft.point(placement);
                 draft
@@ -1557,7 +1625,8 @@ impl Drawing {
                 | Shape::Polygon(_)
                 | Shape::Spline(_)
                 | Shape::Ellipse
-                | Shape::EllipticalArc,
+                | Shape::EllipticalArc
+                | Shape::Conic,
                 _,
             ) => {
                 self.placed.push(placement);
@@ -1773,6 +1842,13 @@ impl Drawing {
                         None => vec![first, cursor],
                     });
             }
+            (Shape::Conic, &[start]) => {
+                preview.curves.push(vec![start, cursor]);
+            }
+            (Shape::Conic, &[start, end]) => match BSpline::conic(start, cursor, end, self.rho.0) {
+                Some(conic) => preview.curves.push(conic.faceted(faceting)),
+                None => preview.curves.push(vec![start, end]),
+            },
             (Shape::Ellipse | Shape::EllipticalArc, &[center]) => {
                 preview.curves.push(vec![center, cursor]);
             }
@@ -2027,6 +2103,15 @@ impl Drawing {
                 "The arc follows your sweep around the centre, a typed end the shorter way   Esc: \
                  cancel the elliptical arc",
             ),
+            (Shape::Conic, 0) => prompt("Click where the conic starts", BACK_TO_SELECT),
+            (Shape::Conic, 1) => prompt("Click where the conic ends", CANCEL_CONIC),
+            (Shape::Conic, _) => polygon_prompt(
+                format!(
+                    "Click its apex, where the tangents at its ends meet (rho {:.2})",
+                    self.rho.0
+                ),
+                CONIC_KEYS,
+            ),
             (Shape::Spline(mode), 0) if mode.passes_its_points() => {
                 prompt("Click the first point the spline passes", BACK_TO_SELECT)
             }
@@ -2237,7 +2322,8 @@ impl Drawing {
             | Shape::Slot(_)
             | Shape::Polygon(_)
             | Shape::Ellipse
-            | Shape::EllipticalArc => Vec::new(),
+            | Shape::EllipticalArc
+            | Shape::Conic => Vec::new(),
         }
     }
 }
@@ -2822,6 +2908,14 @@ impl<'a> Draft<'a> {
             center: center_point,
             start: first,
             end: last,
+        });
+    }
+
+    fn conic(&mut self, [start, apex, end]: [Placement; 3], rho: f64) {
+        let points = vec![self.point(start), self.point(apex), self.point(end)];
+        self.entity(Entity::Spline {
+            points,
+            kind: SplineKind::Conic { rho },
         });
     }
 

@@ -180,7 +180,7 @@ paths:
   several ways to draw carry a `corner_menu_button` listing them as `menu_choice`s.
 - The three arc tools share one Draw button (`sketch_toolbar::ARC_TOOLS`) showing the arc tool last
   used or chosen; each keeps its own key and command, which the button handles whichever is shown.
-  Spline, Ellipse and Elliptical arc share the Curve button (`CURVE_TOOLS`) the same way (a
+  Spline, Ellipse, Elliptical arc and Conic share the Curve button (`CURVE_TOOLS`) the same way (a
   `ToolGroup`), so the sketch bar still fits one row at 1400 points. A group's corner menu lists
   its tools, then the ways of the one shown (the spline's), and the group handles the ways'
   commands of all its tools.

@@ -160,6 +160,13 @@ paths:
   the pointer and runs the way the pointer swept round the centre (`Shape::sweeps_from`), Reverse
   the arc included. Neither has a default key (every free one is taken); the Curve button, the
   Sketch menu and the palette reach them.
+- A conic (`Tool::Conic`, in the Curve group, no default key) is its start, its end and its apex,
+  where the tangents at its ends meet (`Draft::conic`, a `SplineKind::Conic`), previewed with
+  the pointer as apex; an end on its start (`Refusal::ConicEnds`) or an apex on the line through
+  the ends (`ConicApex`) is refused. Its rho, 0.5 until set and kept while caditor runs like the
+  polygon's sides, is typed in the point field as `0.3 rho` (`typed_point::rho`, any
+  dimensionless expression with parameters, evaluated then; outside 0.01 to 0.99 refused in
+  words) and shown in the prompt and the readout.
 - A tangent arc starts on a point ending a line, arc or spline (the newest if several) and leaves
   along that curve's direction with a `Tangent`.
   Switching between the Line and Tangent arc tools with a segment started (`Drawing::sync`) keeps

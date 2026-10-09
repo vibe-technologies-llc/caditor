@@ -35,7 +35,12 @@ pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
 pub const CURVE_LABEL: &str = "Curve";
 pub const CURVE_WAYS_LABEL: &str = "Ways to draw a curve";
-pub const CURVE_TOOLS: [Tool; 3] = [Tool::Spline, Tool::Ellipse, Tool::EllipticalArc];
+pub const CURVE_TOOLS: [Tool; 4] = [
+    Tool::Spline,
+    Tool::Ellipse,
+    Tool::EllipticalArc,
+    Tool::Conic,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GroupChoice {

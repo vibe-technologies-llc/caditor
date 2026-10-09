@@ -725,6 +725,7 @@ impl Command {
                 Tool::TangentArc => "sketch.tangent_arc",
                 Tool::Ellipse => "sketch.ellipse",
                 Tool::EllipticalArc => "sketch.elliptical_arc",
+                Tool::Conic => "sketch.conic",
                 Tool::Slot => "sketch.slot",
                 Tool::Polygon => "sketch.polygon",
                 Tool::Spline => "sketch.spline",
@@ -1553,7 +1554,8 @@ fn tool_shortcut(tool: Tool) -> Option<KeyboardShortcut> {
         | Tool::CircularPattern
         | Tool::TangentCircle
         | Tool::Ellipse
-        | Tool::EllipticalArc => None,
+        | Tool::EllipticalArc
+        | Tool::Conic => None,
         Tool::Project => Some(KeyboardShortcut::new(Modifiers::ALT, Key::P)),
         Tool::Intersect => Some(KeyboardShortcut::new(Modifiers::ALT, Key::I)),
         Tool::Dimension => plain(Key::D),
