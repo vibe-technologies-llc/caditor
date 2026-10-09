@@ -81,6 +81,7 @@ fn extrusion(sketch: FeatureId, extent: ExtrudeExtent, operation: BodyOperation)
         other_bodies: Vec::new(),
         taper: None,
         wall: None,
+        direction: None,
     }))
 }
 
@@ -589,6 +590,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         }))
     };
     let lug = add(&mut model.document, "Lug", lug_kind(first));
@@ -1020,6 +1022,7 @@ fn a_hole_drawn_inside_a_chosen_region_cuts_through_the_extrusion() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let mut engine = Recompute::default();
@@ -1078,6 +1081,7 @@ fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let mut engine = Recompute::default();
@@ -1358,5 +1362,100 @@ fn a_revolve_turns_up_to_the_first_face_or_plane_through_its_axis_it_reaches() {
             .kind
             .planes_used()
             .contains(&slanted)
+    );
+}
+
+#[test]
+fn an_extrusion_runs_along_a_chosen_line_measuring_its_distance_along_it() {
+    let mut document = Document::default();
+    let mut guide = Sketch::new(Plane::XZ);
+    let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    let guide = add(&mut document, "Guide", FeatureKind::from(guide));
+    let level = add(
+        &mut document,
+        "Level",
+        datum_plane(PlaneReference::Principal(PrincipalPlane::Xy), None, 5.0),
+    );
+    let square = add(
+        &mut document,
+        "Square",
+        FeatureKind::from(rectangle(Plane::XY, (0.0, 0.0), (10.0, 10.0))),
+    );
+    let along = |extent: ExtrudeExtent, direction: AxisReference, taper: Option<Expression>| {
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: square,
+            regions: RegionChoice::All,
+            extent,
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: taper.map(Box::new),
+            wall: None,
+            direction: Some(Box::new(direction)),
+        }))
+    };
+    let line = AxisReference::Sketch {
+        sketch: guide,
+        entity: slant,
+    };
+    let leaning = add(
+        &mut document,
+        "Leaning",
+        along(
+            ExtrudeExtent::one_side(millimetres(10.0), false),
+            line.clone(),
+            None,
+        ),
+    );
+    let to_level = add(
+        &mut document,
+        "To level",
+        along(
+            one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(level)), false),
+            line.clone(),
+            None,
+        ),
+    );
+    let tapered = add(
+        &mut document,
+        "Tapered",
+        along(
+            ExtrudeExtent::one_side(millimetres(10.0), false),
+            line,
+            Some(degrees(5.0)),
+        ),
+    );
+    let flat = add(
+        &mut document,
+        "Flat",
+        along(
+            ExtrudeExtent::one_side(millimetres(10.0), false),
+            AxisReference::Principal(PrincipalAxis::X),
+            None,
+        ),
+    );
+
+    let evaluation = evaluate(&document, &mut Recompute::default());
+
+    let rise = 10.0 * std::f64::consts::FRAC_1_SQRT_2;
+    assert!((volume(&evaluation, leaning) - 100.0 * rise).abs() < 1e-6);
+    let bounds = evaluation.body(leaning).unwrap().bounding_box().unwrap();
+    assert!((bounds.max().x - (10.0 + rise)).abs() < 1e-9);
+    assert!((volume(&evaluation, to_level) - 500.0).abs() < 1e-6);
+    assert_eq!(
+        failure(&evaluation, tapered).reason,
+        "A tapered extrusion runs square to its sketch, and Tapered follows a direction."
+    );
+    assert_eq!(
+        failure(&evaluation, flat).reason,
+        "The X axis runs along the plane of Square, so the extrusion cannot follow it."
+    );
+    assert!(
+        document
+            .feature(leaning)
+            .unwrap()
+            .kind
+            .features()
+            .contains(&guide)
     );
 }

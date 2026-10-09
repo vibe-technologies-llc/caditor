@@ -7,15 +7,15 @@ use std::{
 };
 
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
-use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Ray, Vector2};
+use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Ray, Vector2, Vector3};
 use caditor_kernel::{
     AngularExtent, Axis2, BooleanError, BooleanOperation, EdgeId, EdgeName, FaceId, FaceName,
-    FaceOrigin, GeometryError, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE,
+    FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION, LinearBound, LinearExtent, MAX_SIZE,
     MAX_TAPER_DEGREES, Mesh, MeshQuality, OpenEnd, Profile, ProfileCurve, ProfileError, ReachError,
     ReferenceError, Region, RegionMesh, RegionReference, SamplingTolerance, Selection, Solid,
     StopError, SweepError, TessellationError, VertexId, VertexName, WallError, WallSide, boolean,
-    extrude_tapered, heights, next_face, resolve_regions, revolve, stop_at_body, vertex_names,
-    wall_regions,
+    extrude_along, extrude_tapered, heights, heights_along, next_face, resolve_regions, revolve,
+    stop_at_body, vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -330,6 +330,7 @@ pub struct Extrude {
     pub other_bodies: Vec<FeatureId>,
     pub taper: Option<Box<Expression>>,
     pub wall: Option<Box<Wall>>,
+    pub direction: Option<Box<AxisReference>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -453,20 +454,29 @@ impl SolidFeature {
         }
     }
 
+    pub fn direction(&self) -> Option<&AxisReference> {
+        match self {
+            Self::Extrude(extrude) => extrude.direction.as_deref(),
+            Self::Revolve(_) => None,
+        }
+    }
+
+    pub fn model_axis(&self) -> Option<&AxisReference> {
+        self.axis()
+            .and_then(RevolveAxis::model)
+            .or_else(|| self.direction())
+    }
+
     pub fn axis_line(&self) -> Option<EntityId> {
         self.axis().and_then(RevolveAxis::line)
     }
 
     pub fn axis_body(&self) -> Option<FeatureId> {
-        self.axis()
-            .and_then(RevolveAxis::model)
-            .and_then(AxisReference::body)
+        self.model_axis().and_then(AxisReference::body)
     }
 
     pub fn axis_datum(&self) -> Option<FeatureId> {
-        self.axis()
-            .and_then(RevolveAxis::model)
-            .and_then(AxisReference::datum)
+        self.model_axis().and_then(AxisReference::datum)
     }
 
     pub fn start(&self) -> Option<&SolidStart> {
@@ -525,8 +535,7 @@ impl SolidFeature {
                     .flat_map(FaceAttachment::origin_features),
             )
             .chain(
-                self.axis()
-                    .and_then(RevolveAxis::model)
+                self.model_axis()
                     .into_iter()
                     .flat_map(AxisReference::origin_features),
             )
@@ -537,11 +546,7 @@ impl SolidFeature {
         self.targets()
             .into_iter()
             .filter_map(PlaneReference::frame)
-            .chain(
-                self.axis()
-                    .and_then(RevolveAxis::model)
-                    .and_then(AxisReference::frame),
-            )
+            .chain(self.model_axis().and_then(AxisReference::frame))
             .collect()
     }
 
@@ -611,7 +616,10 @@ impl SolidFeature {
                 .map(|face| size_of::<FaceAttachment>() + face.face.heap_size())
                 .sum::<usize>();
         let axis = match self {
-            Self::Extrude(_) => 0,
+            Self::Extrude(extrude) => extrude
+                .direction
+                .as_deref()
+                .map_or(0, |axis| size_of::<AxisReference>() + axis.heap_size()),
             Self::Revolve(revolve) => match &revolve.axis {
                 RevolveAxis::Model(axis) => axis.heap_size(),
                 RevolveAxis::Sketch(_) => 0,
@@ -635,9 +643,7 @@ impl SolidFeature {
     }
 
     pub fn axis_sketch(&self) -> Option<FeatureId> {
-        self.axis()
-            .and_then(RevolveAxis::model)
-            .and_then(AxisReference::sketch)
+        self.model_axis().and_then(AxisReference::sketch)
     }
 
     pub fn features(&self) -> BTreeSet<FeatureId> {
@@ -1003,6 +1009,12 @@ pub(crate) fn evaluate(
     let tool = match solid {
         SolidFeature::Extrude(definition) => {
             let plane = started;
+            let along = match definition.direction.as_deref() {
+                Some(reference) => Some(extrusion_direction(
+                    &context, feature, inputs, &plane, reference,
+                )?),
+                None => None,
+            };
             let ends = Ends {
                 context: &context,
                 inputs,
@@ -1011,6 +1023,7 @@ pub(crate) fn evaluate(
                 plane,
                 regions: &regions,
                 stop: Cell::new(None),
+                along,
             };
             let (extent, stop) = ends.extent(&definition.extent)?;
             stopped = stop;
@@ -1018,7 +1031,22 @@ pub(crate) fn evaluate(
                 Some(angle) => taper_angle(&context, angle, inputs.parameters)?,
                 None => 0.0,
             };
-            extrude_tapered(&plane, &regions, extent, taper, raw)
+            match along {
+                Some(_) if taper != 0.0 => {
+                    return Err(context.error(
+                        format!(
+                            "A tapered extrusion runs square to its sketch, and {} follows a \
+                             direction.",
+                            feature.name
+                        ),
+                        "Set the taper to 0°, or run the extrusion square to the sketch."
+                            .to_owned(),
+                        context.own(),
+                    ));
+                }
+                Some(direction) => extrude_along(&plane, &regions, extent, direction, raw),
+                None => extrude_tapered(&plane, &regions, extent, taper, raw),
+            }
         }
         SolidFeature::Revolve(definition) => {
             let axis = match &definition.axis {
@@ -1551,6 +1579,11 @@ fn sweep_failure(context: &Context<'_>, shape: &str, error: &SweepError) -> Fail
             "Enter an angle of at most 360°.".to_owned(),
             context.own(),
         ),
+        SweepError::DirectionAlongSketch => context.error(
+            format!("The direction of the {shape} runs along the plane of {sketch}."),
+            "Choose an edge, axis or line that leaves the sketch plane.".to_owned(),
+            context.own(),
+        ),
         SweepError::EndAlongDirection => context.error(
             "An end of the extrusion runs along its direction, so the extrusion never reaches it."
                 .to_owned(),
@@ -1847,6 +1880,7 @@ struct Ends<'a> {
     plane: Plane,
     regions: &'a [Region],
     stop: Cell<Option<StopAt>>,
+    along: Option<Vector3>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1874,7 +1908,7 @@ impl Ends<'_> {
                 )?,
             ),
             ExtrudeExtent::Symmetric { distance } => {
-                LinearExtent::symmetric(self.length(distance, "distance")?)
+                LinearExtent::symmetric(self.length(distance, "distance")? * self.rise())
             }
             ExtrudeExtent::TwoSides { forward, backward } => LinearExtent::between(
                 self.bound(backward, Side::Backward)?,
@@ -1917,10 +1951,11 @@ impl Ends<'_> {
     fn bound(&self, end: &ExtrudeEnd, side: Side) -> Result<LinearBound, Failure> {
         match end {
             ExtrudeEnd::Distance(distance) => Ok(LinearBound::Offset(
-                side.sign() * self.length(distance, side.distance())?,
+                side.sign() * self.length(distance, side.distance())? * self.rise(),
             )),
             ExtrudeEnd::ThroughAll => self.through_all(side),
             ExtrudeEnd::UpToNext { offset } => {
+                self.square_only("Up to next")?;
                 let offset = self.offset(offset.as_deref(), side)?;
                 self.up_to_next(side, offset)
             }
@@ -1928,7 +1963,10 @@ impl Ends<'_> {
                 let offset = self.offset(offset.as_deref(), side)?;
                 self.up_to_face(target, side, offset)
             }
-            ExtrudeEnd::UpToSurface { face } => self.up_to_surface(face, side),
+            ExtrudeEnd::UpToSurface { face } => {
+                self.square_only("An end up to a curved face")?;
+                self.up_to_surface(face, side)
+            }
         }
     }
 
@@ -2006,7 +2044,8 @@ impl Ends<'_> {
                 format!("Enter another {}.", side.offset()),
             )
         })?;
-        let found = heights(&self.plane, self.regions, &moved)
+        let found = self
+            .heights(&moved)
             .map_err(|error| sweep_failure(self.context, "extrusion", &error))?;
         let least = if side.reversed() {
             -found.most
@@ -2242,8 +2281,30 @@ impl Ends<'_> {
         )
     }
 
+    fn heights(&self, target: &Plane) -> Result<Heights, SweepError> {
+        match self.along {
+            Some(direction) => heights_along(&self.plane, self.regions, target, direction),
+            None => heights(&self.plane, self.regions, target),
+        }
+    }
+
+    fn rise(&self) -> f64 {
+        self.along
+            .map_or(1.0, |direction| direction.dot(self.plane.normal()))
+    }
+
+    fn square_only(&self, end: &str) -> Result<(), Failure> {
+        if self.along.is_none() {
+            return Ok(());
+        }
+        Err(self.error(
+            format!("{end} runs square to the sketch, so it cannot follow a direction."),
+            "Run the extrusion square to the sketch, or use Up to face or a distance.".to_owned(),
+        ))
+    }
+
     fn check_ahead(&self, target: Plane, side: Side, name: &str) -> Result<(), Failure> {
-        let found = heights(&self.plane, self.regions, &target).map_err(|error| match error {
+        let found = self.heights(&target).map_err(|error| match error {
             SweepError::EndAlongDirection => self.error(
                 format!(
                     "{} runs along the direction of the extrusion, so the extrusion never \
@@ -2535,6 +2596,36 @@ fn angular_extent(
         }
     };
     built.map_err(|error| sweep_failure(context, "revolution", &error))
+}
+
+fn extrusion_direction(
+    context: &Context<'_>,
+    feature: &Feature,
+    inputs: &Inputs<'_>,
+    plane: &Plane,
+    reference: &AxisReference,
+) -> Result<Vector3, Failure> {
+    let axis = Resolver { feature, inputs }.axis(reference)?;
+    let normal = plane.normal();
+    let direction = axis.direction().normalize();
+    if tolerance::perpendicular(direction, normal) {
+        return Err(context.error(
+            format!(
+                "{} runs along the plane of {}, so the extrusion cannot follow it.",
+                capitalized(&describe_axis(inputs.document, reference)),
+                context.sketch_name
+            ),
+            "Choose an edge, axis or line that leaves the sketch plane, or run the extrusion \
+             square to the sketch."
+                .to_owned(),
+            context.own(),
+        ));
+    }
+    Ok(if direction.dot(normal) < 0.0 {
+        -direction
+    } else {
+        direction
+    })
 }
 
 fn model_axis(

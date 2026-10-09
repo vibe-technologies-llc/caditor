@@ -9694,6 +9694,7 @@ fn a_fillet_lists_an_edge_split_by_an_earlier_cut_as_its_pieces() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     transaction.edit(Edit::MoveFeature {
@@ -9744,6 +9745,7 @@ fn add_peg(harness: &mut Harness) -> FeatureId {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -9822,6 +9824,7 @@ fn add_post(harness: &mut Harness) -> FeatureId {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -9924,6 +9927,7 @@ fn combine_nearly_touching_blocks(harness: &mut Harness) -> FeatureId {
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             })),
         ));
     }
@@ -13968,6 +13972,49 @@ fn a_revolve_turns_up_to_a_plane_through_its_axis_chosen_in_its_panel() {
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 
+#[test]
+fn an_extrusion_runs_along_a_selected_sketch_line_chosen_in_its_panel() {
+    let mut harness = Harness::new();
+    let mut guide = Sketch::new(Plane::XZ);
+    let slant = guide.add_line(Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    let guide = harness.add_sketch(guide);
+    let mut square = Sketch::new(Plane::XY);
+    rectangle(&mut square, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    harness.add_sketch(square);
+    harness.select([]);
+    harness.click("Extrude");
+    harness.settle();
+    let leaning = open_solid(&harness);
+
+    harness.select([Pickable::SketchEntity {
+        feature: guide,
+        entity: slant,
+    }]);
+    choose(
+        &mut harness,
+        crate::solid_panel::SQUARE,
+        crate::solid_panel::ALONG,
+    );
+    let direction = match harness.solid(leaning) {
+        SolidFeature::Extrude(extrude) => extrude.direction.clone(),
+        SolidFeature::Revolve(_) => panic!("expected an extrusion"),
+    };
+    let volume = harness.body_volume(leaning);
+    let named = harness.shows("Along");
+
+    assert_eq!(
+        direction.as_deref(),
+        Some(&caditor_document::AxisReference::Sketch {
+            sketch: guide,
+            entity: slant
+        })
+    );
+    let rise = 10.0 * std::f64::consts::FRAC_1_SQRT_2;
+    assert!((volume - 100.0 * rise).abs() < 0.01 * volume, "{volume}");
+    assert!(named);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
 fn extent_of(harness: &Harness, feature: FeatureId) -> ExtrudeExtent {
     match harness.solid(feature) {
         SolidFeature::Extrude(extrude) => extrude.extent.clone(),
@@ -16943,6 +16990,7 @@ fn add_block(harness: &mut Harness, name: &str, corners: [Point2; 2], height: &s
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     harness.perform(Action::Apply(transaction.finish()));
@@ -18326,6 +18374,7 @@ fn chosen_plate() -> (Document, FeatureId, FeatureId) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

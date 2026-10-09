@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Aabb2, Plane, Point2};
+use caditor_geometry::{Aabb2, Plane, Point2, Vector3};
 use thiserror::Error;
 
 use crate::{
@@ -34,6 +34,21 @@ pub struct Heights {
 
 pub fn heights(plane: &Plane, regions: &[Region], target: &Plane) -> Result<Heights, SweepError> {
     let level = Level::of(plane, LinearBound::Plane(*target))?;
+    let (least, most) = span(&level, regions).ok_or(SweepError::NoRegions)?;
+    Ok(Heights { least, most })
+}
+
+pub fn heights_along(
+    plane: &Plane,
+    regions: &[Region],
+    target: &Plane,
+    direction: Vector3,
+) -> Result<Heights, SweepError> {
+    let rise = direction.dot(plane.normal());
+    if !rise.is_finite() || rise.abs() <= LINEAR_RESOLUTION * direction.length() {
+        return Err(SweepError::DirectionAlongSketch);
+    }
+    let level = Level::along(plane, direction / rise, LinearBound::Plane(*target))?;
     let (least, most) = span(&level, regions).ok_or(SweepError::NoRegions)?;
     Ok(Heights { least, most })
 }

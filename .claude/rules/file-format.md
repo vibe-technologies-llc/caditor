@@ -316,6 +316,9 @@ paths:
   would fail on the crossing profile or turn both sides; an inner record that is no revolve loads
   turning the whole profile, reported. `cut_several` wraps it when the revolve also cuts other
   bodies.
+- An extrusion running along an edge, axis or sketch line is an `extrude_along` record: `feature`,
+  the record it would be running square (any extrusion record, wrappers included) and
+  `direction`, an axis reference; an unreadable one loads running square, reported.
 - A revolve turning up to a face or plane is a `revolve_up_to` record: `feature`, the record it
   would be turning a full turn (any revolve record, wrappers included), `target` (a plane
   reference) and `reversed` only when set; an unreadable target loads as a full turn, reported.

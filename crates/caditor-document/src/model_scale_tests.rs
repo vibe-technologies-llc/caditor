@@ -101,6 +101,7 @@ fn model() -> Model {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let datum = transaction.add_feature(

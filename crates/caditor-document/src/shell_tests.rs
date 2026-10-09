@@ -83,6 +83,7 @@ fn model() -> Model {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -279,6 +280,7 @@ fn a_corner_whose_walls_cannot_meet_is_named_by_its_faces() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         }))
     };
     let length = transaction.parse("20 mm").unwrap();

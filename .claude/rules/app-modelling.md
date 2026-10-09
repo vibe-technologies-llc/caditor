@@ -199,6 +199,10 @@ paths:
   An end Up to next or Up to face has an offset field below it (`solid_panel::END_OFFSET`, Past
   the face, and Forward or Backward past face; key `<side>-offset`; any sign, negative stopping
   short, zero clearing it), kept when the end switches between the two or takes another face.
+- An extrusion's panel has a Direction row (`solid_panel::SQUARE`, `ALONG`): Along an edge or
+  axis takes the one selected edge, axis, round face or sketch line (`datum_tools::only_axis`),
+  else chooses one in the view (`Slot::ExtrudeDirection`), shown as Along with a button going
+  back to square; an extrusion along a direction has no reach arrows.
 - An extrusion's and a revolve's panel ends with a Start row (`solid_panel::start_rows`): the sketch
   plane with a Start offset field (key `start`, zero clears it), or Face or plane, taken like an
   end (`solid_panel::start_change`, slot `Slot::StartPlane`) and shown as Starts at with a button
@@ -218,7 +222,8 @@ paths:
   holds both kinds behind `Manipulator` and `Manipulating`): in steps (Ctrl drags freely),
   previewed with the distance beside the pointer, committed on release as one edit setting that
   distance to a measured value of at least one step. The arrows follow a typed distance's preview
-  (`Model::draft_kind`); an extrusion starting at a face or plane has none.
+  (`Model::draft_kind`); an extrusion starting at a face or plane, or running along a direction,
+  has none.
 - A revolve can also take two angles, refusing a pair that turns more than a full turn, or turn
   Up to face (`solid_panel::TURN_UP_TO`): the selected flat face or plane, taken like an
   extrusion's end, else choosing one in the view (`Slot::RevolveTarget`), shown as Up to with

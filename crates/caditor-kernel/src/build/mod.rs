@@ -14,8 +14,11 @@ use caditor_geometry::{Plane, Point2, Vector2, Vector3};
 use thiserror::Error;
 
 pub use self::{
-    extrude::extrude,
-    reach::{Heights, NextFace, ReachError, StopError, Stopped, heights, next_face, stop_at_body},
+    extrude::{extrude, extrude_along},
+    reach::{
+        Heights, NextFace, ReachError, StopError, Stopped, heights, heights_along, next_face,
+        stop_at_body,
+    },
     revolve::revolve,
     taper::{MAX_TAPER_DEGREES, extrude_tapered},
 };
@@ -72,6 +75,8 @@ pub enum SweepError {
     TooLong,
     #[error("an end plane of the extrusion runs along its direction")]
     EndAlongDirection,
+    #[error("the direction of the extrusion runs along its sketch")]
+    DirectionAlongSketch,
     #[error("the end planes of the extrusion meet or cross within the profile")]
     EndsCross,
     #[error("the revolution has no angle")]
@@ -132,6 +137,7 @@ impl SweepError {
             | Self::ZeroLength
             | Self::TooLong
             | Self::EndAlongDirection
+            | Self::DirectionAlongSketch
             | Self::EndsCross
             | Self::ZeroAngle
             | Self::BeyondFullTurn

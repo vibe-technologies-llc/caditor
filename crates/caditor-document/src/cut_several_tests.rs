@@ -30,6 +30,7 @@ fn cut_through_both(pair: &mut Pair, end: ExtrudeEnd, operation: BodyOperation) 
             other_bodies: vec![pair.peg],
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     pair.document.apply(transaction.finish()).unwrap();
@@ -120,6 +121,7 @@ fn a_cut_listing_its_target_twice_cuts_it_once() {
             other_bodies: vec![pair.plate, pair.peg, pair.peg],
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     pair.document.apply(transaction.finish()).unwrap();

@@ -32,6 +32,7 @@ pub enum Slot {
     StartPlane,
     HoleTarget,
     RevolveTarget,
+    ExtrudeDirection,
     MirrorPlane,
     SplitPlane,
     PatternDirection,
@@ -130,6 +131,9 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         }
         Slot::ExtrudeTarget(_) => "Click a face or plane to extrude up to".to_owned(),
         Slot::HoleTarget => "Click a flat face or plane to drill up to".to_owned(),
+        Slot::ExtrudeDirection => "Click a straight edge, an axis or a sketch line to extrude \
+                                    along"
+            .to_owned(),
         Slot::RevolveTarget => {
             "Click a flat face or plane through the axis to turn up to".to_owned()
         }
@@ -222,6 +226,9 @@ pub fn change(
         }
         (Slot::StartPlane, FeatureKind::Solid(solid)) => {
             solid_panel::start_change(model, selection, feature, solid)
+        }
+        (Slot::ExtrudeDirection, FeatureKind::Solid(SolidFeature::Extrude(extrude))) => {
+            solid_panel::direction_change(model, selection, feature, extrude)
         }
         (Slot::RevolveTarget, FeatureKind::Solid(SolidFeature::Revolve(revolve))) => {
             solid_panel::revolve_target_change(model, selection, feature, revolve)

@@ -118,6 +118,7 @@ fn block() -> Block {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -485,6 +486,7 @@ fn a_revolve_axis_is_shown_where_the_revolve_found_it() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let evaluation = evaluate(&document, &mut Recompute::default());

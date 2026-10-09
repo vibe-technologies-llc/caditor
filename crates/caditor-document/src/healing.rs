@@ -380,6 +380,9 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
             if let Some(SolidStart::Plane(target)) = &mut extrude.start {
                 visit_plane(target, "the face it starts from", visitor);
             }
+            if let Some(direction) = extrude.direction.as_deref_mut() {
+                visit_axis(direction, "direction", visitor);
+            }
         }
         SolidFeature::Revolve(revolve) => {
             visitor.regions(revolve.sketch, &mut revolve.regions);

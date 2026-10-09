@@ -2120,6 +2120,7 @@ fn solid_model() -> (Document, FeatureId, FeatureId) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let turned = transaction.add_feature(
@@ -2174,6 +2175,7 @@ fn a_cut_through_several_bodies_is_saved_as_its_own_record_kind_and_loaded() {
             other_bodies,
             taper: None,
             wall: None,
+            direction: None,
         }))
     };
     let second = transaction.add_feature("Second", extrusion(BodyOperation::NewBody, Vec::new()));
@@ -5122,6 +5124,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         }))
     };
     let through = transaction.add_feature(
@@ -5199,6 +5202,59 @@ fn extents_to_faces_planes_and_the_next_face_and_two_angles_are_saved_and_loaded
         let record = through_binary(&text);
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
+}
+
+#[test]
+fn an_extrusion_along_an_axis_is_a_kind_older_readers_report() {
+    use caditor_document::{
+        AxisReference, BodyOperation, Extrude, ExtrudeExtent, PrincipalAxis, RegionChoice,
+        SolidFeature,
+    };
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let sketch = transaction.add_feature("Outline", FeatureKind::from(Sketch::new(Plane::XY)));
+    let leaning = transaction.add_feature(
+        "Leaning",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(transaction.parse("10 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: Some(Box::new(AxisReference::Principal(PrincipalAxis::Z))),
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("extrude_along", "extrude_alonk"));
+    let damaged = decode_text(&text.replacen("\"direction\":{", "\"direction\":{\"x\":0,", 1));
+
+    assert!(text.contains("\"extrude_along\":{\"direction\":"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(leaning).is_none());
+    assert!(!older.issues.is_empty());
+    let Some(FeatureKind::Solid(SolidFeature::Extrude(restored))) = damaged
+        .document
+        .feature(leaning)
+        .map(|feature| &feature.kind)
+    else {
+        panic!("the extrusion was not loaded");
+    };
+    assert!(restored.direction.is_none());
+    assert_eq!(damaged.issues.len(), 1, "{:?}", damaged.issues);
+    let kind = document.feature(leaning).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: leaning, kind });
+    let journaled = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert_eq!(
+        format::restore_transaction(through_binary(&journaled)),
+        Some(transaction)
+    );
 }
 
 #[test]
@@ -5282,6 +5338,7 @@ fn ends_up_to_curved_faces_are_a_kind_older_readers_report() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -5333,6 +5390,7 @@ fn ends_offset_from_the_faces_they_reach_are_a_kind_older_readers_report() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         }))
     };
     let short = ExtrudeEnd::up_to_face(PlaneReference::Datum(level))
@@ -5416,6 +5474,7 @@ fn starts_model() -> (Document, [FeatureId; 3]) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let lifted = transaction.add_feature(
@@ -5563,6 +5622,7 @@ fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
                 thickness: transaction.parse("1.5 mm").unwrap(),
                 side: WallSide::Outside,
             })),
+            direction: None,
         })),
     );
     let cup = transaction.add_feature(
@@ -5593,6 +5653,7 @@ fn a_tapered_or_thin_walled_extrusion_is_a_kind_older_readers_report() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -5840,6 +5901,7 @@ fn fillet_saved_before_origins() -> (Document, FeatureId) {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();
@@ -6144,6 +6206,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             },
         )),
     );
@@ -6164,6 +6227,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             },
         )),
     );
@@ -6182,6 +6246,7 @@ fn an_extrusions_start_offset_is_saved_for_both_kinds_of_ends_and_older_files_ha
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             },
         )),
     );
@@ -6232,6 +6297,7 @@ fn combines_are_saved_and_loaded() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let combine = transaction.add_feature(
@@ -6279,6 +6345,7 @@ fn a_combine_with_several_tools_or_a_kept_tool_is_a_kind_older_readers_report_an
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             })),
         )
     };

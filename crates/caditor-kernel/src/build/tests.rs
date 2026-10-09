@@ -1484,3 +1484,50 @@ fn a_sweep_passing_beside_a_curved_body_or_starting_half_inside_it_does_not_stop
     assert_eq!(beside, Err(StopError::PassesBeside));
     assert_eq!(half_inside, Err(StopError::Straddles));
 }
+
+#[test]
+fn an_extrusion_along_a_slanted_direction_keeps_its_volume_and_shifts_its_end() {
+    let square = regions(&rectangle(1, (0.0, 0.0), (10.0, 10.0)));
+    let disc = regions(&[circle(1, (0.0, 0.0), 5.0)]);
+    let slant = Vector3::new(1.0, 0.0, 1.0);
+
+    let leaning = extrude_along(&Plane::XY, &square, one_side(10.0), slant, FEATURE).unwrap();
+    let rod = extrude_along(
+        &Plane::XY,
+        &disc,
+        one_side(8.0),
+        Vector3::new(0.0, 1.0, 2.0),
+        FEATURE,
+    )
+    .unwrap();
+    let roof = Plane::with_x_axis(
+        Point3::new(0.0, 0.0, 5.0),
+        Vector3::new(-0.25, 0.0, 1.0),
+        Vector3::X,
+    )
+    .unwrap();
+    let up_to_roof = extrude_along(
+        &Plane::XY,
+        &square,
+        LinearExtent::between(LinearBound::Offset(0.0), LinearBound::Plane(roof)).unwrap(),
+        slant,
+        FEATURE,
+    )
+    .unwrap();
+    let flat = extrude_along(&Plane::XY, &square, one_side(10.0), Vector3::X, FEATURE);
+
+    leaning.validate().unwrap();
+    let volume = fine_mesh(&leaning).mass_properties().volume;
+    assert!((volume - 1_000.0).abs() < 1e-6, "{volume}");
+    let bounds = leaning.bounding_box().unwrap();
+    assert!((bounds.max().x - 20.0).abs() < 1e-9 && (bounds.max().z - 10.0).abs() < 1e-9);
+    rod.validate().unwrap();
+    let volume = fine_mesh(&rod).mass_properties().volume;
+    let expected = 25.0 * std::f64::consts::PI * 8.0;
+    assert!((volume - expected).abs() < 1e-3 * expected, "{volume}");
+    up_to_roof.validate().unwrap();
+    let volume = fine_mesh(&up_to_roof).mass_properties().volume;
+    let expected = 10.0 * (50.0 + 12.5) / 0.75;
+    assert!((volume - expected).abs() < 1e-6 * expected, "{volume}");
+    assert_eq!(flat, Err(SweepError::DirectionAlongSketch));
+}

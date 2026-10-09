@@ -778,6 +778,7 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
             ends.into_iter()
                 .filter_map(end_anchor)
                 .chain(start_anchor(extrude.start.as_ref()))
+                .chain(extrude.direction.as_deref().and_then(axis_anchor))
                 .collect()
         }
         FeatureKind::Solid(SolidFeature::Revolve(revolve)) => {

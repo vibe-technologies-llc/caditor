@@ -50,6 +50,7 @@ fn extrude(sketch: FeatureId, height: Expression) -> FeatureKind {
         other_bodies: Vec::new(),
         taper: None,
         wall: None,
+        direction: None,
     }))
 }
 

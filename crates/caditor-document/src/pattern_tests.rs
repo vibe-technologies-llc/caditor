@@ -91,6 +91,7 @@ fn model(kind: impl FnOnce(ParameterId) -> PatternKind) -> Model {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     let pattern = transaction.add_feature(
@@ -621,6 +622,7 @@ pub(crate) fn extrusion(sketch: FeatureId, height: &str, operation: BodyOperatio
         other_bodies: Vec::new(),
         taper: None,
         wall: None,
+        direction: None,
     }))
 }
 

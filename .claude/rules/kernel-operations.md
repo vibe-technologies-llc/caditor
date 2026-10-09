@@ -37,6 +37,13 @@ paths:
   have at a distance, so switching an end between a distance and a plane renames nothing.
 - A plane along the direction is `EndAlongDirection`, ends that meet or cross within the profile
   `EndsCross`, a height past `MAX_SIZE` `TooLong`.
+- `extrude_along(plane, regions, extent, direction, feature)` sweeps the same way along a slanted
+  direction: heights and offsets stay measured square to the sketch, each point moving by the
+  direction scaled to rise one unit per unit of height, so caps are the profile shifted and
+  `heights_along` gives a target plane's heights the same way. A line's side is the plane through
+  it and the direction; a circle's, ellipse's or spline's an `Extrusion` along the direction
+  (mapped pcurves stretched by the direction's length per unit of height; a square circle keeps
+  its `Cylinder`). A direction in the sketch plane is `DirectionAlongSketch`.
 - A profile on the right of the revolution axis is revolved about the reversed axis. Lines on the
   axis become shared cap edges or nothing, endpoints on it poles; a full turn has no caps (holes
   become void shells).

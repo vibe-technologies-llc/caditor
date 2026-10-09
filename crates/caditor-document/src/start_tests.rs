@@ -52,6 +52,7 @@ fn extrusion(sketch: FeatureId, start: Option<SolidStart>) -> FeatureKind {
         other_bodies: Vec::new(),
         taper: None,
         wall: None,
+        direction: None,
     }))
 }
 
@@ -148,6 +149,7 @@ fn an_extrusion_starting_from_a_face_follows_the_face_when_its_body_changes() {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     document.apply(transaction.finish()).unwrap();

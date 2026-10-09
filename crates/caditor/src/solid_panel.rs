@@ -1,7 +1,8 @@
 use caditor_document::{
     AxisReference, AxisSide, BodyOperation, Document, Extrude, ExtrudeEnd, ExtrudeExtent, Feature,
     FeatureId, PlaneReference, RegionChoice, Revolve, RevolveAxis, RevolveExtent, SolidFeature,
-    SolidStart, Transaction, Wall, capitalized, describe_origin, describe_plane, displayed_axis,
+    SolidStart, Transaction, Wall, capitalized, describe_axis, describe_origin, describe_plane,
+    displayed_axis,
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_geometry::Point2;
@@ -41,6 +42,10 @@ const FORWARD_END_OFFSET: &str = "Forward past face";
 const BACKWARD_END_OFFSET: &str = "Backward past face";
 pub const TAPER: &str = "Taper";
 pub const TURN_UP_TO: &str = "Up to face";
+pub const SQUARE: &str = "Square to the sketch";
+pub const ALONG: &str = "Along an edge or axis";
+const NO_DIRECTION_SELECTED: &str =
+    "Select a straight edge, an axis or a sketch line made before this feature";
 pub const THIN_WALL: &str = "Thin wall";
 pub const WALL_THICKNESS: &str = "Thickness";
 const FILL_SOLID: &str = "Fill the closed regions of the sketch";
@@ -529,7 +534,76 @@ impl Panel<'_> {
                 });
             }
         }
+        self.direction_rows(ui, extrude);
         self.start_rows(ui, extrude.start.as_ref());
+    }
+
+    fn direction_rows(&mut self, ui: &mut Ui, extrude: &Extrude) {
+        let id = self.id();
+        let along = extrude.direction.as_deref();
+        widgets::caption(ui, "Direction");
+        self.combo(
+            ui,
+            "direction",
+            if along.is_some() { ALONG } else { SQUARE },
+            |panel| {
+                let square = Choice {
+                    label: SQUARE.to_owned(),
+                    selected: along.is_none(),
+                    change: panel
+                        .change(SolidFeature::Extrude(Extrude {
+                            direction: None,
+                            ..extrude.clone()
+                        }))
+                        .map(Action::Apply),
+                };
+                let chosen = Choice {
+                    label: ALONG.to_owned(),
+                    selected: along.is_some(),
+                    change: match direction_change(panel.model, panel.selection, id, extrude) {
+                        Ok(transaction) => Ok(Action::Apply(transaction)),
+                        Err(_) => Ok(Action::Editing(EditingCommand::Pick(Picking::new(
+                            id,
+                            Slot::ExtrudeDirection,
+                        )))),
+                    },
+                };
+                vec![square, chosen]
+            },
+        );
+        ui.end_row();
+        let shown = match along {
+            Some(axis) => Shown::Named(capitalized(&describe_axis(self.document(), axis))),
+            None if self.picking(ui, Slot::ExtrudeDirection) => Shown::NoneChosen,
+            None => return,
+        };
+        let picker = Picker {
+            feature: id,
+            slot: Slot::ExtrudeDirection,
+            selected: feature_fields::offered_change(
+                ui.ctx(),
+                self.model,
+                self.selection,
+                (id, Slot::ExtrudeDirection),
+                || direction_change(self.model, self.selection, id, extrude),
+            ),
+            hover: "Run along the selected edge, axis or line instead",
+        };
+        let removed = feature_fields::reference_row(
+            ui,
+            self.model,
+            "Along",
+            shown,
+            picker,
+            along.map(|_| "Run square to the sketch again"),
+            self.actions,
+        );
+        if removed {
+            self.apply(SolidFeature::Extrude(Extrude {
+                direction: None,
+                ..extrude.clone()
+            }));
+        }
     }
 
     fn taper_row(&mut self, ui: &mut Ui, extrude: &Extrude) {
@@ -1376,6 +1450,28 @@ pub fn up_to_selected_change(
         return Err("The extrusion already runs up to the selected face or plane".to_owned());
     }
     change(model, feature, with_extent_of(extrude, extent))
+}
+
+pub fn direction_change(
+    model: &Model,
+    selection: &Selection,
+    feature: FeatureId,
+    extrude: &Extrude,
+) -> Result<Transaction, String> {
+    let index = model.document().feature_index(feature).unwrap_or(0);
+    let axis = datum_tools::only_axis(model, selection, index)?
+        .ok_or_else(|| NO_DIRECTION_SELECTED.to_owned())?;
+    if extrude.direction.as_deref() == Some(&axis) {
+        return Err("The extrusion already runs along the selected edge or axis".to_owned());
+    }
+    change(
+        model,
+        feature,
+        SolidFeature::Extrude(Extrude {
+            direction: Some(Box::new(axis)),
+            ..extrude.clone()
+        }),
+    )
 }
 
 pub fn revolve_target_change(

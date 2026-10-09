@@ -315,6 +315,13 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `REVOLUTION_AXIS_ENTITY`, worded "the revolution axis"), the regions whose anchor lies on that
   side inside a chosen region are selected as one, and they are revolved, so a profile crossing
   the axis or lying on both sides turns, and a side holding nothing fails in words.
+- An `Extrude`'s optional `direction` (a boxed `AxisReference`: an edge, an axis, a round face's
+  axis or a sketch line) runs it along that line instead of square to its sketch (kernel
+  `extrude_along`), the way that leaves the sketch on its forward side; a direction in the sketch
+  plane fails naming it. Distances are measured along the direction, while up-to planes, their
+  offsets and through all keep working by height; up to next, a curved face and a taper run
+  square only and fail in words. The axis's body, datum, frame and sketch count as used like a
+  revolve's model axis (`SolidFeature::model_axis`), and healing keeps it.
 - An `Extrude`'s optional `taper` (an angle, boxed with the wall to keep `FeatureKind` small) goes
   to the kernel's `extrude_tapered`; at or past `MAX_TAPER_DEGREES` it fails before the kernel, and
   every taper refusal (a spline, a slanted end, the profile closing) names the extrusion and says

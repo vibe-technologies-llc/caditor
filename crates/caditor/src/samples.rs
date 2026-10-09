@@ -151,6 +151,7 @@ fn extrude(sketch: FeatureId, extent: ExtrudeExtent) -> FeatureKind {
         other_bodies: Vec::new(),
         taper: None,
         wall: None,
+        direction: None,
     }))
 }
 
@@ -328,6 +329,7 @@ fn bracket(transaction: &mut TransactionBuilder<'_>) -> Result<()> {
             other_bodies: Vec::new(),
             taper: None,
             wall: None,
+            direction: None,
         })),
     );
     Ok(())

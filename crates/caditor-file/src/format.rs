@@ -243,6 +243,7 @@ pub(crate) enum FeatureKindRecord {
     HoleUpTo(Box<HoleUpToRecord>),
     SurfaceEnds(Box<SurfaceEndsRecord>),
     RevolveUpTo(Box<RevolveUpToRecord>),
+    ExtrudeAlong(Box<ExtrudeAlongRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -482,6 +483,12 @@ pub(crate) struct ShapedSweepRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ExtrudeAlongRecord {
+    pub feature: FeatureKindRecord,
+    pub direction: Lenient<AxisReferenceRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct RevolveUpToRecord {
     pub feature: FeatureKindRecord,
     pub target: Lenient<PlaneReferenceRecord>,
@@ -530,7 +537,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 59] = [
+pub(crate) const FEATURE_KINDS: [&str; 60] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -590,6 +597,7 @@ pub(crate) const FEATURE_KINDS: [&str; 59] = [
     "hole_up_to",
     "surface_ends",
     "revolve_up_to",
+    "extrude_along",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1843,6 +1851,18 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             feature: feature_kind_record(&FeatureKind::Combine(alone)),
             more_tools: combine.more_tools.iter().map(|tool| tool.raw()).collect(),
             keep_tool: combine.keep_tool,
+        }));
+    }
+    if let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = kind
+        && let Some(direction) = extrude.direction.as_deref()
+    {
+        let square = Extrude {
+            direction: None,
+            ..extrude.clone()
+        };
+        return FeatureKindRecord::ExtrudeAlong(Box::new(ExtrudeAlongRecord {
+            feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(square))),
+            direction: Lenient::Read(axis_record(direction)),
         }));
     }
     if let FeatureKind::Solid(SolidFeature::Revolve(revolve)) = kind
@@ -4216,6 +4236,27 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::ExtrudeAlong(along) => {
+            let mut kind = restore_kind(&along.feature, name, texts, issues);
+            let direction = match &along.direction {
+                Lenient::Read(direction) => restore_axis(direction),
+                Lenient::Unreadable(_) => None,
+            };
+            match (&mut kind, direction) {
+                (FeatureKind::Solid(SolidFeature::Extrude(extrude)), Some(direction)) => {
+                    extrude.direction = Some(Box::new(direction));
+                }
+                (FeatureKind::Solid(SolidFeature::Extrude(_)), None) => issues.push(format!(
+                    "The edge or axis that “{name}” runs along could not be read, so it runs \
+                     square to its sketch."
+                )),
+                _ => issues.push(format!(
+                    "“{name}” was to run along an edge or axis, but it is not an extrusion, so \
+                     that was left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::RevolveUpTo(up_to) => {
             let mut kind = restore_kind(&up_to.feature, name, texts, issues);
             let target = match &up_to.target {
@@ -4350,6 +4391,7 @@ fn restore_kind(
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             }))
         }
         FeatureKindRecord::ExtrudeTo(extrude) => {
@@ -4389,6 +4431,7 @@ fn restore_kind(
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             }))
         }
         FeatureKindRecord::ExtrudeFrom(extrude) => {
@@ -4431,6 +4474,7 @@ fn restore_kind(
                 other_bodies: Vec::new(),
                 taper: None,
                 wall: None,
+                direction: None,
             }))
         }
         FeatureKindRecord::RevolveFrom(revolve) => {
