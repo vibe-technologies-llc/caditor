@@ -28,13 +28,14 @@ const ARROWS: [PlaceGrip; 2] = [PlaceGrip::AlongX, PlaceGrip::AlongY];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Subject {
     Hole,
+    Curved,
     Primitive,
 }
 
 impl Subject {
     fn noun(self) -> &'static str {
         match self {
-            Self::Hole => "the hole",
+            Self::Hole | Self::Curved => "the hole",
             Self::Primitive => "the shape",
         }
     }
@@ -115,7 +116,18 @@ impl PlaceHandles {
         let document = model.document();
         let (subject, plane, at) = if let Some(hole) = committed_hole(document, feature) {
             if hole_on_curve::mount(document, hole).is_some() {
-                return None;
+                let evaluation = model
+                    .draft_evaluation_of(feature)
+                    .unwrap_or_else(|| model.evaluation());
+                let plane = scene::sketch_plane(document, evaluation, hole.sketch)?;
+                return Self::placed(
+                    view,
+                    pixels_per_point,
+                    feature,
+                    Subject::Curved,
+                    plane,
+                    Point2::ZERO,
+                );
             }
             let lone = hole_tools::lone_point(document, hole)?;
             let plane = scene::sketch_plane(document, model.evaluation(), hole.sketch)?;
@@ -127,6 +139,17 @@ impl PlaceHandles {
             let at = primitive_at(model, feature, primitive)?;
             (Subject::Primitive, plane, at)
         };
+        Self::placed(view, pixels_per_point, feature, subject, plane, at)
+    }
+
+    fn placed(
+        view: &View,
+        pixels_per_point: f64,
+        feature: FeatureId,
+        subject: Subject,
+        plane: Plane,
+        at: Point2,
+    ) -> Option<Self> {
         let centre = plane.to_world(at);
         let depth = view.view_depth(centre);
         let per_point = pixels_per_point * view.units_per_pixel_at(depth);
@@ -190,7 +213,7 @@ impl PlaceHandles {
         };
         let document = model.document();
         let primitive = match self.subject {
-            Subject::Hole => return None,
+            Subject::Hole | Subject::Curved => return None,
             Subject::Primitive => committed_primitive(document, self.feature)?,
         };
         axes(grip)
@@ -200,7 +223,9 @@ impl PlaceHandles {
 
     pub fn words(&self, handle: Handle) -> String {
         match handle {
-            Handle::Place(PlaceGrip::OnPlane) if self.subject == Subject::Hole => {
+            Handle::Place(PlaceGrip::OnPlane)
+                if matches!(self.subject, Subject::Hole | Subject::Curved) =>
+            {
                 "Drag to move the hole on its face".to_owned()
             }
             Handle::Place(grip) => grip.words(self.subject.noun()),
@@ -274,6 +299,7 @@ impl PlaceHandles {
 #[derive(Debug, Clone, PartialEq)]
 enum Start {
     Hole(Hole),
+    Curved(Hole),
     Primitive(Primitive),
 }
 
@@ -297,6 +323,10 @@ impl PlaceDrag {
                 let from = hole_tools::lone_point(document, hole)?.at;
                 (Start::Hole(hole.clone()), from)
             }
+            Subject::Curved => (
+                Start::Curved(committed_hole(document, handles.feature)?.clone()),
+                Point2::ZERO,
+            ),
             Subject::Primitive => {
                 let primitive = committed_primitive(document, handles.feature)?;
                 let from = primitive_at(model, handles.feature, primitive)?;
@@ -353,6 +383,9 @@ impl PlaceDrag {
         let document = model.document();
         match &self.start {
             Start::Hole(hole) => hole_tools::moved(document, feature, hole, self.at).ok(),
+            Start::Curved(hole) => {
+                hole_on_curve::moved_to(model, feature, hole, self.plane.to_world(self.at)).ok()
+            }
             Start::Primitive(primitive) => {
                 let unit = model.units().length;
                 let mut moved = primitive.clone();
