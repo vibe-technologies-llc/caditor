@@ -121,9 +121,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
-- [low · easy] Intersect takes faces, bodies and datum planes but not the principal planes, which
-  are not drawn while a sketch is edited; a sketch on a tilted datum cannot draw where the XY
-  plane crosses it.
 - [medium · hard] Tools missing: ellipse and elliptical arc (a new entity kind across the solver,
   the kernel's 2D profile curves, which have no ellipse although its 3D curves do, and the file
   format), a conic curve (two ends and a point it passes, shaped by a rho value), a pattern of
@@ -143,7 +140,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   sketch and the kernel's 2D profile curves, and the profile must stay parametric: module, teeth
   and pressure angle are named parameters taking expressions, the pitch, base, root and tip
   circles are shown as construction geometry, and a pair of gears at a centre distance follows from
-  the same parameters. Refuse in words a tooth count that undercuts at the chosen shift.
+  the same parameters. Refuse in words a tooth count that undercuts at the chosen shift. A
+  sprocket for roller chain (ISO 606 pitch and roller diameter, tooth count) belongs in the same
+  tool.
 - [medium · hard] The centre of an outline of odd sides and a slanted track place a point without
   a constraint keeping it there, as the sketch has no centroid or point-on-a-direction constraint;
   an odd outline with arcs has no centre at all. A drag snaps only its handle (the moving point
@@ -152,6 +151,24 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
+- [medium · hard] No automatic constraining: a sketch drawn loosely or imported from DXF (which
+  only joins ends) is constrained by hand, one relation at a time. Find the relations the geometry
+  already shows within a tolerance (coincident ends, horizontal, vertical, parallel,
+  perpendicular, tangent, equal, concentric, symmetric about an axis) and add those that neither
+  restate nor contradict one in the sketch, then offer dimensions from a chosen datum point that
+  leave it fully constrained, each set previewed before it is added as one undoable change. A
+  check of the sketch would also name what the eye misses (ends a hair apart but not joined, a
+  curve lying twice on itself or another, curves of no length) and offer the fix.
+- [low · easy] Intersect takes faces, bodies and datum planes but not the principal planes, which
+  are not drawn while a sketch is edited; a sketch on a tilted datum cannot draw where the XY
+  plane crosses it.
+- [low · easy] Nothing selects what is still free: a sketch counts its remaining degrees of
+  freedom and colours its curves, but no command selects the points and curves not yet fully
+  constrained, so the one loose point of a large sketch is found by eye.
+- [low · easy] The first dimension of a sketch moves only what it measures, so a traced or
+  imported outline at the wrong size is scaled by hand first. An option to scale the whole sketch
+  about its origin when its first dimension is set, while it has no other, would size it in one
+  step.
 - [low · medium] No blend curve: a curve joining the ends of two sketch curves or edges, tangent
   (G1) or curvature-continuous (G2), as a spline held by `Tangent` and `Curvature` constraints so
   it follows when either end moves, for a transition where a fillet's circular arc is not smooth
@@ -171,6 +188,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium · blocked by: section planes ("Viewer")] No slice while sketching: the part of the
   bodies in front of the sketch plane cannot be cut away for the time of the edit, so a sketch
   inside a body is seen through its surfaces rather than on a section of it.
+- [low · hard · blocked by: vector hidden-line removal ("Technical drawings")] Project takes edges,
+  corners and the boundaries of faces, but not the outline of a body seen square to the sketch
+  plane: the silhouette lines of a cylinder lying along the plane or the circle of a sphere cannot
+  be brought in, so a sketch following a body's outline is drawn by hand.
 
 ## Modelling features
 
@@ -205,7 +226,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   plain values), so a part drawn at the wrong size or an import in the wrong unit can be fixed
   without redrawing it.
 - [medium · hard] Extrusions end only on flat faces and planes: up to face and up to next refuse a
-  curved face, and up to next needs one flat face that the whole profile meets first.
+  curved face, and up to next needs one flat face that the whole profile meets first. An end
+  cannot stop short of or past the face it reaches by an offset, nor end on a whole body (where the
+  profile last leaves it); an extrusion runs only square to its sketch, never along a chosen edge,
+  axis or sketch line; a revolve turns only by angles, never up to a face or plane; and a hole is
+  blind or through all, never up to a face or the next face it meets.
 - [medium · hard] Mass properties (volume, area, centroid, size, mass and inertia, per body and
   in total) are exact only for bodies of flat faces and straight edges and otherwise taken from
   the display mesh. Integrate exactly over the trimmed faces, as `planar_area` already does for
@@ -244,20 +269,31 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] No pattern along a curve or driven by sketch points: a pattern repeats along one
   or two axes (sketch lines included) or about one, never along a spline or arc (the copies kept
   as they are or turned to follow the curve), nor at the points of a sketch, and it repeats
-  features or whole bodies but never chosen faces.
+  features or whole bodies but never chosen faces. Every copy is the original's tool placed again,
+  never recomputed where it lands (a copy of an extrusion up to next stops where the original
+  did, not on the face it meets), and one pattern cannot chain a shift, a turn and a mirror.
 - [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
   without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
   in part can be had. It is a feature of its own, naming the faces it splits.
+- [low · easy] Primitives are a box, cylinder, sphere and torus only: no cone or frustum (two
+  diameters, either may be zero, and a height), wedge (a box whose top is shorter along one side)
+  or prism of a typed number of sides, which today each take a sketch and an extrusion or revolve.
 - [low · medium] A primitive shows a typed size only once it is entered, not while typing as a
   fillet's does (the draft preview draws only a body that stood before the feature), and a pattern
   cannot repeat a primitive adding to or cutting a body as it repeats an extrusion's tool
   (`repeatable_on`).
 - [low · medium] Expressions cannot refer to measured values or sketch dimensions, and a dimension
   or a feature's value cannot be named and listed with the parameters (Fusion's model parameters)
-  for other expressions to use.
+  for other expressions to use. Nor can a measurement be kept in the model: a named reading
+  between two references, updated on every recompute and drawn in the view, by which a clearance
+  is watched while upstream features change and which expressions could then use.
 - [low · medium] No user coordinate system: Measure, Move and the patterns read from the origin and
   the principal axes. A coordinate system placed at a point, its axes taken from edges or faces,
   would be a second origin to measure and place from.
+- [low · medium] Datums on curved faces: a plane is tangent only to a cylinder or cone, never to a
+  sphere, torus or spline face at a point; no axis stands square to a curved face at a point on
+  it; and a datum point cannot sit at the middle of an edge or the centre of a face, only at a
+  distance along an edge.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
   axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
   surfaces do not have).
@@ -288,6 +324,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Inspection and analysis
 
+- [medium · medium] Measure cannot read a sketch region: a closed profile has no area, perimeter,
+  centroid or second moments of area (about its centroid and its principal axes), which a beam
+  section, an extrusion profile or a gasket is sized by. Selected regions of a sketch should read
+  in Measure as a body's mass properties do, exact for lines and arcs.
 - [low · medium] No surface quality analyses: zebra stripes, a curvature map (Gaussian and the
   principal curvatures), isocurves with combs, and a chrome reflection of the surroundings, all
   shown on the bodies without changing the model.
@@ -322,6 +362,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 - [medium · medium] Drawing export takes one sketch at a time (several flat faces go side by side
   into one file, but are not nested to save material), and the files hold no text or dimensions.
+- [medium · medium] No SVG import: logos, outlines drawn in a vector editor and laser-cutting files
+  cannot be brought into a sketch. A finished import reads paths (lines, elliptical arcs, quadratic
+  and cubic Béziers as exact splines), the basic shapes and their transforms, sizes them from the
+  document's width and viewBox in millimetres (a bare pixel at CSS's 96 to 25.4 mm, with a note
+  saying so), and goes through the same dialog as DXF: scale, centring and the groups to leave
+  out.
 
 ## Mesh import and export
 
@@ -348,6 +394,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Section planes: a cut through all bodies at a plane or flat face, moved by a
   distance and turned by angles, with a flip, the cut faces drawn hatched or filled, and several
   at once, which only looks into the model and changes nothing. Measure works on what it shows.
+- [low · easy] Nothing hides or shows by kind: hiding every sketch, every datum or every body takes
+  choosing each, where a command per kind beside Hide everything but the selection and Show
+  everything would clear the view for a picture or a measurement in one step.
 - [low · medium] Silhouette edges on curved bodies.
 - [low · medium] Line caps, joins and anti-aliasing without MSAA.
 - [low · medium] Lighting and the MSAA resolve happen in gamma space.
@@ -395,6 +444,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the current tool or panel.
 - [medium · hard] No clipboard for features, and sketch geometry copies only within one caditor
   (the system clipboard gets a line of text, not the geometry); no parameter import or export.
+- [low · easy] No templates: a new model always starts empty, so the parameters, model properties,
+  saved views, body materials and starting sketches put in every part are copied by hand. New from
+  template opens a chosen model as an untitled copy, and Preferences can name one that New starts
+  from.
 - [low · medium] The modelling tools borrow Phosphor glyphs that mean something else (`icons.rs`):
   fillet is the full-screen corners, chamfer a generic polygon, revolve the refresh arrows, circular
   pattern a loading spinner, shell a see-through cube, and the sketch fillet shares the fillet's.
@@ -432,6 +485,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   bodies, no section or detail views, no dimensions or notes taken from the model, and no PDF, SVG
   or DXF output of a sheet, though parts made for a workshop need one. Views update with the model
   and their dimensions refer to edges by name, so they survive edits as features do.
+- [medium · hard · blocked by: 2D drawings (above)] Annotations beyond plain dimensions and notes:
+  centre marks and centrelines on holes and round edges, hole and thread callouts read from the
+  hole and thread features, ordinate and baseline dimensions, tolerances (plus and minus, limits,
+  ISO 286 fits), geometric tolerances with datum features (ISO 1101), surface texture symbols
+  (ISO 21920) and weld symbols (ISO 2553), and a title block filled from the model properties.
+- [low · medium · blocked by: 2D drawings (above)] Views and sheets beyond the standard ones:
+  auxiliary views square to an inclined face, broken views shortening a long part, broken-out and
+  half sections, cropped views, first- or third-angle projection, ISO 5457 sheets from A4 to A0 and
+  several sheets per drawing, a revision table, and section hatching chosen per material.
 
 ## Checks and CI
 
@@ -452,7 +514,9 @@ decision recorded in `docs/` before work starts.
   of several bodies, with no components, instances of another model file, joints or mates, exploded
   views or bill of materials, so a product of several parts cannot be put together or checked for
   fit. Decide whether caditor stays a part modeller, or how assemblies reference part files while
-  keeping references stable across edits.
+  keeping references stable across edits. The same decision covers deriving: bringing the bodies,
+  sketches or parameters of another model file into this one, linked so they update when that file
+  changes, which a skeleton model driving several parts, or a part fitted to its neighbour, needs.
 - [medium · hard · blocked by: a scope decision recorded in `docs/`] Surface modelling: no surface
   bodies, so no thicken, offset surface, trim, extend, patch or knit to a solid, which shaped
   consumer parts and repairing open STEP imports need. Also stitch and unstitch, boundary fill
