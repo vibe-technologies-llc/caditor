@@ -1,16 +1,19 @@
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
+use ahash::AHashMap;
 use caditor_geometry::{Aabb, Point3, RigidTransform, Vector3};
 use glam::Vec3;
 
 use crate::{
+    by_mesh::{ByMesh, OfMesh, mesh_key},
     culling::{ClipWindow, placed_corners},
-    gpu::{self, Bytes},
+    gpu::{self, Bytes, Pack},
     scene::{Color, PickId},
     viewport::relative_to_eye,
 };
 
-pub const MESH_VERTEX_STRIDE: u64 = 28;
+const MESH_VERTEX_BYTES: usize = 28;
+pub const MESH_VERTEX_STRIDE: u64 = MESH_VERTEX_BYTES as u64;
 const INDEX_BYTES: u64 = 4;
 const STYLE_BINDING: u32 = 1;
 const PLACEMENT_BINDING: u32 = 2;
@@ -381,28 +384,26 @@ impl PartSource {
         }
     }
 
-    fn pack_vertices(&self, mesh: &ShadedMesh, bytes: &mut Bytes, range: Range<usize>) {
-        let pack = |vertex: &GpuVertex| {
-            bytes
-                .vec3(vertex.position)
-                .vec3(vertex.normal)
-                .u32(vertex.face);
+    fn vertex_records<'a>(
+        &'a self,
+        mesh: &'a ShadedMesh,
+        range: Range<usize>,
+    ) -> impl Iterator<Item = [u8; MESH_VERTEX_BYTES]> + 'a {
+        let (whole, split): (&[GpuVertex], &[u32]) = match self {
+            Self::Whole => (mesh.vertices.get(range).unwrap_or_default(), &[]),
+            Self::Split(part) => (&[], part.vertices.get(range).unwrap_or_default()),
         };
-        match self {
-            Self::Whole => mesh
-                .vertices
-                .get(range)
-                .into_iter()
-                .flatten()
-                .for_each(pack),
-            Self::Split(part) => part
-                .vertices
-                .get(range)
-                .into_iter()
-                .flatten()
-                .filter_map(|vertex| mesh.vertices.get(*vertex as usize))
-                .for_each(pack),
-        }
+        let picked = split
+            .iter()
+            .filter_map(|vertex| mesh.vertices.get(*vertex as usize));
+        whole.iter().chain(picked).map(|vertex| {
+            gpu::record(|record| {
+                record
+                    .vec3(vertex.position)
+                    .vec3(vertex.normal)
+                    .u32(vertex.face);
+            })
+        })
     }
 }
 
@@ -451,7 +452,6 @@ impl PartUpload {
         &mut self,
         mesh: &ShadedMesh,
         queue: &wgpu::Queue,
-        bytes: &mut Bytes,
         budget: &mut UploadBudget,
     ) -> bool {
         let vertex_count = self.source.vertex_count(mesh);
@@ -461,10 +461,9 @@ impl PartUpload {
                 return false;
             }
             let range = self.vertices_written..self.vertices_written + granted;
-            bytes.clear();
-            self.source.pack_vertices(mesh, bytes, range);
             let offset = self.vertices_written as u64 * MESH_VERTEX_STRIDE;
-            queue.write_buffer(&self.gpu.vertices, offset, bytes.as_slice());
+            let records = self.source.vertex_records(mesh, range);
+            gpu::write_records(queue, &self.gpu.vertices, offset, granted, records);
             self.vertices_written += granted;
         }
         let indices = self.source.indices(mesh);
@@ -474,12 +473,13 @@ impl PartUpload {
                 return false;
             }
             let range = self.indices_written..self.indices_written + granted;
-            bytes.clear();
-            for index in indices.get(range).into_iter().flatten() {
-                bytes.u32(*index);
-            }
             let offset = self.indices_written as u64 * INDEX_BYTES;
-            queue.write_buffer(&self.gpu.indices, offset, bytes.as_slice());
+            let records = indices
+                .get(range)
+                .unwrap_or_default()
+                .iter()
+                .map(|index| index.to_le_bytes());
+            gpu::write_records(queue, &self.gpu.indices, offset, granted, records);
             self.indices_written += granted;
         }
         true
@@ -512,20 +512,163 @@ impl MeshUpload {
         Self { mesh, parts }
     }
 
-    fn advance(
-        &mut self,
-        queue: &wgpu::Queue,
-        bytes: &mut Bytes,
-        budget: &mut UploadBudget,
-    ) -> bool {
+    fn advance(&mut self, queue: &wgpu::Queue, budget: &mut UploadBudget) -> bool {
         self.parts
             .iter_mut()
-            .all(|part| part.advance(&self.mesh, queue, bytes, budget))
+            .all(|part| part.advance(&self.mesh, queue, budget))
     }
 
-    fn finish(self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> GpuMesh {
-        let parts = self.parts.into_iter().map(|part| part.gpu).collect();
-        GpuMesh::with_parts(device, layout, self.mesh, parts)
+    fn into_parts(self) -> Arc<[GpuPart]> {
+        self.parts.into_iter().map(|part| part.gpu).collect()
+    }
+}
+
+enum Pooled {
+    Unstarted,
+    Uploading(MeshUpload),
+    Ready(Arc<[GpuPart]>),
+    Refused,
+}
+
+struct PoolEntry {
+    mesh: Arc<ShadedMesh>,
+    state: Pooled,
+    asked: u64,
+}
+
+enum Parts {
+    Ready(Arc<[GpuPart]>),
+    Uploading,
+    Refused,
+    NewlyRefused,
+}
+
+pub struct MeshPool {
+    entries: AHashMap<usize, PoolEntry>,
+    frame: u64,
+    asked: usize,
+    uploading: bool,
+    uploading_now: bool,
+}
+
+impl Default for MeshPool {
+    fn default() -> Self {
+        Self {
+            entries: AHashMap::new(),
+            frame: 1,
+            asked: 0,
+            uploading: false,
+            uploading_now: false,
+        }
+    }
+}
+
+impl MeshPool {
+    pub fn sibling(&self) -> Self {
+        let entries = self
+            .entries
+            .iter()
+            .filter_map(|(key, entry)| {
+                let state = match &entry.state {
+                    Pooled::Ready(parts) => Pooled::Ready(Arc::clone(parts)),
+                    Pooled::Refused => Pooled::Refused,
+                    Pooled::Unstarted | Pooled::Uploading(_) => return None,
+                };
+                let entry = PoolEntry {
+                    mesh: Arc::clone(&entry.mesh),
+                    state,
+                    asked: 0,
+                };
+                Some((*key, entry))
+            })
+            .collect();
+        Self {
+            entries,
+            ..Self::default()
+        }
+    }
+
+    pub fn is_uploading(&self) -> bool {
+        self.uploading
+    }
+
+    fn keep(&mut self, mesh: &Arc<ShadedMesh>, parts: &Arc<[GpuPart]>) {
+        let entry = self
+            .entries
+            .entry(mesh_key(mesh))
+            .or_insert_with(|| PoolEntry {
+                mesh: Arc::clone(mesh),
+                state: Pooled::Ready(Arc::clone(parts)),
+                asked: 0,
+            });
+        if entry.asked != self.frame {
+            entry.asked = self.frame;
+            self.asked += 1;
+        }
+    }
+
+    fn parts(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mesh: &Arc<ShadedMesh>,
+        budget: &mut UploadBudget,
+    ) -> Parts {
+        let entry = self
+            .entries
+            .entry(mesh_key(mesh))
+            .or_insert_with(|| PoolEntry {
+                mesh: Arc::clone(mesh),
+                state: Pooled::Unstarted,
+                asked: 0,
+            });
+        if entry.asked != self.frame {
+            entry.asked = self.frame;
+            self.asked += 1;
+        }
+        match &entry.state {
+            Pooled::Ready(parts) => return Parts::Ready(Arc::clone(parts)),
+            Pooled::Refused => return Parts::Refused,
+            Pooled::Unstarted | Pooled::Uploading(_) => {}
+        }
+        let started = std::mem::replace(&mut entry.state, Pooled::Refused);
+        let (state, error) = gpu::scoped(device, || {
+            let mut upload = match started {
+                Pooled::Uploading(upload) => upload,
+                _ => MeshUpload::start(device, Arc::clone(&entry.mesh)),
+            };
+            if upload.advance(queue, budget) {
+                Pooled::Ready(upload.into_parts())
+            } else {
+                Pooled::Uploading(upload)
+            }
+        });
+        if let Some(error) = error {
+            log::warn!(
+                "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
+                mesh.vertices.len()
+            );
+            return Parts::NewlyRefused;
+        }
+        let parts = match &state {
+            Pooled::Ready(parts) => Parts::Ready(Arc::clone(parts)),
+            _ => {
+                self.uploading_now = true;
+                Parts::Uploading
+            }
+        };
+        entry.state = state;
+        parts
+    }
+
+    pub fn sweep(&mut self) {
+        if self.asked < self.entries.len() {
+            let frame = self.frame;
+            self.entries.retain(|_, entry| entry.asked == frame);
+        }
+        self.frame += 1;
+        self.asked = 0;
+        self.uploading = std::mem::take(&mut self.uploading_now);
     }
 }
 
@@ -547,11 +690,11 @@ pub(crate) struct Placed {
 }
 
 impl Placed {
-    pub(crate) fn of(origin: Point3, placement: Option<RigidTransform>, eye: Point3) -> Self {
+    pub(crate) fn of(origin: Point3, placement: Option<RigidTransform>, anchor: Point3) -> Self {
         let placement = placement.unwrap_or(RigidTransform::IDENTITY);
         let turn = |axis: Vector3| placement.apply_vector(axis).as_vec3();
         Self {
-            offset: relative_to_eye(placement.apply_point(origin), eye),
+            offset: relative_to_eye(placement.apply_point(origin), anchor),
             turn: [turn(Vector3::X), turn(Vector3::Y), turn(Vector3::Z)],
         }
     }
@@ -560,7 +703,7 @@ impl Placed {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PlacedAt {
     pub placement: Option<RigidTransform>,
-    pub eye: Point3,
+    pub anchor: Point3,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -664,22 +807,38 @@ impl GpuMesh {
         }
     }
 
+    fn needs_writing(&self, instance: &MeshInstance, anchor: Point3) -> bool {
+        let placed = PlacedAt {
+            placement: instance.placement,
+            anchor,
+        };
+        self.placed != Some(placed) || self.written.as_deref() != Some(instance.faces.as_slice())
+    }
+
+    fn needs_unpicking(&self, anchor: Point3) -> bool {
+        self.placed.is_none_or(|placed| placed.anchor != anchor)
+            || self
+                .written
+                .as_ref()
+                .is_some_and(|written| written.iter().any(|style| style.pick.is_some()))
+    }
+
     fn write_styles(
         &mut self,
         queue: &wgpu::Queue,
         bytes: &mut Bytes,
         instance: &MeshInstance,
-        eye: Point3,
+        anchor: Point3,
     ) {
-        self.write_placement(queue, bytes, instance.placement, eye);
+        self.write_placement(queue, bytes, instance.placement, anchor);
         if self.written.as_deref() != Some(instance.faces.as_slice()) {
             self.write_face_styles(queue, bytes, &instance.faces);
         }
     }
 
-    fn keep_showing_unpicked(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, eye: Point3) {
+    fn keep_showing_unpicked(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, anchor: Point3) {
         let placement = self.placed.and_then(|placed| placed.placement);
-        self.write_placement(queue, bytes, placement, eye);
+        self.write_placement(queue, bytes, placement, anchor);
         let unpicked: Option<Vec<FaceStyle>> = self
             .written
             .as_ref()
@@ -703,9 +862,9 @@ impl GpuMesh {
         queue: &wgpu::Queue,
         bytes: &mut Bytes,
         placement: Option<RigidTransform>,
-        eye: Point3,
+        anchor: Point3,
     ) {
-        let placed = PlacedAt { placement, eye };
+        let placed = PlacedAt { placement, anchor };
         if self.placed == Some(placed) {
             return;
         }
@@ -714,7 +873,7 @@ impl GpuMesh {
             .mesh
             .bounds
             .map(|bounds| placed_corners(bounds, placement));
-        let placed = Placed::of(self.mesh.origin, placement, eye);
+        let placed = Placed::of(self.mesh.origin, placement, anchor);
         let [turn_x, turn_y, turn_z] = placed.turn;
         bytes.clear();
         bytes
@@ -730,15 +889,92 @@ impl GpuMesh {
     }
 
     fn write_face_styles(&mut self, queue: &wgpu::Queue, bytes: &mut Bytes, faces: &[FaceStyle]) {
+        let spans = match self.written.as_mut() {
+            Some(written) if written.len() == faces.len() => {
+                changed_spans(written, faces, self.layout)
+            }
+            _ => None,
+        };
+        let target = StyleTarget {
+            texture: &self.styles,
+            layout: self.layout,
+            faces,
+        };
+        match spans {
+            Some(spans) => {
+                for span in spans {
+                    target.write(queue, bytes, span);
+                }
+            }
+            None => {
+                target.write_whole(queue, bytes);
+                let written = self.written.get_or_insert_with(Vec::new);
+                written.clear();
+                written.extend_from_slice(faces);
+            }
+        }
+    }
+}
+
+const MAX_STYLE_SPANS: usize = 16;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StyleSpan {
+    row: u32,
+    columns: Range<u32>,
+}
+
+fn changed_spans(
+    written: &mut [FaceStyle],
+    faces: &[FaceStyle],
+    layout: StyleLayout,
+) -> Option<Vec<StyleSpan>> {
+    let columns = layout.columns.max(1) as usize;
+    let mut spans: Vec<StyleSpan> = Vec::new();
+    for (index, (old, new)) in written
+        .iter_mut()
+        .zip(faces)
+        .enumerate()
+        .take(layout.texels())
+    {
+        if old == new {
+            continue;
+        }
+        *old = *new;
+        let row = u32::try_from(index / columns).unwrap_or(u32::MAX);
+        let column = u32::try_from(index % columns).unwrap_or(u32::MAX);
+        match spans.last_mut() {
+            Some(span) if span.row == row => span.columns.end = column + 1,
+            _ => spans.push(StyleSpan {
+                row,
+                columns: column..column + 1,
+            }),
+        }
+    }
+    (spans.len() <= MAX_STYLE_SPANS).then_some(spans)
+}
+
+struct StyleTarget<'a> {
+    texture: &'a wgpu::Texture,
+    layout: StyleLayout,
+    faces: &'a [FaceStyle],
+}
+
+impl StyleTarget<'_> {
+    fn pack(&self, bytes: &mut Bytes, faces: Range<usize>) {
         bytes.clear();
-        for face in 0..self.layout.texels() {
-            let style = faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
+        for face in faces {
+            let style = self.faces.get(face).copied().unwrap_or(UNSTYLED_FACE);
             bytes
                 .u32(pack_color(style.color))
                 .u32(PickId::raw(style.pick));
         }
+    }
+
+    fn write_whole(&self, queue: &wgpu::Queue, bytes: &mut Bytes) {
+        self.pack(bytes, 0..self.layout.texels());
         queue.write_texture(
-            self.styles.as_image_copy(),
+            self.texture.as_image_copy(),
             bytes.as_slice(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
@@ -747,32 +983,60 @@ impl GpuMesh {
             },
             self.layout.extent(),
         );
-        self.written = Some(faces.to_vec());
+    }
+
+    fn write(&self, queue: &wgpu::Queue, bytes: &mut Bytes, span: StyleSpan) {
+        let first = span.row as usize * self.layout.columns as usize;
+        let width = span.columns.end.saturating_sub(span.columns.start);
+        self.pack(
+            bytes,
+            first + span.columns.start as usize..first + span.columns.end as usize,
+        );
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: span.columns.start,
+                    y: span.row,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytes.as_slice(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width.saturating_mul(STYLE_TEXEL_BYTES)),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 }
 
-enum Prepared {
-    Ready(Box<GpuMesh>),
-    Uploading(MeshUpload),
+enum Source {
+    Reused(Box<GpuMesh>),
+    Uploaded(Arc<[GpuPart]>),
 }
 
-pub(crate) fn take_of<T>(
-    items: &mut Vec<T>,
-    mesh: &Arc<ShadedMesh>,
-    of: impl Fn(&T) -> &Arc<ShadedMesh>,
-) -> Option<T> {
-    items
-        .iter()
-        .position(|item| Arc::ptr_eq(of(item), mesh))
-        .map(|index| items.swap_remove(index))
+impl OfMesh for GpuMesh {
+    fn mesh(&self) -> &Arc<ShadedMesh> {
+        &self.mesh
+    }
 }
 
 pub struct MeshCache {
     layout: wgpu::BindGroupLayout,
     meshes: Vec<GpuMesh>,
-    uploads: Vec<MeshUpload>,
     rejected: Vec<Arc<ShadedMesh>>,
+    previous: ByMesh<GpuMesh>,
+    refused: ByMesh<Arc<ShadedMesh>>,
     staging: Bytes,
+    uploading: bool,
 }
 
 impl MeshCache {
@@ -805,9 +1069,11 @@ impl MeshCache {
         Self {
             layout,
             meshes: Vec::new(),
-            uploads: Vec::new(),
             rejected: Vec::new(),
+            previous: ByMesh::default(),
+            refused: ByMesh::default(),
             staging: Bytes::default(),
+            uploading: false,
         }
     }
 
@@ -823,88 +1089,99 @@ impl MeshCache {
                 .iter()
                 .map(|mesh| mesh.sharing(device, &self.layout))
                 .collect(),
-            uploads: Vec::new(),
             rejected: self.rejected.clone(),
+            previous: ByMesh::default(),
+            refused: ByMesh::default(),
             staging: Bytes::default(),
+            uploading: false,
         }
-    }
-
-    pub fn is_uploading(&self) -> bool {
-        !self.uploads.is_empty()
     }
 
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        (pool, budget): (&mut MeshPool, &mut UploadBudget),
         instances: &[MeshInstance],
-        eye: Point3,
-        budget: &mut UploadBudget,
+        anchor: Point3,
     ) -> u32 {
-        let mut previous = std::mem::take(&mut self.meshes);
-        let mut uploads = std::mem::take(&mut self.uploads);
-        let mut rejected = std::mem::take(&mut self.rejected);
-        let mut kept_rejected = Vec::new();
+        self.previous.refill(&mut self.meshes);
+        self.refused.refill(&mut self.rejected);
+        self.uploading = false;
         let mut newly_rejected = 0;
         for instance in instances
             .iter()
             .filter(|instance| !instance.mesh.is_empty())
         {
-            if let Some(refused) = take_of(&mut rejected, &instance.mesh, |refused| refused) {
-                kept_rejected.push(refused);
+            if let Some(refused) = self.refused.take(&instance.mesh) {
+                self.rejected.push(refused);
                 continue;
             }
-            let reused = take_of(&mut previous, &instance.mesh, |cached| &cached.mesh);
-            let started = take_of(&mut uploads, &instance.mesh, |upload| &upload.mesh);
+            let reused = self.previous.take(&instance.mesh);
+            if let Some(ready) = &reused {
+                pool.keep(&ready.mesh, &ready.parts);
+            }
+            let source = match reused {
+                Some(ready) if !ready.needs_writing(instance, anchor) => {
+                    self.meshes.push(ready);
+                    continue;
+                }
+                Some(ready) => Source::Reused(Box::new(ready)),
+                None => match pool.parts(device, queue, &instance.mesh, budget) {
+                    Parts::Ready(parts) => Source::Uploaded(parts),
+                    Parts::Uploading => {
+                        self.uploading = true;
+                        continue;
+                    }
+                    Parts::Refused => continue,
+                    Parts::NewlyRefused => {
+                        newly_rejected += 1;
+                        continue;
+                    }
+                },
+            };
             let staging = &mut self.staging;
             let layout = &self.layout;
-            let (prepared, error) = gpu::scoped(device, || {
-                let mut ready = match reused {
-                    Some(gpu) => gpu,
-                    None => {
-                        let mut upload = started.unwrap_or_else(|| {
-                            MeshUpload::start(device, Arc::clone(&instance.mesh))
-                        });
-                        if !upload.advance(queue, staging, budget) {
-                            return Prepared::Uploading(upload);
-                        }
-                        upload.finish(device, layout)
+            let (ready, error) = gpu::scoped(device, || {
+                let mut ready = match source {
+                    Source::Reused(ready) => *ready,
+                    Source::Uploaded(parts) => {
+                        GpuMesh::with_parts(device, layout, Arc::clone(&instance.mesh), parts)
                     }
                 };
-                ready.write_styles(queue, staging, instance, eye);
-                Prepared::Ready(Box::new(ready))
+                ready.write_styles(queue, staging, instance, anchor);
+                ready
             });
-            match (prepared, error) {
-                (Prepared::Ready(gpu), None) => self.meshes.push(*gpu),
-                (Prepared::Uploading(upload), None) => self.uploads.push(upload),
-                (_, Some(error)) => {
+            match error {
+                None => self.meshes.push(ready),
+                Some(error) => {
                     log::warn!(
-                        "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
+                        "the graphics device refused the styles of a mesh of {} vertices, so it is not drawn: {error}",
                         instance.mesh.vertices.len()
                     );
-                    kept_rejected.push(Arc::clone(&instance.mesh));
+                    self.rejected.push(Arc::clone(&instance.mesh));
                     newly_rejected += 1;
                 }
             }
         }
-        if self.is_uploading() {
-            self.keep_previous(device, queue, previous, eye);
+        self.refused.clear();
+        if self.uploading {
+            self.keep_previous(device, queue, anchor);
         }
-        self.rejected = kept_rejected;
+        self.previous.clear();
         newly_rejected
     }
 
-    fn keep_previous(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        mut previous: Vec<GpuMesh>,
-        eye: Point3,
-    ) {
+    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, anchor: Point3) {
+        let mut previous: Vec<GpuMesh> = self.previous.rest().collect();
+        if !previous.iter().any(|mesh| mesh.needs_unpicking(anchor)) {
+            self.meshes.append(&mut previous);
+            return;
+        }
         let staging = &mut self.staging;
         let ((), error) = gpu::scoped(device, || {
             for mesh in &mut previous {
-                mesh.keep_showing_unpicked(queue, staging, eye);
+                mesh.keep_showing_unpicked(queue, staging, anchor);
             }
         });
         match error {
@@ -1043,6 +1320,48 @@ mod tests {
         assert_eq!(wrapped.texels(), 3072);
         assert_eq!(beyond.faces, 64 * 64);
         assert_eq!(StyleLayout::new(0, 0).faces, 1);
+    }
+
+    #[test]
+    fn only_rows_whose_styles_changed_are_written_and_many_scattered_changes_write_everything() {
+        let style = |red: u8| FaceStyle {
+            color: Color::from_rgb8(red, 0, 0),
+            pick: None,
+        };
+        let layout = StyleLayout::new(40, 10);
+        let before: Vec<FaceStyle> = (0..40).map(|_| style(0)).collect();
+        let mut after = before.clone();
+        for face in [3, 5, 6, 25] {
+            after[face] = style(9);
+        }
+        let mut written = before.clone();
+        let scattered: Vec<FaceStyle> = (0..40).map(|face| style(face as u8)).collect();
+        let tall = StyleLayout {
+            columns: 1,
+            rows: 40,
+            faces: 40,
+        };
+
+        let spans = changed_spans(&mut written, &after, layout);
+        let unchanged = changed_spans(&mut written.clone(), &after, layout);
+        let everywhere = changed_spans(&mut before.clone(), &scattered, tall);
+
+        assert_eq!(
+            spans,
+            Some(vec![
+                StyleSpan {
+                    row: 0,
+                    columns: 3..7,
+                },
+                StyleSpan {
+                    row: 2,
+                    columns: 5..6,
+                },
+            ])
+        );
+        assert_eq!(written, after);
+        assert_eq!(unchanged, Some(Vec::new()));
+        assert_eq!(everywhere, None);
     }
 
     #[test]

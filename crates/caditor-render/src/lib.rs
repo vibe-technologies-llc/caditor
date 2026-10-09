@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 
+mod by_mesh;
 mod camera;
 mod culling;
 mod gpu;

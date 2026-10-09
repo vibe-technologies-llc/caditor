@@ -56,22 +56,31 @@ paths:
 
 - Model positions are converted relative to a nearby point in f64 before the f32 cast and the view
   matrix is rotation only, so geometry far from the origin stays exact.
-- A `ShadedMesh` stores positions relative to its own centre, with the eye offset computed in f64
-  each frame. Batches store positions relative to an anchor (the eye when uploaded), whose offset
-  the view uniform carries; it stays while the eye is within `reanchor_reach`, the larger of `REANCHOR_DISTANCES` view
-  distances and the distance at which f32 rounding of an offset stays under `ANCHOR_ERROR_PIXELS`
-  of a pixel at the current zoom; beyond that the next frame re-anchors and uploads every batch
-  again.
+- Batches store positions relative to an anchor (the eye when uploaded), whose offset from the
+  eye the view uniform carries; it stays while the eye is within `reanchor_reach`, the larger of
+  `REANCHOR_DISTANCES` view distances and the distance at which f32 rounding of an offset stays
+  under `ANCHOR_ERROR_PIXELS` of a pixel at the current zoom; beyond that the next frame
+  re-anchors and uploads every batch again.
+- A `ShadedMesh` stores positions relative to its own centre; its placement uniform (and a
+  silhouette's) holds the placed centre relative to the same anchor, worked out in f64, and the
+  shader adds the view uniform's anchor offset to it before the mesh-local position, so a camera
+  move writes no mesh or silhouette uniform until the anchor moves (offscreen test with a mesh
+  4,000 km out).
 
 ## Meshes
 
 - A `MeshInstance` is an `Arc<ShadedMesh>` plus a `FaceStyle` (colour, pick id) per face. Buffers
-  upload once per `Arc` and drop when the mesh leaves the scene; a mesh past `max_buffer_size` is
-  split into parts that each fit.
+  upload once per `Arc` into the `MeshPool` the five mesh caches share (keyed by the `Arc`'s
+  address, the entry holding the `Arc`) and drop when no list of the scene holds the mesh; each
+  cache keeps only its styles, placement and bind group per mesh, so moving a mesh between lists
+  (zebra, X-ray, hidden lines) or drawing it in two (a partly see-through body) draws it at once
+  without uploading it again (offscreen test). The pool keeps a refused mesh refused while any
+  list holds it. A mesh past `max_buffer_size` is split into parts that each fit.
 - New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
-  shared by the five mesh caches and the silhouette cache): each frame packs and writes the next whole vertices and indices
-  into buffers made at the start, so the frame that first shows a large body never stalls (about
-  2 ms at worst instead of 8 to 11 ms for 39 MB in a release build). A mesh is drawn only once it
+  shared by the five mesh caches and the silhouette cache): each frame packs the next whole
+  vertices and indices into buffers made at the start, so the frame that first shows a large body
+  never stalls (under 2 ms at worst instead of 11 ms for 39 MB of meshes and 58 MB of silhouettes
+  in a release build). A mesh is drawn only once it
   is complete, never half; while any mesh of a cache is still uploading, the meshes the cache drew
   before that are no longer in the scene stay drawn (the old result of a recomputed body), at their
   last styles with their pick ids withdrawn, since the app's pick table no longer knows them, so
@@ -80,12 +89,16 @@ paths:
 - The ignored `frame_costs_of_drawing_a_large_scene` test times the UI thread's share of a frame
   for a scene of lines, markers, fills and four 245,000-triangle meshes with their silhouettes: idle, with the camera
   moving, hovering with a pick and a face restyled every frame, with the batch replaced every
-  frame, and with new meshes shown every 20 frames, uploaded whole and under the budget.
+  frame, with new meshes shown every 20 frames, uploaded whole and under the budget, and with the
+  meshes switched to zebra or also drawn see-through every 20 frames; and 2,000 small placed
+  meshes with silhouettes, idle and with the camera moving. Each reports the time spent waiting
+  for the GPU apart from the UI thread's; `CADITOR_BENCH_CASE` runs only the cases whose name
+  contains it.
 - A `MeshInstance` may carry a `placement` (a `RigidTransform`) drawing the mesh moved and turned
-  without a new upload: the placement uniform, rewritten only when the placement or the eye moved,
-  holds the turned axes and the placed centre relative to the eye (worked out in f64), and
-  `vs_mesh` turns positions and normals by them. An `Arc` appears at most once in a scene, since
-  buffers, styles and placement are kept per mesh.
+  without a new upload: the placement uniform, rewritten only when the placement or the anchor
+  moved, holds the turned axes and the placed centre relative to the anchor (worked out in f64), and
+  `vs_mesh` turns positions and normals by them. An `Arc` appears at most once in each list of a
+  scene, since styles and placement are kept per mesh in each cache.
 - A mesh whose placed bounds lie wholly beyond one side of the clip volume is not drawn
   (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), tested against
   the window in the main pass, the pick window in the pick pass and each tile in image export.
@@ -95,7 +108,10 @@ paths:
   `ShadedMesh::origin` and `face_triangles` (world corners with their face) let the app's reach
   analysis and `through.rs` work on the triangles without a copy of the mesh.
 - Per-face styles live in an `Rg32Uint` texture (`StyleLayout`) read by face index in the vertex
-  shader, rewritten only when they differ, so hover and selection cost nothing in geometry.
+  shader, so hover and selection cost nothing in geometry. A restyle writes only the texture rows
+  whose styles changed, each as one span from its first to its last changed face, and updates the
+  kept copy in place (`changed_spans`); past `MAX_STYLE_SPANS` such rows, or when the face count
+  changes, the whole texture is written.
 - Faces are lit two-sided and write depth, hiding edges and sketches behind them in view and
   picking alike (everything but `Layer::Front`). A face without a pick id writes id 0 with its
   depth in the pick pass, not discarded. Enhanced shading scales highlight and rim with the face
@@ -128,7 +144,14 @@ paths:
   UI is drawn on the resolved surface after the 3D pass.
 - Each batch has a `GpuBatch` slot of `GrowableBuffer`s. A slot uploads only when its `Arc`
   differs or the anchor moved, so an idle frame or a camera move writes no vertices. A batch past
-  `max_buffer_size` draws only its first whole primitives (logged once).
+  `max_buffer_size` draws only its first whole primitives (logged once). A buffer an upload
+  outgrows is replaced by one a quarter larger than the upload (aligned), and one an upload fills
+  to under a quarter by one fitting that upload the same way, so the band between keeps it.
+- Vertex, index and silhouette records are packed one fixed-size `gpu::record` at a time straight
+  into wgpu's staging memory (`gpu::write_records` over `Queue::write_buffer_with`), so no CPU copy
+  of a batch or mesh outlives its upload; the `Bytes` staging left for uniforms and face styles
+  drops any capacity past 64 KiB when cleared. Replacing the frame-cost benchmark's batch every
+  frame costs about 2.8 ms instead of 7.9.
 - Draw order: every batch's lines, then markers, then fills. Translucent fills sort back to front
   by centroid depth across all batches, front-layer fills last (`FillOrder`).
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth
@@ -180,9 +203,8 @@ paths:
   `ShadedMesh` counts its curved triangles when built, so starting an upload costs nothing. The
   frame-cost benchmark gives its four meshes waving normals and silhouettes, so every triangle is
   a candidate (about 14.6 MB each against 9.8 MB of mesh): steady frames stay within noise (about
-  45 µs idle, 55 µs orbiting, release build), an upload frame under the budget stays near 2 ms
-  at worst but new meshes take about 2.5 times as many frames, and an unbudgeted upload of all
-  four takes about 19 ms instead of 7.
+  55 µs idle or orbiting, release build), an upload frame under the budget stays under 2 ms
+  at worst but new meshes take about 2.5 times as many frames.
 - `Scene::overlay_meshes` draw right after the translucent ones, blended, with no depth test or
   write and never in the pick pass, so they show through whatever covers them (the cut preview).
 - `Scene::translucent_meshes` draw after the opaque meshes and before lines with alpha blending and
@@ -229,6 +251,9 @@ paths:
 
 - Sizes are logical points: `ViewportFrame::pixels_per_point` goes into the view uniform and
   shaders scale line widths, marker diameters and the grid by it.
+- Lines, markers, silhouettes and the grid are quads, one instance each, drawn indexed through one
+  static index buffer of two triangles over four corners (`gpu::QuadIndices`, bound once after the
+  meshes in each pass), so the vertex shader runs four times a quad rather than six.
 - Lines and silhouettes are finished in the colour pass (`Strokes::Finished` in the view uniform's
   `fill_light.w`): each quad reaches `STROKE_FRINGE_PIXELS` beyond its edges and `fs_line` turns the
   distance from the segment, carried in screen space (the `stroke` varying times `w`, divided

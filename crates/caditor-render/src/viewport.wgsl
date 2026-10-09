@@ -183,15 +183,13 @@ fn is_cut(in: Varyings) -> bool {
 }
 
 fn quad_corner(index: u32) -> vec2<f32> {
-    var corners = array<vec2<f32>, 6>(
+    var corners = array<vec2<f32>, 4>(
         vec2<f32>(-1.0, -1.0),
         vec2<f32>(1.0, -1.0),
         vec2<f32>(1.0, 1.0),
-        vec2<f32>(-1.0, -1.0),
-        vec2<f32>(1.0, 1.0),
         vec2<f32>(-1.0, 1.0),
     );
-    return corners[index % 6u];
+    return corners[index % 4u];
 }
 
 struct LineInstance {
@@ -404,7 +402,7 @@ fn turned(vector: vec3<f32>) -> vec3<f32> {
 
 @vertex
 fn vs_mesh(vertex: MeshVertex) -> Varyings {
-    let relative = turned(vertex.position) + mesh.offset.xyz;
+    let relative = turned(vertex.position) + from_anchor(mesh.offset.xyz);
     let face = min(vertex.face, max(mesh.faces_columns.x, 1u) - 1u);
     let columns = max(mesh.faces_columns.y, 1u);
     let style = textureLoad(face_styles, vec2<u32>(face % columns, face / columns), 0);
@@ -444,7 +442,7 @@ fn silhouette_turned(vector: vec3<f32>) -> vec3<f32> {
 }
 
 fn silhouette_placed(position: vec3<f32>) -> vec3<f32> {
-    return silhouette_turned(position) + silhouette.offset_width.xyz;
+    return silhouette_turned(position) + from_anchor(silhouette.offset_width.xyz);
 }
 
 fn facing(position: vec3<f32>, normal: vec4<f32>) -> f32 {

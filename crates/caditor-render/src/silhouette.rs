@@ -4,16 +4,17 @@ use caditor_geometry::{Point3, RigidTransform};
 use glam::Vec3;
 
 use crate::{
+    by_mesh::{ByMesh, OfMesh},
     culling::{ClipWindow, placed_corners},
-    gpu::{self, Bytes},
-    mesh::{Corner, Placed, PlacedAt, ShadedMesh, UploadBudget, take_of},
+    gpu::{self, Bytes, Pack},
+    mesh::{Corner, Placed, PlacedAt, ShadedMesh, UploadBudget},
     scene::{Color, Layer, Primitive},
 };
 
-pub const SILHOUETTE_STRIDE: u64 = 60;
+const SILHOUETTE_BYTES: usize = 60;
+pub const SILHOUETTE_STRIDE: u64 = SILHOUETTE_BYTES as u64;
 const SILHOUETTE_BINDING: u32 = 3;
 const SILHOUETTE_UNIFORM_BYTES: u64 = 80;
-const QUAD_VERTICES: u32 = 6;
 const SNORM16_SCALE: f32 = i16::MAX as f32;
 const POSITIONS_BYTES: usize = 36;
 const NORMAL_BYTES: usize = 8;
@@ -46,6 +47,21 @@ struct Written {
     width: f32,
     dashed: bool,
     dashed_where_hidden: bool,
+}
+
+impl Written {
+    fn of(silhouette: &Silhouette, anchor: Point3) -> Self {
+        Self {
+            placed: PlacedAt {
+                placement: silhouette.placement,
+                anchor,
+            },
+            color: silhouette.color,
+            width: silhouette.width,
+            dashed: silhouette.dashed,
+            dashed_where_hidden: silhouette.dashed_where_hidden,
+        }
+    }
 }
 
 struct Chunk {
@@ -92,12 +108,7 @@ impl SilhouetteUpload {
         }
     }
 
-    fn advance(
-        &mut self,
-        queue: &wgpu::Queue,
-        bytes: &mut Bytes,
-        budget: &mut UploadBudget,
-    ) -> bool {
+    fn advance(&mut self, queue: &wgpu::Queue, budget: &mut UploadBudget) -> bool {
         while self.written < self.total {
             let (chunk, within) = (self.written / self.per_chunk, self.written % self.per_chunk);
             let room = (self.per_chunk - within).min(self.total - self.written);
@@ -105,20 +116,22 @@ impl SilhouetteUpload {
             if granted == 0 {
                 return false;
             }
-            bytes.clear();
             let mut staged = 0;
-            for (index, corners) in self.mesh.curved_triangles(self.next_triangle).take(granted) {
-                stage_triangle(bytes, &corners);
-                self.next_triangle = index + 1;
-                staged += 1;
-            }
+            let mut next_triangle = self.next_triangle;
+            let records = self
+                .mesh
+                .curved_triangles(self.next_triangle)
+                .take(granted)
+                .map(|(index, corners)| {
+                    next_triangle = index + 1;
+                    staged += 1;
+                    packed_triangle(&corners)
+                });
             if let Some(chunk) = self.chunks.get(chunk) {
-                queue.write_buffer(
-                    &chunk.buffer,
-                    within as u64 * SILHOUETTE_STRIDE,
-                    bytes.as_slice(),
-                );
+                let offset = within as u64 * SILHOUETTE_STRIDE;
+                gpu::write_records(queue, &chunk.buffer, offset, granted, records);
             }
+            self.next_triangle = next_triangle;
             self.written += staged;
             if staged < granted {
                 self.total = self.written;
@@ -144,8 +157,8 @@ impl SilhouetteUpload {
     }
 }
 
-fn stage_triangle(bytes: &mut Bytes, corners: &[Corner; 3]) {
-    let mut packed = [0u8; SILHOUETTE_STRIDE as usize];
+fn packed_triangle(corners: &[Corner; 3]) -> [u8; SILHOUETTE_BYTES] {
+    let mut packed = [0u8; SILHOUETTE_BYTES];
     let (positions, normals) = packed.split_at_mut(POSITIONS_BYTES);
     let position_floats = corners.iter().flat_map(|corner| corner.position.to_array());
     for (slot, value) in positions
@@ -164,7 +177,7 @@ fn stage_triangle(bytes: &mut Bytes, corners: &[Corner; 3]) {
     {
         *slot = snorm16(corner.normal);
     }
-    bytes.extend(&packed);
+    packed
 }
 
 fn snorm16(normal: Vec3) -> [u8; NORMAL_BYTES] {
@@ -222,23 +235,18 @@ impl GpuSilhouette {
         )
     }
 
+    fn needs_writing(&self, silhouette: &Silhouette, anchor: Point3) -> bool {
+        self.written != Some(Written::of(silhouette, anchor))
+    }
+
     fn write(
         &mut self,
         queue: &wgpu::Queue,
         bytes: &mut Bytes,
         silhouette: &Silhouette,
-        eye: Point3,
+        anchor: Point3,
     ) {
-        let written = Written {
-            placed: PlacedAt {
-                placement: silhouette.placement,
-                eye,
-            },
-            color: silhouette.color,
-            width: silhouette.width,
-            dashed: silhouette.dashed,
-            dashed_where_hidden: silhouette.dashed_where_hidden,
-        };
+        let written = Written::of(silhouette, anchor);
         if self.written == Some(written) {
             return;
         }
@@ -247,7 +255,7 @@ impl GpuSilhouette {
             .mesh
             .bounds()
             .map(|bounds| placed_corners(bounds, silhouette.placement));
-        let placed = Placed::of(self.mesh.origin(), silhouette.placement, eye);
+        let placed = Placed::of(self.mesh.origin(), silhouette.placement, anchor);
         let [turn_x, turn_y, turn_z] = placed.turn;
         bytes.clear();
         bytes
@@ -257,6 +265,18 @@ impl GpuSilhouette {
             .vec4(turn_y, if silhouette.dashed { 1.0 } else { 0.0 })
             .vec4(turn_z, 0.0);
         queue.write_buffer(&self.uniform, 0, bytes.as_slice());
+    }
+}
+
+impl OfMesh for GpuSilhouette {
+    fn mesh(&self) -> &Arc<ShadedMesh> {
+        &self.mesh
+    }
+}
+
+impl OfMesh for SilhouetteUpload {
+    fn mesh(&self) -> &Arc<ShadedMesh> {
+        &self.mesh
     }
 }
 
@@ -270,6 +290,9 @@ pub struct SilhouetteCache {
     silhouettes: Vec<GpuSilhouette>,
     uploads: Vec<SilhouetteUpload>,
     rejected: Vec<Arc<ShadedMesh>>,
+    previous: ByMesh<GpuSilhouette>,
+    started: ByMesh<SilhouetteUpload>,
+    refused: ByMesh<Arc<ShadedMesh>>,
     staging: Bytes,
 }
 
@@ -293,6 +316,9 @@ impl SilhouetteCache {
             silhouettes: Vec::new(),
             uploads: Vec::new(),
             rejected: Vec::new(),
+            previous: ByMesh::default(),
+            started: ByMesh::default(),
+            refused: ByMesh::default(),
             staging: Bytes::default(),
         }
     }
@@ -311,6 +337,9 @@ impl SilhouetteCache {
                 .collect(),
             uploads: Vec::new(),
             rejected: self.rejected.clone(),
+            previous: ByMesh::default(),
+            started: ByMesh::default(),
+            refused: ByMesh::default(),
             staging: Bytes::default(),
         }
     }
@@ -324,24 +353,29 @@ impl SilhouetteCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         silhouettes: &[Silhouette],
-        eye: Point3,
+        anchor: Point3,
         budget: &mut UploadBudget,
     ) -> u32 {
-        let mut previous = std::mem::take(&mut self.silhouettes);
-        let mut uploads = std::mem::take(&mut self.uploads);
-        let mut rejected = std::mem::take(&mut self.rejected);
-        let mut kept_rejected = Vec::new();
+        self.previous.refill(&mut self.silhouettes);
+        self.started.refill(&mut self.uploads);
+        self.refused.refill(&mut self.rejected);
         let mut newly_rejected = 0;
         for silhouette in silhouettes
             .iter()
             .filter(|silhouette| !silhouette.mesh.is_empty())
         {
-            if let Some(refused) = take_of(&mut rejected, &silhouette.mesh, |refused| refused) {
-                kept_rejected.push(refused);
+            if let Some(refused) = self.refused.take(&silhouette.mesh) {
+                self.rejected.push(refused);
                 continue;
             }
-            let reused = take_of(&mut previous, &silhouette.mesh, |cached| &cached.mesh);
-            let started = take_of(&mut uploads, &silhouette.mesh, |upload| &upload.mesh);
+            let reused = self.previous.take(&silhouette.mesh);
+            if let Some(ready) = &reused
+                && !ready.needs_writing(silhouette, anchor)
+            {
+                self.silhouettes.extend(reused);
+                continue;
+            }
+            let started = self.started.take(&silhouette.mesh);
             let staging = &mut self.staging;
             let layout = &self.layout;
             let (prepared, error) = gpu::scoped(device, || {
@@ -351,13 +385,13 @@ impl SilhouetteCache {
                         let mut upload = started.unwrap_or_else(|| {
                             SilhouetteUpload::start(device, Arc::clone(&silhouette.mesh))
                         });
-                        if !upload.advance(queue, staging, budget) {
+                        if !upload.advance(queue, budget) {
                             return Prepared::Uploading(upload);
                         }
                         upload.finish(device, layout)
                     }
                 };
-                ready.write(queue, staging, silhouette, eye);
+                ready.write(queue, staging, silhouette, anchor);
                 Prepared::Ready(Box::new(ready))
             });
             match (prepared, error) {
@@ -368,25 +402,30 @@ impl SilhouetteCache {
                         "the graphics device refused the silhouette of a mesh of {} triangles, so it is not drawn: {error}",
                         silhouette.mesh.triangle_count()
                     );
-                    kept_rejected.push(Arc::clone(&silhouette.mesh));
+                    self.rejected.push(Arc::clone(&silhouette.mesh));
                     newly_rejected += 1;
                 }
             }
         }
+        self.started.clear();
+        self.refused.clear();
         if self.is_uploading() {
-            self.keep_previous(device, queue, previous, eye);
+            self.keep_previous(device, queue, anchor);
         }
-        self.rejected = kept_rejected;
+        self.previous.clear();
         newly_rejected
     }
 
-    fn keep_previous(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        mut previous: Vec<GpuSilhouette>,
-        eye: Point3,
-    ) {
+    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, anchor: Point3) {
+        let mut previous: Vec<GpuSilhouette> = self.previous.rest().collect();
+        if previous.iter().all(|silhouette| {
+            silhouette
+                .written
+                .is_none_or(|written| written.placed.anchor == anchor)
+        }) {
+            self.silhouettes.append(&mut previous);
+            return;
+        }
         let staging = &mut self.staging;
         let ((), error) = gpu::scoped(device, || {
             for silhouette in &mut previous {
@@ -399,7 +438,7 @@ impl SilhouetteCache {
                         dashed_where_hidden: written.dashed_where_hidden,
                         placement: written.placed.placement,
                     };
-                    silhouette.write(queue, staging, &kept, eye);
+                    silhouette.write(queue, staging, &kept, anchor);
                 }
             }
         });
@@ -458,7 +497,7 @@ impl SilhouetteCache {
             pass.set_bind_group(1, &silhouette.bind_group, &[]);
             for chunk in silhouette.chunks.iter() {
                 pass.set_vertex_buffer(0, chunk.buffer.slice(..));
-                pass.draw(0..QUAD_VERTICES, 0..chunk.count);
+                pass.draw_indexed(0..gpu::QUAD_INDEX_COUNT, 0, 0..chunk.count);
             }
         }
     }
@@ -511,28 +550,20 @@ mod tests {
 
     #[test]
     fn triangles_pack_three_positions_then_three_signed_sixteen_bit_normals() {
-        let mut bytes = Bytes::default();
         let corner = |x: f32, normal: Vec3| Corner {
             position: Vec3::new(x, 0.0, 0.0),
             normal,
         };
 
-        stage_triangle(
-            &mut bytes,
-            &[
-                corner(1.0, Vec3::new(1.0, -1.0, 0.5)),
-                corner(2.0, Vec3::Z),
-                corner(3.0, Vec3::X),
-            ],
-        );
+        let bytes = packed_triangle(&[
+            corner(1.0, Vec3::new(1.0, -1.0, 0.5)),
+            corner(2.0, Vec3::Z),
+            corner(3.0, Vec3::X),
+        ]);
 
-        assert_eq!(bytes.len(), SILHOUETTE_STRIDE);
-        assert_eq!(bytes.as_slice()[..4], 1.0f32.to_le_bytes());
-        assert_eq!(bytes.as_slice()[24..28], 3.0f32.to_le_bytes());
-        assert_eq!(
-            bytes.as_slice()[36..44],
-            [0xff, 0x7f, 0x01, 0x80, 0xff, 0x3f, 0, 0]
-        );
-        assert_eq!(bytes.as_slice()[44..52], [0, 0, 0, 0, 0xff, 0x7f, 0, 0]);
+        assert_eq!(bytes[..4], 1.0f32.to_le_bytes());
+        assert_eq!(bytes[24..28], 3.0f32.to_le_bytes());
+        assert_eq!(bytes[36..44], [0xff, 0x7f, 0x01, 0x80, 0xff, 0x3f, 0, 0]);
+        assert_eq!(bytes[44..52], [0, 0, 0, 0, 0xff, 0x7f, 0, 0]);
     }
 }
