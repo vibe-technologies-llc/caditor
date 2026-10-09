@@ -247,6 +247,8 @@ pub fn feature_row(ui: &mut Ui, document: &Document, caption: &str, feature: Fea
     ui.end_row();
 }
 
+pub const POSITION_CAPTIONS: [&str; 2] = ["Position X", "Position Y"];
+
 pub const WORLD: &str = "World";
 
 pub struct FrameRow<'a> {

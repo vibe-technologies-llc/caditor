@@ -10,6 +10,10 @@ With a plane or a flat face selected, the primitive stands there: on a face at i
 that face's body. With nothing selected it starts at the origin and asks you to click a plane or
 face to put it on; Escape leaves it where it is.
 
+While it is open, a square and two arrows stand where it is placed: drag the square to move it
+anywhere on its plane, or an arrow to move it along one direction. Hold Ctrl to drag without
+steps.
+
 ## The panel
 
 - **Shape** switches to another primitive.

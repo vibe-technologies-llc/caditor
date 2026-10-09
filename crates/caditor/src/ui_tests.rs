@@ -9543,8 +9543,8 @@ fn dragging_a_hole_s_handles_moves_it_on_its_face_in_one_change() {
             })
             .expect("the hole's sketch holds its point")
     };
-    let on_face = Handle::Hole(crate::move_manipulator::HoleGrip::OnFace);
-    let along_y = Handle::Hole(crate::move_manipulator::HoleGrip::AlongY);
+    let on_face = Handle::Place(crate::move_manipulator::PlaceGrip::OnPlane);
+    let along_y = Handle::Place(crate::move_manipulator::PlaceGrip::AlongY);
 
     let from = harness
         .workspace
@@ -9604,6 +9604,76 @@ fn dragging_a_hole_s_handles_moves_it_on_its_face_in_one_change() {
     harness.settle();
 
     assert_eq!(point_of(&harness), moved);
+}
+
+#[test]
+fn dragging_a_box_s_square_moves_it_on_its_plane_and_keeps_a_named_position() {
+    let mut harness = Harness::new();
+    harness.select([]);
+    harness.use_tool_with(Key::B, Modifiers::ALT);
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let feature = harness.workspace.editing.solid().expect("the box is open");
+    let on_plane = Handle::Place(crate::move_manipulator::PlaceGrip::OnPlane);
+    let along_x = Handle::Place(crate::move_manipulator::PlaceGrip::AlongX);
+
+    harness.type_into_field(Id::new(("primitive-field", feature, ("at", 1))), "y = 4 mm");
+    harness.settle();
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(on_plane, 0.0)
+        .expect("the box's square is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(on_plane, 12.0)
+        .unwrap();
+    let step = harness.workspace.viewport.manipulator_step().unwrap();
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+
+    assert!(harness.shows("Drag to move the shape where it stands"));
+
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+    let centre = body_centre(&harness, feature);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Box 1"));
+    assert!(
+        (centre.x - 12.0).abs() <= step,
+        "{centre:?} with steps of {step}"
+    );
+    assert!((centre.y - 4.0).abs() < 1e-6, "{centre:?}");
+    assert!(matches!(
+        primitive_of(&harness, feature).at[1],
+        caditor_expression::Expression::Parameter(_)
+    ));
+
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(along_x, 0.0)
+        .expect("the box's X arrow is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(along_x, -5.0)
+        .unwrap();
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+    let again = body_centre(&harness, feature);
+
+    assert!(
+        (again.x - centre.x + 5.0).abs() <= step,
+        "{again:?} with steps of {step}"
+    );
+    assert!((again.y - 4.0).abs() < 1e-6, "{again:?}");
 }
 
 #[test]
@@ -19501,7 +19571,7 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
     };
 
     assert!(harness.shows(crate::hole_panel::PLACED_ON));
-    assert!(harness.shows(crate::hole_panel::POSITION_CAPTIONS[0]));
+    assert!(harness.shows(crate::feature_fields::POSITION_CAPTIONS[0]));
     assert_eq!(point_of(&harness), Point2::new(20.0, 20.0));
 
     harness.type_into_field(Id::new(("hole-position", hole, 0_usize)), "8 mm");

@@ -47,7 +47,6 @@ pub const UP_TO_NEXT: &str = "Up to next";
 pub const UP_TO_FACE: &str = "Up to face";
 const DEFAULT_THREAD_DEPTH: f64 = 10.0;
 pub const PLACED_ON: &str = "Placed on";
-pub const POSITION_CAPTIONS: [&str; 2] = ["Position X", "Position Y"];
 pub const EDIT_SKETCH: &str = "Edit the sketch";
 const EDIT_SKETCH_HOVER: &str = "Show and edit the sketch holding the hole's points, to \
                                  dimension them or add more holes";
@@ -721,7 +720,7 @@ impl Panel<'_> {
         });
         ui.end_row();
         let unit = self.model.length_unit();
-        for (index, caption) in POSITION_CAPTIONS.into_iter().enumerate() {
+        for (index, caption) in feature_fields::POSITION_CAPTIONS.into_iter().enumerate() {
             let along = if index == 0 { point.at.x } else { point.at.y };
             let expression = unit.measured(along);
             let quantity = Quantity {

@@ -15,7 +15,6 @@ use crate::{
 };
 
 const PICK_HOVER: &str = "Place it on the selected plane or flat face instead";
-const POSITION_CAPTIONS: [&str; 2] = ["Position X", "Position Y"];
 
 fn shape_hover(kind: PrimitiveKind) -> &'static str {
     match kind {
@@ -160,7 +159,7 @@ impl Panel<'_> {
     }
 
     fn position_rows(&mut self, ui: &mut Ui) {
-        for (index, caption) in POSITION_CAPTIONS.into_iter().enumerate() {
+        for (index, caption) in feature_fields::POSITION_CAPTIONS.into_iter().enumerate() {
             let primitive = self.primitive.clone();
             let any = (Dimension::LENGTH, Rule::Any);
             self.value_row(ui, caption, ("at", index), any, move |value| {

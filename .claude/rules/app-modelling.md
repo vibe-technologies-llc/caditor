@@ -349,6 +349,12 @@ paths:
   extrusion's. Switching Result between joining (New body, Add) and cutting (Remove, Intersect)
   on a face reverses the direction to match (`primitive_tools::with_operation`), so a cut goes
   into the body. Placing it again never changes the operation.
+- While a primitive is open (and its place is not being chosen), the same placement handles as a
+  hole's stand at its position on its plane (`place_handles.rs`, `displayed_plane`): the square
+  drags it anywhere on the plane and the arrows along the plane's X and Y, previewed with Position
+  X and Y beside the pointer and committed on release as one "Edit <shape>" change setting only
+  the positions that moved to measured values, a named one through its parameter and a driven one
+  not dragging, as the reach arrows do (`manipulator::Held`).
 
 ## Hole
 
@@ -392,9 +398,9 @@ paths:
   hole to that face's body, all in one change. A sketch with more points or constraints is moved
   by editing it.
 - While such a hole is open (and nothing is being chosen in the view), its centre carries handles
-  on the face (`hole_handles.rs`, `Manipulator::Hole`): a square to drag it anywhere on the face
-  and an arrow along the sketch plane's x and y (`HoleGrip`), drawn and hit-tested like the move
-  arrows, in `canvas::SNAP` at `HOLE_ARROW_SHARE` of their length. A drag follows where the
+  on the face (`place_handles.rs`, `Manipulator::Place`): a square to drag it anywhere on the face
+  and an arrow along the sketch plane's x and y (`PlaceGrip`), drawn and hit-tested like the move
+  arrows, in `canvas::SNAP` at `ARROW_SHARE` of their length. A drag follows where the
   pointer's ray meets the sketch plane, in steps (Ctrl drags freely), previewed with Position X
   and Y beside the pointer and committed on release as one "Move <hole>" change; the handles
   follow the preview (`Model::draft_transaction`).

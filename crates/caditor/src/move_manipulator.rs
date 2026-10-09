@@ -42,14 +42,24 @@ pub enum Handle {
     Turn(MoveAxis),
     TurnAbout,
     Reach(Reach),
-    Hole(HoleGrip),
+    Place(PlaceGrip),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HoleGrip {
+pub enum PlaceGrip {
     AlongX,
     AlongY,
-    OnFace,
+    OnPlane,
+}
+
+impl PlaceGrip {
+    pub fn words(self, noun: &str) -> String {
+        match self {
+            Self::AlongX => format!("Drag to move {noun} along its Position X"),
+            Self::AlongY => format!("Drag to move {noun} along its Position Y"),
+            Self::OnPlane => format!("Drag to move {noun} where it stands"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +104,7 @@ impl Handle {
                 .into_iter()
                 .filter(|axis| *axis != normal)
                 .collect(),
-            Self::Turn(_) | Self::TurnAbout | Self::Reach(_) | Self::Hole(_) => Vec::new(),
+            Self::Turn(_) | Self::TurnAbout | Self::Reach(_) | Self::Place(_) => Vec::new(),
         }
     }
 
@@ -114,9 +124,7 @@ impl Handle {
                 let names: Vec<&str> = self.moves().iter().map(|axis| axis.name()).collect();
                 format!("Drag to move the body in the {} plane", names.concat())
             }
-            Self::Hole(HoleGrip::AlongX) => "Drag to move the hole along its Position X".to_owned(),
-            Self::Hole(HoleGrip::AlongY) => "Drag to move the hole along its Position Y".to_owned(),
-            Self::Hole(HoleGrip::OnFace) => "Drag to move the hole on its face".to_owned(),
+            Self::Place(grip) => grip.words("it"),
         }
     }
 }
@@ -328,7 +336,7 @@ impl MoveHandles {
                     .find_map(|axis| held(&move_panel::turn_caption(axis), axis.of(&movement.turn)))
             }
             Handle::TurnAbout => held(move_panel::ANGLE, &movement.about.axis_turn()?.angle),
-            Handle::Reach(_) | Handle::Hole(_) => None,
+            Handle::Reach(_) | Handle::Place(_) => None,
         }
     }
 
@@ -343,7 +351,7 @@ impl MoveHandles {
             | Handle::Turn(_)
             | Handle::TurnAbout
             | Handle::Reach(_)
-            | Handle::Hole(_) => false,
+            | Handle::Place(_) => false,
         });
         let reach = HIT_POINTS * pixels_per_point;
         let arrows = MoveAxis::ALL.into_iter().filter_map(|axis| {
@@ -390,7 +398,7 @@ impl MoveHandles {
                 let index = (along.max(0.0) as usize).min(ring.len() - 1);
                 ring.get(index).copied()
             }
-            Handle::Reach(_) | Handle::Hole(_) => None,
+            Handle::Reach(_) | Handle::Place(_) => None,
         }
     }
 
@@ -780,7 +788,7 @@ fn point_on(
             let plane = Plane::new(origin, direction(frame, axis))?;
             Some(ray.at(ray.intersect_plane(&plane)?))
         }
-        Handle::Reach(_) | Handle::Hole(_) => None,
+        Handle::Reach(_) | Handle::Place(_) => None,
     }
 }
 
