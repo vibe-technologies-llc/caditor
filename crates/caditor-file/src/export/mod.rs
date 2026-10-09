@@ -1,9 +1,13 @@
+mod annotation;
+#[cfg(test)]
+mod drawing_tests;
 mod dxf;
 mod figure;
 mod gltf;
 mod image;
 mod obj;
 mod outline;
+mod sheet;
 mod stl;
 mod svg;
 #[cfg(test)]
@@ -20,14 +24,18 @@ use std::{
 };
 
 use caditor_document::{CancelToken, ModelProperties, ModelProperty, Rgb};
-use caditor_geometry::{Aabb, Point3, Vector2, Vector3};
+use caditor_geometry::{Aabb, Point3, Vector3};
 use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
 use caditor_step::{StepBody, StepDetails, StepWritten, WriteError, write_step_detailed};
 
-use self::figure::Figure;
+use self::{
+    figure::{Figure, Layer, Shape},
+    sheet::Part,
+};
 pub use self::{
     image::{ImageExportError, PNG_EXTENSION, PixelRows, PngExportError, RgbaImage, export_png},
+    sheet::{Annotations, DrawingSheet, Nesting, SheetLayout},
     stl::StlEncoding,
 };
 use crate::{
@@ -37,8 +45,6 @@ use crate::{
 
 const APPLICATION: &str = concat!("caditor ", env!("CARGO_PKG_VERSION"));
 const SMALLEST_EXTENT: f64 = 1.0;
-const MIN_FACE_GAP: f64 = 10.0;
-const FACE_GAP_FRACTION: f64 = 0.1;
 const STREAM_BUFFER: usize = 1 << 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -126,12 +132,30 @@ impl SketchFormat {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SketchExported {
+    pub sketches: usize,
     pub curves: usize,
     pub points: usize,
     pub construction: usize,
     pub construction_left_out: usize,
+    pub dimensions: usize,
+    pub too_wide: usize,
+}
+
+impl SketchExported {
+    fn add(&mut self, other: Self) {
+        self.sketches += other.sketches;
+        self.curves += other.curves;
+        self.points += other.points;
+        self.construction += other.construction;
+        self.construction_left_out += other.construction_left_out;
+        self.dimensions += other.dimensions;
+    }
+
+    fn drawn(&self) -> usize {
+        self.curves + self.points + self.construction
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -141,6 +165,12 @@ pub enum Construction {
     OnLayer,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct NamedSketch<'a> {
+    pub name: &'a str,
+    pub sketch: &'a Sketch,
+}
+
 pub fn export_sketch(
     path: &Path,
     sketch: &Sketch,
@@ -148,20 +178,90 @@ pub fn export_sketch(
     construction: Construction,
     cancel: &CancelToken,
 ) -> Result<SketchExported, ExportError> {
-    let (figure, exported) = Figure::of_sketch(sketch, construction);
-    if exported.curves + exported.points + exported.construction == 0 {
+    let sheet = DrawingSheet {
+        construction,
+        ..DrawingSheet::default()
+    };
+    export_sketches(
+        path,
+        &[NamedSketch { name: "", sketch }],
+        format,
+        &sheet,
+        cancel,
+    )
+}
+
+pub fn export_sketches(
+    path: &Path,
+    sketches: &[NamedSketch<'_>],
+    format: SketchFormat,
+    sheet: &DrawingSheet,
+    cancel: &CancelToken,
+) -> Result<SketchExported, ExportError> {
+    let mut exported = SketchExported::default();
+    let mut drawn = Vec::with_capacity(sketches.len());
+    for named in sketches {
+        if cancel.is_cancelled() {
+            return Err(ExportError::Cancelled);
+        }
+        let (figure, counted) = Figure::of_sketch(named.sketch, sheet.construction);
+        exported.add(counted);
+        drawn.push((named, figure));
+    }
+    if exported.drawn() == 0 {
         return Err(ExportError::NoCurves);
     }
-    write_figure(path, &figure, format, cancel)?;
+    let text_height = sheet::text_height(drawn.iter().map(|(_, figure)| figure));
+    let mut parts = Vec::with_capacity(drawn.len());
+    for (named, mut figure) in drawn {
+        if sheet.annotations == Annotations::Included
+            && let Some(bounds) = figure.bounds()
+        {
+            let dimensions = annotation::dimensions(
+                named.sketch,
+                sheet.construction,
+                text_height,
+                bounds.center(),
+            );
+            exported.dimensions += dimensions.len();
+            for dimension in dimensions {
+                figure.push(Layer::Dimensions, Shape::Dimension(Box::new(dimension)));
+            }
+        }
+        parts.push(Part {
+            figure,
+            label: named.name.to_owned(),
+        });
+    }
+    let arranged = sheet::arranged(parts, sheet, text_height, cancel)?;
+    exported.too_wide = arranged.too_wide;
+    write_figure(path, &arranged.figure, format, cancel)?;
     Ok(exported)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FaceExported {
     pub faces: usize,
     pub loops: usize,
     pub curves: usize,
     pub approximated: usize,
+    pub too_wide: usize,
+}
+
+impl FaceExported {
+    fn add(&mut self, other: Self) {
+        self.faces += other.faces;
+        self.loops += other.loops;
+        self.curves += other.curves;
+        self.approximated += other.approximated;
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NamedFace<'a> {
+    pub name: &'a str,
+    pub solid: &'a Solid,
+    pub face: FaceId,
 }
 
 pub fn export_face(
@@ -171,58 +271,50 @@ pub fn export_face(
     format: SketchFormat,
     cancel: &CancelToken,
 ) -> Result<FaceExported, ExportError> {
-    export_faces(path, &[(solid, face)], format, cancel)
+    export_faces(
+        path,
+        &[NamedFace {
+            name: "",
+            solid,
+            face,
+        }],
+        format,
+        &DrawingSheet::default(),
+        cancel,
+    )
 }
 
 pub fn export_faces(
     path: &Path,
-    faces: &[(&Solid, FaceId)],
+    faces: &[NamedFace<'_>],
     format: SketchFormat,
+    sheet: &DrawingSheet,
     cancel: &CancelToken,
 ) -> Result<FaceExported, ExportError> {
-    let mut figures = Vec::with_capacity(faces.len());
-    for (solid, face) in faces {
+    let mut exported = FaceExported::default();
+    let mut parts = Vec::with_capacity(faces.len());
+    for named in faces {
         if cancel.is_cancelled() {
             return Err(ExportError::Cancelled);
         }
-        let outlined = panic::catch_unwind(AssertUnwindSafe(|| outline::face_figure(solid, *face)));
-        figures.push(outlined.unwrap_or_else(|_| {
+        let outlined = panic::catch_unwind(AssertUnwindSafe(|| {
+            outline::face_figure(named.solid, named.face)
+        }));
+        let (figure, counted) = outlined.unwrap_or_else(|_| {
             log::error!("outlining a face for export panicked");
             Err(ExportError::Encoding)
-        })?);
+        })?;
+        exported.add(counted);
+        parts.push(Part {
+            figure,
+            label: named.name.to_owned(),
+        });
     }
-    let (figure, exported) = laid_out(figures).ok_or(ExportError::NoCurves)?;
-    write_figure(path, &figure, format, cancel)?;
+    let text_height = sheet::text_height(parts.iter().map(|part| &part.figure));
+    let arranged = sheet::arranged(parts, sheet, text_height, cancel)?;
+    exported.too_wide = arranged.too_wide;
+    write_figure(path, &arranged.figure, format, cancel)?;
     Ok(exported)
-}
-
-fn laid_out(figures: Vec<(Figure, FaceExported)>) -> Option<(Figure, FaceExported)> {
-    let largest = figures
-        .iter()
-        .filter_map(|(figure, _)| figure.bounds())
-        .map(|bounds| {
-            let size = bounds.max() - bounds.min();
-            size.x.max(size.y)
-        })
-        .fold(0.0, f64::max);
-    let gap = (largest * FACE_GAP_FRACTION).max(MIN_FACE_GAP);
-    let mut figures = figures.into_iter();
-    let (mut sheet, mut exported) = figures.next()?;
-    for (figure, counted) in figures {
-        let (Some(placed), Some(bounds)) = (sheet.bounds(), figure.bounds()) else {
-            continue;
-        };
-        let offset = Vector2::new(
-            placed.max().x + gap - bounds.min().x,
-            placed.min().y - bounds.min().y,
-        );
-        sheet.append_shifted(figure, offset);
-        exported.faces += counted.faces;
-        exported.loops += counted.loops;
-        exported.curves += counted.curves;
-        exported.approximated += counted.approximated;
-    }
-    Some((sheet, exported))
 }
 
 fn write_figure(

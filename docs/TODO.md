@@ -326,8 +326,11 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Drawing import and export
 
-- [medium · medium] Drawing export takes one sketch at a time (several flat faces go side by side
-  into one file, but are not nested to save material), and the files hold no text or dimensions.
+- [low · medium] Drawing export nests bounding rectangles, so an L-shaped or ring part never takes
+  a smaller part into its hollow, and turns only by quarter turns. Its dimensions are placed by a
+  fixed offset from the sketch's middle without the canvas's lanes or obstacle avoidance, so
+  crowded sketches overlap their labels, and sketches and faces cannot go into one drawing
+  together.
 
 ## Mesh import and export
 

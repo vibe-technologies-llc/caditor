@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeSet,
-    f64::consts::{PI, TAU},
+    f64::consts::{FRAC_PI_2, PI, TAU},
 };
 
 use caditor_geometry::{Aabb2, Point2, Vector2};
@@ -9,6 +9,7 @@ use caditor_sketch::{Entity, Sketch};
 use super::{Construction, SketchExported};
 
 pub(super) const SEGMENT_ANGLE: f64 = 5.0 * PI / 180.0;
+const TEXT_WIDTH_PER_HEIGHT: f64 = 0.6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Layer {
@@ -16,6 +17,8 @@ pub(super) enum Layer {
     Construction,
     Outline,
     Holes,
+    Dimensions,
+    Labels,
 }
 
 impl Layer {
@@ -25,6 +28,8 @@ impl Layer {
             Self::Construction => "Construction",
             Self::Outline => "Outline",
             Self::Holes => "Holes",
+            Self::Dimensions => "Dimensions",
+            Self::Labels => "Labels",
         }
     }
 }
@@ -63,6 +68,160 @@ impl Ellipse {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Anchor {
+    Start,
+    Middle,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Text {
+    pub(super) at: Point2,
+    pub(super) height: f64,
+    pub(super) angle: f64,
+    pub(super) content: String,
+    pub(super) anchor: Anchor,
+}
+
+impl Text {
+    pub(super) fn width(&self) -> f64 {
+        self.height * TEXT_WIDTH_PER_HEIGHT * self.content.chars().count() as f64
+    }
+
+    pub(super) fn upright_angle(&self) -> f64 {
+        match self.anchor {
+            Anchor::Start => self.angle,
+            Anchor::Middle => FRAC_PI_2 - (FRAC_PI_2 - self.angle).rem_euclid(PI),
+        }
+    }
+
+    fn corners(&self) -> Vec<Point2> {
+        let along = Vector2::from_angle(self.angle);
+        let up = along.perp();
+        let width = self.width();
+        let (left, bottom) = match self.anchor {
+            Anchor::Start => (0.0, 0.0),
+            Anchor::Middle => (-width / 2.0, -self.height / 2.0),
+        };
+        [
+            (0.0, 0.0),
+            (width, 0.0),
+            (0.0, self.height),
+            (width, self.height),
+        ]
+        .into_iter()
+        .map(|(x, y)| self.at + along * (left + x) + up * (bottom + y))
+        .collect()
+    }
+
+    fn moved(self, motion: Motion) -> Self {
+        Self {
+            at: motion.point(self.at),
+            angle: motion.angle(self.angle),
+            ..self
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Measure {
+    Linear {
+        first: Point2,
+        second: Point2,
+        line: Point2,
+        angle: f64,
+    },
+    Angular {
+        vertex: Point2,
+        first: Point2,
+        second: Point2,
+        arc: Point2,
+    },
+    Radius {
+        center: Point2,
+        on_curve: Point2,
+    },
+    Diameter {
+        near: Point2,
+        far: Point2,
+    },
+}
+
+impl Measure {
+    fn moved(self, motion: Motion) -> Self {
+        match self {
+            Self::Linear {
+                first,
+                second,
+                line,
+                angle,
+            } => Self::Linear {
+                first: motion.point(first),
+                second: motion.point(second),
+                line: motion.point(line),
+                angle: motion.angle(angle),
+            },
+            Self::Angular {
+                vertex,
+                first,
+                second,
+                arc,
+            } => Self::Angular {
+                vertex: motion.point(vertex),
+                first: motion.point(first),
+                second: motion.point(second),
+                arc: motion.point(arc),
+            },
+            Self::Radius { center, on_curve } => Self::Radius {
+                center: motion.point(center),
+                on_curve: motion.point(on_curve),
+            },
+            Self::Diameter { near, far } => Self::Diameter {
+                near: motion.point(near),
+                far: motion.point(far),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Dimension {
+    pub(super) measure: Measure,
+    pub(super) marks: Vec<Shape>,
+    pub(super) text: Text,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Motion {
+    pub(super) turned: bool,
+    pub(super) offset: Vector2,
+}
+
+impl Motion {
+    pub(super) fn shift(offset: Vector2) -> Self {
+        Self {
+            turned: false,
+            offset,
+        }
+    }
+
+    pub(super) fn vector(self, vector: Vector2) -> Vector2 {
+        if self.turned { vector.perp() } else { vector }
+    }
+
+    pub(super) fn point(self, point: Point2) -> Point2 {
+        self.vector(point) + self.offset
+    }
+
+    fn angle(self, angle: f64) -> f64 {
+        if self.turned {
+            angle + FRAC_PI_2
+        } else {
+            angle
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum Shape {
     Point(Point2),
@@ -80,6 +239,8 @@ pub(super) enum Shape {
     Ellipse(Ellipse),
     Spline(Spline),
     Polyline(Vec<Point2>),
+    Text(Text),
+    Dimension(Box<Dimension>),
 }
 
 impl Shape {
@@ -88,12 +249,18 @@ impl Shape {
         center + Vector2::new(cos, sin) * radius
     }
 
-    fn shifted(self, offset: Vector2) -> Self {
+    pub(super) fn moved(self, motion: Motion) -> Self {
+        let points = |points: Vec<Point2>| -> Vec<Point2> {
+            points
+                .into_iter()
+                .map(|point| motion.point(point))
+                .collect()
+        };
         match self {
-            Self::Point(point) => Self::Point(point + offset),
-            Self::Line(start, end) => Self::Line(start + offset, end + offset),
+            Self::Point(point) => Self::Point(motion.point(point)),
+            Self::Line(start, end) => Self::Line(motion.point(start), motion.point(end)),
             Self::Circle { center, radius } => Self::Circle {
-                center: center + offset,
+                center: motion.point(center),
                 radius,
             },
             Self::Arc {
@@ -102,30 +269,34 @@ impl Shape {
                 start,
                 end,
             } => Self::Arc {
-                center: center + offset,
+                center: motion.point(center),
                 radius,
-                start,
-                end,
+                start: motion.angle(start),
+                end: motion.angle(end),
             },
             Self::Ellipse(ellipse) => Self::Ellipse(Ellipse {
-                center: ellipse.center + offset,
+                center: motion.point(ellipse.center),
+                major: motion.vector(ellipse.major),
                 ..ellipse
             }),
             Self::Spline(spline) => Self::Spline(Spline {
-                control_points: spline
-                    .control_points
-                    .iter()
-                    .map(|point| *point + offset)
-                    .collect(),
-                polyline: spline
-                    .polyline
-                    .iter()
-                    .map(|point| *point + offset)
-                    .collect(),
+                control_points: points(spline.control_points),
+                polyline: points(spline.polyline),
                 ..spline
             }),
-            Self::Polyline(points) => {
-                Self::Polyline(points.iter().map(|point| *point + offset).collect())
+            Self::Polyline(line) => Self::Polyline(points(line)),
+            Self::Text(text) => Self::Text(text.moved(motion)),
+            Self::Dimension(dimension) => {
+                let Dimension {
+                    measure,
+                    marks,
+                    text,
+                } = *dimension;
+                Self::Dimension(Box::new(Dimension {
+                    measure: measure.moved(motion),
+                    marks: marks.into_iter().map(|mark| mark.moved(motion)).collect(),
+                    text: text.moved(motion),
+                }))
             }
         }
     }
@@ -151,6 +322,13 @@ impl Shape {
                 .collect(),
             Self::Spline(spline) => spline.polyline.clone(),
             Self::Polyline(points) => points.clone(),
+            Self::Text(text) => text.corners(),
+            Self::Dimension(dimension) => dimension
+                .marks
+                .iter()
+                .flat_map(Self::outline_points)
+                .chain(dimension.text.corners())
+                .collect(),
         }
     }
 }
@@ -178,12 +356,12 @@ impl Figure {
         )
     }
 
-    pub(super) fn append_shifted(&mut self, other: Self, offset: Vector2) {
+    pub(super) fn append_moved(&mut self, other: Self, motion: Motion) {
         self.shapes.extend(
             other
                 .shapes
                 .into_iter()
-                .map(|(layer, shape)| (layer, shape.shifted(offset))),
+                .map(|(layer, shape)| (layer, shape.moved(motion))),
         );
     }
 
@@ -194,10 +372,8 @@ impl Figure {
     pub(super) fn of_sketch(sketch: &Sketch, construction: Construction) -> (Self, SketchExported) {
         let mut figure = Self::default();
         let mut exported = SketchExported {
-            curves: 0,
-            points: 0,
-            construction: 0,
-            construction_left_out: 0,
+            sketches: 1,
+            ..SketchExported::default()
         };
         let anchors: BTreeSet<_> = sketch
             .entities()

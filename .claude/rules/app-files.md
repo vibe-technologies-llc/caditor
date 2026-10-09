@@ -6,6 +6,7 @@ paths:
   - "crates/caditor/src/onboarding.rs"
   - "crates/caditor/src/export.rs"
   - "crates/caditor/src/image_export.rs"
+  - "crates/caditor/src/drawing_export.rs"
   - "crates/caditor/src/import.rs"
   - "crates/caditor/src/import_panel.rs"
   - "crates/caditor/src/history.rs"
@@ -97,19 +98,29 @@ paths:
 ## Drawing export
 
 - Export sketch (File menu, palette; `Command::ExportSketch`) is offered by
-  `feature_tree::commands` for the sketch the tree has current or that is edited, and only once it
-  has solved geometry. Export face (`Command::ExportFace`, `drawing_export::face_commands`) is
-  offered while one or more faces are selected, all flat (a curved one refuses in words); several
-  go into one drawing side by side (`caditor_file::export_faces`).
-- Both send `FileCommand::ExportDrawing` with a `DrawingSource`, pick a `.dxf` or `.svg` path
-  (`Purpose::Drawing`, titled for the source, `.dxf` appended to any other and replacing asked as
-  for the other outputs) and write on the files worker: a clone of the displayed sketch, or each face
-  found again by its key in the shown body's result (an `Arc`, not a copy). The sketch notice counts
-  what was written and the construction curves left out or kept; the face notice counts curves and
-  loops and says how many became polylines (`drawing_export.rs`).
+  `feature_tree::commands` for the sketches among the features chosen in the tree, else the one it
+  has current or that is edited (`drawing_export::exportable_sketches`; other kinds are ignored),
+  and only once every one has solved geometry. Export face (`Command::ExportFace`,
+  `drawing_export::face_commands`) is offered while one or more faces are selected, all flat (a
+  curved one refuses in words).
+- Both send `FileCommand::ExportDrawing` with a `DrawingSource`, which opens the drawing export
+  dialog (`drawing_export::dialog`, `DrawingExporter` in `Files`, `FileCommand::DrawingExport`):
+  Layout side by side (the default, a single sketch keeping its coordinates) or nested on a sheet
+  with a sheet width and spacing (length fields taking units and expressions, 600 mm and 5 mm by
+  default) and quarter turns (on by default); Dimensions and names (Names for faces), off by
+  default; and, for sketches, the construction choice below. The choices last for the session.
+  Export… picks a `.dxf` or `.svg` path (`Purpose::Drawing`, titled for the source, `.dxf`
+  appended to any other and replacing asked as for the other outputs); the dialog stays open behind
+  the save dialog and a refused replacement, and closes when the export starts. The files worker
+  writes a clone of each displayed sketch, or each face found again by its key in the shown
+  body's result (an `Arc`, not a copy), named after the feature or face.
+- The sketch notice counts what was written, the dimensions and the construction curves left out
+  or kept; the face notice counts curves and loops, says side by side or nested and how many
+  became polylines; both say how many parts were wider than the sheet (`drawing_export.rs`).
 - Keep construction geometry in drawings (`Command::KeepDrawingConstruction`, a File menu choice
-  under the exports, palette) makes Export sketch write construction curves on their own dashed
-  layer instead of leaving them out; it is kept for the session in `Files`, not saved.
+  under the exports, palette, and the dialog's checkbox) makes Export sketch write construction
+  curves on their own dashed layer instead of leaving them out; it is kept for the session in
+  `Files`, not saved.
 
 ## Image export
 

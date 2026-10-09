@@ -2066,21 +2066,18 @@ pub fn commands(
         commands,
         actions,
     );
-    let exportable = current
-        .filter(|feature| feature.kind.sketch().is_some())
-        .ok_or(drawing_export::NOT_A_SKETCH)
-        .and_then(|feature| match model.displayed_sketch(feature) {
-            Some(_) => Ok(feature),
-            None => Err(drawing_export::NOT_SOLVED),
-        });
+    let exportable = drawing_export::exportable_sketches(model, &targets);
     if commands.invoke_detailed(
         Command::ExportSketch,
-        exportable.ok().map(|feature| feature.name.clone()),
+        exportable
+            .as_ref()
+            .ok()
+            .map(|sketches| drawing_export::sketches_name(model, sketches)),
         &exportable,
-    ) && let Ok(feature) = exportable
+    ) && let Ok(sketches) = exportable
     {
         actions.push(Action::File(FileCommand::ExportDrawing(
-            DrawingSource::Sketch(feature.id()),
+            DrawingSource::Sketches(sketches),
         )));
     }
     let replaceable = current
