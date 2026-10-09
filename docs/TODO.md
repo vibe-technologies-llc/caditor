@@ -414,12 +414,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the current tool or panel.
 - [medium · hard] No clipboard for features, and sketch geometry copies only within one caditor
   (the system clipboard gets a line of text, not the geometry); no parameter import or export.
-- [low · medium] The modelling tools borrow Phosphor glyphs that mean something else (`icons.rs`):
-  fillet is the full-screen corners, chamfer a generic polygon, revolve the refresh arrows, circular
-  pattern a loading spinner, shell a see-through cube, and the sketch fillet shares the fillet's.
-  Draw caditor's own icons for fillet, chamfer, shell, extrude, revolve and both patterns, on
-  Phosphor's grid and stroke weight so they sit beside it; undecided whether they ship as glyphs
-  added to the `icons` font family or as painted shapes.
 - [low · medium] Text outside Latin, Greek and Cyrillic shows as missing glyphs in feature and file
   names, since only Inter and egui's defaults are loaded.
 - [low · hard] Themes are four fixed `Tokens` sets in `appearance.rs` (dark, light and their

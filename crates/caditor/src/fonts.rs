@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use egui::{FontData, FontDefinitions, FontFamily, FontTweak, epaint::text::VariationCoords};
 
+use crate::icon_font;
+
 const INTER: &[u8] = include_bytes!("../assets/fonts/InterVariable.ttf");
 const ICONS: &str = "phosphor";
 const WEIGHT_AXIS: &[u8; 4] = b"wght";
@@ -75,10 +77,18 @@ pub fn definitions() -> FontDefinitions {
             .collect();
         fonts.families.insert(family, keys);
     }
-    let icon_keys = [ICONS.to_owned(), WEIGHTS[0].font.to_owned()]
-        .into_iter()
-        .chain(fallbacks.iter().cloned())
-        .collect();
+    fonts.font_data.insert(
+        icon_font::FONT_NAME.to_owned(),
+        Arc::new(FontData::from_owned(icon_font::font())),
+    );
+    let icon_keys = [
+        ICONS.to_owned(),
+        icon_font::FONT_NAME.to_owned(),
+        WEIGHTS[0].font.to_owned(),
+    ]
+    .into_iter()
+    .chain(fallbacks.iter().cloned())
+    .collect();
     fonts.families.insert(icons(), icon_keys);
     fonts.families.remove(&FontFamily::Name(ICONS.into()));
     fonts
@@ -117,6 +127,17 @@ mod tests {
             }
             let icons = egui::FontId::new(14.0, icons());
             assert!(fonts.has_glyphs(&icons, egui_phosphor::regular::ARROW_U_UP_LEFT));
+            for glyph in [
+                icon_font::FILLET,
+                icon_font::CHAMFER,
+                icon_font::SHELL,
+                icon_font::EXTRUDE,
+                icon_font::REVOLVE,
+                icon_font::LINEAR_PATTERN,
+                icon_font::CIRCULAR_PATTERN,
+            ] {
+                assert!(fonts.has_glyphs(&icons, glyph));
+            }
         });
     }
 }

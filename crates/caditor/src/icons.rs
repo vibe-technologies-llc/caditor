@@ -8,6 +8,7 @@ use crate::{
     analysis::AnalysisCommand,
     commands::{CameraMove, Command},
     editing::Tool,
+    icon_font,
     selection::Pickable,
     shape_modes::{BlendMode, CircleMode, PolygonMode, RectangleMode, ShapeMode, SlotMode},
     sketch_tools::ConstraintTool,
@@ -272,9 +273,9 @@ pub fn command(command: Command) -> &'static str {
     }
 }
 
-const EXTRUDE: &str = phosphor::ARROW_FAT_LINE_UP;
-const REVOLVE: &str = phosphor::ARROWS_CLOCKWISE;
-const SHELL: &str = phosphor::CUBE_TRANSPARENT;
+const EXTRUDE: &str = icon_font::EXTRUDE;
+const REVOLVE: &str = icon_font::REVOLVE;
+const SHELL: &str = icon_font::SHELL;
 const COMBINE: &str = phosphor::UNITE;
 const MOVE: &str = phosphor::HAND_GRABBING;
 const MIRROR: &str = phosphor::FLIP_HORIZONTAL;
@@ -283,8 +284,8 @@ const OFFSET_FACE: &str = phosphor::ARROWS_OUT_LINE_VERTICAL;
 const THREAD: &str = phosphor::SPIRAL;
 const SCALE: &str = phosphor::RESIZE;
 const HOLE: &str = phosphor::CIRCLE_DASHED;
-const LINEAR_PATTERN: &str = phosphor::SQUARES_FOUR;
-const CIRCULAR_PATTERN: &str = phosphor::SPINNER;
+const LINEAR_PATTERN: &str = icon_font::LINEAR_PATTERN;
+const CIRCULAR_PATTERN: &str = icon_font::CIRCULAR_PATTERN;
 const PLANE: &str = phosphor::PARALLELOGRAM;
 const AXIS: &str = phosphor::ARROW_LINE_UP_RIGHT;
 const POINT: &str = phosphor::CROSSHAIR_SIMPLE;
@@ -365,8 +366,8 @@ pub fn constraint(tool: ConstraintTool) -> &'static str {
 
 pub fn blend(kind: BlendKind) -> &'static str {
     match kind {
-        BlendKind::Fillet => phosphor::CORNERS_OUT,
-        BlendKind::Chamfer => phosphor::POLYGON,
+        BlendKind::Fillet => icon_font::FILLET,
+        BlendKind::Chamfer => icon_font::CHAMFER,
     }
 }
 
