@@ -5,6 +5,18 @@ removes items. Click empty space to clear the selection; with nothing selected, 
 space or Escape also lets go of the rows chosen in the [feature tree](feature-tree). Hover shows
 what a click would take, with its name.
 
+## The context menu
+
+Right-click in the view for what you can do with what lies under the pointer. A right-click on
+something not selected selects it alone first; on something selected, or on empty space, the
+selection stays as it is. Over the model it offers editing the feature, hiding, looking at a
+face, fitting, measuring, growing the selection and listing everything under the pointer; over
+empty space the views, Show everything, pasting features and the selection filter; while a
+feature is open, reversing its direction, cancelling its changes or finishing it. A right-drag
+still turns the view and never opens the menu. {command:view.context_menu} opens it from the
+keyboard at the highlighted item or the selection. Entries that cannot run now are dimmed and say
+why when you point at them.
+
 ## Boxes, lassos and painting
 
 Drag across empty space to select with a box. Dragging left to right takes what lies wholly inside;

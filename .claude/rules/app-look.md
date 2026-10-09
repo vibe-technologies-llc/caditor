@@ -12,6 +12,7 @@ paths:
   - "crates/caditor/src/view_cube.rs"
   - "crates/caditor/src/layout.rs"
   - "crates/caditor/src/menu_bar.rs"
+  - "crates/caditor/src/view_menu.rs"
   - "crates/caditor/src/window_frame.rs"
   - "crates/caditor/src/overlay.rs"
   - "crates/caditor/src/toolbar.rs"
@@ -174,6 +175,11 @@ paths:
   `widgets::fitted_menu`: as tall as the room below its top (at least half the window, which egui
   then moves up), scrolling past that, so no menu runs off the screen at any interface size
   (`every_menu_stays_on_screen_at_the_largest_interface_size`).
+- A menu of commands draws its entries through `menu_bar::MenuEntries` (availability from the
+  offers, the reason on hover of a disabled entry, the bound keys beside it, checkmarks from
+  `ToggleStates`), shared by the menu bar and the 3D view's context menu (`app-input.md`), which
+  is an egui `Popup` of `PopupKind::Menu` at the pointer so its submenus (`menu_bar::submenu`)
+  work as the menu bar's do.
 - The model title (file icon, name, Unsaved pill, "› sketch" while one is edited) sits centred on
   the window when it fits between menus and search, else as near as it can; clicking it opens the
   model details (path, saved state, Save, Save as…, Version history…, Model properties…, Copy

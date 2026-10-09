@@ -180,7 +180,10 @@ paths:
   needs keeps them and is refused in a notice (`Refusal::SplinePoints`,
   `ClosedSplinePoints`). Backspace or Delete (both kept from commands mid-shape,
   `KEPT_WHILE_DRAWING`) takes back the last point, and `ViewportState::prompt` adds one hint
-  for it to every shape in progress (`TAKE_BACK_HINT`). Each continuing segment records its
+  for it to every shape in progress (`TAKE_BACK_HINT`). Take back the last point, Finish the shape
+  (a line, tangent arc or spline chain only, `Drawing::finishable`, as Enter) and Cancel the shape
+  (as Escape; `Command::TakeBackPoint`, `FinishShape`, `CancelShape`, palette and the view's
+  context menu, no default key) do the same without the keys. Each continuing segment records its
   anchor (`ChainStep`); taking back undoes the last segment when it is the newest undo step, and
   when the anchor's point is gone (undo, a deletion) the chain steps back to the newest anchor
   still there rather than ending.

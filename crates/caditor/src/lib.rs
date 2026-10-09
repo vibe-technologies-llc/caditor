@@ -166,6 +166,7 @@ mod variants;
 mod view_aids;
 mod view_cube;
 mod view_history;
+mod view_menu;
 mod viewport;
 mod visibility;
 mod widgets;

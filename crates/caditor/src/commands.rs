@@ -87,6 +87,9 @@ pub enum Command {
     NewSketch,
     FinishSketch,
     ReverseArc,
+    TakeBackPoint,
+    FinishShape,
+    CancelShape,
     MoreSides,
     FewerSides,
     Construction,
@@ -160,6 +163,7 @@ pub enum Command {
     HighlightPrevious,
     ActivateHighlighted,
     ListUnderPointer,
+    ContextMenu,
     HideSelection,
     HideOthers,
     LookAtFace,
@@ -592,6 +596,7 @@ plain_commands! {
     HighlightPrevious,
     ActivateHighlighted,
     ListUnderPointer,
+    ContextMenu,
     HideSelection,
     HideOthers,
     LookAtFace,
@@ -652,6 +657,9 @@ plain_commands! {
     Configurations,
     FinishSketch,
     ReverseArc,
+    TakeBackPoint,
+    FinishShape,
+    CancelShape,
     MoreSides,
     FewerSides,
     Construction,
@@ -782,6 +790,9 @@ impl Command {
             Self::NewSketch => "model.new_sketch",
             Self::FinishSketch => "sketch.finish",
             Self::ReverseArc => "sketch.reverse_arc",
+            Self::TakeBackPoint => "sketch.take_back_point",
+            Self::FinishShape => "sketch.finish_shape",
+            Self::CancelShape => "sketch.cancel_shape",
             Self::MoreSides => "sketch.more_sides",
             Self::FewerSides => "sketch.fewer_sides",
             Self::Construction => "sketch.construction",
@@ -911,6 +922,7 @@ impl Command {
             Self::HighlightPrevious => "view.highlight_previous",
             Self::ActivateHighlighted => "view.activate_highlighted",
             Self::ListUnderPointer => "view.list_under_pointer",
+            Self::ContextMenu => "view.context_menu",
             Self::HideSelection => "view.hide_selection",
             Self::HideOthers => "view.hide_others",
             Self::LookAtFace => "view.look_at_face",
@@ -1052,6 +1064,9 @@ impl Command {
             Self::NewSketch => "New sketch",
             Self::FinishSketch => "Finish sketch",
             Self::ReverseArc => "Reverse the arc",
+            Self::TakeBackPoint => "Take back the last point",
+            Self::FinishShape => "Finish the shape",
+            Self::CancelShape => "Cancel the shape",
             Self::MoreSides => "Give the polygon another side",
             Self::FewerSides => "Give the polygon one side fewer",
             Self::Construction => "Switch to or from construction geometry",
@@ -1141,6 +1156,7 @@ impl Command {
             Self::HighlightPrevious => "Highlight the previous item in the view",
             Self::ActivateHighlighted => "Select the highlighted item",
             Self::ListUnderPointer => "List everything under the pointer",
+            Self::ContextMenu => "Show the context menu",
             Self::HideSelection => "Hide selection",
             Self::HideOthers => "Hide everything but the selection",
             Self::LookAtFace => "Look straight at the selected face",
@@ -1293,6 +1309,9 @@ impl Command {
             Self::Configurations => &["variants", "family table", "design table"],
             Self::Recompute => &["rebuild", "regenerate", "update"],
             Self::Quit => &["exit", "close"],
+            Self::ContextMenu => &["right click", "shortcut menu", "popup"],
+            Self::TakeBackPoint => &["backspace", "undo point"],
+            Self::FinishShape => &["stop", "end", "done"],
             _ => &[],
         }
     }
@@ -1371,6 +1390,7 @@ impl Command {
             | Self::HighlightPrevious
             | Self::ActivateHighlighted
             | Self::ListUnderPointer
+            | Self::ContextMenu
             | Self::HideSelection
             | Self::HideOthers
             | Self::LookAtFace
@@ -1484,6 +1504,9 @@ impl Command {
             | Self::ReloadImport => Category::Model,
             Self::FinishSketch
             | Self::ReverseArc
+            | Self::TakeBackPoint
+            | Self::FinishShape
+            | Self::CancelShape
             | Self::MoreSides
             | Self::FewerSides
             | Self::Construction
@@ -1518,6 +1541,9 @@ impl Command {
         match self {
             Self::FinishSketch
             | Self::ReverseArc
+            | Self::TakeBackPoint
+            | Self::FinishShape
+            | Self::CancelShape
             | Self::MoreSides
             | Self::FewerSides
             | Self::Construction
@@ -1584,6 +1610,7 @@ impl Command {
             Self::HighlightPrevious => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::N)],
             Self::ActivateHighlighted => vec![plain(Key::Space)],
             Self::ListUnderPointer => vec![alt(Key::W)],
+            Self::ContextMenu => vec![KeyboardShortcut::new(Modifiers::SHIFT, Key::F10)],
             Self::HideSelection => vec![plain(Key::H)],
             Self::HideOthers => vec![alt_shift(Key::H)],
             Self::LookAtFace => vec![alt(Key::V)],
@@ -1675,6 +1702,9 @@ impl Command {
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
             | Self::TypeValue
+            | Self::TakeBackPoint
+            | Self::FinishShape
+            | Self::CancelShape
             | Self::ToggleFirstDimensionScales
             | Self::Filter(_)
             | Self::Style(_)
@@ -2285,6 +2315,10 @@ impl<'a> CommandFrame<'a> {
 
     pub fn take_copied(&mut self) -> Option<String> {
         self.copied.take()
+    }
+
+    pub fn keymap(&self) -> &'a Keymap {
+        self.keymap
     }
 
     pub fn keys(&self, command: Command) -> Option<String> {

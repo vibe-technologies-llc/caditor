@@ -546,6 +546,7 @@ fn screenshots() {
 
         guide_scenes(&mut model, &gpu, &out, look);
         canvas_scenes(&mut model, &gpu, &out, look);
+        view_menu_scenes(&mut model, &gpu, &out, look);
         tree_scenes(&mut model, &gpu, &out, look);
         feature_panel_scenes(&mut model, &gpu, &out, look);
         dialog_scenes(&gpu, &out, look);
@@ -649,6 +650,60 @@ fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.frame();
         model.perform(Action::Editing(EditingCommand::Finish));
         model.settle();
+    }
+}
+
+fn view_menu_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
+    let face = model
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Face { .. }));
+    if let Some(face) = face {
+        model.select([face]);
+        open_view_menu(model);
+        shoot(model, gpu, out, "view-menu-model", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+        model.select([]);
+    }
+    let sketch = model
+        .document()
+        .features()
+        .find(|feature| feature.kind.sketch().is_some())
+        .map(|feature| feature.id());
+    let Some(sketch) = sketch else {
+        return;
+    };
+    model.edit(sketch);
+    let curve = model
+        .document()
+        .feature(sketch)
+        .and_then(|feature| feature.kind.sketch())
+        .and_then(|shape| {
+            shape
+                .entities()
+                .find(|(_, entity)| entity.kind_name() == "Line")
+                .map(|(id, _)| id)
+        });
+    if let Some(entity) = curve {
+        model.select([Pickable::SketchEntity {
+            feature: sketch,
+            entity,
+        }]);
+        open_view_menu(model);
+        shoot(model, gpu, out, "view-menu-sketch", look);
+        model.key(Key::Escape, Modifiers::NONE);
+        model.frame();
+    }
+    model.perform(Action::Editing(EditingCommand::Finish));
+    model.settle();
+}
+
+fn open_view_menu(harness: &mut Harness) {
+    harness.key(Key::F10, Modifiers::SHIFT);
+    for _ in 0..4 {
+        harness.frame();
     }
 }
 

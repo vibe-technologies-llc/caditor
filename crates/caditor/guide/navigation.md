@@ -10,7 +10,8 @@ Navigation:
 - **Fusion 360**, **FreeCAD** and **Blender** copy those programs' mouse buttons; right-drag
   still orbits in each.
 
-The bottom right corner of the view shows the buttons of the mode you chose. Zooming goes toward
+A right-click that does not move opens the view's [context menu](selection) instead of turning
+the view. The bottom right corner of the view shows the buttons of the mode you chose. Zooming goes toward
 the pointer. Orbit and zoom speeds and the zoom direction are in Preferences too; the zoom
 direction also turns round Blender's Ctrl+middle-drag zoom.
 

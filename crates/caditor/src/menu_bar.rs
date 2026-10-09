@@ -7,7 +7,7 @@ use egui::{
 use crate::{
     analysis::AnalysisCommand,
     appearance::{self, BORDER_WIDTH, CONTROL_HEIGHT, SPACE_M, SPACE_S, WIDGET_RADIUS},
-    commands::{CameraMove, Command, CommandFrame, Offer, Scope, StandardView},
+    commands::{self, CameraMove, Command, CommandFrame, Keymap, Offer, Scope, StandardView},
     display_style::DisplayStyle,
     editing::{SketchEditing, Tool},
     files::{self, FileCommand, Files},
@@ -154,17 +154,14 @@ pub fn show(
                     visited: Vec::new(),
                     sets: context.sets,
                     picked_sets: Vec::new(),
-                    offers: context.offers,
-                    toggles: context.toggles,
-                    commands,
-                    chosen: Vec::new(),
+                    entries: MenuEntries::new(context.offers, context.toggles, commands.keymap()),
                 };
                 menus.edit(ui);
                 menus.view(ui);
                 menus.model(ui);
                 menus.sketch(ui);
                 menus.help(ui);
-                let chosen = std::mem::take(&mut menus.chosen);
+                let chosen = menus.entries.take_chosen();
                 let visited = std::mem::take(&mut menus.visited);
                 let picked_sets = std::mem::take(&mut menus.picked_sets);
                 for command in chosen {
@@ -380,21 +377,31 @@ fn model_details(
     }
 }
 
-struct Menus<'a, 'b> {
-    undo: Option<&'a str>,
-    redo: Option<&'a str>,
-    views: &'a SavedViews,
-    visited: Vec<usize>,
-    sets: &'a SelectionSets,
-    picked_sets: Vec<usize>,
+pub struct MenuEntries<'a> {
     offers: &'a [Offer],
     toggles: ToggleStates,
-    commands: &'a CommandFrame<'b>,
+    keymap: &'a Keymap,
     chosen: Vec<Command>,
+    focus_first: bool,
 }
 
-impl Menus<'_, '_> {
-    fn availability(&self, command: Command) -> Result<(), String> {
+impl<'a> MenuEntries<'a> {
+    pub fn new(offers: &'a [Offer], toggles: ToggleStates, keymap: &'a Keymap) -> Self {
+        Self {
+            offers,
+            toggles,
+            keymap,
+            chosen: Vec::new(),
+            focus_first: false,
+        }
+    }
+
+    pub fn focusing_first(mut self) -> Self {
+        self.focus_first = true;
+        self
+    }
+
+    pub fn availability(&self, command: Command) -> Result<(), String> {
         match self.offers.iter().find(|offer| offer.command == command) {
             Some(offer) => offer.availability.clone(),
             None if command.scope() == Scope::Sketch => Err(SKETCH_ONLY.to_owned()),
@@ -402,54 +409,106 @@ impl Menus<'_, '_> {
         }
     }
 
-    fn item(&mut self, ui: &mut Ui, command: Command) {
+    pub fn is_available(&self, command: Command) -> bool {
+        self.availability(command).is_ok()
+    }
+
+    pub fn detail(&self, command: Command) -> Option<&str> {
+        self.offers
+            .iter()
+            .find(|offer| offer.command == command && offer.availability.is_ok())
+            .and_then(|offer| offer.detail.as_deref())
+    }
+
+    pub fn take_chosen(&mut self) -> Vec<Command> {
+        std::mem::take(&mut self.chosen)
+    }
+
+    pub fn item(&mut self, ui: &mut Ui, command: Command) {
         self.titled_item(ui, command, &command.title());
     }
 
-    fn titled_item(&mut self, ui: &mut Ui, command: Command, title: &str) {
+    pub fn titled_item(&mut self, ui: &mut Ui, command: Command, title: &str) {
         let availability = self.availability(command);
+        let keys = self.keys(command);
         let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
-            widgets::menu_item(
-                ui,
-                icons::command(command),
-                title,
-                self.commands.keys(command),
-            )
+            widgets::menu_item(ui, icons::command(command), title, keys)
         });
-        let response = match &availability {
-            Ok(()) => response.inner,
-            Err(reason) => response.inner.on_disabled_hover_text(reason),
-        };
-        if response.clicked() {
-            self.chosen.push(command);
+        self.respond(command, response.inner, &availability);
+    }
+
+    pub fn offered(&mut self, ui: &mut Ui, command: Command, title: &str) {
+        if self.is_available(command) {
+            self.titled_item(ui, command, title);
         }
     }
 
-    fn choice(&mut self, ui: &mut Ui, command: Command) {
+    pub fn choice(&mut self, ui: &mut Ui, command: Command) {
         let chosen = self.toggles.is_on(command);
         let availability = self.availability(command);
+        let keys = self.keys(command);
         let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
-            widgets::menu_choice(
-                ui,
-                icons::command(command),
-                &command.title(),
-                self.commands.keys(command),
-                chosen,
-            )
+            widgets::menu_choice(ui, icons::command(command), &command.title(), keys, chosen)
         });
-        let response = match &availability {
-            Ok(()) => response.inner,
-            Err(reason) => response.inner.on_disabled_hover_text(reason),
-        };
-        if response.clicked() {
-            self.chosen.push(command);
-        }
+        self.respond(command, response.inner, &availability);
     }
 
-    fn items(&mut self, ui: &mut Ui, commands: impl IntoIterator<Item = Command>) {
+    pub fn items(&mut self, ui: &mut Ui, commands: impl IntoIterator<Item = Command>) {
         for command in commands {
             self.item(ui, command);
         }
+    }
+
+    fn keys(&self, command: Command) -> Option<String> {
+        self.keymap
+            .first(command)
+            .map(|shortcut| commands::display(&shortcut))
+    }
+
+    fn respond(&mut self, command: Command, response: Response, availability: &Result<(), String>) {
+        if self.focus_first && availability.is_ok() {
+            response.request_focus();
+            self.focus_first = false;
+        }
+        let response = match availability {
+            Ok(()) => response,
+            Err(reason) => response.on_disabled_hover_text(reason),
+        };
+        if response.clicked() {
+            self.chosen.push(command);
+        }
+    }
+}
+
+struct Menus<'a> {
+    undo: Option<&'a str>,
+    redo: Option<&'a str>,
+    views: &'a SavedViews,
+    visited: Vec<usize>,
+    sets: &'a SelectionSets,
+    picked_sets: Vec<usize>,
+    entries: MenuEntries<'a>,
+}
+
+impl Menus<'_> {
+    fn availability(&self, command: Command) -> Result<(), String> {
+        self.entries.availability(command)
+    }
+
+    fn item(&mut self, ui: &mut Ui, command: Command) {
+        self.entries.item(ui, command);
+    }
+
+    fn titled_item(&mut self, ui: &mut Ui, command: Command, title: &str) {
+        self.entries.titled_item(ui, command, title);
+    }
+
+    fn choice(&mut self, ui: &mut Ui, command: Command) {
+        self.entries.choice(ui, command);
+    }
+
+    fn items(&mut self, ui: &mut Ui, commands: impl IntoIterator<Item = Command>) {
+        self.entries.items(ui, commands);
     }
 
     fn edit(&mut self, ui: &mut Ui) {
@@ -799,7 +858,7 @@ fn top_menu(ui: &mut Ui, title: &str, add: impl FnOnce(&mut Ui)) {
     ui.menu_button(title, |ui| widgets::fitted_menu(ui, add));
 }
 
-fn submenu(ui: &mut Ui, glyph: &str, title: &str, add: impl FnOnce(&mut Ui)) {
+pub fn submenu(ui: &mut Ui, glyph: &str, title: &str, add: impl FnOnce(&mut Ui)) {
     let muted = appearance::tokens(ui).text_muted;
     let submenu = ui.menu_button(
         (widgets::icon(glyph).color(muted), title.to_owned()),
