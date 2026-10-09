@@ -80,6 +80,19 @@ impl Mesh {
         self.chord
     }
 
+    pub fn approximate_size(&self) -> usize {
+        size_of::<Self>()
+            + size_of_val(self.positions.as_slice())
+            + size_of_val(self.vertices.as_slice())
+            + size_of_val(self.triangles.as_slice())
+            + size_of_val(self.faces.as_slice())
+            + self
+                .edges
+                .iter()
+                .map(|edge| size_of_val(edge) + size_of_val(edge.positions.as_slice()))
+                .sum::<usize>()
+    }
+
     pub fn positions(&self) -> &[Point3] {
         &self.positions
     }

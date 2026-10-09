@@ -887,6 +887,10 @@ fn a_long_chain_solves_and_analyses_within_its_work_budget() {
 }
 
 fn many_rectangles(count: usize) -> Sketch {
+    rectangles_of_width(count, &mm(40.0))
+}
+
+fn rectangles_of_width(count: usize, width: &Expression) -> Sketch {
     let mut sketch = Sketch::new(Plane::XY);
     for index in 0..count {
         let origin = Point2::new((index % 80) as f64 * 100.0, (index / 80) as f64 * 100.0);
@@ -916,13 +920,13 @@ fn many_rectangles(count: usize) -> Sketch {
         add(&mut sketch, Constraint::Vertical(right));
         add(&mut sketch, Constraint::Horizontal(top));
         add(&mut sketch, Constraint::Vertical(left));
-        for (line, length) in [(0, 40.0), (1, 20.0)] {
+        for (line, length) in [(0, width.clone()), (1, mm(20.0))] {
             add(
                 &mut sketch,
                 Constraint::Distance {
                     from: ends[line].0,
                     to: ends[line].1,
-                    value: mm(length),
+                    value: length,
                 },
             );
         }
@@ -958,6 +962,35 @@ fn thousands_of_independent_rectangles_solve_in_a_fraction_of_a_second() {
         assert!(solved.solution.is_fully_constrained());
         assert_eq!(again.memo.recalled(), count);
         assert_eq!(again.solution, solved.solution);
+    }
+}
+
+#[test]
+#[ignore = "measures a sketch of thousands of independent parts moved by one parameter, best run in release"]
+fn thousands_of_rectangles_resized_by_one_parameter_solve_in_a_fraction_of_a_second() {
+    let width = ParameterId::from_raw(1);
+    let resized = |_: ParameterId| Ok(Quantity::length(55.0));
+    for count in [1_600, 6_400] {
+        let sketch = rectangles_of_width(count, &Expression::Parameter(width));
+        let started = std::time::Instant::now();
+
+        let solved = sketch.solve(&resized, &|| false).unwrap();
+
+        println!("{count} rectangles resized: {:?}", started.elapsed());
+        assert!(solved.solution.is_fully_constrained());
+        let (start, end) = sketch
+            .entities()
+            .find_map(|(_, entity)| match entity {
+                Entity::Line { start, end } => Some((*start, *end)),
+                _ => None,
+            })
+            .unwrap();
+        let length = solved
+            .geometry
+            .point(start)
+            .unwrap()
+            .distance(solved.geometry.point(end).unwrap());
+        assert!((length - 55.0).abs() < 1e-6, "{length}");
     }
 }
 
