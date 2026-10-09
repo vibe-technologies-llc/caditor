@@ -1,5 +1,5 @@
 use caditor_file::Settings;
-use egui::{Id, PanelState, Rangef};
+use egui::{Id, PanelState, Rangef, Rect, Ui, UiBuilder};
 
 const WIDTH_KEY: &str = "window.width";
 const HEIGHT_KEY: &str = "window.height";
@@ -10,6 +10,7 @@ const SIDE_WIDTH_KEY: &str = "panels.side_width";
 const RIGHT_WIDTH_KEY: &str = "panels.right_width";
 const SHARED_RIGHT_WIDTH: &str = "right-panel-width";
 const SEEN_RIGHT_WIDTH: &str = "right-panel-seen-width";
+const CONTENTS: &str = "panel-contents";
 const FEATURES_OPEN_KEY: &str = "panels.features_open";
 const PARAMETERS_OPEN_KEY: &str = "panels.parameters_open";
 pub const MIN_WINDOW_WIDTH: f64 = 480.0;
@@ -214,15 +215,32 @@ pub struct RightPanel {
 }
 
 impl RightPanel {
-    pub fn panel(&self, ctx: &egui::Context, room: f32) -> egui::Panel {
+    pub fn show<R>(&self, ui: &mut Ui, room: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+        let ctx = ui.ctx().clone();
         let id = Id::new(self.id);
         let widths = panel_widths(room, self.least);
-        follow_resizing(ctx, id, widths);
+        follow_resizing(&ctx, id, widths);
         egui::Panel::right(id)
             .resizable(true)
-            .default_size(shared_right_width(ctx).unwrap_or(self.width))
+            .default_size(shared_right_width(&ctx).unwrap_or(self.width))
             .size_range(widths)
+            .show(ui, |ui| within_width(ui, add))
+            .inner
     }
+}
+
+pub fn within_width<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let bounds = ui.max_rect();
+    let mut contents = ui.new_child(
+        UiBuilder::new()
+            .id_salt(CONTENTS)
+            .max_rect(bounds)
+            .layout(*ui.layout()),
+    );
+    let inner = add(&mut contents);
+    let used = contents.min_rect();
+    ui.advance_cursor_after_rect(Rect::from_x_y_ranges(bounds.x_range(), used.y_range()));
+    inner
 }
 
 pub fn share_right_width(ctx: &egui::Context, width: Option<f32>) {
@@ -394,5 +412,41 @@ mod tests {
         );
         assert_eq!(side_width(f32::NAN), DEFAULT_SIDE_WIDTH);
         assert_eq!(right_width(f32::NAN), None);
+    }
+
+    #[test]
+    fn a_right_hand_panel_reserves_what_it_paints_when_its_contents_are_wider() {
+        const PANEL: RightPanel = RightPanel {
+            id: "wide-contents",
+            width: 200.0,
+            least: 200.0,
+        };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(700.0, 500.0));
+        let ctx = egui::Context::default();
+        let mut central = None;
+        for _ in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..egui::RawInput::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                PANEL.show(ui, 200.0, |ui| {
+                    ui.add(egui::Label::new("x".repeat(120)).extend());
+                });
+                egui::CentralPanel::no_frame().show(ui, |ui| central = Some(ui.max_rect()));
+            });
+            output.textures_delta.clear();
+        }
+        let panel = PanelState::load(&ctx, Id::new(PANEL.id))
+            .expect("the panel was shown")
+            .outer_rect;
+        let central = central.expect("the central panel was shown");
+
+        assert!(screen.contains_rect(panel), "{panel:?}");
+        assert!((panel.width() - 200.0).abs() < 1.0, "{panel:?}");
+        assert!(
+            central.max.x <= panel.min.x + 0.5,
+            "{central:?} under {panel:?}"
+        );
     }
 }

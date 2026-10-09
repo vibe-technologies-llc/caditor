@@ -847,7 +847,10 @@ fn speed_slider(
     command: &mut Option<PreferencesCommand>,
 ) {
     let mut speed = current;
-    let response = ui.add(egui::Slider::new(&mut speed, MIN_SPEED..=MAX_SPEED).logarithmic(true));
+    let response = widgets::slider(
+        ui,
+        egui::Slider::new(&mut speed, MIN_SPEED..=MAX_SPEED).logarithmic(true),
+    );
     widgets::tie_to_caption(ui, &response);
     let settled = response.drag_stopped() || !response.dragged();
     if settled && (response.changed() || response.drag_stopped()) {

@@ -75,6 +75,7 @@ mod feature_panels;
 mod feature_tree_choice;
 mod files_and_history;
 mod import_jobs;
+mod large_interface;
 mod paint_selection;
 mod palette_and_notices;
 mod panel_fields;
@@ -111,6 +112,23 @@ const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(10);
 const FRAME_SECONDS: f64 = 0.05;
 const ANIMATION_FRAMES: usize = 5;
+const WHEEL_TRIES: usize = 20;
+const WHEEL_STEP: f32 = 60.0;
+
+#[derive(Debug, Clone, Copy)]
+enum Wheel {
+    Up,
+    Down,
+}
+
+impl Wheel {
+    fn delta(self) -> f32 {
+        match self {
+            Self::Up => WHEEL_STEP,
+            Self::Down => -WHEEL_STEP,
+        }
+    }
+}
 const STILL_FRAMES: usize = 60;
 const WINDOW_SETTLE_FRAMES: usize = 5;
 const FILE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -837,6 +855,14 @@ impl Harness {
         self.show_new_windows();
     }
 
+    fn click_tool(&mut self, label: &str) {
+        if self.shows(label) {
+            self.click(label);
+        } else {
+            self.click_button(label);
+        }
+    }
+
     fn click_leftmost(&mut self, label: &str) {
         let position = self
             .texts
@@ -887,6 +913,37 @@ impl Harness {
             .unwrap_or_else(|| panic!("'{label}' is not on screen"))
             .1
             .center()
+    }
+
+    fn fully_shown(&self, label: &str) -> bool {
+        self.texts
+            .iter()
+            .zip(&self.text_clips)
+            .any(|((shown, rect), clip)| shown == label && clip.expand(0.5).contains_rect(*rect))
+    }
+
+    fn wheel_until_shown(&mut self, over: Pos2, label: &str, wheel: Wheel) {
+        self.events.push(Event::PointerMoved(over));
+        self.frame();
+        for _ in 0..WHEEL_TRIES {
+            if self.fully_shown(label) {
+                return;
+            }
+            self.events.push(Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::vec2(0.0, wheel.delta()),
+                phase: egui::TouchPhase::Move,
+                modifiers: self.held,
+            });
+            self.let_animations_finish();
+        }
+        panic!("'{label}' never came into view");
+    }
+
+    fn panel_rect(&self, id: &str) -> Rect {
+        egui::containers::panel::PanelState::load(&self.context, Id::new(id))
+            .unwrap_or_else(|| panic!("the {id} panel is not shown"))
+            .outer_rect
     }
 
     fn click_screen(&mut self, position: Pos2) {
@@ -7960,7 +8017,7 @@ fn extruded_plate(harness: &mut Harness) -> (FeatureId, Pickable) {
     rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
     harness.add_sketch(sketch);
     harness.select([]);
-    harness.click("Extrude");
+    harness.click_tool("Extrude");
     harness.settle();
     let extrude = harness
         .workspace
@@ -12222,7 +12279,7 @@ fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours(
     harness.frame();
     harness.frame();
     let visible = SCREEN.size() / 2.0;
-    for label in ["File", "Axis", "Up to date", "Features"] {
+    for label in ["File", "Up to date", "Features"] {
         let rect = harness
             .texts
             .iter()
@@ -12234,6 +12291,11 @@ fn the_interface_scales_from_the_keyboard_and_high_contrast_changes_the_colours(
             "{label} at {rect:?}"
         );
     }
+    let axis = harness.button_rect("Axis");
+    assert!(
+        axis.max.x <= visible.x && axis.max.y <= visible.y,
+        "Axis at {axis:?}"
+    );
 
     harness.perform(Action::Preferences(PreferencesCommand::Change(
         PreferenceChange::Scale(1.0),

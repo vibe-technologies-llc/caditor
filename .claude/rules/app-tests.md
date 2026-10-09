@@ -18,6 +18,12 @@ paths:
   the button across frames (`hold_drag`, `release_drag`) so a test can read mid-drag state.
 - Overlap checks compare only the visible part of each text (`Harness::text_clips`), since
   content scrolled under a bar is clipped there.
+- `ui_tests/large_interface.rs` holds the 200% checks (panels beside the view, dialogs on screen,
+  the compact ribbon, canvas readouts). A scene reaches what a user would scroll to with
+  `wheel_until_shown` (`fully_shown`: the whole text inside its clip), clicks a ribbon tool with
+  `click_tool` (its label, else its accessible name when the ribbon is compact) and reads a
+  panel's rect with `panel_rect`. The focus scroll that brings a tree row into view is animated,
+  so a test lets animations finish before clicking what it revealed.
 - `settle` waits for the recompute and body meshing, runs two frames, and starts over while those
   frames started more (opening a feature meshes the body before it from a frame), so the scene
   after it is the finished one. `point_at`, and so `click_at`, settles first when a recompute or

@@ -16,7 +16,7 @@ use egui::{Event, Key, KeyboardShortcut, Modifiers};
 use tempfile::TempDir;
 
 use super::{
-    CAMERA_SETTLE, Harness, Painted, add_block, add_peg, combine_nearly_touching_blocks,
+    CAMERA_SETTLE, Harness, Painted, Wheel, add_block, add_peg, combine_nearly_touching_blocks,
     extruded_plate, run_from_palette,
 };
 use crate::{
@@ -328,7 +328,7 @@ fn screenshots() {
         combine_nearly_touching_blocks(&mut empty);
         empty.key(Key::F8, Modifiers::NONE);
         empty.frame();
-        empty.frame();
+        empty.let_animations_finish();
         empty.click("Show where");
         empty.frame();
         empty.workspace.viewport.advance(CAMERA_SETTLE);
@@ -727,6 +727,8 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         shoot(model, gpu, out, "failed", look);
         let suppressed = model.document().feature(*first).map(|row| row.name.clone());
         if let Some(name) = suppressed {
+            let tree = model.panel_rect("model").center();
+            model.wheel_until_shown(tree, &name, Wheel::Up);
             model.click_button(&format!("Show details of {name}"));
             model.frame();
             shoot(model, gpu, out, "suppressed-card", look);
@@ -799,8 +801,15 @@ fn tree_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
             vertex: *vertex,
         }));
         model.wait_until("the vertices are measured", |harness| {
-            harness.shows("Between them")
+            harness
+                .workspace
+                .measure
+                .measurements
+                .readout()
+                .is_some_and(|readout| readout.line.is_some())
         });
+        let panel = model.panel_rect("measure").center();
+        model.wheel_until_shown(panel, "Between them", Wheel::Down);
         shoot(model, gpu, out, "measure-two", look);
         model.key(Key::I, Modifiers::NONE);
         model.frame();
@@ -838,7 +847,7 @@ fn beyond_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
 fn move_scene(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
     let (_, top) = extruded_plate(harness);
     harness.select([top]);
-    harness.click("Move body");
+    harness.click_tool("Move body");
     harness.settle();
     harness
         .events
@@ -874,6 +883,8 @@ fn interference(harness: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         harness.shows("1 pair overlaps and 1 pair touches.")
     });
     shoot(harness, gpu, out, "interference", look);
+    let panel = harness.panel_rect("interference").center();
+    harness.wheel_until_shown(panel, crate::interference_panel::SHOW_PLACE, Wheel::Down);
     harness.click(crate::interference_panel::SHOW_PLACE);
     harness.frame();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
@@ -1042,7 +1053,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
     points.add_point(Point2::new(20.0, 20.0));
     drilled.add_sketch(points);
     drilled.select([]);
-    drilled.click("Hole");
+    drilled.click_tool("Hole");
     drilled.settle();
     let hole = drilled.workspace.editing.solid().and_then(|feature| {
         Some((
@@ -1066,7 +1077,7 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
     add_peg(&mut joined);
     let peg_top = super::pickable_described(&mut joined, "Peg › Peg end face");
     joined.select([top, peg_top]);
-    joined.click("Combine");
+    joined.click_tool("Combine");
     shoot_open(&mut joined, gpu, out, "panel-combine", look);
 
     let threaded_dir = TempDir::new().expect("a temporary directory");

@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use egui::{
-    Align, Button, Color32, CornerRadius, CursorIcon, FocusDirection, Frame, Galley, Grid, Id, Key,
-    Label, Layout, Margin, Modal, Modifiers, Popup, Rect, Response, RichText, Sense, Sides, Stroke,
-    StrokeKind, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, WidgetType,
+    Align, Align2, AtomExt, Button, Color32, CornerRadius, CursorIcon, FocusDirection, Frame,
+    Galley, Grid, Id, Key, Label, Layout, Margin, Modal, Modifiers, Popup, Rect, Response,
+    RichText, ScrollArea, Sense, Sides, Slider, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui,
+    Vec2, Widget, WidgetInfo, WidgetText, WidgetType,
     accesskit::{Live, Role},
     collapsing_header::CollapsingState,
     pos2, vec2,
@@ -14,7 +15,7 @@ use crate::{
         self, BORDER_WIDTH, CARD_RADIUS, CONTROL_HEIGHT, DIALOG_MARGIN, FOCUS_WIDTH, ICON_SIZE,
         SECTION, SMALL_SIZE, SPACE_S, SPACE_XS, TOOL_ICON_SIZE, Tokens, WIDGET_RADIUS,
     },
-    fonts, icons,
+    fonts, icons, window_frame,
 };
 
 const DIALOG_EDGE: f32 = 8.0;
@@ -54,6 +55,10 @@ const TAB_ICON_GAP: f32 = 6.0;
 const TAB_GAP: f32 = 2.0;
 const TAB_UNDERLINE: f32 = 2.0;
 const CAPTION_KEY: &str = "property-caption";
+const PANEL_HEADER_WIDTH: &str = "panel-header-width";
+const DIALOG_BODY_KEY: &str = "dialog-body";
+const CAPTION_ROOM_KEY: &str = "property-caption-room";
+const MIN_SLIDER_WIDTH: f32 = 40.0;
 const WIDTH_CHANGE: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -186,6 +191,30 @@ pub fn icon_button(ui: &mut Ui, glyph: &str, hover: &str) -> Response {
     .on_hover_text(hover)
 }
 
+pub fn slider(ui: &mut Ui, slider: Slider<'_>) -> Response {
+    let value = ui.spacing().interact_size.x + ui.spacing().item_spacing.x;
+    let track = (ui.available_width() - value)
+        .min(ui.spacing().slider_width)
+        .max(MIN_SLIDER_WIDTH);
+    ui.scope(|ui| {
+        ui.spacing_mut().slider_width = track;
+        ui.add(slider)
+    })
+    .inner
+}
+
+pub fn icon_buttons_width(ui: &Ui, count: usize) -> f32 {
+    let buttons = count as f32;
+    buttons * (ui.spacing().interact_size.y + ui.spacing().item_spacing.x)
+}
+
+pub fn label_before_icon_buttons(ui: &mut Ui, text: &str, buttons: usize) -> Response {
+    let room = (ui.available_width() - icon_buttons_width(ui, buttons)).max(0.0);
+    let galley =
+        WidgetText::from(text).into_galley(ui, Some(TextWrapMode::Wrap), room, TextStyle::Body);
+    ui.add(Label::new(galley).selectable(true))
+}
+
 pub fn swatch(ui: &mut Ui, fill: Color32, name: &str, chosen: bool) -> Response {
     let tokens = appearance::tokens(ui);
     let side = ui.spacing().interact_size.y;
@@ -262,9 +291,19 @@ pub fn removable_row_hovered(ui: &mut Ui, text: RichText, hover: &str) -> Remova
 
 pub fn small_button(ui: &mut Ui, glyph: &str, text: &str) -> Named<Button<'static>> {
     let muted = appearance::tokens(ui).text_muted;
+    let label = RichText::new(text.to_owned()).text_style(TextStyle::Body);
+    let label_width = unwrapped(ui, label.clone(), TextStyle::Body).size().x;
+    let spacing = ui.spacing();
+    let natural = ICON_SIZE + spacing.icon_spacing + label_width + 2.0 * spacing.button_padding.x;
+    let row = if ui.layout().main_wrap() {
+        ui.max_rect().right().min(ui.clip_rect().right()) - ui.max_rect().left()
+    } else {
+        ui.available_width()
+    };
+    let wider_than_a_row = natural > row;
     let button = Button::new((
         icon(glyph).color(muted),
-        RichText::new(text.to_owned()).text_style(TextStyle::Body),
+        label.atom_shrink(wider_than_a_row),
     ));
     Named::new(button, text)
 }
@@ -449,6 +488,7 @@ fn segmented_menu(ui: &mut Ui, segments: &[Segment<'_>], selected: usize) -> Opt
     let salt: Vec<&str> = segments.iter().map(|segment| segment.label).collect();
     let combo = egui::ComboBox::from_id_salt(("segmented", salt))
         .selected_text(current)
+        .wrap_mode(TextWrapMode::Truncate)
         .width(ui.available_width())
         .show_ui(ui, |ui| {
             for (index, segment) in segments.iter().enumerate() {
@@ -602,16 +642,30 @@ pub fn panel_header<R>(
     actions: impl FnOnce(&mut Ui) -> R,
 ) -> R {
     let tokens = appearance::tokens(ui);
-    Sides::new()
-        .show(
-            ui,
-            |ui| {
-                icon_label(ui, glyph, tokens.text_muted);
-                ui.add(Label::new(section_title(title)).selectable(false));
-            },
-            actions,
-        )
-        .1
+    let width_id = ui.id().with((PANEL_HEADER_WIDTH, title));
+    let spacing = ui.spacing().item_spacing.x;
+    let heading = |ui: &mut Ui| {
+        icon_label(ui, glyph, tokens.text_muted);
+        ui.add(Label::new(section_title(title)).selectable(false));
+        ui.min_rect().width()
+    };
+    let trailing = |ui: &mut Ui| {
+        let inner = actions(ui);
+        (inner, ui.min_rect().width())
+    };
+    let (heading_width, (inner, actions_width)) =
+        if remembered_width(ui, width_id) <= ui.available_width() {
+            Sides::new().show(ui, heading, trailing)
+        } else {
+            let heading_width = ui.horizontal(heading).inner;
+            let row = vec2(ui.available_width(), ui.spacing().interact_size.y);
+            let actions = ui
+                .allocate_ui_with_layout(row, Layout::right_to_left(Align::Center), trailing)
+                .inner;
+            (heading_width, actions)
+        };
+    remember_width(ui, width_id, heading_width + spacing + actions_width);
+    inner
 }
 
 fn primary_action_key() -> Id {
@@ -919,11 +973,16 @@ pub fn column_caption(ui: &mut Ui, text: &str) {
 
 pub fn caption(ui: &mut Ui, text: &str) {
     let tokens = appearance::tokens(ui);
-    let label = ui.add(
-        Label::new(RichText::new(text).color(tokens.text_muted))
-            .selectable(false)
-            .wrap_mode(TextWrapMode::Extend),
+    let room = ui
+        .data(|data| data.get_temp::<f32>(Id::new(CAPTION_ROOM_KEY)))
+        .unwrap_or(f32::INFINITY);
+    let galley = WidgetText::from(RichText::new(text).color(tokens.text_muted)).into_galley(
+        ui,
+        Some(TextWrapMode::Wrap),
+        room,
+        TextStyle::Body,
     );
+    let label = ui.add(Label::new(galley).selectable(false));
     let key = ui.unique_id().with(CAPTION_KEY);
     ui.data_mut(|data| data.insert_temp(key, label.id));
 }
@@ -947,12 +1006,32 @@ pub fn properties<R>(
     id: impl std::hash::Hash + std::fmt::Debug,
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
-    Grid::new(Id::new(("properties", id)))
+    let room_key = Id::new(CAPTION_ROOM_KEY);
+    let value_room = ui.available_width() - FIELD_WIDTH - PROPERTY_SPACING[0];
+    let caption_room = value_room.max(CAPTION_WIDTH);
+    let least_caption = if value_room < CAPTION_WIDTH {
+        0.0
+    } else {
+        CAPTION_WIDTH
+    };
+    let outer_room = ui.data(|data| data.get_temp::<f32>(room_key));
+    ui.data_mut(|data| data.insert_temp(room_key, caption_room));
+    let outside = ui.style().wrap_mode;
+    ui.style_mut().wrap_mode = Some(TextWrapMode::Wrap);
+    let inner = Grid::new(Id::new(("properties", id)))
         .num_columns(2)
         .spacing(PROPERTY_SPACING)
-        .min_col_width(CAPTION_WIDTH)
+        .min_col_width(least_caption)
         .show(ui, add)
-        .inner
+        .inner;
+    ui.style_mut().wrap_mode = outside;
+    ui.data_mut(|data| match outer_room {
+        Some(room) => {
+            data.insert_temp(room_key, room);
+        }
+        None => data.remove::<f32>(room_key),
+    });
+    inner
 }
 
 pub fn property<R>(ui: &mut Ui, text: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
@@ -1617,7 +1696,9 @@ pub fn dialog<T>(
 ) -> DialogResponse<T> {
     let mut closed = false;
     ctx.data_mut(|data| data.remove::<Id>(primary_action_key()));
+    let below_controls = vec2(0.0, window_frame::controls_bottom(ctx) / 2.0);
     let response = Modal::new(Id::new(id))
+        .area(Modal::default_area(Id::new(id)).anchor(Align2::CENTER_CENTER, below_controls))
         .frame(dialog_frame(ctx))
         .show(ctx, |ui| {
             ui.set_width(fitting_width(ctx, width.points()));
@@ -1627,7 +1708,19 @@ pub fn dialog<T>(
                 |ui| closed = icon_button(ui, icons::CLOSE, "Close (Esc)").clicked(),
             );
             ui.add_space(ui.spacing().item_spacing.y);
-            let inner = add(ui);
+            let heading = ui.cursor().min.y - ui.min_rect().min.y;
+            let room = DialogBody {
+                heading,
+                limit: (tallest_dialog(ctx) - heading).max(MIN_LIST_HEIGHT),
+            };
+            ctx.data_mut(|data| data.insert_temp(Id::new(DIALOG_BODY_KEY), room));
+            let inner = ScrollArea::vertical()
+                .id_salt(DIALOG_BODY_KEY)
+                .max_height(room.limit)
+                .min_scrolled_height(room.limit)
+                .auto_shrink([false, true])
+                .show(ui, add)
+                .inner;
             focus_primary_action(ui.ctx());
             inner
         });
@@ -1649,6 +1742,21 @@ pub fn remember_width(ui: &Ui, id: Id, width: f32) {
         ui.ctx()
             .request_discard("a bar's trailing items changed width");
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DialogBody {
+    pub heading: f32,
+    pub limit: f32,
+}
+
+pub fn dialog_body(ctx: &egui::Context) -> Option<DialogBody> {
+    ctx.data(|data| data.get_temp::<DialogBody>(Id::new(DIALOG_BODY_KEY)))
+}
+
+fn tallest_dialog(ctx: &egui::Context) -> f32 {
+    let edges = 2.0 * (DIALOG_EDGE + f32::from(DIALOG_MARGIN));
+    ctx.content_rect().height() - window_frame::controls_bottom(ctx) - edges
 }
 
 pub fn fitting_width(ctx: &egui::Context, wanted: f32) -> f32 {

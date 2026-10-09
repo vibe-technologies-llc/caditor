@@ -91,7 +91,7 @@ pub fn show(
     };
     let mut close = false;
     let mut accepted = false;
-    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+    PANEL.show(ui, room, |ui| {
         ui.add_space(SPACE_S);
         widgets::panel_header(ui, icons::AUTOMATIC_CONSTRAINTS, TITLE, |ui| {
             close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();

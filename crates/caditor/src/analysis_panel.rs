@@ -154,7 +154,7 @@ fn pull_rows(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool
     ui.end_row();
 
     widgets::caption(ui, "Direction");
-    ui.horizontal_wrapped(|ui| {
+    ui.vertical(|ui| {
         let name = tool.pull_name(context.model);
         let reversed = if tool.reversed { ", reversed" } else { "" };
         ui.add(Label::new(format!("{name}{reversed}")).wrap_mode(TextWrapMode::Wrap));
@@ -270,7 +270,10 @@ fn stripe_rows(ui: &mut Ui, tool: &mut AnalysisTool) {
     ui.end_row();
 
     widgets::caption(ui, STRIPES);
-    let stripes = ui.add(Slider::new(&mut tool.stripes, MIN_STRIPES..=MAX_STRIPES));
+    let stripes = widgets::slider(
+        ui,
+        Slider::new(&mut tool.stripes, MIN_STRIPES..=MAX_STRIPES),
+    );
     widgets::tie_to_caption(ui, &stripes);
     ui.end_row();
 }
@@ -339,7 +342,7 @@ fn body(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool) {
 
 pub fn show(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool, room: f32) {
     let mut close = false;
-    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+    PANEL.show(ui, room, |ui| {
         ui.add_space(SPACE_S);
         widgets::panel_header(ui, icons::ANALYSIS, TITLE, |ui| {
             close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();

@@ -72,24 +72,26 @@ fn settings(ui: &mut Ui, tool: &mut IsocurveTool) {
         ui.end_row();
 
         widgets::caption(ui, LINES);
-        let lines = ui.add(Slider::new(
-            &mut tool.lines,
-            isocurves::MIN_LINES..=isocurves::MAX_LINES,
-        ));
+        let lines = widgets::slider(
+            ui,
+            Slider::new(&mut tool.lines, isocurves::MIN_LINES..=isocurves::MAX_LINES),
+        );
         widgets::tie_to_caption(ui, &lines);
         ui.end_row();
 
         widgets::caption(ui, TEETH);
-        let teeth = ui.add(Slider::new(
-            &mut tool.teeth,
-            comb::MIN_TEETH..=comb::MAX_TEETH,
-        ));
+        let teeth = widgets::slider(
+            ui,
+            Slider::new(&mut tool.teeth, comb::MIN_TEETH..=comb::MAX_TEETH),
+        );
         widgets::tie_to_caption(ui, &teeth);
         ui.end_row();
 
         widgets::caption(ui, SCALE);
-        let scale = ui
-            .add(Slider::new(&mut tool.scale, comb::MIN_SCALE..=comb::MAX_SCALE).logarithmic(true));
+        let scale = widgets::slider(
+            ui,
+            Slider::new(&mut tool.scale, comb::MIN_SCALE..=comb::MAX_SCALE).logarithmic(true),
+        );
         widgets::tie_to_caption(ui, &scale);
         ui.end_row();
     });
@@ -164,7 +166,7 @@ pub fn show(
     room: f32,
 ) {
     let mut close = false;
-    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+    PANEL.show(ui, room, |ui| {
         ui.add_space(SPACE_S);
         widgets::panel_header(ui, icons::ISOCURVES, TITLE, |ui| {
             close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();

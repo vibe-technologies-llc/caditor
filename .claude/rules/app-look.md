@@ -96,10 +96,12 @@ paths:
   not keys. Each key, "or" and action is its own text, so tests use `shows_hint`.
 - Overlay text keeps clear of the view cube: a failure or interference label that would cover the
   cube or the buttons under it moves left of them, staying in the view (`viewport::clear_of`); the prompt and its hints centre in the band left of
-  `view_cube::area` (capped width, wrapping), the hover description starts at the band's top left
+  `view_cube::area` (capped width, wrapping), the prompt's key hints left out when they would
+  reach the bottom strip of the triad and readouts (`view_cube::TRIAD_WIDTH` above the bottom),
+  the hover description starts at the band's top left
   and moves under the prompt when they would meet, the grid spacing label (a screen-reader `Label`)
-  and cursor readout sit bottom left, the navigation hints bottom right and are left out when
-  they would meet the cube or the prompt.
+  and cursor readout sit bottom left and are left out when they would meet the prompt, the
+  navigation hints bottom right and are left out when they would meet the cube or the prompt.
 - The view cube is one focusable button named after the hovered target, else the nearest view,
   with that name as tooltip, followed by the bound keys of a standard view's direction
   (`CubeTexts::view_keys`; the Isometric corner only while the model keeps no redefined
@@ -123,7 +125,21 @@ paths:
     widen a panel. `danger_button` is for actions that throw work away and never registers as the
     primary. `strong` is semibold text, since egui's `.strong()` only recolours here.
   - `segmented` falls back to a dropdown when its row is wider than the room, so it never widens
-    a panel.
+    a panel; that dropdown and `feature_fields::combo` truncate their chosen text rather than wrap
+    it.
+  - `small_button` marks its label, not its icon, as the part that shrinks when the button is
+    wider than a whole row of its container (the room left in a non-wrapping layout), so in a
+    column narrower than the button the label wraps instead of the button running past the edge,
+    while in a wrapping row it moves to the next row whole rather than shrinking to what is left.
+    `label_before_icon_buttons` wraps a value leaving room for the icon buttons after it, and
+    `slider` narrows the track to the room left beside its value (`MIN_SLIDER_WIDTH`).
+  - A `properties` grid wraps its values (the grid sets the wrap mode) and its captions once they
+    would leave the value column narrower than `FIELD_WIDTH`, never below `CAPTION_WIDTH`; in a
+    grid narrower than a caption and a field the caption column drops its minimum and is as wide
+    as its widest caption. A row of a field and its value preview wraps the preview to the next
+    line rather than squeezing it.
+  - `panel_header` puts its actions on a row of their own under the title once title and actions
+    no longer fit one row (`remembered_width` of both), so they never overlap.
   - `pill` and `status_pill` measure their text and reserve that room before drawing, so a
     wrapped row moves one that does not fit to the next line instead of letting it run past the
     edge and widen the side panel, which would shift the 3D view whenever a sketch's status
@@ -141,7 +157,12 @@ paths:
   - `tabs` moves by click, Left/Right (wrapping), Home and End, and with `switch_keys` Ctrl+Tab
     and Ctrl+Page Up/Down; focus follows. `tab_id(row, index)` lets tests focus one.
   - Dialog widths and list heights clamp to the screen (`fitting_width`, `list_height`), so
-    nothing clips at 200%.
+    nothing clips at 200%. `widgets::dialog` centres a dialog in the window below the row of
+    window buttons (`window_frame::controls_bottom`), which are drawn over dialogs, and puts
+    everything under the title in a scroll area as tall as the window leaves
+    (`DialogBody::limit`), so a dialog taller than the window scrolls rather than running off it.
+    Dialogs with a long body keep their footer in view with `BodyRoom`, which stays within that
+    limit.
   - The side panel's scroll area always reserves its scrollbar's room, so the panel keeps its width
     when its content grows past the window's height.
   - Icons and labels are separate text atoms, so tests find buttons by bare label, and compact ones
@@ -189,7 +210,11 @@ paths:
 - Both ribbons are built by `ribbon.rs`: whole groups packed into rows by last frame's natural
   widths (`remembered_width`), so widths never depend on the selection or the active tool and
   selecting never moves the 3D view. Captions show only while the ribbon fits one row; a group
-  wider than its row wraps inside. Buttons explain themselves on hover with `ribbon::explained`
+  wider than its row wraps inside. The main ribbon turns compact (icon-only `ToolButton`s named by
+  their labels, `toolbar::tool_button`) while its labelled rows would take more than
+  `MOST_LABELLED_SHARE` of the window's height, judged from the labelled widths remembered apart
+  from the compact ones, so at 200% in a small window the 3D view, and a sketch being edited in
+  it, keeps a usable height. Buttons explain themselves on hover with `ribbon::explained`
   (name, what it does with its shortcut, or why it is unavailable).
 - The main ribbon (`toolbar.rs`) is `ToolButton`s in the groups of its `Group` enum. While a plane
   is being chosen for a new sketch, New sketch shows selected and clicking it stops choosing (as
@@ -253,7 +278,11 @@ paths:
   window, split evenly between those open (`layout::panel_room`, `panel_widths`); each one's
   minimum width yields to that share, so at 200% on a small screen the 3D view keeps a usable
   width. A model panel narrowed by the share keeps the width the user chose for when there is room.
-- The right-hand panels are each a `layout::RightPanel` (id, own default width, least width). They
+- The right-hand panels are each a `layout::RightPanel` (id, own default width, least width),
+  shown through `RightPanel::show`, which lays the contents out in a child bounded to the panel
+  (`layout::within_width`): egui clamps an overflowing right-hand panel's rect by keeping its far
+  edge, so content wider than the panel would shift the rect off the window and reserve less than
+  the panel paints, leaving the 3D view under it. They
   share one width the user last gave one of them (`PanelLayout::right_width`, `None` until then,
   so each opens at its own default): `app.rs` hands it to them through egui temp data
   (`layout::share_right_width`) and reads it back after them. A panel's width differing from the

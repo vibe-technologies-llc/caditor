@@ -4,7 +4,7 @@ use caditor_document::{
 };
 use caditor_expression::{Dimension, Expression};
 use caditor_kernel::MAX_TAPER_DEGREES;
-use egui::{ComboBox, Id, Label, RichText, Ui, WidgetText};
+use egui::{ComboBox, Id, Label, RichText, TextWrapMode, Ui, WidgetText};
 
 use crate::{
     appearance, datum_tools,
@@ -166,7 +166,7 @@ pub fn expression_row_drafting(
     };
     let validate = |text: &str| named.transaction(text, parse, &change);
     let (committed, error, draft) = ui
-        .horizontal(|ui| {
+        .horizontal_wrapped(|ui| {
             let field = field::commit_field(
                 ui,
                 quantity.id,
@@ -179,7 +179,7 @@ pub fn expression_row_drafting(
             if field.error.is_none()
                 && let Some(preview) = field::value_preview(parameters, shown, unit)
             {
-                ui.label(widgets::muted(preview, ui));
+                ui.add(Label::new(widgets::muted(preview, ui)).wrap_mode(TextWrapMode::Extend));
             }
             let draft = match (field.committed.is_some(), field.left, field.edited) {
                 (true, _, _) | (false, false, None) => None,
@@ -315,6 +315,7 @@ pub fn combo(
     let mut chosen = None;
     let combo = ComboBox::from_id_salt(id)
         .selected_text(selected)
+        .wrap_mode(TextWrapMode::Truncate)
         .show_ui(ui, |ui| {
             for choice in choices() {
                 let enabled = choice.change.is_ok() || choice.selected;

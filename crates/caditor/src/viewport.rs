@@ -4120,33 +4120,42 @@ impl ViewportState {
                     .length_unit()
                     .grid_text(grid_minor_spacing(grid, &view))
             });
-        let grid_area = grid_text.map(|text| {
-            let area = canvas::label(
+        let clear_of_prompt = |area: Rect| prompt.is_none_or(|prompt| !area.intersects(prompt));
+        let grid_area = grid_text.and_then(|text| {
+            let label = canvas::Label::new(
                 painter,
-                bottom_left,
-                Align2::LEFT_BOTTOM,
                 &text,
                 canvas::readout(),
                 canvas::TEXT,
+                f32::INFINITY,
             );
-            let response = ui.interact(area, ui.id().with("grid spacing"), Sense::hover());
-            response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &text));
-            area
+            let wanted = Align2::LEFT_BOTTOM.anchor_size(bottom_left, label.size());
+            clear_of_prompt(wanted).then(|| {
+                let area = label.paint(painter, wanted.min);
+                let response = ui.interact(area, ui.id().with("grid spacing"), Sense::hover());
+                response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &text));
+                area
+            })
         });
         let readout_bottom = grid_area.map_or(bottom_left.y, |area| area.top() - READOUT_GAP);
         if let Some(position) = self.sketch_cursor {
-            canvas::label(
+            let text = format!(
+                "x {}   y {}",
+                model.length_unit().readout_text(position.x),
+                model.length_unit().readout_text(position.y)
+            );
+            let label = canvas::Label::new(
                 painter,
-                pos2(readout_left, readout_bottom),
-                Align2::LEFT_BOTTOM,
-                format!(
-                    "x {}   y {}",
-                    model.length_unit().readout_text(position.x),
-                    model.length_unit().readout_text(position.y)
-                ),
+                text,
                 canvas::readout(),
                 canvas::TEXT,
+                f32::INFINITY,
             );
+            let wanted =
+                Align2::LEFT_BOTTOM.anchor_size(pos2(readout_left, readout_bottom), label.size());
+            if clear_of_prompt(wanted) {
+                label.paint(painter, wanted.min);
+            }
         }
         let grid_right = grid_area.map_or(readout_left, |area| area.right() + canvas::MARGIN);
         let hints_left = if editing.feature().is_some() {
@@ -4417,7 +4426,10 @@ fn paint_prompt(painter: &egui::Painter, rect: Rect, band: Rect, text: &str, key
     let width = band.width().min(PROMPT_MAX_WIDTH);
     let title = canvas::Label::new(painter, text, canvas::title(), canvas::PROMPT, width);
     let hints = canvas::Hints::new(painter, keys, width, Align::Center);
-    let half = title.size().x.max(hints.size().x) / 2.0;
+    let reach = PROMPT_MARGIN + title.size().y + canvas::MARGIN / 2.0 + hints.size().y;
+    let hints = (rect.top() + reach <= rect.bottom() - view_cube::TRIAD_WIDTH).then_some(hints);
+    let hints_width = hints.as_ref().map_or(0.0, |hints| hints.size().x);
+    let half = title.size().x.max(hints_width) / 2.0;
     let x = rect
         .center()
         .x
@@ -4428,12 +4440,14 @@ fn paint_prompt(painter: &egui::Painter, rect: Rect, band: Rect, text: &str, key
         pos2(x, rect.top() + PROMPT_MARGIN),
         Align2::CENTER_TOP,
     );
-    let hinted = hints.paint_at(
-        painter,
-        pos2(x, shown.bottom() + canvas::MARGIN / 2.0),
-        Align2::CENTER_TOP,
-    );
-    shown.union(hinted)
+    hints.map_or(shown, |hints| {
+        let hinted = hints.paint_at(
+            painter,
+            pos2(x, shown.bottom() + canvas::MARGIN / 2.0),
+            Align2::CENTER_TOP,
+        );
+        shown.union(hinted)
+    })
 }
 
 fn paint_area(painter: &egui::Painter, rect: Rect, area: &ScreenArea) {

@@ -88,6 +88,11 @@ pub fn row<G: Copy + Hash + Debug>(
     }
 }
 
+pub fn rows_height(ui: &Ui, rows: usize) -> f32 {
+    let count = rows as f32;
+    count * height(ui, false) + (count - 1.0).max(0.0) * ROW_GAP
+}
+
 pub fn height(ui: &Ui, captions: bool) -> f32 {
     let band = widgets::tool_height(ui);
     if captions {

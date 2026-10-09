@@ -27,6 +27,7 @@ use crate::{
     appearance::SPACE_M,
     commands::{Command, CommandFrame},
     configuration_export::{self, ConfigurationExported, ConfigurationJob},
+    dialog_parts::BodyRoom,
     feature_tree::count,
     files::FileCommand,
     icons,
@@ -38,6 +39,8 @@ use crate::{
 };
 
 const BODY_LIST_HEIGHT: f32 = 160.0;
+const DIALOG_ID: &str = "export";
+const HEIGHT_SHARE: f32 = 0.8;
 const OUTDATED: &str = "Recomputing was stopped, so some features still show their earlier results. \
                         Recompute the model first to include the latest changes.";
 const FAILED_OUTCOME: &str = "each body is exported as it was before them";
@@ -620,22 +623,28 @@ pub fn activity(
 }
 
 pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option<ExportCommand> {
-    let response = widgets::dialog(ctx, "export", "Export", DialogWidth::Medium, |ui| {
+    let response = widgets::dialog(ctx, DIALOG_ID, "Export", DialogWidth::Medium, |ui| {
         let bodies: Vec<Body> = Exporter::bodies(model).collect();
         if bodies.is_empty() {
             widgets::empty_state(ui, icons::command(Command::Export), NO_BODIES, |_| {});
             return None;
         }
         let mut command = None;
-        format_choice(ui, exporter, &mut command);
-        if exporter.format == ExportFormat::Stl {
-            stl_choice(ui, exporter, &mut command);
-        }
-        if exporter.format.is_mesh() {
-            resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
-        }
-        configuration_choice(ui, model, exporter, &mut command);
-        body_choice(ui, exporter, &bodies, &mut command);
+        let mut room = BodyRoom::measure(ui, DIALOG_ID, HEIGHT_SHARE);
+        ScrollArea::vertical()
+            .max_height(room.height)
+            .show(ui, |ui| {
+                format_choice(ui, exporter, &mut command);
+                if exporter.format == ExportFormat::Stl {
+                    stl_choice(ui, exporter, &mut command);
+                }
+                if exporter.format.is_mesh() {
+                    resolution_choice(ui, exporter, &bodies, model.length_unit(), &mut command);
+                }
+                configuration_choice(ui, model, exporter, &mut command);
+                body_choice(ui, exporter, &bodies, &mut command);
+            });
+        room.body_ended(ui);
         let blocker = if exporter.is_running() {
             Some("An export is already running.")
         } else if matches!(model.status(), RecomputeStatus::Running { .. }) {
@@ -663,6 +672,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model, exporter: &Exporter) -> Option
                 command = Some(ExportCommand::Hide);
             }
         });
+        room.dialog_ended(ui);
         command
     });
     let closed = response.should_close().then_some(ExportCommand::Hide);
