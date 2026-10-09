@@ -81,6 +81,7 @@ pub const MEASURE: &str = phosphor::RULER;
 pub const INTERFERENCE: &str = phosphor::INTERSECT_SQUARE;
 pub const ANALYSIS: &str = phosphor::GAUGE;
 pub const CURVATURE_COMB: &str = phosphor::CHART_LINE;
+pub const ISOCURVES: &str = phosphor::GRID_NINE;
 pub const COPY: &str = phosphor::COPY_SIMPLE;
 pub const TEMPLATE: &str = phosphor::STAMP;
 pub const FEATURES: &str = phosphor::TREE_STRUCTURE;
@@ -181,6 +182,7 @@ pub fn command(command: Command) -> &'static str {
         Command::Measure => MEASURE,
         Command::Interference => INTERFERENCE,
         Command::Analysis(AnalysisCommand::Comb) => CURVATURE_COMB,
+        Command::Analysis(AnalysisCommand::Isocurves) => ISOCURVES,
         Command::Analysis(_) => ANALYSIS,
         Command::ToggleProjection => phosphor::PERSPECTIVE,
         Command::AutomaticProjection => phosphor::PERSPECTIVE,

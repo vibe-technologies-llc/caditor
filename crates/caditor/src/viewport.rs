@@ -31,6 +31,7 @@ use crate::{
     faceting::FacetLevel,
     feature_tree,
     interference_panel::{Mark, MarkKind},
+    isocurves::IsocurveDrawing,
     measure::MeasuredLine,
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome},
@@ -287,6 +288,7 @@ pub struct ViewportState {
     problems: Vec<Problem>,
     interference: Vec<Mark>,
     comb: Option<Arc<CombDrawing>>,
+    isocurves: Option<Arc<IsocurveDrawing>>,
     framed_place: Option<Point3>,
     look_from: Option<Vector3>,
     scenes: SceneCache,
@@ -424,6 +426,7 @@ impl ViewportState {
             problems: Vec::new(),
             interference: Vec::new(),
             comb: None,
+            isocurves: None,
             framed_place: None,
             look_from: None,
             scenes: SceneCache::default(),
@@ -556,6 +559,10 @@ impl ViewportState {
 
     pub fn set_comb(&mut self, comb: Option<Arc<CombDrawing>>) {
         self.comb = comb;
+    }
+
+    pub fn set_isocurves(&mut self, isocurves: Option<Arc<IsocurveDrawing>>) {
+        self.isocurves = isocurves;
     }
 
     pub fn destination(&self) -> Viewpoint {
@@ -898,6 +905,7 @@ impl ViewportState {
             problems: self.problems.iter().map(|problem| problem.place).collect(),
             interference: self.interference.clone(),
             comb: self.comb.clone(),
+            isocurves: self.isocurves.clone(),
             manipulator: self
                 .manipulator
                 .map(|manipulator| manipulator.drawn(self.manipulator_hover)),

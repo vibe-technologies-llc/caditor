@@ -281,12 +281,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   the screw boss with its ribs, a lip and groove along a seam, snap fits (hook, loop, groove) and a
   rest (a flat seat on a curved face), which moulded parts need.
 
-## Inspection and analysis
-
-- [low · medium] No isocurves with combs: the u and v parameter lines of the selected faces drawn
-  on the bodies, each with a curvature comb (`comb.rs`), to judge a spline face's flow; the
-  curvature map, zebra stripes and chrome reflection are done (`app.md`, "Face analysis").
-
 ## STEP import and export
 
 - [high · hard] A body whose faces meet only within the file's declared precision (CATIA and

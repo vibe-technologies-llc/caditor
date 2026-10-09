@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use caditor_document::profile_curve;
 use caditor_geometry::{Aabb, Point3, Vector3};
-use caditor_kernel::{Curve, Interval};
+use caditor_kernel::{Curve, CurveDerivatives, Interval};
 use caditor_render::{Batch, Color, Layer, Line, Stroke};
 
 use crate::{
@@ -26,7 +26,7 @@ const JOINT_GAP: f64 = 1e-3;
 const TANGENT_SINE: f64 = 1.745e-3;
 const CURVATURE_SLACK: f64 = 1e-2;
 const FLAT_CURVATURE: f64 = 1e-9;
-const HALO_WIDTH: f32 = 2.0;
+pub const HALO_WIDTH: f32 = 2.0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tooth {
@@ -237,8 +237,7 @@ fn teeth_of(model: &Model, pickable: Pickable, teeth: usize) -> Option<Vec<Tooth
     }
 }
 
-fn tooth_at(curve: &Curve, parameter: f64) -> Option<Tooth> {
-    let derivatives = curve.evaluate(parameter);
+fn tooth_of(derivatives: CurveDerivatives) -> Option<Tooth> {
     Some(Tooth {
         at: derivatives.point,
         tangent: derivatives.first.normalize_or_zero(),
@@ -247,12 +246,20 @@ fn tooth_at(curve: &Curve, parameter: f64) -> Option<Tooth> {
 }
 
 pub fn spaced_teeth(curve: &Curve, interval: Interval, teeth: usize) -> Vec<Tooth> {
+    spaced_teeth_along(|parameter| curve.evaluate(parameter), interval, teeth)
+}
+
+pub fn spaced_teeth_along(
+    evaluate: impl Fn(f64) -> CurveDerivatives,
+    interval: Interval,
+    teeth: usize,
+) -> Vec<Tooth> {
     let teeth = teeth.max(1);
     let steps = teeth * STEPS_PER_TOOTH;
     let parameter_at =
         |step: usize| interval.start() + interval.length() * step as f64 / steps as f64;
     let points: Vec<Point3> = (0..=steps)
-        .map(|step| curve.point(parameter_at(step)))
+        .map(|step| evaluate(parameter_at(step)).point)
         .collect();
     let mut travelled = Vec::with_capacity(points.len());
     let mut total = 0.0;
@@ -290,7 +297,7 @@ pub fn spaced_teeth(curve: &Curve, interval: Interval, teeth: usize) -> Vec<Toot
         below + (parameter_at(after) - below) * fraction
     };
     (0..=teeth)
-        .filter_map(|tooth| tooth_at(curve, parameter_along(tooth)))
+        .filter_map(|tooth| tooth_of(evaluate(parameter_along(tooth))))
         .collect()
 }
 

@@ -38,6 +38,8 @@ use crate::{
     image_export::{ReadPixels, RenderedRows},
     interference::InterferenceTool,
     interference_panel::{self, InterferenceContext},
+    isocurve_panel,
+    isocurves::IsocurveTool,
     layout::{
         self, LogicalSize, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MonitorArea, PanelLayout, Position,
         WindowPlacement,
@@ -143,6 +145,7 @@ pub struct Workspace {
     pub interference: InterferenceTool,
     pub analysis: AnalysisTool,
     pub comb: CombTool,
+    pub isocurves: IsocurveTool,
     pub(crate) frame_failures: FrameFailures,
     applied_appearance: Option<Appearance>,
     applied_title_bar: Option<TitleBar>,
@@ -188,6 +191,7 @@ impl Workspace {
             interference: InterferenceTool::default(),
             analysis: AnalysisTool::default(),
             comb: CombTool::default(),
+            isocurves: IsocurveTool::default(),
             frame_failures: FrameFailures::default(),
             applied_appearance: None,
             applied_title_bar: None,
@@ -219,6 +223,7 @@ impl Workspace {
         self.interference = InterferenceTool::default();
         self.analysis = AnalysisTool::default();
         self.comb = CombTool::default();
+        self.isocurves = IsocurveTool::default();
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
@@ -236,6 +241,7 @@ impl Workspace {
             self.scale_model = None;
             self.interference.interference.forget();
             self.comb.forget();
+            self.isocurves.forget();
         }
     }
 
@@ -431,6 +437,7 @@ pub fn show(
         interference,
         analysis,
         comb,
+        isocurves,
         keyboard_was_taken,
         deferred_commands,
         ..
@@ -508,6 +515,9 @@ pub fn show(
     if commands.available(Command::Analysis(AnalysisCommand::Comb)) {
         comb.toggle();
     }
+    if commands.available(Command::Analysis(AnalysisCommand::Isocurves)) {
+        isocurves.toggle();
+    }
     sketch_toolbar::show(
         ui,
         model,
@@ -541,7 +551,8 @@ pub fn show(
         + usize::from(measure.open)
         + usize::from(interference.open)
         + usize::from(analysis.open)
-        + usize::from(comb.open);
+        + usize::from(comb.open)
+        + usize::from(isocurves.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
     panels::show(
         ui,
@@ -635,6 +646,17 @@ pub fn show(
         None
     };
     viewport.set_comb(combing);
+    let lines = if isocurves.open {
+        isocurves.follow(viewport.selection());
+        let shown = isocurves.isocurves(model);
+        isocurve_panel::show(ui, model.units(), isocurves, shown.as_deref(), room);
+        shown
+            .filter(|_| isocurves.open)
+            .map(|shown| isocurves.drawing(&shown))
+    } else {
+        None
+    };
+    viewport.set_isocurves(lines);
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
     canvas::set_contrast(ui.ctx(), contrast);

@@ -4,6 +4,7 @@ paths:
   - "crates/caditor-kernel/src/topology/classify.rs"
   - "crates/caditor-kernel/src/topology/classify_tests.rs"
   - "crates/caditor-kernel/src/topology/polygons.rs"
+  - "crates/caditor-kernel/src/topology/isoparametric.rs"
   - "crates/caditor-kernel/src/boolean/**"
 ---
 
@@ -100,6 +101,12 @@ paths:
   with a parallel normal, and `Touching(face)` otherwise. `classify_fragment_point` also asks that
   two elementary surfaces be the same surface, so a plane tangent to a cylinder along a line is
   touching, not coincident.
+- `Solid::isoparametric_runs(face, along, lines)` (`topology/isoparametric.rs`) gives the
+  parameter lines of a face: `lines` (at most `MOST_ISOPARAMETRIC_LINES`) values of the other
+  parameter spaced evenly strictly inside the face's uv box, each line sampled
+  `SAMPLES_PER_LINE` times across the box with `point_in_face` of a one-face classifier
+  (`SolidClassifier::of_face`), so a line through a hole is split into runs, each end bisected to
+  the boundary. It polls the interrupt once a line (`IsoparametricError::Cancelled`).
 - `first_crossing(origin, direction, beyond)` casts one ray the same way: the nearest clean
   crossing past `beyond` (face, distance, whether the ray enters), `Nothing`, or `Undecided` when a
   graze, tangent, overlap or edge comes no later. Hits up to `beyond` are ignored, so a ray may

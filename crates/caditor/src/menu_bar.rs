@@ -601,6 +601,7 @@ impl Menus<'_, '_> {
             self.item(ui, Command::Analysis(AnalysisCommand::Zebra));
             self.item(ui, Command::Analysis(AnalysisCommand::Chrome));
             self.item(ui, Command::Analysis(AnalysisCommand::Comb));
+            self.item(ui, Command::Analysis(AnalysisCommand::Isocurves));
             ui.separator();
             self.items(
                 ui,

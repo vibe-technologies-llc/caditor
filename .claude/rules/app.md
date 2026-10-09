@@ -29,6 +29,8 @@ paths:
   - "crates/caditor/src/interference_panel.rs"
   - "crates/caditor/src/comb.rs"
   - "crates/caditor/src/comb_panel.rs"
+  - "crates/caditor/src/isocurves.rs"
+  - "crates/caditor/src/isocurve_panel.rs"
   - "crates/caditor/src/analysis.rs"
   - "crates/caditor/src/analysis_panel.rs"
   - "crates/caditor/src/reach.rs"
@@ -351,6 +353,32 @@ paths:
   batch on the front layer: every segment first as a wider line in `ScenePalette::hole`, then the
   teeth and the envelope in `ScenePalette::comb` over it, so the comb holds 3:1 over bodies and the
   canvas in both palettes.
+
+## Isocurves
+
+- Show or hide isocurves with combs (`AnalysisCommand::Isocurves`, View menu, palette, no default
+  key) toggles `IsocurveTool` in the `Workspace`; while open, `isocurve_panel.rs` draws a
+  right-hand panel beside any other. It never changes the document, is kept for the session and
+  forgets its faces in a new one.
+- It follows the selection like the comb: the selected body faces (at most `MOST_FACES`) become
+  the chosen faces, and a selection holding none keeps them. For each, Lines along (Both, U, V)
+  picks the directions and Lines each way (`MIN_LINES` to `MAX_LINES`, 5 at first) how many runs
+  `Solid::isoparametric_runs` finds per direction (`kernel-intersect.md`); every run becomes a
+  polyline of `STEPS_PER_LINE` steps and a comb of Teeth per line + 1 teeth from the surface's
+  derivatives along it (`comb::spaced_teeth_along`, so teeth sit at equal lengths as on curves).
+  All lines share one comb (`Isocurves::comb`) scaled by the comb's Scale, so faces and directions
+  compare directly; joints are not judged.
+- The work runs on an `isocurves` thread whenever the faces, the settings, the revision or the
+  evaluation change (`Basis`); a newer basis cancels the older thread through the kernel
+  interrupt, the last finished lines stay drawn until the new ones arrive (the panel says it is
+  working), and the finished result wakes the app. A face that no longer resolves is counted as
+  gone in a warning callout; a panic in the thread is a warning callout too.
+- The panel lists each face with the smallest radius of its U lines and of its V lines in words
+  (or straight), so nothing is told by the drawing alone.
+- The drawing (`IsocurveDrawing`, rebuilt only when the lines or the scale change) goes into the
+  overlay batch on the front layer like the comb: each line over a wider `ScenePalette::hole`
+  halo in `CombLook::isocurve`, then the comb's teeth and envelope (`CombDrawing::add_to`); the
+  palette test holds the isocurve colour to 3:1 over the halo and the canvas.
 
 
 - `samples.rs` builds parametric models through the document API (so always the current format),

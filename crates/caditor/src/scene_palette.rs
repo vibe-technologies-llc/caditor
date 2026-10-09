@@ -117,8 +117,10 @@ pub struct Bands {
 pub struct CombLook {
     pub teeth: Color,
     pub envelope: Color,
+    pub isocurve: Color,
     pub tooth_width: f32,
     pub envelope_width: f32,
+    pub isocurve_width: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -298,8 +300,10 @@ pub const STANDARD: ScenePalette = ScenePalette {
     comb: CombLook {
         teeth: Color::from_rgb8(96, 190, 230),
         envelope: Color::from_rgb8(170, 228, 255),
+        isocurve: Color::from_rgb8(240, 196, 110),
         tooth_width: 1.0,
         envelope_width: 2.0,
+        isocurve_width: 1.5,
     },
     datum_edge: Color::from_rgba8(236, 178, 92, 220),
     datum_fill: Color::from_rgba8(236, 178, 92, 26),
@@ -403,8 +407,10 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     comb: CombLook {
         teeth: Color::from_rgb8(120, 210, 255),
         envelope: Color::from_rgb8(210, 242, 255),
+        isocurve: Color::from_rgb8(255, 214, 140),
         tooth_width: 1.5,
         envelope_width: 3.0,
+        isocurve_width: 2.0,
     },
     datum_edge: Color::from_rgb8(245, 190, 100),
     datum_fill: Color::from_rgba8(245, 190, 100, 34),
@@ -607,6 +613,7 @@ mod tests {
             for (what, color) in [
                 ("comb teeth", palette.comb.teeth),
                 ("comb envelope", palette.comb.envelope),
+                ("isocurve", palette.comb.isocurve),
             ] {
                 assert_visible(what, color, outline);
                 assert_visible(what, color, canvas());
