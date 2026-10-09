@@ -37,7 +37,7 @@ pub use crate::{
         read_mesh_file, read_step_file,
     },
     journal::JournalEntry,
-    load::{LoadError, Loaded, MAX_RECORDS, decode, history, load, load_version},
+    load::{LoadError, Loaded, MAX_RECORDS, decode, history, load, load_cancellable, load_version},
     logs::{LOGS_KEPT, MAX_LOG_SIZE, SessionLog, ended_unexpectedly, mark_reported, prune_logs},
     paths::{recovery_dir, state_dir},
     reason::{ReadFailure, WriteFailure},

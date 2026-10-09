@@ -44,13 +44,23 @@ pub enum LoadError {
     Empty,
     #[error("this version is damaged and cannot be restored")]
     VersionUnavailable,
+    #[error("opening it was cancelled")]
+    Cancelled,
 }
 
 const ORIGIN_COMPLETION_TIME: Duration = Duration::from_secs(20);
 
 pub fn load(path: &Path) -> Result<Loaded, LoadError> {
+    load_cancellable(path, &CancelToken::never())
+}
+
+pub fn load_cancellable(path: &Path, cancel: &CancelToken) -> Result<Loaded, LoadError> {
     let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
-    decode(&bytes).map(with_origins_completed)
+    if cancel.is_cancelled() {
+        return Err(LoadError::Cancelled);
+    }
+    let loaded = binary::decode_cancellable(&bytes, cancel)?;
+    with_origins_completed(loaded, cancel)
 }
 
 pub fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
@@ -64,20 +74,25 @@ pub fn history(path: &Path) -> Result<History, LoadError> {
 
 pub fn load_version(path: &Path, index: usize) -> Result<Loaded, LoadError> {
     let bytes = read_file(path).map_err(|error| LoadError::Unreadable(ReadFailure::of(&error)))?;
-    binary::load_version(&bytes, index).map(with_origins_completed)
+    binary::load_version(&bytes, index)
+        .and_then(|loaded| with_origins_completed(loaded, &CancelToken::never()))
 }
 
-fn with_origins_completed(mut loaded: Loaded) -> Loaded {
+fn with_origins_completed(mut loaded: Loaded, cancel: &CancelToken) -> Result<Loaded, LoadError> {
     let started = Instant::now();
-    let cancel = CancelToken::new(move || started.elapsed() > ORIGIN_COMPLETION_TIME);
-    let completion = complete_origins(&loaded.document, &cancel);
+    let interrupt = cancel.interrupt();
+    let stop = CancelToken::new(move || started.elapsed() > ORIGIN_COMPLETION_TIME || interrupt());
+    let completion = complete_origins(&loaded.document, &stop);
+    if cancel.is_cancelled() {
+        return Err(LoadError::Cancelled);
+    }
     if completion.is_empty() {
-        return loaded;
+        return Ok(loaded);
     }
     if let Err(error) = loaded.document.apply(completion) {
         log::warn!("the references of the loaded model could not be completed: {error}");
     }
-    loaded
+    Ok(loaded)
 }
 
 pub(crate) fn newer_version(version: u32) -> String {

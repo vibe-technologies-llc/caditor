@@ -391,9 +391,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
-- [low · medium] Cancelling Open only drops its result while the files worker reads on, so a save or
-  another open queues behind a slow load; the loader would need a cancel token and its own thread
-  as imports have.
 - [medium · medium] On Wayland the portal file dialog request passes an empty parent window, so the
   dialog is not tied to caditor's and can open behind it (Stop waiting in the status bar recovers
   the window); it needs an exported xdg-foreign handle, which winit does not offer and the raw

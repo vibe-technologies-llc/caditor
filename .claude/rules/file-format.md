@@ -294,6 +294,9 @@ paths:
   origins of face and edge references saved without them (`complete_origins`, `document.md`)
   within `ORIGIN_COMPLETION_TIME`; the completed model is the saved baseline, so it opens
   unmodified and the next save writes the origins. A journal snapshot is not completed.
+- `load_cancellable` is `load` under a `CancelToken`, checked after reading the file, between
+  records (`binary::decode_cancellable`) and during origin completion; a cancelled load is
+  `LoadError::Cancelled`, never a partial model.
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
   before applying; each kind of record applied as one transaction, halved only where it fails; at
   most `MAX_RECORDS` parameters and features loaded, the rest reported.

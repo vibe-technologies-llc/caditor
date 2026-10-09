@@ -20,9 +20,11 @@ paths:
 ## File workflow
 
 - `files.rs` owns the File menu and shortcuts, the recovery offer and the load report. Native
-  dialogs run on their own thread; loading and recovery scans run on the files worker, each job
-  under `catch_unwind` so a panic becomes its failure. Imports never use the files worker: each
-  runs on a thread of its own (see Import), so Open and Save are not queued behind a slow one.
+  dialogs run on their own thread; recovery scans and the other file checks run on the files
+  worker, each job under `catch_unwind` so a panic becomes its failure. Opening and imports never
+  use the files worker: each runs on a thread of its own (`Files::spawn_own`, named `open` or
+  `import`, on the UI thread when none can be started), so a save, another open or an import is
+  not queued behind a slow one.
 - `portal.rs` holds the request and error types; `portal/xdg.rs` shows file dialogs on Unix
   through the XDG desktop portal over `zbus` (pure Rust, no `libdbus`) and falls back to `zenity`,
   `portal/windows.rs` through rfd, owned by the main window. On X11 the portal request names the
@@ -42,7 +44,9 @@ paths:
   (`widgets::footer_split`). Quit waits for the storage worker in a "Closing…" modal without
   blocking the UI and without a close button, since quitting cannot be taken back.
 - Opening shows a cancellable dialog. Each open counts an attempt (`Files::open_attempt`) and the
-  result of an abandoned one is ignored. Closing the window while a file is opening abandons the
+  result of an abandoned one is ignored. Cancelling, or starting another open, raises the open's
+  `CancelToken`, which `caditor_file::load_cancellable` checks after reading the file, between
+  records and while completing reference origins, ending in `LoadError::Cancelled`. Closing the window while a file is opening abandons the
   open the same way (with a notice saying so) before the unsaved-changes prompt is raised, so the
   prompt is never hidden behind the opening dialog and a load finishing later cannot replace the
   model the prompt is about.

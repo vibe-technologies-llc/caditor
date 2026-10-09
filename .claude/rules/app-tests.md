@@ -22,5 +22,5 @@ paths:
   (`Model::finish_checking_constraints`), so a constraint button's result is in the document by
   the next check as if applied at once.
 - Slow file work is staged with test-only seams on `Files`: `read_models_with` swaps the reader an
-  import thread calls (`ui_tests/import_jobs.rs` blocks it until released or cancelled) and
-  `hold_worker` parks the files worker so an open stays pending.
+  import thread calls and `load_models_with` the loader an open thread calls
+  (`ui_tests/import_jobs.rs` blocks either until released or cancelled).

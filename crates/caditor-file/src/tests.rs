@@ -6,8 +6,8 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, PlaneReference, PrincipalPlane,
-    RollbackBar, SketchAttachment, Transaction,
+    CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, PlaneReference,
+    PrincipalPlane, RollbackBar, SketchAttachment, Transaction,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -173,6 +173,20 @@ fn record_session(storage: &Storage, editor: &mut Editor) {
     editor.undo().unwrap();
     storage.record(JournalEntry::Undo(undo)).unwrap();
     assert!(storage.flusher().flush(WAIT));
+}
+
+#[test]
+fn a_cancelled_load_stops_with_nothing_and_an_uncancelled_one_loads_the_model() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let document = sample();
+    save(&document, &path, false).unwrap();
+
+    let cancelled = load_cancellable(&path, &CancelToken::new(|| true));
+    let loaded = load_cancellable(&path, &CancelToken::never()).unwrap();
+
+    assert_eq!(cancelled, Err(LoadError::Cancelled));
+    assert_eq!(loaded.document, document);
 }
 
 #[test]
