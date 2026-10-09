@@ -73,6 +73,7 @@ mod coordinate_systems;
 mod dimension_labels;
 mod feature_panels;
 mod feature_tree_choice;
+mod files_and_history;
 mod import_jobs;
 mod paint_selection;
 mod palette_and_notices;
@@ -125,6 +126,7 @@ struct ScriptedDialogs {
     #[cfg(unix)]
     no_portal: Arc<Mutex<bool>>,
     held: Arc<Mutex<Option<Vec<Respond>>>>,
+    asked_in: Arc<Mutex<Vec<Option<PathBuf>>>>,
 }
 
 impl ScriptedDialogs {
@@ -140,38 +142,39 @@ impl ScriptedDialogs {
 }
 
 impl Dialogs for ScriptedDialogs {
-    fn pick_model(&self, _directory: Option<PathBuf>, respond: Respond) {
+    fn pick_model(&self, directory: Option<PathBuf>, respond: Respond) {
+        self.asked_in.lock().push(directory);
         respond(self.reply());
     }
 
-    fn pick_save_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+    fn pick_save_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+        self.asked_in.lock().push(directory);
         respond(self.reply());
     }
 
-    fn pick_template(&self, _directory: Option<PathBuf>, respond: Respond) {
+    fn pick_template(&self, directory: Option<PathBuf>, respond: Respond) {
+        self.asked_in.lock().push(directory);
         respond(self.reply());
     }
 
-    fn pick_template_path(
-        &self,
-        _directory: Option<PathBuf>,
-        _file_name: String,
-        respond: Respond,
-    ) {
+    fn pick_template_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+        self.asked_in.lock().push(directory);
         respond(self.reply());
     }
 
     fn pick_export_path(
         &self,
-        _directory: Option<PathBuf>,
+        directory: Option<PathBuf>,
         _file_name: String,
         _format: ExportFormat,
         respond: Respond,
     ) {
+        self.asked_in.lock().push(directory);
         respond(self.reply());
     }
 
-    fn pick_import(&self, _directory: Option<PathBuf>, respond: Respond) {
+    fn pick_import(&self, directory: Option<PathBuf>, respond: Respond) {
+        self.asked_in.lock().push(directory);
         if let Some(held) = self.held.lock().as_mut() {
             held.push(respond);
             return;
@@ -182,27 +185,31 @@ impl Dialogs for ScriptedDialogs {
     fn pick_drawing_path(
         &self,
         _title: &str,
-        _directory: Option<PathBuf>,
+        directory: Option<PathBuf>,
         _file_name: String,
         respond: Respond,
     ) {
+        self.asked_in.lock().push(directory);
         respond(self.reply());
     }
 
-    fn pick_image_path(&self, _directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+    fn pick_image_path(&self, directory: Option<PathBuf>, _file_name: String, respond: Respond) {
+        self.asked_in.lock().push(directory);
         respond(self.reply());
     }
 
     fn pick_parameters_path(
         &self,
-        _directory: Option<PathBuf>,
+        directory: Option<PathBuf>,
         _file_name: String,
         respond: Respond,
     ) {
+        self.asked_in.lock().push(directory);
         respond(self.reply());
     }
 
-    fn pick_parameters(&self, _directory: Option<PathBuf>, respond: Respond) {
+    fn pick_parameters(&self, directory: Option<PathBuf>, respond: Respond) {
+        self.asked_in.lock().push(directory);
         respond(self.reply());
     }
 }
@@ -1309,6 +1316,7 @@ fn a_preference_that_could_not_be_saved_is_shown_as_a_notice() {
 fn the_side_panel_opens_as_it_was_left_and_follows_changes_to_it() {
     let left = crate::layout::PanelLayout {
         side_width: 420.0,
+        right_width: None,
         features_open: true,
         parameters_open: false,
     };
@@ -3381,7 +3389,10 @@ fn a_missing_file_is_reported_and_dropped_from_recent_files_and_reopening_is_har
     harness.command(FileCommand::New);
     harness.command(FileCommand::OpenPath(path));
     harness.wait_until("the failure is reported", |harness| {
-        harness.shows("Could not open “kept.caditor”: it no longer exists.")
+        harness.shows(
+            "Could not open “kept.caditor”: it no longer exists. It was removed from the recent \
+             models.",
+        )
     });
     assert!(harness.files.recent().is_empty());
     assert_eq!(harness.model.path(), None);

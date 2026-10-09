@@ -546,7 +546,50 @@ fn screenshots() {
         tree_scenes(&mut model, &gpu, &out, look);
         feature_panel_scenes(&mut model, &gpu, &out, look);
         dialog_scenes(&gpu, &out, look);
+        file_scenes(&gpu, &out, look);
     }
+}
+
+fn file_scenes(gpu: &Gpu, out: &Path, look: Look) {
+    let dir = TempDir::new().expect("a temporary directory");
+    let mut model = Harness::styled(look, dir.path(), false);
+    for name in ["bracket.caditor", "lid.caditor"] {
+        let path = dir.path().join(name);
+        caditor_file::save(&caditor_document::Document::default(), &path, false)
+            .expect("a model is saved");
+        model.command(FileCommand::OpenPath(path.clone()));
+        model.wait_until("the model opens", |harness| {
+            harness.model.path() == Some(path.as_path())
+        });
+    }
+    fs::remove_file(dir.path().join("bracket.caditor")).expect("the model is removed");
+    model.open_sample(Sample::Plate);
+    model.click("File");
+    model.wait_until("the recent models are checked", |harness| {
+        harness
+            .files
+            .is_missing(&harness.files.recent().last().cloned().unwrap_or_default())
+    });
+    model.click("Open recent");
+    shoot(&mut model, gpu, out, "menu-file-recent", look);
+    model.key(Key::Escape, Modifiers::NONE);
+    model.frame();
+    model.key(Key::Escape, Modifiers::NONE);
+    model.frame();
+
+    for name in ["first", "second"] {
+        let length = model.model.length_unit().default_length(10.0);
+        let mut transaction = model.document().transaction(format!("Add {name}"));
+        transaction.add_parameter(name.to_owned(), length);
+        model.perform(Action::Apply(transaction.finish()));
+        model.settle();
+    }
+    model.click("Edit");
+    shoot(&mut model, gpu, out, "menu-edit", look);
+    model.key(Key::Escape, Modifiers::NONE);
+    model.frame();
+    run_from_palette(&mut model, "undo history");
+    shoot(&mut model, gpu, out, "undo-history", look);
 }
 
 fn guide_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {

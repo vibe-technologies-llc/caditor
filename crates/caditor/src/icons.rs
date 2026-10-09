@@ -124,6 +124,8 @@ pub fn command(command: Command) -> &'static str {
         Command::New => phosphor::FILE_PLUS,
         Command::NewFromTemplate => TEMPLATE,
         Command::SaveAsTemplate => phosphor::BOOKMARK_SIMPLE,
+        Command::RevertToSaved => phosphor::ARROW_U_DOWN_LEFT,
+        Command::ExportAgain => phosphor::REPEAT_ONCE,
         Command::Open => phosphor::FOLDER_OPEN,
         Command::Save => phosphor::FLOPPY_DISK,
         Command::SaveAs => phosphor::FLOPPY_DISK_BACK,
@@ -265,6 +267,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ResetHomeView => phosphor::ARROW_COUNTER_CLOCKWISE,
         Command::OpenSample(_) => SAMPLE,
         Command::OpenRecent(_) => RECENT,
+        Command::ForgetRecent(_) => REMOVE,
         Command::ClearRecent => DELETE,
         Command::RecoverUnsaved => RECOVER,
         Command::CancelExport

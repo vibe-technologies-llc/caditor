@@ -1520,17 +1520,65 @@ pub fn menu_option(ui: &mut Ui, chosen: bool, title: &str) -> Response {
     ui.add(Named::new(Button::selectable(chosen, title), title).selected(chosen))
 }
 
-pub fn menu_item_with_detail(ui: &mut Ui, glyph: &str, title: &str, detail: &str) -> Response {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemovableItem {
+    pub chosen: bool,
+    pub removed: bool,
+}
+
+pub struct MenuEntry<'a> {
+    pub glyph: &'a str,
+    pub title: &'a str,
+    pub detail: &'a str,
+    pub muted: bool,
+    pub hover: &'a str,
+    pub remove: &'a str,
+}
+
+pub fn removable_menu_item(ui: &mut Ui, entry: &MenuEntry<'_>) -> RemovableItem {
     let muted = appearance::tokens(ui).text_muted;
-    let button = Button::new((
-        icon(glyph).color(muted),
-        title.to_owned(),
+    let side = ui.spacing().interact_size.y;
+    let slot = Id::new(("removable-menu-item", entry.hover));
+    let focus_key = slot.with("focused");
+    let title = if entry.muted {
+        RichText::new(entry.title).color(muted)
+    } else {
+        RichText::new(entry.title)
+    };
+    let laid_out = Button::new((
+        icon(entry.glyph).color(muted),
+        title,
         egui::Atom::grow(),
-        RichText::new(detail.to_owned())
+        RichText::new(entry.detail)
             .text_style(TextStyle::Small)
             .color(muted),
-    ));
-    ui.add(Named::new(button, title))
+        egui::Atom::custom(slot, vec2(side, 0.0)),
+    ))
+    .atom_ui(ui);
+    let place = laid_out.rect(slot);
+    let item = name_button(laid_out.response, entry.title, None).on_hover_text(entry.hover);
+    let focused = ui.data(|data| data.get_temp::<bool>(focus_key).unwrap_or(false));
+    let shown = focused || ui.rect_contains_pointer(item.rect);
+    let removed = place.is_some_and(|place| {
+        let button = Rect::from_center_size(place.center(), Vec2::splat(side));
+        let response = ui
+            .scope_builder(egui::UiBuilder::new().max_rect(button), |ui| {
+                if !shown {
+                    ui.set_opacity(0.0);
+                }
+                icon_button(ui, icons::REMOVE, entry.remove)
+            })
+            .inner;
+        if response.has_focus() != focused {
+            ui.data_mut(|data| data.insert_temp(focus_key, response.has_focus()));
+            ui.ctx().request_repaint();
+        }
+        response.clicked()
+    });
+    RemovableItem {
+        chosen: item.clicked(),
+        removed,
+    }
 }
 
 #[cfg(test)]

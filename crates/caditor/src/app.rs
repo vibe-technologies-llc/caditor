@@ -658,6 +658,7 @@ pub fn show(
         + usize::from(section.open)
         + usize::from(guide.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
+    layout::share_right_width(ui.ctx(), panels.layout().right_width);
     panels::show(
         ui,
         model,
@@ -779,6 +780,8 @@ pub fn show(
         };
         section_panel::show(ui, &context, section, room);
     }
+    panels.set_right_width(layout::shared_right_width(ui.ctx()));
+    preferences.panels = panels.layout();
     viewport.set_section(section.planes(model));
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);

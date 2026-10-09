@@ -217,9 +217,12 @@ paths:
   Dismiss, but `Model::set_notice` records recent ones and Help › Recent messages (`messages.rs`)
   lists them, each icon described by its kind (`NoticeKind::label`), so a failed save outlives
   the notice that replaced it.
+- Edit › Undo and Redo name the step they would take ("Undo Extrude 1 distance", from
+  `Model::undo_label` and `redo_label`, as the ribbon's hover does) while available.
 - Edit › Undo history (`undo_history.rs`) lists what Undo and Redo hold (`Editor::undo_steps`,
   `redo_steps`); a click sends that many `Action::Undo` or `Action::Redo`, each an ordinary
-  undoable journal step. Hovering a step sums up what it touched (`Transaction::touched`): the
+  undoable journal step. The step the model is at is a label beside Now, not a button, and a
+  last row, Before these changes (`undo_history::BEFORE`), undoes every step listed. Hovering a step sums up what it touched (`Transaction::touched`): the
   features by name, how many sketch curves, points, constraints and dimensions, the parameters,
   and the rollback bar, principal geometry, model properties, saved views or selection sets.
 - Neither bar clips at large sizes or in narrow windows: the search field, model name, selection,
@@ -234,6 +237,12 @@ paths:
   window, split evenly between those open (`layout::panel_room`, `panel_widths`); each one's
   minimum width yields to that share, so at 200% on a small screen the 3D view keeps a usable
   width. A model panel narrowed by the share keeps the width the user chose for when there is room.
+- The right-hand panels are each a `layout::RightPanel` (id, own default width, least width). They
+  share one width the user last gave one of them (`PanelLayout::right_width`, `None` until then,
+  so each opens at its own default): `app.rs` hands it to them through egui temp data
+  (`layout::share_right_width`) and reads it back after them. A panel's width differing from the
+  one egui stored for it the frame before (`PanelState`) counts as a resize, unless the share caps
+  it, and becomes the shared width, the default size of every right-hand panel from then on.
 - Features and Parameters are collapsible `widgets::panel_section`s that open by themselves when
   a rename or focus request needs something inside: a header band (card fill and border, the count
   as a pill) and, when open, a muted sentence saying what the section holds
@@ -421,7 +430,8 @@ paths:
 
 - `layout.rs`: `Preferences` holds a `WindowPlacement` (logical size, maximised, and the outer
   position where the platform reports one, which Wayland never does) and a `PanelLayout` (side
-  width, open sections) under `window.*` and `panels.*`, read clamped to sane bounds. Startup fits
+  width, the right-hand panels' width `panels.right_width` once one was resized, open sections)
+  under `window.*` and `panels.*`, read clamped to sane bounds. Startup fits
   the size to the largest monitor and uses a position only when it lies on one; size and position
   are recorded only while not maximised, so unmaximising returns to them.
 - Changes save through `Files::store_settings` shortly after they stop and on exit (`App::finish`

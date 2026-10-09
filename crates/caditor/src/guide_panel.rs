@@ -5,7 +5,8 @@ use crate::{
     commands::{self, Keymap},
     fonts,
     guide::{self, Block, Chapter, Hit, Named, Page, Span, Target},
-    icons, layout,
+    icons,
+    layout::RightPanel,
     widgets::{self, Tone},
 };
 
@@ -14,8 +15,11 @@ pub const CLOSE: &str = "Close the guide";
 pub const BACK: &str = "Back";
 pub const CONTENTS: &str = "Contents";
 pub const SEARCH_HINT: &str = "Search the guide";
-const PANEL_WIDTH: f32 = 340.0;
-const MIN_PANEL_WIDTH: f32 = 240.0;
+const PANEL: RightPanel = RightPanel {
+    id: "guide",
+    width: 340.0,
+    least: 240.0,
+};
 const NEXT: &str = "Next:";
 const PAGE_TITLE_SIZE: f32 = 20.0;
 
@@ -85,58 +89,54 @@ enum Choice {
 
 pub fn show(ui: &mut Ui, state: &mut Guide, keymap: &Keymap, room: f32) {
     let mut choice = None;
-    egui::Panel::right("guide")
-        .resizable(true)
-        .default_size(PANEL_WIDTH)
-        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
-        .show(ui, |ui| {
-            ui.add_space(SPACE_S);
-            widgets::panel_header(ui, icons::GUIDE, TITLE, |ui| {
-                if widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked() {
-                    choice = Some(Choice::Close);
-                }
-                let contents = ui
-                    .add_enabled_ui(state.shown != Shown::Contents, |ui| {
-                        widgets::icon_button(ui, icons::CONTENTS, CONTENTS)
-                    })
-                    .inner;
-                if contents.clicked() {
-                    choice = Some(Choice::Show(Shown::Contents));
-                }
-                let back = ui
-                    .add_enabled_ui(!state.back.is_empty(), |ui| {
-                        widgets::icon_button(ui, icons::BACK, BACK)
-                    })
-                    .inner;
-                if back.clicked() {
-                    choice = Some(Choice::Back);
+    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+        ui.add_space(SPACE_S);
+        widgets::panel_header(ui, icons::GUIDE, TITLE, |ui| {
+            if widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked() {
+                choice = Some(Choice::Close);
+            }
+            let contents = ui
+                .add_enabled_ui(state.shown != Shown::Contents, |ui| {
+                    widgets::icon_button(ui, icons::CONTENTS, CONTENTS)
+                })
+                .inner;
+            if contents.clicked() {
+                choice = Some(Choice::Show(Shown::Contents));
+            }
+            let back = ui
+                .add_enabled_ui(!state.back.is_empty(), |ui| {
+                    widgets::icon_button(ui, icons::BACK, BACK)
+                })
+                .inner;
+            if back.clicked() {
+                choice = Some(Choice::Back);
+            }
+        });
+        ui.add_space(SPACE_S);
+        search_field(ui, state);
+        ui.add_space(SPACE_M);
+        let salt = match state.shown {
+            Shown::Contents => "contents",
+            Shown::Page(page) => page.id(),
+        };
+        let query = state.query.trim().to_owned();
+        ScrollArea::vertical()
+            .id_salt(("guide", salt, query.is_empty()))
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                let chosen = if !query.is_empty() {
+                    hits(ui, &query, &guide::search(&query))
+                } else {
+                    match state.shown {
+                        Shown::Contents => contents(ui),
+                        Shown::Page(page) => page_body(ui, page, keymap),
+                    }
+                };
+                if let Some(page) = chosen {
+                    choice = Some(Choice::Show(Shown::Page(page)));
                 }
             });
-            ui.add_space(SPACE_S);
-            search_field(ui, state);
-            ui.add_space(SPACE_M);
-            let salt = match state.shown {
-                Shown::Contents => "contents",
-                Shown::Page(page) => page.id(),
-            };
-            let query = state.query.trim().to_owned();
-            ScrollArea::vertical()
-                .id_salt(("guide", salt, query.is_empty()))
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    let chosen = if !query.is_empty() {
-                        hits(ui, &query, &guide::search(&query))
-                    } else {
-                        match state.shown {
-                            Shown::Contents => contents(ui),
-                            Shown::Page(page) => page_body(ui, page, keymap),
-                        }
-                    };
-                    if let Some(page) = chosen {
-                        choice = Some(Choice::Show(Shown::Page(page)));
-                    }
-                });
-        });
+    });
     match choice {
         Some(Choice::Close) => state.open = false,
         Some(Choice::Back) => state.go_back(),

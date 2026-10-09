@@ -148,6 +148,8 @@ pub fn show(
                     actions,
                 );
                 let mut menus = Menus {
+                    undo: model.undo_label(),
+                    redo: model.redo_label(),
                     views: context.views,
                     visited: Vec::new(),
                     sets: context.sets,
@@ -379,6 +381,8 @@ fn model_details(
 }
 
 struct Menus<'a, 'b> {
+    undo: Option<&'a str>,
+    redo: Option<&'a str>,
     views: &'a SavedViews,
     visited: Vec<usize>,
     sets: &'a SelectionSets,
@@ -399,12 +403,16 @@ impl Menus<'_, '_> {
     }
 
     fn item(&mut self, ui: &mut Ui, command: Command) {
+        self.titled_item(ui, command, &command.title());
+    }
+
+    fn titled_item(&mut self, ui: &mut Ui, command: Command, title: &str) {
         let availability = self.availability(command);
         let response = ui.add_enabled_ui(availability.is_ok(), |ui| {
             widgets::menu_item(
                 ui,
                 icons::command(command),
-                &command.title(),
+                title,
                 self.commands.keys(command),
             )
         });
@@ -446,7 +454,11 @@ impl Menus<'_, '_> {
 
     fn edit(&mut self, ui: &mut Ui) {
         top_menu(ui, "Edit", |ui| {
-            self.items(ui, [Command::Undo, Command::Redo, Command::UndoHistory]);
+            for (command, step) in [(Command::Undo, self.undo), (Command::Redo, self.redo)] {
+                let title = step_title(command, step, self.availability(command).is_ok());
+                self.titled_item(ui, command, &title);
+            }
+            self.item(ui, Command::UndoHistory);
             ui.separator();
             self.item(ui, Command::DeleteSelection);
             ui.separator();
@@ -771,6 +783,13 @@ impl Menus<'_, '_> {
                 ],
             );
         });
+    }
+}
+
+fn step_title(command: Command, step: Option<&str>, available: bool) -> String {
+    match step {
+        Some(step) if available => format!("{} {step}", command.title()),
+        _ => command.title(),
     }
 }
 

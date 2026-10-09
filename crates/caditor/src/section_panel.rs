@@ -7,7 +7,8 @@ use crate::{
     appearance::{SPACE_M, SPACE_S},
     feature_fields, field,
     guide::Page,
-    guide_panel, icons, layout,
+    guide_panel, icons,
+    layout::RightPanel,
     model::Model,
     section::{self, Cut, SectionTool},
     selection::{Pickable, PrincipalPlane, Selection},
@@ -35,8 +36,11 @@ pub const TURN: &str = "Turn";
 pub const TURN_HOVER: &str = "Turns the plane about its own y axis";
 pub const FLIP: &str = "Cut away the other side";
 pub const CUT_FACES: &str = "Cut faces";
-const PANEL_WIDTH: f32 = 300.0;
-const MIN_PANEL_WIDTH: f32 = 220.0;
+const PANEL: RightPanel = RightPanel {
+    id: "section",
+    width: 300.0,
+    least: 220.0,
+};
 const PRINCIPAL: [(PrincipalPlane, &str); 3] = [
     (PrincipalPlane::Xy, "XY"),
     (PrincipalPlane::Xz, "XZ"),
@@ -266,19 +270,15 @@ fn body(ui: &mut Ui, context: &SectionContext<'_>, tool: &mut SectionTool) {
 
 pub fn show(ui: &mut Ui, context: &SectionContext<'_>, tool: &mut SectionTool, room: f32) {
     let mut close = false;
-    egui::Panel::right("section")
-        .resizable(true)
-        .default_size(PANEL_WIDTH)
-        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
-        .show(ui, |ui| {
-            ui.add_space(SPACE_S);
-            widgets::panel_header(ui, icons::SECTION, TITLE, |ui| {
-                close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-                guide_panel::help_button(ui, Page::SectionView);
-            });
-            ui.add_space(SPACE_S);
-            ScrollArea::vertical().show(ui, |ui| body(ui, context, tool));
+    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+        ui.add_space(SPACE_S);
+        widgets::panel_header(ui, icons::SECTION, TITLE, |ui| {
+            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+            guide_panel::help_button(ui, Page::SectionView);
         });
+        ui.add_space(SPACE_S);
+        ScrollArea::vertical().show(ui, |ui| body(ui, context, tool));
+    });
     if close {
         tool.open = false;
     }

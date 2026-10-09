@@ -12,7 +12,8 @@ use crate::{
     display_style::DisplayStyle,
     feature_fields, field,
     guide::Page,
-    guide_panel, icons, layout,
+    guide_panel, icons,
+    layout::RightPanel,
     model::Model,
     scene_palette::Contrast,
     selection::{Axis, Selection},
@@ -50,8 +51,11 @@ pub const CHROME_ABOUT: &str = "The bodies reflect a sky, a horizon and a light 
                                 same jumps zebra stripes do. It never changes the model.";
 pub const STRIPES: &str = "Stripes";
 pub const STRIPES_ALONG: &str = "Stripes along";
-const PANEL_WIDTH: f32 = 300.0;
-const MIN_PANEL_WIDTH: f32 = 220.0;
+const PANEL: RightPanel = RightPanel {
+    id: "analysis",
+    width: 300.0,
+    least: 220.0,
+};
 const SWATCH_SIDE: f32 = 14.0;
 const SWATCH_RADIUS: f32 = 3.0;
 const APPROXIMATELY: &str = "≈ ";
@@ -335,19 +339,15 @@ fn body(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool) {
 
 pub fn show(ui: &mut Ui, context: &AnalysisContext<'_>, tool: &mut AnalysisTool, room: f32) {
     let mut close = false;
-    egui::Panel::right("analysis")
-        .resizable(true)
-        .default_size(PANEL_WIDTH)
-        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
-        .show(ui, |ui| {
-            ui.add_space(SPACE_S);
-            widgets::panel_header(ui, icons::ANALYSIS, TITLE, |ui| {
-                close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-                guide_panel::help_button(ui, Page::FaceAnalysis);
-            });
-            ui.add_space(SPACE_S);
-            ScrollArea::vertical().show(ui, |ui| body(ui, context, tool));
+    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+        ui.add_space(SPACE_S);
+        widgets::panel_header(ui, icons::ANALYSIS, TITLE, |ui| {
+            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+            guide_panel::help_button(ui, Page::FaceAnalysis);
         });
+        ui.add_space(SPACE_S);
+        ScrollArea::vertical().show(ui, |ui| body(ui, context, tool));
+    });
     if close {
         tool.open = false;
     }

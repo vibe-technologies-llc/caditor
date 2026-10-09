@@ -9,6 +9,14 @@
 - **3MF**, for 3D printing, with a thumbnail of the model.
 - **OBJ** and **glTF** (`.glb`), for other 3D programs.
 
+{command:file.export_again} writes the same bodies again to the file the last export wrote, in the
+same format and with the same choices, without asking for a file: handy after each change while
+printing. It asks before replacing only when the file was changed by something else since. It is
+offered until another model is opened.
+
+Each kind of file dialog (opening, importing, exporting models, drawings, parameters) starts in the
+folder it was last used with while caditor runs.
+
 Meshed formats take a resolution. The export waits for the model to finish recomputing and warns
 when a feature failed, since bodies then export as last computed. It runs in the background,
 cancellable from the status bar. [Model properties](templates) such as the title and author go into

@@ -1,5 +1,5 @@
 use caditor_file::Settings;
-use egui::Rangef;
+use egui::{Id, PanelState, Rangef};
 
 const WIDTH_KEY: &str = "window.width";
 const HEIGHT_KEY: &str = "window.height";
@@ -7,6 +7,9 @@ const X_KEY: &str = "window.x";
 const Y_KEY: &str = "window.y";
 const MAXIMIZED_KEY: &str = "window.maximized";
 const SIDE_WIDTH_KEY: &str = "panels.side_width";
+const RIGHT_WIDTH_KEY: &str = "panels.right_width";
+const SHARED_RIGHT_WIDTH: &str = "right-panel-width";
+const SEEN_RIGHT_WIDTH: &str = "right-panel-seen-width";
 const FEATURES_OPEN_KEY: &str = "panels.features_open";
 const PARAMETERS_OPEN_KEY: &str = "panels.parameters_open";
 pub const MIN_WINDOW_WIDTH: f64 = 480.0;
@@ -18,6 +21,9 @@ pub const DEFAULT_SIDE_WIDTH: f32 = 330.0;
 pub const MIN_SIDE_WIDTH: f32 = 270.0;
 const MAX_SIDE_WIDTH: f32 = 1_600.0;
 const MAX_PANELS_SHARE: f32 = 0.6;
+const MIN_RIGHT_WIDTH: f32 = 220.0;
+const CAPPED_SLACK: f32 = 1.0;
+const RESIZED_BY: f32 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LogicalSize {
@@ -150,6 +156,7 @@ impl WindowPlacement {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PanelLayout {
     pub side_width: f32,
+    pub right_width: Option<f32>,
     pub features_open: bool,
     pub parameters_open: bool,
 }
@@ -158,6 +165,7 @@ impl Default for PanelLayout {
     fn default() -> Self {
         Self {
             side_width: DEFAULT_SIDE_WIDTH,
+            right_width: None,
             features_open: true,
             parameters_open: true,
         }
@@ -170,6 +178,9 @@ impl PanelLayout {
             side_width: settings
                 .number(SIDE_WIDTH_KEY)
                 .map_or(DEFAULT_SIDE_WIDTH, |width| side_width(width as f32)),
+            right_width: settings
+                .number(RIGHT_WIDTH_KEY)
+                .and_then(|width| right_width(width as f32)),
             features_open: settings.flag(FEATURES_OPEN_KEY).unwrap_or(true),
             parameters_open: settings.flag(PARAMETERS_OPEN_KEY).unwrap_or(true),
         }
@@ -177,6 +188,9 @@ impl PanelLayout {
 
     pub fn write(&self, settings: &mut Settings) {
         settings.set_number(SIDE_WIDTH_KEY, f64::from(self.side_width));
+        if let Some(width) = self.right_width {
+            settings.set_number(RIGHT_WIDTH_KEY, f64::from(width));
+        }
         settings.set_flag(FEATURES_OPEN_KEY, self.features_open);
         settings.set_flag(PARAMETERS_OPEN_KEY, self.parameters_open);
     }
@@ -190,6 +204,62 @@ pub fn panel_room(window: f32, open_panels: usize) -> f32 {
 pub fn panel_widths(room: f32, least: f32) -> Rangef {
     let min = least.min(room);
     Rangef::new(min, room.max(min))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RightPanel {
+    pub id: &'static str,
+    pub width: f32,
+    pub least: f32,
+}
+
+impl RightPanel {
+    pub fn panel(&self, ctx: &egui::Context, room: f32) -> egui::Panel {
+        let id = Id::new(self.id);
+        let widths = panel_widths(room, self.least);
+        follow_resizing(ctx, id, widths);
+        egui::Panel::right(id)
+            .resizable(true)
+            .default_size(shared_right_width(ctx).unwrap_or(self.width))
+            .size_range(widths)
+    }
+}
+
+pub fn share_right_width(ctx: &egui::Context, width: Option<f32>) {
+    let key = Id::new(SHARED_RIGHT_WIDTH);
+    ctx.data_mut(|data| match width {
+        Some(width) => {
+            data.insert_temp(key, width);
+        }
+        None => data.remove::<f32>(key),
+    });
+}
+
+pub fn shared_right_width(ctx: &egui::Context) -> Option<f32> {
+    ctx.data(|data| data.get_temp::<f32>(Id::new(SHARED_RIGHT_WIDTH)))
+}
+
+fn follow_resizing(ctx: &egui::Context, id: Id, widths: Rangef) {
+    let Some(width) = PanelState::load(ctx, id).map(|state| state.size().x) else {
+        return;
+    };
+    let seen_key = id.with(SEEN_RIGHT_WIDTH);
+    let seen = ctx.data_mut(|data| {
+        let seen = data.get_temp::<f32>(seen_key);
+        data.insert_temp(seen_key, width);
+        seen
+    });
+    let resized = seen.is_some_and(|seen| (seen - width).abs() > RESIZED_BY);
+    let capped = width >= widths.max - CAPPED_SLACK;
+    if resized && !capped {
+        share_right_width(ctx, right_width(width));
+    }
+}
+
+pub fn right_width(width: f32) -> Option<f32> {
+    width
+        .is_finite()
+        .then(|| width.round().clamp(MIN_RIGHT_WIDTH, MAX_SIDE_WIDTH))
 }
 
 pub fn side_width(width: f32) -> f32 {
@@ -294,6 +364,7 @@ mod tests {
     fn panel_layouts_read_back_what_they_wrote_within_their_bounds() {
         let layout = PanelLayout {
             side_width: 412.0,
+            right_width: Some(360.0),
             features_open: false,
             parameters_open: true,
         };
@@ -303,9 +374,14 @@ mod tests {
         assert_eq!(PanelLayout::from_settings(&settings), layout);
 
         settings.set_number(SIDE_WIDTH_KEY, 5.0);
+        settings.set_number(RIGHT_WIDTH_KEY, 5.0);
         assert_eq!(
             PanelLayout::from_settings(&settings).side_width,
             MIN_SIDE_WIDTH
+        );
+        assert_eq!(
+            PanelLayout::from_settings(&settings).right_width,
+            Some(MIN_RIGHT_WIDTH)
         );
         settings.set_number(SIDE_WIDTH_KEY, 1e7);
         assert_eq!(
@@ -317,5 +393,6 @@ mod tests {
             PanelLayout::default()
         );
         assert_eq!(side_width(f32::NAN), DEFAULT_SIDE_WIDTH);
+        assert_eq!(right_width(f32::NAN), None);
     }
 }

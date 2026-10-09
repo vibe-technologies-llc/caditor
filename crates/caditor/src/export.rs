@@ -67,6 +67,23 @@ pub enum ExportReport {
     Configurations(Result<Vec<ConfigurationExported>, ExportError>),
 }
 
+impl ExportReport {
+    pub fn succeeded(&self) -> bool {
+        match self {
+            Self::Bodies(result) => result.is_ok(),
+            Self::Configurations(result) => result.is_ok(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExportChoices {
+    pub format: ExportFormat,
+    pub resolution: MeshResolution,
+    pub stl: StlEncoding,
+    pub every_configuration: bool,
+}
+
 struct Progress {
     done: Arc<AtomicUsize>,
     total: usize,
@@ -222,6 +239,22 @@ impl Exporter {
 
     pub fn format(&self) -> ExportFormat {
         self.format
+    }
+
+    pub fn choices(&self) -> ExportChoices {
+        ExportChoices {
+            format: self.format,
+            resolution: self.resolution,
+            stl: self.stl,
+            every_configuration: self.every_configuration,
+        }
+    }
+
+    pub fn restore(&mut self, choices: ExportChoices) {
+        self.format = choices.format;
+        self.resolution = choices.resolution;
+        self.stl = choices.stl;
+        self.every_configuration = choices.every_configuration;
     }
 
     pub fn perform(&mut self, command: ExportCommand, model: &Model) {

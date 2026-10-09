@@ -38,6 +38,11 @@ pub type WakerFactory = Box<dyn Fn() -> Waker>;
 pub type PanicFlush = Arc<Mutex<Option<Flusher>>>;
 
 pub const UNTITLED: &str = "Untitled";
+pub const NEVER_SAVED: &str = "The model has never been saved, so there is no saved version to go \
+                               back to";
+pub const NO_CHANGES_SINCE_SAVED: &str = "The model has no changes since it was last saved";
+pub const SAVED_VERSION_UNKNOWN: &str = "The saved version is not known since unsaved work was \
+                                         recovered; Version history lists the versions saved";
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -635,6 +640,16 @@ impl Model {
 
     pub fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    pub fn saved_version(&self) -> Result<&Document, &'static str> {
+        if self.path.is_none() {
+            return Err(NEVER_SAVED);
+        }
+        if !self.dirty {
+            return Err(NO_CHANGES_SINCE_SAVED);
+        }
+        self.saved.as_ref().ok_or(SAVED_VERSION_UNKNOWN)
     }
 
     pub fn is_empty_and_untitled(&self) -> bool {

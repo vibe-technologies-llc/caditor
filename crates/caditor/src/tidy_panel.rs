@@ -9,7 +9,8 @@ use crate::{
     commands::{Command, CommandFrame},
     editing::SketchEditing,
     guide::Page,
-    guide_panel, icons, layout,
+    guide_panel, icons,
+    layout::RightPanel,
     model::{Action, Model},
     selection::{Pickable, Selection},
     sketch_tools,
@@ -31,8 +32,11 @@ pub const USE_SELECTED_POINT: &str = "Use the selected point";
 pub const USE_ORIGIN: &str = "Use the origin";
 pub const NOT_EDITING: &str = "Edit a sketch first";
 const SELECT_ONE_POINT: &str = "Select one point of the sketch to measure from it";
-const PANEL_WIDTH: f32 = 320.0;
-const MIN_PANEL_WIDTH: f32 = 240.0;
+const PANEL: RightPanel = RightPanel {
+    id: "constrain-automatically",
+    width: 320.0,
+    least: 240.0,
+};
 const MAX_LISTED: usize = 40;
 
 #[derive(Default)]
@@ -87,68 +91,64 @@ pub fn show(
     };
     let mut close = false;
     let mut accepted = false;
-    egui::Panel::right("constrain-automatically")
-        .resizable(true)
-        .default_size(PANEL_WIDTH)
-        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
-        .show(ui, |ui| {
-            ui.add_space(SPACE_S);
-            widgets::panel_header(ui, icons::AUTOMATIC_CONSTRAINTS, TITLE, |ui| {
-                close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-                guide_panel::help_button(ui, Page::AutomaticConstraints);
-            });
-            ui.add_space(SPACE_S);
-            let choices: Vec<(&str, &str)> = Task::ALL
-                .iter()
-                .map(|task| (task.label(), task.about()))
-                .collect();
-            let chosen = Task::ALL
-                .iter()
-                .position(|task| *task == tidying.task)
-                .unwrap_or_default();
-            if let Some(index) = widgets::segmented(ui, &choices, chosen)
-                && let Some(task) = Task::ALL.get(index)
-            {
-                tidying.task = *task;
-            }
-            ui.add_space(SPACE_S);
-            let primary = match tidying.progress() {
-                Progress::Found(found) => primary_label(found, tidying.task),
-                _ => None,
-            };
-            if let Some(label) = primary {
-                egui::Panel::bottom("constrain-automatically-footer")
-                    .show_separator_line(false)
-                    .show(ui, |ui| {
-                        accepted = footer_button(ui, &label);
-                    });
-            }
-            ScrollArea::vertical().show(ui, |ui| {
-                wrapped(ui, widgets::muted(tidying.task.about(), ui));
-                ui.add_space(SPACE_S);
-                settings(ui, model, tidying, selection, feature);
-                ui.add_space(SPACE_M);
-                let task = tidying.task;
-                match tidying.progress() {
-                    Progress::Closed => {}
-                    Progress::NotSettled => {
-                        wrapped(ui, widgets::muted(tidying::NOT_SETTLED, ui));
-                    }
-                    Progress::Working => {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label(WORKING);
-                        });
-                    }
-                    Progress::Failed(reason) => {
-                        widgets::callout(ui, Tone::Error, |ui| wrapped(ui, reason));
-                    }
-                    Progress::Found(found) => {
-                        found_proposal(ui, model, feature, task, found, &mut shown);
-                    }
-                }
-            });
+    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+        ui.add_space(SPACE_S);
+        widgets::panel_header(ui, icons::AUTOMATIC_CONSTRAINTS, TITLE, |ui| {
+            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+            guide_panel::help_button(ui, Page::AutomaticConstraints);
         });
+        ui.add_space(SPACE_S);
+        let choices: Vec<(&str, &str)> = Task::ALL
+            .iter()
+            .map(|task| (task.label(), task.about()))
+            .collect();
+        let chosen = Task::ALL
+            .iter()
+            .position(|task| *task == tidying.task)
+            .unwrap_or_default();
+        if let Some(index) = widgets::segmented(ui, &choices, chosen)
+            && let Some(task) = Task::ALL.get(index)
+        {
+            tidying.task = *task;
+        }
+        ui.add_space(SPACE_S);
+        let primary = match tidying.progress() {
+            Progress::Found(found) => primary_label(found, tidying.task),
+            _ => None,
+        };
+        if let Some(label) = primary {
+            egui::Panel::bottom("constrain-automatically-footer")
+                .show_separator_line(false)
+                .show(ui, |ui| {
+                    accepted = footer_button(ui, &label);
+                });
+        }
+        ScrollArea::vertical().show(ui, |ui| {
+            wrapped(ui, widgets::muted(tidying.task.about(), ui));
+            ui.add_space(SPACE_S);
+            settings(ui, model, tidying, selection, feature);
+            ui.add_space(SPACE_M);
+            let task = tidying.task;
+            match tidying.progress() {
+                Progress::Closed => {}
+                Progress::NotSettled => {
+                    wrapped(ui, widgets::muted(tidying::NOT_SETTLED, ui));
+                }
+                Progress::Working => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(WORKING);
+                    });
+                }
+                Progress::Failed(reason) => {
+                    widgets::callout(ui, Tone::Error, |ui| wrapped(ui, reason));
+                }
+                Progress::Found(found) => {
+                    found_proposal(ui, model, feature, task, found, &mut shown);
+                }
+            }
+        });
+    });
     if accepted && let Progress::Found(found) = tidying.progress() {
         shown
             .actions

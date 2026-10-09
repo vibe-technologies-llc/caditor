@@ -4,7 +4,8 @@ use crate::{
     appearance::{SPACE_M, SPACE_S},
     comb::{self, Comb, CombTool, Continuity},
     guide::Page,
-    guide_panel, icons, layout,
+    guide_panel, icons,
+    layout::RightPanel,
     model::Model,
     units::Units,
     widgets::{self, Tone},
@@ -22,8 +23,11 @@ pub const NOTHING_CHOSEN: &str = "Select edges of bodies or sketch curves to com
 pub const TEETH: &str = "Teeth per curve";
 pub const SCALE: &str = "Scale";
 pub const JOINTS: &str = "Where curves meet";
-const PANEL_WIDTH: f32 = 300.0;
-const MIN_PANEL_WIDTH: f32 = 220.0;
+const PANEL: RightPanel = RightPanel {
+    id: "curvature-comb",
+    width: 300.0,
+    least: 220.0,
+};
 const MAX_LISTED: usize = 12;
 const APPROXIMATELY: &str = "≈ ";
 const FLAT: f64 = 1e-9;
@@ -137,44 +141,40 @@ fn joints(ui: &mut Ui, units: Units, comb: &Comb) {
 pub fn show(ui: &mut Ui, model: &Model, tool: &mut CombTool, comb: &Comb, room: f32) {
     let mut close = false;
     let units = model.units();
-    egui::Panel::right("curvature-comb")
-        .resizable(true)
-        .default_size(PANEL_WIDTH)
-        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
-        .show(ui, |ui| {
-            ui.add_space(SPACE_S);
-            widgets::panel_header(ui, icons::CURVATURE_COMB, TITLE, |ui| {
-                close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-                guide_panel::help_button(ui, Page::CurvatureComb);
-            });
-            ui.add_space(SPACE_S);
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.label(widgets::muted(ABOUT, ui));
-                ui.add_space(SPACE_S);
-                settings(ui, tool);
-                ui.add_space(SPACE_M);
-                if tool.curves().is_empty() {
-                    widgets::callout(ui, Tone::Info, |ui| ui.label(NOTHING_CHOSEN));
-                    return;
-                }
-                if comb.gone > 0 {
-                    widgets::callout(ui, Tone::Warning, |ui| {
-                        ui.label(gone_text(comb.gone));
-                    });
-                    ui.add_space(SPACE_S);
-                }
-                if tool.left_out() > 0 {
-                    widgets::callout(ui, Tone::Info, |ui| {
-                        ui.label(left_out_text(tool.left_out()));
-                    });
-                    ui.add_space(SPACE_S);
-                }
-                if !comb.curves.is_empty() {
-                    curves(ui, units, comb);
-                }
-                joints(ui, units, comb);
-            });
+    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+        ui.add_space(SPACE_S);
+        widgets::panel_header(ui, icons::CURVATURE_COMB, TITLE, |ui| {
+            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+            guide_panel::help_button(ui, Page::CurvatureComb);
         });
+        ui.add_space(SPACE_S);
+        ScrollArea::vertical().show(ui, |ui| {
+            ui.label(widgets::muted(ABOUT, ui));
+            ui.add_space(SPACE_S);
+            settings(ui, tool);
+            ui.add_space(SPACE_M);
+            if tool.curves().is_empty() {
+                widgets::callout(ui, Tone::Info, |ui| ui.label(NOTHING_CHOSEN));
+                return;
+            }
+            if comb.gone > 0 {
+                widgets::callout(ui, Tone::Warning, |ui| {
+                    ui.label(gone_text(comb.gone));
+                });
+                ui.add_space(SPACE_S);
+            }
+            if tool.left_out() > 0 {
+                widgets::callout(ui, Tone::Info, |ui| {
+                    ui.label(left_out_text(tool.left_out()));
+                });
+                ui.add_space(SPACE_S);
+            }
+            if !comb.curves.is_empty() {
+                curves(ui, units, comb);
+            }
+            joints(ui, units, comb);
+        });
+    });
     if close {
         tool.toggle();
     }

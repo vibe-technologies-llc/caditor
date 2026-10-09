@@ -7,7 +7,7 @@ use crate::{
     guide::Page,
     guide_panel, icons,
     isocurves::{self, Directions, FaceLines, IsocurveTool, Isocurves},
-    layout,
+    layout::RightPanel,
     units::Units,
     widgets::{self, Tone},
 };
@@ -29,8 +29,11 @@ pub const LINES: &str = "Lines each way";
 pub const DIRECTIONS: &str = "Lines along";
 pub const TEETH: &str = "Teeth per line";
 pub const SCALE: &str = "Scale";
-const PANEL_WIDTH: f32 = 300.0;
-const MIN_PANEL_WIDTH: f32 = 220.0;
+const PANEL: RightPanel = RightPanel {
+    id: "isocurves",
+    width: 300.0,
+    least: 220.0,
+};
 const MAX_LISTED: usize = 12;
 const APPROXIMATELY: &str = "≈ ";
 
@@ -161,29 +164,25 @@ pub fn show(
     room: f32,
 ) {
     let mut close = false;
-    egui::Panel::right("isocurves")
-        .resizable(true)
-        .default_size(PANEL_WIDTH)
-        .size_range(layout::panel_widths(room, MIN_PANEL_WIDTH))
-        .show(ui, |ui| {
-            ui.add_space(SPACE_S);
-            widgets::panel_header(ui, icons::ISOCURVES, TITLE, |ui| {
-                close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
-                guide_panel::help_button(ui, Page::Isocurves);
-            });
-            ui.add_space(SPACE_S);
-            ScrollArea::vertical().show(ui, |ui| {
-                ui.label(widgets::muted(ABOUT, ui));
-                ui.add_space(SPACE_S);
-                settings(ui, tool);
-                ui.add_space(SPACE_M);
-                if tool.faces().is_empty() {
-                    widgets::callout(ui, Tone::Info, |ui| ui.label(NOTHING_CHOSEN));
-                    return;
-                }
-                findings(ui, units, tool, shown);
-            });
+    PANEL.panel(ui.ctx(), room).show(ui, |ui| {
+        ui.add_space(SPACE_S);
+        widgets::panel_header(ui, icons::ISOCURVES, TITLE, |ui| {
+            close = widgets::icon_button(ui, icons::CLOSE, CLOSE).clicked();
+            guide_panel::help_button(ui, Page::Isocurves);
         });
+        ui.add_space(SPACE_S);
+        ScrollArea::vertical().show(ui, |ui| {
+            ui.label(widgets::muted(ABOUT, ui));
+            ui.add_space(SPACE_S);
+            settings(ui, tool);
+            ui.add_space(SPACE_M);
+            if tool.faces().is_empty() {
+                widgets::callout(ui, Tone::Info, |ui| ui.label(NOTHING_CHOSEN));
+                return;
+            }
+            findings(ui, units, tool, shown);
+        });
+    });
     if close {
         tool.toggle();
     }
