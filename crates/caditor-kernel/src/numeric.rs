@@ -1,6 +1,6 @@
 use crate::{interval::Interval, tolerance::LINEAR_RESOLUTION};
 
-const GAUSS_LEGENDRE: [(f64, f64); 8] = [
+pub(crate) const GAUSS_LEGENDRE: [(f64, f64); 8] = [
     (-0.960_289_856_497_536_3, 0.101_228_536_290_376_3),
     (-0.796_666_477_413_626_7, 0.222_381_034_453_374_5),
     (-0.525_532_409_916_329, 0.313_706_645_877_887_3),

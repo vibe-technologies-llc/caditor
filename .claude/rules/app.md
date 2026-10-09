@@ -167,11 +167,11 @@ paths:
   selection, the model revision, its evaluation or the length unit changes, not every frame. It
   describes only the first `MAX_DESCRIBED` items and counts the rest (the status bar's tooltip
   ends "and N more"), since describing an item can scan its body.
-- A lone selected face or edge, or a lone body chosen in the tree with nothing selected, also gets
-  its size in `Offers::size` (Area, Length or Size, `measure::size_text` and `body_size_text`,
-  marked ≈ when approximate), which the status bar shows beside the selection; the offers are
-  worked out again when the bodies' meshes finish (`Model::bodies_pending`), since curved areas
-  and sizes read the mesh.
+- A lone selected face, edge or sketch region, or a lone body chosen in the tree with nothing
+  selected, also gets its size in `Offers::size` (Area, Length or Size, `measure::size_text` and
+  `body_size_text`, marked ≈ when approximate), which the status bar shows beside the selection;
+  the offers are worked out again when the bodies' meshes finish (`Model::bodies_pending`), since
+  curved areas and sizes read the mesh.
 - `Selection::generation` is globally unique per content change, so caches key on it rather than
   cloning and comparing the set: the offers, Measure, the panels' Use selected offers
   (`feature_fields::offered_change`, kept per feature and slot in egui's memory), and the
@@ -189,6 +189,15 @@ paths:
   reading) only when the selection, revision or evaluation changes. Until the current result
   arrives the previous readout stays, dimmed (`Freshness::Stale`) under a Measuring header, so
   nothing jumps; the measured line in the view comes only from the current readout.
+- Selected sketch regions (`Pickable::SketchRegion`) gather into one item per sketch
+  (`Subject::Regions`, the regions cloned from the result's display regions with the sketch's
+  solved plane), counted as one item (`item_count`), titled "<sketch> › N regions" when several.
+  They read their summed section (`caditor_kernel::section_of`, `kernel-profile.md`): area,
+  perimeter of the union's outline, centroid in the world, Ix, Iy and Ixy about the centroid along
+  the sketch's x and y, the polar moment J, the principal moments I1 and I2 and, unless the two
+  agree, the principal angle from the sketch's x to I1's axis and that axis as a world direction.
+  Second moments are `Value::SecondMoment` (`LengthUnit::measured_second_moment`, length⁴); a
+  spline side marks every value ≈. A region is never one side of a "Between them" card.
 - A `Readout` is a card per item and, for two items, a "Between them" card; more than two asks for
   fewer, without describing or measuring any. Approximate values are marked with a note, a callout under its card. Mass properties are
   read each frame from `BodyMass` for the selected items' bodies and those of the rows chosen in

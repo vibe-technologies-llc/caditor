@@ -503,7 +503,8 @@ paths:
   editing, with no feature open and nothing chosen in the view (`Context::picks_shown_regions`),
   every shown sketch's regions are drawn and picked the same way, like faces, on `Layer::Model`
   (so a body in front hides them, while one lying on a face draws over it). Extrude and Revolve
-  take the selected regions (`app-modelling.md`). A sketch too large for
+  take the selected regions (`app-modelling.md`), and Measure reads their area and section
+  (`app.md`). A sketch too large for
   recompute to find them unasked gets them asked for each frame it is edited
   (`Model::request_regions`, one request per result), and their arrival moves the displayed
   sketches' generation so the cached scene picks them up.

@@ -261,3 +261,35 @@ fn clearing_the_chosen_regions_leaves_none_until_one_is_clicked() {
 
     assert_eq!(chosen_keys(&harness, extrude), [other]);
 }
+
+#[test]
+fn selected_sketch_regions_read_their_area_and_section_in_measure_and_the_status_bar() {
+    let mut harness = Harness::new();
+    let sketch = crossing_squares(&mut harness);
+    let outside = sketch_region(&harness, sketch, OUTSIDE_THE_FIRST);
+    let overlap = sketch_region(&harness, sketch, OVERLAP);
+
+    harness.select([outside]);
+    harness.settle();
+    let status_area = harness.shows_containing("Area 84.00 mm²");
+    harness.workspace.measure.toggle();
+    harness.wait_until("the region is measured", |harness| {
+        harness.shows("84.00 mm²")
+    });
+    let perimeter_shown = harness.shows("40.000 mm");
+    let principal_shown = harness.shows("Principal angle from x");
+
+    harness.select([outside, overlap]);
+    harness.wait_until("both regions are measured as one", |harness| {
+        harness.shows("100.00 mm²")
+    });
+
+    assert!(status_area);
+    assert!(perimeter_shown);
+    assert!(principal_shown);
+    assert!(harness.shows_containing("› 2 regions"));
+    assert!(harness.shows("11.000, 11.000, 0.000 mm"));
+    assert!(harness.shows("833.3 mm⁴"));
+    assert!(!harness.shows(crate::measure::TOO_MANY));
+    assert!(!harness.shows(crate::measure::UNMEASURABLE));
+}

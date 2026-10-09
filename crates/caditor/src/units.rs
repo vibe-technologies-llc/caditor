@@ -8,6 +8,7 @@ const READOUT_DECIMALS_IN_MILLIMETRES: f64 = 2.0;
 const MEASURED_LENGTH_DECIMALS: f64 = 3.0;
 const MEASURED_AREA_DECIMALS: f64 = 2.0;
 const MEASURED_VOLUME_DECIMALS: f64 = 1.0;
+const MEASURED_SECOND_MOMENT_DECIMALS: f64 = 1.0;
 const MAX_MEASURED_DECIMALS: f64 = 9.0;
 const ANGLE_DECIMALS: usize = 2;
 const RADIAN_DECIMALS: usize = 4;
@@ -112,6 +113,14 @@ impl LengthUnit {
         self.measured_power(cubic_millimetres, 3, MEASURED_VOLUME_DECIMALS)
     }
 
+    pub fn measured_second_moment(self, millimetres_to_the_fourth: f64) -> String {
+        self.measured_power(
+            millimetres_to_the_fourth,
+            4,
+            MEASURED_SECOND_MOMENT_DECIMALS,
+        )
+    }
+
     pub fn measured_position(self, coordinates: [f64; 3]) -> String {
         let [x, y, z] = coordinates
             .map(|millimetres| self.measured_number(millimetres, 1, MEASURED_LENGTH_DECIMALS));
@@ -156,7 +165,9 @@ impl LengthUnit {
         match power {
             1 => format!("{number} {symbol}"),
             2 => format!("{number} {symbol}²"),
-            _ => format!("{number} {symbol}³"),
+            3 => format!("{number} {symbol}³"),
+            4 => format!("{number} {symbol}⁴"),
+            other => format!("{number} {symbol}^{other}"),
         }
     }
 

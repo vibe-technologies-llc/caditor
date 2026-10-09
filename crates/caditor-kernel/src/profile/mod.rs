@@ -5,6 +5,7 @@ mod geometry;
 mod intersect;
 mod reference;
 mod region;
+mod section;
 mod source;
 #[cfg(test)]
 mod tests;
@@ -22,6 +23,7 @@ use self::{
 pub use self::{
     error::{Neighbour, OpenEnd, ProfileError},
     reference::{BoundaryPiece, RegionMatch, RegionReference, ResolvedRegions, resolve_regions},
+    section::{AreaMoments, PrincipalMoments, Section, section_of},
     triangulate::RegionMesh,
 };
 use crate::{
@@ -370,6 +372,10 @@ impl Region {
 
     pub fn bounds(&self) -> Option<Aabb2> {
         self.pieces().map(Piece::bounds).reduce(Aabb2::union)
+    }
+
+    pub fn section(&self) -> Option<Section> {
+        section_of([self])
     }
 
     pub fn polygons(&self, tolerance: &SamplingTolerance) -> Vec<Vec<Point2>> {

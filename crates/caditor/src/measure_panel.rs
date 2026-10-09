@@ -24,7 +24,8 @@ pub const COPY_ALL: &str = "Copy all";
 pub const MEASURING: &str = "Measuring…";
 pub const MASS_TITLE: &str = "Mass properties";
 pub const EMPTY_HINT: &str = "Select a vertex, edge, face or sketch point to measure it, or two of \
-                              them to measure between them. Shift or Ctrl adds to the selection.";
+                              them to measure between them, or sketch regions for their area and \
+                              section properties. Shift or Ctrl adds to the selection.";
 const PANEL_WIDTH: f32 = 300.0;
 const MIN_PANEL_WIDTH: f32 = 220.0;
 const MAX_MASS_CARDS: usize = 50;
@@ -79,6 +80,7 @@ fn value_text(value: Value, accuracy: Accuracy, unit: Units) -> String {
         Value::Angle(radians) => unit.angle.text_of_radians(radians),
         Value::Position(point) => unit.measured_position([point.x, point.y, point.z]),
         Value::Direction(direction) => direction_text(direction),
+        Value::SecondMoment(moment) => unit.measured_second_moment(moment),
     };
     approximately(text, accuracy == Accuracy::Approximate)
 }
