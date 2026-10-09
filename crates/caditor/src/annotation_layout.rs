@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     f64::consts::{FRAC_1_SQRT_2, PI, TAU},
+    ops::RangeInclusive,
 };
 
 use caditor_geometry::{Point2, Vector2};
@@ -38,6 +39,7 @@ const MAX_GLYPH_SHIFTS: usize = 64;
 const GLYPH_VIEW_MARGIN: f64 = GLYPH_OFFSET + GLYPH_SPACING;
 const OBSTACLE_CELL: f64 = 32.0;
 const MAX_OBSTACLE_CELLS: i64 = 64;
+const LABEL_REACH: f64 = 200.0;
 const POINT_GLYPH_QUADRANTS: [Vector2; 4] = [
     Vector2::ONE,
     Vector2::new(-1.0, 1.0),
@@ -351,6 +353,93 @@ pub fn label_frame(measured: &Measured) -> Option<LabelFrame> {
         Measured::AlongArc { arc, .. } => (arc.center, Vector2::from_angle(arc.start_angle)),
     };
     Some(LabelFrame { origin, along })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Reach {
+    low: Point2,
+    high: Point2,
+}
+
+impl Reach {
+    pub fn of(measured: &Measured, frame: Option<LabelFrame>) -> Option<Self> {
+        let around = |center: Point2, radius: f64| {
+            let corner = Vector2::splat(radius.abs());
+            vec![center - corner, center + corner]
+        };
+        let mut points = match *measured {
+            Measured::Points(a, b) => vec![a, b],
+            Measured::Aligned { from, to, .. } => vec![from, to],
+            Measured::PointToLine(point, line) => {
+                let mut points = line.ends();
+                points.extend([point, line.foot(point)]);
+                points
+            }
+            Measured::PointToCircle {
+                point,
+                center,
+                radius,
+            } => {
+                let mut points = around(center, radius);
+                points.push(point);
+                points
+            }
+            Measured::Angle(first, second, _) => {
+                first.ends().into_iter().chain(second.ends()).collect()
+            }
+            Measured::Radius { center, radius, .. } | Measured::Diameter { center, radius, .. } => {
+                around(center, radius)
+            }
+            Measured::AlongArc { arc, .. } => around(arc.center, arc.radius),
+        };
+        points.extend(frame.map(|frame| frame.origin));
+        let first = *points.first()?;
+        let start = Self {
+            low: first,
+            high: first,
+        };
+        Some(points.into_iter().fold(start, Self::including))
+    }
+
+    fn including(self, point: Point2) -> Self {
+        Self {
+            low: self.low.min(point),
+            high: self.high.max(point),
+        }
+    }
+
+    pub fn near_view(
+        &self,
+        placed: Option<(LabelFrame, Point2)>,
+        lane: usize,
+        screen: &impl Screen,
+        view: Vector2,
+    ) -> bool {
+        let reach = placed.map_or(*self, |(frame, at)| {
+            let swing = Vector2::splat(frame.origin.distance(at));
+            self.including(frame.origin - swing)
+                .including(frame.origin + swing)
+        });
+        let corners = [
+            reach.low,
+            Point2::new(reach.high.x, reach.low.y),
+            reach.high,
+            Point2::new(reach.low.x, reach.high.y),
+        ];
+        let mut low = Vector2::splat(f64::INFINITY);
+        let mut high = Vector2::splat(f64::NEG_INFINITY);
+        for corner in corners {
+            let Some(at) = screen.to_screen(corner) else {
+                return true;
+            };
+            low = low.min(at);
+            high = high.max(at);
+        }
+        let margin = Vector2::splat(
+            DIMENSION_OFFSET + LANE_SPACING * lane as f64 + ANGLE_RADIUS + LABEL_REACH,
+        );
+        low.cmple(view + margin).all() && high.cmpge(-margin).all()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1242,21 +1331,20 @@ impl Obstacles {
     }
 
     fn overlap(&self, footprint: &Footprint) -> f64 {
-        let mut near: Vec<usize> = cells_under(footprint)
-            .filter_map(|cell| self.cells.get(&cell))
-            .flatten()
-            .copied()
-            .collect();
-        near.sort_unstable();
-        near.dedup();
-        near.into_iter()
-            .filter_map(|index| self.footprints.get(index))
-            .map(|other| footprint.overlap(other))
-            .sum()
+        let mut total = 0.0;
+        for cell in cells_under(footprint) {
+            let near = self.cells.get(&cell).into_iter().flatten();
+            for other in near.filter_map(|index| self.footprints.get(*index)) {
+                if first_shared_cell(footprint, other) == cell {
+                    total += footprint.overlap(other);
+                }
+            }
+        }
+        total
     }
 }
 
-fn cells_under(footprint: &Footprint) -> impl Iterator<Item = (i64, i64)> {
+fn cell_span(footprint: &Footprint) -> [RangeInclusive<i64>; 2] {
     let cell = |at: f64| (at / OBSTACLE_CELL).floor() as i64;
     let low = footprint.center - footprint.half;
     let high = footprint.center + footprint.half;
@@ -1264,7 +1352,20 @@ fn cells_under(footprint: &Footprint) -> impl Iterator<Item = (i64, i64)> {
         let first = cell(low);
         first..=cell(high).min(first.saturating_add(MAX_OBSTACLE_CELLS))
     };
-    let (columns, rows) = (span(low.x, high.x), span(low.y, high.y));
+    [span(low.x, high.x), span(low.y, high.y)]
+}
+
+fn first_shared_cell(footprint: &Footprint, other: &Footprint) -> (i64, i64) {
+    let [columns, rows] = cell_span(footprint);
+    let [other_columns, other_rows] = cell_span(other);
+    (
+        *columns.start().max(other_columns.start()),
+        *rows.start().max(other_rows.start()),
+    )
+}
+
+fn cells_under(footprint: &Footprint) -> impl Iterator<Item = (i64, i64)> {
+    let [columns, rows] = cell_span(footprint);
     columns.flat_map(move |column| rows.clone().map(move |row| (column, row)))
 }
 

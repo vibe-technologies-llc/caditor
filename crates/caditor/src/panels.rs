@@ -124,6 +124,7 @@ pub struct PanelState {
     pub tree_filter: String,
     pub plain_row_height: Option<f32>,
     pub plain_constraint_height: Option<f32>,
+    pub plain_dimension_height: Option<f32>,
     revealing: Option<PendingReveal>,
     layout: PanelLayout,
     layout_restored: bool,

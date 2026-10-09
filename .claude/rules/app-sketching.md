@@ -552,6 +552,25 @@ paths:
   per sketch until the revision, evaluation, displayed sketches or units change
   (`annotations::LabelTexts`), and a mark's description is formatted only for its hover
   (`annotations::Hover`), so a still frame formats and evaluates nothing.
+- Marks are worked out in two cached stages. `annotations::Measures` (what each dimension
+  measures, its lane, label frame and `annotation_layout::Reach`, the glyph groups with their
+  standings, open ends and points beyond) is kept until the feature, revision, evaluation,
+  displayed sketches or the dragged label change (`SketchKey`). `annotations::Marks` (laid-out
+  dimensions with their label rectangles, placed glyphs, projected open ends and points beyond)
+  is kept until any of those, the `SketchScreen` (camera, view size, pixel density), the view
+  rectangle, units, the dragged label's offset, the dimension being edited, the forced
+  dimensions or Show glyphs change (`ViewKey`), so a still frame only paints and interacts with
+  what is already laid out. Only a dimension whose reach (its measured geometry and label frame
+  origin, and with a placed label the label and the square it swings an arc through) projects
+  within `DIMENSION_OFFSET`, its lanes, `ANGLE_RADIUS` and `LABEL_REACH` of the view is laid out
+  (`Reach::near_view`; a corner that does not project counts as near), so obstacle avoidance
+  sees every label that can reach a shown glyph. Selected dimensions of the sketch, the one
+  edited inline and the one waiting for its field are laid out wherever they are, so Move to and
+  Focus::Dimension still reach an off-screen label. The ignored
+  `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times annotations idle and
+  with the camera moving, zoomed out over `large_sketch` (5,000 dimensions, 3,000 glyph
+  constraints) and zoomed in on a corner, and `sketch_card_costs_on_a_large_sketch`
+  (`feature_tree.rs`) its sketch card.
 - Labels and glyphs are `Pickable::SketchConstraint`: hover highlights the entities, click selects
   (Shift or Ctrl toggles), Delete removes selected constraints and entities in one transaction.
   They are painted but not interactive while a drawing tool is active.

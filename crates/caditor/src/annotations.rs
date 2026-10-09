@@ -13,7 +13,7 @@ use egui::{
 
 use crate::{
     annotation_layout::{
-        self, DimensionLayout, Footprint, GlyphAnchor, GlyphKind, LabelFrame, Obstacles,
+        self, DimensionLayout, Footprint, GlyphKind, LabelFrame, Measured, Obstacles, Reach,
     },
     appearance, canvas,
     field::{self, DimensionTarget},
@@ -22,6 +22,7 @@ use crate::{
     sketch_status, sketch_tools,
     snap::Screen,
     units::Units,
+    viewport::SketchScreen,
 };
 
 const LABEL_GAP: f32 = 3.0;
@@ -95,12 +96,14 @@ enum Frame {
     Dashed,
 }
 
+#[derive(Debug, Clone)]
 struct DimensionMark {
     constraint: ConstraintId,
     layout: DimensionLayout,
     frame: Option<LabelFrame>,
     text: String,
     standing: Standing,
+    label: Option<Rect>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -159,6 +162,7 @@ struct LabelDrag {
     offset: Option<Vector2>,
 }
 
+#[derive(Debug, Clone)]
 struct GlyphMark {
     constraint: ConstraintId,
     anchor: EntityId,
@@ -168,6 +172,7 @@ struct GlyphMark {
     hover: Hover,
 }
 
+#[derive(Debug, Clone, Copy)]
 struct GlyphItem {
     constraint: ConstraintId,
     kind: GlyphKind,
@@ -242,172 +247,241 @@ impl LabelTexts {
     }
 }
 
+#[derive(Debug, Clone)]
 struct GlyphGroup {
     anchor: EntityId,
-    place: GlyphAnchor,
     items: Vec<GlyphItem>,
 }
 
-struct Marks {
-    dimensions: Vec<DimensionMark>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SketchKey {
+    feature: FeatureId,
+    revision: u64,
+    evaluation: u64,
+    sketches: u64,
+    dragged: Option<ConstraintId>,
+}
+
+impl SketchKey {
+    fn of(model: &Model, feature: FeatureId, dragged: Option<ConstraintId>) -> Self {
+        Self {
+            feature,
+            revision: model.revision(),
+            evaluation: model.evaluation_generation(),
+            sketches: model.display().sketches.generation(),
+            dragged,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct MeasuredDimension {
+    constraint: ConstraintId,
+    measured: Measured,
+    lane: usize,
+    frame: Option<LabelFrame>,
+    reach: Option<Reach>,
+    offset: Option<Vector2>,
+    standing: Standing,
+}
+
+#[derive(Debug, Clone)]
+struct Measures {
+    key: SketchKey,
+    dimensions: Vec<MeasuredDimension>,
     groups: Vec<GlyphGroup>,
-    screen_centre: Option<Vector2>,
+    centre: Option<Point2>,
+    open_ends: Vec<Point2>,
+    beyond: Vec<[Point2; 2]>,
+}
+
+impl Measures {
+    fn collect(model: &Model, key: SketchKey, definition: &Sketch, shown: &Sketch) -> Self {
+        let standings = Standings::load(model, key.feature, definition);
+        let centre = centre_of(shown);
+        let mut groups: BTreeMap<EntityId, Vec<GlyphItem>> = BTreeMap::new();
+        let mut measured = Vec::new();
+        for (id, constraint) in definition.constraints() {
+            if constraint.dimension().is_some() {
+                measured.push((id, annotation_layout::measured(shown, constraint)));
+                continue;
+            }
+            for (entity, kind) in annotation_layout::glyphs_of(shown, constraint) {
+                groups.entry(entity).or_default().push(GlyphItem {
+                    constraint: id,
+                    kind,
+                    standing: standings.of(id),
+                });
+            }
+        }
+        let placed =
+            |id: ConstraintId| key.dragged == Some(id) || definition.label_offset(id).is_some();
+        let unplaced: Vec<_> = measured
+            .iter()
+            .map(|(id, measured)| measured.filter(|_| !placed(*id)))
+            .collect();
+        let lanes = annotation_layout::lanes(&unplaced, centre, extent_of(shown));
+        let dimensions = measured
+            .into_iter()
+            .zip(lanes)
+            .filter_map(|((constraint, measured), lane)| {
+                let measured = measured?;
+                let frame = annotation_layout::label_frame(&measured);
+                Some(MeasuredDimension {
+                    constraint,
+                    measured,
+                    lane,
+                    frame,
+                    reach: Reach::of(&measured, frame),
+                    offset: definition.label_offset(constraint),
+                    standing: standings.of(constraint),
+                })
+            })
+            .collect();
+        let result = sketch_status::up_to_date_result(model.evaluation(), key.feature);
+        let open_ends = result
+            .into_iter()
+            .flat_map(|result| &result.open_ends)
+            .filter_map(|end| shown.point(*end))
+            .collect();
+        let beyond = result
+            .into_iter()
+            .flat_map(|result| &result.beyond)
+            .filter_map(|beyond| Some([shown.nearest_end(*beyond)?, shown.point(beyond.point)?]))
+            .collect();
+        Self {
+            key,
+            dimensions,
+            groups: groups
+                .into_iter()
+                .map(|(anchor, items)| GlyphGroup { anchor, items })
+                .collect(),
+            centre,
+            open_ends,
+            beyond,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ViewKey {
+    sketch: SketchKey,
+    screen: SketchScreen,
+    rect: Rect,
+    units: Units,
+    dragged: Option<Vector2>,
+    editing: Option<ConstraintId>,
+    forced: Vec<ConstraintId>,
+    glyphs: bool,
+}
+
+#[derive(Debug, Clone)]
+struct Marks {
+    key: ViewKey,
+    dimensions: Vec<DimensionMark>,
+    glyphs: Vec<GlyphMark>,
     open_ends: Vec<Vector2>,
     beyond: Vec<[Vector2; 2]>,
 }
 
 impl Marks {
-    fn collect(
+    fn lay_out(
+        painter: &egui::Painter,
         model: &Model,
-        feature: FeatureId,
-        screen: &impl Screen,
-        view: Vector2,
+        measures: &Measures,
+        sketches: [&Sketch; 2],
+        key: ViewKey,
         texts: &mut LabelTexts,
-        dragged: Option<(ConstraintId, Vector2)>,
-    ) -> Option<Self> {
-        texts.refresh(model, feature);
-        let owner = model.document().feature(feature)?;
-        let definition = owner.kind.sketch()?;
-        let shown = model.displayed_sketch(owner)?;
-        let standings = Standings::load(model, feature, definition);
-        let centre = centre_of(&shown);
-        let screen_centre = centre.and_then(|centre| screen.to_screen(centre));
+    ) -> Self {
+        let [definition, shown] = sketches;
+        let screen = &key.screen;
+        let view = Vector2::new(f64::from(key.rect.width()), f64::from(key.rect.height()));
         let mut dimensions = Vec::new();
-        let mut groups: BTreeMap<EntityId, Vec<(ConstraintId, GlyphKind)>> = BTreeMap::new();
-        let mut measured_dimensions = Vec::new();
-        for (id, constraint) in definition.constraints() {
-            let Some(expression) = constraint.dimension() else {
-                for (entity, kind) in annotation_layout::glyphs_of(&shown, constraint) {
-                    groups.entry(entity).or_default().push((id, kind));
-                }
+        for dimension in &measures.dimensions {
+            let id = dimension.constraint;
+            let offset = match key.dragged {
+                Some(offset) if measures.key.dragged == Some(id) => Some(offset),
+                _ => dimension.offset,
+            };
+            let placed = dimension
+                .frame
+                .zip(offset)
+                .map(|(frame, offset)| (frame, frame.place(offset)));
+            let wanted = key.forced.binary_search(&id).is_ok()
+                || dimension
+                    .reach
+                    .is_none_or(|reach| reach.near_view(placed, dimension.lane, screen, view));
+            if !wanted {
+                continue;
+            }
+            let layout = annotation_layout::layout(
+                &dimension.measured,
+                screen,
+                measures.centre,
+                dimension.lane,
+                placed.map(|(_, at)| at),
+            );
+            let constraint = definition.constraint(id);
+            let expression = constraint.and_then(Constraint::dimension);
+            let (Some(layout), Some(constraint), Some(expression)) =
+                (layout, constraint, expression)
+            else {
                 continue;
             };
-            measured_dimensions.push((
-                id,
-                constraint,
-                expression,
-                annotation_layout::measured(&shown, constraint),
-            ));
-        }
-        let offset_of = |id: ConstraintId| match dragged {
-            Some((dragged, offset)) if dragged == id => Some(offset),
-            _ => definition.label_offset(id),
-        };
-        let unplaced: Vec<_> = measured_dimensions
-            .iter()
-            .map(|(id, _, _, measured)| measured.filter(|_| offset_of(*id).is_none()))
-            .collect();
-        let lanes = annotation_layout::lanes(&unplaced, centre, extent_of(&shown));
-        for ((id, constraint, expression, measured), lane) in
-            measured_dimensions.into_iter().zip(lanes)
-        {
-            let frame = measured.as_ref().and_then(annotation_layout::label_frame);
-            let placed = frame
-                .zip(offset_of(id))
-                .map(|(frame, offset)| frame.place(offset));
-            let layout = measured.and_then(|measured| {
-                annotation_layout::layout(&measured, screen, centre, lane, placed)
+            let text = texts.text(model, shown, id, constraint, expression);
+            let label = (key.editing != Some(id)).then(|| {
+                let galley =
+                    painter.layout_no_wrap(text.clone(), canvas::body(), Color32::PLACEHOLDER);
+                label_rect(key.rect, &layout, galley.size())
             });
-            if let Some(layout) = layout {
-                dimensions.push(DimensionMark {
-                    constraint: id,
-                    layout,
-                    frame,
-                    text: texts.text(model, &shown, id, constraint, expression),
-                    standing: standings.of(id),
-                });
-            }
+            dimensions.push(DimensionMark {
+                constraint: id,
+                layout,
+                frame: dimension.frame,
+                text,
+                standing: dimension.standing,
+                label,
+            });
         }
-        let groups = groups
-            .into_iter()
-            .filter_map(|(anchor, items)| {
-                Some(GlyphGroup {
-                    anchor,
-                    place: annotation_layout::within_view(
-                        annotation_layout::glyph_anchor(&shown, anchor, screen)?,
-                        view,
-                    )?,
-                    items: items
-                        .into_iter()
-                        .map(|(constraint, kind)| GlyphItem {
-                            constraint,
-                            kind,
-                            standing: standings.of(constraint),
-                        })
-                        .collect(),
-                })
-            })
-            .collect();
-        let result = sketch_status::up_to_date_result(model.evaluation(), feature);
+        let glyphs = if key.glyphs {
+            let mut blocked = Obstacles::default();
+            for rect in dimensions.iter().filter_map(|mark| mark.label) {
+                blocked.add(footprint(key.rect, rect.expand(GLYPH_CLEARANCE)));
+            }
+            let screen_centre = measures.centre.and_then(|centre| screen.to_screen(centre));
+            place_glyphs(
+                &measures.groups,
+                shown,
+                screen,
+                view,
+                screen_centre,
+                blocked,
+            )
+        } else {
+            Vec::new()
+        };
         let in_view = |at: &Vector2| at.x >= 0.0 && at.y >= 0.0 && at.x <= view.x && at.y <= view.y;
-        let open_ends = result
-            .into_iter()
-            .flat_map(|result| &result.open_ends)
-            .filter_map(|end| screen.to_screen(shown.point(*end)?))
+        let open_ends = measures
+            .open_ends
+            .iter()
+            .filter_map(|end| screen.to_screen(*end))
             .filter(in_view)
             .collect();
-        let beyond = result
-            .into_iter()
-            .flat_map(|result| &result.beyond)
-            .filter_map(|beyond| {
-                let at = screen.to_screen(shown.point(beyond.point)?)?;
-                let end = screen.to_screen(shown.nearest_end(*beyond)?)?;
+        let beyond = measures
+            .beyond
+            .iter()
+            .filter_map(|[end, at]| {
+                let (end, at) = (screen.to_screen(*end)?, screen.to_screen(*at)?);
                 (in_view(&at) || in_view(&end)).then_some([end, at])
             })
             .collect();
-        Some(Self {
+        Self {
+            key,
             dimensions,
-            groups,
-            screen_centre,
+            glyphs,
             open_ends,
             beyond,
-        })
-    }
-
-    fn glyphs(&self, mut blocked: Obstacles) -> Vec<GlyphMark> {
-        let half = Vector2::splat(f64::from(GLYPH_SIZE / 2.0 + GLYPH_CLEARANCE));
-        let mut glyphs = Vec::new();
-        for group in &self.groups {
-            let (shown, hidden) = if group.items.len() > MAX_STACKED {
-                group.items.split_at(MAX_STACKED - 1)
-            } else {
-                (group.items.as_slice(), &[][..])
-            };
-            let slots = shown.len() + usize::from(!hidden.is_empty());
-            let mut positions = annotation_layout::place_glyphs(
-                group.place,
-                slots,
-                self.screen_centre,
-                half,
-                &blocked,
-            );
-            for center in &positions {
-                blocked.add(Footprint {
-                    center: *center,
-                    half,
-                });
-            }
-            let beyond_at = (!hidden.is_empty()).then(|| positions.pop()).flatten();
-            glyphs.extend(shown.iter().zip(positions).map(|(item, center)| GlyphMark {
-                constraint: item.constraint,
-                anchor: group.anchor,
-                kind: item.kind,
-                center,
-                standing: item.standing,
-                hover: Hover::Glyph(item.constraint),
-            }));
-            if let (Some(center), Some(first)) = (beyond_at, hidden.first()) {
-                glyphs.push(GlyphMark {
-                    constraint: first.constraint,
-                    anchor: group.anchor,
-                    kind: first.kind,
-                    center,
-                    standing: first.standing,
-                    hover: Hover::Beyond(hidden.iter().map(|item| item.constraint).collect()),
-                });
-            }
         }
-        glyphs
     }
 
     fn dimension(&self, constraint: ConstraintId) -> Option<&DimensionMark> {
@@ -415,6 +489,64 @@ impl Marks {
             .iter()
             .find(|mark| mark.constraint == constraint)
     }
+}
+
+fn place_glyphs(
+    groups: &[GlyphGroup],
+    shown: &Sketch,
+    screen: &impl Screen,
+    view: Vector2,
+    screen_centre: Option<Vector2>,
+    mut blocked: Obstacles,
+) -> Vec<GlyphMark> {
+    let half = Vector2::splat(f64::from(GLYPH_SIZE / 2.0 + GLYPH_CLEARANCE));
+    let mut glyphs = Vec::new();
+    for group in groups {
+        let Some(place) = annotation_layout::glyph_anchor(shown, group.anchor, screen)
+            .and_then(|anchor| annotation_layout::within_view(anchor, view))
+        else {
+            continue;
+        };
+        let (stacked, hidden) = if group.items.len() > MAX_STACKED {
+            group.items.split_at(MAX_STACKED - 1)
+        } else {
+            (group.items.as_slice(), &[][..])
+        };
+        let slots = stacked.len() + usize::from(!hidden.is_empty());
+        let mut positions =
+            annotation_layout::place_glyphs(place, slots, screen_centre, half, &blocked);
+        for center in &positions {
+            blocked.add(Footprint {
+                center: *center,
+                half,
+            });
+        }
+        let beyond_at = (!hidden.is_empty()).then(|| positions.pop()).flatten();
+        glyphs.extend(
+            stacked
+                .iter()
+                .zip(positions)
+                .map(|(item, center)| GlyphMark {
+                    constraint: item.constraint,
+                    anchor: group.anchor,
+                    kind: item.kind,
+                    center,
+                    standing: item.standing,
+                    hover: Hover::Glyph(item.constraint),
+                }),
+        );
+        if let (Some(center), Some(first)) = (beyond_at, hidden.first()) {
+            glyphs.push(GlyphMark {
+                constraint: first.constraint,
+                anchor: group.anchor,
+                kind: first.kind,
+                center,
+                standing: first.standing,
+                hover: Hover::Beyond(hidden.iter().map(|item| item.constraint).collect()),
+            });
+        }
+    }
+    glyphs
 }
 
 struct Standings<'a> {
@@ -530,9 +662,9 @@ fn label_text(
     }
 }
 
-pub struct Surface<'a, S> {
+pub struct Surface<'a> {
     pub rect: Rect,
-    pub screen: &'a S,
+    pub screen: &'a SketchScreen,
     pub feature: FeatureId,
     pub interactive: bool,
     pub glyphs: bool,
@@ -563,7 +695,10 @@ pub struct Annotations {
     texts: LabelTexts,
     dragging: Option<LabelDrag>,
     dropped: Option<LabelDrag>,
-    places: BTreeMap<(FeatureId, ConstraintId), LabelPlace>,
+    measures: Option<Measures>,
+    marks: Option<Marks>,
+    #[cfg(test)]
+    layouts: usize,
 }
 
 struct Placed {
@@ -580,7 +715,29 @@ impl Annotations {
     }
 
     pub fn label_place(&self, feature: FeatureId, constraint: ConstraintId) -> Option<LabelPlace> {
-        self.places.get(&(feature, constraint)).copied()
+        let mark = self
+            .marks
+            .as_ref()
+            .filter(|marks| marks.key.sketch.feature == feature)?
+            .dimension(constraint)?;
+        Some(LabelPlace {
+            at: mark.layout.at,
+            frame: mark.frame?,
+        })
+    }
+
+    #[cfg(test)]
+    pub fn layouts(&self) -> usize {
+        self.layouts
+    }
+
+    #[cfg(test)]
+    pub fn laid_out(&self) -> Vec<ConstraintId> {
+        self.marks
+            .iter()
+            .flat_map(|marks| &marks.dimensions)
+            .map(|mark| mark.constraint)
+            .collect()
     }
 
     pub fn request_field(&mut self, feature: FeatureId, constraint: ConstraintId) {
@@ -595,16 +752,89 @@ impl Annotations {
         *self = Self::default();
     }
 
+    fn forget_marks(&mut self) {
+        self.field = None;
+        self.measures = None;
+        self.marks = None;
+    }
+
+    fn forced(&self, selection: &Selection, feature: FeatureId) -> Vec<ConstraintId> {
+        let mut forced: Vec<ConstraintId> = selection
+            .iter()
+            .filter_map(|pickable| match pickable {
+                Pickable::SketchConstraint {
+                    feature: owner,
+                    constraint,
+                } if owner == feature => Some(constraint),
+                _ => None,
+            })
+            .chain(self.field.map(|open| open.constraint))
+            .chain(self.request.map(|request| request.constraint))
+            .collect();
+        forced.sort_unstable();
+        forced.dedup();
+        forced
+    }
+
+    fn refresh_marks(
+        &mut self,
+        painter: &egui::Painter,
+        model: &Model,
+        surface: &Surface<'_>,
+        selection: &Selection,
+    ) -> Option<Marks> {
+        let dragged = self
+            .dragging
+            .and_then(|drag| Some((drag.constraint, drag.offset?)));
+        let owner = model.document().feature(surface.feature)?;
+        let definition = owner.kind.sketch()?;
+        let shown = model.displayed_sketch(owner)?;
+        self.texts.refresh(model, surface.feature);
+        let sketch = SketchKey::of(model, surface.feature, dragged.map(|(id, _)| id));
+        let measures = match self.measures.take() {
+            Some(measures) if measures.key == sketch => measures,
+            _ => Measures::collect(model, sketch, definition, &shown),
+        };
+        let key = ViewKey {
+            sketch,
+            screen: *surface.screen,
+            rect: surface.rect,
+            units: model.units(),
+            dragged: dragged.map(|(_, offset)| offset),
+            editing: self.field.map(|open| open.constraint),
+            forced: self.forced(selection, surface.feature),
+            glyphs: surface.glyphs,
+        };
+        let marks = match self.marks.take() {
+            Some(marks) if marks.key == key => marks,
+            _ => {
+                #[cfg(test)]
+                {
+                    self.layouts += 1;
+                }
+                Marks::lay_out(
+                    painter,
+                    model,
+                    &measures,
+                    [definition, &shown],
+                    key,
+                    &mut self.texts,
+                )
+            }
+        };
+        self.measures = Some(measures);
+        Some(marks)
+    }
+
     pub fn show(
         &mut self,
         ui: &mut Ui,
         model: &Model,
-        surface: &Surface<'_, impl Screen>,
+        surface: &Surface<'_>,
         selection: &mut Selection,
         actions: &mut Vec<Action>,
     ) {
         self.hovered = None;
-        self.places.clear();
         self.dragging = self
             .dragging
             .filter(|drag| drag.feature == surface.feature && surface.interactive);
@@ -612,63 +842,27 @@ impl Annotations {
         self.request = self
             .request
             .filter(|request| request.feature == surface.feature);
-        let view = Vector2::new(
-            f64::from(surface.rect.width()),
-            f64::from(surface.rect.height()),
-        );
-        let dragged = self
-            .dragging
-            .and_then(|drag| Some((drag.constraint, drag.offset?)));
-        let Some(marks) = Marks::collect(
-            model,
-            surface.feature,
-            surface.screen,
-            view,
-            &mut self.texts,
-            dragged,
-        ) else {
-            self.field = None;
+        let painter = ui.painter_at(surface.rect);
+        let Some(marks) = self.refresh_marks(&painter, model, surface, selection) else {
+            self.forget_marks();
             return;
         };
         self.open_requested(model, &marks);
-        for mark in &marks.dimensions {
-            if let Some(frame) = mark.frame {
-                self.places.insert(
-                    (surface.feature, mark.constraint),
-                    LabelPlace {
-                        at: mark.layout.at,
-                        frame,
-                    },
-                );
-            }
-        }
 
-        let painter = ui.painter_at(surface.rect);
-        let editing = self.field.map(|open| open.constraint);
         let labels: Vec<Option<(Arc<Galley>, Rect)>> = marks
             .dimensions
             .iter()
             .map(|mark| {
-                (editing != Some(mark.constraint)).then(|| {
+                mark.label.map(|rect| {
                     let galley = painter.layout_no_wrap(
                         mark.text.clone(),
                         canvas::body(),
                         Color32::PLACEHOLDER,
                     );
-                    let rect = label_rect(surface.rect, &mark.layout, galley.size());
                     (galley, rect)
                 })
             })
             .collect();
-        let mut blocked = Obstacles::default();
-        for (_, rect) in labels.iter().flatten() {
-            blocked.add(footprint(surface.rect, rect.expand(GLYPH_CLEARANCE)));
-        }
-        let glyphs = if surface.glyphs {
-            marks.glyphs(blocked)
-        } else {
-            Vec::new()
-        };
         let pickable = |constraint| Pickable::SketchConstraint {
             feature: surface.feature,
             constraint,
@@ -676,11 +870,10 @@ impl Annotations {
         let placed = marks
             .dimensions
             .iter()
-            .zip(&labels)
-            .filter_map(|(mark, label)| {
-                label.as_ref().map(|(_, rect)| Placed {
+            .filter_map(|mark| {
+                mark.label.map(|rect| Placed {
                     pickable: pickable(mark.constraint),
-                    hit: *rect,
+                    hit: rect,
                     key: (mark.constraint, None),
                     hover: Hover::Dimension(mark.constraint),
                     label: mark.frame.map(|frame| {
@@ -692,7 +885,7 @@ impl Annotations {
                     }),
                 })
             })
-            .chain(glyphs.iter().map(|mark| Placed {
+            .chain(marks.glyphs.iter().map(|mark| Placed {
                 pickable: pickable(mark.constraint),
                 hit: Rect::from_center_size(
                     to_pos(surface.rect, mark.center),
@@ -752,7 +945,7 @@ impl Annotations {
                 paint_frame(&painter, rect, frame, tint);
             }
         }
-        for mark in &glyphs {
+        for mark in &marks.glyphs {
             let center = to_pos(surface.rect, mark.center);
             let tint = color(mark.constraint, mark.standing);
             match &mark.hover {
@@ -784,6 +977,7 @@ impl Annotations {
             );
         }
         self.show_field(ui, model, surface, &marks, actions);
+        self.marks = Some(marks);
     }
 
     fn open_requested(&mut self, model: &Model, marks: &Marks) {
@@ -825,7 +1019,7 @@ impl Annotations {
     fn interact(
         &mut self,
         ui: &Ui,
-        surface: &Surface<'_, impl Screen>,
+        surface: &Surface<'_>,
         target: Placed,
         selection: &mut Selection,
         definition: &Sketch,
@@ -876,7 +1070,7 @@ impl Annotations {
 
     fn drag_label(
         &mut self,
-        surface: &Surface<'_, impl Screen>,
+        surface: &Surface<'_>,
         response: &egui::Response,
         constraint: ConstraintId,
         label: Vector2,
@@ -921,7 +1115,7 @@ impl Annotations {
         &mut self,
         ui: &Ui,
         model: &Model,
-        surface: &Surface<'_, impl Screen>,
+        surface: &Surface<'_>,
         marks: &Marks,
         actions: &mut Vec<Action>,
     ) {
