@@ -186,9 +186,10 @@ paths:
   before.
 - An import's details (`import_panel.rs`) end with its placement: Placed in (World, or a
   coordinate system above it, `feature_fields::frame_row`, the description then saying the file's
-  origin and axes are the system's), Turn about X, Y and Z, then Move
-  along X, Y and Z, all expressions (key `import-field`, `turn` or `offset`, axis index), each
-  entered value one undoable `SetFeatureKind` named "Place <name>".
+  origin and axes are the system's), Turn about X, Y and Z, Move along X, Y and Z, then Scale (a
+  plain factor above zero), all expressions (key `import-field`, `turn` or `offset` and the axis
+  index, or `("scale", 0)`), each entered value one undoable `SetFeatureKind` named "Place
+  <name>".
 - Replace from file (`Command::ReplaceImport`, an import's details, its right-click menu, the
   palette on the tree's current import) picks a STEP or mesh file, reads it on an import thread and
   applies one `SetFeatureKind` putting its body in place of the import, keeping its placement, so

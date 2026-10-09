@@ -23,6 +23,7 @@ paths:
   - "crates/caditor/src/mirror_panel.rs"
   - "crates/caditor/src/scale_tools.rs"
   - "crates/caditor/src/scale_panel.rs"
+  - "crates/caditor/src/scale_model.rs"
   - "crates/caditor/src/datum_tools.rs"
   - "crates/caditor/src/datum_panel.rs"
   - "crates/caditor/src/pattern_tools.rs"
@@ -394,6 +395,19 @@ paths:
   `feature_fields::frame_row`, shown once the model has one; a description says the centre is
   measured from its origin along its axes) and the centre's three coordinates, all expressions
   (key `scale-field`, `("factor", 0)` or `("center", axis index)`).
+
+## Scale model
+
+- Scale model… (`Command::ScaleModel`, the Model menu's Bodies group and the palette, no default
+  key, refused while a sketch is edited) opens a modal (`Workspace::scale_model`, dropped with the
+  session) with the Factor (an expression that must give a plain number; focus starts there and
+  Enter scales), the Centre (the origin, a datum point or a coordinate system's origin, read from
+  the evaluation) and what to Scale (Typed values, or Values and parameters, `ScaledValues`).
+  Scale model builds `Document::scaled` (`scale_model::scaling`) and applies it as one undoable
+  change with a notice summing up what changed, what was left to follow parameters, which holes
+  lost their standard size and which threads to check; a refusal (no factor, a length, zero or
+  less, 1, a centre a feature's principal geometry does not hold) stays in the dialog as an error
+  callout and nothing is applied.
 
 ## Patterns
 

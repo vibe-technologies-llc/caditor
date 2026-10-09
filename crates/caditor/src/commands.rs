@@ -132,6 +132,7 @@ pub enum Command {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    ScaleModel,
     FitView,
     Measure,
     Interference,
@@ -584,6 +585,7 @@ plain_commands! {
     DatumAxis,
     DatumPoint,
     CoordinateSystem,
+    ScaleModel,
     FinishSketch,
     ReverseArc,
     MoreSides,
@@ -792,6 +794,7 @@ impl Command {
             Self::DatumAxis => "model.axis",
             Self::DatumPoint => "model.point",
             Self::CoordinateSystem => "model.coordinate_system",
+            Self::ScaleModel => "model.scale_model",
             Self::FitView => "view.fit",
             Self::Measure => "view.measure",
             Self::Interference => "view.interference",
@@ -999,6 +1002,7 @@ impl Command {
             Self::DatumAxis => "Datum axis",
             Self::DatumPoint => "Datum point",
             Self::CoordinateSystem => "Coordinate system",
+            Self::ScaleModel => "Scale model…",
             Self::FitView => "Fit view",
             Self::Measure => "Measure",
             Self::Interference => "Check interference",
@@ -1226,6 +1230,7 @@ impl Command {
             | Self::DatumAxis
             | Self::DatumPoint
             | Self::CoordinateSystem
+            | Self::ScaleModel
             | Self::Recompute
             | Self::CancelRecompute
             | Self::RenameFeature
@@ -1413,6 +1418,7 @@ impl Command {
             Self::TogglePrincipal => vec![plain(Key::P)],
             Self::VersionHistory
             | Self::CoordinateSystem
+            | Self::ScaleModel
             | Self::ModelProperties
             | Self::KeyboardShortcuts
             | Self::ExportSketch

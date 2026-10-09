@@ -659,7 +659,7 @@ impl Datum {
         }
     }
 
-    fn planes(&self) -> Vec<&PlaneReference> {
+    pub(crate) fn planes(&self) -> Vec<&PlaneReference> {
         match self {
             Self::Plane(plane) => vec![&plane.base],
             Self::Frame(frame) => vec![&frame.plane],
@@ -690,7 +690,7 @@ impl Datum {
         }
     }
 
-    fn axes(&self) -> Vec<&AxisReference> {
+    pub(crate) fn axes(&self) -> Vec<&AxisReference> {
         match self {
             Self::Plane(plane) => plane
                 .rotation

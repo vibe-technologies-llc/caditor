@@ -243,6 +243,7 @@ pub struct BodyPlacement {
     pub offset: [Expression; 3],
     pub turn: [Expression; 3],
     pub frame: Option<FeatureId>,
+    pub scale: Expression,
 }
 
 impl Default for BodyPlacement {
@@ -251,27 +252,38 @@ impl Default for BodyPlacement {
             offset: std::array::from_fn(|_| Expression::Measure(0.0, Unit::Millimetre)),
             turn: std::array::from_fn(|_| Expression::Measure(0.0, Unit::Degree)),
             frame: None,
+            scale: Expression::Number(1.0),
         }
     }
 }
 
 impl BodyPlacement {
     pub fn is_at_origin(&self) -> bool {
-        self.frame.is_none() && self.is_unmoved()
+        self.frame.is_none() && self.is_unmoved() && self.is_unscaled()
     }
 
     pub fn is_unmoved(&self) -> bool {
-        self.expressions().all(|expression| {
+        self.offset.iter().chain(self.turn.iter()).all(|expression| {
             matches!(expression, Expression::Number(value) | Expression::Measure(value, _) if *value == 0.0)
         })
     }
 
+    pub fn is_unscaled(&self) -> bool {
+        matches!(self.scale, Expression::Number(value) if value == 1.0)
+    }
+
     pub fn expressions(&self) -> impl Iterator<Item = &Expression> {
-        self.offset.iter().chain(self.turn.iter())
+        self.offset
+            .iter()
+            .chain(self.turn.iter())
+            .chain(std::iter::once(&self.scale))
     }
 
     pub fn expressions_mut(&mut self) -> impl Iterator<Item = &mut Expression> {
-        self.offset.iter_mut().chain(self.turn.iter_mut())
+        self.offset
+            .iter_mut()
+            .chain(self.turn.iter_mut())
+            .chain(std::iter::once(&mut self.scale))
     }
 
     pub fn parameters(&self) -> BTreeSet<ParameterId> {

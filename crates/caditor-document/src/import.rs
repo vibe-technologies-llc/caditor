@@ -1,11 +1,14 @@
 use std::{path::PathBuf, sync::Arc};
 
+use caditor_expression::{Dimension, format_number};
+use caditor_geometry::{Point3, Similarity};
 use caditor_kernel::Solid;
 
 use crate::{
     document::Feature,
-    movement::{BodyPlacement, placement_transform},
+    movement::{BodyPlacement, Context, placement_transform},
     recompute::{Failure, FeatureError, FeatureResult, FixTarget, Inputs},
+    scaling::{MAX_SCALE_FACTOR, MIN_SCALE_FACTOR},
     solid::SolidResult,
 };
 
@@ -84,18 +87,61 @@ pub(crate) fn evaluate(
     if definition.placement.is_at_origin() {
         return Ok(FeatureResult::Solid(SolidResult::new(feature.id(), solid)));
     }
-    let placement = placement_transform(feature, inputs, &definition.placement)?;
-    let placed = solid.transformed(&placement).map_err(|_| {
+    let failure = |reason: String, remedy: &str| {
         Failure::Error(Box::new(FeatureError {
-            reason: format!(
-                "The placement would take the body of {} too far from the origin.",
-                feature.name
-            ),
-            remedy: "Enter smaller distances.".to_owned(),
+            reason,
+            remedy: remedy.to_owned(),
             fix: Some(FixTarget::Feature(feature.id())),
             constraints: Vec::new(),
             place: None,
         }))
+    };
+    let solid = if definition.placement.is_unscaled() {
+        solid
+    } else {
+        let factor = Context { feature, inputs }.value(
+            &definition.placement.scale,
+            Dimension::NONE,
+            "scale",
+        )?;
+        if !(MIN_SCALE_FACTOR..=MAX_SCALE_FACTOR).contains(&factor) {
+            return Err(failure(
+                format!(
+                    "The scale of {} must be from {} to {}, and {} is not.",
+                    feature.name,
+                    format_number(MIN_SCALE_FACTOR),
+                    format_number(MAX_SCALE_FACTOR),
+                    format_number(factor)
+                ),
+                "Enter a scale above zero, such as 25.4 for a part drawn in inches.",
+            ));
+        }
+        let scaling = Similarity::scaling(Point3::ZERO, factor).ok_or_else(|| {
+            failure(
+                format!("The body of {} could not be scaled.", feature.name),
+                "Enter a scale nearer 1.",
+            )
+        })?;
+        solid.mapped(&scaling).map_err(|_| {
+            failure(
+                format!(
+                    "Scaling the body of {} by {} would make it too large or too small to model.",
+                    feature.name,
+                    format_number(factor)
+                ),
+                "Enter a scale nearer 1.",
+            )
+        })?
+    };
+    let placement = placement_transform(feature, inputs, &definition.placement)?;
+    let placed = solid.transformed(&placement).map_err(|_| {
+        failure(
+            format!(
+                "The placement would take the body of {} too far from the origin.",
+                feature.name
+            ),
+            "Enter smaller distances.",
+        )
     })?;
     Ok(FeatureResult::Solid(SolidResult::new(feature.id(), placed)))
 }

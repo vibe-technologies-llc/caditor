@@ -199,12 +199,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] 3MF exports carry no cosmetic thread: naming one needs object metadata
   (`metadatagroup`) under a name in a namespace of caditor's own, and that namespace's URI, kept
   for good once files carry it, has not been chosen.
-- [medium · hard] The whole model cannot be scaled: no command or feature resizes every body, sketch
-  and datum by a factor (uniform, about the origin or a chosen point) as one undoable change.
-  Scaling must keep references and names stable, and say what happens to dimensions and parameters
-  (scale the stored values, or the parameters they use, or leave expressions alone and scale only
-  plain values), so a part drawn at the wrong size or an import in the wrong unit can be fixed
-  without redrawing it.
+- [low · medium] Scale model refuses a centre off principal geometry a feature uses (a mirror
+  across the YZ plane, a revolve or circular pattern about the Z axis, a coordinate system at the
+  origin), since that geometry cannot move with the model; scaling about such a point would need
+  the feature moved onto a datum standing where the principal geometry lands.
 - [medium · hard] Extrusions end only on flat faces and planes: up to face and up to next refuse a
   curved face, and up to next needs one flat face that the whole profile meets first. An end
   cannot stop short of or past the face it reaches by an offset, nor end on a whole body (where the

@@ -19,6 +19,7 @@ mod inlining;
 mod mate;
 mod mirror;
 mod model_parameters;
+mod model_scale;
 mod movement;
 mod offset_face;
 mod origins;
@@ -82,6 +83,7 @@ pub use crate::{
     mate::{AxisMate, FaceMate, Mate, MatePair},
     mirror::{MIRROR_IMAGE, Mirror},
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner, value_label},
+    model_scale::{ModelScale, ModelScaleError, ScaleSummary, ScaledModel, ScaledValues},
     movement::{AxisTurn, BodyPlacement, Move, MoveAxis, Pivot, TurnCentre},
     offset_face::OffsetFace,
     origins::complete_origins,
@@ -167,6 +169,8 @@ mod mate_tests;
 mod mirror_tests;
 #[cfg(test)]
 mod model_parameter_tests;
+#[cfg(test)]
+mod model_scale_tests;
 #[cfg(test)]
 mod movement_tests;
 #[cfg(test)]

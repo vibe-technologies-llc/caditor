@@ -235,6 +235,7 @@ pub(crate) enum FeatureKindRecord {
     FrameOriginDatum(Box<FrameOriginRecord>),
     ScaleInFrame(Box<MoveInFrameRecord>),
     ImportInFrame(Box<MoveInFrameRecord>),
+    ScaledImport(Box<ScaledImportRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -280,6 +281,12 @@ pub(crate) struct CoordinateSystemRecord {
 pub(crate) struct MoveInFrameRecord {
     pub feature: FeatureKindRecord,
     pub frame: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ScaledImportRecord {
+    pub feature: FeatureKindRecord,
+    pub scale: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -452,7 +459,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 53] = [
+pub(crate) const FEATURE_KINDS: [&str; 54] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -506,6 +513,7 @@ pub(crate) const FEATURE_KINDS: [&str; 53] = [
     "frame_origin_datum",
     "scale_in_frame",
     "import_in_frame",
+    "scaled_import",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1988,7 +1996,15 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
 }
 
 fn import_record(import: &Import, shares: Option<String>) -> FeatureKindRecord {
-    let record = unframed_import_record(import, shares);
+    let unscaled = unframed_import_record(import, shares);
+    let record = if import.placement.is_unscaled() {
+        unscaled
+    } else {
+        FeatureKindRecord::ScaledImport(Box::new(ScaledImportRecord {
+            feature: unscaled,
+            scale: import.placement.scale.to_stored_text(),
+        }))
+    };
     match import.placement.frame {
         Some(frame) => FeatureKindRecord::ImportInFrame(Box::new(MoveInFrameRecord {
             feature: record,
@@ -3838,6 +3854,20 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::ScaledImport(scaled) => {
+            let mut kind = restore_kind(&scaled.feature, name, texts, issues);
+            match &mut kind {
+                FeatureKind::Import(import) => {
+                    import.placement.scale =
+                        restore_value(&scaled.scale, "import scale", "1", name, issues);
+                }
+                _ => issues.push(format!(
+                    "“{name}” was to be scaled as it is imported, but it is not an import, so \
+                     that was left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::ImportInFrame(framed) => {
             let mut kind = restore_kind(&framed.feature, name, texts, issues);
             match &mut kind {
@@ -4400,7 +4430,7 @@ fn restore_placed_import(
     let placement = BodyPlacement {
         offset: read(&record.offset, "placement distance", "0 mm"),
         turn: read(&record.turn, "placement turn", "0 deg"),
-        frame: None,
+        ..BodyPlacement::default()
     };
     import.placed(placement)
 }

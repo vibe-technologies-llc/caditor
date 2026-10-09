@@ -114,6 +114,10 @@ impl ParameterValues {
     }
 }
 
+pub(crate) fn evaluation_order(document: &Document) -> Vec<ParameterId> {
+    EvaluationOrder::of(document).sequence
+}
+
 struct EvaluationOrder {
     sequence: Vec<ParameterId>,
     cycles: BTreeMap<ParameterId, Vec<ParameterId>>,

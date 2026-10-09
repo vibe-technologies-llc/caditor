@@ -1633,6 +1633,61 @@ fn a_placed_import_is_a_record_of_its_own_and_an_unplaced_one_stays_readable_by_
 }
 
 #[test]
+fn a_scaled_import_is_a_kind_older_readers_report_and_an_unreadable_scale_loads_as_one() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Import");
+    let placement = caditor_document::BodyPlacement {
+        scale: Expression::Number(25.4),
+        ..Default::default()
+    };
+    let scaled = transaction.add_feature(
+        "Cube",
+        FeatureKind::Import(
+            caditor_document::Import::new("cube.step", caditor_kernel::Solid::default(), "")
+                .placed(placement),
+        ),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("scaled_import", "import_scaled"));
+    let damaged = decode_text(&text.replace("\"scale\":\"25.4\"", "\"scale\":\"25.4 ((\""));
+    let scale_of = |loaded: &Loaded| {
+        loaded
+            .document
+            .feature(scaled)
+            .and_then(|feature| feature.kind.import())
+            .map(|import| import.placement.scale.clone())
+    };
+
+    assert!(
+        text.contains("\"scaled_import\":{\"feature\":{\"import\":"),
+        "{text}"
+    );
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(scaled).is_none());
+    assert!(
+        older
+            .issues
+            .iter()
+            .any(|issue| issue.contains("It may come from a newer version")),
+        "{:?}",
+        older.issues
+    );
+    assert_eq!(scale_of(&damaged), Some(Expression::Number(1.0)));
+    assert!(
+        damaged
+            .issues
+            .iter()
+            .any(|issue| issue
+                == "The import scale of “Cube” could not be read, so it was set to 1."),
+        "{:?}",
+        damaged.issues
+    );
+}
+
+#[test]
 fn arc_dimensions_round_trip_and_fall_back_to_their_drawn_values() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Arc dimensions");
