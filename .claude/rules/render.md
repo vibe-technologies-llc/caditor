@@ -330,6 +330,15 @@ paths:
 - Right-drag orbits (turntable around world Z, stopping at the poles; a rolled view turns level),
   middle-drag or Shift+right-drag pans, wheel and pinch zoom toward the point under the cursor.
   View cube and fit changes animate.
+- The moves are `Viewpoint::orbited`, `panned` and `zoomed` (nothing for non-finite input), so the
+  app can move the viewpoint the camera is heading to rather than the one shown. `Camera::orbit`,
+  `pan` and `zoom` apply them to the shown viewpoint and end any transition (the pointer moves what
+  is under it); `animate_to` eases in and out over `TRANSITION_DURATION`, and `glide_to` eases out
+  only over the shorter `GLIDE_DURATION`, so it moves at once and a key held down, each repeat
+  gliding on from the last destination, follows smoothly instead of restarting from rest.
+- `Camera::destination_view` and `view_from` build a `View` for the destination or any viewpoint
+  with the projection resolved against that viewpoint, so a fit or a look at a face started during
+  a turn into a standard view is fitted in the projection it will end in.
 - The input mode (`preferences::InputMode`, chosen in Preferences › Navigation) is caditor, the
   mouse scheme above, or Laptop, for a touchpad: two-finger scroll orbits, Alt and scroll pans (egui
   turns Shift and scroll into horizontal-only scrolling, so Alt keeps both axes), pinch and
@@ -339,4 +348,7 @@ paths:
   middle-drag pans, the middle button held with the left or right one orbits) and Blender
   (middle-drag orbits, Shift+middle-drag pans, Ctrl+middle-drag zooms) follow those programs;
   every mode keeps right-drag orbiting and Shift+right-drag panning, the wheel zooms, and a primary
-  drag with the middle button held never starts a selection (`viewport::drag_motion`).
+  drag with the middle button held never starts a selection (`viewport::drag_motion`). Invert
+  zoom turns the wheel and Blender's Ctrl+middle-drag round alike (`viewport::zoom_factor`). A
+  middle-button double-click fits the view in every mode, since none gives it another use. The
+  canvas hint at the bottom right is the mode's `InputMode::navigation_hint`.

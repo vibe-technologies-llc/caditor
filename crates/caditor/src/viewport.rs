@@ -65,7 +65,8 @@ use crate::{
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
     view_aids::ViewAids,
-    view_cube::{self, CubeAction},
+    view_cube::{self, CubeAction, CubeTexts},
+    view_history::{Gesture, ViewHistory},
     visibility,
 };
 
@@ -93,8 +94,6 @@ const NOTHING_TO_COPY: &str = "Select sketch geometry to copy";
 const NOTHING_TO_PASTE: &str = "Nothing was pasted: copy or cut sketch geometry first.";
 const PASTE_SHIFT_FRACTION: f64 = 0.25;
 const PASTE_SHIFT_FLOOR: f64 = 1.0;
-const NAVIGATION_HINT: &str =
-    "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom";
 pub const CHOOSE_PLANE_PROMPT: &str = "Click a plane or a flat face to sketch on";
 const CHOOSE_PLANE_HINT: &str = "Esc: cancel";
 const CHOOSE_REGIONS_PROMPT: &str = "Click regions of the sketch to include or leave them out";
@@ -279,7 +278,9 @@ pub struct ViewportState {
     pixels_per_point: f32,
     drag_anchor: Option<Point3>,
     needs_initial_fit: bool,
-    fit_requested: bool,
+    fit_requested: Option<FitAsked>,
+    history: ViewHistory,
+    clock: f64,
     picks_in_flight: Option<(Arc<PickTable>, View)>,
     last_pick: Option<PickKey>,
     requested_viewpoint: Option<Viewpoint>,
@@ -342,6 +343,12 @@ pub struct ViewportState {
     manipulator: Option<Manipulator>,
     manipulator_hover: Option<Handle>,
     dimensioning: Option<FeatureId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FitAsked {
+    ByUser,
+    OnOpening,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -446,7 +453,9 @@ impl ViewportState {
             pixels_per_point: 1.0,
             drag_anchor: None,
             needs_initial_fit: true,
-            fit_requested: false,
+            fit_requested: None,
+            history: ViewHistory::default(),
+            clock: 0.0,
             picks_in_flight: None,
             last_pick: None,
             requested_viewpoint: None,
@@ -641,7 +650,27 @@ impl ViewportState {
     }
 
     pub fn show_saved_view(&mut self, view: SavedView) {
-        self.camera.animate_to(saved_views::viewpoint(view));
+        self.go_to(saved_views::viewpoint(view));
+    }
+
+    fn go_to(&mut self, viewpoint: Viewpoint) {
+        self.history.leave(self.camera.destination());
+        self.camera.animate_to(viewpoint);
+    }
+
+    fn look_from(&mut self, view: StandardView, home: Option<SavedView>) {
+        if let (StandardView::Isometric, Some(home)) = (view, home) {
+            self.show_saved_view(home);
+            return;
+        }
+        let destination = self.camera.destination();
+        if let Some(viewpoint) = Viewpoint::looking_from(
+            view.looking_from(),
+            destination.target,
+            destination.distance,
+        ) {
+            self.go_to(viewpoint);
+        }
     }
 
     fn start_from_home(&mut self, model: &Model) {
@@ -802,23 +831,25 @@ impl ViewportState {
         commands: &mut CommandFrame<'_>,
         actions: &mut Vec<Action>,
     ) {
+        self.clock = ui.input(|input| input.time);
         if commands.available(Command::FitView) {
-            self.fit_requested = true;
+            self.fit_requested = Some(FitAsked::ByUser);
         }
         if self.session != model.session() {
             self.session = model.session();
             self.fit_when_computed = true;
+            self.history.clear();
             self.start_from_home(model);
         }
         if self.fit_when_computed
             && model.status() == RecomputeStatus::UpToDate
             && !model.bodies_pending()
         {
-            self.fit_requested = true;
+            self.fit_requested = Some(FitAsked::OnOpening);
             self.fit_when_computed = false;
         }
         self.keyboard_commands(model, editing, commands, actions);
-        let key_hints = KeyHints::new(commands);
+        let key_hints = KeyHints::new(commands, self.navigation.input_mode);
         egui::CentralPanel::no_frame().show(ui, |ui| {
             let rect = ui.max_rect();
             self.rect = Some(rect);
@@ -1018,24 +1049,29 @@ impl ViewportState {
         let Some(view) = self.view() else {
             return Some(built);
         };
+        let heading = self.destination_view().unwrap_or(view);
+        let mut going = None;
         if self.needs_initial_fit {
             self.camera = Camera::new(view.fitted(built.fit_all()));
             self.camera.set_projection(self.navigation.projection);
             self.needs_initial_fit = false;
         } else if self.face_edited_sketch {
-            if let Some(sketch) = built.edited {
-                self.camera.animate_to(facing(&view, &sketch));
-            }
+            going = built
+                .edited
+                .map(|sketch| (facing(&self.camera, &heading, &sketch), FitAsked::ByUser));
             self.face_edited_sketch = false;
         } else if let Some(direction) = self.look_from {
-            if let Some(bounds) = built.bounds_of(&sources, self.selection.iter()) {
-                self.camera.animate_to(looking_at(&view, direction, bounds));
-            }
+            going = built
+                .bounds_of(&sources, self.selection.iter())
+                .map(|bounds| {
+                    let looking = looking_at(&self.camera, &heading, direction, bounds);
+                    (looking, FitAsked::ByUser)
+                });
         } else if let Some(place) = self.framed_place {
             let reach = (built.fit_all().bounding_radius() * PLACE_SHARE).max(MIN_PLACE_REACH);
             let around = Aabb::from_point(place).expanded(reach);
-            self.camera.animate_to(view.fitted(around));
-        } else if self.fit_requested {
+            going = Some((heading.fitted(around), FitAsked::ByUser));
+        } else if let Some(asked) = self.fit_requested {
             let everything = built.fit_all();
             let bounds = if !self.selection.is_empty() {
                 built
@@ -1046,9 +1082,15 @@ impl ViewportState {
                     .bounds_of_features(&sources, &chosen_rows)
                     .unwrap_or(everything)
             };
-            self.camera.animate_to(view.fitted(bounds));
+            going = Some((heading.fitted(bounds), asked));
         }
-        self.fit_requested = false;
+        if let Some((viewpoint, asked)) = going {
+            if asked == FitAsked::ByUser {
+                self.history.leave(self.camera.destination());
+            }
+            self.camera.animate_to(viewpoint);
+        }
+        self.fit_requested = None;
         self.framed_place = None;
         self.look_from = None;
         Some(built)
@@ -1168,13 +1210,22 @@ impl ViewportState {
     }
 
     fn view(&self) -> Option<View> {
-        let size = self.rect?.size() * self.pixels_per_point;
-        let view = (size.x >= 1.0 && size.y >= 1.0)
-            .then(|| self.camera.view(f64::from(size.x), f64::from(size.y)))?;
+        let size = self.view_size()?;
+        let view = self.camera.view(size.x, size.y);
         Some(match self.scene_bounds {
             Some(bounds) => view.reaching(bounds),
             None => view,
         })
+    }
+
+    fn destination_view(&self) -> Option<View> {
+        let size = self.view_size()?;
+        Some(self.camera.destination_view(size.x, size.y))
+    }
+
+    fn view_size(&self) -> Option<Vector2> {
+        let size = self.rect?.size() * self.pixels_per_point;
+        (size.x >= 1.0 && size.y >= 1.0).then(|| Vector2::new(f64::from(size.x), f64::from(size.y)))
     }
 
     #[cfg(test)]
@@ -1301,8 +1352,14 @@ impl ViewportState {
         let Some(view) = self.view() else {
             return;
         };
+        if !ui.input(|input| input.pointer.any_down()) {
+            self.history.stop_dragging();
+        }
         if response.drag_started() {
             self.drag_anchor = self.cursor.and_then(|cursor| self.hit_under(cursor));
+        }
+        if response.double_clicked_by(PointerButton::Middle) {
+            self.fit_requested = Some(FitAsked::ByUser);
         }
 
         let (shift, alt, ctrl, primary_down, secondary_down) = ui.input(|input| {
@@ -1323,14 +1380,16 @@ impl ViewportState {
             chorded: primary_down || secondary_down,
         };
         let motion = drag_motion(self.navigation.input_mode, buttons, shift, alt, ctrl);
-        if drag != Vector2::ZERO {
+        if drag != Vector2::ZERO && motion.is_some() {
+            self.history
+                .moving(Gesture::Drag, self.camera.destination(), self.clock);
             match motion {
                 Some(DragMotion::Orbit) => self.orbit_by(&view, drag, rect, self.drag_anchor),
                 Some(DragMotion::Pan) => self.pan_by(&view, drag, self.drag_anchor),
                 Some(DragMotion::Zoom) => {
-                    let rate = ZOOM_PER_SCROLL_POINT * self.navigation.zoom_speed;
                     let pivot = self.drag_anchor.unwrap_or(view.viewpoint().target);
-                    self.camera.zoom(pivot, (drag.y * rate).exp());
+                    self.camera
+                        .zoom(pivot, zoom_factor(&self.navigation, -drag.y));
                 }
                 None => {}
             }
@@ -1345,6 +1404,8 @@ impl ViewportState {
             scrolled_to_zoom = 0.0;
             let sliding = self.to_pixels(scroll);
             if sliding != Vector2::ZERO {
+                self.history
+                    .moving(Gesture::Wheel, self.camera.destination(), self.clock);
                 let anchor = self.cursor.and_then(|cursor| self.hit_under(cursor));
                 if alt {
                     self.pan_by(&view, sliding, anchor);
@@ -1353,13 +1414,7 @@ impl ViewportState {
                 }
             }
         }
-        let direction = if self.navigation.invert_zoom {
-            1.0
-        } else {
-            -1.0
-        };
-        let rate = ZOOM_PER_SCROLL_POINT * self.navigation.zoom_speed;
-        let factor = (direction * f64::from(scrolled_to_zoom) * rate).exp() / f64::from(pinch);
+        let factor = zoom_factor(&self.navigation, f64::from(scrolled_to_zoom)) / f64::from(pinch);
         if (factor - 1.0).abs() < 1e-9 {
             return;
         }
@@ -1370,7 +1425,18 @@ impl ViewportState {
             .hit_under(cursor)
             .or_else(|| view.focal_point_under(cursor))
             .unwrap_or(view.viewpoint().target);
+        self.history
+            .moving(Gesture::Wheel, self.camera.destination(), self.clock);
         self.camera.zoom(anchor, factor);
+    }
+
+    fn orbit_with_cube(&mut self, rect: Rect, drag: egui::Vec2) {
+        let Some(view) = self.view() else {
+            return;
+        };
+        self.history
+            .moving(Gesture::Drag, self.camera.destination(), self.clock);
+        self.orbit_by(&view, self.to_pixels(drag), rect, None);
     }
 
     fn orbit_by(&mut self, view: &View, drag: Vector2, rect: Rect, anchor: Option<Point3>) {
@@ -2275,19 +2341,14 @@ impl ViewportState {
         let home = model.document().saved_views().home;
         for view in StandardView::ALL {
             if commands.available(Command::View(view)) {
-                if let (StandardView::Isometric, Some(home)) = (view, home) {
-                    self.show_saved_view(home);
-                    continue;
-                }
-                let destination = self.camera.destination();
-                if let Some(viewpoint) = Viewpoint::looking_from(
-                    view.looking_from(),
-                    destination.target,
-                    destination.distance,
-                ) {
-                    self.camera.animate_to(viewpoint);
-                }
+                self.look_from(view, home);
             }
+        }
+        let back = self.history.availability(self.camera.destination());
+        if commands.invoke(Command::PreviousView, &back)
+            && let Some(viewpoint) = self.history.back(self.camera.destination())
+        {
+            self.camera.animate_to(viewpoint);
         }
         self.view_commands(model, commands, actions);
         let facing = editing.feature().ok_or(NOT_IN_A_SKETCH);
@@ -3044,25 +3105,30 @@ impl ViewportState {
     }
 
     fn nudge(&mut self, step: CameraMove) {
-        let Some(view) = self.view() else {
+        let Some(view) = self.destination_view() else {
             return;
         };
+        let from = *view.viewpoint();
         let height = view.size().y;
-        let target = view.viewpoint().target;
-        let orbit = height * KEYBOARD_ORBIT_FRACTION;
+        let target = from.target;
+        let orbit = height * KEYBOARD_ORBIT_FRACTION * self.navigation.orbit_speed;
         let pan = height * KEYBOARD_PAN_FRACTION;
-        let units_per_pixel = view.units_per_pixel_at(view.viewpoint().distance);
-        match step {
-            CameraMove::OrbitLeft => self.camera.orbit(target, Vector2::new(-orbit, 0.0), height),
-            CameraMove::OrbitRight => self.camera.orbit(target, Vector2::new(orbit, 0.0), height),
-            CameraMove::OrbitUp => self.camera.orbit(target, Vector2::new(0.0, -orbit), height),
-            CameraMove::OrbitDown => self.camera.orbit(target, Vector2::new(0.0, orbit), height),
-            CameraMove::PanLeft => self.camera.pan(Vector2::new(-pan, 0.0), units_per_pixel),
-            CameraMove::PanRight => self.camera.pan(Vector2::new(pan, 0.0), units_per_pixel),
-            CameraMove::PanUp => self.camera.pan(Vector2::new(0.0, -pan), units_per_pixel),
-            CameraMove::PanDown => self.camera.pan(Vector2::new(0.0, pan), units_per_pixel),
-            CameraMove::ZoomIn => self.camera.zoom(target, 1.0 / KEYBOARD_ZOOM_FACTOR),
-            CameraMove::ZoomOut => self.camera.zoom(target, KEYBOARD_ZOOM_FACTOR),
+        let units_per_pixel = view.units_per_pixel_at(from.distance);
+        let moved = match step {
+            CameraMove::OrbitLeft => from.orbited(target, Vector2::new(-orbit, 0.0), height),
+            CameraMove::OrbitRight => from.orbited(target, Vector2::new(orbit, 0.0), height),
+            CameraMove::OrbitUp => from.orbited(target, Vector2::new(0.0, -orbit), height),
+            CameraMove::OrbitDown => from.orbited(target, Vector2::new(0.0, orbit), height),
+            CameraMove::PanLeft => from.panned(Vector2::new(-pan, 0.0), units_per_pixel),
+            CameraMove::PanRight => from.panned(Vector2::new(pan, 0.0), units_per_pixel),
+            CameraMove::PanUp => from.panned(Vector2::new(0.0, -pan), units_per_pixel),
+            CameraMove::PanDown => from.panned(Vector2::new(0.0, pan), units_per_pixel),
+            CameraMove::ZoomIn => from.zoomed(target, 1.0 / KEYBOARD_ZOOM_FACTOR),
+            CameraMove::ZoomOut => from.zoomed(target, KEYBOARD_ZOOM_FACTOR),
+        };
+        if let Some(moved) = moved {
+            self.history.moving(Gesture::Keys, from, self.clock);
+            self.camera.glide_to(moved);
         }
     }
 
@@ -3516,16 +3582,31 @@ impl ViewportState {
         } else {
             "Fit selection"
         };
-        match view_cube::show(ui, rect, orientation, fit_label, &key_hints.fit) {
+        let home = document.saved_views().home;
+        let view_keys: Vec<(Vector3, String)> = key_hints
+            .views
+            .iter()
+            .filter(|(view, _)| *view != StandardView::Isometric || home.is_none())
+            .map(|(view, keys)| (view.looking_from(), keys.clone()))
+            .collect();
+        let texts = CubeTexts {
+            fit_label,
+            fit_hover: &key_hints.fit,
+            home_hover: &key_hints.home,
+            view_keys: &view_keys,
+        };
+        match view_cube::show(ui, rect, orientation, &texts) {
             Some(CubeAction::LookFrom(direction)) => {
                 let destination = self.camera.destination();
                 if let Some(viewpoint) =
                     Viewpoint::looking_from(direction, destination.target, destination.distance)
                 {
-                    self.camera.animate_to(viewpoint);
+                    self.go_to(viewpoint);
                 }
             }
-            Some(CubeAction::Fit) => self.fit_requested = true,
+            Some(CubeAction::Orbit(drag)) => self.orbit_with_cube(rect, drag),
+            Some(CubeAction::Fit) => self.fit_requested = Some(FitAsked::ByUser),
+            Some(CubeAction::Home) => self.look_from(StandardView::Isometric, home),
             None => {}
         }
         view_cube::show_axis_triad(ui, rect, orientation);
@@ -4086,6 +4167,11 @@ fn drag_motion(
     }
 }
 
+fn zoom_factor(navigation: &Navigation, zooming_in: f64) -> f64 {
+    let direction = if navigation.invert_zoom { 1.0 } else { -1.0 };
+    (direction * zooming_in * ZOOM_PER_SCROLL_POINT * navigation.zoom_speed).exp()
+}
+
 fn edited_sketch<'a>(model: &'a Model, editing: &SketchEditing) -> Option<Displayed<'a>> {
     let feature = model.document().feature(editing.feature()?)?;
     model.displayed_sketch(feature)
@@ -4190,32 +4276,32 @@ fn pick_action(
     Some(command.map(Action::Editing).into_iter().collect())
 }
 
-fn facing(view: &View, sketch: &EditedSketch) -> Viewpoint {
-    let size = view.size();
+fn facing(camera: &Camera, heading: &View, sketch: &EditedSketch) -> Viewpoint {
+    let size = heading.size();
     let facing = Viewpoint::facing(
         &sketch.plane,
         sketch.bounds.center(),
-        view.viewpoint().distance,
+        heading.viewpoint().distance,
     );
-    View::new(facing, size.x, size.y)
-        .with_projection(view.projection())
+    camera
+        .view_from(facing, size.x, size.y)
         .fitted(sketch.bounds)
 }
 
-fn looking_at(view: &View, direction: Vector3, bounds: Aabb) -> Viewpoint {
-    let size = view.size();
+fn looking_at(camera: &Camera, heading: &View, direction: Vector3, bounds: Aabb) -> Viewpoint {
+    let size = heading.size();
     let destination =
-        Viewpoint::looking_from(direction, bounds.center(), view.viewpoint().distance)
-            .unwrap_or(*view.viewpoint());
-    View::new(destination, size.x, size.y)
-        .with_projection(view.projection())
-        .fitted(bounds)
+        Viewpoint::looking_from(direction, bounds.center(), heading.viewpoint().distance)
+            .unwrap_or(*heading.viewpoint());
+    camera.view_from(destination, size.x, size.y).fitted(bounds)
 }
 
 struct KeyHints {
     navigation: String,
     highlight: String,
     fit: String,
+    home: String,
+    views: Vec<(StandardView, String)>,
     reverse: Option<String>,
     sides: Option<String>,
     targets: String,
@@ -4224,10 +4310,11 @@ struct KeyHints {
 }
 
 impl KeyHints {
-    fn new(commands: &CommandFrame<'_>) -> Self {
+    fn new(commands: &CommandFrame<'_>, input_mode: InputMode) -> Self {
+        let mouse = input_mode.navigation_hint();
         let navigation = match commands.keys(Command::FitView) {
-            Some(keys) => format!("{NAVIGATION_HINT}   {keys}: fit"),
-            None => NAVIGATION_HINT.to_owned(),
+            Some(keys) => format!("{mouse}   {keys}: fit"),
+            None => mouse.to_owned(),
         };
         let highlight = [
             (Command::ActivateHighlighted, "select or pick"),
@@ -4260,6 +4347,14 @@ impl KeyHints {
             targets,
             whole_body,
             fit: commands.with_keys(Command::FitView, "Frame the view around it"),
+            home: commands.with_keys(
+                Command::View(StandardView::Isometric),
+                "Go to the Isometric view",
+            ),
+            views: StandardView::ALL
+                .into_iter()
+                .filter_map(|view| Some((view, commands.keys(Command::View(view))?)))
+                .collect(),
             reverse: commands
                 .keys(Command::ReverseArc)
                 .map(|keys| format!("{keys}: the other way round")),
@@ -4446,13 +4541,13 @@ mod tests {
         assert_ne!(state.camera.viewpoint(), initial);
         assert!(!state.is_animating());
 
-        state.fit_requested = true;
+        state.fit_requested = Some(FitAsked::ByUser);
         state
             .selection
             .replace_with(Pickable::Axis(crate::selection::Axis::X));
         state.build_scene(&model, &SketchEditing::default());
         assert!(state.is_animating());
-        assert!(!state.fit_requested);
+        assert!(state.fit_requested.is_none());
     }
 
     #[derive(Debug)]
@@ -5108,6 +5203,25 @@ mod navigation_tests {
             Some(DragMotion::Orbit)
         );
         assert_eq!(motion(InputMode::Blender, NONE, false, false), None);
+    }
+
+    #[test]
+    fn inverting_the_zoom_turns_the_wheel_and_a_zoom_drag_round_alike() {
+        let plain = Navigation::default();
+        let inverted = Navigation {
+            invert_zoom: true,
+            ..plain
+        };
+        let wheel_up = 40.0;
+        let drag_up = 40.0;
+
+        assert!(zoom_factor(&plain, wheel_up) < 1.0);
+        assert!(zoom_factor(&plain, drag_up) < 1.0);
+        assert!(zoom_factor(&inverted, wheel_up) > 1.0);
+        assert!(zoom_factor(&inverted, drag_up) > 1.0);
+        assert!(
+            (zoom_factor(&plain, wheel_up) * zoom_factor(&inverted, wheel_up) - 1.0).abs() < 1e-12
+        );
     }
 }
 

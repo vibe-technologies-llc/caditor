@@ -95,6 +95,7 @@ mod sketch_tidying;
 mod svg_import;
 mod templates;
 mod user_guide;
+mod view_navigation;
 
 const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1400.0, 1000.0));
 const RECOMPUTE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -12159,6 +12160,8 @@ fn a_part_can_be_modelled_from_the_keyboard_alone() {
     );
     harness.key(Key::ArrowUp, Modifiers::NONE);
     harness.frame();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
     let turned = harness.workspace.viewport.viewpoint().forward();
     assert!(turned.dot(forward) < 0.9999);
 }
@@ -15304,6 +15307,7 @@ fn look_at_sketch_turns_the_view_square_on_to_the_edited_sketch_again() {
     for _ in 0..3 {
         harness.key(orbit.logical_key, orbit.modifiers);
     }
+    harness.frame();
     harness.workspace.viewport.advance(CAMERA_SETTLE);
     harness.frame();
     let orbited = *harness

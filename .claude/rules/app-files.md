@@ -294,7 +294,8 @@ paths:
 - Choices of two to four options are `widgets::segmented` with hover text on every option
   (`preferences::choice`).
 - The input mode is a `Navigation` preference (key `navigation.input_mode`); the Navigate tip and
-  the Preferences hover texts describe the chosen mode (`InputMode::navigation_tip`).
+  the Preferences hover texts describe the chosen mode (`InputMode::navigation_tip`), and the
+  canvas key hint names its buttons (`InputMode::navigation_hint`).
 - Length units are SI only (`ux.md`). The projection preference changes only when asked (perspective, orthographic or automatic, which
   `Command::AutomaticProjection` and Preferences choose and O leaves for perspective); standard
   views and sketching never change it. The interface scale is the egui zoom factor, with egui's keyboard

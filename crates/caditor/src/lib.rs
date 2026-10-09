@@ -163,6 +163,7 @@ mod units;
 mod variants;
 mod view_aids;
 mod view_cube;
+mod view_history;
 mod viewport;
 mod visibility;
 mod widgets;

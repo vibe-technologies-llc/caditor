@@ -422,8 +422,16 @@ fn paint_atom(painter: &Painter, rect: Rect, atom: Atom) {
 }
 
 pub fn button(ui: &Ui, rect: Rect, id: Id, glyph: &str, text: &str) -> Response {
+    control(ui, rect, id, glyph, Some(text), text)
+}
+
+pub fn icon_button(ui: &Ui, rect: Rect, id: Id, glyph: &str, name: &str) -> Response {
+    control(ui, rect, id, glyph, None, name)
+}
+
+fn control(ui: &Ui, rect: Rect, id: Id, glyph: &str, text: Option<&str>, name: &str) -> Response {
     let response = ui.interact(rect, id, Sense::click());
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), text));
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), name));
     let fill = if response.is_pointer_button_down_on() {
         CONTROL_PRESSED
     } else if response.hovered() || response.has_focus() {
@@ -443,14 +451,18 @@ pub fn button(ui: &Ui, rect: Rect, id: Id, glyph: &str, text: &str) -> Response 
         StrokeKind::Inside,
     );
     let glyph = painter.layout_no_wrap(glyph.to_owned(), icon(), TEXT);
-    let label = painter.layout_no_wrap(text.to_owned(), emphasis(), TEXT);
-    let width = glyph.size().x + BUTTON_GAP + label.size().x;
-    let left = rect.center().x - width / 2.0;
+    let label = text.map(|text| painter.layout_no_wrap(text.to_owned(), emphasis(), TEXT));
+    let label_width = label
+        .as_ref()
+        .map_or(0.0, |label| BUTTON_GAP + label.size().x);
+    let left = rect.center().x - (glyph.size().x + label_width) / 2.0;
     let centred = |height: f32| rect.center().y - height / 2.0;
     let label_left = left + glyph.size().x + BUTTON_GAP;
-    let label_top = centred(label.size().y);
     painter.galley(Pos2::new(left, centred(glyph.size().y)), glyph, TEXT);
-    painter.galley(Pos2::new(label_left, label_top), label, TEXT);
+    if let Some(label) = label {
+        let label_top = centred(label.size().y);
+        painter.galley(Pos2::new(label_left, label_top), label, TEXT);
+    }
     if response.has_focus() {
         paint_focus_ring(painter, rect);
     }

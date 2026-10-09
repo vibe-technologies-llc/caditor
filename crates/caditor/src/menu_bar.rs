@@ -525,7 +525,15 @@ impl Menus<'_, '_> {
 
     fn view(&mut self, ui: &mut Ui) {
         top_menu(ui, "View", |ui| {
-            self.item(ui, Command::FitView);
+            self.items(
+                ui,
+                [
+                    Command::FitView,
+                    Command::PreviousView,
+                    Command::LookAtFace,
+                    Command::LookAtSketch,
+                ],
+            );
             submenu(
                 ui,
                 icons::command(Command::View(StandardView::Front)),

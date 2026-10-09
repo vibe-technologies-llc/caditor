@@ -99,8 +99,13 @@ paths:
   and cursor readout sit bottom left, the navigation hints bottom right and are left out when
   they would meet the cube or the prompt.
 - The view cube is one focusable button named after the hovered target, else the nearest view,
-  with that name as tooltip; arrow keys step to the neighbouring target on that side. Fit all (Fit
-  selection when something is selected) under it is a canvas control (`canvas::button`).
+  with that name as tooltip, followed by the bound keys of a standard view's direction
+  (`CubeTexts::view_keys`; the Isometric corner only while the model keeps no redefined
+  Isometric view); arrow keys step to the neighbouring target on that side. A primary drag on it
+  orbits the view about its target like a right-drag (`CubeAction::Orbit`, a drag gesture for
+  Previous view). Fit all (Fit selection when something is selected) under it is a canvas control
+  (`canvas::button`), and left of it the house `canvas::icon_button` named "Isometric view" goes
+  to the Isometric view as Alt+0 does; `view_cube::area` covers both.
 
 ## Widgets
 

@@ -10,13 +10,18 @@ Navigation:
 - **Fusion 360**, **FreeCAD** and **Blender** copy those programs' mouse buttons; right-drag
   still orbits in each.
 
-Zooming goes toward the pointer. Orbit and zoom speeds and the zoom direction are in Preferences
-too.
+The bottom right corner of the view shows the buttons of the mode you chose. Zooming goes toward
+the pointer. Orbit and zoom speeds and the zoom direction are in Preferences too; the zoom
+direction also turns round Blender's Ctrl+middle-drag zoom.
+
+Double-click the middle button to fit the view, as {command:view.fit} does. This works in every
+input mode, since none of them uses the middle button's double-click for anything else.
 
 ## With the keyboard
 
 - {command:view.orbit_left}, {command:view.orbit_up} and the other arrows orbit;
-  {command:view.pan_left} and the other Shift+arrows pan.
+  {command:view.pan_left} and the other Shift+arrows pan. Holding a key glides the view on
+  smoothly, and the orbit speed in Preferences sets how far each step turns.
 - {command:view.zoom_in} and {command:view.zoom_out} zoom.
 - {command:view.fit} frames the selection, the rows chosen in the tree, or everything.
 - {command:view.isometric}, {command:view.front}, {command:view.top} and the other standard views
@@ -24,10 +29,25 @@ too.
 - {command:view.look_at_face} looks straight at the one selected flat face, and inside a sketch
   {command:view.look_at_sketch} faces its plane again.
 
+A key pressed while the view is still turning carries on from where the view is going, so
+pressing {command:view.front} and then {command:view.fit} ends looking from the front.
+
+## Going back
+
+{command:view.previous} goes back to the view before the last change: a standard or saved view,
+a fit, looking at a face or sketch, opening a sketch, or an orbit, pan or zoom with the mouse or
+keys. Press it again to keep going back; caditor remembers the last 32 views while the model is
+open. Finishing a sketch leaves the view facing it, so one press of {command:view.previous}
+afterwards brings back the view you had before you opened the sketch.
+
 ## The view cube
 
-Click a face, edge or corner of the cube to look from there. It takes keyboard focus like a
-button: the arrow keys then step to the neighbouring view.
+Click a face, edge or corner of the cube to look from there; hovering one shows its name and, for
+the standard views, its keys. Drag the cube to orbit the view about its centre. It takes keyboard
+focus like a button: the arrow keys then step to the neighbouring view.
+
+Under the cube, Fit all frames everything (Fit selection when something is selected), and the
+house button beside it goes to the Isometric view.
 
 ## Projection and saved views
 

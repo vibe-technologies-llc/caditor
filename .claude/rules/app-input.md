@@ -90,6 +90,19 @@ paths:
   for a new session; the headless PNG does the same), and one without goes back to the default
   orientation after one that had it.
 
+- Go back to the previous view (`Command::PreviousView`, Alt+Left, View menu, palette) steps back
+  through `view_history::ViewHistory`, the session's last `KEPT_VIEWS` viewpoints in
+  `ViewportState`. `ViewportState::go_to` keeps the camera's destination before every animated
+  change the user asks for (standard views, the cube and its Home button, fit, Show where, looking
+  at a face or sketch, a saved view, entering a sketch), never the fit after opening. An orbit,
+  pan or zoom is a `Gesture` (drag, wheel, keys) kept once, from where it started, when it ends:
+  a drag when no button is down, wheel and key gestures when another kind starts or after
+  `IDLE_SECONDS` without one, and any pending one before a jump or a step back. A view the same
+  as the last kept is not kept again, stepping back skips views the same as the current one, a
+  new session clears it, and with nothing earlier the command is unavailable with
+  `NO_EARLIER_VIEW`. Stepping back animates without keeping, so it walks back in order; finishing
+  a sketch leaves the camera facing it, so one step returns to the view before it was opened.
+
 ## Selection sets
 
 - A model keeps named groups of faces, edges and bodies (`document.md`, `selection_sets.rs`).
@@ -147,7 +160,11 @@ paths:
   (`window_frame::commands`); closing the window is Quit.
 - Viewport commands cover measure, standard views, looking straight at the one selected flat face
   (outward normal from `sketch_placement::face_to_look_at`, framed on the face like Fit view),
-  projection, orbit, pan and zoom. The view cube
+  projection, orbit, pan and zoom. Fit view, Show where, looking at a face or sketch and the
+  orbit, pan and zoom keys start from where the camera is heading (`Camera::destination_view`),
+  not the view shown mid-turn, so a key pressed during an animation never keeps a half-turned
+  view; the keys glide (`Camera::glide_to`) and the orbit step is `KEYBOARD_ORBIT_FRACTION` of the
+  view's height times the orbit speed preference. The view cube
   takes focus like a button and arrows step to the neighbouring view while it has it
   (`app-look.md`). Sketch commands (move, select all, tool keys and the ways of drawing a shape)
   are in `app-sketching.md`.

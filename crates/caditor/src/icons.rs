@@ -44,6 +44,7 @@ pub const TIP: &str = phosphor::LIGHTBULB;
 pub const GUIDE: &str = phosphor::BOOK_OPEN_TEXT;
 pub const HELP: &str = phosphor::QUESTION;
 pub const BACK: &str = phosphor::ARROW_LEFT;
+pub const HOME_VIEW: &str = phosphor::HOUSE;
 pub const CONTENTS: &str = phosphor::LIST_BULLETS;
 pub const BULLET: &str = phosphor::DOT;
 pub const DEFENDER: &str = phosphor::SHIELD_CHECK;
@@ -200,6 +201,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ScaleModel => phosphor::ARROWS_OUT,
         Command::Configurations => phosphor::TABLE,
         Command::FitView => phosphor::FRAME_CORNERS,
+        Command::PreviousView => phosphor::ARROW_BEND_UP_LEFT,
         Command::Measure => MEASURE,
         Command::Interference => INTERFERENCE,
         Command::Analysis(AnalysisCommand::Comb) => CURVATURE_COMB,
