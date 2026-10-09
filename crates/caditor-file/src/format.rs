@@ -5,20 +5,20 @@ use std::{
 };
 
 use caditor_document::{
-    AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
+    AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, CircularPattern, Combine, CombineOperation, CurveStation, Datum, DatumAxis,
     DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment,
-    FaceColour, FaceTangent, Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom,
-    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import,
-    LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
+    FaceColour, FaceMate, FaceTangent, Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
     MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
-    MIN_OPACITY_PERCENT, MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView,
-    OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter, Pattern, PatternKind, PlaneReference,
-    PlaneRotation, PlaneThrough, PointBy, PointReference, Primitive, PrimitiveAnchor,
-    PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource,
-    RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView,
-    SavedViews, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split,
-    SplitAlong, Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize,
+    MIN_OPACITY_PERCENT, Mate, MatePair, MetricSize, Mirror, ModelProperties, ModelProperty, Move,
+    NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter, Pattern, PatternKind,
+    PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointReference, Primitive,
+    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
+    SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
+    Split, SplitAlong, Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize,
     Transaction, TurnCentre, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
@@ -200,6 +200,35 @@ pub(crate) enum FeatureKindRecord {
     Primitive(Box<PrimitiveRecord>),
     Thread(Box<ThreadRecord>),
     SplitAlong(Box<SplitAlongRecord>),
+    Mate(Box<MateRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MateRecord {
+    pub body: u64,
+    pub pair: MatePairRecord,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub flipped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MatePairRecord {
+    Faces(Box<FaceMateRecord>),
+    Axes(Box<AxisMateRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FaceMateRecord {
+    pub face: Lenient<FaceRecord>,
+    pub target: Lenient<PlaneReferenceRecord>,
+    pub distance: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct AxisMateRecord {
+    pub axis: Lenient<AxisReferenceRecord>,
+    pub target: Lenient<AxisReferenceRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -339,7 +368,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 45] = [
+pub(crate) const FEATURE_KINDS: [&str; 46] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -385,6 +414,7 @@ pub(crate) const FEATURE_KINDS: [&str; 45] = [
     "primitive",
     "thread",
     "split_along",
+    "mate",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1696,6 +1726,7 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             FeatureKindRecord::Primitive(Box::new(primitive_record(primitive)))
         }
         FeatureKind::Split(split) => split_record(split),
+        FeatureKind::Mate(mate) => FeatureKindRecord::Mate(Box::new(mate_record(mate))),
         FeatureKind::Scale(scale) => FeatureKindRecord::Scale(ScaleRecord {
             body: scale.body.raw(),
             factor: scale.factor.to_stored_text(),
@@ -3640,6 +3671,7 @@ fn restore_kind(
         }
         FeatureKindRecord::Split(record) => FeatureKind::Split(restore_split(record, name, issues)),
         FeatureKindRecord::SplitAlong(record) => FeatureKind::Split(restore_split_along(record)),
+        FeatureKindRecord::Mate(record) => FeatureKind::Mate(restore_mate(record, name, issues)),
         FeatureKindRecord::Primitive(record) => {
             FeatureKind::Primitive(restore_primitive(record, name, issues))
         }
@@ -4378,6 +4410,87 @@ fn split_record(split: &Split) -> FeatureKindRecord {
         along,
         flipped: split.flipped,
     }))
+}
+
+fn mate_record(mate: &Mate) -> MateRecord {
+    MateRecord {
+        body: mate.body.raw(),
+        pair: match &mate.pair {
+            MatePair::Faces(faces) => MatePairRecord::Faces(Box::new(FaceMateRecord {
+                face: Lenient::Read(face_record(&faces.face)),
+                target: Lenient::Read(plane_reference_record(&faces.target)),
+                distance: faces.distance.to_stored_text(),
+            })),
+            MatePair::Axes(axes) => MatePairRecord::Axes(Box::new(AxisMateRecord {
+                axis: Lenient::Read(axis_record(&axes.axis)),
+                target: Lenient::Read(axis_record(&axes.target)),
+            })),
+        },
+        flipped: mate.flipped,
+    }
+}
+
+fn restore_mate(record: &MateRecord, feature: &str, issues: &mut Vec<String>) -> Mate {
+    let pair = match &record.pair {
+        MatePairRecord::Faces(faces) => {
+            let FaceMateRecord {
+                face,
+                target,
+                distance,
+            } = faces.as_ref();
+            let face = match face {
+                Lenient::Read(face) => {
+                    restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+                }
+                Lenient::Unreadable(_) => None,
+            };
+            let face = face.unwrap_or_else(|| {
+                issues.push(format!(
+                    "The face “{feature}” mates could not be read; choose it again."
+                ));
+                FaceReference::new(FaceName::from_digest(0), None, [])
+            });
+            let target = match target {
+                Lenient::Read(target) => restore_plane_reference(target),
+                Lenient::Unreadable(_) => None,
+            };
+            let target = target.unwrap_or_else(|| {
+                issues.push(format!(
+                    "The face “{feature}” mates onto could not be read, so it mates onto the XY \
+                     plane."
+                ));
+                PlaneReference::Principal(PrincipalPlane::Xy)
+            });
+            MatePair::Faces(Box::new(FaceMate {
+                face,
+                target,
+                distance: restore_value(distance, "distance", "0 mm", feature, issues),
+            }))
+        }
+        MatePairRecord::Axes(axes) => {
+            let AxisMateRecord { axis, target } = axes.as_ref();
+            let mut axis_or_z = |axis: &Lenient<AxisReferenceRecord>, role: &str| {
+                let read = match axis {
+                    Lenient::Read(axis) => restore_axis(axis),
+                    Lenient::Unreadable(_) => None,
+                };
+                read.unwrap_or_else(|| {
+                    issues.push(format!(
+                        "The axis “{feature}” {role} could not be read, so it is the Z axis."
+                    ));
+                    AxisReference::Principal(PrincipalAxis::Z)
+                })
+            };
+            let axis = axis_or_z(axis, "mates");
+            let target = axis_or_z(target, "mates onto");
+            MatePair::Axes(Box::new(AxisMate { axis, target }))
+        }
+    };
+    Mate {
+        body: FeatureId::from_raw(record.body),
+        pair,
+        flipped: record.flipped,
+    }
 }
 
 fn restore_split_along(record: &SplitAlongRecord) -> Split {

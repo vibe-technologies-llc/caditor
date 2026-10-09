@@ -227,6 +227,11 @@ paths:
   `move_about_axis` record holding the same inner `feature`, its `axis` (an axis reference) and the
   stored text of its `angle` (unreadable: 0 deg); an axis that cannot be read loads turning about
   the body's centre, reported.
+- A `mate` feature record holds `body`, `pair` (`faces` with `face`, a face record, `target`, a
+  plane reference, and the `distance` text; or `axes` with `axis` and `target`, axis references)
+  and `flipped` only when set. An unreadable moving face loads as a reference to no face, so the
+  mate fails until it is chosen again; an unreadable target plane as the XY plane, an axis as the
+  Z axis and a distance as 0 mm, each reported.
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as
   the YZ plane, reported) and `keep_original`. One mirroring features rather than its whole body
   is a `feature_mirror` record: `feature`, the `mirror` record it would be mirroring the body, and

@@ -357,6 +357,16 @@ paths:
   along selected take a plane or flat face, a sketch curve, or a face or edge of another earlier
   body (`along_change`). Keep the other side and rows naming the body and the split-off body
   follow. While open both bodies show as previews.
+- Mate body (Model menu, palette; no ribbon button or default key) takes two picks in pick order
+  (`mate_tools::source`): a flat face of the body to move then a flat face of another body or a
+  plane (`datum_tools::plane_reference`), or an axis of the body (a straight edge or round face)
+  then any axis (`axis_reference`), resolved at the bar; the moving body must be shown. It creates
+  "Mate N" flush (distance 0 in the length unit) and opens it. The panel (`mate_panel.rs`) names
+  the face or axis to mate and what it mates onto, each with Use selected and Choose in the view
+  (slots `MateMoving`, taking only the moving body's faces or axes, and `MateTarget`, taking only
+  references off it), a Distance expression (key `("mate-field", "distance", id)`) for faces, a
+  Face the same way or Point the other way checkbox, and the body. A mate keeps the kind it was
+  made with; another kind is another mate.
 - Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 (the body unchanged until
   a factor is typed) about the origin. The panel has the factor (a plain number above zero) and
   the centre's three coordinates, all expressions (key `scale-field`, `("factor", 0)` or `("center", axis index)`).

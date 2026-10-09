@@ -23,7 +23,7 @@ use crate::{
     feature_groups,
     field::{self, DimensionTarget},
     files::FileCommand,
-    fonts, hole_panel, icons, import_panel, mirror_panel, mirror_tools,
+    fonts, hole_panel, icons, import_panel, mate_panel, mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
@@ -275,6 +275,7 @@ fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Move(_) => &["move", "body"],
         FeatureKind::Mirror(_) => &["mirror", "body"],
         FeatureKind::Split(_) => &["split", "body", "cut"],
+        FeatureKind::Mate(_) => &["mate", "align", "place", "body"],
         FeatureKind::Scale(_) => &["scale", "body"],
         FeatureKind::Hole(_) => &["hole", "drill"],
         FeatureKind::Pattern(pattern) => match pattern.kind {
@@ -903,6 +904,10 @@ fn body(
             split_panel::show(ui, model, row.selection, actions, feature, split);
             body_display(ui, model, feature);
         }
+        FeatureKind::Mate(mate) => {
+            mate_panel::show(ui, model, row.selection, actions, feature, mate);
+            body_display(ui, model, feature);
+        }
         FeatureKind::Scale(scale) => {
             scale_panel::show(ui, model, actions, feature, scale);
             body_display(ui, model, feature);
@@ -971,6 +976,7 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
         | FeatureKind::Primitive(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
+        | FeatureKind::Mate(_)
         | FeatureKind::Mirror(_)
         | FeatureKind::Split(_)
         | FeatureKind::Scale(_)
@@ -1084,6 +1090,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Primitive(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
+            | FeatureKind::Mate(_)
             | FeatureKind::Mirror(_)
             | FeatureKind::Split(_)
             | FeatureKind::Scale(_)
@@ -1102,6 +1109,7 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Primitive(_)
             | FeatureKind::Combine(_)
             | FeatureKind::Move(_)
+            | FeatureKind::Mate(_)
             | FeatureKind::Mirror(_)
             | FeatureKind::Split(_)
             | FeatureKind::Scale(_)

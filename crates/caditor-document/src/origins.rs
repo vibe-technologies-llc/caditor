@@ -92,6 +92,7 @@ fn may_hold_references(kind: &FeatureKind) -> bool {
         FeatureKind::Split(split) => matches!(split.along.plane(), Some(PlaneReference::Face(_))),
         FeatureKind::Primitive(primitive) => matches!(primitive.plane, PlaneReference::Face(_)),
         FeatureKind::Move(movement) => movement.about.axis().is_some(),
+        FeatureKind::Mate(_) => true,
         FeatureKind::Import(_)
         | FeatureKind::Remove(_)
         | FeatureKind::Combine(_)

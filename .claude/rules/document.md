@@ -392,6 +392,24 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `Feature::body` is the move itself) from the placed copy; a copy others use cannot stop being
   one.
 
+### Mate (`mate.rs`)
+
+- `Mate { body, pair, flipped }` places an existing body by its geometry: `MatePair::Faces` (a
+  `FaceReference` of the body, which must resolve to one plane, a `PlaneReference` target and a
+  length expression `distance`) or `MatePair::Axes` (two `AxisReference`s, the first normally an
+  edge or round face of the body). References are resolved at the mate's place, the moving ones
+  on the body as it stands before it, so the mate follows its target on every recompute.
+- Faces: the body turns about its box centre by the least turn taking the face's outward normal
+  opposite the target's (the same way when `flipped`; a half turn uses the face's x axis), then
+  shifts along the target normal until the face lies `distance` beyond the target plane, so it
+  keeps its place across the plane. Axes: the body turns about the point of its axis nearest its
+  box centre by the least turn onto the target's direction (reversed when `flipped`), then shifts
+  square to the target so the lines coincide.
+- It modifies its body like a move (`modifies_body`, state before kept), keeps every name
+  (`Solid::transformed`), and its target bodies, datums and sketches count as used like a move
+  axis's; healing visits the moving face and both references. A lost, split or curved moving face
+  fails it naming the face; a placement too far fails it in words.
+
 ### Mirror and scale (`mirror.rs`, `scaling.rs`)
 
 - `Mirror { body, plane, keep_original }` reflects its body across a `PlaneReference` resolved like

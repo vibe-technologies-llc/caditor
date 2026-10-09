@@ -45,7 +45,7 @@ use crate::{
     image_export::{ImageCommand, ReadPixels},
     import::{self, Placement},
     import_options::{Arrangement, ImportOptionsCommand, PlaneChoice},
-    logo, menu_bar, mirror_panel, mirroring,
+    logo, mate_panel, menu_bar, mirror_panel, mirroring,
     model::{Action, Model, Notice, RecomputeStatus, Services, WakerFactory},
     move_manipulator::Handle,
     offsetting,
@@ -10234,6 +10234,48 @@ fn a_body_is_split_along_a_sketch_curve_or_another_body_chosen_in_the_panel() {
     harness.settle();
     let (low, high) = plate_bounds(&harness, plate);
     assert!((low.x - 20.0).abs() < 1e-6 && (high.x - 40.0).abs() < 1e-6);
+}
+
+#[test]
+fn a_body_is_mated_face_to_face_from_the_palette_and_its_panel_sets_the_distance() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let peg = add_peg(&mut harness);
+    let bottom = pickable_described(&mut harness, "Peg › Peg start face");
+
+    harness.select([bottom, top]);
+    run_from_palette(&mut harness, "mate body");
+    harness.settle();
+    let mate = harness.workspace.editing.solid().expect("the mate is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Mate 1"));
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert!(harness.shows("Face to mate"));
+    assert!(harness.shows("Onto"));
+    let (low, high) = plate_bounds(&harness, peg);
+    assert!((low.z - 10.0).abs() < 1e-6 && (high.z - 15.0).abs() < 1e-6);
+    assert!((low.x - 30.0).abs() < 1e-6);
+
+    harness.type_into_field(Id::new(("mate-field", "distance", mate)), "2 mm");
+    harness.settle();
+    assert_eq!(harness.model.undo_label(), Some("Edit Mate 1"));
+    let (low, _) = plate_bounds(&harness, peg);
+    assert!((low.z - 12.0).abs() < 1e-6, "{low:?}");
+
+    harness.click(mate_panel::FACE_SAME_WAY);
+    harness.settle();
+    let (low, high) = plate_bounds(&harness, peg);
+    assert!(
+        (high.z - 12.0).abs() < 1e-6 && (low.z - 7.0).abs() < 1e-6,
+        "{low:?} {high:?}"
+    );
+
+    for _ in 0..3 {
+        harness.perform(Action::Undo);
+    }
+    harness.settle();
+    let (low, _) = plate_bounds(&harness, peg);
+    assert!(low.z.abs() < 1e-6);
+    assert!(volume_about(&harness, plate, 16000.0));
 }
 
 fn extruded(harness: &mut Harness, min: Point2, max: Point2) -> FeatureId {

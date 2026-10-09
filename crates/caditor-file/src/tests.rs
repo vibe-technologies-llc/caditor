@@ -6168,6 +6168,87 @@ fn splits_along_a_body_or_a_sketch_are_a_record_kind_of_their_own() {
     }
 }
 
+fn mated_model(pair: caditor_document::MatePair, flipped: bool) -> (Document, FeatureId) {
+    use caditor_document::Mate;
+    let (mut document, base, _) = solid_model();
+    let mut transaction = document.transaction("Mate");
+    let mate = transaction.add_feature(
+        "Mate 1",
+        FeatureKind::Mate(Mate {
+            body: base,
+            pair,
+            flipped,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, mate)
+}
+
+fn faces_mate(distance: &str) -> caditor_document::MatePair {
+    caditor_document::MatePair::Faces(Box::new(caditor_document::FaceMate {
+        face: caditor_kernel::FaceReference::new(
+            caditor_kernel::FaceName::from_digest(0x0123_4567_89ab_cdef_0011_2233_4455_6677),
+            None,
+            [],
+        ),
+        target: PlaneReference::Principal(PrincipalPlane::Xz),
+        distance: Expression::parse_stored(distance).unwrap(),
+    }))
+}
+
+#[test]
+fn mates_are_saved_and_loaded_as_a_record_kind_of_their_own() {
+    use caditor_document::{AxisMate, AxisReference, MatePair, PrincipalAxis};
+    let axes = MatePair::Axes(Box::new(AxisMate {
+        axis: AxisReference::Principal(PrincipalAxis::X),
+        target: AxisReference::Principal(PrincipalAxis::Z),
+    }));
+    for (pair, flipped) in [(faces_mate("2.5 mm"), false), (axes, true)] {
+        let (document, mate) = mated_model(pair, flipped);
+
+        let text = encode(&document).unwrap();
+        let loaded = decode_text(&text);
+
+        assert!(text.contains("\"mate\":{\"body\":"));
+        assert_eq!(text.contains("\"flipped\":true"), flipped);
+        assert_eq!(loaded.issues, Vec::<String>::new());
+        assert_eq!(loaded.document, document);
+
+        let kind = document.feature(mate).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: mate, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
+fn a_mate_with_an_unreadable_target_and_distance_loads_with_fallbacks_and_says_so() {
+    let (document, mate) = mated_model(faces_mate("2.5 mm"), false);
+    let text = encode(&document).unwrap();
+
+    let loaded = decode_text(
+        &text
+            .replace(
+                "\"target\":{\"principal\":\"xz\"}",
+                "\"target\":{\"principal\":\"uv\"}",
+            )
+            .replace("\"distance\":\"2.5 mm\"", "\"distance\":\"2.5 (\""),
+    );
+
+    assert_eq!(
+        loaded.issues,
+        [
+            "The face “Mate 1” mates onto could not be read, so it mates onto the XY plane.",
+            "The distance of “Mate 1” could not be read, so it was set to 0 mm."
+        ]
+    );
+    let restored = loaded.document.feature(mate).unwrap().kind.mate().unwrap();
+    let faces = restored.faces().unwrap();
+    assert_eq!(faces.target, PlaneReference::Principal(PrincipalPlane::Xy));
+    assert_eq!(faces.distance.to_stored_text(), "0 mm");
+}
+
 fn scaled_model(factor: &str) -> (Document, FeatureId) {
     use caditor_document::Scale;
     let (mut document, base, _) = solid_model();

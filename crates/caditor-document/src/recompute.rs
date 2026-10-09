@@ -20,7 +20,7 @@ use crate::{
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
     history::ResultHistory,
-    hole, import, mirror, movement, offset_face, pattern,
+    hole, import, mate, mirror, movement, offset_face, pattern,
     presenting::{Glimpse, Presentation, SettledBody},
     primitive, projection, removal, scaling, shell,
     solid::{self, SketchRegion, SolidFeature, SolidResult, body_part, body_parts},
@@ -1304,6 +1304,7 @@ impl Evaluator for ModelEvaluator {
             FeatureKind::Move(definition) => {
                 movement::evaluate(feature, definition, inputs, cancel)
             }
+            FeatureKind::Mate(definition) => mate::evaluate(feature, definition, inputs, cancel),
             FeatureKind::Mirror(definition) => {
                 mirror::evaluate(feature, definition, inputs, cancel)
             }

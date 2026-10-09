@@ -153,6 +153,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CopyBody => COPY_BODY,
         Command::Mirror => MIRROR,
         Command::Split => SPLIT,
+        Command::Mate => MATE,
         Command::Scale => SCALE,
         Command::RenameBody => EDIT,
         Command::RemoveBody => REMOVE_BODY,
@@ -268,6 +269,7 @@ const COMBINE: &str = phosphor::UNITE;
 const MOVE: &str = phosphor::HAND_GRABBING;
 const MIRROR: &str = phosphor::FLIP_HORIZONTAL;
 const SPLIT: &str = phosphor::SQUARE_SPLIT_HORIZONTAL;
+const MATE: &str = phosphor::MAGNET;
 const OFFSET_FACE: &str = phosphor::ARROWS_OUT_LINE_VERTICAL;
 const THREAD: &str = phosphor::SPIRAL;
 const SCALE: &str = phosphor::RESIZE;
@@ -410,6 +412,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Move(_) => MOVE,
         FeatureKind::Mirror(_) => MIRROR,
         FeatureKind::Split(_) => SPLIT,
+        FeatureKind::Mate(_) => MATE,
         FeatureKind::Scale(_) => SCALE,
         FeatureKind::Hole(_) => HOLE,
         FeatureKind::Pattern(pattern) => match pattern.kind {
