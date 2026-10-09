@@ -21,10 +21,17 @@ In the open panel, click regions in the view to add or leave them out, and
   each side its own end.
 - Each end is a **Distance**, **Through all**, **Up to next** (the next face of the body it
   changes) or **Up to face** (a face or plane you select).
+- **Past the face** moves an Up to next or Up to face end beyond the face it reaches, or short of
+  it when negative.
+- On one side and without an offset, Up to next follows a curved next face, or several faces at
+  different heights, and Up to face takes a curved face.
 - While it is open, drag the arrow at the end in the view to change its distance.
 
 **Start** begins at the sketch plane, an offset from it, or another face or plane. **Taper** angles
 the sides inward or outward.
+
+**Direction** runs the extrusion square to the sketch, or **Along an edge or axis**: a straight
+edge, sketch line or axis you select, measuring the distance along it.
 
 ## Result
 

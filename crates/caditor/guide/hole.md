@@ -13,7 +13,9 @@ The panel sets:
 - **Style**: Plain, Counterbore, Countersink or Stepped, with the head sizes.
 - **Diameter**, or **Sized by** the sketch's circles.
 - **Shape**: Round, or Slot with a length and angle.
-- **Depth**: Blind with a depth, or Through all; a blind round hole can have a 118° drill point.
+- **Depth**: Blind with a depth, Through all, Up to next (the next flat face along each hole's
+  axis) or Up to face (a face or plane you select), the last two with an offset past the face; a
+  blind round hole can have a 118° drill point.
 
 Choosing a size fills in exact values; typing any size makes the hole Custom again. A tapped hole
 shows its thread in the view like a [thread](thread).
