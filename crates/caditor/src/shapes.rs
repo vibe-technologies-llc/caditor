@@ -1,7 +1,7 @@
 use std::f64::consts::{PI, TAU};
 
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{ArcGeometry, Faceting, MAX_LENGTH};
+use caditor_sketch::{ArcGeometry, EllipseGeometry, Faceting, MAX_LENGTH};
 
 pub const MIN_SIDES: usize = 3;
 pub const MAX_SIDES: usize = 64;
@@ -110,6 +110,25 @@ impl Slot {
         outline.push(a);
         outline
     }
+}
+
+pub fn ellipse_through(center: Point2, axis_end: Point2, width: Point2) -> Option<EllipseGeometry> {
+    let major = axis_end - center;
+    let across = major.try_normalize()?.perp_dot(width - center).abs();
+    let reach = major.length().max(across);
+    (major.length() >= DEGENERATE_LENGTH
+        && across >= DEGENERATE_LENGTH
+        && within_reach(center, reach))
+    .then(|| EllipseGeometry::full(center, axis_end, across))
+}
+
+pub fn toward_on_ellipse(ellipse: &EllipseGeometry, toward: Point2) -> Option<Point2> {
+    let offset = toward - ellipse.center;
+    let axis = ellipse.axis();
+    let along = offset.dot(axis) / ellipse.major_radius();
+    let across = offset.dot(axis.perp()) / ellipse.minor_radius;
+    let level = along.hypot(across);
+    (level > 0.0 && level.is_finite()).then(|| ellipse.center + offset / level)
 }
 
 pub fn mirrored(point: Point2, about: Point2) -> Point2 {

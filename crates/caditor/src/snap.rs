@@ -1,7 +1,7 @@
 use std::f64::consts::TAU;
 
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{ArcGeometry, Constraint, Entity, EntityId, Sketch};
+use caditor_sketch::{ArcGeometry, Constraint, EllipseGeometry, Entity, EntityId, Sketch};
 
 pub const POINT_TOLERANCE: f64 = 8.0;
 pub const CURVE_TOLERANCE: f64 = 6.0;
@@ -429,7 +429,9 @@ pub fn points(sketch: &Sketch) -> Vec<Snapped> {
         Entity::Line { .. }
         | Entity::Circle { .. }
         | Entity::Arc { .. }
-        | Entity::Spline { .. } => None,
+        | Entity::Spline { .. }
+        | Entity::Ellipse { .. }
+        | Entity::EllipticalArc { .. } => None,
     });
     std::iter::once(origin).chain(drawn).collect()
 }
@@ -460,7 +462,10 @@ fn geometry(sketch: &Sketch, id: EntityId) -> Option<Geometry> {
             .circle(id)
             .map(|(center, radius)| Geometry::Circle(center, radius)),
         Entity::Arc { .. } => sketch.arc(id).map(Geometry::Arc),
-        Entity::Point(_) | Entity::Spline { .. } => None,
+        Entity::Point(_)
+        | Entity::Spline { .. }
+        | Entity::Ellipse { .. }
+        | Entity::EllipticalArc { .. } => None,
     }
 }
 
@@ -548,8 +553,8 @@ fn intersections(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Vec
                 (Some(first_geometry), Some(second_geometry)) => {
                     hits(*first_geometry, *second_geometry)
                 }
-                (None, Some(_)) => sketch.spline_crossings(*first, *second),
-                (Some(_), None) | (None, None) => sketch.spline_crossings(*second, *first),
+                (None, Some(_)) => sketch.curve_crossings(*first, *second),
+                (Some(_), None) | (None, None) => sketch.curve_crossings(*second, *first),
             };
             found.extend(crossed.into_iter().map(|position| Snapped {
                 position,
@@ -573,7 +578,11 @@ fn midpoints(sketch: &Sketch) -> Vec<Snapped> {
                     let arc = sketch.arc(id)?;
                     arc.point_at(arc.start_angle + arc.sweep / 2.0)
                 }
-                Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => return None,
+                Entity::Point(_)
+                | Entity::Circle { .. }
+                | Entity::Spline { .. }
+                | Entity::Ellipse { .. }
+                | Entity::EllipticalArc { .. } => return None,
             };
             Some(Snapped {
                 position,
@@ -590,7 +599,11 @@ fn quadrants(sketch: &Sketch) -> Vec<Snapped> {
             let (centre, arc) = match *entity {
                 Entity::Circle { center, .. } => (center, None),
                 Entity::Arc { center, .. } => (center, sketch.arc(curve)),
-                Entity::Point(_) | Entity::Line { .. } | Entity::Spline { .. } => {
+                Entity::Point(_)
+                | Entity::Line { .. }
+                | Entity::Spline { .. }
+                | Entity::Ellipse { .. }
+                | Entity::EllipticalArc { .. } => {
                     return Vec::new();
                 }
             };
@@ -621,13 +634,17 @@ pub fn tangents_from(
     from: Point2,
 ) -> Option<Snapped> {
     let pointed = |at: Point2| Some(screen.to_screen(at)?.distance(pointer.screen));
-    sketch
+    let round = sketch
         .entities()
         .filter_map(|(curve, entity)| {
             let arc = match entity {
                 Entity::Circle { .. } => None,
                 Entity::Arc { .. } => Some(sketch.arc(curve)?),
-                Entity::Point(_) | Entity::Line { .. } | Entity::Spline { .. } => return None,
+                Entity::Point(_)
+                | Entity::Line { .. }
+                | Entity::Spline { .. }
+                | Entity::Ellipse { .. }
+                | Entity::EllipticalArc { .. } => return None,
             };
             let (centre, radius) = sketch.circle(curve)?;
             Some((curve, centre, radius, arc))
@@ -640,13 +657,41 @@ pub fn tangents_from(
                     position,
                     target: Target::Tangent(curve),
                 })
-        })
+        });
+    let elliptic = sketch
+        .entities()
+        .filter_map(|(curve, _)| Some((curve, sketch.ellipse(curve)?)))
+        .flat_map(|(curve, ellipse)| {
+            touching_ellipse(from, &ellipse)
+                .into_iter()
+                .map(move |position| Snapped {
+                    position,
+                    target: Target::Tangent(curve),
+                })
+        });
+    round
+        .chain(elliptic)
         .filter_map(|candidate| {
             let offset = pointed(candidate.position)?;
             (offset <= POINT_TOLERANCE).then_some((offset, candidate))
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, candidate)| candidate)
+}
+
+fn touching_ellipse(from: Point2, ellipse: &EllipseGeometry) -> Vec<Point2> {
+    let (axis, across) = (ellipse.axis(), ellipse.axis().perp());
+    let (major, minor) = (ellipse.major_radius(), ellipse.minor_radius);
+    if major <= 0.0 || minor <= 0.0 {
+        return Vec::new();
+    }
+    let offset = from - ellipse.center;
+    let scaled = Point2::new(offset.dot(axis) / major, offset.dot(across) / minor);
+    touching(scaled, Point2::ZERO, 1.0)
+        .into_iter()
+        .map(|unit| ellipse.center + axis * (unit.x * major) + across * (unit.y * minor))
+        .filter(|at| ellipse.within_sweep(ellipse.parameter_of(*at)).is_some())
+        .collect()
 }
 
 fn touching(from: Point2, centre: Point2, radius: f64) -> Vec<Point2> {
@@ -701,7 +746,11 @@ fn outline_pieces(sketch: &Sketch) -> Vec<OutlineLine> {
                     round: Some((arc.center, arc.radius)),
                 })
             }
-            Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => None,
+            Entity::Point(_)
+            | Entity::Circle { .. }
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => None,
         })
         .collect()
 }
@@ -976,7 +1025,9 @@ fn closest_on(sketch: &Sketch, id: EntityId, entity: &Entity, at: Point2) -> Opt
             let position = closest_on_circle(arc.center, arc.radius, at)?;
             within_sweep(&arc, position).then_some(position)
         }
-        Entity::Spline { .. } => sketch.closest_on_curve(id, at),
+        Entity::Spline { .. } | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+            sketch.closest_on_curve(id, at)
+        }
         Entity::Point(_) => None,
     }
 }
@@ -1037,7 +1088,9 @@ fn crossings_with(
                     .collect()
             })
             .unwrap_or_default(),
-        Entity::Spline { .. } => sketch.circle_crossings(id, center, radius),
+        Entity::Spline { .. } | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+            sketch.circle_crossings(id, center, radius)
+        }
         Entity::Point(_) => Vec::new(),
     }
 }
@@ -1138,14 +1191,19 @@ pub fn crossing_along(
                     .filter(|position| within_sweep(&arc, *position))
                     .collect()
             }
-            Entity::Spline { .. } => {
-                let reach = sketch.spline(curve).map_or(0.0, |spline| {
-                    spline
+            Entity::Spline { .. } | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                let reach = match (sketch.spline(curve), sketch.ellipse(curve)) {
+                    (Some(spline), _) => spline
                         .control_points()
                         .iter()
                         .map(|point| point.distance(through))
-                        .fold(0.0, f64::max)
-                });
+                        .fold(0.0, f64::max),
+                    (None, Some(ellipse)) => {
+                        ellipse.center.distance(through)
+                            + ellipse.major_radius().max(ellipse.minor_radius)
+                    }
+                    (None, None) => 0.0,
+                };
                 let along = along.try_normalize()?;
                 sketch.segment_crossings(
                     curve,
@@ -2010,7 +2068,7 @@ pub mod tests {
         assert!(snapped.position.distance(resnapped) < 1e-9);
         assert!(snapped.position.distance(on) < 0.5);
 
-        let crossing = sketch.spline_crossings(spline, line);
+        let crossing = sketch.curve_crossings(spline, line);
         let [crossing] = crossing[..] else {
             panic!("the line crosses the spline once");
         };
@@ -2045,7 +2103,7 @@ pub mod tests {
             Point2::new(15.0, 20.0),
             Point2::new(30.0, 0.0),
         ]);
-        let [crossing] = sketch.spline_crossings(first, second)[..] else {
+        let [crossing] = sketch.curve_crossings(first, second)[..] else {
             panic!("the splines cross once");
         };
 

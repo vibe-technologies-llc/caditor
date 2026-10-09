@@ -19,6 +19,8 @@ pub const AXIS_KEYS: &str = "Enter: the distance   Esc: start again";
 const SPLINE_REFUSED: &str = "A spline takes only a distance from a point, line, circle or arc; dimension the points \
      or lines that shape it otherwise";
 const NOT_IN_SKETCH: &str = "That is not part of the sketch being edited";
+const ELLIPSE_REFUSED: &str = "An ellipse takes only its major and minor radii; pick it alone and \
+                               press Enter, or dimension its centre and axis points";
 const PARALLEL_TOLERANCE: f64 = 1e-9;
 const LEVEL_TOLERANCE: f64 = 1e-9;
 
@@ -29,6 +31,7 @@ enum Kind {
     Circle,
     Arc,
     Spline,
+    Ellipse,
 }
 
 fn kind(sketch: &Sketch, id: EntityId) -> Option<Kind> {
@@ -43,6 +46,7 @@ fn kind(sketch: &Sketch, id: EntityId) -> Option<Kind> {
         Entity::Circle { .. } => Kind::Circle,
         Entity::Arc { .. } => Kind::Arc,
         Entity::Spline { .. } => Kind::Spline,
+        Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => Kind::Ellipse,
     })
 }
 
@@ -59,6 +63,8 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
         return Fit::Refused(NOT_IN_SKETCH);
     };
     match kinds.as_slice() {
+        [Kind::Ellipse] => return Fit::Ready(ConstraintTool::Radius),
+        _ if kinds.contains(&Kind::Ellipse) => return Fit::Refused(ELLIPSE_REFUSED),
         [Kind::Spline] => return Fit::Waiting,
         [
             Kind::Point | Kind::Line | Kind::Circle | Kind::Arc,
@@ -222,6 +228,9 @@ pub fn words(sketch: &Sketch, tool: ConstraintTool, picks: &[EntityId]) -> Strin
             }
             None => format!("a {}", ConstraintTool::Diameter.label().to_lowercase()),
         },
+        (ConstraintTool::Radius, [ellipse]) if kind(sketch, *ellipse) == Some(Kind::Ellipse) => {
+            format!("the major and minor radii of {}", label(ellipse))
+        }
         (ConstraintTool::Radius, [arc]) => format!("the radius of {}", label(arc)),
         (ConstraintTool::Angle, [first, second]) => {
             format!("the angle between {} and {}", label(first), label(second))

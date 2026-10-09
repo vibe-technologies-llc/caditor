@@ -17,6 +17,8 @@ const GAUSS_LEGENDRE: [(f64, f64); 5] = [
 const MIN_SEGMENTS_PER_TURN: f64 = 12.0;
 const MAX_SEGMENTS_PER_TURN: f64 = 1024.0;
 const CHORD_ERROR_PER_BENDING: f64 = 8.0;
+const ELLIPSE_SEARCH_SAMPLES: usize = 64;
+const ELLIPSE_NEWTON_STEPS: usize = 12;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Faceting {
@@ -117,6 +119,137 @@ impl ArcGeometry {
             .map(|index| {
                 let fraction = index as f64 / segments as f64;
                 self.point_at(self.start_angle + self.sweep * fraction)
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EllipseGeometry {
+    pub center: Point2,
+    pub major: Vector2,
+    pub minor_radius: f64,
+    pub start: f64,
+    pub sweep: f64,
+}
+
+impl EllipseGeometry {
+    pub fn full(center: Point2, major_end: Point2, minor_radius: f64) -> Self {
+        Self {
+            center,
+            major: major_end - center,
+            minor_radius,
+            start: 0.0,
+            sweep: TAU,
+        }
+    }
+
+    pub fn from_points(
+        center: Point2,
+        major_end: Point2,
+        minor_radius: f64,
+        start: Point2,
+        end: Point2,
+    ) -> Self {
+        let full = Self::full(center, major_end, minor_radius);
+        let first = full.parameter_of(start);
+        let sweep = (full.parameter_of(end) - first).rem_euclid(TAU);
+        Self {
+            start: first,
+            sweep: if sweep > 0.0 { sweep } else { TAU },
+            ..full
+        }
+    }
+
+    pub fn major_radius(&self) -> f64 {
+        self.major.length()
+    }
+
+    pub fn axis(&self) -> Vector2 {
+        self.major.try_normalize().unwrap_or(Vector2::X)
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.sweep >= TAU
+    }
+
+    pub fn end(&self) -> f64 {
+        self.start + self.sweep
+    }
+
+    pub fn point_at(&self, parameter: f64) -> Point2 {
+        let (sin, cos) = parameter.sin_cos();
+        let axis = self.axis();
+        self.center + self.major * cos + axis.perp() * (self.minor_radius * sin)
+    }
+
+    pub fn tangent_at(&self, parameter: f64) -> Vector2 {
+        let (sin, cos) = parameter.sin_cos();
+        let axis = self.axis();
+        axis.perp() * (self.minor_radius * cos) - self.major * sin
+    }
+
+    pub fn parameter_of(&self, point: Point2) -> f64 {
+        let axis = self.axis();
+        let offset = point - self.center;
+        let along = offset.dot(axis) / self.major_radius().max(f64::MIN_POSITIVE);
+        let across = offset.dot(axis.perp()) / self.minor_radius.abs().max(f64::MIN_POSITIVE);
+        across.atan2(along)
+    }
+
+    pub fn within_sweep(&self, parameter: f64) -> Option<f64> {
+        let turned = (parameter - self.start).rem_euclid(TAU);
+        (self.is_full() || turned <= self.sweep).then_some(self.start + turned)
+    }
+
+    pub fn closest_parameter(&self, point: Point2) -> f64 {
+        let samples = ELLIPSE_SEARCH_SAMPLES;
+        let distance = |parameter: f64| self.point_at(parameter).distance_squared(point);
+        let mut best = (0..=samples)
+            .map(|index| self.start + self.sweep * index as f64 / samples as f64)
+            .min_by(|a, b| distance(*a).total_cmp(&distance(*b)))
+            .unwrap_or(self.start);
+        for _ in 0..ELLIPSE_NEWTON_STEPS {
+            let offset = self.point_at(best) - point;
+            let tangent = self.tangent_at(best);
+            let bend = self.center - self.point_at(best);
+            let slope = offset.dot(tangent);
+            let curvature = tangent.dot(tangent) + offset.dot(bend);
+            if curvature <= 0.0 || !curvature.is_finite() {
+                break;
+            }
+            let next = best - slope / curvature;
+            best = if self.is_full() {
+                next
+            } else {
+                next.clamp(self.start, self.end())
+            };
+        }
+        best
+    }
+
+    pub fn closest_point(&self, point: Point2) -> Point2 {
+        self.point_at(self.closest_parameter(point))
+    }
+
+    pub fn polyline(&self, max_segment_angle: f64) -> Vec<Point2> {
+        self.divided(segments_for(self.sweep, max_segment_angle))
+    }
+
+    pub fn faceted(&self, faceting: Faceting) -> Vec<Point2> {
+        self.divided(self.segments(faceting))
+    }
+
+    pub fn segments(&self, faceting: Faceting) -> usize {
+        let reach = self.major_radius().max(self.minor_radius.abs());
+        faceting.arc_segments(reach, self.sweep)
+    }
+
+    fn divided(&self, segments: usize) -> Vec<Point2> {
+        (0..=segments)
+            .map(|index| {
+                let fraction = index as f64 / segments as f64;
+                self.point_at(self.start + self.sweep * fraction)
             })
             .collect()
     }

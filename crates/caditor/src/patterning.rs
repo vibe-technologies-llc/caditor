@@ -393,7 +393,9 @@ fn point_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Optio
             Entity::Line { .. }
             | Entity::Circle { .. }
             | Entity::Arc { .. }
-            | Entity::Spline { .. } => None,
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => None,
         })
         .chain([(EntityId::ORIGIN, Point2::ZERO)]);
     points

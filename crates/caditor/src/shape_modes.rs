@@ -256,6 +256,8 @@ impl ShapeModes {
             | Tool::Arc
             | Tool::ThreePointArc
             | Tool::TangentArc
+            | Tool::Ellipse
+            | Tool::EllipticalArc
             | Tool::Spline
             | Tool::Trim
             | Tool::Extend

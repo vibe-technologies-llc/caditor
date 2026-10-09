@@ -139,7 +139,7 @@ impl Sketch {
         match error {
             TrimError::NoSuchCurve(entity) => BreakError::NoSuchCurve(entity),
             TrimError::NotACurve { entity, .. } => BreakError::NotACurve { entity, label },
-            TrimError::Spline { entity, .. } => BreakError::NotLineOrArc { entity, label },
+            TrimError::NotTrimmable { entity, .. } => BreakError::NotLineOrArc { entity, label },
             TrimError::NoLength { entity, .. } => BreakError::NoLength { entity, label },
             TrimError::Reference { entity, .. } => BreakError::Reference { entity, label },
             TrimError::Projected { entity, .. } => BreakError::Projected { entity, label },

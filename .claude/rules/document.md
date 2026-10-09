@@ -590,7 +590,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   sketch, a section edge or a datum plane's line. Before solving, recompute places each in the sketch plane from the source as it stands at
   the sketch (`refreshed`, in the body's state at that point): a line, a circle or arc lying in a
   parallel plane (turned to stay counter-clockwise), a point, or otherwise a spline through
-  `PROJECTED_SPLINE_POINTS` samples; another sketch's spline maps its control points exactly. The
+  `PROJECTED_SPLINE_POINTS` samples; another sketch's spline maps its control points exactly, and
+  its ellipse or elliptical arc is always that spline through samples. The
   entity keeps the kind and point count it was made with, so a source that now projects to another
   kind, is missing, was split ambiguously (pieces of one line merge) or is unavailable fails the
   sketch alone, naming the entity and the source. Source bodies count in `bodies_used`, source

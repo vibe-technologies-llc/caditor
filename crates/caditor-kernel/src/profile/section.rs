@@ -240,7 +240,7 @@ fn piece_integrals(piece: &Piece, reference: Point2, size: f64) -> (Integrals, b
             ),
             true,
         ),
-        curve @ Curve2::BSpline(_) => {
+        curve @ (Curve2::BSpline(_) | Curve2::Ellipse(_)) => {
             let forward = adaptive(curve, piece.range(), reference, size);
             let integrals = if piece.is_reversed() {
                 forward.reversed()

@@ -456,14 +456,16 @@ fn end_under(sketch: &Sketch, screen: &impl Screen, pointer: Pointer) -> Option<
     sketch
         .entities()
         .flat_map(|(_, entity)| match entity {
-            Entity::Line { start, end } | Entity::Arc { start, end, .. } => vec![*start, *end],
+            Entity::Line { start, end }
+            | Entity::Arc { start, end, .. }
+            | Entity::EllipticalArc { start, end, .. } => vec![*start, *end],
             Entity::Spline { control_points } => control_points
                 .first()
                 .into_iter()
                 .chain(control_points.last())
                 .copied()
                 .collect(),
-            Entity::Point(_) | Entity::Circle { .. } => Vec::new(),
+            Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => Vec::new(),
         })
         .filter_map(|point| {
             let offset = screen

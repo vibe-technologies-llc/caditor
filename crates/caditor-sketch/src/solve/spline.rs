@@ -428,7 +428,7 @@ pub(crate) fn joined_ends(
         Role::Line | Role::Circular => joints
             .spline_end_on(sketch, spline, other)
             .map(|end| (end.end, None)),
-        Role::Point => None,
+        Role::Point | Role::Elliptic => None,
     }
 }
 

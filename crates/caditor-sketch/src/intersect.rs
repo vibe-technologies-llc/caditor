@@ -2,7 +2,7 @@ use std::f64::consts::TAU;
 
 use caditor_geometry::{Point2, Vector2};
 
-use crate::curve::{ArcGeometry, BSpline, direction_angle};
+use crate::curve::{ArcGeometry, BSpline, EllipseGeometry, direction_angle};
 
 const PARALLEL_TOLERANCE: f64 = 1e-12;
 const SPLINE_SAMPLES_PER_POINT: usize = 16;
@@ -11,6 +11,7 @@ const BISECTION_STEPS: usize = 100;
 const NEWTON_STEPS: usize = 30;
 const NEWTON_SETTLED: f64 = 1e-6;
 const CLOSEST_REFINEMENTS: usize = 16;
+const ELLIPSE_SAMPLES: usize = 256;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Shape {
@@ -18,6 +19,7 @@ pub(crate) enum Shape {
     Circle { center: Point2, radius: f64 },
     Arc(ArcGeometry),
     Spline(BSpline),
+    Ellipse(EllipseGeometry),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -33,6 +35,11 @@ impl Shape {
             Self::Circle { .. } => None,
             Self::Arc(arc) => Some((arc.point_at(arc.start_angle), arc.point_at(arc.end_angle()))),
             Self::Spline(spline) => Some((spline.point_at(0.0), spline.point_at(1.0))),
+            Self::Ellipse(ellipse) if ellipse.is_full() => None,
+            Self::Ellipse(ellipse) => Some((
+                ellipse.point_at(ellipse.start),
+                ellipse.point_at(ellipse.end()),
+            )),
         }
     }
 
@@ -47,6 +54,9 @@ impl Shape {
                 .iter()
                 .map(|point| reach(*point))
                 .fold(0.0, f64::max),
+            Self::Ellipse(ellipse) => {
+                reach(ellipse.center) + ellipse.major_radius().max(ellipse.minor_radius)
+            }
         }
     }
 
@@ -67,6 +77,7 @@ impl Shape {
                 }
             }
             Self::Spline(spline) => closest_on_spline(spline, to),
+            Self::Ellipse(ellipse) => ellipse.closest_point(to),
         }
     }
 }
@@ -123,7 +134,56 @@ pub(crate) fn crossings(carrier: Carrier, other: &Shape, tolerance: f64) -> Vec<
         (Carrier::Circle { center, radius }, Shape::Spline(spline)) => {
             spline_roots(spline, |point| point.distance(center) - radius, tolerance)
         }
+        (Carrier::Line { through, direction }, Shape::Ellipse(ellipse)) => {
+            let Some(across) = direction.try_normalize() else {
+                return Vec::new();
+            };
+            ellipse_roots(ellipse, |point| across.perp_dot(point - through), tolerance)
+        }
+        (Carrier::Circle { center, radius }, Shape::Ellipse(ellipse)) => {
+            ellipse_roots(ellipse, |point| point.distance(center) - radius, tolerance)
+        }
     }
+}
+
+pub(crate) fn ellipse_level(ellipse: &EllipseGeometry, point: Point2) -> f64 {
+    let axis = ellipse.axis();
+    let offset = point - ellipse.center;
+    let along = offset.dot(axis) / ellipse.major_radius().max(f64::MIN_POSITIVE);
+    let across = offset.dot(axis.perp()) / ellipse.minor_radius.abs().max(f64::MIN_POSITIVE);
+    (along.hypot(across) - 1.0) * ellipse.minor_radius.min(ellipse.major_radius())
+}
+
+pub(crate) fn on_ellipse_sweep(ellipse: &EllipseGeometry, point: Point2, tolerance: f64) -> bool {
+    if ellipse.is_full() {
+        return true;
+    }
+    let reach = ellipse.major_radius().max(ellipse.minor_radius);
+    let slack = if reach > 0.0 { tolerance / reach } else { 0.0 };
+    let offset = (ellipse.parameter_of(point) - ellipse.start).rem_euclid(TAU);
+    offset <= ellipse.sweep + slack || offset >= TAU - slack
+}
+
+fn ellipse_roots(
+    ellipse: &EllipseGeometry,
+    signed: impl Fn(Point2) -> f64,
+    tolerance: f64,
+) -> Vec<Point2> {
+    let point_at = |parameter: f64| ellipse.point_at(parameter);
+    let found = roots_along(
+        &point_at,
+        (ellipse.start, ellipse.end()),
+        ELLIPSE_SAMPLES,
+        signed,
+        tolerance,
+    );
+    let mut kept: Vec<Point2> = Vec::with_capacity(found.len());
+    for point in found {
+        if kept.iter().all(|known| known.distance(point) > tolerance) {
+            kept.push(point);
+        }
+    }
+    kept
 }
 
 pub(crate) fn line_crossings(
@@ -272,12 +332,32 @@ fn spline_samples(spline: &BSpline) -> usize {
     (spline.control_points().len() * SPLINE_SAMPLES_PER_POINT).max(MIN_SPLINE_SAMPLES)
 }
 
-fn spline_roots(spline: &BSpline, signed: impl Fn(Point2) -> f64, tolerance: f64) -> Vec<Point2> {
-    let samples = spline_samples(spline);
-    let value = |parameter: f64| signed(spline.point_at(parameter));
+pub(crate) fn spline_roots(
+    spline: &BSpline,
+    signed: impl Fn(Point2) -> f64,
+    tolerance: f64,
+) -> Vec<Point2> {
+    let point_at = |parameter: f64| spline.point_at(parameter);
+    roots_along(
+        &point_at,
+        (0.0, 1.0),
+        spline_samples(spline),
+        signed,
+        tolerance,
+    )
+}
+
+fn roots_along(
+    point_at: &impl Fn(f64) -> Point2,
+    (first, last): (f64, f64),
+    samples: usize,
+    signed: impl Fn(Point2) -> f64,
+    tolerance: f64,
+) -> Vec<Point2> {
+    let value = |parameter: f64| signed(point_at(parameter));
     let sampled: Vec<(f64, f64)> = (0..=samples)
         .map(|index| {
-            let parameter = index as f64 / samples as f64;
+            let parameter = first + (last - first) * index as f64 / samples as f64;
             (parameter, value(parameter))
         })
         .collect();
@@ -293,7 +373,7 @@ fn spline_roots(spline: &BSpline, signed: impl Fn(Point2) -> f64, tolerance: f64
         }
     }
     if sampled.last().is_some_and(|(_, at_last)| *at_last == 0.0) {
-        roots.push(1.0);
+        roots.push(last);
     }
     for triple in sampled.windows(3) {
         let &[(before, at_before), (_, at_middle), (after, at_after)] = triple else {
@@ -310,10 +390,7 @@ fn spline_roots(spline: &BSpline, signed: impl Fn(Point2) -> f64, tolerance: f64
         }
     }
     roots.sort_by(f64::total_cmp);
-    roots
-        .into_iter()
-        .map(|parameter| spline.point_at(parameter))
-        .collect()
+    roots.into_iter().map(point_at).collect()
 }
 
 fn roots_in_dip(

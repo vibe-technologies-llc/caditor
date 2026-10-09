@@ -603,16 +603,16 @@ impl Sketch {
         self.entities()
             .flat_map(|(curve, entity)| {
                 let ends = match entity {
-                    Entity::Line { start, end } | Entity::Arc { start, end, .. } => {
-                        vec![*start, *end]
-                    }
+                    Entity::Line { start, end }
+                    | Entity::Arc { start, end, .. }
+                    | Entity::EllipticalArc { start, end, .. } => vec![*start, *end],
                     Entity::Spline { control_points } => control_points
                         .first()
                         .into_iter()
                         .chain(control_points.last())
                         .copied()
                         .collect(),
-                    Entity::Point(_) | Entity::Circle { .. } => Vec::new(),
+                    Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => Vec::new(),
                 };
                 ends.into_iter()
                     .filter_map(move |end| Some((curve, end, self.point(end)?)))
@@ -659,9 +659,11 @@ impl Sketch {
                         leaving,
                     })
                 }
-                Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => {
-                    Err(not_line_or_arc())
-                }
+                Entity::Point(_)
+                | Entity::Circle { .. }
+                | Entity::Spline { .. }
+                | Entity::Ellipse { .. }
+                | Entity::EllipticalArc { .. } => Err(not_line_or_arc()),
             }
         };
         let first = side(corner.curves[0], corner.ends[0])?;

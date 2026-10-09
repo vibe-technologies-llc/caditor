@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, io::Write};
 
 use caditor_document::CancelToken;
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_sketch::{ArcGeometry, BSpline, Sketch};
 use tempfile::TempDir;
 
@@ -137,7 +137,7 @@ fn beziers_become_exact_splines_with_reflected_controls() {
 }
 
 #[test]
-fn circular_arcs_stay_arcs_and_elliptical_ones_become_splines() {
+fn circular_arcs_stay_arcs_and_elliptical_ones_stay_elliptical() {
     let drawing = read(
         r#"<path d="M0 0 A10 10 0 0 1 20 0"/>
            <path d="M0 0 A10 10 0 0 0 20 0"/>
@@ -177,19 +177,32 @@ fn circular_arcs_stay_arcs_and_elliptical_ones_become_splines() {
     let geometry = ArcGeometry::from_points(*center, *start, *end);
     assert!((geometry.radius - 10.0).abs() < 1e-9);
     assert!(geometry.sweep > std::f64::consts::PI);
-    assert!(matches!(elliptical, DrawingCurve::Spline { .. }));
+    let DrawingCurve::Ellipse {
+        center,
+        major,
+        minor_radius,
+        ends: Some((start, end)),
+    } = elliptical
+    else {
+        panic!("{elliptical:?}");
+    };
+    assert!(center.distance(Point2::new(20.0, 0.0)) < 1e-9);
+    assert!((major.length() - 20.0).abs() < 1e-9 && major.y.abs() < 1e-9);
+    assert!((minor_radius - 10.0).abs() < 1e-9);
+    assert!(start.distance(Point2::new(40.0, 0.0)) < 1e-9);
+    assert!(end.distance(Point2::new(0.0, 0.0)) < 1e-9);
     assert!(
         drawing
             .notes
             .iter()
-            .any(|note| note.starts_with("1 ellipse was converted to sketch splines")),
+            .all(|note| !note.contains("converted to sketch splines")),
         "{:?}",
         drawing.notes
     );
 }
 
 #[test]
-fn basic_shapes_become_lines_arcs_circles_and_splines() {
+fn basic_shapes_become_lines_arcs_circles_and_ellipses() {
     let drawing = read(
         r#"<rect x="10" y="10" width="20" height="10"/>
            <rect x="0" y="50" width="20" height="10" rx="2"/>
@@ -240,7 +253,15 @@ fn basic_shapes_become_lines_arcs_circles_and_splines() {
             radius: 5.0,
         }],
     );
-    assert!(matches!(curves[13], DrawingCurve::Spline { .. }));
+    assert_eq!(
+        curves[13],
+        DrawingCurve::Ellipse {
+            center: Point2::new(80.0, -50.0),
+            major: Vector2::new(10.0, 0.0),
+            minor_radius: 5.0,
+            ends: None,
+        }
+    );
     assert_curves_close(
         &curves[14..],
         &[
@@ -285,7 +306,7 @@ fn nested_group_transforms_compose() {
 }
 
 #[test]
-fn circles_stay_circles_under_similarity_and_become_splines_when_squashed() {
+fn circles_stay_circles_under_similarity_and_become_ellipses_when_squashed() {
     let drawing = read(
         r#"<circle transform="translate(50 50) rotate(30) scale(-2 2)" r="5"/>
            <circle transform="scale(2 1)" cx="10" cy="10" r="5"/>
@@ -299,7 +320,18 @@ fn circles_stay_circles_under_similarity_and_become_splines_when_squashed() {
             radius: 10.0,
         }],
     );
-    assert!(matches!(drawing.curves[1], DrawingCurve::Spline { .. }));
+    let DrawingCurve::Ellipse {
+        center,
+        major,
+        minor_radius,
+        ends: None,
+    } = drawing.curves[1]
+    else {
+        panic!("{:?}", drawing.curves[1]);
+    };
+    assert!(center.distance(Point2::new(20.0, -10.0)) < 1e-9);
+    assert!((major.length() - 10.0).abs() < 1e-9 && major.y.abs() < 1e-9);
+    assert!((minor_radius - 5.0).abs() < 1e-9);
     assert_curves_close(
         &drawing.curves[2..],
         &[DrawingCurve::Arc {

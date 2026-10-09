@@ -185,6 +185,72 @@ fn an_extruded_circle_is_a_cylinder() {
     assert_eq!(solid.faces().count(), 3);
 }
 
+fn perimeter(region: &Region) -> f64 {
+    region
+        .pieces()
+        .map(|piece| piece.curve().length(piece.range()))
+        .sum()
+}
+
+#[test]
+fn an_extruded_ellipse_is_an_elliptic_cylinder_on_an_extrusion_surface() {
+    let (major, minor, height) = (5.0, 2.0, 3.0);
+    let ellipse = ProfileCurve::ellipse(1, Point2::new(1.0, -2.0), Vector2::new(3.0, 4.0), minor);
+    let profile = regions(&[ellipse]);
+    assert_eq!(profile.len(), 1);
+    assert!((profile[0].area() - PI * major * minor).abs() < 1e-6);
+    let around = perimeter(&profile[0]);
+    for plane in [Plane::XY, tilted()] {
+        let solid = extrude(&plane, &profile, one_side(height), FEATURE).unwrap();
+        check(
+            "elliptic cylinder",
+            &solid,
+            PI * major * minor * height,
+            2.0 * PI * major * minor + around * height,
+            minor * minor / major,
+        );
+        assert_eq!(solid.faces().count(), 3);
+        assert!(
+            solid
+                .faces()
+                .any(|(_, face)| matches!(face.surface(), crate::surface::Surface::Extrusion(_)))
+        );
+    }
+}
+
+#[test]
+fn half_an_ellipse_extrudes_and_revolves_into_half_a_spheroid() {
+    let half = || {
+        regions(&[
+            ProfileCurve::elliptical_arc(
+                1,
+                Point2::ZERO,
+                Vector2::new(0.0, 5.0),
+                2.0,
+                (Point2::new(0.0, -5.0), Point2::new(0.0, 5.0)),
+            ),
+            line(2, (0.0, 5.0), (0.0, -5.0)),
+        ])
+    };
+    let profile = half();
+    assert!((profile[0].area() - PI * 5.0).abs() < 1e-6);
+    let solid = extrude(&Plane::XY, &profile, one_side(2.0), FEATURE).unwrap();
+    let around = perimeter(&profile[0]);
+    check(
+        "half elliptic cylinder",
+        &solid,
+        PI * 5.0 * 2.0,
+        2.0 * PI * 5.0 + around * 2.0,
+        0.8,
+    );
+
+    let solid = revolve(&Plane::XY, &half(), y_axis(), full(), FEATURE).unwrap();
+    let volume = 4.0 / 3.0 * PI * 2.0 * 2.0 * 5.0;
+    let mesh = fine_mesh(&solid);
+    assert_watertight("spheroid", &mesh);
+    assert!((mesh.mass_properties().volume - volume).abs() < 1e-2 * volume);
+}
+
 #[test]
 fn an_extruded_d_has_two_edges_between_the_same_faces() {
     let profile = regions(&[
@@ -813,6 +879,32 @@ fn a_circle_up_to_a_tilted_plane_ends_in_an_ellipse() {
     let expected = 0.5 * PI * (3.0 + 0.5 * centroid_y);
     let volume = mesh_volume(&solid);
     assert!((volume - expected).abs() < 1e-2, "{volume} vs {expected}");
+}
+
+#[test]
+fn an_ellipse_up_to_a_tilted_plane_ends_in_another_ellipse() {
+    let profile = regions(&[ProfileCurve::ellipse(
+        1,
+        Point2::ZERO,
+        Vector2::new(2.0, 1.0),
+        1.0,
+    )]);
+    let tilted_top = plane_through((0.0, 0.0, 3.0), (-0.4, 0.3, 1.0));
+
+    let solid = extrude(&Plane::XY, &profile, up_to(tilted_top), FEATURE).unwrap();
+
+    assert_eq!(solid.validate(), Ok(()));
+    assert_watertight("tilted elliptic cylinder", &fine_mesh(&solid));
+    let expected = PI * 5f64.sqrt() * 3.0;
+    let volume = mesh_volume(&solid);
+    assert!((volume - expected).abs() < 1e-2, "{volume} vs {expected}");
+    assert_eq!(
+        solid
+            .edges()
+            .filter(|(_, edge)| matches!(edge.curve(), crate::curve::Curve::Ellipse(_)))
+            .count(),
+        2
+    );
 }
 
 #[test]

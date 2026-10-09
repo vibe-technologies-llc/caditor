@@ -151,6 +151,14 @@ paths:
 - An arc runs the way the pointer swept round its centre; a typed end goes the shorter way
   (`Sweep::aim`), and Reverse the arc sends either the other way. The end is projected onto the
   circle through the start and keeps its snap only if the target lies on that circle.
+- An ellipse is its centre, the end of its major axis (levelled from the centre like an arc's
+  start, kept by `HorizontalPoints` or `VerticalPoints`) and a width point that never snaps, its
+  distance from the major axis the minor radius (`shapes::ellipse_through`). An elliptical arc's
+  third point sets the minor radius the same way and starts the arc where the ray from the centre
+  through it meets the ellipse (`shapes::toward_on_ellipse`); its end is the same projection of
+  the pointer and runs the way the pointer swept round the centre (`Shape::sweeps_from`), Reverse
+  the arc included. Neither has a default key (every free one is taken); the Curve button, the
+  Sketch menu and the palette reach them.
 - A tangent arc starts on a point ending a line, arc or spline (the newest if several) and leaves
   along that curve's direction with a `Tangent`.
   Switching between the Line and Tangent arc tools with a segment started (`Drawing::sync`) keeps
@@ -171,7 +179,9 @@ paths:
 - Rectangle, circle, polygon and slot each keep one tool with several ways of drawing
   (`ShapeMode`), a switch within the tool rather than a tool and key per way, so the ribbon and
   keymap stay small and a shape is always found under its one key. Arcs stay separate tools,
-  grouped on the ribbon under one Arc button (`app-look.md`).
+  grouped on the ribbon under one Arc button, and so do Spline, Ellipse and Elliptical arc under
+  one Curve button (`app-look.md`), since an ellipse is a curve of its own, not a way to draw
+  another.
 - Blend curve keeps its two ways the same way: tangent (G1) and curvature-continuous (G2)
   (`ShapeMode::Blend`, `ShapeModes::blend`), listed with the shapes under Sketch › Ways to draw
   shapes; the modify tool reads the way each frame and its prompt leads with it.
@@ -309,14 +319,16 @@ paths:
   is accepted and within the same tolerance, the middle of a line or arc (`Target::Midpoint`), the
   centre of a closed outline (`Target::Centre`), the crossing of two of the up to
   `MAX_CROSSING_CURVES` curves nearest the pointer, axes included (`Target::Intersection`; a
-  spline crosses lines, circles, arcs, axes and other splines through `Sketch::spline_crossings`) and the right, top, left and bottom of a circle or of an arc
+  spline crosses lines, circles, arcs, axes and other splines, and an ellipse lines, circles, arcs,
+  axes and splines, through `Sketch::curve_crossings`) and the right, top, left and bottom of a circle or of an arc
   sweeping through them (`Target::Quadrant`); lines, circles, arcs, splines and axes within
   `CURVE_TOLERANCE`, projecting onto the curve. A snapped point gets a `Coincident` with its
   target (with both curves at a crossing), a `Midpoint` constraint for a middle, a `Symmetric`
   about it of two opposite corners for a centre, or for a side a `Coincident` with the curve and
   a horizontal or vertical points constraint with its centre.
-- A line's end within `POINT_TOLERANCE` of where a line from its start would touch a circle or arc
-  (`snap::tangents_from`, the two tangent points from outside it, within an arc's sweep) lands
+- A line's end within `POINT_TOLERANCE` of where a line from its start would touch a circle, arc,
+  ellipse or elliptical arc (`snap::tangents_from`, the two tangent points from outside it, within
+  an arc's sweep; an ellipse's found on the unit circle it scales to) lands
   there (`Target::Tangent`): a `Coincident` with the curve and a `Tangent` between it and the line.
   It wins over curve snaps, not over point-like ones (`Target::is_point_like`).
 - A line starting on a circle or arc (on its rim, a side, a tangent point or a point ending an
@@ -462,7 +474,10 @@ paths:
   horizontal span and above or below them the horizontal distance, within their vertical span and
   beside them the vertical one, elsewhere (and always for level or upright ones) the aligned one;
   for a lone arc, beyond it within its sweep its length, inside it its sweep, outside its sweep its
-  radius. A point and a construction line also wait for placement (`dimensioning::about_axis`):
+  radius. A lone ellipse or elliptical arc adds its major and minor radii (`MajorRadius`,
+  `MinorRadius`, the one already held left out), as the Radius tool does with one selected; an
+  ellipse picked with anything else is refused in words, its centre and axis points dimensioning
+  the rest. A point and a construction line also wait for placement (`dimensioning::about_axis`):
   across the line the diameter (`Constraint::AxisDiameter`, drawn from the point to its mirror
   image across the line and labelled Ø), on the point's side the distance. Enter always adds the
   aligned distance, the length or the radius. The Diameter tool adds the same diameter for a point

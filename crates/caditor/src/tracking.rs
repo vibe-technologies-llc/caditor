@@ -37,8 +37,12 @@ impl Acquired {
             | Target::Curve(curve)
             | Target::Extension(curve)
             | Target::Tangent(curve) => {
-                if let Some(Entity::Circle { center, .. } | Entity::Arc { center, .. }) =
-                    sketch.entity(curve)
+                if let Some(
+                    Entity::Circle { center, .. }
+                    | Entity::Arc { center, .. }
+                    | Entity::Ellipse { center, .. }
+                    | Entity::EllipticalArc { center, .. },
+                ) = sketch.entity(curve)
                 {
                     self.point(*center);
                 }

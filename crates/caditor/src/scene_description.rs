@@ -370,6 +370,27 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
                         sweep
                     )
                 }
+                Entity::Ellipse { center, .. } | Entity::EllipticalArc { center, .. } => {
+                    let shape = sketch.ellipse(id);
+                    let (major, minor) = shape.map_or((0.0, 0.0), |shape| {
+                        (shape.major_radius(), shape.minor_radius)
+                    });
+                    let sweep = match (entity, shape) {
+                        (&Entity::EllipticalArc { start, end, .. }, Some(shape)) => format!(
+                            ", from {} to {}, sweeping {:.0}°",
+                            point(start),
+                            point(end),
+                            shape.sweep.to_degrees()
+                        ),
+                        _ => String::new(),
+                    };
+                    format!(
+                        "centred at {}, major radius {}, minor radius {}{sweep}",
+                        point(center),
+                        unit.spoken_length(major),
+                        unit.spoken_length(minor)
+                    )
+                }
                 Entity::Spline { ref control_points } => {
                     let ends = control_points
                         .first()
@@ -437,7 +458,9 @@ fn edited_sketch(model: &Model, feature: FeatureId) -> Option<String> {
             Entity::Line { .. }
             | Entity::Circle { .. }
             | Entity::Arc { .. }
-            | Entity::Spline { .. } => {
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => {
                 curves += 1;
             }
         }

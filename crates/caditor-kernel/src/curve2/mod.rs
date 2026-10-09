@@ -6,10 +6,10 @@ use std::f64::consts::TAU;
 
 use caditor_geometry::{Aabb2, Plane, Point2, RigidTransform2, Vector2};
 
-pub use self::primitives::{Circle2, Line2};
+pub use self::primitives::{Circle2, Ellipse2, Line2};
 use crate::{
     bspline::BSpline,
-    curve::{Circle, Curve, Line, circle_parameters},
+    curve::{Circle, Curve, Ellipse, Line, circle_parameters},
     error::GeometryError,
     interval::{Domain, Interval},
     parametric::{self, Parametric},
@@ -37,6 +37,7 @@ pub enum Curve2 {
     Line(Line2),
     Circle(Circle2),
     BSpline(BSplineCurve2),
+    Ellipse(Ellipse2),
 }
 
 impl Curve2 {
@@ -55,7 +56,7 @@ impl Curve2 {
 
     pub fn period(&self) -> Option<f64> {
         match self {
-            Self::Circle(_) => Some(TAU),
+            Self::Circle(_) | Self::Ellipse(_) => Some(TAU),
             Self::Line(_) | Self::BSpline(_) => None,
         }
     }
@@ -63,7 +64,7 @@ impl Curve2 {
     pub fn domain(&self) -> Domain {
         match self {
             Self::Line(_) => Domain::UNBOUNDED,
-            Self::Circle(_) => Domain::from(Interval::FULL_TURN),
+            Self::Circle(_) | Self::Ellipse(_) => Domain::from(Interval::FULL_TURN),
             Self::BSpline(spline) => Domain::from(spline.domain()),
         }
     }
@@ -72,7 +73,9 @@ impl Curve2 {
         match self {
             Self::Line(line) => range.clamp(line.parameter_of(point)),
             Self::Circle(circle) => circle.closest_parameter(point, range),
-            Self::BSpline(_) => parametric::closest_parameter(self, point, range),
+            Self::BSpline(_) | Self::Ellipse(_) => {
+                parametric::closest_parameter(self, point, range)
+            }
         }
     }
 
@@ -82,6 +85,7 @@ impl Curve2 {
                 Aabb2::from_point(line.point(range.start())).including(line.point(range.end()))
             }
             Self::Circle(circle) => circle.bounds(range),
+            Self::Ellipse(ellipse) => ellipse.bounds(range),
             Self::BSpline(spline) => {
                 Aabb2::from_points(spline.control_points_over(range).iter().copied())
                     .unwrap_or_else(|| Aabb2::from_point(spline.point(range.start())))
@@ -105,6 +109,11 @@ impl Curve2 {
         let parameters = match self {
             Self::Line(_) => vec![range.start(), range.end()],
             Self::Circle(circle) => circle_parameters(circle.radius(), range, tolerance),
+            Self::Ellipse(ellipse) => circle_parameters(
+                ellipse.major_radius().max(ellipse.minor_radius()),
+                range,
+                tolerance,
+            ),
             Self::BSpline(_) => parametric::adaptive_parameters(self, range, tolerance),
         };
         parameters
@@ -120,27 +129,27 @@ impl Curve2 {
         match self {
             Self::Line(_) => range.length(),
             Self::Circle(circle) => circle.radius() * range.length(),
-            Self::BSpline(_) => parametric::length(self, range),
+            Self::BSpline(_) | Self::Ellipse(_) => parametric::length(self, range),
         }
     }
 
     pub fn length_up_to(&self, range: Interval, cap: f64) -> f64 {
         match self {
             Self::Line(_) | Self::Circle(_) => self.length(range).min(cap),
-            Self::BSpline(_) => parametric::length_up_to(self, range, cap),
+            Self::BSpline(_) | Self::Ellipse(_) => parametric::length_up_to(self, range, cap),
         }
     }
 
     pub fn is_longer_than(&self, range: Interval, bound: f64) -> bool {
         match self {
             Self::Line(_) | Self::Circle(_) => self.length(range) > bound,
-            Self::BSpline(_) => parametric::longer_than(self, range, bound),
+            Self::BSpline(_) | Self::Ellipse(_) => parametric::longer_than(self, range, bound),
         }
     }
 
     pub fn reversal_pivot(&self) -> f64 {
         match self {
-            Self::Line(_) | Self::Circle(_) => 0.0,
+            Self::Line(_) | Self::Circle(_) | Self::Ellipse(_) => 0.0,
             Self::BSpline(spline) => spline.domain().start() + spline.domain().end(),
         }
     }
@@ -159,6 +168,7 @@ impl Curve2 {
             Self::Line(line) => Self::Line(line.reversed()),
             Self::Circle(circle) => Self::Circle(circle.reversed()),
             Self::BSpline(spline) => Self::BSpline(spline.reversed()),
+            Self::Ellipse(ellipse) => Self::Ellipse(ellipse.reversed()),
         }
     }
 
@@ -177,6 +187,13 @@ impl Curve2 {
             Self::BSpline(spline) => {
                 Self::BSpline(spline.map_points(|point| transform.apply_point(point))?)
             }
+            Self::Ellipse(ellipse) => Self::Ellipse(Ellipse2::with_axes(
+                transform.apply_point(ellipse.center()),
+                ellipse.major_radius(),
+                ellipse.minor_radius(),
+                transform.apply_vector(ellipse.x_axis()),
+                ellipse.is_counter_clockwise(),
+            )?),
         })
     }
 
@@ -197,6 +214,17 @@ impl Curve2 {
             Self::BSpline(spline) => {
                 Curve::BSpline(spline.map_points(|point| plane.to_world(point))?)
             }
+            Self::Ellipse(ellipse) => {
+                let x_axis = lift(ellipse.x_axis());
+                let normal = x_axis.cross(lift(ellipse.y_axis()));
+                let frame = Plane::from_frame(plane.to_world(ellipse.center()), normal, x_axis)
+                    .ok_or(GeometryError::ZeroDirection)?;
+                Curve::Ellipse(Ellipse::new(
+                    frame,
+                    ellipse.major_radius(),
+                    ellipse.minor_radius(),
+                )?)
+            }
         })
     }
 }
@@ -209,13 +237,14 @@ impl Parametric for Curve2 {
             Self::Line(line) => [line.point(parameter), line.direction(), Vector2::ZERO],
             Self::Circle(circle) => circle.evaluate(parameter),
             Self::BSpline(spline) => spline.derivatives(parameter),
+            Self::Ellipse(ellipse) => ellipse.evaluate(parameter),
         }
     }
 
     fn seeds(&self, range: Interval) -> Vec<f64> {
         match self {
             Self::Line(_) => vec![range.start(), range.end()],
-            Self::Circle(_) => crate::curve::conic_seeds(range),
+            Self::Circle(_) | Self::Ellipse(_) => crate::curve::conic_seeds(range),
             Self::BSpline(spline) => spline.seeds(range),
         }
     }
@@ -237,6 +266,12 @@ impl From<Line2> for Curve2 {
 impl From<Circle2> for Curve2 {
     fn from(circle: Circle2) -> Self {
         Self::Circle(circle)
+    }
+}
+
+impl From<Ellipse2> for Curve2 {
+    fn from(ellipse: Ellipse2) -> Self {
+        Self::Ellipse(ellipse)
     }
 }
 

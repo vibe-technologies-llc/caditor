@@ -27,6 +27,8 @@ pub enum Tool {
     Slot,
     Polygon,
     Spline,
+    Ellipse,
+    EllipticalArc,
     Trim,
     Extend,
     Offset,
@@ -42,7 +44,7 @@ pub enum Tool {
     BlendCurve,
 }
 
-all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Intersect, Dimension, BlendCurve);
+all_variants!(Tool: Select, Point, Line, Rectangle, Circle, Arc, ThreePointArc, TangentArc, Slot, Polygon, Spline, Ellipse, EllipticalArc, Trim, Extend, Offset, Mirror, RectangularPattern, CircularPattern, TangentCircle, Fillet, Chamfer, Project, Intersect, Dimension, BlendCurve);
 
 impl Tool {
     pub fn label(self) -> &'static str {
@@ -55,6 +57,8 @@ impl Tool {
             Self::Arc => "Arc",
             Self::ThreePointArc => "3-point arc",
             Self::TangentArc => "Tangent arc",
+            Self::Ellipse => "Ellipse",
+            Self::EllipticalArc => "Elliptical arc",
             Self::Slot => "Slot",
             Self::Polygon => "Polygon",
             Self::Spline => "Spline",
@@ -88,6 +92,13 @@ impl Tool {
             Self::ThreePointArc => "Draw an arc from its start and end through a third point",
             Self::TangentArc => {
                 "Draw arcs that continue smoothly from the end of a line, arc or spline"
+            }
+            Self::Ellipse => {
+                "Draw an ellipse from its centre, the end of its major axis and its minor radius"
+            }
+            Self::EllipticalArc => {
+                "Draw part of an ellipse from its centre, the end of its major axis, its start \
+                 and its end"
             }
             Self::Slot => "Draw a slot from the centres of its round ends and its width",
             Self::Polygon => "Draw a regular polygon from its centre and a corner",
@@ -169,6 +180,8 @@ impl Tool {
             | Self::Arc
             | Self::ThreePointArc
             | Self::TangentArc
+            | Self::Ellipse
+            | Self::EllipticalArc
             | Self::Slot
             | Self::Polygon
             | Self::Spline => true,

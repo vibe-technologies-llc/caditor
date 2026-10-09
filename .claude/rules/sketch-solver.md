@@ -78,6 +78,18 @@ paths:
 - A step pushing a parameter already at an end of its range further out is retaken with it held, so
   the rest moves instead of the step being spent on the clamp.
 
+## Ellipses
+
+- An ellipse's minor radius is a variable beside the circles' radii (`System::radii`, fixed when
+  projected) and its centre to axis point a span, so it counts five degrees of freedom and an
+  elliptical arc seven: its start and end are held on it by two implicit `Form::OnEllipse`.
+- `Form::OnEllipse` is `b/2 (x²/a² + y²/b² − 1)` in the ellipse's frame, a length that is the
+  distance for a circle. `Form::EllipseTangent` holds the signed distance from the centre to the
+  line at `sqrt(a²(n·u)² + b²(n·v)²)` on the side the centre started; when the line and ellipse
+  share a point it is `Form::EllipseTouch`, the line along the ellipse's tangent there, for the
+  same reason a joined circle tangency is a right angle. `MajorRadius` is a `PointDistance` and
+  `MinorRadius` a `Radius` on the minor radius.
+
 ## Curvature at a spline's end
 
 - A clamped spline's curvature at its end is `end_factor(count)` (from its knots) times the cross

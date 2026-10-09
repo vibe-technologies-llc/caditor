@@ -4,7 +4,7 @@ use std::{
 };
 
 use caditor_geometry::{Aabb2, Point2, Vector2};
-use caditor_sketch::{Entity, Sketch};
+use caditor_sketch::{EllipseGeometry, Entity, Sketch};
 
 use super::{Construction, SketchExported};
 
@@ -50,6 +50,27 @@ pub(super) struct Ellipse {
     pub(super) ratio: f64,
     pub(super) start: f64,
     pub(super) end: f64,
+}
+
+fn drawn_ellipse(ellipse: &EllipseGeometry) -> Ellipse {
+    let (major, minor) = (ellipse.major_radius(), ellipse.minor_radius);
+    let (along, ratio, turn) = if minor > major {
+        (ellipse.axis().perp() * minor, major / minor, FRAC_PI_2)
+    } else {
+        (ellipse.major, minor / major.max(f64::MIN_POSITIVE), 0.0)
+    };
+    let (start, end) = if ellipse.is_full() {
+        (0.0, TAU)
+    } else {
+        (ellipse.start - turn, ellipse.end() - turn)
+    };
+    Ellipse {
+        center: ellipse.center,
+        major: along,
+        ratio,
+        start,
+        end,
+    }
 }
 
 impl Ellipse {
@@ -421,6 +442,9 @@ impl Figure {
                         polyline: spline.polyline(SEGMENT_ANGLE),
                     })
                 }),
+                Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => sketch
+                    .ellipse(id)
+                    .map(|ellipse| Shape::Ellipse(drawn_ellipse(&ellipse))),
             };
             let Some(shape) = shape else {
                 continue;

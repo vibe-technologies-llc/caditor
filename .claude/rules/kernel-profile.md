@@ -6,7 +6,9 @@ paths:
 
 # Profiles (`profile/`)
 
-- `Profile::new` takes `ProfileCurve`s (a line, circle, counter-clockwise arc or clamped B-spline),
+- `Profile::new` takes `ProfileCurve`s (a line, circle, counter-clockwise arc, clamped B-spline,
+  ellipse or counter-clockwise elliptical arc, the last two as a centre, a major axis vector and a
+  minor radius, `Curve2::Ellipse` running by its angle parameter, the arc between its end points),
   each tagged with the sketch entity id as a plain u64, and builds the planar arrangement. The
   tolerance is `RELATIVE_TOLERANCE` of the profile size, at least `LINEAR_RESOLUTION`.
 - The document converts a solved sketch to `ProfileCurve`s, keeps the chosen `RegionReference`s in
@@ -63,8 +65,9 @@ paths:
   within `ISOTROPIC_SHARE`, as for a circle or square). Green's theorem over each piece as the
   signed fan from a reference point at the centre of the bounds (so far-off sketches keep their
   digits): lines and arcs in closed form (an arc as two triangles through its centre plus the
-  sector), splines by adaptive Gauss-Legendre quadrature against `QUADRATURE_TOLERANCE` of the
-  size, which makes the whole section `Accuracy::Approximate`. Regions of a profile are disjoint,
+  sector), splines and ellipses by adaptive Gauss-Legendre quadrature against
+  `QUADRATURE_TOLERANCE` of the size, which makes the whole section `Accuracy::Approximate`.
+  Ellipses meet other curves through the generic subdivision and Newton path, as splines do. Regions of a profile are disjoint,
   so their integrals add; a piece met on both sides (the same `PieceId` left and right) is inside
   the union and adds no perimeter.
 - A `RegionReference` keeps what a feature chose: the key, the boundary pieces and an anchor (the

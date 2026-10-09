@@ -35,8 +35,13 @@ impl Sketch {
     pub fn nearest_end(&self, beyond: PointBeyond) -> Option<Point2> {
         let at = self.point(beyond.point)?;
         let (start, end) = match self.entity(beyond.curve)? {
-            Entity::Line { start, end } | Entity::Arc { start, end, .. } => (*start, *end),
-            Entity::Point(_) | Entity::Circle { .. } | Entity::Spline { .. } => return None,
+            Entity::Line { start, end }
+            | Entity::Arc { start, end, .. }
+            | Entity::EllipticalArc { start, end, .. } => (*start, *end),
+            Entity::Point(_)
+            | Entity::Circle { .. }
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. } => return None,
         };
         let (start, end) = (self.point(start)?, self.point(end)?);
         Some(if at.distance(start) <= at.distance(end) {
@@ -64,6 +69,15 @@ impl Sketch {
                     let outside = past_start - arc.sweep;
                     let back_to_start = TAU - past_start;
                     outside > 0.0 && outside.min(back_to_start) * arc.radius > BEYOND_TOLERANCE
+                })
+            }
+            Some(Entity::EllipticalArc { start, end, .. }) if *start != point && *end != point => {
+                self.ellipse(curve).is_some_and(|ellipse| {
+                    let past_start = (ellipse.parameter_of(at) - ellipse.start).rem_euclid(TAU);
+                    let outside = past_start - ellipse.sweep;
+                    let back_to_start = TAU - past_start;
+                    let reach = ellipse.major_radius().max(ellipse.minor_radius);
+                    outside > 0.0 && outside.min(back_to_start) * reach > BEYOND_TOLERANCE
                 })
             }
             _ => false,

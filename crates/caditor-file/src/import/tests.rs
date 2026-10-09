@@ -8,7 +8,7 @@ use caditor_document::{
     FeatureKind, ModelEvaluator, Recompute, RegionChoice, SolidFeature,
 };
 use caditor_expression::Expression;
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Vector2};
 use caditor_kernel::{MAX_SPLINE_DEGREE, SamplingTolerance};
 use caditor_sketch::{ArcGeometry, BSpline, Constraint, Entity, Sketch};
 
@@ -580,7 +580,7 @@ fn uniform_cubic_splines_are_kept_exactly_and_others_are_fitted() {
 }
 
 #[test]
-fn ellipses_become_splines_unless_they_are_circles() {
+fn ellipses_stay_ellipses_unless_they_are_circles() {
     let drawing = millimetre_drawing(vec![
         entity(
             "ELLIPSE",
@@ -601,19 +601,20 @@ fn ellipses_become_splines_unless_they_are_circles() {
             ],
         ),
     ]);
-    let spline = drawing
+    let ellipse = drawing
         .curves
         .iter()
-        .find_map(|curve| match curve {
-            DrawingCurve::Spline { control_points } => BSpline::clamped(control_points.clone()),
-            _ => None,
-        })
+        .find(|curve| matches!(curve, DrawingCurve::Ellipse { .. }))
         .unwrap();
-    for step in 0..=200 {
-        let point = spline.point_at(step as f64 / 200.0);
-        let on_ellipse = (point.x / 20.0).powi(2) + (point.y / 10.0).powi(2);
-        assert!((on_ellipse - 1.0).abs() < 1e-4, "{point}");
-    }
+    assert_eq!(
+        ellipse,
+        &DrawingCurve::Ellipse {
+            center: Point2::ZERO,
+            major: Vector2::new(20.0, 0.0),
+            minor_radius: 10.0,
+            ends: None,
+        }
+    );
     let arcs = arcs(&drawing);
     assert_eq!(arcs.len(), 1);
     assert!(near(arcs[0].center, Point2::new(50.0, 0.0)));
@@ -622,7 +623,7 @@ fn ellipses_become_splines_unless_they_are_circles() {
         arcs[0].point_at(arcs[0].start_angle),
         Point2::new(50.0, 5.0)
     ));
-    assert!(drawing.notes.join(" ").contains("1 ellipse was converted"));
+    assert!(!drawing.notes.join(" ").contains("converted"));
 }
 
 #[test]

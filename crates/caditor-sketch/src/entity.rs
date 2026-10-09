@@ -21,13 +21,30 @@ pub enum Entity {
     Spline {
         control_points: Vec<EntityId>,
     },
+    Ellipse {
+        center: EntityId,
+        major: EntityId,
+        minor_radius: f64,
+    },
+    EllipticalArc {
+        center: EntityId,
+        major: EntityId,
+        minor_radius: f64,
+        start: EntityId,
+        end: EntityId,
+    },
 }
 
 impl Entity {
     pub fn heap_size(&self) -> usize {
         match self {
             Self::Spline { control_points } => size_of_val(control_points.as_slice()),
-            Self::Point(_) | Self::Line { .. } | Self::Circle { .. } | Self::Arc { .. } => 0,
+            Self::Point(_)
+            | Self::Line { .. }
+            | Self::Circle { .. }
+            | Self::Arc { .. }
+            | Self::Ellipse { .. }
+            | Self::EllipticalArc { .. } => 0,
         }
     }
 
@@ -38,6 +55,8 @@ impl Entity {
             Self::Circle { .. } => "Circle",
             Self::Arc { .. } => "Arc",
             Self::Spline { .. } => "Spline",
+            Self::Ellipse { .. } => "Ellipse",
+            Self::EllipticalArc { .. } => "Elliptical arc",
         }
     }
 
@@ -56,6 +75,58 @@ impl Entity {
             Self::Circle { center, .. } => vec![*center],
             Self::Arc { center, start, end } => vec![*center, *start, *end],
             Self::Spline { control_points } => control_points.clone(),
+            Self::Ellipse { center, major, .. } => vec![*center, *major],
+            Self::EllipticalArc {
+                center,
+                major,
+                start,
+                end,
+                ..
+            } => vec![*center, *major, *start, *end],
+        }
+    }
+
+    pub(crate) fn with_points_mapped(&self, map: impl Fn(EntityId) -> EntityId) -> Self {
+        match self {
+            Self::Point(position) => Self::Point(*position),
+            Self::Line { start, end } => Self::Line {
+                start: map(*start),
+                end: map(*end),
+            },
+            Self::Circle { center, radius } => Self::Circle {
+                center: map(*center),
+                radius: *radius,
+            },
+            Self::Arc { center, start, end } => Self::Arc {
+                center: map(*center),
+                start: map(*start),
+                end: map(*end),
+            },
+            Self::Spline { control_points } => Self::Spline {
+                control_points: control_points.iter().map(|point| map(*point)).collect(),
+            },
+            Self::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => Self::Ellipse {
+                center: map(*center),
+                major: map(*major),
+                minor_radius: *minor_radius,
+            },
+            Self::EllipticalArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+            } => Self::EllipticalArc {
+                center: map(*center),
+                major: map(*major),
+                minor_radius: *minor_radius,
+                start: map(*start),
+                end: map(*end),
+            },
         }
     }
 
@@ -65,6 +136,7 @@ impl Entity {
             Self::Line { .. } => Role::Line,
             Self::Circle { .. } | Self::Arc { .. } => Role::Circular,
             Self::Spline { .. } => Role::Spline,
+            Self::Ellipse { .. } | Self::EllipticalArc { .. } => Role::Elliptic,
         }
     }
 }
@@ -75,4 +147,5 @@ pub(crate) enum Role {
     Line,
     Circular,
     Spline,
+    Elliptic,
 }

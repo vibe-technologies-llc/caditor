@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, f64::consts::TAU};
+use std::collections::BTreeSet;
 
 use caditor_geometry::{Point2, Point3, Vector2};
 use caditor_sketch::BSpline;
@@ -16,7 +16,6 @@ const RELATIVE_FIT_TOLERANCE: f64 = 1e-6;
 const MIN_FIT_TOLERANCE: f64 = 1e-6;
 const MAX_FIT_CONTROL_POINTS: usize = 500;
 const SAMPLES_PER_SPAN: usize = 48;
-const SAMPLES_PER_TURN: usize = 720;
 const MIN_SAMPLES: usize = 64;
 const MAX_SAMPLES: usize = 16_384;
 const RELATIVE_FLATNESS: f64 = 1e-9;
@@ -25,7 +24,6 @@ const KNOT_TOLERANCE: f64 = 1e-9;
 #[derive(Default)]
 struct Tally {
     splines: usize,
-    ellipses: usize,
     rebuilt: usize,
     collapsed: usize,
     deviation: f64,
@@ -139,19 +137,12 @@ fn flatten_shape(shape: &Shape, tolerance: f64, tally: &mut Tally) -> Option<Dra
                 tally.collapsed += 1;
                 return None;
             }
-            let count = ((sweep / TAU * SAMPLES_PER_TURN as f64).ceil() as usize)
-                .clamp(MIN_SAMPLES, MAX_SAMPLES);
-            let samples: Vec<Point2> = (0..=count)
-                .map(|index| {
-                    let angle = start + sweep * index as f64 / count as f64;
-                    point2(*center + *major * angle.cos() + *minor * angle.sin())
-                })
-                .collect();
-            let curve = fitted(&samples, tolerance, tally);
-            if curve.is_some() {
-                tally.ellipses += 1;
-            }
-            curve
+            Some(planar_ellipse(
+                point2(*center),
+                (flat(*major), flat(*minor)),
+                *start,
+                *sweep,
+            ))
         }
         Shape::Spline(nurbs) => spline(nurbs, tolerance, tally),
         Shape::Interpolated(fit) => {
@@ -243,6 +234,39 @@ fn same_knots(native: &[f64], given: &[f64]) -> bool {
             .all(|(native, given)| (native - (given - first) / width).abs() <= KNOT_TOLERANCE)
 }
 
+fn planar_ellipse(
+    center: Point2,
+    (first, second): (Vector2, Vector2),
+    start: f64,
+    sweep: f64,
+) -> DrawingCurve {
+    let turn =
+        0.5 * (2.0 * first.dot(second)).atan2(first.length_squared() - second.length_squared());
+    let (sin, cos) = turn.sin_cos();
+    let along = first * cos + second * sin;
+    let across = second * cos - first * sin;
+    let (major, minor_radius) = if along.length() >= across.length() {
+        (along, across.length())
+    } else {
+        (across, along.length())
+    };
+    let ends = (!is_full_turn(sweep)).then(|| {
+        let at = |angle: f64| center + first * angle.cos() + second * angle.sin();
+        let (from, to) = (at(start), at(start + sweep));
+        if first.perp_dot(second) > 0.0 {
+            (from, to)
+        } else {
+            (to, from)
+        }
+    });
+    DrawingCurve::Ellipse {
+        center,
+        major,
+        minor_radius,
+        ends,
+    }
+}
+
 fn fitted(samples: &[Point2], tolerance: f64, tally: &mut Tally) -> Option<DrawingCurve> {
     let Some(fit) = BSpline::fit(samples, tolerance, MAX_FIT_CONTROL_POINTS) else {
         tally.collapsed += 1;
@@ -260,15 +284,12 @@ impl Tally {
         if self.splines > 0 {
             converted.push(counted(self.splines, "spline", "splines"));
         }
-        if self.ellipses > 0 {
-            converted.push(counted(self.ellipses, "ellipse", "ellipses"));
-        }
         if !converted.is_empty() {
             let deviation = self.deviation.max(tolerance);
             notes.push(format!(
                 "{} {} converted to sketch splines that stay within {} of the original.",
                 list(&converted),
-                were(self.splines + self.ellipses),
+                were(self.splines),
                 millimetres(deviation)
             ));
         }

@@ -13,7 +13,7 @@ mod triangulate;
 
 use std::collections::BTreeSet;
 
-use caditor_geometry::{Aabb2, Point2};
+use caditor_geometry::{Aabb2, Point2, Vector2};
 
 use self::{
     arrangement::Arrangement,
@@ -60,6 +60,18 @@ pub enum ProfileShape {
         knots: Vec<f64>,
         control_points: Vec<Point2>,
     },
+    Ellipse {
+        center: Point2,
+        major: Vector2,
+        minor_radius: f64,
+    },
+    EllipticalArc {
+        center: Point2,
+        major: Vector2,
+        minor_radius: f64,
+        start: Point2,
+        end: Point2,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,6 +95,36 @@ impl ProfileCurve {
 
     pub fn arc(entity: u64, center: Point2, start: Point2, end: Point2) -> Self {
         Self::new(entity, ProfileShape::Arc { center, start, end })
+    }
+
+    pub fn ellipse(entity: u64, center: Point2, major: Vector2, minor_radius: f64) -> Self {
+        Self::new(
+            entity,
+            ProfileShape::Ellipse {
+                center,
+                major,
+                minor_radius,
+            },
+        )
+    }
+
+    pub fn elliptical_arc(
+        entity: u64,
+        center: Point2,
+        major: Vector2,
+        minor_radius: f64,
+        (start, end): (Point2, Point2),
+    ) -> Self {
+        Self::new(
+            entity,
+            ProfileShape::EllipticalArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+            },
+        )
     }
 
     pub fn curve(&self) -> Result<(Curve2, Interval), ProfileError> {

@@ -188,18 +188,19 @@ fn hatch_ellipse_and_spline_edges_follow_their_curves() {
 
     let drawing = millimetre_drawing(vec![hatch(vec![edge_path(vec![ellipse, spline])])]);
     let found = splines(&drawing);
-    let quarter = found
-        .iter()
-        .find(|spline| spline.point_at(0.0).x < 15.0)
-        .unwrap();
     let kept = found
         .iter()
         .find(|spline| spline.point_at(0.0).x > 15.0)
         .unwrap();
+    let ends = drawing.curves.iter().find_map(|curve| match curve {
+        DrawingCurve::Ellipse { ends, .. } => *ends,
+        _ => None,
+    });
     let diagonal = 10.0 / 5.0_f64.sqrt();
+    let (start, end) = ends.unwrap();
 
-    assert!(near(quarter.point_at(0.0), Point2::new(10.0, 0.0)));
-    assert!(quarter.point_at(1.0).distance(Point2::splat(diagonal)) < 1e-6);
+    assert!(near(start, Point2::new(10.0, 0.0)));
+    assert!(end.distance(Point2::splat(diagonal)) < 1e-6);
     assert_eq!(
         kept.control_points(),
         &[

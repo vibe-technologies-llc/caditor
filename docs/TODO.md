@@ -121,13 +121,18 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
-- [medium · hard] Tools missing: ellipse and elliptical arc (a new entity kind across the solver,
-  the kernel's 2D profile curves, which have no ellipse although its 3D curves do, and the file
-  format), a conic curve (two ends and a point it passes, shaped by a rho value), a pattern of
-  sketch geometry along a path, text (a font, a height, bold and
+- [medium · hard] Tools missing: a conic curve (two ends and a point it passes, shaped by a rho
+  value), a pattern of sketch geometry along a path, text (a font, a height, bold and
   italic, set along a curve, its letters becoming closed regions that extrude), and fit-point,
   closed or periodic splines (`BSpline::through` serves only DXF import, `BSpline::interpolate`
   only its own tests, and the control polygon is not drawn).
+- [low · medium] Ellipses and elliptical arcs are drawn, constrained (point on, concentric, level
+  or upright axis, tangent to a line, both radii) and swept, but cannot be trimmed, extended,
+  split, broken, offset, filleted, mirrored or patterned (a copy needs its minor radius held equal
+  to the original's, which no constraint does), take no tangent with a circle, arc, spline or
+  another ellipse, no distance, `Equal` or midpoint, offer snaps only at their own points (not
+  the other ends of their axes or an arc's middle), project into other sketches as splines,
+  and their radii are left out of exported drawing dimensions.
 - [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading

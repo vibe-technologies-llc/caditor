@@ -471,7 +471,9 @@ fn extent_of(sketch: &Sketch) -> f64 {
             Entity::Line { .. }
             | Entity::Circle { .. }
             | Entity::Arc { .. }
-            | Entity::Spline { .. } => None,
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => None,
         })
         .fold(0.0, f64::max)
 }
@@ -484,7 +486,9 @@ fn centre_of(sketch: &Sketch) -> Option<Point2> {
             Entity::Line { .. }
             | Entity::Circle { .. }
             | Entity::Arc { .. }
-            | Entity::Spline { .. } => None,
+            | Entity::Spline { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => None,
         })
         .collect();
     let first = *points.first()?;
@@ -522,7 +526,9 @@ fn label_text(
         }
     };
     match constraint {
-        Constraint::Radius { .. } => format!("{RADIUS_PREFIX}{text}"),
+        Constraint::Radius { .. }
+        | Constraint::MajorRadius { .. }
+        | Constraint::MinorRadius { .. } => format!("{RADIUS_PREFIX}{text}"),
         Constraint::Diameter { .. } | Constraint::AxisDiameter { .. } => {
             format!("{DIAMETER_PREFIX}{text}")
         }

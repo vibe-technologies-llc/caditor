@@ -79,6 +79,22 @@ fn usable(curve: &DrawingCurve, tolerance: f64) -> Option<DrawingCurve> {
                 radius: arc.radius,
             })
         }
+        DrawingCurve::Ellipse {
+            major,
+            minor_radius,
+            ..
+        } if major.length() <= tolerance || *minor_radius <= tolerance => None,
+        DrawingCurve::Ellipse {
+            center,
+            major,
+            minor_radius,
+            ends: Some((start, end)),
+        } if start.distance(*end) <= tolerance => Some(DrawingCurve::Ellipse {
+            center: *center,
+            major: *major,
+            minor_radius: *minor_radius,
+            ends: None,
+        }),
         _ => Some(curve.clone()),
     }
 }
@@ -133,6 +149,34 @@ fn add_curve(
                 construction,
             );
             ends.extend([(first, *start), (last, *end)]);
+        }
+        DrawingCurve::Ellipse {
+            center,
+            major,
+            minor_radius,
+            ends: arc_ends,
+        } => {
+            let middle = point(builder, *center);
+            let axis = point(builder, *center + *major);
+            let entity = match arc_ends {
+                None => Entity::Ellipse {
+                    center: middle,
+                    major: axis,
+                    minor_radius: *minor_radius,
+                },
+                Some((start, end)) => {
+                    let (first, last) = (point(builder, *start), point(builder, *end));
+                    ends.extend([(first, *start), (last, *end)]);
+                    Entity::EllipticalArc {
+                        center: middle,
+                        major: axis,
+                        minor_radius: *minor_radius,
+                        start: first,
+                        end: last,
+                    }
+                }
+            };
+            builder.add_sketch_entity_as(sketch, entity, construction);
         }
         DrawingCurve::Spline { control_points } => {
             let ids: Vec<EntityId> = control_points

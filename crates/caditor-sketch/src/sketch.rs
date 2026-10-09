@@ -8,7 +8,7 @@ use caditor_geometry::{Plane, Point2, Vector2};
 
 use crate::{
     constraint::{Constraint, DimensionError},
-    curve::{ArcGeometry, BSpline, Faceting},
+    curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
     entity::{Entity, Role},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
     solve::{arc_joint, joined_at_end, not_joined, spline_gap, straight_spline},
@@ -38,6 +38,8 @@ pub enum SketchError {
     NotFinite,
     #[error("a circle's radius must be a finite number greater than zero")]
     InvalidRadius,
+    #[error("an ellipse's minor radius must be a finite number greater than zero")]
+    InvalidMinorRadius,
     #[error("a spline needs at least two control points")]
     TooFewControlPoints,
     #[error("it uses {label} twice")]
@@ -213,6 +215,34 @@ impl Sketch {
         }
     }
 
+    pub fn ellipse(&self, id: EntityId) -> Option<EllipseGeometry> {
+        match *self.entities.get(&id)? {
+            Entity::Ellipse {
+                center,
+                major,
+                minor_radius,
+            } => Some(EllipseGeometry::full(
+                self.point(center)?,
+                self.point(major)?,
+                minor_radius,
+            )),
+            Entity::EllipticalArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+            } => Some(EllipseGeometry::from_points(
+                self.point(center)?,
+                self.point(major)?,
+                minor_radius,
+                self.point(start)?,
+                self.point(end)?,
+            )),
+            _ => None,
+        }
+    }
+
     pub fn spline(&self, id: EntityId) -> Option<BSpline> {
         match self.entities.get(&id)? {
             Entity::Spline { control_points } => BSpline::clamped(
@@ -236,6 +266,9 @@ impl Sketch {
             Entity::Spline { .. } => self
                 .spline(id)
                 .map(|spline| spline.polyline(max_segment_angle)),
+            Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => self
+                .ellipse(id)
+                .map(|ellipse| ellipse.polyline(max_segment_angle)),
         }
     }
 
@@ -248,6 +281,9 @@ impl Sketch {
                 .map(|(center, radius)| ArcGeometry::full_circle(center, radius).faceted(faceting)),
             Entity::Arc { .. } => self.arc(id).map(|arc| arc.faceted(faceting)),
             Entity::Spline { .. } => self.spline(id).map(|spline| spline.faceted(faceting)),
+            Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                self.ellipse(id).map(|ellipse| ellipse.faceted(faceting))
+            }
         }
     }
 
@@ -264,6 +300,9 @@ impl Sketch {
             Entity::Spline { .. } => self
                 .spline(id)
                 .map(|spline| faceting.spline_segments(&spline)),
+            Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                self.ellipse(id).map(|ellipse| ellipse.segments(faceting))
+            }
         }
     }
 
@@ -329,7 +368,13 @@ impl Sketch {
             Constraint::Radius { entity, .. }
             | Constraint::Diameter { entity, .. }
             | Constraint::ArcLength { arc: entity, .. }
-            | Constraint::Sweep { arc: entity, .. } => {
+            | Constraint::Sweep { arc: entity, .. }
+            | Constraint::MajorRadius {
+                ellipse: entity, ..
+            }
+            | Constraint::MinorRadius {
+                ellipse: entity, ..
+            } => {
                 format!("{kind} of {}", label(entity))
             }
         }
@@ -364,6 +409,8 @@ impl Sketch {
                 arc.radius * arc.sweep
             }
             Constraint::Sweep { arc, .. } => self.arc(arc)?.sweep.to_degrees(),
+            Constraint::MajorRadius { ellipse, .. } => self.ellipse(ellipse)?.major_radius(),
+            Constraint::MinorRadius { ellipse, .. } => self.ellipse(ellipse)?.minor_radius,
             Constraint::Coincident(..)
             | Constraint::Horizontal(_)
             | Constraint::Vertical(_)
@@ -435,6 +482,13 @@ impl Sketch {
             None => Point2::ZERO,
         };
         Some(direction.perp_dot(point - anchor).abs())
+    }
+
+    pub fn is_elliptic(&self, id: EntityId) -> bool {
+        matches!(
+            self.entity(id),
+            Some(Entity::Ellipse { .. } | Entity::EllipticalArc { .. })
+        )
     }
 
     fn is_arc(&self, id: EntityId) -> bool {
@@ -655,6 +709,42 @@ impl Sketch {
         self.insert(Entity::Arc { center, start, end })
     }
 
+    pub fn add_ellipse(
+        &mut self,
+        center: Point2,
+        major_end: Point2,
+        minor_radius: f64,
+    ) -> EntityId {
+        let center = self.add_point(center);
+        let major = self.add_point(major_end);
+        self.insert(Entity::Ellipse {
+            center,
+            major,
+            minor_radius,
+        })
+    }
+
+    pub fn add_elliptical_arc(
+        &mut self,
+        center: Point2,
+        major_end: Point2,
+        minor_radius: f64,
+        start: Point2,
+        end: Point2,
+    ) -> EntityId {
+        let center = self.add_point(center);
+        let major = self.add_point(major_end);
+        let start = self.add_point(start);
+        let end = self.add_point(end);
+        self.insert(Entity::EllipticalArc {
+            center,
+            major,
+            minor_radius,
+            start,
+            end,
+        })
+    }
+
     pub fn add_spline(&mut self, control_points: &[Point2]) -> EntityId {
         let control_points = control_points
             .iter()
@@ -708,13 +798,22 @@ impl Sketch {
                     (Some(Role::Spline), Some(Role::Point)) => Some((b, a)),
                     _ => None,
                 };
-                match spline {
-                    Some((point, curve)) => self.check_not_own_point(point, curve),
-                    None => self.check_point_on_curve(constraint, a, b),
+                let ellipse = match (self.role(a), self.role(b)) {
+                    (Some(Role::Point), Some(Role::Elliptic)) => Some((a, b)),
+                    (Some(Role::Elliptic), Some(Role::Point)) => Some((b, a)),
+                    _ => None,
+                };
+                match (spline, ellipse) {
+                    (Some((point, curve)), _) => self.check_not_own_point(point, curve),
+                    (None, Some((point, curve))) => {
+                        self.check_not_only_reference(&entities)?;
+                        self.check_not_own_point(point, curve)
+                    }
+                    (None, None) => self.check_point_on_curve(constraint, a, b),
                 }
             }
             Constraint::Horizontal(line) | Constraint::Vertical(line) => {
-                self.expect(line, &[Role::Line], "a line")?;
+                self.expect(line, &[Role::Line, Role::Elliptic], "a line or an ellipse")?;
                 self.check_not_only_reference(&entities)
             }
             Constraint::HorizontalPoints(a, b)
@@ -751,12 +850,18 @@ impl Sketch {
                 self.check_not_only_reference(&entities)
             }
             Constraint::Tangent(a, b) => {
-                let needed = "a line, a circle, an arc or a spline";
-                let kinds = [Role::Line, Role::Circular, Role::Spline];
+                let needed = "a line, a circle, an arc, a spline or an ellipse";
+                let kinds = [Role::Line, Role::Circular, Role::Spline, Role::Elliptic];
                 let first = self.expect(a, &kinds, needed)?;
                 let second = self.expect(b, &kinds, needed)?;
                 match (first, second) {
                     (Role::Line, Role::Line) => Err(self.not_applicable(constraint, a, b)),
+                    (Role::Elliptic, Role::Line) | (Role::Line, Role::Elliptic) => {
+                        self.check_not_only_reference(&entities)
+                    }
+                    (Role::Elliptic, _) | (_, Role::Elliptic) => {
+                        Err(self.not_applicable(constraint, a, b))
+                    }
                     _ => Ok(()),
                 }
             }
@@ -862,6 +967,14 @@ impl Sketch {
             Constraint::Radius { entity, .. } | Constraint::Diameter { entity, .. } => self
                 .expect(entity, &[Role::Circular], "a circle or an arc")
                 .map(|_| ()),
+            Constraint::MajorRadius { ellipse, .. } | Constraint::MinorRadius { ellipse, .. } => {
+                self.expect(
+                    ellipse,
+                    &[Role::Elliptic],
+                    "an ellipse or an elliptical arc",
+                )
+                .map(|_| ())
+            }
             Constraint::ArcLength { arc, .. } | Constraint::Sweep { arc, .. } => {
                 match self.entity(arc) {
                     Some(Entity::Arc { .. }) => Ok(()),
@@ -1031,7 +1144,18 @@ impl Sketch {
     }
 
     pub(crate) fn set_radius(&mut self, id: EntityId, value: f64) {
-        if let Some(Entity::Circle { radius, .. }) = self.entities.get_mut(&id) {
+        if let Some(
+            Entity::Circle { radius, .. }
+            | Entity::Ellipse {
+                minor_radius: radius,
+                ..
+            }
+            | Entity::EllipticalArc {
+                minor_radius: radius,
+                ..
+            },
+        ) = self.entities.get_mut(&id)
+        {
             *radius = value;
         }
     }
@@ -1070,6 +1194,11 @@ impl Sketch {
             Entity::Spline { ref control_points } if control_points.len() < 2 => {
                 return Err(SketchError::TooFewControlPoints);
             }
+            Entity::Ellipse { minor_radius, .. } | Entity::EllipticalArc { minor_radius, .. }
+                if !(minor_radius.is_finite() && minor_radius > 0.0) =>
+            {
+                return Err(SketchError::InvalidMinorRadius);
+            }
             _ => {}
         }
         let points = entity.points();
@@ -1080,7 +1209,13 @@ impl Sketch {
                 None => return Err(SketchError::MissingEntity(*point)),
             }
         }
-        let distinct_points_needed = matches!(entity, Entity::Line { .. } | Entity::Arc { .. });
+        let distinct_points_needed = matches!(
+            entity,
+            Entity::Line { .. }
+                | Entity::Arc { .. }
+                | Entity::Ellipse { .. }
+                | Entity::EllipticalArc { .. }
+        );
         let mut seen = BTreeSet::new();
         match points.into_iter().find(|point| !seen.insert(*point)) {
             Some(repeated) if distinct_points_needed => Err(SketchError::SameEntity {
@@ -1158,11 +1293,12 @@ impl Sketch {
         a: EntityId,
         b: EntityId,
     ) -> Result<(), SketchError> {
-        let needed = "a circle, an arc or a point";
-        let first = self.expect(a, &[Role::Circular, Role::Point], needed)?;
-        let second = self.expect(b, &[Role::Circular, Role::Point], needed)?;
+        let needed = "a circle, an arc, an ellipse or a point";
+        let kinds = [Role::Circular, Role::Elliptic, Role::Point];
+        let first = self.expect(a, &kinds, needed)?;
+        let second = self.expect(b, &kinds, needed)?;
         match (first, second) {
-            (Role::Circular, Role::Circular) => {
+            (Role::Circular | Role::Elliptic, Role::Circular | Role::Elliptic) => {
                 if self.center_of(a).is_some() && self.center_of(a) == self.center_of(b) {
                     return Err(SketchError::SharedCentre {
                         first: self.entity_label(a),
@@ -1171,15 +1307,18 @@ impl Sketch {
                 }
                 Ok(())
             }
-            (Role::Point, Role::Circular) => self.check_not_own_point(a, b),
-            (Role::Circular, Role::Point) => self.check_not_own_point(b, a),
+            (Role::Point, Role::Circular | Role::Elliptic) => self.check_not_own_point(a, b),
+            (Role::Circular | Role::Elliptic, Role::Point) => self.check_not_own_point(b, a),
             _ => Err(self.not_applicable(constraint, a, b)),
         }
     }
 
     pub fn center_of(&self, curve: EntityId) -> Option<EntityId> {
         match self.entities.get(&curve)? {
-            Entity::Circle { center, .. } | Entity::Arc { center, .. } => Some(*center),
+            Entity::Circle { center, .. }
+            | Entity::Arc { center, .. }
+            | Entity::Ellipse { center, .. }
+            | Entity::EllipticalArc { center, .. } => Some(*center),
             Entity::Point(_) | Entity::Line { .. } | Entity::Spline { .. } => None,
         }
     }
@@ -1507,7 +1646,7 @@ mod tests {
 
         assert_eq!(
             refused(Constraint::Horizontal(start)),
-            "it needs a line, but Point 0 is not one"
+            "it needs a line or an ellipse, but Point 0 is not one"
         );
         assert_eq!(
             refused(Constraint::Radius {

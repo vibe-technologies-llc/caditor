@@ -44,6 +44,12 @@ paths:
   `SketchResult::beyond`, so the app says so rather than bounding the solve.
 - `Sketch::free_points` lists the points no curve uses (a constraint using one does not count), in one
   pass; the hole feature drills at them.
+- An `Ellipse` is its centre point, the point at the end of its major axis and a minor radius
+  (finite, above zero, `InvalidMinorRadius`); an `EllipticalArc` adds a start and an end point,
+  running counter-clockwise like an arc (`Role::Elliptic`, `Sketch::ellipse` gives the
+  `EllipseGeometry` of either, its parameter the angle of `centre + major cos t + minor sin t`
+  with the minor axis a quarter turn counter-clockwise from the major). Nothing keeps the minor
+  radius below the major one; exports take the longer as the major axis.
 - `insert_entity` and `insert_constraint` take explicit IDs and check references, for loading.
 - Uses of each entity are counted incrementally, so refusing to remove a used one never scans the
   sketch and undoing a large import stays fast. The sketch never cascades a removal; the document's
@@ -105,6 +111,12 @@ paths:
   arc's end lying on the line; refused otherwise as `NotJoined`). The arc's direction there is its
   tangent leaving the joint along the arc (`Sketch::angle_direction`, `angle_vertex`), so trim,
   extend, fillet and split drop such an angle on an arc they reshape (`keeps_sweep`).
+- Ellipses take `Coincident` with a point (on the whole ellipse, never one of its own points),
+  `Concentric` with circles, arcs, ellipses and points, `Horizontal`/`Vertical` (its major axis,
+  the same as `HorizontalPoints` on the centre and axis point, so `restating` finds either),
+  `Tangent` with a line only, and `MajorRadius`/`MinorRadius` (a dimension above zero; the major
+  one restates a `Distance` between the centre and the axis point). Every other constraint,
+  `Radius` and `Equal` included, refuses them.
 - `Midpoint { point, curve }` takes a line or an arc, never a circle. On an arc it is two
   single-branch equations (`Form::OnBisector`, the point on the chord's perpendicular bisector, and
   `Form::ArcBulge`, its signed distance from the centre across the chord equal to the radius on the
@@ -178,6 +190,13 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
     spacing, two parallel directions, a centre that is not a point, nothing off the centre, an
     angle of 0° or a full turn or more, geometry reaching past `MAX_LENGTH`. `rectangular_image`
     and `circular_image` give the faceted copies for a preview without touching the sketch.
+- Ellipses cut other curves (`intersect::Shape::Ellipse`, crossings by sampled roots along the
+  ellipse as for splines) and are cutters for trim, extend and break, but are never trimmed,
+  extended, split, broken, offset, filleted, mirrored or patterned: each refuses them in words
+  (`NotTrimmable`, `NotExtendable` or `Closed`, `NotLineOrArc`, `NotOffsettable`,
+  `MirrorError::Ellipse`, `PatternError::Ellipse`), since a copy would need its minor radius held
+  equal and no constraint does that. `Sketch::curve_crossings` gives where a spline or an ellipse
+  crosses another curve.
 - Fillet (`fillet.rs`): a `Corner` is where exactly two lines or arcs end, kept by one of its
   points. `rounding` refuses a radius whose touching point would not lie on a curve short of its far
   end (`TooLarge`). `fillet` adds the arc `Tangent` to both with a `Radius` dimension and keeps the

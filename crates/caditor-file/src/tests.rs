@@ -1414,6 +1414,61 @@ fn with_added_kinds(mut document: Document) -> (Document, AddedKinds) {
 }
 
 #[test]
+fn ellipses_and_their_radii_round_trip_and_older_readers_report_them() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Ellipses");
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(1.0, 2.0), Point2::new(11.0, 2.0), 4.0);
+    let arc = sketch.add_elliptical_arc(
+        Point2::new(30.0, 0.0),
+        Point2::new(30.0, 8.0),
+        3.0,
+        Point2::new(30.0, -8.0),
+        Point2::new(30.0, 8.0),
+    );
+    let line = sketch.add_line(Point2::new(-5.0, 6.0), Point2::new(15.0, 6.0));
+    sketch
+        .add_constraint(Constraint::Tangent(line, ellipse))
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::MajorRadius {
+            ellipse,
+            value: Expression::Measure(10.0, Unit::Millimetre),
+        })
+        .unwrap();
+    sketch
+        .add_constraint(Constraint::MinorRadius {
+            ellipse: arc,
+            value: Expression::Measure(3.0, Unit::Millimetre),
+        })
+        .unwrap();
+    sketch.set_construction(arc, true).unwrap();
+    transaction.add_feature("Oval", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(
+        &text
+            .replace("\"elliptical_arc\"", "\"elliptical_curl\"")
+            .replace("\"ellipse\"", "\"eclipse\"")
+            .replace("\"major_radius\"", "\"major_reach\""),
+    );
+
+    assert!(text.contains("\"minor_radius\":4.0"), "{text}");
+    assert!(text.contains("\"elliptical_arc\""), "{text}");
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    let reported = older.issues.join(" ");
+    assert!(
+        reported.contains("an entity of a kind this version of caditor does not know (eclipse)"),
+        "{reported}"
+    );
+    assert!(reported.contains("(elliptical_curl)"), "{reported}");
+    assert!(reported.contains("(major_reach)"), "{reported}");
+}
+
+#[test]
 fn a_curvature_between_joined_splines_round_trips_and_older_readers_report_it() {
     let mut document = Document::default();
     let mut transaction = document.transaction("Splines");

@@ -309,6 +309,8 @@ pub fn tool(tool: Tool) -> &'static str {
         Tool::Arc => phosphor::CIRCLE_HALF,
         Tool::ThreePointArc => phosphor::RAINBOW,
         Tool::TangentArc => phosphor::ARROW_BEND_UP_RIGHT,
+        Tool::Ellipse => phosphor::EGG,
+        Tool::EllipticalArc => phosphor::EGG_CRACK,
         Tool::Slot => phosphor::PILL,
         Tool::Polygon => phosphor::HEXAGON,
         Tool::Spline => phosphor::BEZIER_CURVE,

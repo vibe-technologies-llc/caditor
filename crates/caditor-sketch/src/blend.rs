@@ -75,7 +75,10 @@ impl Sketch {
             Entity::Spline { control_points } => {
                 Some([*control_points.first()?, *control_points.last()?])
             }
-            Entity::Point(_) | Entity::Circle { .. } => None,
+            Entity::Point(_)
+            | Entity::Circle { .. }
+            | Entity::Ellipse { .. }
+            | Entity::EllipticalArc { .. } => None,
         }
     }
 
@@ -221,7 +224,13 @@ impl Sketch {
                     (at, tangent, curvature)
                 }
             }
-            Some(Entity::Point(_) | Entity::Circle { .. }) | None => return Err(missing()),
+            Some(
+                Entity::Point(_)
+                | Entity::Circle { .. }
+                | Entity::Ellipse { .. }
+                | Entity::EllipticalArc { .. },
+            )
+            | None => return Err(missing()),
         };
         let length = along.length();
         let scale = at.abs().max_element().max(1.0);

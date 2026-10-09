@@ -9,7 +9,7 @@ use caditor_kernel::{
     BooleanError, Curve, EdgeId, EdgeReference, ReferenceError, Solid, VertexId, VertexName,
     vertex_names,
 };
-use caditor_sketch::{ArcGeometry, BSpline, Entity, EntityId, Sketch};
+use caditor_sketch::{ArcGeometry, BSpline, EllipseGeometry, Entity, EntityId, Sketch};
 
 use crate::{
     attachment::SketchFeature,
@@ -135,6 +135,7 @@ enum Shape {
     Circle,
     Arc,
     Spline(usize),
+    Ellipse,
 }
 
 impl Shape {
@@ -145,6 +146,7 @@ impl Shape {
             Entity::Circle { .. } => Self::Circle,
             Entity::Arc { .. } => Self::Arc,
             Entity::Spline { control_points } => Self::Spline(control_points.len()),
+            Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => Self::Ellipse,
         }
     }
 }
@@ -369,12 +371,20 @@ fn sketch_entity_outline(
             let spline = source.spline(entity)?;
             Outline::Spline(spline.control_points().iter().copied().map(local).collect())
         }
+        Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+            let ellipse = source.ellipse(entity)?;
+            Outline::through(&ellipse_samples(&ellipse, PROJECTED_SPLINE_POINTS, &local))?
+        }
     };
     let spline = source.spline(entity);
     let circle = source.circle(entity);
     let arc = source.arc(entity);
+    let ellipse = source.ellipse(entity);
     natural.fitted(wanted, |count| {
         let last = count.saturating_sub(1).max(1) as f64;
+        if let Some(ellipse) = &ellipse {
+            return ellipse_samples(ellipse, count, &local);
+        }
         match (spline, arc, circle) {
             (Some(spline), _, _) => (0..count)
                 .map(|index| local(spline.point_at(index as f64 / last)))
@@ -386,6 +396,17 @@ fn sketch_entity_outline(
             (None, None, None) => Vec::new(),
         }
     })
+}
+
+fn ellipse_samples(
+    ellipse: &EllipseGeometry,
+    count: usize,
+    local: &impl Fn(Point2) -> Point2,
+) -> Vec<Point2> {
+    let last = count.saturating_sub(1).max(1) as f64;
+    (0..count)
+        .map(|index| local(ellipse.point_at(ellipse.start + ellipse.sweep * index as f64 / last)))
+        .collect()
 }
 
 impl TransactionBuilder<'_> {
