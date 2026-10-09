@@ -312,3 +312,56 @@ fn parallel_recompute_costs() {
         );
     }
 }
+
+fn blocks(count: usize) -> Document {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    for index in 0..count {
+        let at = index as f64 * 2.0;
+        block(
+            &mut transaction,
+            &format!("Block {index}"),
+            (at, 0.0),
+            (at + 1.0, 1.0),
+            "1 mm",
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+    document
+}
+
+#[test]
+#[ignore = "a timing benchmark: cargo test --release -p caditor-document long_tree_recompute_costs -- --ignored --nocapture"]
+fn long_tree_recompute_costs() {
+    for count in [250, 1_000] {
+        let document = blocks(count);
+        let mut longer = document.clone();
+        let mut transaction = longer.transaction("Add");
+        block(&mut transaction, "Last", (-4.0, 0.0), (-3.0, 1.0), "1 mm");
+        longer.apply(transaction.finish()).unwrap();
+
+        let shown = timed(3, || {
+            evaluate(&mut Recompute::default(), &document);
+        });
+        let unshown = timed(3, || {
+            Recompute::default().run_without_display(
+                &document,
+                &ModelEvaluator,
+                &CancelToken::never(),
+            );
+        });
+        let mut engine = Recompute::default();
+        evaluate(&mut engine, &document);
+        let unchanged = timed(3, || {
+            evaluate(&mut engine, &document);
+        });
+        let appended = timed(3, || {
+            evaluate(&mut engine.clone(), &longer);
+        });
+        println!(
+            "{} features: {shown:.1?} with meshes, {unshown:.1?} without, {unchanged:.1?} again \
+             unchanged, {appended:.1?} with one block appended",
+            2 * count
+        );
+    }
+}
