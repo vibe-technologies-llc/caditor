@@ -356,7 +356,7 @@ fn visit_solid(solid: &mut SolidFeature, visitor: &mut impl ReferenceVisitor) {
             };
             let count = ends.len();
             for (index, end) in ends.into_iter().enumerate() {
-                if let ExtrudeEnd::UpToFace(target) = end {
+                if let ExtrudeEnd::UpToFace { target, .. } = end {
                     let what = match (count, index) {
                         (1, _) => "the face its end runs up to",
                         (_, 0) => "the face its forward end runs up to",

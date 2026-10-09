@@ -274,7 +274,7 @@ fn up_to_next_fills_the_gap_up_to_the_body_and_follows_it() {
         "Boss",
         extrusion(
             boss,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -298,7 +298,7 @@ fn up_to_next_cuts_until_the_profile_comes_out_of_the_body() {
         "Pocket",
         extrusion(
             pocket,
-            one_side(ExtrudeEnd::UpToNext, true),
+            one_side(ExtrudeEnd::up_to_next(), true),
             BodyOperation::Remove(model.plate),
         ),
     );
@@ -327,7 +327,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Beside",
         extrusion(
             below,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -336,7 +336,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Separate",
         extrusion(
             below,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::NewBody,
         ),
     );
@@ -350,7 +350,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Removing",
         extrusion(
             under,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Remove(model.plate),
         ),
     );
@@ -364,7 +364,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Inside",
         extrusion(
             inner,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -392,7 +392,7 @@ fn up_to_next_that_misses_meets_several_faces_or_changes_nothing_is_refused() {
         "Stepped",
         extrusion(
             across,
-            one_side(ExtrudeEnd::UpToNext, false),
+            one_side(ExtrudeEnd::up_to_next(), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -449,7 +449,7 @@ fn up_to_face_ends_on_the_face_and_follows_it_when_the_body_changes() {
         "Tower",
         extrusion(
             tower,
-            one_side(ExtrudeEnd::UpToFace(top), true),
+            one_side(ExtrudeEnd::up_to_face(top), true),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -508,7 +508,7 @@ fn up_to_a_face_that_an_upstream_edit_removes_fails_alone_and_keeps_its_last_sha
         "Post",
         extrusion(
             post,
-            one_side(ExtrudeEnd::UpToFace(lug_top), true),
+            one_side(ExtrudeEnd::up_to_face(lug_top), true),
             BodyOperation::NewBody,
         ),
     );
@@ -581,7 +581,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
         "Upwards",
         extrusion(
             high,
-            one_side(ExtrudeEnd::UpToFace(top.clone()), false),
+            one_side(ExtrudeEnd::up_to_face(top.clone()), false),
             BodyOperation::Add(model.plate),
         ),
     );
@@ -591,7 +591,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
         extrusion(
             high,
             ExtrudeExtent::TwoSides {
-                forward: ExtrudeEnd::UpToFace(top),
+                forward: ExtrudeEnd::up_to_face(top),
                 backward: ExtrudeEnd::Distance(millimetres(1.0)),
             },
             BodyOperation::NewBody,
@@ -619,7 +619,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
         "Across",
         extrusion(
             centred,
-            one_side(ExtrudeEnd::UpToFace(PlaneReference::Datum(slope)), false),
+            one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(slope)), false),
             BodyOperation::NewBody,
         ),
     );
@@ -629,7 +629,7 @@ fn up_to_a_face_behind_across_or_along_the_direction_is_refused() {
         extrusion(
             centred,
             one_side(
-                ExtrudeEnd::UpToFace(PlaneReference::Principal(PrincipalPlane::Xz)),
+                ExtrudeEnd::up_to_face(PlaneReference::Principal(PrincipalPlane::Xz)),
                 false,
             ),
             BodyOperation::NewBody,
@@ -688,7 +688,7 @@ fn up_to_a_tilted_datum_plane_ends_on_it() {
         "Wedge",
         extrusion(
             base,
-            one_side(ExtrudeEnd::UpToFace(PlaneReference::Datum(slope)), false),
+            one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(slope)), false),
             BodyOperation::NewBody,
         ),
     );
@@ -738,7 +738,7 @@ fn each_side_of_a_two_sided_extrusion_takes_its_own_end() {
             middle,
             ExtrudeExtent::TwoSides {
                 forward: ExtrudeEnd::Distance(millimetres(5.0)),
-                backward: ExtrudeEnd::UpToFace(PlaneReference::Principal(PrincipalPlane::Xy)),
+                backward: ExtrudeEnd::up_to_face(PlaneReference::Principal(PrincipalPlane::Xy)),
             },
             BodyOperation::NewBody,
         ),
@@ -755,7 +755,7 @@ fn each_side_of_a_two_sided_extrusion_takes_its_own_end() {
             cut,
             ExtrudeExtent::TwoSides {
                 forward: ExtrudeEnd::ThroughAll,
-                backward: ExtrudeEnd::UpToNext,
+                backward: ExtrudeEnd::up_to_next(),
             },
             BodyOperation::Remove(model.plate),
         ),
@@ -784,7 +784,7 @@ fn a_new_body_up_to_a_face_of_another_body_is_recomputed_when_that_body_changes(
         "Tower",
         extrusion(
             tower_sketch,
-            one_side(ExtrudeEnd::UpToFace(top), true),
+            one_side(ExtrudeEnd::up_to_face(top), true),
             BodyOperation::NewBody,
         ),
     );
@@ -833,7 +833,7 @@ fn a_datum_plane_an_extrusion_runs_up_to_is_one_of_its_features_and_must_stay_ab
         "Block",
         extrusion(
             base,
-            one_side(ExtrudeEnd::UpToFace(PlaneReference::Datum(level)), false),
+            one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(level)), false),
             BodyOperation::NewBody,
         ),
     );
@@ -851,7 +851,7 @@ fn a_datum_plane_an_extrusion_runs_up_to_is_one_of_its_features_and_must_stay_ab
             id: block,
             kind: extrusion(
                 base,
-                one_side(ExtrudeEnd::UpToFace(PlaneReference::Datum(axis)), false),
+                one_side(ExtrudeEnd::up_to_face(PlaneReference::Datum(axis)), false),
                 BodyOperation::NewBody,
             ),
         },
@@ -1000,4 +1000,89 @@ fn a_chosen_region_whose_curve_is_deleted_is_left_out_and_said_so() {
          similar geometry, and a chosen region of Plate sketch no longer exists and was left out."
     );
     assert!((volume(&after, block) - 160.0).abs() < 1e-6);
+}
+
+#[test]
+fn an_offset_stops_an_end_short_of_or_past_the_face_it_reaches() {
+    let mut model = plate_at(0.0);
+    let top = face_reference(&model.document, model.plate, Vector3::Z, 10.0);
+    let pocket = add(
+        &mut model.document,
+        "Pocket sketch",
+        FeatureKind::from(rectangle(at(10.0), (5.0, 5.0), (15.0, 15.0))),
+    );
+    let short = add(
+        &mut model.document,
+        "Short pocket",
+        extrusion(
+            pocket,
+            one_side(
+                ExtrudeEnd::up_to_next().with_offset(Some(millimetres(-4.0))),
+                true,
+            ),
+            BodyOperation::Remove(model.plate),
+        ),
+    );
+    let tower = add(
+        &mut model.document,
+        "Tower sketch",
+        FeatureKind::from(rectangle(at(30.0), (25.0, 25.0), (35.0, 35.0))),
+    );
+    let short_tower = add(
+        &mut model.document,
+        "Tower",
+        extrusion(
+            tower,
+            one_side(
+                ExtrudeEnd::up_to_face(top.clone()).with_offset(Some(millimetres(-2.0))),
+                true,
+            ),
+            BodyOperation::NewBody,
+        ),
+    );
+    let past = add(
+        &mut model.document,
+        "Past",
+        extrusion(
+            tower,
+            one_side(
+                ExtrudeEnd::up_to_face(top.clone()).with_offset(Some(millimetres(5.0))),
+                true,
+            ),
+            BodyOperation::NewBody,
+        ),
+    );
+    let behind = add(
+        &mut model.document,
+        "Behind",
+        extrusion(
+            tower,
+            one_side(
+                ExtrudeEnd::up_to_face(top).with_offset(Some(millimetres(-25.0))),
+                true,
+            ),
+            BodyOperation::NewBody,
+        ),
+    );
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert!((volume(&evaluation, model.plate) - (16_000.0 - 600.0)).abs() < 1e-6);
+    assert!(matches!(
+        evaluation.feature(short).unwrap().state,
+        FeatureState::UpToDate
+    ));
+    assert!((volume(&evaluation, short_tower) - 1_800.0).abs() < 1e-6);
+    assert!((volume(&evaluation, past) - 2_500.0).abs() < 1e-6);
+    let refused = failure(&evaluation, behind);
+    assert_eq!(
+        refused.reason,
+        "Stopping 25 mm short of Plate end face would end the extrusion before it starts in \
+         places."
+    );
+    assert_eq!(
+        refused.remedy,
+        "Enter a smaller end offset, or choose a face or plane farther from the sketch."
+    );
+    assert_eq!(evaluation.failed_count(), 1);
 }

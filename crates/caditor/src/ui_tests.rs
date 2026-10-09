@@ -13930,12 +13930,10 @@ fn extrusion_above_plate(harness: &mut Harness, height: f64) -> FeatureId {
 }
 
 fn target_origin(extent: &ExtrudeExtent) -> Option<caditor_kernel::FaceOrigin> {
-    let ExtrudeExtent::OneSide {
-        end:
-            caditor_document::ExtrudeEnd::UpToFace(caditor_document::PlaneReference::Face(attachment)),
-        ..
-    } = extent
-    else {
+    let ExtrudeExtent::OneSide { end, .. } = extent else {
+        return None;
+    };
+    let Some(caditor_document::PlaneReference::Face(attachment)) = end.target() else {
         return None;
     };
     attachment.face.origin()
@@ -13990,12 +13988,60 @@ fn an_extrusion_cuts_through_all_or_up_to_the_next_face_chosen_in_its_panel() {
     assert_eq!(
         next,
         ExtrudeExtent::OneSide {
-            end: caditor_document::ExtrudeEnd::UpToNext,
+            end: caditor_document::ExtrudeEnd::up_to_next(),
             reversed: true
         }
     );
     assert!((next_volume - 15_000.0).abs() < 1.0);
     assert_eq!(undone, through);
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn an_end_up_to_the_next_face_stops_short_of_it_by_the_offset_typed_in_its_panel() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let cut = extrusion_above_plate(&mut harness, 10.0);
+    choose(&mut harness, "Add to body", "Remove from body");
+    harness.click_lowest(crate::feature_fields::REVERSE_DIRECTION);
+    harness.settle();
+    open_combo(&mut harness, "End");
+    harness.click_lowest("Up to next");
+    harness.settle();
+
+    let offered = harness.shows(crate::solid_panel::END_OFFSET);
+    let field = Id::new(("solid-field", "distance-offset", cut));
+    harness.type_into_field(field, "-4 mm");
+    harness.settle();
+    let short = extent_of(&harness, cut);
+    let volume = harness.body_volume(plate);
+    harness.type_into_field(field, "0 mm");
+    harness.settle();
+    let cleared = extent_of(&harness, cut);
+
+    assert!(offered);
+    assert_eq!(
+        short,
+        ExtrudeExtent::OneSide {
+            end: caditor_document::ExtrudeEnd::up_to_next().with_offset(Some(
+                caditor_expression::Expression::Negate(Box::new(
+                    caditor_expression::Expression::Measure(
+                        4.0,
+                        caditor_expression::Unit::Millimetre
+                    )
+                ))
+            )),
+            reversed: true
+        }
+    );
+    assert!((volume - 15_400.0).abs() < 1.0);
+    assert_eq!(
+        cleared,
+        ExtrudeExtent::OneSide {
+            end: caditor_document::ExtrudeEnd::up_to_next(),
+            reversed: true
+        }
+    );
     assert_eq!(harness.model.evaluation().failed_count(), 0);
 }
 

@@ -239,6 +239,7 @@ pub(crate) enum FeatureKindRecord {
     ScaleInFrame(Box<MoveInFrameRecord>),
     ImportInFrame(Box<MoveInFrameRecord>),
     ScaledImport(Box<ScaledImportRecord>),
+    OffsetEnds(Box<OffsetEndsRecord>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -478,6 +479,15 @@ pub(crate) struct ShapedSweepRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct OffsetEndsRecord {
+    pub feature: FeatureKindRecord,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forward: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backward: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct RevolveOneSideRecord {
     pub feature: FeatureKindRecord,
     pub side: AxisSideRecord,
@@ -485,7 +495,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 55] = [
+pub(crate) const FEATURE_KINDS: [&str; 56] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -541,6 +551,7 @@ pub(crate) const FEATURE_KINDS: [&str; 55] = [
     "scale_in_frame",
     "import_in_frame",
     "scaled_import",
+    "offset_ends",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1796,6 +1807,11 @@ fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             keep_tool: combine.keep_tool,
         }));
     }
+    if let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = kind
+        && let Some(record) = offset_ends_record(extrude)
+    {
+        return record;
+    }
     if let FeatureKind::Solid(solid) = kind
         && (solid.taper().is_some() || solid.wall().is_some())
     {
@@ -2169,9 +2185,31 @@ fn end_record(end: &ExtrudeEnd) -> Lenient<ExtrudeEndRecord> {
     Lenient::Read(match end {
         ExtrudeEnd::Distance(distance) => ExtrudeEndRecord::Distance(distance.to_stored_text()),
         ExtrudeEnd::ThroughAll => ExtrudeEndRecord::ThroughAll,
-        ExtrudeEnd::UpToNext => ExtrudeEndRecord::UpToNext,
-        ExtrudeEnd::UpToFace(target) => ExtrudeEndRecord::UpToFace(plane_reference_record(target)),
+        ExtrudeEnd::UpToNext { .. } => ExtrudeEndRecord::UpToNext,
+        ExtrudeEnd::UpToFace { target, .. } => {
+            ExtrudeEndRecord::UpToFace(plane_reference_record(target))
+        }
     })
+}
+
+fn offset_ends_record(extrude: &Extrude) -> Option<FeatureKindRecord> {
+    let (forward, backward) = match &extrude.extent {
+        ExtrudeExtent::OneSide { end, .. } => (end.offset(), None),
+        ExtrudeExtent::TwoSides { forward, backward } => (forward.offset(), backward.offset()),
+        ExtrudeExtent::Symmetric { .. } => (None, None),
+    };
+    if forward.is_none() && backward.is_none() {
+        return None;
+    }
+    let mut plain = extrude.clone();
+    for end in plain.extent.ends_mut() {
+        *end = end.clone().with_offset(None);
+    }
+    Some(FeatureKindRecord::OffsetEnds(Box::new(OffsetEndsRecord {
+        feature: feature_kind_record(&FeatureKind::Solid(SolidFeature::Extrude(plain))),
+        forward: forward.map(Expression::to_stored_text),
+        backward: backward.map(Expression::to_stored_text),
+    })))
 }
 
 fn start_record(start: &SolidStart) -> Lenient<SolidStartRecord> {
@@ -4059,6 +4097,11 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::OffsetEnds(offsets) => {
+            let mut kind = restore_kind(&offsets.feature, name, texts, issues);
+            restore_offsets(&mut kind, offsets, name, issues);
+            kind
+        }
         FeatureKindRecord::ShapedSweep(shaped) => {
             let mut kind = restore_kind(&shaped.feature, name, texts, issues);
             let taper = shaped
@@ -4509,6 +4552,50 @@ fn restore_start(
     }
 }
 
+fn restore_offsets(
+    kind: &mut FeatureKind,
+    record: &OffsetEndsRecord,
+    name: &str,
+    issues: &mut Vec<String>,
+) {
+    let FeatureKind::Solid(SolidFeature::Extrude(extrude)) = kind else {
+        issues.push(format!(
+            "“{name}” had ends offset from the faces they run up to, but it is not an extrusion, \
+             so the offsets were left out."
+        ));
+        return;
+    };
+    let (forward, backward): (Option<&mut ExtrudeEnd>, Option<&mut ExtrudeEnd>) =
+        match &mut extrude.extent {
+            ExtrudeExtent::OneSide { end, .. } => (Some(end), None),
+            ExtrudeExtent::TwoSides { forward, backward } => (Some(forward), Some(backward)),
+            ExtrudeExtent::Symmetric { .. } => (None, None),
+        };
+    let what = if backward.is_some() {
+        ("forward end offset", "backward end offset")
+    } else {
+        ("end offset", "backward end offset")
+    };
+    for ((end, text), what) in [(forward, &record.forward), (backward, &record.backward)]
+        .into_iter()
+        .zip([what.0, what.1])
+    {
+        let Some(text) = text else {
+            continue;
+        };
+        match end {
+            Some(end) if end.takes_offset() => {
+                let offset = restore_value(text, what, "0 mm", name, issues);
+                *end = end.clone().with_offset(Some(offset));
+            }
+            _ => issues.push(format!(
+                "The {what} of “{name}” belongs to an end that does not run up to a face, so it \
+                 was left out."
+            )),
+        }
+    }
+}
+
 fn restore_end(
     record: &Lenient<ExtrudeEndRecord>,
     (what, distance): (&str, &str),
@@ -4521,10 +4608,10 @@ fn restore_end(
             ExtrudeEnd::Distance(restore_value(text, distance, "10 mm", name, issues))
         }
         Lenient::Read(ExtrudeEndRecord::ThroughAll) => ExtrudeEnd::ThroughAll,
-        Lenient::Read(ExtrudeEndRecord::UpToNext) => ExtrudeEnd::UpToNext,
+        Lenient::Read(ExtrudeEndRecord::UpToNext) => ExtrudeEnd::up_to_next(),
         Lenient::Read(ExtrudeEndRecord::UpToFace(target)) => {
             match restore_plane_reference(target) {
-                Some(target) => ExtrudeEnd::UpToFace(target),
+                Some(target) => ExtrudeEnd::up_to_face(target),
                 None => {
                     issues.push(format!(
                     "The face or plane that the {what} of “{name}” runs up to could not be read, \

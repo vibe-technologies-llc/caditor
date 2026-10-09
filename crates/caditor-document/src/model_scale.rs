@@ -589,10 +589,7 @@ impl Rescaler {
     }
 
     fn end(&mut self, end: &mut ExtrudeEnd, name: &str) -> Result<(), ModelScaleError> {
-        match end {
-            ExtrudeEnd::Distance(distance) => self.length(distance, name),
-            ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext | ExtrudeEnd::UpToFace(_) => Ok(()),
-        }
+        self.lengths(end.expressions_mut(), name)
     }
 
     fn start(&mut self, start: &mut Option<SolidStart>, name: &str) -> Result<(), ModelScaleError> {
@@ -756,8 +753,8 @@ fn start_anchor(start: Option<&SolidStart>) -> Option<Anchor> {
 
 fn end_anchor(end: &ExtrudeEnd) -> Option<Anchor> {
     match end {
-        ExtrudeEnd::UpToFace(plane) => plane_anchor(plane),
-        ExtrudeEnd::Distance(_) | ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext => None,
+        ExtrudeEnd::UpToFace { target, .. } => plane_anchor(target),
+        ExtrudeEnd::Distance(_) | ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext { .. } => None,
     }
 }
 

@@ -195,6 +195,9 @@ paths:
   on hover. Up to face takes the selected face or plane captured where the extrusion sits in the
   tree (`solid_panel::selected_target`, through `datum_tools::plane_reference`), each refusal
   saying why (curved, made later, an axis); with none usable it starts choosing one in the view.
+  An end Up to next or Up to face has an offset field below it (`solid_panel::END_OFFSET`, Past
+  the face, and Forward or Backward past face; key `<side>-offset`; any sign, negative stopping
+  short, zero clearing it), kept when the end switches between the two or takes another face.
 - An extrusion's and a revolve's panel ends with a Start row (`solid_panel::start_rows`): the sketch
   plane with a Start offset field (key `start`, zero clears it), or Face or plane, taken like an
   end (`solid_panel::start_change`, slot `Slot::StartPlane`) and shown as Starts at with a button

@@ -5134,7 +5134,7 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
     let between = transaction.add_feature(
         "Between",
         extrude(ExtrudeExtent::TwoSides {
-            forward: ExtrudeEnd::UpToFace(PlaneReference::Face(FaceAttachment {
+            forward: ExtrudeEnd::up_to_face(PlaneReference::Face(FaceAttachment {
                 body: base,
                 face: FaceReference::new(
                     FaceName::from_digest(0xface),
@@ -5144,13 +5144,13 @@ fn extents_model() -> (Document, [FeatureId; 4]) {
                     [FaceName::from_digest(7)],
                 ),
             })),
-            backward: ExtrudeEnd::UpToFace(PlaneReference::Datum(level)),
+            backward: ExtrudeEnd::up_to_face(PlaneReference::Datum(level)),
         }),
     );
     let next = transaction.add_feature(
         "Next",
         extrude(ExtrudeExtent::TwoSides {
-            forward: ExtrudeEnd::UpToNext,
+            forward: ExtrudeEnd::up_to_next(),
             backward: ExtrudeEnd::Distance(transaction.parse("depth / 2").unwrap()),
         }),
     );
@@ -5199,6 +5199,87 @@ fn extents_to_faces_planes_and_the_next_face_and_two_angles_are_saved_and_loaded
         let record = through_binary(&text);
         assert_eq!(format::restore_transaction(record), Some(transaction));
     }
+}
+
+#[test]
+fn ends_offset_from_the_faces_they_reach_are_a_kind_older_readers_report() {
+    use caditor_document::{
+        BodyOperation, Datum, DatumPlane, Extrude, ExtrudeEnd, ExtrudeExtent, PlaneReference,
+        PrincipalPlane, RegionChoice, SolidFeature,
+    };
+    let (mut document, base, _) = solid_model();
+    let sketch = document.features().next().unwrap().id();
+    let mut transaction = document.transaction("Offsets");
+    let level = transaction.add_feature(
+        "Level",
+        FeatureKind::Datum(Datum::Plane(DatumPlane {
+            base: PlaneReference::Principal(PrincipalPlane::Xy),
+            rotation: None,
+            offset: transaction.parse("20 mm").unwrap(),
+        })),
+    );
+    let extrude = |extent| {
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch,
+            regions: RegionChoice::All,
+            extent,
+            operation: BodyOperation::Remove(base),
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+        }))
+    };
+    let short = ExtrudeEnd::up_to_face(PlaneReference::Datum(level))
+        .with_offset(Some(transaction.parse("-2 mm").unwrap()));
+    let past = ExtrudeEnd::up_to_next().with_offset(Some(transaction.parse("depth").unwrap()));
+    let one = transaction.add_feature(
+        "Short",
+        extrude(ExtrudeExtent::OneSide {
+            end: short,
+            reversed: false,
+        }),
+    );
+    let two = transaction.add_feature(
+        "Past",
+        extrude(ExtrudeExtent::TwoSides {
+            forward: ExtrudeEnd::ThroughAll,
+            backward: past,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("offset_ends", "offset_endz"));
+
+    assert!(text.contains("\"offset_ends\":{\"feature\":{\"extrude_to\":"));
+    assert!(text.contains("\"forward\":\"-2 mm\""));
+    assert!(text.contains("\"backward\":\"$0\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(one).is_none());
+    assert!(older.document.feature(two).is_none());
+    assert!(!older.issues.is_empty());
+    for feature in [one, two] {
+        let kind = document.feature(feature).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: feature, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+
+    let damaged = decode_text(&text.replacen("\"forward\":\"-2 mm\"", "\"forward\":\"-2 m(\"", 1));
+    let Some(FeatureKind::Solid(SolidFeature::Extrude(restored))) =
+        damaged.document.feature(one).map(|feature| &feature.kind)
+    else {
+        panic!("the extrusion was not loaded");
+    };
+    assert_eq!(
+        restored.extent.ends()[0].offset(),
+        Some(&Expression::Measure(0.0, Unit::Millimetre))
+    );
+    assert_eq!(damaged.issues.len(), 1);
 }
 
 fn starts_model() -> (Document, [FeatureId; 3]) {

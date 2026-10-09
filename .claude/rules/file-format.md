@@ -311,6 +311,12 @@ paths:
   would fail on the crossing profile or turn both sides; an inner record that is no revolve loads
   turning the whole profile, reported. `cut_several` wraps it when the revolve also cuts other
   bodies.
+- An extrusion with an up-to end offset from the face it reaches is an `offset_ends` record:
+  `feature`, the record it would be with no offsets (which `shaped_sweep` and the wrappers inside it
+  may wrap), and `forward` (the one end of a one-sided extrusion, or the forward end) and
+  `backward`, each the offset's stored text only when set, since an older reader would end on the
+  face itself. An unreadable offset loads as 0 mm, and one for an end that does not run up to a
+  face is left out, each reported.
 - A tapered or thin-walled extrusion, or a thin-walled revolve, is a `shaped_sweep` record:
   `feature`, the record it would be without them (which `cut_several` or `revolve_one_side` may
   wrap), `taper` (stored text, only when set; unreadable: 0 deg, reported) and `wall` (`thickness`

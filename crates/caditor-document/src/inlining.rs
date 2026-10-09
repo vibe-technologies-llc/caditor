@@ -4,7 +4,7 @@ use crate::{
     document::{Document, FeatureKind},
     edit::{Edit, EditError, Transaction},
     pattern::PatternKind,
-    solid::{ExtrudeEnd, ExtrudeExtent, RevolveExtent, SolidFeature, SolidStart},
+    solid::{ExtrudeExtent, RevolveExtent, SolidFeature, SolidStart},
 };
 
 impl Document {
@@ -75,11 +75,12 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         FeatureKind::Solid(SolidFeature::Extrude(extrude)) => {
             let mut expressions = match &mut extrude.extent {
                 ExtrudeExtent::Symmetric { distance } => vec![distance],
-                ExtrudeExtent::OneSide { end, .. } => end_distance(end).into_iter().collect(),
-                ExtrudeExtent::TwoSides { forward, backward } => end_distance(forward)
-                    .into_iter()
-                    .chain(end_distance(backward))
-                    .collect(),
+                ExtrudeExtent::OneSide { end, .. } => end.expressions_mut(),
+                ExtrudeExtent::TwoSides { forward, backward } => {
+                    let mut ends = forward.expressions_mut();
+                    ends.extend(backward.expressions_mut());
+                    ends
+                }
             };
             expressions.extend(start_distance(&mut extrude.start));
             expressions.extend(extrude.taper.as_deref_mut());
@@ -123,13 +124,6 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         | FeatureKind::Mirror(_)
         | FeatureKind::Split(_)
         | FeatureKind::Remove(_) => Vec::new(),
-    }
-}
-
-fn end_distance(end: &mut ExtrudeEnd) -> Option<&mut Expression> {
-    match end {
-        ExtrudeEnd::Distance(distance) => Some(distance),
-        ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext | ExtrudeEnd::UpToFace(_) => None,
     }
 }
 

@@ -79,22 +79,69 @@ impl BodyOperation {
 pub enum ExtrudeEnd {
     Distance(Expression),
     ThroughAll,
-    UpToNext,
-    UpToFace(PlaneReference),
+    UpToNext {
+        offset: Option<Box<Expression>>,
+    },
+    UpToFace {
+        target: Box<PlaneReference>,
+        offset: Option<Box<Expression>>,
+    },
 }
 
 impl ExtrudeEnd {
+    pub fn up_to_next() -> Self {
+        Self::UpToNext { offset: None }
+    }
+
+    pub fn up_to_face(target: PlaneReference) -> Self {
+        Self::UpToFace {
+            target: Box::new(target),
+            offset: None,
+        }
+    }
+
     pub fn distance(&self) -> Option<&Expression> {
         match self {
             Self::Distance(distance) => Some(distance),
-            Self::ThroughAll | Self::UpToNext | Self::UpToFace(_) => None,
+            Self::ThroughAll | Self::UpToNext { .. } | Self::UpToFace { .. } => None,
         }
     }
 
     pub fn target(&self) -> Option<&PlaneReference> {
         match self {
-            Self::UpToFace(target) => Some(target),
-            Self::Distance(_) | Self::ThroughAll | Self::UpToNext => None,
+            Self::UpToFace { target, .. } => Some(target),
+            Self::Distance(_) | Self::ThroughAll | Self::UpToNext { .. } => None,
+        }
+    }
+
+    pub fn offset(&self) -> Option<&Expression> {
+        match self {
+            Self::UpToNext { offset } | Self::UpToFace { offset, .. } => offset.as_deref(),
+            Self::Distance(_) | Self::ThroughAll => None,
+        }
+    }
+
+    pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
+        match self {
+            Self::Distance(distance) => vec![distance],
+            Self::UpToNext { offset } | Self::UpToFace { offset, .. } => {
+                offset.as_deref_mut().into_iter().collect()
+            }
+            Self::ThroughAll => Vec::new(),
+        }
+    }
+
+    pub fn takes_offset(&self) -> bool {
+        matches!(self, Self::UpToNext { .. } | Self::UpToFace { .. })
+    }
+
+    #[must_use]
+    pub fn with_offset(self, offset: Option<Expression>) -> Self {
+        let offset = offset.map(Box::new);
+        match self {
+            Self::UpToNext { .. } => Self::UpToNext { offset },
+            Self::UpToFace { target, .. } => Self::UpToFace { target, offset },
+            other @ (Self::Distance(_) | Self::ThroughAll) => other,
         }
     }
 }
@@ -137,13 +184,21 @@ impl ExtrudeExtent {
         }
     }
 
+    pub fn ends_mut(&mut self) -> Vec<&mut ExtrudeEnd> {
+        match self {
+            Self::OneSide { end, .. } => vec![end],
+            Self::Symmetric { .. } => Vec::new(),
+            Self::TwoSides { forward, backward } => vec![forward, backward],
+        }
+    }
+
     fn expressions(&self) -> Vec<&Expression> {
         match self {
             Self::Symmetric { distance } => vec![distance],
             Self::OneSide { .. } | Self::TwoSides { .. } => self
                 .ends()
                 .into_iter()
-                .filter_map(ExtrudeEnd::distance)
+                .flat_map(|end| end.distance().into_iter().chain(end.offset()))
                 .collect(),
         }
     }
@@ -1647,6 +1702,14 @@ impl Side {
         }
     }
 
+    fn offset(self) -> &'static str {
+        match self {
+            Self::Only { .. } => "end offset",
+            Self::Forward => "forward end offset",
+            Self::Backward => "backward end offset",
+        }
+    }
+
     fn ahead(self) -> &'static str {
         match self {
             Self::Only { .. } => "ahead of the sketch",
@@ -1731,9 +1794,81 @@ impl Ends<'_> {
                 side.sign() * self.length(distance, side.distance())?,
             )),
             ExtrudeEnd::ThroughAll => self.through_all(side),
-            ExtrudeEnd::UpToNext => self.up_to_next(side),
-            ExtrudeEnd::UpToFace(target) => self.up_to_face(target, side),
+            ExtrudeEnd::UpToNext { offset } => {
+                let offset = self.offset(offset.as_deref(), side)?;
+                self.up_to_next(side, offset)
+            }
+            ExtrudeEnd::UpToFace { target, offset } => {
+                let offset = self.offset(offset.as_deref(), side)?;
+                self.up_to_face(target, side, offset)
+            }
         }
+    }
+
+    fn offset(&self, offset: Option<&Expression>, side: Side) -> Result<f64, Failure> {
+        let Some(offset) = offset else {
+            return Ok(0.0);
+        };
+        let what = side.offset();
+        evaluate_value(
+            self.context,
+            offset,
+            Dimension::LENGTH,
+            what,
+            self.inputs.parameters,
+        )
+        .and_then(|value| within_reach(self.context, value.abs(), what).map(|_| value))
+    }
+
+    fn offset_end(
+        &self,
+        target: Plane,
+        side: Side,
+        offset: f64,
+        name: &str,
+    ) -> Result<LinearBound, Failure> {
+        self.check_ahead(target, side, name)?;
+        if offset == 0.0 {
+            return Ok(LinearBound::Plane(target));
+        }
+        let direction = self.plane.normal() * side.sign();
+        let onwards = if target.normal().dot(direction) < 0.0 {
+            -target.normal()
+        } else {
+            target.normal()
+        };
+        let moved = Plane::from_frame(
+            target.origin() + onwards * offset,
+            target.normal(),
+            target.x_axis(),
+        )
+        .ok_or_else(|| {
+            self.error(
+                format!("The end cannot be moved from {name} by its offset."),
+                format!("Enter another {}.", side.offset()),
+            )
+        })?;
+        let found = heights(&self.plane, self.regions, &moved)
+            .map_err(|error| sweep_failure(self.context, "extrusion", &error))?;
+        let least = if side.reversed() {
+            -found.most
+        } else {
+            found.least
+        };
+        if least <= LINEAR_RESOLUTION {
+            return Err(self.error(
+                format!(
+                    "Stopping {} short of {name} would end the extrusion before it starts in \
+                     places.",
+                    Quantity::length(-offset)
+                ),
+                format!(
+                    "Enter a smaller {}, or choose a face or plane farther from the sketch.",
+                    side.offset()
+                ),
+            ));
+        }
+        Ok(LinearBound::Plane(moved))
     }
 
     fn body(&self, body: FeatureId) -> Result<&Solid, Failure> {
@@ -1787,7 +1922,7 @@ impl Ends<'_> {
         ))
     }
 
-    fn up_to_next(&self, side: Side) -> Result<LinearBound, Failure> {
+    fn up_to_next(&self, side: Side, offset: f64) -> Result<LinearBound, Failure> {
         let Some(body) = self.operation.target() else {
             return Err(self.error(
                 "Up to next stops at the body this extrusion changes, and it makes a new body \
@@ -1822,8 +1957,7 @@ impl Ends<'_> {
                     self.inputs.document,
                     solid.face(found.face).and_then(|face| face.origin()),
                 );
-                self.check_ahead(found.plane, side, &face)?;
-                Ok(LinearBound::Plane(found.plane))
+                self.offset_end(found.plane, side, offset, &face)
             }
         }
     }
@@ -1893,10 +2027,15 @@ impl Ends<'_> {
         }
     }
 
-    fn up_to_face(&self, target: &PlaneReference, side: Side) -> Result<LinearBound, Failure> {
+    fn up_to_face(
+        &self,
+        target: &PlaneReference,
+        side: Side,
+        offset: f64,
+    ) -> Result<LinearBound, Failure> {
         let plane = self.resolve(target)?;
-        self.check_ahead(plane, side, &describe_plane(self.inputs.document, target))?;
-        Ok(LinearBound::Plane(plane))
+        let name = describe_plane(self.inputs.document, target);
+        self.offset_end(plane, side, offset, &name)
     }
 
     fn resolve(&self, target: &PlaneReference) -> Result<Plane, Failure> {

@@ -282,6 +282,12 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
     change nothing and fails.
   - Up to face ends on the face's plane extended past the face, which must lie beyond the whole
     profile on its side.
+  - Either up-to end may carry an `offset` (a signed length expression, boxed like the target to
+    keep `FeatureKind` small; zero is stored as absent): the end plane moves along its own normal
+    that far past the face, or stops short of it when negative, so a slanted plane stays the same
+    slant. The face must still lie ahead of the whole profile, and an offset bringing the end back
+    across the profile fails naming it and asking for a smaller offset. Offsets count among the
+    feature's expressions (parameters, inlining, model scaling).
   - Every failure names the face or plane and the side, with what to do.
 - A removal also cuts each body of `other_bodies` (an extrusion's or revolve's, any other
   operation with some fails in words), every body with the same tool, so one feature changes them

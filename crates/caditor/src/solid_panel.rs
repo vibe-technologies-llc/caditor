@@ -36,6 +36,9 @@ pub const KEEP_OTHER_SIDE: &str = "Keep the other side of the axis";
 pub const ALSO_CUTS: &str = "Also cuts";
 pub const ADD_CUT_BODY: &str = "Add another body";
 const START_OFFSET: &str = "Start offset";
+pub const END_OFFSET: &str = "Past the face";
+const FORWARD_END_OFFSET: &str = "Forward past face";
+const BACKWARD_END_OFFSET: &str = "Backward past face";
 pub const TAPER: &str = "Taper";
 pub const THIN_WALL: &str = "Thin wall";
 pub const WALL_THICKNESS: &str = "Thickness";
@@ -88,8 +91,8 @@ impl EndKind {
         match end {
             ExtrudeEnd::Distance(_) => Self::Distance,
             ExtrudeEnd::ThroughAll => Self::ThroughAll,
-            ExtrudeEnd::UpToNext => Self::UpToNext,
-            ExtrudeEnd::UpToFace(_) => Self::UpToFace,
+            ExtrudeEnd::UpToNext { .. } => Self::UpToNext,
+            ExtrudeEnd::UpToFace { .. } => Self::UpToFace,
         }
     }
 
@@ -107,6 +110,7 @@ struct EndRows<'a> {
     end: &'a str,
     distance: &'a str,
     face: &'a str,
+    offset: &'a str,
     salt: &'a str,
     side: Side,
     rule: Rule,
@@ -294,10 +298,12 @@ impl Panel<'_> {
                     EndKind::UpToNext => extrude
                         .operation
                         .target()
-                        .map(|_| ExtrudeEnd::UpToNext)
+                        .map(|_| ExtrudeEnd::up_to_next().with_offset(end.offset().cloned()))
                         .ok_or_else(|| UP_TO_NEXT_NEEDS_A_BODY.to_owned()),
                     EndKind::UpToFace => selected_target(self.model, self.selection, self.id())
-                        .map(ExtrudeEnd::UpToFace),
+                        .map(|target| {
+                            ExtrudeEnd::up_to_face(target).with_offset(end.offset().cloned())
+                        }),
                 };
                 let change = match candidate {
                     Ok(candidate) => self
@@ -355,7 +361,7 @@ impl Panel<'_> {
                     |distance| with_extent_of(extrude, rebuild(ExtrudeEnd::Distance(distance))),
                 );
             }
-            ExtrudeEnd::UpToFace(target) => {
+            ExtrudeEnd::UpToFace { target, .. } => {
                 let shown = Shown::Named(capitalized(&describe_plane(self.document(), target)));
                 feature_fields::reference_row(
                     ui,
@@ -366,9 +372,11 @@ impl Panel<'_> {
                     None,
                     self.actions,
                 );
+                self.offset_row(ui, rows, extrude, end, rebuild);
                 return;
             }
-            ExtrudeEnd::ThroughAll | ExtrudeEnd::UpToNext => {}
+            ExtrudeEnd::UpToNext { .. } => self.offset_row(ui, rows, extrude, end, rebuild),
+            ExtrudeEnd::ThroughAll => {}
         }
         if self.picking(ui, slot) {
             feature_fields::reference_row(
@@ -381,6 +389,32 @@ impl Panel<'_> {
                 self.actions,
             );
         }
+    }
+
+    fn offset_row(
+        &mut self,
+        ui: &mut Ui,
+        rows: &EndRows<'_>,
+        extrude: &Extrude,
+        end: &ExtrudeEnd,
+        rebuild: &dyn Fn(ExtrudeEnd) -> ExtrudeExtent,
+    ) {
+        let offset = end
+            .offset()
+            .cloned()
+            .unwrap_or_else(|| self.model.length_unit().default_length(0.0));
+        let salt = format!("{}-offset", rows.salt);
+        self.expression(
+            ui,
+            rows.offset,
+            &salt,
+            &offset,
+            (Dimension::LENGTH, Rule::Any),
+            |value| {
+                let kept = (!is_zero(&value)).then_some(value);
+                with_extent_of(extrude, rebuild(end.clone().with_offset(kept)))
+            },
+        );
     }
 
     fn extent_row(&mut self, ui: &mut Ui, extrude: &Extrude) {
@@ -411,6 +445,7 @@ impl Panel<'_> {
                     end: "End",
                     distance: "Distance",
                     face: "Up to",
+                    offset: END_OFFSET,
                     salt: "distance",
                     side: Side::One,
                     rule: Rule::AboveZeroOrReverse,
@@ -451,6 +486,7 @@ impl Panel<'_> {
                     end: "Forward end",
                     distance: "Forward distance",
                     face: "Forward up to",
+                    offset: FORWARD_END_OFFSET,
                     salt: "forward",
                     side: Side::Forward,
                     rule: Rule::AboveZero,
@@ -465,6 +501,7 @@ impl Panel<'_> {
                     end: "Backward end",
                     distance: "Backward distance",
                     face: "Backward up to",
+                    offset: BACKWARD_END_OFFSET,
                     salt: "backward",
                     side: Side::Backward,
                     rule: Rule::AboveZero,
@@ -1159,6 +1196,15 @@ pub fn selected_target(
     }
 }
 
+fn end_on(extent: &ExtrudeExtent, side: Side) -> Option<&ExtrudeEnd> {
+    match (extent, side) {
+        (ExtrudeExtent::OneSide { end, .. }, Side::One) => Some(end),
+        (ExtrudeExtent::TwoSides { forward, .. }, Side::Forward) => Some(forward),
+        (ExtrudeExtent::TwoSides { backward, .. }, Side::Backward) => Some(backward),
+        _ => None,
+    }
+}
+
 fn with_end_on(extent: &ExtrudeExtent, side: Side, end: ExtrudeEnd) -> Option<ExtrudeExtent> {
     match (extent, side) {
         (ExtrudeExtent::OneSide { reversed, .. }, Side::One) => Some(ExtrudeExtent::OneSide {
@@ -1188,7 +1234,10 @@ pub fn target_change(
     extrude: &Extrude,
     side: Side,
 ) -> Result<Transaction, String> {
-    let end = ExtrudeEnd::UpToFace(selected_target(model, selection, feature)?);
+    let kept = end_on(&extrude.extent, side)
+        .and_then(ExtrudeEnd::offset)
+        .cloned();
+    let end = ExtrudeEnd::up_to_face(selected_target(model, selection, feature)?).with_offset(kept);
     let extent = with_end_on(&extrude.extent, side, end).ok_or_else(|| SIDES_CHANGED.to_owned())?;
     if extent == extrude.extent {
         return Err("This end already runs up to the selected face or plane".to_owned());
@@ -1202,7 +1251,13 @@ pub fn up_to_selected_change(
     feature: FeatureId,
     extrude: &Extrude,
 ) -> Result<Transaction, String> {
-    let end = ExtrudeEnd::UpToFace(selected_target(model, selection, feature)?);
+    let kept = extrude
+        .extent
+        .ends()
+        .first()
+        .and_then(|end| end.offset())
+        .cloned();
+    let end = ExtrudeEnd::up_to_face(selected_target(model, selection, feature)?).with_offset(kept);
     let extent = match &extrude.extent {
         ExtrudeExtent::OneSide { reversed, .. } => ExtrudeExtent::OneSide {
             end,
