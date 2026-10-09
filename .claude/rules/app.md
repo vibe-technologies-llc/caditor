@@ -27,6 +27,8 @@ paths:
   - "crates/caditor/src/measure_panel.rs"
   - "crates/caditor/src/interference.rs"
   - "crates/caditor/src/interference_panel.rs"
+  - "crates/caditor/src/comb.rs"
+  - "crates/caditor/src/comb_panel.rs"
 ---
 
 # App shell, model and bodies
@@ -266,7 +268,37 @@ paths:
 - The panel's legend names each band with its area from the same cache (`Tally`, approximate
   since it is the mesh's), so no band is told by colour alone; a band's hover says what it means.
 
-## Samples
+## Curvature comb
+
+- Show or hide the curvature comb (`AnalysisCommand::Comb`, View menu, palette, no default key)
+  toggles `CombTool` in the `Workspace`; while open, `comb_panel.rs` draws a right-hand panel beside
+  any other. It never changes the document and is kept for the session; a new session forgets its
+  curves (`CombTool::forget`).
+- The comb follows the selection: each time `Selection::generation` changes, the selected body
+  edges and sketch curves (lines, arcs, circles, splines; `comb::is_combable`) become the combed
+  curves, at most `MOST_COMBED`, the panel saying how many were left out. A selection holding none
+  keeps the last ones, so selecting a point to drag it keeps its spline combed. The curves are
+  `Pickable`s resolved again whenever the revision, the evaluation or the displayed sketches change
+  (`Basis`), so the comb follows recompute and a sketch drag; one that no longer resolves is counted
+  as gone in a warning callout.
+- Each curve gets `teeth` + 1 teeth (Teeth per curve, `MIN_TEETH` to `MAX_TEETH`) at equal lengths
+  along it, both ends included, from a polyline of `STEPS_PER_TOOTH` steps per tooth, each carrying
+  the kernel's curvature vector (`CurveDerivatives::curvature`). A tooth points away from the centre
+  of curvature, its length the curvature times one reach for the whole comb: the longest tooth is
+  `LONGEST_TOOTH` of the combed curves' size times the Scale (`MIN_SCALE` to `MAX_SCALE`,
+  logarithmic), so curves combed together compare directly. The envelope joins the tips along each
+  curve.
+- Ends of two combed curves within `JOINT_GAP` make a `Joint`, judged from the tangents leaving it
+  and the curvature vectors (`Continuity`: a corner, tangent with a jump in curvature, or curvature
+  continuing within `CURVATURE_SLACK`); the envelope steps from one curve's end tip to the other's,
+  so a jump shows as a step and continuing curvature as none. The panel lists each curve's smallest
+  radius and each joint with its grade (G0, G1, G2) and the radii either side in words, so nothing is
+  told by the drawing alone.
+- The drawing (`CombDrawing`, rebuilt only when the comb or the scale changes) goes into the overlay
+  batch on the front layer: every segment first as a wider line in `ScenePalette::hole`, then the
+  teeth and the envelope in `ScenePalette::comb` over it, so the comb holds 3:1 over bodies and the
+  canvas in both palettes.
+
 
 - `samples.rs` builds parametric models through the document API (so always the current format),
   fully constrained with dimensions naming parameters; a test recomputes each and checks its

@@ -26,6 +26,8 @@ use crate::{
     analysis_panel::{self, AnalysisContext},
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP},
     body_selection, canvas,
+    comb::CombTool,
+    comb_panel,
     commands::{self, Command, CommandFrame, Offer, Situation},
     constraint_trial, drawing_export, drop_target,
     editing::SketchEditing,
@@ -136,6 +138,7 @@ pub struct Workspace {
     pub measure: MeasureTool,
     pub interference: InterferenceTool,
     pub analysis: AnalysisTool,
+    pub comb: CombTool,
     pub(crate) frame_failures: FrameFailures,
     applied_appearance: Option<Appearance>,
     applied_title_bar: Option<TitleBar>,
@@ -178,6 +181,7 @@ impl Workspace {
             measure: MeasureTool::default(),
             interference: InterferenceTool::default(),
             analysis: AnalysisTool::default(),
+            comb: CombTool::default(),
             frame_failures: FrameFailures::default(),
             applied_appearance: None,
             applied_title_bar: None,
@@ -206,6 +210,7 @@ impl Workspace {
         self.measure = MeasureTool::default();
         self.interference = InterferenceTool::default();
         self.analysis = AnalysisTool::default();
+        self.comb = CombTool::default();
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
@@ -220,6 +225,7 @@ impl Workspace {
             self.model_properties = None;
             self.saved_views = None;
             self.interference.interference.forget();
+            self.comb.forget();
         }
     }
 
@@ -388,6 +394,7 @@ pub fn show(
         measure,
         interference,
         analysis,
+        comb,
         keyboard_was_taken,
         deferred_commands,
         ..
@@ -456,6 +463,9 @@ pub fn show(
         interference.toggle();
     }
     analysis_commands(model, viewport.selection(), analysis, &mut commands);
+    if commands.available(Command::Analysis(AnalysisCommand::Comb)) {
+        comb.toggle();
+    }
     sketch_toolbar::show(
         ui,
         model,
@@ -485,8 +495,11 @@ pub fn show(
     drawing_export::face_commands(model, viewport.selection(), &mut commands, actions);
     route_dimension_focus(panels, editing, viewport);
     reference_picking::publish(ui.ctx(), editing.picking());
-    let open_panels =
-        1 + usize::from(measure.open) + usize::from(interference.open) + usize::from(analysis.open);
+    let open_panels = 1
+        + usize::from(measure.open)
+        + usize::from(interference.open)
+        + usize::from(analysis.open)
+        + usize::from(comb.open);
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
     panels::show(
         ui,
@@ -564,6 +577,15 @@ pub fn show(
         None
     };
     viewport.set_analysis(analysing);
+    let combing = if comb.open {
+        comb.follow(model, viewport.selection());
+        let combed = comb.comb(model);
+        comb_panel::show(ui, model, comb, &combed, room);
+        comb.open.then(|| comb.drawing(&combed))
+    } else {
+        None
+    };
+    viewport.set_comb(combing);
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
     canvas::set_contrast(ui.ctx(), contrast);

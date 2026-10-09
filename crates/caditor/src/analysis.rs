@@ -35,9 +35,10 @@ pub enum AnalysisCommand {
     Radius,
     UseSelected,
     Reverse,
+    Comb,
 }
 
-all_variants!(AnalysisCommand: Draft, Radius, UseSelected, Reverse);
+all_variants!(AnalysisCommand: Draft, Radius, UseSelected, Reverse, Comb);
 
 impl AnalysisCommand {
     pub fn id(self) -> &'static str {
@@ -46,6 +47,7 @@ impl AnalysisCommand {
             Self::Radius => "view.analysis_radius",
             Self::UseSelected => "view.analysis_pull_selected",
             Self::Reverse => "view.analysis_pull_reverse",
+            Self::Comb => "view.curvature_comb",
         }
     }
 
@@ -55,6 +57,7 @@ impl AnalysisCommand {
             Self::Radius => "Analyse minimum radius",
             Self::UseSelected => "Pull along the selected axis, edge or face",
             Self::Reverse => "Reverse the pull direction",
+            Self::Comb => "Show or hide the curvature comb",
         }
     }
 }

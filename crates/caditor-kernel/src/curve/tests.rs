@@ -412,3 +412,58 @@ fn closest_parameter_on_a_spline_of_many_spans_finds_the_nearest_point() {
         );
     }
 }
+
+#[test]
+fn a_circle_curves_towards_its_centre_by_the_inverse_of_its_radius() {
+    let frame = tilted_frame();
+    let circle: Curve = Circle::new(frame, 6.0).unwrap().into();
+    for parameter in [0.0, 1.0, 2.5, 5.0] {
+        let curvature = circle.curvature(parameter).unwrap();
+        let towards_centre = (frame.origin() - circle.point(parameter)).normalize();
+
+        assert!((curvature.length() - 1.0 / 6.0).abs() < 1e-12);
+        assert!(curvature.normalize().dot(towards_centre) > 1.0 - 1e-12);
+    }
+}
+
+#[test]
+fn a_line_has_no_curvature() {
+    let line: Curve = Line::new(Point3::new(1.0, 2.0, 3.0), Vector3::new(1.0, -2.0, 0.5))
+        .unwrap()
+        .into();
+
+    assert_eq!(line.curvature(2.0), Some(Vector3::ZERO));
+}
+
+#[test]
+fn an_ellipse_is_tightest_at_the_ends_of_its_major_axis() {
+    let ellipse: Curve = Ellipse::new(Plane::XY, 8.0, 3.0).unwrap().into();
+
+    let at_major = ellipse.curvature(0.0).unwrap();
+    let at_minor = ellipse.curvature(FRAC_PI_2).unwrap();
+
+    assert!((at_major - Vector3::new(-8.0 / 9.0, 0.0, 0.0)).length() < 1e-12);
+    assert!((at_minor - Vector3::new(0.0, -3.0 / 64.0, 0.0)).length() < 1e-12);
+}
+
+#[test]
+fn a_parabola_spline_curves_by_its_closed_form_whatever_its_speed() {
+    let parabola: Curve = BSpline::new(
+        2,
+        vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        vec![
+            Point3::new(-1.0, 1.0, 0.0),
+            Point3::new(0.0, -1.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+        ],
+    )
+    .unwrap()
+    .into();
+
+    let vertex = parabola.curvature(0.5).unwrap();
+    let end = parabola.curvature(1.0).unwrap();
+
+    assert!((vertex - Vector3::new(0.0, 2.0, 0.0)).length() < 1e-12);
+    assert!((end.length() - 2.0 / 5.0_f64.powf(1.5)).abs() < 1e-12);
+    assert!(end.dot(Vector3::new(-2.0, 1.0, 0.0)) > 0.0);
+}
