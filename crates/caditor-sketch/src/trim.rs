@@ -1305,7 +1305,7 @@ fn end_point_near(
         Entity::Line { start, end }
         | Entity::Arc { start, end, .. }
         | Entity::EllipticalArc { start, end, .. } => (*start, *end),
-        Entity::Spline { control_points } => (*control_points.first()?, *control_points.last()?),
+        spline @ Entity::Spline { .. } => spline.spline_ends()?,
         Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => return None,
     };
     if start_at.distance(position) <= tolerance {

@@ -52,6 +52,26 @@ paths:
   perpendicular to the line (or both radii along one line), keeping full rank where the distance
   form has none. A zero distance between points is solved as a coincidence.
 
+## Spline handles (`solve/spline.rs`)
+
+- `System::add_splines` builds every spline's `SplineHandle` once, before the constraints: its
+  control point handles, degree, knots and weights, and the forms read only the handle, so each
+  constraint works on every kind. An open control spline's handles are its points; a closed one's
+  are its points taken round again (`points + 3` handles on `periodic_knots`, a point's gradient
+  arriving at each copy); a conic's its three points with the rational weights.
+- A fit-point spline's control points are variables of their own (`System::hidden`, named
+  `Variable::Control` in the memo, counted with the spline in `entity_variables`), started from
+  the interpolation of the fit points, and the fit points are held on the curve at their
+  parameters by implicit `Form::Through` equations (the point minus the basis-weighted control
+  points): an open one shares its end points with its fit points and holds the inner ones, a
+  closed one holds every fit point at the knots `i / n`. The equations determine the hidden
+  points, so the spline counts two degrees of freedom per fit point, and its fit points take
+  constraints and dimensions like any point.
+- A spline's ends (`SplineEnd`, its end point and which end) take their legs from the handle
+  (`end_legs`), so a tangent or curvature at a fit-point spline's end uses its hidden control
+  points and a conic's end curvature its weights (`end_factor` times `w_end w_after / w_next²`).
+  Closed splines have no ends.
+
 ## Spline parameters (`solve/spline.rs`)
 
 - A point on a spline, a point at a distance from one (`Form::SplineFoot`, square to it there, and

@@ -249,6 +249,27 @@ fn a_spline_closed_by_a_line_encloses_its_parabolic_segment() {
 }
 
 #[test]
+fn a_rational_quarter_circle_closed_by_its_chord_encloses_the_circular_segment() {
+    let weight = std::f64::consts::FRAC_1_SQRT_2;
+    let profile = profile(&[
+        ProfileCurve::rational_spline(
+            1,
+            2,
+            vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            vec![
+                Point2::new(1.0, 0.0),
+                Point2::new(1.0, 1.0),
+                Point2::new(0.0, 1.0),
+            ],
+            vec![1.0, weight, 1.0],
+        ),
+        line(2, (0.0, 1.0), (1.0, 0.0)),
+    ]);
+    assert_eq!(profile.regions().len(), 1);
+    assert!((profile.regions()[0].area() - (PI / 4.0 - 0.5)).abs() < 1e-6);
+}
+
+#[test]
 fn a_spline_crossing_a_line_three_times_makes_distinct_keys() {
     let profile = profile(&[
         spline(

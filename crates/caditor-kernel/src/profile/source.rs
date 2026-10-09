@@ -76,9 +76,18 @@ impl Source {
                 degree,
                 knots,
                 control_points,
+                weights,
             } => {
-                let spline = BSpline::new(*degree, knots.clone(), control_points.clone())
-                    .map_err(|error| ProfileError::InvalidCurve { entity, error })?;
+                let spline = match weights {
+                    Some(weights) => BSpline::rational(
+                        *degree,
+                        knots.clone(),
+                        control_points.clone(),
+                        weights.clone(),
+                    ),
+                    None => BSpline::new(*degree, knots.clone(), control_points.clone()),
+                }
+                .map_err(|error| ProfileError::InvalidCurve { entity, error })?;
                 let range = spline.domain();
                 Ok(Self::open(entity, spline.into(), range))
             }

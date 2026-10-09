@@ -2376,11 +2376,19 @@ fn continuing(sketch: &Sketch, point: EntityId) -> Option<Tangent> {
                 Entity::Arc { center, start, .. } if *start == point => {
                     -(at(*start)? - at(*center)?).perp()
                 }
-                Entity::Spline { control_points } => match control_points.as_slice() {
-                    [first, second, ..] if *first == point => at(*first)? - at(*second)?,
-                    [.., before, last] if *last == point => at(*last)? - at(*before)?,
-                    _ => return None,
-                },
+                spline @ Entity::Spline { .. } => {
+                    let (first, last) = spline.spline_ends()?;
+                    let curve = sketch.spline(curve)?;
+                    if first == point {
+                        let [leaving, _] = curve.derivatives(0.0);
+                        -leaving
+                    } else if last == point {
+                        let [arriving, _] = curve.derivatives(1.0);
+                        arriving
+                    } else {
+                        return None;
+                    }
+                }
                 Entity::Point(_)
                 | Entity::Line { .. }
                 | Entity::Circle { .. }
@@ -3006,7 +3014,7 @@ impl<'a> Draft<'a> {
         {
             self.level(*from, *to, *placement);
         }
-        self.entity(Entity::Spline { control_points });
+        self.entity(Entity::spline(control_points));
     }
 }
 

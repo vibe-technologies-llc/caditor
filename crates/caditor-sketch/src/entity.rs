@@ -19,7 +19,8 @@ pub enum Entity {
         end: EntityId,
     },
     Spline {
-        control_points: Vec<EntityId>,
+        points: Vec<EntityId>,
+        kind: SplineKind,
     },
     Ellipse {
         center: EntityId,
@@ -38,7 +39,7 @@ pub enum Entity {
 impl Entity {
     pub fn heap_size(&self) -> usize {
         match self {
-            Self::Spline { control_points } => size_of_val(control_points.as_slice()),
+            Self::Spline { points, .. } => size_of_val(points.as_slice()),
             Self::Point(_)
             | Self::Line { .. }
             | Self::Circle { .. }
@@ -54,7 +55,7 @@ impl Entity {
             Self::Line { .. } => "Line",
             Self::Circle { .. } => "Circle",
             Self::Arc { .. } => "Arc",
-            Self::Spline { .. } => "Spline",
+            Self::Spline { kind, .. } => kind.name(),
             Self::Ellipse { .. } => "Ellipse",
             Self::EllipticalArc { .. } => "Elliptical arc",
         }
@@ -65,7 +66,12 @@ impl Entity {
     }
 
     pub fn same_structure(&self, other: &Entity) -> bool {
-        self.kind_name() == other.kind_name() && self.points() == other.points()
+        self.kind_name() == other.kind_name()
+            && self.points() == other.points()
+            && match (self.spline_kind(), other.spline_kind()) {
+                (Some(kind), Some(other)) => kind.same_form(other),
+                (kind, other) => kind.is_none() && other.is_none(),
+            }
     }
 
     pub fn points(&self) -> Vec<EntityId> {
@@ -74,7 +80,7 @@ impl Entity {
             Self::Line { start, end } => vec![*start, *end],
             Self::Circle { center, .. } => vec![*center],
             Self::Arc { center, start, end } => vec![*center, *start, *end],
-            Self::Spline { control_points } => control_points.clone(),
+            Self::Spline { points, .. } => points.clone(),
             Self::Ellipse { center, major, .. } => vec![*center, *major],
             Self::EllipticalArc {
                 center,
@@ -102,8 +108,9 @@ impl Entity {
                 start: map(*start),
                 end: map(*end),
             },
-            Self::Spline { control_points } => Self::Spline {
-                control_points: control_points.iter().map(|point| map(*point)).collect(),
+            Self::Spline { points, kind } => Self::Spline {
+                points: points.iter().map(|point| map(*point)).collect(),
+                kind: *kind,
             },
             Self::Ellipse {
                 center,
@@ -130,6 +137,40 @@ impl Entity {
         }
     }
 
+    pub fn spline_kind(&self) -> Option<SplineKind> {
+        match self {
+            Self::Spline { kind, .. } => Some(*kind),
+            Self::Point(_)
+            | Self::Line { .. }
+            | Self::Circle { .. }
+            | Self::Arc { .. }
+            | Self::Ellipse { .. }
+            | Self::EllipticalArc { .. } => None,
+        }
+    }
+
+    pub fn spline_ends(&self) -> Option<(EntityId, EntityId)> {
+        match self {
+            Self::Spline { points, kind } if !kind.is_closed() => {
+                Some((*points.first()?, *points.last()?))
+            }
+            Self::Point(_)
+            | Self::Line { .. }
+            | Self::Circle { .. }
+            | Self::Arc { .. }
+            | Self::Spline { .. }
+            | Self::Ellipse { .. }
+            | Self::EllipticalArc { .. } => None,
+        }
+    }
+
+    pub fn spline(points: Vec<EntityId>) -> Self {
+        Self::Spline {
+            points,
+            kind: SplineKind::OPEN,
+        }
+    }
+
     pub(crate) fn role(&self) -> Role {
         match self {
             Self::Point(_) => Role::Point,
@@ -148,4 +189,57 @@ pub(crate) enum Role {
     Circular,
     Spline,
     Elliptic,
+}
+
+pub const MIN_RHO: f64 = 0.01;
+pub const MAX_RHO: f64 = 0.99;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SplineKind {
+    Control { closed: bool },
+    Fit { closed: bool },
+    Conic { rho: f64 },
+}
+
+impl SplineKind {
+    pub const OPEN: Self = Self::Control { closed: false };
+
+    pub fn is_closed(self) -> bool {
+        match self {
+            Self::Control { closed } | Self::Fit { closed } => closed,
+            Self::Conic { .. } => false,
+        }
+    }
+
+    pub fn same_form(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Conic { .. }, Self::Conic { .. }) => true,
+            (kind, other) => kind == other,
+        }
+    }
+
+    pub fn passes_its_points(self) -> bool {
+        matches!(self, Self::Fit { .. })
+    }
+
+    pub fn fewest_points(self) -> usize {
+        match self {
+            Self::Control { closed: false } | Self::Fit { closed: false } => 2,
+            Self::Control { closed: true } | Self::Fit { closed: true } | Self::Conic { .. } => 3,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Control { closed: false } => "Spline",
+            Self::Control { closed: true } => "Closed spline",
+            Self::Fit { closed: false } => "Fit-point spline",
+            Self::Fit { closed: true } => "Closed fit-point spline",
+            Self::Conic { .. } => "Conic",
+        }
+    }
+
+    pub fn rho_is_valid(rho: f64) -> bool {
+        (MIN_RHO..=MAX_RHO).contains(&rho)
+    }
 }

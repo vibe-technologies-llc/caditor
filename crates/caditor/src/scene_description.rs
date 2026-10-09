@@ -1,7 +1,7 @@
 use caditor_document::{DatumResult, FeatureId};
 use caditor_geometry::{Plane, Vector3};
 use caditor_kernel::FaceId;
-use caditor_sketch::{Entity, EntityId, EntityState};
+use caditor_sketch::{Entity, EntityId, EntityState, SplineKind};
 
 use crate::{
     bodies, datum_tools,
@@ -391,16 +391,21 @@ fn sketch_items(model: &Model, feature: FeatureId) -> Vec<Item> {
                         unit.spoken_length(minor)
                     )
                 }
-                Entity::Spline { ref control_points } => {
-                    let ends = control_points
-                        .first()
-                        .zip(control_points.last())
-                        .map(|(first, last)| format!(" from {} to {}", point(*first), point(*last)))
+                Entity::Spline { ref points, kind } => {
+                    let ends = entity
+                        .spline_ends()
+                        .map(|(first, last)| format!(" from {} to {}", point(first), point(last)))
                         .unwrap_or_default();
-                    format!(
-                        "{}{ends}",
-                        count(control_points.len(), "control point", "control points")
-                    )
+                    match kind {
+                        SplineKind::Conic { rho } => format!("rho {rho:.2}{ends}"),
+                        SplineKind::Fit { .. } => {
+                            format!("{}{ends}", count(points.len(), "fit point", "fit points"))
+                        }
+                        SplineKind::Control { .. } => format!(
+                            "{}{ends}",
+                            count(points.len(), "control point", "control points")
+                        ),
+                    }
                 }
             };
             let construction = if sketch.is_construction(id) {

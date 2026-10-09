@@ -28,7 +28,7 @@ use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
     RegionKey, RegionReference, Side, Solid, VertexName, WallSide,
 };
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch};
+use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SplineKind};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use serde_json::Value;
 
@@ -1241,6 +1241,21 @@ pub(crate) enum EntityKindRecord {
     Spline {
         control_points: Vec<u64>,
     },
+    ClosedSpline {
+        control_points: Vec<u64>,
+    },
+    FitSpline {
+        fit_points: Vec<u64>,
+    },
+    ClosedFitSpline {
+        fit_points: Vec<u64>,
+    },
+    Conic {
+        start: u64,
+        apex: u64,
+        end: u64,
+        rho: f64,
+    },
     Ellipse {
         center: u64,
         major: u64,
@@ -1257,12 +1272,16 @@ pub(crate) enum EntityKindRecord {
 
 const DEFAULT_THREAD_DIAMETER: f64 = 8.0;
 
-const ENTITY_KINDS: [&str; 7] = [
+const ENTITY_KINDS: [&str; 11] = [
     "point",
     "line",
     "circle",
     "arc",
     "spline",
+    "closed_spline",
+    "fit_spline",
+    "closed_fit_spline",
+    "conic",
     "ellipse",
     "elliptical_arc",
 ];
@@ -3236,9 +3255,32 @@ fn entity_kind_record(entity: &Entity) -> EntityKindRecord {
             start: start.raw(),
             end: end.raw(),
         },
-        Entity::Spline { control_points } => EntityKindRecord::Spline {
-            control_points: control_points.iter().map(|point| point.raw()).collect(),
-        },
+        Entity::Spline { points, kind } => {
+            let raw: Vec<u64> = points.iter().map(|point| point.raw()).collect();
+            match (*kind, raw.as_slice()) {
+                (SplineKind::Control { closed: false }, _) => EntityKindRecord::Spline {
+                    control_points: raw,
+                },
+                (SplineKind::Control { closed: true }, _) => EntityKindRecord::ClosedSpline {
+                    control_points: raw,
+                },
+                (SplineKind::Fit { closed: false }, _) => {
+                    EntityKindRecord::FitSpline { fit_points: raw }
+                }
+                (SplineKind::Fit { closed: true }, _) => {
+                    EntityKindRecord::ClosedFitSpline { fit_points: raw }
+                }
+                (SplineKind::Conic { rho }, &[start, apex, end]) => EntityKindRecord::Conic {
+                    start,
+                    apex,
+                    end,
+                    rho,
+                },
+                (SplineKind::Conic { .. }, _) => EntityKindRecord::Spline {
+                    control_points: raw,
+                },
+            }
+        }
         Entity::Ellipse {
             center,
             major,
@@ -5903,8 +5945,29 @@ fn restore_entity(record: &EntityKindRecord) -> Entity {
             start: entity(*start),
             end: entity(*end),
         },
-        EntityKindRecord::Spline { control_points } => Entity::Spline {
-            control_points: control_points.iter().copied().map(entity).collect(),
+        EntityKindRecord::Spline { control_points } => {
+            Entity::spline(control_points.iter().copied().map(entity).collect())
+        }
+        EntityKindRecord::ClosedSpline { control_points } => Entity::Spline {
+            points: control_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Control { closed: true },
+        },
+        EntityKindRecord::FitSpline { fit_points } => Entity::Spline {
+            points: fit_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Fit { closed: false },
+        },
+        EntityKindRecord::ClosedFitSpline { fit_points } => Entity::Spline {
+            points: fit_points.iter().copied().map(entity).collect(),
+            kind: SplineKind::Fit { closed: true },
+        },
+        EntityKindRecord::Conic {
+            start,
+            apex,
+            end,
+            rho,
+        } => Entity::Spline {
+            points: vec![entity(*start), entity(*apex), entity(*end)],
+            kind: SplineKind::Conic { rho: *rho },
         },
         EntityKindRecord::Ellipse {
             center,

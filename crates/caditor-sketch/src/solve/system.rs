@@ -2,6 +2,7 @@ use std::{
     cell::OnceCell,
     collections::{BTreeMap, BTreeSet},
     f64::consts::FRAC_PI_2,
+    sync::Arc,
 };
 
 use caditor_geometry::{Point2, Vector2};
@@ -14,7 +15,7 @@ use crate::{
     solve::{
         equation::{
             CircleHandle, Contact, Context, EllipseHandle, Equation, Form, LineHandle, PointHandle,
-            RadiusHandle, fallback_direction, value,
+            RadiusHandle, SplineHandle, fallback_direction, value,
         },
         numeric::Component,
         spline::not_joined,
@@ -35,6 +36,8 @@ pub(crate) struct System {
     pub entity_variables: BTreeMap<EntityId, Vec<usize>>,
     pub spans: Vec<(EntityId, PointHandle, PointHandle)>,
     pub spans_at_variable: BTreeMap<usize, Vec<usize>>,
+    pub splines: BTreeMap<EntityId, Arc<SplineHandle>>,
+    pub hidden: BTreeMap<EntityId, Vec<usize>>,
 }
 
 impl System {
@@ -92,7 +95,10 @@ impl System {
             entity_variables: BTreeMap::new(),
             spans: Vec::new(),
             spans_at_variable: BTreeMap::new(),
+            splines: BTreeMap::new(),
+            hidden: BTreeMap::new(),
         };
+        system.add_splines(sketch)?;
         system.entity_variables = sketch
             .entities()
             .map(|(id, entity)| (id, system.variables_of(id, entity)))
@@ -210,7 +216,19 @@ impl System {
                 .flat_map(point_variables)
                 .chain(self.radii.get(&id).copied())
                 .collect(),
-            Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. } => {
+            Entity::Spline { .. } => entity
+                .points()
+                .iter()
+                .flat_map(point_variables)
+                .chain(
+                    self.hidden
+                        .get(&id)
+                        .into_iter()
+                        .flatten()
+                        .flat_map(|x| [*x, x + 1]),
+                )
+                .collect(),
+            Entity::Line { .. } | Entity::Arc { .. } => {
                 entity.points().iter().flat_map(point_variables).collect()
             }
         }

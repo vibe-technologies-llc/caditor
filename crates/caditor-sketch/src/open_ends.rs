@@ -71,12 +71,9 @@ fn curve_ends(entity: &Entity) -> Vec<EntityId> {
         Entity::Line { start, end }
         | Entity::Arc { start, end, .. }
         | Entity::EllipticalArc { start, end, .. } => vec![*start, *end],
-        Entity::Spline { control_points } => {
-            match (control_points.first(), control_points.last()) {
-                (Some(first), Some(last)) => vec![*first, *last],
-                _ => Vec::new(),
-            }
-        }
+        spline @ Entity::Spline { .. } => spline
+            .spline_ends()
+            .map_or_else(Vec::new, |(first, last)| vec![first, last]),
         Entity::Point(_) | Entity::Circle { .. } | Entity::Ellipse { .. } => Vec::new(),
     }
 }

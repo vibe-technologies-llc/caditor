@@ -351,6 +351,11 @@ paths:
   the radius: a literal halved, any other expression divided by 2 (loading takes the division
   off again or doubles), so an older reader drops the flag and holds the same geometry as a
   distance.
+- A spline entity record is `spline` (`control_points`) for an open control spline, as ever;
+  the other kinds are records of their own, since an older reader would draw a different curve:
+  `closed_spline` (`control_points`), `fit_spline` and `closed_fit_spline` (`fit_points`) and
+  `conic` (`start`, `apex`, `end`, `rho`). Older readers report each as a kind from a newer
+  version and keep the points; a conic whose rho is out of range is refused like any bad entity.
 - An ellipse is an `ellipse` entity record (`center`, `major`, `minor_radius`) and an elliptical
   arc an `elliptical_arc` one (the same plus `start` and `end`); their radii are `major_radius` and
   `minor_radius` constraint records (`ellipse`, `value`), an unreadable value falling back to the

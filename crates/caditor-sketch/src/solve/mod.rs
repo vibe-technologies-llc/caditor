@@ -12,6 +12,8 @@ mod numeric;
 mod projection_tests;
 mod sparse;
 mod spline;
+#[cfg(test)]
+mod spline_kind_tests;
 mod system;
 mod tally;
 #[cfg(test)]

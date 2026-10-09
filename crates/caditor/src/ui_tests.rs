@@ -3623,7 +3623,10 @@ fn curvature_joins_two_splines_tangent_and_bending_alike_from_its_key() {
         Point2::new(30.0, -8.0),
     ]);
     let points = [first, second].map(|spline| match sketch.entity(spline) {
-        Some(caditor_sketch::Entity::Spline { control_points }) => control_points.clone(),
+        Some(caditor_sketch::Entity::Spline {
+            points: control_points,
+            ..
+        }) => control_points.clone(),
         other => panic!("expected a spline, found {other:?}"),
     });
     sketch
@@ -4968,7 +4971,11 @@ fn an_arc_starting_level_with_its_centre_and_a_spline_point_above_the_last_stay_
     let [spline] = entities_of_kind(sketch, "Spline")[..] else {
         panic!("one spline should be drawn");
     };
-    let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+    let Some(Entity::Spline {
+        points: control_points,
+        ..
+    }) = sketch.entity(spline).cloned()
+    else {
         panic!("the spline is a spline");
     };
     assert!(
@@ -7144,7 +7151,11 @@ fn a_spline_takes_clicked_control_points_until_enter() {
 
     let sketch = harness.sketch(feature);
     let spline = entities_of_kind(sketch, "Spline")[0];
-    let Some(Entity::Spline { control_points }) = sketch.entity(spline) else {
+    let Some(Entity::Spline {
+        points: control_points,
+        ..
+    }) = sketch.entity(spline)
+    else {
         panic!("expected a spline");
     };
     assert_eq!(control_points.len(), 4);

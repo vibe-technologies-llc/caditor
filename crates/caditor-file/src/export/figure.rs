@@ -477,7 +477,7 @@ impl Figure {
                         degree: spline.degree(),
                         knots: spline.knots().to_vec(),
                         control_points: spline.control_points().to_vec(),
-                        weights: None,
+                        weights: spline.weights().map(<[f64]>::to_vec),
                         polyline: spline.polyline(SEGMENT_ANGLE),
                     })
                 }),

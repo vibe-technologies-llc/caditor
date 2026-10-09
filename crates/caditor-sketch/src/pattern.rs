@@ -394,8 +394,9 @@ impl Sketch {
                         center: image_of(center),
                         radius,
                     },
-                    Entity::Spline { control_points } => Entity::Spline {
-                        control_points: control_points.into_iter().map(image_of).collect(),
+                    Entity::Spline { points, kind } => Entity::Spline {
+                        points: points.into_iter().map(image_of).collect(),
+                        kind,
                     },
                     Entity::Point(_) | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
                         continue;

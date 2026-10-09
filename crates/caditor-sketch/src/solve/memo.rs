@@ -16,6 +16,7 @@ enum Variable {
     Y(EntityId),
     Radius(EntityId),
     Parameter(ConstraintId, usize),
+    Control(EntityId, usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -254,6 +255,12 @@ impl Names {
         }
         for (entity, radius) in &system.radii {
             name(*radius, Variable::Radius(*entity));
+        }
+        for (spline, hidden) in &system.hidden {
+            for (ordinal, x) in hidden.iter().enumerate() {
+                name(*x, Variable::Control(*spline, 2 * ordinal));
+                name(x + 1, Variable::Control(*spline, 2 * ordinal + 1));
+            }
         }
         for (constraint, parameters) in &system.parameters {
             for (ordinal, parameter) in parameters.iter().enumerate() {

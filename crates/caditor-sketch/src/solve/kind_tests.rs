@@ -913,7 +913,11 @@ fn arch(sketch: &mut Sketch) -> EntityId {
         Point2::new(10.0, 10.0),
         Point2::new(20.0, 0.0),
     ]);
-    let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+    let Some(Entity::Spline {
+        points: control_points,
+        ..
+    }) = sketch.entity(spline).cloned()
+    else {
         panic!("expected a spline");
     };
     for point in control_points {
@@ -977,7 +981,11 @@ fn a_point_held_beyond_the_end_of_a_free_spline_pulls_its_end_along() {
         Point2::new(10.0, 10.0),
         Point2::new(20.0, 0.0),
     ]);
-    let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+    let Some(Entity::Spline {
+        points: control_points,
+        ..
+    }) = sketch.entity(spline).cloned()
+    else {
         panic!("expected a spline");
     };
     fix(&mut sketch, control_points[0]);
@@ -1040,7 +1048,11 @@ fn a_line_joined_to_a_spline_end_turns_along_its_first_leg() {
     let spline = arch(&mut sketch);
     let line = sketch.add_line(Point2::new(-8.0, -5.0), Point2::new(0.5, 0.2));
     let (start, end) = ends(&sketch, line);
-    let Some(Entity::Spline { control_points }) = sketch.entity(spline).cloned() else {
+    let Some(Entity::Spline {
+        points: control_points,
+        ..
+    }) = sketch.entity(spline).cloned()
+    else {
         panic!("expected a spline");
     };
     add(&mut sketch, Constraint::Coincident(end, control_points[0]));
@@ -1094,7 +1106,7 @@ fn a_spline_lying_along_the_axis_it_touches_solves_again_from_where_it_settled()
     let spline = EntityId::from_raw(sketch.next_id());
     let control_points = [start, start, rest[0], rest[1], rest[2]].to_vec();
     sketch
-        .insert_entity(spline, Entity::Spline { control_points })
+        .insert_entity(spline, Entity::spline(control_points))
         .unwrap();
     add(
         &mut sketch,
@@ -1118,7 +1130,7 @@ fn a_spline_touching_an_axis_at_a_cusp_solves_again_whenever_it_solves() {
     let spline = EntityId::from_raw(sketch.next_id());
     let control_points = [first, turn, turn, last, turn].to_vec();
     sketch
-        .insert_entity(spline, Entity::Spline { control_points })
+        .insert_entity(spline, Entity::spline(control_points))
         .unwrap();
     add(
         &mut sketch,
@@ -1134,7 +1146,10 @@ fn a_spline_touching_an_axis_at_a_cusp_solves_again_whenever_it_solves() {
 
 fn control_points(sketch: &Sketch, spline: EntityId) -> Vec<EntityId> {
     match sketch.entity(spline) {
-        Some(Entity::Spline { control_points }) => control_points.clone(),
+        Some(Entity::Spline {
+            points: control_points,
+            ..
+        }) => control_points.clone(),
         other => panic!("expected a spline, found {other:?}"),
     }
 }

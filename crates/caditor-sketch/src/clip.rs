@@ -149,11 +149,12 @@ impl Sketch {
                     start: rename(&renamed, *start),
                     end: rename(&renamed, *end),
                 },
-                Entity::Spline { control_points } => Entity::Spline {
-                    control_points: control_points
+                Entity::Spline { points, kind } => Entity::Spline {
+                    points: points
                         .iter()
                         .map(|point| rename(&renamed, *point))
                         .collect(),
+                    kind: *kind,
                 },
                 Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
                     entity.with_points_mapped(|point| rename(&renamed, point))
