@@ -252,6 +252,15 @@ paths:
   distance to a measured value of at least one step. The arrows follow a typed distance's preview
   (`Model::draft_kind`, `Model::shown_parameters`); an extrusion starting at a face or plane, or
   running along a direction, has none.
+- While a revolve turning by angles is open (and nothing is being chosen in the view), each end
+  set by an angle has an arrow (`turn_handles.rs`, `Handle::Revolve`, `TurnEnd`) at the middle of
+  its sketch's bounds turned about the axis to that end, along the turn: positive angles sweep
+  the profile toward the sketch normal, a reversed one-sided turn the other way, a symmetric turn
+  showing its forward half and dragging the total twice as fast, two angles an arrow each. A drag
+  follows the pointer's angle about the axis in the plane square to it, unwrapped so it passes
+  half a turn, in steps of `STEP_DEGREES` (Ctrl drags freely) between one step and what the full
+  turn leaves beside the other angle, and commits like a reach arrow. A revolve starting off its
+  sketch plane has none.
 - A drag never drops a name a field holds (`manipulator::Held`, read from the field's caption as
   its `ParameterOwner`, the captions shared with the panels: `solid_panel::DISTANCE` and the
   others, `move_panel::distance_caption`, `turn_caption`, `ANGLE`). A plain number is replaced by

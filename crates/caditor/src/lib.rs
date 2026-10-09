@@ -161,6 +161,7 @@ mod toolbar;
 mod tracking;
 mod tree_row;
 mod trimming;
+mod turn_handles;
 mod typed_point;
 #[cfg(test)]
 mod ui_tests;

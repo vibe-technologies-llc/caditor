@@ -15054,6 +15054,73 @@ fn a_revolve_turns_by_two_angles_set_in_its_panel() {
 }
 
 #[test]
+fn dragging_a_revolve_s_angle_arrows_turns_it_further() {
+    let mut harness = Harness::new();
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(
+        &mut section,
+        Point2::new(10.0, 0.0),
+        Point2::new(20.0, 10.0),
+    );
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = open_solid(&harness);
+    choose(&mut harness, "Full turn", "Two angles");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let angles = |harness: &Harness| match harness.solid(revolve) {
+        SolidFeature::Revolve(revolve) => match &revolve.extent {
+            caditor_document::RevolveExtent::TwoSides { forward, backward } => (
+                length_or_angle(harness, forward),
+                length_or_angle(harness, backward),
+            ),
+            other => panic!("expected two angles, not {other:?}"),
+        },
+        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+    };
+    let (forward, backward) = angles(&harness);
+    let handle = Handle::Revolve(crate::turn_handles::TurnEnd::Forward);
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(handle, 0.0)
+        .expect("the forward arrow is shown");
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(handle, 30.0)
+        .unwrap();
+    harness.events.push(Event::PointerMoved(from));
+    harness.frame();
+
+    assert!(harness.shows("Drag to change the revolve's forward"));
+
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+    let (turned, kept) = angles(&harness);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Revolve 1"));
+    assert!(
+        (turned - forward - 30.0).abs() <= 5.0,
+        "{forward} to {turned}"
+    );
+    assert_eq!(kept, backward);
+}
+
+fn length_or_angle(harness: &Harness, expression: &Expression) -> f64 {
+    harness
+        .model
+        .parameters()
+        .evaluate_expression(expression)
+        .unwrap()
+        .value
+}
+
+#[test]
 fn a_revolve_crossing_its_axis_keeps_the_larger_side_and_then_the_other() {
     let mut harness = Harness::new();
     let mut section = Sketch::new(Plane::XZ);

@@ -10,7 +10,8 @@ panel, {command:model.use_selected_axis} or Choose in the view changes it.
 ## Extent
 
 - **Full turn**, **One side** by an angle, **Symmetric** both ways, or **Two sides** each with its
-  own angle. Two angles together may not pass a full turn.
+  own angle. Two angles together may not pass a full turn. While the revolve is open, an arrow at
+  each end of the turn drags its angle in steps of 5° (hold Ctrl to drag freely).
 - **Up to face** turns until the profile reaches a face or plane that contains the axis, forward or
   reversed.
 - {command:model.reverse_direction} turns a one-sided or Up to face revolve the other way.
