@@ -16,6 +16,7 @@ const VERTICAL_TOLERANCE: f64 = 1e-9;
 const FIT_MARGIN: f64 = 1.35;
 const MIN_FIT_DEPTH_FRACTION: f64 = 0.1;
 const TRANSITION_DURATION: Duration = Duration::from_millis(350);
+const GLIDE_DURATION: Duration = Duration::from_millis(150);
 const ORTHOGRAPHIC_REACH_PER_DISTANCE: f64 = 40.0;
 const ORTHOGRAPHIC_SCENE_MARGIN: f64 = 1.1;
 const SQUARE_TOLERANCE_DEGREES: f64 = 0.1;
@@ -146,6 +147,43 @@ impl Viewpoint {
             target: self.target + offset,
             ..self
         }
+    }
+
+    pub fn orbited(self, pivot: Point3, drag: DVec2, viewport_height: f64) -> Option<Self> {
+        if !pivot.is_finite() || !drag.is_finite() || !viewport_height.is_finite() {
+            return None;
+        }
+        let radians_per_pixel = ORBIT_RADIANS_PER_VIEWPORT_HEIGHT / viewport_height.max(1.0);
+        let forward = self.forward();
+        let levelling_limit = drag.length() * radians_per_pixel * LEVELLING_RATE;
+        let level = Rotation3::from_axis_angle(
+            forward,
+            roll(&self).clamp(-levelling_limit, levelling_limit),
+        );
+
+        let elevation = forward.z.atan2(forward.truncate().length());
+        let tilt =
+            (-drag.y * radians_per_pixel).clamp(-FRAC_PI_2 - elevation, FRAC_PI_2 - elevation);
+        let tilt_axis = level_right(forward).unwrap_or_else(|| level * self.right());
+        let pitch = Rotation3::from_axis_angle(tilt_axis, tilt);
+        let yaw = Rotation3::from_rotation_z(-drag.x * radians_per_pixel);
+
+        Some(self.rotated_about(pivot, yaw * pitch * level))
+    }
+
+    pub fn panned(self, drag: DVec2, units_per_pixel: f64) -> Option<Self> {
+        if !drag.is_finite() || !units_per_pixel.is_finite() {
+            return None;
+        }
+        let offset = (self.up() * drag.y - self.right() * drag.x) * units_per_pixel;
+        Some(self.translated(offset))
+    }
+
+    pub fn zoomed(self, anchor: Point3, factor: f64) -> Option<Self> {
+        if !factor.is_finite() || factor <= 0.0 || !anchor.is_finite() {
+            return None;
+        }
+        Some(self.scaled_about(anchor, factor))
     }
 
     pub fn is_square_to_an_axis(&self) -> bool {
@@ -426,11 +464,34 @@ fn tan_half_fov_y() -> f64 {
     (FIELD_OF_VIEW_Y * 0.5).tan()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Easing {
+    InAndOut,
+    Out,
+}
+
+impl Easing {
+    fn duration(self) -> Duration {
+        match self {
+            Self::InAndOut => TRANSITION_DURATION,
+            Self::Out => GLIDE_DURATION,
+        }
+    }
+
+    fn eased(self, progress: f64) -> f64 {
+        match self {
+            Self::InAndOut => progress * progress * (3.0 - 2.0 * progress),
+            Self::Out => 1.0 - (1.0 - progress) * (1.0 - progress),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Transition {
     from: Viewpoint,
     to: Viewpoint,
     elapsed: Duration,
+    easing: Easing,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -467,8 +528,15 @@ impl Camera {
     }
 
     pub fn view(&self, width: f64, height: f64) -> View {
-        View::new(self.viewpoint, width, height)
-            .with_projection(self.projection.resolved(&self.viewpoint))
+        self.view_from(self.viewpoint, width, height)
+    }
+
+    pub fn destination_view(&self, width: f64, height: f64) -> View {
+        self.view_from(self.destination(), width, height)
+    }
+
+    pub fn view_from(&self, viewpoint: Viewpoint, width: f64, height: f64) -> View {
+        View::new(viewpoint, width, height).with_projection(self.projection.resolved(&viewpoint))
     }
 
     pub fn is_animating(&self) -> bool {
@@ -476,10 +544,19 @@ impl Camera {
     }
 
     pub fn animate_to(&mut self, to: Viewpoint) {
+        self.start_transition(to, Easing::InAndOut);
+    }
+
+    pub fn glide_to(&mut self, to: Viewpoint) {
+        self.start_transition(to, Easing::Out);
+    }
+
+    fn start_transition(&mut self, to: Viewpoint, easing: Easing) {
         self.transition = Some(Transition {
             from: self.viewpoint,
             to,
             elapsed: Duration::ZERO,
+            easing,
         });
     }
 
@@ -488,55 +565,34 @@ impl Camera {
             return;
         };
         transition.elapsed += elapsed;
-        let progress = transition.elapsed.as_secs_f64() / TRANSITION_DURATION.as_secs_f64();
+        let progress =
+            transition.elapsed.as_secs_f64() / transition.easing.duration().as_secs_f64();
         if progress >= 1.0 {
             self.viewpoint = transition.to;
             self.transition = None;
         } else {
-            let eased = progress * progress * (3.0 - 2.0 * progress);
+            let eased = transition.easing.eased(progress);
             self.viewpoint = transition.from.interpolated(transition.to, eased);
         }
     }
 
     pub fn orbit(&mut self, pivot: Point3, drag: DVec2, viewport_height: f64) {
-        if !pivot.is_finite() || !drag.is_finite() || !viewport_height.is_finite() {
-            return;
-        }
-        self.transition = None;
-        let radians_per_pixel = ORBIT_RADIANS_PER_VIEWPORT_HEIGHT / viewport_height.max(1.0);
-        let forward = self.viewpoint.forward();
-        let levelling_limit = drag.length() * radians_per_pixel * LEVELLING_RATE;
-        let level = Rotation3::from_axis_angle(
-            forward,
-            roll(&self.viewpoint).clamp(-levelling_limit, levelling_limit),
-        );
-
-        let elevation = forward.z.atan2(forward.truncate().length());
-        let tilt =
-            (-drag.y * radians_per_pixel).clamp(-FRAC_PI_2 - elevation, FRAC_PI_2 - elevation);
-        let tilt_axis = level_right(forward).unwrap_or_else(|| level * self.viewpoint.right());
-        let pitch = Rotation3::from_axis_angle(tilt_axis, tilt);
-        let yaw = Rotation3::from_rotation_z(-drag.x * radians_per_pixel);
-
-        self.viewpoint = self.viewpoint.rotated_about(pivot, yaw * pitch * level);
+        self.move_to(self.viewpoint.orbited(pivot, drag, viewport_height));
     }
 
     pub fn pan(&mut self, drag: DVec2, units_per_pixel: f64) {
-        if !drag.is_finite() || !units_per_pixel.is_finite() {
-            return;
-        }
-        self.transition = None;
-        let offset =
-            (self.viewpoint.up() * drag.y - self.viewpoint.right() * drag.x) * units_per_pixel;
-        self.viewpoint = self.viewpoint.translated(offset);
+        self.move_to(self.viewpoint.panned(drag, units_per_pixel));
     }
 
     pub fn zoom(&mut self, anchor: Point3, factor: f64) {
-        if !factor.is_finite() || factor <= 0.0 || !anchor.is_finite() {
-            return;
+        self.move_to(self.viewpoint.zoomed(anchor, factor));
+    }
+
+    fn move_to(&mut self, moved: Option<Viewpoint>) {
+        if let Some(moved) = moved {
+            self.transition = None;
+            self.viewpoint = moved;
         }
-        self.transition = None;
-        self.viewpoint = self.viewpoint.scaled_about(anchor, factor);
     }
 }
 
@@ -847,6 +903,64 @@ mod tests {
         camera.advance(TRANSITION_DURATION / 4);
         camera.pan(DVec2::new(1.0, 0.0), 1.0);
         assert!(!camera.is_animating());
+    }
+
+    #[test]
+    fn a_glide_moves_at_once_and_settles_sooner_than_a_transition() {
+        let start = isometric();
+        let end = start.panned(DVec2::new(100.0, 0.0), 1.0).unwrap();
+        let mut glide = Camera::new(start);
+        let mut transition = Camera::new(start);
+
+        glide.glide_to(end);
+        transition.animate_to(end);
+        glide.advance(Duration::from_millis(30));
+        transition.advance(Duration::from_millis(30));
+        let glided = glide.viewpoint().target.distance(start.target);
+        let eased = transition.viewpoint().target.distance(start.target);
+
+        assert!(glided > 3.0 * eased, "{glided} {eased}");
+        assert_eq!(glide.destination(), end);
+        glide.advance(GLIDE_DURATION);
+        assert!(!glide.is_animating());
+        assert_eq!(glide.viewpoint(), end);
+        assert!(transition.is_animating());
+    }
+
+    #[test]
+    fn moving_a_viewpoint_matches_moving_the_camera() {
+        let pivot = Point3::new(8.0, 0.0, 4.0);
+        let mut camera = Camera::new(isometric());
+
+        camera.orbit(pivot, DVec2::new(40.0, -12.0), HEIGHT);
+        let orbited = isometric().orbited(pivot, DVec2::new(40.0, -12.0), HEIGHT);
+        assert_eq!(Some(camera.viewpoint()), orbited);
+
+        camera.pan(DVec2::new(-5.0, 3.0), 0.2);
+        let panned = orbited.and_then(|viewpoint| viewpoint.panned(DVec2::new(-5.0, 3.0), 0.2));
+        assert_eq!(Some(camera.viewpoint()), panned);
+
+        camera.zoom(pivot, 0.5);
+        let zoomed = panned.and_then(|viewpoint| viewpoint.zoomed(pivot, 0.5));
+        assert_eq!(Some(camera.viewpoint()), zoomed);
+
+        assert!(isometric().zoomed(pivot, f64::NAN).is_none());
+        assert!(isometric().panned(DVec2::NAN, 1.0).is_none());
+    }
+
+    #[test]
+    fn the_destination_view_resolves_the_automatic_projection_where_the_camera_is_heading() {
+        let front = Viewpoint::looking_from(Vector3::NEG_Y, Point3::ZERO, 80.0).unwrap();
+        let mut camera = Camera::new(isometric());
+        camera.set_projection(ProjectionMode::Automatic);
+
+        camera.animate_to(front);
+        camera.advance(TRANSITION_DURATION / 4);
+
+        assert!(!camera.view(WIDTH, HEIGHT).is_orthographic());
+        let heading = camera.destination_view(WIDTH, HEIGHT);
+        assert!(heading.is_orthographic());
+        assert_eq!(*heading.viewpoint(), front);
     }
 
     fn orthographic(viewpoint: Viewpoint) -> View {

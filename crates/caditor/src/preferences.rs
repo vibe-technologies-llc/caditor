@@ -307,6 +307,30 @@ impl InputMode {
         }
     }
 
+    pub fn navigation_hint(self) -> &'static str {
+        match self {
+            Self::Caditor => {
+                "Right-drag: orbit   Middle-drag or Shift+right-drag: pan   Scroll: zoom"
+            }
+            Self::Laptop => {
+                "Two-finger-scroll or Alt-drag: orbit   Alt+two-finger-scroll or Shift+Alt-drag: \
+                 pan   Pinch or Ctrl+two-finger-scroll: zoom"
+            }
+            Self::Fusion360 => {
+                "Shift+middle-drag or right-drag: orbit   Middle-drag or Shift+right-drag: pan   \
+                 Scroll: zoom"
+            }
+            Self::FreeCad => {
+                "Middle+left-drag or right-drag: orbit   Middle-drag or Shift+right-drag: pan   \
+                 Scroll: zoom"
+            }
+            Self::Blender => {
+                "Middle-drag or right-drag: orbit   Shift+middle-drag or Shift+right-drag: pan   \
+                 Scroll or Ctrl+middle-drag: zoom"
+            }
+        }
+    }
+
     fn key(self) -> &'static str {
         match self {
             Self::Caditor => "caditor",
@@ -1214,5 +1238,32 @@ mod tests {
         assert_eq!(preferences.angle, AngleUnit::Radian);
         preferences.apply(PreferenceChange::Defaults(PreferencesTab::General));
         assert_eq!(preferences.angle, AngleUnit::Degree);
+    }
+
+    #[test]
+    fn each_input_mode_hints_its_own_mouse_buttons_as_keys() {
+        let hints: Vec<&str> = InputMode::ALL
+            .into_iter()
+            .map(InputMode::navigation_hint)
+            .collect();
+
+        for hint in &hints {
+            let parts = crate::canvas::hint_parts(hint);
+            assert_eq!(parts.len(), 3, "{hint}");
+            assert!(
+                parts
+                    .iter()
+                    .all(|part| matches!(part, crate::canvas::HintPart::Keys { .. })),
+                "{hint}"
+            );
+        }
+        for (index, hint) in hints.iter().enumerate() {
+            assert!(!hints[index + 1..].contains(hint), "{hint}");
+        }
+        assert!(
+            InputMode::Blender
+                .navigation_hint()
+                .contains("Ctrl+middle-drag: zoom")
+        );
     }
 }

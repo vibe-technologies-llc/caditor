@@ -17,7 +17,7 @@ shown in this guide are your current ones.
 ## In the view
 
 - The arrows orbit, Shift with the arrows pans, and Page Up and Page Down zoom; see
-  [moving around the view](navigation).
+  [moving around the view](navigation). {command:view.previous} goes back to the view before.
 - {command:view.highlight_next} and {command:view.highlight_previous} step through what is in the
   view; {command:view.activate_highlighted} selects it, as a click would, and Enter opens it as a
   double-click would.

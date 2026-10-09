@@ -1,12 +1,13 @@
 use caditor_geometry::{Rotation3, Vector3};
 use egui::{
-    Align2, Color32, CursorIcon, EventFilter, Key, Pos2, Rect, Sense, Shape, Stroke, Ui, Vec2,
-    WidgetInfo, WidgetType, pos2, vec2,
+    Align2, Color32, CursorIcon, EventFilter, Key, PointerButton, Pos2, Rect, Sense, Shape, Stroke,
+    Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
 };
 
 use crate::{canvas, commands::Command, icons, selection::Axis};
 
 pub const NAME: &str = "View cube";
+pub const HOME_NAME: &str = "Isometric view";
 
 const CUBE_SIZE: f32 = 104.0;
 const MARGIN: f32 = 12.0;
@@ -20,6 +21,7 @@ const PAINT_ROOM: f32 = 2.0;
 const SIDE_COMPONENT: f64 = 0.5;
 const NEIGHBOUR_MIN_COSINE: f64 = 0.5;
 const STEP_MIN_ALIGNMENT: f32 = 0.5;
+const SAME_DIRECTION: f64 = 1.0 - 1e-9;
 const TRIAD_LENGTH: f32 = 26.0;
 const TRIAD_OFFSET: f32 = 34.0;
 const TRIAD_LABEL_REACH: f32 = 1.35;
@@ -87,7 +89,31 @@ const ARROWS: [(Key, Vec2); 4] = [
 
 pub enum CubeAction {
     LookFrom(Vector3),
+    Orbit(Vec2),
     Fit,
+    Home,
+}
+
+pub struct CubeTexts<'a> {
+    pub fit_label: &'a str,
+    pub fit_hover: &'a str,
+    pub home_hover: &'a str,
+    pub view_keys: &'a [(Vector3, String)],
+}
+
+impl CubeTexts<'_> {
+    fn hover(&self, direction: Vector3) -> String {
+        let name = view_name(direction);
+        let toward = direction.normalize_or_zero();
+        match self
+            .view_keys
+            .iter()
+            .find(|(looking_from, _)| looking_from.normalize_or_zero().dot(toward) > SAME_DIRECTION)
+        {
+            Some((_, keys)) => format!("{name} ({keys})"),
+            None => name,
+        }
+    }
 }
 
 struct Cell {
@@ -135,8 +161,21 @@ fn fit_rect(viewport: Rect) -> Rect {
     )
 }
 
+fn home_rect(viewport: Rect) -> Rect {
+    let fit = fit_rect(viewport);
+    Rect::from_min_size(
+        pos2(
+            fit.left() - FIT_BUTTON_GAP - canvas::BUTTON_HEIGHT,
+            fit.top(),
+        ),
+        Vec2::splat(canvas::BUTTON_HEIGHT),
+    )
+}
+
 pub fn area(viewport: Rect) -> Rect {
-    cube_rect(viewport).union(fit_rect(viewport))
+    cube_rect(viewport)
+        .union(fit_rect(viewport))
+        .union(home_rect(viewport))
 }
 
 pub fn view_name(direction: Vector3) -> String {
@@ -168,12 +207,12 @@ pub fn show(
     ui: &mut Ui,
     viewport: Rect,
     orientation: Rotation3,
-    fit_label: &str,
-    fit_hover: &str,
+    texts: &CubeTexts<'_>,
 ) -> Option<CubeAction> {
     let rect = cube_rect(viewport);
     let id = ui.id().with("view cube");
-    let response = ui.interact(rect, id, Sense::click());
+    let response = ui.interact(rect, id, Sense::click_and_drag());
+    let orbiting = response.dragged_by(PointerButton::Primary);
     let projector = Projector {
         to_view: orientation.inverse(),
         center: rect.center(),
@@ -182,6 +221,7 @@ pub fn show(
     let cells = visible_cells(&projector);
     let hovered = response
         .hover_pos()
+        .filter(|_| !orbiting)
         .and_then(|pointer| cells.iter().find(|cell| contains(&cell.corners, pointer)))
         .map(|cell| cell.direction);
     let pressed = response.is_pointer_button_down_on();
@@ -256,11 +296,13 @@ pub fn show(
     if focused {
         canvas::paint_focus_ring(ui.painter(), rect);
     }
-    if hovered.is_some() {
+    if orbiting {
+        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+    } else if hovered.is_some() {
         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
     }
     let response = match hovered {
-        Some(direction) => response.on_hover_text(view_name(direction)),
+        Some(direction) => response.on_hover_text(texts.hover(direction)),
         None => response,
     };
 
@@ -269,12 +311,25 @@ pub fn show(
         fit_rect(viewport),
         ui.id().with("fit view"),
         icons::command(Command::FitView),
-        fit_label,
+        texts.fit_label,
     )
-    .on_hover_text(fit_hover);
+    .on_hover_text(texts.fit_hover);
+    let home = canvas::icon_button(
+        ui,
+        home_rect(viewport),
+        ui.id().with("home view"),
+        icons::HOME_VIEW,
+        HOME_NAME,
+    )
+    .on_hover_text(texts.home_hover);
 
     if fit.clicked() {
         Some(CubeAction::Fit)
+    } else if home.clicked() {
+        Some(CubeAction::Home)
+    } else if orbiting {
+        let drag = response.drag_delta();
+        (drag != Vec2::ZERO).then_some(CubeAction::Orbit(drag))
     } else if response.clicked() && hovered.is_some() {
         hovered.map(CubeAction::LookFrom)
     } else {
@@ -504,5 +559,32 @@ mod tests {
         assert!(area.contains_rect(fit_rect(viewport)));
         assert!(fit_rect(viewport).top() > cube_rect(viewport).bottom());
         assert_eq!(fit_rect(viewport).height(), canvas::BUTTON_HEIGHT);
+        assert!(area.contains_rect(home_rect(viewport)));
+        assert!(home_rect(viewport).right() < fit_rect(viewport).left());
+        assert_eq!(home_rect(viewport).top(), fit_rect(viewport).top());
+    }
+
+    #[test]
+    fn a_standard_direction_names_its_keys_on_hover() {
+        let keys = [
+            (Vector3::NEG_Y, "Alt+1".to_owned()),
+            (Vector3::new(1.0, -1.0, 1.0), "Alt+0".to_owned()),
+        ];
+        let texts = CubeTexts {
+            fit_label: "Fit all",
+            fit_hover: "",
+            home_hover: "",
+            view_keys: &keys,
+        };
+
+        assert_eq!(texts.hover(Vector3::NEG_Y), "View from front (Alt+1)");
+        assert_eq!(
+            texts.hover(Vector3::new(1.0, -1.0, 1.0)),
+            "View from top, front and right (Alt+0)"
+        );
+        assert_eq!(
+            texts.hover(Vector3::new(1.0, -1.0, 0.0)),
+            "View from front and right"
+        );
     }
 }

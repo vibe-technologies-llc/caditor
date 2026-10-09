@@ -140,6 +140,7 @@ pub enum Command {
     ScaleModel,
     Configurations,
     FitView,
+    PreviousView,
     Measure,
     Interference,
     LargerInterface,
@@ -527,6 +528,7 @@ plain_commands! {
     UndoHistory,
     Redo,
     FitView,
+    PreviousView,
     ToggleProjection,
     AutomaticProjection,
     ToggleSnapping,
@@ -837,6 +839,7 @@ impl Command {
             Self::ScaleModel => "model.scale_model",
             Self::Configurations => "model.configurations",
             Self::FitView => "view.fit",
+            Self::PreviousView => "view.previous",
             Self::Measure => "view.measure",
             Self::Interference => "view.interference",
             Self::LargerInterface => "view.interface_larger",
@@ -1059,6 +1062,7 @@ impl Command {
             Self::ScaleModel => "Scale model…",
             Self::Configurations => "Configurations…",
             Self::FitView => "Fit view",
+            Self::PreviousView => "Go back to the previous view",
             Self::Measure => "Measure",
             Self::Interference => "Check interference",
             Self::LargerInterface => "Make the interface larger",
@@ -1226,6 +1230,7 @@ impl Command {
             | Self::SelectionSets
             | Self::DismissNotice => Category::Edit,
             Self::FitView
+            | Self::PreviousView
             | Self::Measure
             | Self::Interference
             | Self::LargerInterface
@@ -1438,6 +1443,7 @@ impl Command {
             Self::Undo => vec![command(Key::Z)],
             Self::Redo => vec![command_shift(Key::Z), command(Key::Y)],
             Self::FitView => vec![plain(Key::F)],
+            Self::PreviousView => vec![alt(Key::ArrowLeft)],
             Self::Measure => vec![plain(Key::I)],
             Self::ToggleProjection => vec![plain(Key::O)],
             Self::LargerInterface => vec![command(Key::Plus), command(Key::Equals)],
