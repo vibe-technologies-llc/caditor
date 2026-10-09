@@ -116,6 +116,23 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   plain numbers), counted in `inlined`; a value of another kind refuses the feature in words.
   `Expression::substituting` replaces every id in one pass, so swapped ids never collide.
 
+## Importing parameters (`parameter_import.rs`)
+
+- `Document::plan_parameter_import` turns rows of name, expression text and note into a
+  `ParameterImport`: an `ImportOutcome` per row (Added, Changed with the expression it replaces,
+  Kept when the model's own differs and `replace_existing` is off, Unchanged, or Refused with an
+  `ImportRefusal`) and one transaction, or none when nothing changes. Rows merge by name; an
+  owned parameter keeps its owner. A note in the file replaces the model's, an empty one leaves it.
+- Rows are refused alone, never the whole file: a name `check_name` refuses or seen on an earlier
+  row, a note too long, text that does not parse (names resolve to the model's parameters and to
+  the file's other rows, so rows may refer to later ones), a cycle on the merged graph
+  (`DependencyGraph`, every row in it refused, named as a path), a value that does not evaluate
+  once applied (tried on a clone), and a row using a new name that was refused. Refusing repeats
+  until nothing more is refused, since one refusal can strand another row.
+- New parameters take ids from the counter in row order, gaps left by refused rows included, and
+  are inserted at the end of the list with a stand-in value before the expressions are set, so
+  rows may refer to each other in any order.
+
 ## Hidden flags
 
 - `hidden` (`Edit::SetFeatureHidden`) is undoable, saved only when set, journaled; recompute
