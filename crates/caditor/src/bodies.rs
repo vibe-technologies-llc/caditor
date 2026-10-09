@@ -14,8 +14,8 @@ use caditor_document::{
 pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3, RigidTransform};
 use caditor_kernel::{
-    Curve, EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference,
-    MassProperties, Mesh, Solid, Surface, VertexId, VertexName,
+    EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference, MassProperties,
+    Mesh, Solid, SolidMass, Surface, VertexId, VertexName, extent, mass_properties,
 };
 use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
 
@@ -121,6 +121,7 @@ pub struct BodyFace {
     pub key: FaceKey,
     pub flat: bool,
     pub bounds: Option<Aabb>,
+    pub area: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -150,34 +151,53 @@ pub struct BodyMass {
 
 impl BodyMass {
     pub fn of(solid: &Solid, mesh: &Mesh) -> Self {
-        let curved: BTreeSet<FaceId> = solid
-            .faces()
-            .filter(|(_, face)| !matches!(face.surface(), Surface::Plane(_)))
-            .map(|(id, _)| id)
-            .collect();
-        let straight = solid
-            .edges()
-            .all(|(_, edge)| matches!(edge.curve(), Curve::Line(_)));
-        let accuracy = if curved.is_empty() && straight {
-            MassAccuracy::Exact
-        } else {
-            let curved_area = mesh
-                .mass_properties_where(|face| curved.contains(&face))
-                .area;
-            MassAccuracy::Mesh {
-                chord: mesh.chord(),
-                volume_within: curved_area * mesh.chord(),
+        Self::with_face_areas(solid, mesh).0
+    }
+
+    fn with_face_areas(solid: &Solid, mesh: &Mesh) -> (Self, BTreeMap<FaceId, f64>) {
+        let within = |meshed: &dyn Fn(FaceId) -> bool| MassAccuracy::Mesh {
+            chord: mesh.chord(),
+            volume_within: mesh.mass_properties_where(meshed).area * mesh.chord(),
+        };
+        let (properties, mut accuracy, face_areas) = match mass_properties(solid, mesh) {
+            Ok(SolidMass {
+                properties,
+                face_areas,
+                meshed_faces,
+            }) if meshed_faces.is_empty() => (properties, MassAccuracy::Exact, face_areas),
+            Ok(SolidMass {
+                properties,
+                face_areas,
+                meshed_faces,
+            }) => {
+                let meshed: BTreeSet<FaceId> = meshed_faces.into_iter().collect();
+                let accuracy = within(&|face| meshed.contains(&face));
+                (properties, accuracy, face_areas)
+            }
+            Err(error) => {
+                log::warn!("mass properties are taken from the display mesh: {error}");
+                (mesh.mass_properties(), within(&|_| true), BTreeMap::new())
             }
         };
-        let size = Aabb::from_points(mesh.positions().iter().copied()).map(|bounds| {
+        let bounds = match extent(solid) {
+            Ok(Some(bounds)) => Some(bounds),
+            Ok(None) | Err(_) => {
+                if accuracy == MassAccuracy::Exact {
+                    accuracy = within(&|_| false);
+                }
+                Aabb::from_points(mesh.positions().iter().copied())
+            }
+        };
+        let size = bounds.map(|bounds| {
             let extent = bounds.max() - bounds.min();
             [extent.x, extent.y, extent.z]
         });
-        Self {
-            properties: mesh.mass_properties(),
+        let mass = Self {
+            properties,
             accuracy,
             size,
-        }
+        };
+        (mass, face_areas)
     }
 }
 
@@ -199,6 +219,7 @@ impl BodyMesh {
 
     fn build(source: &Arc<FeatureResult>, body: &SolidResult, mesh: &Mesh) -> Self {
         let solid = &body.solid;
+        let (mass, face_areas) = BodyMass::with_face_areas(solid, mesh);
         let keys: BTreeMap<FaceId, FaceKey> = face_keys(solid).into_iter().collect();
         let mut faces = Vec::new();
         let mut shaded = Vec::new();
@@ -225,6 +246,7 @@ impl BodyMesh {
                     .face(face.face)
                     .is_some_and(|face| matches!(face.surface(), Surface::Plane(_))),
                 bounds: Aabb::from_points(drawn.points.iter().map(|point| point.position)),
+                area: face_areas.get(&face.face).copied(),
             });
             shaded.push(drawn);
         }
@@ -258,7 +280,7 @@ impl BodyMesh {
             faces,
             edges,
             vertices,
-            mass: BodyMass::of(solid, mesh),
+            mass,
         }
     }
 
@@ -275,6 +297,13 @@ impl BodyMesh {
 
     pub fn bounds(&self) -> Option<Aabb> {
         self.mesh.bounds()
+    }
+
+    pub fn face_area(&self, key: FaceKey) -> Option<f64> {
+        self.faces
+            .iter()
+            .find(|face| face.key == key)
+            .and_then(|face| face.area)
     }
 
     pub fn face_bounds(&self, key: FaceKey) -> Option<Aabb> {

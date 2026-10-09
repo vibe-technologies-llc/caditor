@@ -14,11 +14,11 @@ use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 use caditor_kernel::{
     Accuracy, AngleKind, Axis, Curve, EdgeForm, EdgeId, EdgeMeasure, Element, FaceForm, FaceId,
     Interval, LINEAR_RESOLUTION, MeasureError, Region, Separation, angle, axis_of, axis_separation,
-    curve_measure, distance, edge_measure, face_form, planar_area, section_of,
+    curve_measure, distance, edge_measure, face_area, face_form, section_of,
 };
 
 use crate::{
-    bodies::{self, BodyMass, MassAccuracy},
+    bodies::{self, BodyMass, Converted, MassAccuracy},
     datum_tools,
     model::{Model, Waker},
     scene,
@@ -109,7 +109,7 @@ enum Subject {
         origin: Point3,
         normal: Vector3,
     },
-    CentreOfMass(Arc<FeatureResult>),
+    CentreOfMass(Point3),
     Regions {
         sketch: FeatureId,
         plane: Plane,
@@ -145,9 +145,7 @@ impl Item {
                 origin: *origin,
                 normal: *normal,
             }),
-            Subject::CentreOfMass(result) => Some(Element::Point(
-                result.solid()?.mesh()?.mass_properties().centroid,
-            )),
+            Subject::CentreOfMass(centroid) => Some(Element::Point(*centroid)),
             Subject::Regions { .. } | Subject::Unmeasurable => None,
         }
     }
@@ -155,6 +153,32 @@ impl Item {
 
 fn body_result(model: &Model, body: FeatureId) -> Option<Arc<FeatureResult>> {
     model.evaluation().body_result(body).cloned()
+}
+
+fn shown_face_area(model: &Model, result: &Arc<FeatureResult>, face: FaceId) -> Option<Reading> {
+    let exact = match model.display().meshing.lookup(result) {
+        Converted::Ready(mesh) => bodies::face_keys(&result.solid()?.solid)
+            .into_iter()
+            .find(|(id, _)| *id == face)
+            .and_then(|(_, key)| mesh.face_area(key)),
+        Converted::Pending | Converted::Missing => None,
+    };
+    Some(match exact {
+        Some(area) => Reading::exact("Area", Value::Area(area)),
+        None => Reading::with(
+            "Area",
+            Value::Area(result_mesh_area(result, face)?),
+            Accuracy::Approximate,
+        ),
+    })
+}
+
+fn body_mass(model: &Model, body: FeatureId) -> Option<BodyMass> {
+    let result = body_result(model, body)?;
+    match model.display().meshing.lookup(&result) {
+        Converted::Ready(mesh) => Some(mesh.mass),
+        Converted::Pending | Converted::Missing => None,
+    }
 }
 
 fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
@@ -231,7 +255,9 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
                 normal: plane.normal(),
             }
         }
-        Pickable::CentreOfMass(body) => Subject::CentreOfMass(body_result(model, body)?),
+        Pickable::CentreOfMass(body) => {
+            Subject::CentreOfMass(body_mass(model, body)?.properties.centroid)
+        }
         Pickable::SketchRegion { feature, region } => {
             let found = selection::sketch_regions(evaluation, feature)?
                 .iter()
@@ -279,7 +305,7 @@ pub fn size_text(model: &Model, pickable: Pickable) -> Option<String> {
         subject: subject_of(model, pickable)?,
     };
     let (label, readings) = match &item.subject {
-        Subject::Face { .. } => ("Area", readings_of(&item, item.element()?).ok()?),
+        Subject::Face { result, face } => ("Area", vec![shown_face_area(model, result, *face)?]),
         Subject::Edge { .. } => ("Length", readings_of(&item, item.element()?).ok()?),
         Subject::Regions { plane, regions, .. } => ("Area", section_readings(plane, regions)?),
         _ => return None,
@@ -302,9 +328,7 @@ pub fn size_text(model: &Model, pickable: Pickable) -> Option<String> {
 }
 
 pub fn body_size_text(model: &Model, body: FeatureId) -> Option<String> {
-    let result = body_result(model, body)?;
-    let solid = result.solid()?;
-    let mass = BodyMass::of(&solid.solid, solid.mesh()?);
+    let mass = body_mass(model, body)?;
     let text = model.units().measured_size(mass.size?);
     let approximately = if mass.accuracy == MassAccuracy::Exact {
         ""
@@ -498,10 +522,8 @@ fn readings_of(item: &Item, element: Element<'_>) -> Result<Vec<Reading>, Measur
         ],
         Element::Face { solid, face } => {
             let mut readings = Vec::new();
-            match planar_area(solid, face)? {
-                Some((area, accuracy)) => {
-                    readings.push(Reading::with("Area", Value::Area(area), accuracy));
-                }
+            match face_area(solid, face)? {
+                Some(area) => readings.push(Reading::exact("Area", Value::Area(area))),
                 None => {
                     if let Some(area) = mesh_area(item, face) {
                         readings.push(Reading::with(
@@ -618,6 +640,10 @@ fn mesh_area(item: &Item, face: FaceId) -> Option<f64> {
     let Subject::Face { result, .. } = &item.subject else {
         return None;
     };
+    result_mesh_area(result, face)
+}
+
+fn result_mesh_area(result: &FeatureResult, face: FaceId) -> Option<f64> {
     let mesh = result.solid()?.mesh()?;
     Some(
         mesh.mass_properties_where(|candidate| candidate == face)

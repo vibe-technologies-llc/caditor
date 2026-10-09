@@ -63,9 +63,10 @@ paths:
   into the triangle at a pole), so curved faces shade smoothly while the edge between a cylinder
   and its cap stays crisp. Edge polylines are the samplings the faces were triangulated with, so
   outlines follow the silhouettes exactly.
-- `mass_properties` (volume, area, centroid) by the divergence theorem; `Mesh::chord` records the
-  chord asked for (retried faces only get closer), which the app quotes as the accuracy of mass
-  properties.
+- `mass_properties` (volume, area, centroid, second moments) by the divergence theorem over the
+  triangles: what validation measures, and the fallback for a face exact integration gives up on
+  (`kernel.md`); `Mesh::chord` records the chord asked for (retried faces only get closer), which
+  the app quotes as the accuracy of such mass properties.
 
 ## Retries and limits
 

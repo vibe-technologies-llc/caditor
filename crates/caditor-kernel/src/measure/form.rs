@@ -1,4 +1,4 @@
-use std::{borrow::Cow, f64::consts::FRAC_PI_8};
+use std::borrow::Cow;
 
 use caditor_geometry::{Point3, Vector3};
 
@@ -6,13 +6,11 @@ use super::{Accuracy, EdgeShape, Element, MeasureError, Separation};
 use crate::{
     curve::Curve,
     interval::Interval,
-    numeric,
     surface::Surface,
     tolerance::LINEAR_RESOLUTION,
     topology::{EdgeId, FaceId, Solid},
 };
 
-const CURVED_PIECES: usize = 64;
 const PARALLEL_SINE: f64 = 1e-12;
 const SHARED_CORNER: f64 = 10.0 * LINEAR_RESOLUTION;
 
@@ -152,50 +150,6 @@ pub fn face_form(solid: &Solid, face: FaceId) -> Result<FaceForm, MeasureError> 
             minor_radius: torus.minor_radius(),
         },
         _ => FaceForm::Surface,
-    })
-}
-
-pub fn planar_area(solid: &Solid, face: FaceId) -> Result<Option<(f64, Accuracy)>, MeasureError> {
-    let definition = solid.face(face).ok_or(MeasureError::MissingFace(face))?;
-    let Surface::Plane(plane) = definition.surface() else {
-        return Ok(None);
-    };
-    let origin = plane.frame().origin();
-    let normal = plane.frame().normal();
-    let mut twice = 0.0;
-    let mut accuracy = Accuracy::Exact;
-    let coedges = definition
-        .loops()
-        .iter()
-        .filter_map(|id| solid.face_loop(*id))
-        .flat_map(|face_loop| face_loop.coedges())
-        .filter_map(|id| solid.coedge(*id));
-    for coedge in coedges {
-        let edge = solid
-            .edge(coedge.edge())
-            .ok_or(MeasureError::MissingEdge(coedge.edge()))?;
-        let curve = edge.curve();
-        accuracy = accuracy.and(Accuracy::of(matches!(
-            curve,
-            Curve::Line(_) | Curve::Circle(_)
-        )));
-        twice += coedge.sense().sign() * swept_area(curve, edge.interval(), origin, normal);
-    }
-    Ok(Some((0.5 * twice.abs(), accuracy)))
-}
-
-fn swept_area(curve: &Curve, interval: Interval, origin: Point3, normal: Vector3) -> f64 {
-    let pieces = match curve {
-        Curve::Line(_) => 1,
-        Curve::Circle(_) | Curve::Ellipse(_) => {
-            (interval.length() / FRAC_PI_8).ceil().max(1.0) as usize
-        }
-        _ => CURVED_PIECES,
-    };
-    let breaks: Vec<f64> = interval.split(pieces).collect();
-    numeric::integrate(&breaks, |parameter| {
-        let derivatives = curve.evaluate(parameter);
-        normal.dot((derivatives.point - origin).cross(derivatives.first))
     })
 }
 

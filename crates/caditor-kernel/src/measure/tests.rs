@@ -359,7 +359,7 @@ fn edges_report_their_length_and_circles_their_centre_and_radius() {
 }
 
 #[test]
-fn flat_faces_have_exact_areas_holes_and_round_edges_included() {
+fn faces_have_exact_areas_holes_and_curved_faces_included() {
     let block = cuboid(Vector3::new(10.0, 20.0, 30.0));
     let top = flat_face_at(&block, Point3::new(0.0, 0.0, 30.0), Vector3::Z);
     let tube = cylinder(5.0, 10.0);
@@ -367,17 +367,23 @@ fn flat_faces_have_exact_areas_holes_and_round_edges_included() {
     let side = face_where(&tube, |surface| matches!(surface, Surface::Cylinder(_)));
     let holed = holed_block(20.0, 5.0, 4.0);
     let holed_top = flat_face_at(&holed, Point3::new(0.0, 0.0, 5.0), Vector3::Z);
+    let bore = face_where(&holed, |surface| matches!(surface, Surface::Cylinder(_)));
+    let ball = sphere(3.0);
+    let skin = face_where(&ball, |surface| matches!(surface, Surface::Sphere(_)));
 
-    let (rectangle, rectangle_accuracy) = planar_area(&block, top).unwrap().unwrap();
-    let (disc, disc_accuracy) = planar_area(&tube, cap).unwrap().unwrap();
-    let (pierced, _) = planar_area(&holed, holed_top).unwrap().unwrap();
+    let rectangle = face_area(&block, top).unwrap().unwrap();
+    let disc = face_area(&tube, cap).unwrap().unwrap();
+    let pierced = face_area(&holed, holed_top).unwrap().unwrap();
+    let wall = face_area(&tube, side).unwrap().unwrap();
+    let hole = face_area(&holed, bore).unwrap().unwrap();
+    let globe = face_area(&ball, skin).unwrap().unwrap();
 
     assert!((rectangle - 200.0).abs() < CLOSE);
-    assert_eq!(rectangle_accuracy, Accuracy::Exact);
     assert!((disc - PI * 25.0).abs() < CLOSE);
-    assert_eq!(disc_accuracy, Accuracy::Exact);
     assert!((pierced - (400.0 - PI * 16.0)).abs() < CLOSE);
-    assert_eq!(planar_area(&tube, side).unwrap(), None);
+    assert!((wall - PI * 100.0).abs() < CLOSE);
+    assert!((hole - PI * 40.0).abs() < CLOSE);
+    assert!((globe - PI * 36.0).abs() < CLOSE);
 }
 
 #[test]

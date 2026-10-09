@@ -199,3 +199,23 @@ paths:
   bounds (where the closest point on the line must lie, so still exact for straight geometry), and
   a plane is a face that contains every point and has no edges, kept second in a face pair so the
   bounded face seeds the search.
+- `mass_properties` (`measure/mass.rs`) integrates area, volume and first and second moments
+  exactly over each trimmed face, whatever its surface: the divergence theorem turns each into a
+  surface integral, and Green's theorem in the face's uv domain into a line integral along its
+  coedges of a strip integral across u from the middle of the face's u range (`∮ H dv`, so edges
+  of constant v and the pole lines closing a loop contribute nothing). Each boundary point is the
+  edge's exact point projected onto the surface with the pcurve as hint, its dv/dt from the
+  surface's Jacobian. Both integrals are adaptive Gauss–Kronrod (`quadrature.rs`, 15 points,
+  bisecting a piece until its 7-point error is within a relative tolerance of its own magnitude
+  or an absolute floor scaled to the body), broken at quarter turns, curve and surface knots and
+  where a boundary crosses a knot line (found by bisection), so each piece is smooth and a
+  polynomial spline's strip is exact at once. Values are about the centre of the box of edges,
+  which keeps second moments from cancelling. A face that does not converge within
+  `FACE_EVALUATIONS`, or meets a non-finite value, takes its mesh triangles instead and is listed
+  in `SolidMass::meshed_faces`; nothing depends on the mesh otherwise. `face_area` is the same
+  integral for one face (`None` when it gives up).
+- `extent` is the tight box, not a bound like `Solid::bounding_box`: vertices, conic edges' closed
+  form extremes, spline and intersection edges' critical points along each axis (bisection and
+  Newton between samples), sphere and torus extremes inside their faces, and for revolution and
+  spline faces whose hull reaches past that box, a monotone Newton ascent from the grid's local
+  peaks along each axis, kept when inside the face.
