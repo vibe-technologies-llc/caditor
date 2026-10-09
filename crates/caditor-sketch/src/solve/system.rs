@@ -547,6 +547,9 @@ impl System {
                     _ => return Err(not_applicable(from, to)),
                 }
             }
+            Constraint::AxisDiameter { point, axis, .. } => {
+                vec![self.line_distance(sketch, point, axis, dimension()? / 2.0)?]
+            }
             Constraint::HorizontalDistance { from, to, .. } => {
                 self.offset(self.point(from)?, self.point(to)?, Vector2::X, dimension()?)
             }

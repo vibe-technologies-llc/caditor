@@ -6,8 +6,8 @@ use std::{
 };
 
 use caditor_document::{
-    Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, PlaneReference, PrincipalPlane,
-    RollbackBar, SketchAttachment, Transaction,
+    CancelToken, Document, Edit, Editor, FaceAttachment, FeatureId, FeatureKind, PlaneReference,
+    PrincipalPlane, RollbackBar, SketchAttachment, Transaction,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Vector3};
@@ -173,6 +173,20 @@ fn record_session(storage: &Storage, editor: &mut Editor) {
     editor.undo().unwrap();
     storage.record(JournalEntry::Undo(undo)).unwrap();
     assert!(storage.flusher().flush(WAIT));
+}
+
+#[test]
+fn a_cancelled_load_stops_with_nothing_and_an_uncancelled_one_loads_the_model() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let document = sample();
+    save(&document, &path, false).unwrap();
+
+    let cancelled = load_cancellable(&path, &CancelToken::new(|| true));
+    let loaded = load_cancellable(&path, &CancelToken::never()).unwrap();
+
+    assert_eq!(cancelled, Err(LoadError::Cancelled));
+    assert_eq!(loaded.document, document);
 }
 
 #[test]
@@ -5191,6 +5205,90 @@ fn inactive_constraints_stay_inactive_through_saving_and_the_journal() {
         feature.raw(),
         measured.raw()
     )));
+    let record: format::TransactionRecord = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn diameters_across_an_axis_are_saved_as_flagged_radii_that_older_readers_hold_as_distances() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("New sketch");
+    let bore = transaction.add_parameter("bore", transaction.parse("30 mm").unwrap());
+    let mut sketch = Sketch::new(Plane::XY);
+    let axis = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(0.0, 10.0));
+    sketch.set_construction(axis, true).unwrap();
+    let rim = sketch.add_point(Point2::new(12.0, 0.0));
+    let hole = sketch.add_point(Point2::new(15.0, 5.0));
+    let literal = sketch
+        .add_constraint(Constraint::AxisDiameter {
+            point: rim,
+            axis,
+            value: Expression::Measure(24.0, Unit::Millimetre),
+        })
+        .unwrap();
+    let driven = sketch
+        .add_constraint(Constraint::AxisDiameter {
+            point: hole,
+            axis,
+            value: Expression::Parameter(bore),
+        })
+        .unwrap();
+    let feature = transaction.add_feature("Profile", FeatureKind::from(sketch));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+
+    assert_eq!(text.matches("\"diameter\":true").count(), 2);
+    assert!(text.contains(&format!(
+        "{{\"distance\":{{\"diameter\":true,\"from\":{},\"to\":{},\"value\":\"12 mm\"}}",
+        rim.raw(),
+        axis.raw()
+    )));
+    assert!(text.contains(&format!("\"value\":\"${} / 2\"", bore.raw())));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let older = decode_text(&text.replace("\"diameter\":true,", ""));
+    let older_sketch = older
+        .document
+        .feature(feature)
+        .unwrap()
+        .kind
+        .sketch()
+        .unwrap();
+
+    assert_eq!(older.issues, Vec::<String>::new());
+    assert_eq!(
+        older_sketch.constraint(literal),
+        Some(&Constraint::Distance {
+            from: rim,
+            to: axis,
+            value: Expression::Measure(12.0, Unit::Millimetre),
+        })
+    );
+    assert!(matches!(
+        older_sketch.constraint(driven),
+        Some(Constraint::Distance {
+            value: Expression::Binary(..),
+            ..
+        })
+    ));
+
+    let mut transaction = document.transaction("Add diameter");
+    transaction.edit(Edit::AddSketchConstraint {
+        feature,
+        id: ConstraintId::from_raw(90),
+        constraint: Constraint::AxisDiameter {
+            point: rim,
+            axis,
+            value: Expression::Measure(25.0, Unit::Millimetre),
+        },
+        inactive: false,
+    });
+    let transaction = transaction.finish();
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    assert!(text.contains("\"value\":\"12.5 mm\",\"diameter\":true"));
     let record: format::TransactionRecord = through_binary(&text);
     assert_eq!(format::restore_transaction(record), Some(transaction));
 }

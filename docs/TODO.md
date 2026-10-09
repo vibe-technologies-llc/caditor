@@ -158,9 +158,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   (G1) or curvature-continuous (G2), as a spline held by `Tangent` and `Curvature` constraints so
   it follows when either end moves, for a transition where a fillet's circular arc is not smooth
   enough.
-- [low · medium] A revolved profile cannot be dimensioned as a lathe drawing shows it: the
-  distance from a point to the revolve axis (a construction line) reads as a radius, with no
-  option to show and hold it as the diameter across the axis (twice the distance).
 - [low · medium] Dimension labels cannot be dragged; only linear dimensions sharing a line stack
   clear of each other.
 - [low · hard] No reference image: a photo or scan cannot be placed on a sketch plane, scaled by two
@@ -390,9 +387,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
-- [low · medium] Cancelling Open only drops its result while the files worker reads on, so a save or
-  another open queues behind a slow load; the loader would need a cancel token and its own thread
-  as imports have.
 - [medium · medium] On Wayland the portal file dialog request passes an empty parent window, so the
   dialog is not tied to caditor's and can open behind it (Stop waiting in the status bar recovers
   the window); it needs an exported xdg-foreign handle, which winit does not offer and the raw

@@ -19,7 +19,7 @@ use caditor_document::{
     Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
     SolidFeature, SolidStart, Split, Transaction, TurnCentre, group_name, material_name, view_name,
 };
-use caditor_expression::{Expression, ParameterId, Quantity, Unit};
+use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector3};
 use caditor_kernel::{
     BoundaryPiece, EdgeName, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference,
@@ -957,6 +957,8 @@ pub(crate) enum ConstraintKindRecord {
         from: u64,
         to: u64,
         value: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        diameter: bool,
     },
     Angle {
         from: u64,
@@ -2605,6 +2607,13 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
             from: from.raw(),
             to: to.raw(),
             value: value.to_stored_text(),
+            diameter: false,
+        },
+        Constraint::AxisDiameter { point, axis, value } => ConstraintKindRecord::Distance {
+            from: point.raw(),
+            to: axis.raw(),
+            value: radius_of_diameter(value).to_stored_text(),
+            diameter: true,
         },
         Constraint::Angle {
             from,
@@ -4658,10 +4667,19 @@ fn constraint_from_record(
             from,
             to,
             value: text,
+            diameter,
         } => {
             let (from, to) = (entity(*from), entity(*to));
             let value = value(text, DrawnValue::Distance { from, to })?;
-            Constraint::Distance { from, to, value }
+            if *diameter {
+                Constraint::AxisDiameter {
+                    point: from,
+                    axis: to,
+                    value: diameter_of_radius(value),
+                }
+            } else {
+                Constraint::Distance { from, to, value }
+            }
         }
         ConstraintKindRecord::Angle {
             from,
@@ -4766,6 +4784,37 @@ fn constraint_from_record(
             Constraint::Curvature(a, b)
         }
     })
+}
+
+const DIAMETER_PER_RADIUS: f64 = 2.0;
+
+fn radius_of_diameter(diameter: &Expression) -> Expression {
+    match *diameter {
+        Expression::Measure(value, unit) => Expression::Measure(value / DIAMETER_PER_RADIUS, unit),
+        Expression::Number(value) => Expression::Number(value / DIAMETER_PER_RADIUS),
+        _ => Expression::binary(
+            BinaryOperator::Divide,
+            diameter.clone(),
+            Expression::Number(DIAMETER_PER_RADIUS),
+        ),
+    }
+}
+
+fn diameter_of_radius(radius: Expression) -> Expression {
+    match radius {
+        Expression::Measure(value, unit) => Expression::Measure(value * DIAMETER_PER_RADIUS, unit),
+        Expression::Number(value) => Expression::Number(value * DIAMETER_PER_RADIUS),
+        Expression::Binary(BinaryOperator::Divide, diameter, divisor)
+            if *divisor == Expression::Number(DIAMETER_PER_RADIUS) =>
+        {
+            *diameter
+        }
+        radius => Expression::binary(
+            BinaryOperator::Multiply,
+            radius,
+            Expression::Number(DIAMETER_PER_RADIUS),
+        ),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

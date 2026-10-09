@@ -5,7 +5,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use caditor_document::Document;
+use caditor_document::{CancelToken, Document};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -1153,6 +1153,10 @@ pub(crate) fn file_from_records(version: u32, records: &[Vec<u8>]) -> Result<Vec
 }
 
 pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
+    decode_cancellable(bytes, &CancelToken::never())
+}
+
+pub(crate) fn decode_cancellable(bytes: &[u8], cancel: &CancelToken) -> Result<Loaded, LoadError> {
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Err(LoadError::Empty);
     }
@@ -1187,12 +1191,19 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Loaded, LoadError> {
     let mut budget = Budget::default();
     let mut digest = RecordDigest::default();
     let mut record_issues = Vec::new();
-    let records = parsed.records.iter().map(|chunk| {
-        let content = budget.unpack(chunk, None);
-        digest.add(&content);
-        content.map(Cow::Owned)
-    });
+    let records = parsed
+        .records
+        .iter()
+        .take_while(|_| !cancel.is_cancelled())
+        .map(|chunk| {
+            let content = budget.unpack(chunk, None);
+            digest.add(&content);
+            content.map(Cow::Owned)
+        });
     let parts = read_records(records, &mut record_issues);
+    if cancel.is_cancelled() {
+        return Err(LoadError::Cancelled);
+    }
     if parsed.damaged == 0 && digest.whole && !digest.matches(parsed.head.as_ref()) {
         issues.push(
             "The file ends early, probably because it was not copied or synced completely: \

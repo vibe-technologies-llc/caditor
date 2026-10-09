@@ -12,8 +12,8 @@ use xxhash_rust::xxh3::Xxh3;
 #[cfg(test)]
 pub(crate) use self::model::save_bytes;
 pub(crate) use self::model::{
-    EncodeError, Encoded, KeepError, Shared, decode, encode, encode_over, head_digest, history,
-    load_version, reads_back, with_version_kept,
+    EncodeError, Encoded, KeepError, Shared, decode, decode_cancellable, encode, encode_over,
+    head_digest, history, load_version, reads_back, with_version_kept,
 };
 pub use self::model::{
     FileDigest, History, MAX_DECOMPRESSED as MAX_MODEL_RECORDS, SavedState, Version,

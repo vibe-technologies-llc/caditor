@@ -54,6 +54,11 @@ paths:
   a gap of crossing curves is zero. An angle measures from its first line's direction (or its
   reverse when `reversed`, which the UI sets so a chain's corner is measured inside it) to its
   second's.
+- `AxisDiameter { point, axis }` is a point's distance from a line held as the diameter across it,
+  as a lathe drawing dimensions a revolved profile: its value and `Sketch::measured` are twice the
+  distance, the solver holds the point at half the value on its drawn side (`Form::LineDistance`),
+  and it restates a `Distance` between the same point and line. The point must not be the line's
+  own; the reference axes are lines like any other.
 - `Perpendicular` between a line and a circle or arc puts the centre on the line
   (`Form::OnLine`), so the line crosses the curve square; between lines it is the right angle.
 - `ArcLength` and `Sweep` take an arc, never a circle: the sweep is the angle from the radius to

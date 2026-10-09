@@ -422,7 +422,11 @@ paths:
   horizontal span and above or below them the horizontal distance, within their vertical span and
   beside them the vertical one, elsewhere (and always for level or upright ones) the aligned one;
   for a lone arc, beyond it within its sweep its length, inside it its sweep, outside its sweep its
-  radius. Enter always adds the aligned distance, the length or the radius. A spline waits for a
+  radius. A point and a construction line also wait for placement (`dimensioning::about_axis`):
+  across the line the diameter (`Constraint::AxisDiameter`, drawn from the point to its mirror
+  image across the line and labelled Ø), on the point's side the distance. Enter always adds the
+  aligned distance, the length or the radius. The Diameter tool adds the same diameter for a point
+  and any line selected. A spline waits for a
   point, line, circle or arc, whose distance from it is the dimension (from a curve, the gap where
   the spline bulges toward it, drawn between `Sketch::spline_gap`'s points); another spline is
   refused in words, and a lone point waits. A line and an arc sharing an end take the angle

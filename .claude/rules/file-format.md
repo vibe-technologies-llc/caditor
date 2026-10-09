@@ -270,6 +270,10 @@ paths:
   any) and `keep_tool` (only when set), since an older reader would consume one tool and miss the
   rest; an inner record that is no combine loads without them, reported, and a repeated tool is
   kept once. A `remove` record holds `body`.
+- A diameter across an axis (`AxisDiameter`) is a `distance` record with `diameter: true` holding
+  the radius: a literal halved, any other expression divided by 2 (loading takes the division
+  off again or doubles), so an older reader drops the flag and holds the same geometry as a
+  distance.
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
   means active, so older files read unchanged); the journal's `add_sketch_constraint` carries the
   same flag and `set_sketch_constraint_active` is its own record.
@@ -294,6 +298,9 @@ paths:
   origins of face and edge references saved without them (`complete_origins`, `document.md`)
   within `ORIGIN_COMPLETION_TIME`; the completed model is the saved baseline, so it opens
   unmodified and the next save writes the origins. A journal snapshot is not completed.
+- `load_cancellable` is `load` under a `CancelToken`, checked after reading the file, between
+  records (`binary::decode_cancellable`) and during origin completion; a cancelled load is
+  `LoadError::Cancelled`, never a partial model.
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
   before applying; each kind of record applied as one transaction, halved only where it fails; at
   most `MAX_RECORDS` parameters and features loaded, the rest reported.

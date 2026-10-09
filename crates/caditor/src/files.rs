@@ -19,7 +19,7 @@ use caditor_file::{
     FILE_EXTENSION, FaceExported, FileJournal, History, ImportError, LoadError, Loaded,
     MESH_IMPORT_EXTENSIONS, ModelImport, PNG_EXTENSION, RecentChange, RecentFiles, Recovered,
     STEP_EXTENSIONS, STEP_IMPORT_EXTENSIONS, SavedState, Settings, SketchExported, SketchFormat,
-    describe_set_aside, journal_for, load, load_version, read_dxf, scan,
+    describe_set_aside, journal_for, load_cancellable, load_version, read_dxf, scan,
 };
 use caditor_kernel::{FaceId, Solid};
 use caditor_render::{ImageError, SurfaceSize};
@@ -508,13 +508,37 @@ impl Importing {
     }
 
     fn token(&self) -> CancelToken {
-        let stopped = Arc::clone(&self.stopped);
-        CancelToken::new(move || stopped.load(Ordering::Relaxed))
+        stop_token(&self.stopped)
     }
+}
+
+struct Opening {
+    path: PathBuf,
+    stopped: Arc<AtomicBool>,
+}
+
+impl Opening {
+    fn new(path: PathBuf) -> Self {
+        Self {
+            path,
+            stopped: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn token(&self) -> CancelToken {
+        stop_token(&self.stopped)
+    }
+}
+
+fn stop_token(stopped: &Arc<AtomicBool>) -> CancelToken {
+    let stopped = Arc::clone(stopped);
+    CancelToken::new(move || stopped.load(Ordering::Relaxed))
 }
 
 pub type ModelReader =
     Arc<dyn Fn(&Path, &CancelToken) -> Result<ModelImport, ImportError> + Send + Sync>;
+
+pub type ModelLoader = Arc<dyn Fn(&Path, &CancelToken) -> Result<Loaded, LoadError> + Send + Sync>;
 
 struct Queued {
     path: PathBuf,
@@ -538,8 +562,9 @@ pub struct Files {
     guard: Option<Intent>,
     after_save: Option<Intent>,
     report: Option<Report>,
-    opening: Option<PathBuf>,
+    opening: Option<Opening>,
     open_attempt: u64,
+    model_loader: ModelLoader,
     importing: Option<Importing>,
     import_attempt: u64,
     model_reader: ModelReader,
@@ -578,6 +603,7 @@ impl Files {
             report: None,
             opening: None,
             open_attempt: 0,
+            model_loader: Arc::new(load_cancellable),
             importing: None,
             import_attempt: 0,
             model_reader: Arc::new(import::read_model),
@@ -625,12 +651,8 @@ impl Files {
     }
 
     #[cfg(test)]
-    pub fn hold_worker(&mut self) -> Sender<()> {
-        let (release, held) = mpsc::channel();
-        self.run_job(Box::new(move || {
-            let _ = held.recv();
-        }));
-        release
+    pub fn load_models_with(&mut self, loader: ModelLoader) {
+        self.model_loader = loader;
     }
 
     #[cfg(test)]
@@ -1386,18 +1408,33 @@ impl Files {
         let attempt = self.import_attempt;
         let cancel = importing.token();
         self.importing = Some(importing);
+        self.spawn_own(
+            "import",
+            move || task(attempt, cancel),
+            move || failed(attempt),
+        );
+    }
+
+    fn spawn_own(
+        &self,
+        name: &'static str,
+        task: impl FnOnce() -> Event + Send + 'static,
+        failed: impl FnOnce() -> Event + Send + 'static,
+    ) {
         let events = self.events.clone();
         let wake = (self.make_waker)();
-        run_on_own_thread(Box::new(move || {
-            let event = panic::catch_unwind(AssertUnwindSafe(|| task(attempt, cancel)))
-                .unwrap_or_else(|_| {
-                    log::error!("a background import panicked");
-                    failed(attempt)
+        run_on_own_thread(
+            name,
+            Box::new(move || {
+                let event = panic::catch_unwind(AssertUnwindSafe(task)).unwrap_or_else(|_| {
+                    log::error!("a background {name} panicked");
+                    failed()
                 });
-            if events.send(event).is_ok() {
-                wake();
-            }
-        }));
+                if events.send(event).is_ok() {
+                    wake();
+                }
+            }),
+        );
     }
 
     fn cancel_import(&mut self, model: &mut Model) {
@@ -1423,7 +1460,8 @@ impl Files {
     }
 
     fn abandon_open(&mut self) {
-        if self.opening.take().is_some() {
+        if let Some(opening) = self.opening.take() {
+            opening.stopped.store(true, Ordering::Relaxed);
             self.open_attempt += 1;
         }
     }
@@ -1621,7 +1659,7 @@ impl Files {
 
     fn request(&mut self, intent: Intent, model: &mut Model) {
         if matches!(intent, Intent::Quit)
-            && let Some(path) = self.opening.clone()
+            && let Some(path) = self.opening.as_ref().map(|opening| opening.path.clone())
         {
             self.abandon_open();
             model.set_notice(Notice::info(format!(
@@ -1812,17 +1850,25 @@ impl Files {
     }
 
     fn open(&mut self, path: PathBuf, model: &mut Model) {
-        self.opening = Some(path.clone());
+        self.abandon_open();
+        let opening = Opening::new(path.clone());
+        let cancel = opening.token();
+        self.opening = Some(opening);
         self.open_attempt += 1;
         let attempt = self.open_attempt;
         let revision = model.revision();
         let current = model.path().map(Path::to_path_buf);
         let recovery_dir = self.config.recovery_dir.clone();
+        let loader = Arc::clone(&self.model_loader);
         let failed = path.clone();
-        self.spawn(
+        self.spawn_own(
+            "open",
             move || {
                 let path = dunce::canonicalize(&path).unwrap_or(path);
-                let outcome = open_file(&path, current.as_deref(), recovery_dir.as_deref());
+                let outcome =
+                    open_file(&path, current.as_deref(), recovery_dir.as_deref(), |path| {
+                        loader(path, &cancel)
+                    });
                 Event::Opened {
                     path,
                     revision,
@@ -2009,7 +2055,12 @@ impl Files {
     }
 }
 
-fn open_file(path: &Path, current: Option<&Path>, recovery_dir: Option<&Path>) -> OpenOutcome {
+fn open_file(
+    path: &Path,
+    current: Option<&Path>,
+    recovery_dir: Option<&Path>,
+    load: impl FnOnce(&Path) -> Result<Loaded, LoadError>,
+) -> OpenOutcome {
     if current == Some(path) {
         return OpenOutcome::AlreadyOpen;
     }
@@ -2052,10 +2103,10 @@ fn spawn_worker() -> Option<Sender<Job>> {
     }
 }
 
-fn run_on_own_thread(job: Job) {
+fn run_on_own_thread(name: &'static str, job: Job) {
     run_where_possible(job, |work| {
         thread::Builder::new()
-            .name("import".to_owned())
+            .name(name.to_owned())
             .spawn(work)
             .map(drop)
     });
@@ -2070,7 +2121,7 @@ fn run_where_possible(job: Job, spawn: impl FnOnce(Job) -> io::Result<()>) {
         }
     });
     if let Err(error) = spawn(work) {
-        log::error!("could not start a thread, so the import runs on the UI thread: {error}");
+        log::error!("could not start a thread, so the file task runs on the UI thread: {error}");
         if let Some(job) = slot.lock().take() {
             run_contained(job);
         }
@@ -2466,8 +2517,8 @@ pub fn show(
     let mut command = None;
     if let Some((_, since)) = &files.closing {
         command = closing(&ctx, *since);
-    } else if let Some(path) = &files.opening {
-        command = opening(&ctx, path);
+    } else if let Some(open) = &files.opening {
+        command = opening(&ctx, &open.path);
     } else if let Some(intent) = &files.guard {
         command = guard(&ctx, model, intent).map(FileCommand::Guard);
     } else if let Some(replacement) = &files.confirm_replace {

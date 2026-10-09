@@ -15,6 +15,7 @@ pub const PICKED_KEYS: &str =
     "Enter: dimension it   Click empty space: dimension it as placed   Esc: start again";
 pub const PLACING_KEYS: &str = "Enter: the aligned distance   Esc: start again";
 pub const POINT_KEYS: &str = "Esc: start again";
+pub const AXIS_KEYS: &str = "Enter: the distance   Esc: start again";
 const SPLINE_REFUSED: &str = "A spline takes only a distance from a point, line, circle or arc; dimension the points \
      or lines that shape it otherwise";
 const NOT_IN_SKETCH: &str = "That is not part of the sketch being edited";
@@ -91,12 +92,30 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
 }
 
 pub fn awaits_placement(sketch: &Sketch, picks: &[EntityId]) -> bool {
+    let both_points = |first: &EntityId, second: &EntityId| {
+        kind(sketch, *first) == Some(Kind::Point) && kind(sketch, *second) == Some(Kind::Point)
+    };
     match picks {
-        [first, second] => {
-            kind(sketch, *first) == Some(Kind::Point) && kind(sketch, *second) == Some(Kind::Point)
-        }
-        _ => false,
+        [first, second] if both_points(first, second) => true,
+        _ => about_axis(sketch, picks).is_some(),
     }
+}
+
+fn about_axis(sketch: &Sketch, picks: &[EntityId]) -> Option<(EntityId, EntityId)> {
+    let (point, axis) = match *picks {
+        [point, axis] if kind(sketch, point) == Some(Kind::Point) => (point, axis),
+        [axis, point] if kind(sketch, point) == Some(Kind::Point) => (point, axis),
+        _ => return None,
+    };
+    let is_axis = kind(sketch, axis) == Some(Kind::Line) && sketch.is_construction(axis);
+    is_axis.then_some((point, axis))
+}
+
+fn across_axis(sketch: &Sketch, point: EntityId, axis: EntityId, pointer: Point2) -> Option<bool> {
+    let point = sketch.point(point)?;
+    let (start, end) = sketch.line_endpoints(axis)?;
+    let along = end - start;
+    Some(along.perp_dot(point - start) * along.perp_dot(pointer - start) < 0.0)
 }
 
 pub fn placed(
@@ -119,6 +138,17 @@ pub fn placed(
             .point(*first)
             .zip(sketch.point(*second))
             .map(|(start, end)| oriented(start, end, pointer)),
+        ([Some(Kind::Point), Some(Kind::Line)] | [Some(Kind::Line), Some(Kind::Point)], _) => {
+            about_axis(sketch, picks)
+                .and_then(|(point, axis)| across_axis(sketch, point, axis, pointer))
+                .map(|across| {
+                    if across {
+                        ConstraintTool::Diameter
+                    } else {
+                        ConstraintTool::Distance
+                    }
+                })
+        }
         ([Some(Kind::Arc)], [arc]) => sketch.arc(*arc).map(|arc| {
             let reach = pointer - arc.center;
             let turned = (reach.y.atan2(reach.x) - arc.start_angle).rem_euclid(TAU);
@@ -186,6 +216,12 @@ pub fn words(sketch: &Sketch, tool: ConstraintTool, picks: &[EntityId]) -> Strin
         ),
         (ConstraintTool::Distance, [line]) => format!("the length of {}", label(line)),
         (ConstraintTool::Diameter, [circle]) => format!("the diameter of {}", label(circle)),
+        (ConstraintTool::Diameter, [_, _]) => match about_axis(sketch, picks) {
+            Some((point, axis)) => {
+                format!("the diameter of {} across {}", label(&point), label(&axis))
+            }
+            None => format!("a {}", ConstraintTool::Diameter.label().to_lowercase()),
+        },
         (ConstraintTool::Radius, [arc]) => format!("the radius of {}", label(arc)),
         (ConstraintTool::Angle, [first, second]) => {
             format!("the angle between {} and {}", label(first), label(second))
@@ -207,6 +243,18 @@ pub fn prompt(
     pointer: Option<Point2>,
 ) -> (String, &'static str) {
     let as_placed = placed(sketch, picks, pointer);
+    if let Some((_, axis)) = about_axis(sketch, picks)
+        && let Some(tool) = as_placed
+    {
+        return (
+            format!(
+                "Click across {} for the diameter, on the point's side for the distance: here {}",
+                sketch.entity_label(axis),
+                words(sketch, tool, picks)
+            ),
+            AXIS_KEYS,
+        );
+    }
     if awaits_placement(sketch, picks)
         && let Some(tool) = as_placed
     {
@@ -252,6 +300,14 @@ pub fn hover_words(sketch: &Sketch, picks: &[EntityId], hovered: EntityId) -> St
         return format!("Click to let go of {label}");
     }
     let picked: Vec<EntityId> = picks.iter().copied().chain([hovered]).collect();
+    if let Some((point, axis)) = about_axis(sketch, &picked) {
+        return format!(
+            "Click to pick {label}, then click across {} for the diameter of {}, or on its side \
+             for the distance",
+            sketch.entity_label(axis),
+            sketch.entity_label(point)
+        );
+    }
     if awaits_placement(sketch, &picked) {
         return format!(
             "Click to pick {label}, then click where {} goes",
@@ -426,6 +482,54 @@ mod tests {
                      of {level_label}"
                 ),
                 PICKED_KEYS
+            )
+        );
+    }
+
+    #[test]
+    fn a_point_and_a_construction_line_wait_for_a_click_across_it_for_the_diameter() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let axis = sketch.add_line(Point2::new(0.0, -10.0), Point2::new(0.0, 10.0));
+        sketch.set_construction(axis, true).unwrap();
+        let edge = sketch.add_line(Point2::new(10.0, -10.0), Point2::new(10.0, 10.0));
+        let point = sketch.add_point(Point2::new(6.0, 2.0));
+        let at = |x: f64, y: f64| Some(Point2::new(x, y));
+        let (point_label, axis_label) = (sketch.entity_label(point), sketch.entity_label(axis));
+
+        assert!(awaits_placement(&sketch, &[point, axis]));
+        assert!(awaits_placement(&sketch, &[axis, point]));
+        assert!(!awaits_placement(&sketch, &[point, edge]));
+        assert_eq!(
+            placed(&sketch, &[point, axis], at(-4.0, 3.0)),
+            Some(ConstraintTool::Diameter)
+        );
+        assert_eq!(
+            placed(&sketch, &[axis, point], at(2.0, -6.0)),
+            Some(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            placed(&sketch, &[point, axis], None),
+            Some(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            placed(&sketch, &[point, edge], at(20.0, 0.0)),
+            Some(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            prompt(&sketch, &[point, axis], at(-4.0, 3.0)),
+            (
+                format!(
+                    "Click across {axis_label} for the diameter, on the point's side for the \
+                     distance: here the diameter of {point_label} across {axis_label}"
+                ),
+                AXIS_KEYS
+            )
+        );
+        assert_eq!(
+            hover_words(&sketch, &[point], axis),
+            format!(
+                "Click to pick {axis_label}, then click across {axis_label} for the diameter of \
+                 {point_label}, or on its side for the distance"
             )
         );
     }

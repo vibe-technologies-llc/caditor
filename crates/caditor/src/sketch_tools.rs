@@ -119,7 +119,10 @@ impl ConstraintTool {
                  how far an arc sweeps"
             }
             Self::Radius => "Fix the radius of circles and arcs",
-            Self::Diameter => "Fix the diameter of circles and arcs",
+            Self::Diameter => {
+                "Fix the diameter of circles and arcs, or of a point turned about a line, twice \
+                 its distance from it, as a lathe drawing shows a revolved profile"
+            }
         }
     }
 
@@ -154,7 +157,10 @@ impl ConstraintTool {
                  point, line or circle"
             }
             Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
-            Self::Radius | Self::Diameter => "Select one or more circles or arcs",
+            Self::Radius => "Select one or more circles or arcs",
+            Self::Diameter => {
+                "Select one or more circles or arcs, or a point and the line it turns about"
+            }
         }
     }
 
@@ -321,6 +327,13 @@ impl ConstraintTool {
                 entity,
                 value,
             }),
+            (Self::Diameter, &[(point, Point), (axis, Line)] | &[(axis, Line), (point, Point)]) => {
+                Some(vec![measured(shown, |value| Constraint::AxisDiameter {
+                    point,
+                    axis,
+                    value,
+                })?])
+            }
             (Self::Diameter, _) => each_measured(shown, items, |entity, value| {
                 Constraint::Diameter { entity, value }
             }),
@@ -818,6 +831,11 @@ pub fn in_unit(constraints: Vec<Constraint>, unit: impl Into<Units>) -> Vec<Cons
             },
             Constraint::Diameter { entity, value } => Constraint::Diameter {
                 entity,
+                value: converted(value),
+            },
+            Constraint::AxisDiameter { point, axis, value } => Constraint::AxisDiameter {
+                point,
+                axis,
                 value: converted(value),
             },
             Constraint::ArcLength { arc, value } => Constraint::ArcLength {
@@ -1608,6 +1626,14 @@ mod tests {
                     value: mm(6.0),
                 },
             ])
+        );
+        assert_eq!(
+            candidates(&f, ConstraintTool::Diameter, &[f.horizontal, f.lone]),
+            Ok(vec![Constraint::AxisDiameter {
+                point: f.lone,
+                axis: f.horizontal,
+                value: mm(2.0),
+            }])
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Distance, &[f.circle, f.lone]),
