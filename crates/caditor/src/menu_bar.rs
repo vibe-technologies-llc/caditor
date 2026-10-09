@@ -735,6 +735,14 @@ impl Menus<'_, '_> {
             self.items(
                 ui,
                 [
+                    Command::FindRelations,
+                    Command::DimensionFromDatum,
+                    Command::CheckSketch,
+                ],
+            );
+            self.items(
+                ui,
+                [
                     Command::CopyGeometry,
                     Command::CutGeometry,
                     Command::PasteGeometry,

@@ -68,6 +68,8 @@ use crate::{
     shortcut_editor::{self, ShortcutEditor},
     sketch_toolbar,
     status_bar::{self, StatusContext},
+    tidy_panel,
+    tidying::Tidying,
     toolbar::{self, ToolbarContext},
     undo_history,
     viewport::ViewportState,
@@ -143,6 +145,7 @@ pub struct Workspace {
     pub interference: InterferenceTool,
     pub analysis: AnalysisTool,
     pub comb: CombTool,
+    pub tidying: Tidying,
     pub(crate) frame_failures: FrameFailures,
     applied_appearance: Option<Appearance>,
     applied_title_bar: Option<TitleBar>,
@@ -188,6 +191,7 @@ impl Workspace {
             interference: InterferenceTool::default(),
             analysis: AnalysisTool::default(),
             comb: CombTool::default(),
+            tidying: Tidying::default(),
             frame_failures: FrameFailures::default(),
             applied_appearance: None,
             applied_title_bar: None,
@@ -219,6 +223,7 @@ impl Workspace {
         self.interference = InterferenceTool::default();
         self.analysis = AnalysisTool::default();
         self.comb = CombTool::default();
+        self.tidying = Tidying::default();
         self.applied_appearance = None;
         self.applied_title_bar = None;
         self.keyboard_was_taken = false;
@@ -236,6 +241,7 @@ impl Workspace {
             self.scale_model = None;
             self.interference.interference.forget();
             self.comb.forget();
+            self.tidying.close();
         }
     }
 
@@ -431,6 +437,7 @@ pub fn show(
         interference,
         analysis,
         comb,
+        tidying,
         keyboard_was_taken,
         deferred_commands,
         ..
@@ -517,6 +524,8 @@ pub fn show(
         panels,
         actions,
     );
+    tidy_panel::commands(editing, viewport.selection(), tidying, &mut commands);
+    tidying.refresh(model, editing.active().map(|active| active.feature));
     let status = StatusContext {
         files,
         offers,
@@ -541,7 +550,8 @@ pub fn show(
         + usize::from(measure.open)
         + usize::from(interference.open)
         + usize::from(analysis.open)
-        + usize::from(comb.open);
+        + usize::from(comb.open)
+        + usize::from(tidying.feature().is_some());
     let room = layout::panel_room(ui.ctx().content_rect().width(), open_panels);
     panels::show(
         ui,
@@ -635,6 +645,9 @@ pub fn show(
         None
     };
     viewport.set_comb(combing);
+    let tidied = tidy_panel::show(ui, model, tidying, viewport.selection(), room);
+    actions.extend(tidied.actions);
+    viewport.preview_entities(tidied.previewed);
     let contrast = Contrast::of(preferences.appearance.high_contrast);
     viewport.set_contrast(contrast);
     canvas::set_contrast(ui.ctx(), contrast);

@@ -24,6 +24,8 @@ paths:
   - "crates/caditor/src/viewport.rs"
   - "crates/caditor/src/dimensioning.rs"
   - "crates/caditor/src/blend_curving.rs"
+  - "crates/caditor/src/tidying.rs"
+  - "crates/caditor/src/tidy_panel.rs"
 ---
 
 # Sketch editing in the app
@@ -495,6 +497,34 @@ paths:
 - Constraint states, degrees of freedom and redundancies come from the last evaluation
   (`sketch_status.rs`, `scene.rs`), never from solving on the UI thread (drags solve on their own
   worker).
+
+## Constraining automatically
+
+- Add the relations the drawing shows (`Command::FindRelations`), Dimension fully from a datum
+  point (`DimensionFromDatum`, taking the one selected point as the datum) and Check the sketch
+  for flaws (`CheckSketch`) open the Constrain automatically panel (`tidy_panel.rs`, a right-hand
+  panel sharing the side panels' room) at its Relations, Dimensions or Check task; a segmented
+  control switches between them. They are in the Sketch menu and the palette, not on the sketch
+  bar, whose Dimension group would push it past one row at 1400 points.
+- `Tidying` (`tidying.rs`, in the `Workspace`) works on the settled sketch only
+  (`Model::settled_sketch`; "Waiting for the sketch to solve…" otherwise) on a thread of its own,
+  since finding relations and dimensions solves (`sketch.md`): a job per basis (feature,
+  revision, evaluation, task, tolerance, chosen kinds, datum), the one in flight cancelled when
+  the basis changes, so the panel is redone after every change, an applied proposal included,
+  and then says nothing is left. It closes when sketch editing ends or another sketch is edited,
+  and with a new session.
+- Relations and Check take a tolerance (`Looseness`: Tight, Normal, Loose, shares of the
+  sketch's extent and angles, shown in the document's unit), Relations a checkbox per
+  `RelationKind`, Dimensions the datum (Use the selected point, Use the origin). The proposal is
+  listed by kind with what adding it leaves free, a dimension with its measured value, a flaw
+  in words with its remedy; at most `MAX_LISTED` rows a group. Its entities are highlighted in
+  the view as hovered geometry is (`ViewportState::preview_entities`, under the pointer's own
+  hover), a hovered row's alone, so the set is seen before it is added.
+- The primary action sits in a footer below the list (Add N relations, Add N dimensions, Fix N
+  flaws) and applies the whole proposal as one undoable transaction settled first like any
+  sketch transaction; dimensions go into the document's unit (`sketch_tools::in_unit`). A
+  flaw's own button applies its fix alone; a fix set drops added constraints touching removed
+  geometry. A sketch that does not solve is refused in words (`tidying::UNSOLVED`).
 
 ## Open ends
 
