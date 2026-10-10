@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{DensityError, FeatureId, displayed_frame};
+use caditor_document::{DensityError, FeatureId, MeasuredItem, Reading, displayed_frame};
 use caditor_expression::format_number;
 use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::{Accuracy, MassProperties, SecondMoment};
@@ -14,8 +14,9 @@ use crate::{
     guide_panel, icons,
     layout::RightPanel,
     measure::{APPROXIMATELY, Freshness, MeasureTool, MeasuredLine, Readout, Relative, Value},
+    measurement_tools::{self, Keepable},
     model::{Action, Model, Notice},
-    panels::PanelState,
+    panels::{Focus, PanelState},
     parameter_table,
     selection::{Pickable, Selection},
     units::{LengthUnit, Units},
@@ -49,7 +50,9 @@ const INERTIA_DIGITS: i32 = 4;
 const NOT_EVERY_DENSITY: &str = "Not every body has a density";
 pub const COPY_VALUE: &str = "Copy value";
 pub const NEW_PARAMETER: &str = "New parameter from this value";
-const MORE_FOR_VALUE: &str = "Copy this value or make it a parameter";
+const MORE_FOR_VALUE: &str = "Copy this value, make it a parameter or keep it in the model";
+const KEEP_HOVER: &str = "Add a measurement to the model that takes this reading again on every \
+                          recompute, drawn in the view and named for features below it to use";
 pub const RELATIVE_TO: &str = "Relative to";
 pub const WORLD: &str = "World";
 const RELATIVE_HOVER: &str = "Positions, directions and the distances along X, Y and Z are read \
@@ -583,8 +586,25 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
 
 #[derive(Debug, Clone, PartialEq)]
 enum RowChoice {
-    Copy { label: String, text: String },
-    Parameter { label: String, value: Value },
+    Copy {
+        label: String,
+        text: String,
+    },
+    Parameter {
+        label: String,
+        value: Value,
+    },
+    Keep {
+        label: String,
+        value: Value,
+        reading: Box<Reading>,
+    },
+}
+
+#[derive(Clone, Copy)]
+struct RowOffer<'a> {
+    value: Option<Value>,
+    kept: Option<(&'a [MeasuredItem], Keepable)>,
 }
 
 pub fn show(
@@ -697,6 +717,35 @@ fn perform(
                 label.to_lowercase()
             ))));
         }
+        RowChoice::Keep {
+            label,
+            value,
+            reading,
+        } => {
+            let Some(expression) = parameter_expression(value, model.units()) else {
+                return;
+            };
+            match measurement_tools::keep(
+                model.document(),
+                *reading,
+                &parameter_stem(&label),
+                expression,
+            ) {
+                Ok(kept) => {
+                    actions.push(Action::Apply(kept.transaction));
+                    state.request_focus(Focus::ParameterName(kept.parameter));
+                    actions.push(Action::Inform(Notice::success(format!(
+                        "Kept the {} as {}, updated on every recompute. Features below it can \
+                         use {} in their values; type a new name in its field in Parameters to \
+                         rename it.",
+                        label.to_lowercase(),
+                        kept.feature,
+                        kept.name
+                    ))));
+                }
+                Err(reason) => actions.push(Action::Inform(Notice::warning(reason))),
+            }
+        }
     }
 }
 
@@ -729,13 +778,23 @@ fn readings(ui: &mut Ui, readout: &Readout, cards: &[Card]) -> Option<RowChoice>
         ui.add_space(SPACE_M);
     }
     let mut chosen = None;
+    let items = readout.kept.len();
     for (index, (card, group)) in cards.iter().zip(&readout.groups).enumerate() {
-        let values: Vec<Option<Value>> = group
+        let kept: Option<&[MeasuredItem]> = match items {
+            0 => None,
+            _ if index < items => readout.kept.get(index..=index),
+            _ => Some(&readout.kept),
+        };
+        let between = items > 0 && index >= items;
+        let offers: Vec<RowOffer<'_>> = group
             .readings
             .iter()
-            .map(|reading| Some(reading.value))
+            .map(|reading| RowOffer {
+                value: Some(reading.value),
+                kept: kept.zip(Keepable::of_row(reading.label, between)),
+            })
             .collect();
-        chosen = card_with_menus(ui, ("measured", index), card, &values).or(chosen.take());
+        chosen = card_with_menus(ui, ("measured", index), card, &offers).or(chosen.take());
         ui.add_space(SPACE_M);
     }
     chosen
@@ -787,11 +846,14 @@ fn card_with_menus(
     ui: &mut Ui,
     id: (&str, usize),
     card: &Card,
-    values: &[Option<Value>],
+    offers: &[RowOffer<'_>],
 ) -> Option<RowChoice> {
     card_rows(ui, id, card, |ui, row, index| {
-        let value = values.get(index).copied().flatten();
-        value_with_menu(ui, row, value)
+        let offer = offers.get(index).copied().unwrap_or(RowOffer {
+            value: None,
+            kept: None,
+        });
+        value_with_menu(ui, row, offer)
     })
 }
 
@@ -824,7 +886,7 @@ fn card_rows(
     chosen
 }
 
-fn value_with_menu(ui: &mut Ui, row: &Row, value: Option<Value>) -> Option<RowChoice> {
+fn value_with_menu(ui: &mut Ui, row: &Row, offer: RowOffer<'_>) -> Option<RowChoice> {
     ui.horizontal(|ui| {
         let shown = widgets::label_before_icon_buttons(ui, &row.text, 1);
         let more = widgets::named(
@@ -833,17 +895,18 @@ fn value_with_menu(ui: &mut Ui, row: &Row, value: Option<Value>) -> Option<RowCh
         );
         let mut chosen = None;
         Popup::menu(&more).show(|ui| {
-            widgets::fitted_menu(ui, |ui| chosen = row_menu(ui, row, value));
+            widgets::fitted_menu(ui, |ui| chosen = row_menu(ui, row, offer));
         });
         shown.context_menu(|ui| {
-            widgets::fitted_menu(ui, |ui| chosen = row_menu(ui, row, value).or(chosen.take()));
+            widgets::fitted_menu(ui, |ui| chosen = row_menu(ui, row, offer).or(chosen.take()));
         });
         chosen
     })
     .inner
 }
 
-fn row_menu(ui: &mut Ui, row: &Row, value: Option<Value>) -> Option<RowChoice> {
+fn row_menu(ui: &mut Ui, row: &Row, offer: RowOffer<'_>) -> Option<RowChoice> {
+    let value = offer.value;
     let mut chosen = None;
     if widgets::menu_item(ui, icons::COPY, COPY_VALUE, None).clicked() {
         chosen = Some(RowChoice::Copy {
@@ -860,6 +923,23 @@ fn row_menu(ui: &mut Ui, row: &Row, value: Option<Value>) -> Option<RowChoice> {
         chosen = Some(RowChoice::Parameter {
             label: row.label.clone(),
             value,
+        });
+        ui.close();
+    }
+    let keepable = parameterisable.zip(
+        offer
+            .kept
+            .and_then(|(items, keepable)| keepable.reading(items)),
+    );
+    if let Some((value, reading)) = keepable
+        && widgets::menu_item(ui, icons::MEASURE, measurement_tools::KEEP, None)
+            .on_hover_text(KEEP_HOVER)
+            .clicked()
+    {
+        chosen = Some(RowChoice::Keep {
+            label: row.label.clone(),
+            value,
+            reading: Box::new(reading),
         });
         ui.close();
     }
@@ -895,6 +975,7 @@ mod tests {
             }],
             line: None,
             problem: None,
+            kept: Vec::new(),
         };
 
         let cards = readout_cards(&readout, LengthUnit::Centimetre);

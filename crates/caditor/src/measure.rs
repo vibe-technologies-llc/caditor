@@ -9,7 +9,9 @@ use std::{
     thread,
 };
 
-use caditor_document::{DatumResult, FeatureId, FeatureResult, displayed_frame, profile_curve};
+use caditor_document::{
+    DatumResult, FeatureId, FeatureResult, MeasuredItem, displayed_frame, profile_curve,
+};
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 use caditor_kernel::{
     Accuracy, AngleKind, Axis, Curve, Curve2, EdgeForm, EdgeId, EdgeMeasure, Element, FaceForm,
@@ -19,7 +21,7 @@ use caditor_kernel::{
 
 use crate::{
     bodies::{self, BodyMass, Converted, MassAccuracy},
-    datum_tools,
+    datum_tools, measurement_tools,
     model::{Model, Waker},
     scene,
     selection::{self, Pickable, Selection},
@@ -87,6 +89,7 @@ pub struct Readout {
     pub groups: Vec<Group>,
     pub line: Option<MeasuredLine>,
     pub problem: Option<&'static str>,
+    pub kept: Vec<MeasuredItem>,
 }
 
 #[derive(Debug, Clone)]
@@ -618,6 +621,14 @@ fn items_of(model: &Model, selection: &Selection) -> Vec<Item> {
     items
 }
 
+fn kept_items(model: &Model, selection: &Selection) -> Vec<MeasuredItem> {
+    selection
+        .iter()
+        .map(|pickable| measurement_tools::item_of(model, pickable))
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default()
+}
+
 fn regions_of_sketch(items: &mut [Item], sketch: FeatureId) -> Option<&mut Vec<Region>> {
     items.iter_mut().find_map(|item| match &mut item.subject {
         Subject::Regions {
@@ -1002,9 +1013,8 @@ fn measure(items: &[Item], relative: Relative) -> Readout {
     panic::catch_unwind(AssertUnwindSafe(|| read(items, relative))).unwrap_or_else(|_| {
         log::error!("measuring the selection panicked");
         Readout {
-            groups: Vec::new(),
-            line: None,
             problem: Some(FAILED),
+            ..Readout::default()
         }
     })
 }
@@ -1021,7 +1031,18 @@ struct Basis {
 struct Job {
     ticket: u64,
     items: Vec<Item>,
+    kept: Vec<MeasuredItem>,
     relative: Relative,
+}
+
+impl Job {
+    fn run(self) -> (u64, Readout) {
+        let readout = Readout {
+            kept: self.kept,
+            ..measure(&self.items, self.relative)
+        };
+        (self.ticket, readout)
+    }
 }
 
 struct Worker {
@@ -1040,10 +1061,7 @@ impl Worker {
                     while let Ok(newer) = queue.try_recv() {
                         job = newer;
                     }
-                    if sender
-                        .send((job.ticket, measure(&job.items, job.relative)))
-                        .is_err()
-                    {
+                    if sender.send(job.run()).is_err() {
                         break;
                     }
                     wake();
@@ -1088,7 +1106,11 @@ impl Measurements {
             self.restart();
             match item_count(selection) {
                 0 => self.arrive(self.ticket, Readout::default()),
-                1 | 2 => self.submit(model, items_of(model, selection), relative),
+                1 | 2 => self.submit(
+                    model,
+                    (items_of(model, selection), kept_items(model, selection)),
+                    relative,
+                ),
                 _ => self.arrive(self.ticket, too_many()),
             }
         }
@@ -1109,13 +1131,19 @@ impl Measurements {
         }
     }
 
-    fn submit(&mut self, model: &Model, items: Vec<Item>, relative: Relative) {
+    fn submit(
+        &mut self,
+        model: &Model,
+        (items, kept): (Vec<Item>, Vec<MeasuredItem>),
+        relative: Relative,
+    ) {
         if self.worker.is_none() {
             self.worker = Worker::spawn(model.waker());
         }
         let job = Job {
             ticket: self.ticket,
             items,
+            kept,
             relative,
         };
         let refused = match &self.worker {
@@ -1125,7 +1153,8 @@ impl Measurements {
         if let Some(job) = refused {
             log::error!("no measure worker, so the selection is measured on the UI thread");
             self.worker = None;
-            self.arrive(job.ticket, measure(&job.items, job.relative));
+            let (ticket, readout) = job.run();
+            self.arrive(ticket, readout);
         }
     }
 

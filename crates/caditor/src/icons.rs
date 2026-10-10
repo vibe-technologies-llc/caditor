@@ -529,6 +529,7 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Datum(Datum::Frame(_)) => COORDINATE_SYSTEM,
         FeatureKind::Import(_) => IMPORTED,
         FeatureKind::Remove(_) => REMOVE_BODY,
+        FeatureKind::Measurement(_) => MEASURE,
     }
 }
 

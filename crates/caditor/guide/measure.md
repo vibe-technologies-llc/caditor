@@ -1,6 +1,7 @@
 # Measure
 
-{command:view.measure} opens the Measure panel. Measuring never changes the model.
+{command:view.measure} opens the Measure panel. Measuring never changes the model, unless you
+make a reading a parameter or keep it, below.
 
 ## One or two items
 
@@ -34,5 +35,26 @@ Each reading has a menu, on its "⋯" button or a right-click: **Copy value** co
 shown, with its unit, and for a length, angle or area **New parameter from this value** adds a
 [parameter](parameters) holding it in the model's unit, named after the reading (`distance1`),
 and puts the cursor in its name to rename it. It is one change Undo takes back.
+
+## Keeping a measurement
+
+For a distance or an angle between two items, or the length, radius or area of one, the row's menu
+also has **Keep this measurement**. It adds a Measurement to the feature tree that takes the
+reading again every time the model is recomputed, and a parameter named after it (`distance1`)
+that holds what it reads; the cursor goes to the parameter's name to rename it, say to
+`clearance`. The reading is drawn in the view with its value (the closest points joined by a
+line), so a clearance can be watched while upstream features change. Hide it from its row like a
+datum.
+
+Features below the measurement in the tree can use its name in their values: an extrusion of
+`clearance - 1 mm` follows the gap it measures. A measurement is taken where it stands in the tree,
+so a feature above it cannot use it, and neither can another parameter, which is worked out before
+the model; either is refused saying why. Its parameter shows the reading and cannot be edited.
+
+What it measures is followed like any reference: faces, edges and corners keep their names across
+upstream edits. When one is gone the measurement fails with the reason, and features using its
+value fail with it, pointing back to it; everything else carries on. Deleting the measurement
+leaves its parameter, if something uses it, as an ordinary parameter holding the value read when
+it was kept.
 
 To find bodies that overlap, see [Check interference](interference).

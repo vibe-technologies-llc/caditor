@@ -214,5 +214,6 @@ fn result_bytes(result: &FeatureResult) -> usize {
         }
         FeatureResult::Datum(datum) => size_of_val(datum),
         FeatureResult::Thread(thread) => size_of_val(thread) + thread.designation.len(),
+        FeatureResult::Measurement(measurement) => size_of_val(measurement),
     }
 }

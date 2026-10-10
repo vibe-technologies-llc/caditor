@@ -27,7 +27,8 @@ use crate::{
     files::FileCommand,
     fonts,
     guide::Page,
-    guide_panel, hole_panel, icons, import_panel, mate_panel, mirror_panel, mirror_tools,
+    guide_panel, hole_panel, icons, import_panel, mate_panel, measurement_tools, mirror_panel,
+    mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
@@ -338,6 +339,7 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         }
         FeatureKind::Import(_) => &["import", "imported", "step"],
         FeatureKind::Remove(_) => &["remove", "body"],
+        FeatureKind::Measurement(_) => &["measurement", "measure", "reading", "clearance"],
     }
 }
 
@@ -1132,6 +1134,9 @@ fn body(
             body_display(ui, model, feature);
         }
         FeatureKind::Remove(remove) => removal::show(ui, model, actions, feature, remove),
+        FeatureKind::Measurement(measurement) => {
+            measurement_tools::show(ui, model, feature, measurement);
+        }
     }
 }
 
@@ -1144,7 +1149,9 @@ fn kind_color(tokens: &appearance::Tokens, row: &Row<'_>) -> Color32 {
     }
     match row.feature.kind {
         FeatureKind::Sketch(_) => tokens.accent_text,
-        FeatureKind::Datum(_) | FeatureKind::Thread(_) => tokens.text_muted,
+        FeatureKind::Datum(_) | FeatureKind::Thread(_) | FeatureKind::Measurement(_) => {
+            tokens.text_muted
+        }
         FeatureKind::Solid(_)
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
@@ -1283,7 +1290,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
             | FeatureKind::Remove(_)
-            | FeatureKind::Thread(_),
+            | FeatureKind::Thread(_)
+            | FeatureKind::Measurement(_),
             true,
         ) => EditingCommand::CloseSolid,
         (
@@ -1303,7 +1311,8 @@ fn edit_command(feature: &Feature, edited: bool) -> Option<EditingCommand> {
             | FeatureKind::Pattern(_)
             | FeatureKind::Datum(_)
             | FeatureKind::Remove(_)
-            | FeatureKind::Thread(_),
+            | FeatureKind::Thread(_)
+            | FeatureKind::Measurement(_),
             false,
         ) => EditingCommand::OpenSolid(id),
         (FeatureKind::Import(_), _) => return None,
@@ -1564,14 +1573,18 @@ fn context_menu(
 }
 
 fn relations(ui: &mut Ui, document: &Document, state: &mut PanelState, feature: &Feature) {
-    let used = feature.kind.dependencies();
+    let used = document.dependencies_of(&feature.kind);
     let uses: Vec<&Feature> = document
         .features()
         .filter(|other| used.contains(&other.id()))
         .collect();
     let used_by: Vec<&Feature> = document
         .features()
-        .filter(|other| other.kind.dependencies().contains(&feature.id()))
+        .filter(|other| {
+            document
+                .dependencies_of(&other.kind)
+                .contains(&feature.id())
+        })
         .collect();
     let name = &feature.name;
     relation_menu(
@@ -2025,9 +2038,8 @@ fn dependent_rows(ui: &mut Ui, document: &Document, ids: &[FeatureId], dependent
             continue;
         };
         let upstream: Vec<&FeatureId> = ids.iter().chain(dependents.iter().take(index)).collect();
-        let uses: Vec<String> = feature
-            .kind
-            .dependencies()
+        let uses: Vec<String> = document
+            .dependencies_of(&feature.kind)
             .into_iter()
             .filter(|used| upstream.contains(&used))
             .map(|used| feature_name(document, used))

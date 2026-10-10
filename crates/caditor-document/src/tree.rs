@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use crate::{
     document::{Document, Feature, FeatureId, RollbackBar, TreeRow},
     edit::{Edit, EditError, Transaction},
+    measurement::Measured,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -15,14 +16,14 @@ impl Document {
     pub fn dependents_of(&self, ids: &[FeatureId]) -> Vec<FeatureId> {
         let mut reached: BTreeSet<FeatureId> = ids.iter().copied().collect();
         let mut dependents = Vec::new();
+        let measured = Measured::of(self);
         for feature in self.features() {
             let id = feature.id();
             if reached.contains(&id) {
                 continue;
             }
-            if feature
-                .kind
-                .dependencies()
+            if measured
+                .dependencies_of(&feature.kind)
                 .iter()
                 .any(|used| reached.contains(used))
             {

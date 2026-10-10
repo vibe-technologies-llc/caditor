@@ -5,8 +5,8 @@ use egui::{Id, Key, Modifiers};
 
 use super::{Harness, extruded_plate, offer, run_from_palette, top_edge_along_x, vertex_at};
 use crate::{
-    commands::Command, editing::EditingCommand, measure_panel, model::Action, panels::Focus,
-    parameter_table, selection::Pickable, units::LengthUnit,
+    commands::Command, editing::EditingCommand, measure_panel, measurement_tools, model::Action,
+    panels::Focus, parameter_table, selection::Pickable, units::LengthUnit,
 };
 
 fn distance_text(harness: &Harness, extrude: FeatureId) -> String {
@@ -370,4 +370,64 @@ fn a_model_parameter_s_owner_line_never_widens_the_panel() {
     }
 
     assert_eq!(harness.workspace.viewport.rect(), before);
+}
+
+#[test]
+fn a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits() {
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let far_point = Point3::new(40.0, 40.0, 10.0);
+    let corner = vertex_at(&harness, body, Point3::ZERO);
+    let far = vertex_at(&harness, body, far_point);
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+    harness.select([corner, far]);
+    let distance = Point3::ZERO.distance(far_point);
+    let expected = LengthUnit::Millimetre.measured_length(distance);
+    harness.wait_until("the distance is measured", |harness| {
+        harness.shows(&expected)
+    });
+
+    harness.click_button("More for Distance");
+    harness.show_new_windows();
+    harness.click(measurement_tools::KEEP);
+    harness.settle();
+    harness.frame();
+
+    let parameter = harness.parameter("distance1");
+    let measurement = harness
+        .document()
+        .measurement_of(parameter)
+        .map(caditor_document::Feature::id)
+        .expect("the measurement feeds distance1");
+    assert_eq!(
+        harness.model.parameters().get(parameter),
+        Some(&Ok(caditor_expression::Quantity::length(distance)))
+    );
+    assert!(harness.shows(&format!("distance1 = {expected}")));
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(body)));
+    harness.type_into_field(distance_field(body), "20 mm");
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+
+    let deeper = Point3::ZERO.distance(Point3::new(40.0, 40.0, 20.0));
+    let Some(Ok(value)) = harness.model.parameters().get(parameter) else {
+        panic!("distance1 has a value");
+    };
+    assert!(
+        (value.value - deeper).abs() < 1e-9,
+        "{value:?} {:?} {}",
+        harness.model.evaluation().feature(measurement),
+        distance_text(&harness, body)
+    );
+    assert_eq!(
+        harness
+            .model
+            .evaluation()
+            .feature(measurement)
+            .map(|status| &status.state),
+        Some(&caditor_document::FeatureState::UpToDate)
+    );
 }

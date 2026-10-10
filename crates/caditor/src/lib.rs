@@ -85,6 +85,7 @@ mod mate_panel;
 mod mate_tools;
 mod measure;
 mod measure_panel;
+mod measurement_tools;
 mod menu_bar;
 mod messages;
 mod mirror_panel;

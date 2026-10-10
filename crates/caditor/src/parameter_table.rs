@@ -393,13 +393,27 @@ fn row(
         },
     );
     let value_focus = Focus::ParameterValue(id);
+    let measured_by = document
+        .measurement_of(id)
+        .map(|feature| feature.name.clone());
+    let expression_text = match (&measured_by, model.parameters().get(id)) {
+        (Some(_), Some(Ok(value))) => model.units().show(*value),
+        _ => document.expression_text(&parameter.expression),
+    };
     let expression = field::commit_field(
         ui,
         value_focus.field_id(),
-        &document.expression_text(&parameter.expression),
+        &expression_text,
         widths.expression,
         state.wants_focus(value_focus),
         |text| {
+            if let Some(measurement) = &measured_by {
+                return Err(format!(
+                    "{} is the reading of {measurement}, taken again on every recompute; change \
+                     the model to change it",
+                    parameter.name
+                ));
+            }
             let current = match model.parameters().get(id) {
                 Some(Ok(value)) => Some(value.dimension),
                 _ => None,
@@ -963,7 +977,7 @@ fn delete_button(
     }
 }
 
-fn unused_name(document: &Document, stem: &str) -> String {
+pub fn unused_name(document: &Document, stem: &str) -> String {
     let stem = if check_name(&format!("{stem}1")).is_ok() {
         stem
     } else {

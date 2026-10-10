@@ -105,7 +105,8 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
         | FeatureKind::Datum(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
-        | FeatureKind::Thread(_) => Err(NOTHING_TO_REVERSE.to_owned()),
+        | FeatureKind::Thread(_)
+        | FeatureKind::Measurement(_) => Err(NOTHING_TO_REVERSE.to_owned()),
     }
 }
 

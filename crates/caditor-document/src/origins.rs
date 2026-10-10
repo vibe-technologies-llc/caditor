@@ -107,7 +107,8 @@ fn may_hold_references(kind: &FeatureKind) -> bool {
         | FeatureKind::SplitFace(_)
         | FeatureKind::Pattern(_)
         | FeatureKind::Datum(_)
-        | FeatureKind::Thread(_) => true,
+        | FeatureKind::Thread(_)
+        | FeatureKind::Measurement(_) => true,
     }
 }
 

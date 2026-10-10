@@ -622,7 +622,8 @@ impl Rescaler {
             | FeatureKind::Mirror(_)
             | FeatureKind::Split(_)
             | FeatureKind::SplitFace(_)
-            | FeatureKind::Remove(_) => {}
+            | FeatureKind::Remove(_)
+            | FeatureKind::Measurement(_) => {}
         }
         self.retarget(&mut kind);
         Ok(if kind == feature.kind {
@@ -1125,7 +1126,8 @@ fn anchored(kind: &mut FeatureKind) -> Vec<Anchored<'_>> {
         | FeatureKind::Scale(_)
         | FeatureKind::Import(_)
         | FeatureKind::Remove(_)
-        | FeatureKind::Thread(_) => Vec::new(),
+        | FeatureKind::Thread(_)
+        | FeatureKind::Measurement(_) => Vec::new(),
     }
 }
 

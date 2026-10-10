@@ -20,6 +20,7 @@ mod inlining;
 mod lookahead;
 mod mate;
 mod mate_placement;
+mod measurement;
 mod mirror;
 mod model_parameters;
 mod model_scale;
@@ -98,6 +99,7 @@ pub use crate::{
         Mate, MatePair, PointMate, PointTarget, RoundFaceError, round_face,
     },
     mate_placement::Round,
+    measurement::{Between, MeasuredItem, Measurement, MeasurementResult, Of, Reading},
     mirror::{MIRROR_IMAGE, Mirror},
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner, value_label},
     model_scale::{
@@ -198,6 +200,8 @@ mod history_tests;
 mod hole_tests;
 #[cfg(test)]
 mod mate_tests;
+#[cfg(test)]
+mod measurement_tests;
 #[cfg(test)]
 mod mirror_tests;
 #[cfg(test)]

@@ -51,7 +51,10 @@ impl Kind {
 
 pub fn can_hide(feature: &Feature) -> bool {
     match &feature.kind {
-        FeatureKind::Sketch(_) | FeatureKind::Datum(_) | FeatureKind::Thread(_) => true,
+        FeatureKind::Sketch(_)
+        | FeatureKind::Datum(_)
+        | FeatureKind::Thread(_)
+        | FeatureKind::Measurement(_) => true,
         FeatureKind::Solid(_)
         | FeatureKind::Import(_)
         | FeatureKind::Blend(_)

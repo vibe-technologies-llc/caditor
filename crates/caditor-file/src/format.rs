@@ -1,7 +1,7 @@
 use std::{cell::OnceCell, collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use caditor_document::{
-    AngleMate, AngleSides, AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind,
+    AngleMate, AngleSides, AxisMate, AxisReference, AxisSide, AxisTurn, Between, Blend, BlendKind,
     BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Combine,
     CombineOperation, ConfigurationId, CopyOrientation, CurvePattern, CurveSpacing, CurveStation,
     Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd,
@@ -10,14 +10,15 @@ use caditor_document::{
     HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
     LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
     MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
-    MatePair, MetricSize, Mirror, ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT,
-    ORIGINAL_INSTANCE, OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PlaneReference,
-    PlaneRotation, PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern,
-    Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
-    ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar,
-    SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart,
-    Split, SplitAlong, SplitFace, TappedThread, Thread, ThreadFamily, ThreadHand, ThreadLength,
-    ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name, view_name,
+    MatePair, MeasuredItem, Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move,
+    NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner,
+    Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
+    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
+    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
+    Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView, SavedViews, Scale,
+    Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, SplitFace,
+    TappedThread, Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize,
+    Transaction, TurnCentre, Wall, group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -254,6 +255,36 @@ pub(crate) enum FeatureKindRecord {
     TangentMate(Box<TangentMateRecord>),
     PointMate(Box<PointMateRecord>),
     FaceMirror(Box<FaceMirrorRecord>),
+    Measurement(Box<MeasurementRecord>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MeasuredQuantityRecord {
+    Distance,
+    Angle,
+    Length,
+    Radius,
+    Area,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MeasuredItemRecord {
+    Point(PointReferenceRecord),
+    Axis(AxisReferenceRecord),
+    Plane(PlaneReferenceRecord),
+    Edge { body: u64, edge: Box<EdgeRecord> },
+    Face { body: u64, face: FaceRecord },
+    Sketch { sketch: u64, entity: u64 },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct MeasurementRecord {
+    pub quantity: MeasuredQuantityRecord,
+    pub items: Vec<Lenient<MeasuredItemRecord>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -665,7 +696,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 70] = [
+pub(crate) const FEATURE_KINDS: [&str; 71] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -736,6 +767,7 @@ pub(crate) const FEATURE_KINDS: [&str; 70] = [
     "point_mate",
     "split_face_along",
     "face_mirror",
+    "measurement",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2386,6 +2418,9 @@ fn kind_record(kind: &FeatureKind) -> FeatureKindRecord {
             body: remove.body.raw(),
         }),
         FeatureKind::Thread(thread) => FeatureKindRecord::Thread(Box::new(thread_record(thread))),
+        FeatureKind::Measurement(measurement) => {
+            FeatureKindRecord::Measurement(Box::new(measurement_record(measurement)))
+        }
         FeatureKind::Combine(combine) => FeatureKindRecord::Combine(CombineRecord {
             body: combine.body.raw(),
             tool: combine.tool.raw(),
@@ -4999,6 +5034,9 @@ fn restore_kind(
         FeatureKindRecord::Thread(record) => {
             FeatureKind::Thread(restore_thread(record, name, issues))
         }
+        FeatureKindRecord::Measurement(record) => {
+            FeatureKind::from(restore_measurement(record, name, issues))
+        }
         FeatureKindRecord::Remove(record) => FeatureKind::Remove(Remove {
             body: FeatureId::from_raw(record.body),
         }),
@@ -6704,6 +6742,143 @@ fn thread_record(thread: &Thread) -> ThreadRecord {
             ThreadLength::Depth(depth) => Some(depth.to_stored_text()),
         },
         reversed: thread.reversed,
+    }
+}
+
+fn measurement_record(measurement: &Measurement) -> MeasurementRecord {
+    let quantity = match &measurement.reading {
+        Reading::Between {
+            quantity: Between::Distance,
+            ..
+        } => MeasuredQuantityRecord::Distance,
+        Reading::Between {
+            quantity: Between::Angle,
+            ..
+        } => MeasuredQuantityRecord::Angle,
+        Reading::Of {
+            quantity: Of::Length,
+            ..
+        } => MeasuredQuantityRecord::Length,
+        Reading::Of {
+            quantity: Of::Radius,
+            ..
+        } => MeasuredQuantityRecord::Radius,
+        Reading::Of {
+            quantity: Of::Area, ..
+        } => MeasuredQuantityRecord::Area,
+    };
+    MeasurementRecord {
+        quantity,
+        items: measurement
+            .reading
+            .items()
+            .into_iter()
+            .map(|item| Lenient::Read(measured_item_record(item)))
+            .collect(),
+        parameter: measurement.parameter.map(ParameterId::raw),
+    }
+}
+
+fn measured_item_record(item: &MeasuredItem) -> MeasuredItemRecord {
+    match item {
+        MeasuredItem::Point(point) => MeasuredItemRecord::Point(point_record(point)),
+        MeasuredItem::Axis(axis) => MeasuredItemRecord::Axis(axis_record(axis)),
+        MeasuredItem::Plane(plane) => MeasuredItemRecord::Plane(plane_reference_record(plane)),
+        MeasuredItem::Edge { body, edge } => MeasuredItemRecord::Edge {
+            body: body.raw(),
+            edge: Box::new(edge_record(edge)),
+        },
+        MeasuredItem::Face { body, face } => MeasuredItemRecord::Face {
+            body: body.raw(),
+            face: face_record(face),
+        },
+        MeasuredItem::Sketch { sketch, entity } => MeasuredItemRecord::Sketch {
+            sketch: sketch.raw(),
+            entity: entity.raw(),
+        },
+    }
+}
+
+fn restore_measured_item(record: &MeasuredItemRecord) -> Option<MeasuredItem> {
+    Some(match record {
+        MeasuredItemRecord::Point(point) => MeasuredItem::Point(restore_point(point)?),
+        MeasuredItemRecord::Axis(axis) => MeasuredItem::Axis(restore_axis(axis)?),
+        MeasuredItemRecord::Plane(plane) => MeasuredItem::Plane(restore_plane_reference(plane)?),
+        MeasuredItemRecord::Edge { body, edge } => MeasuredItem::Edge {
+            body: FeatureId::from_raw(*body),
+            edge: Box::new(restore_edge(edge)?),
+        },
+        MeasuredItemRecord::Face { body, face } => MeasuredItem::Face {
+            body: FeatureId::from_raw(*body),
+            face: restore_face(&face.face, face.origin, face.copy, &face.neighbours)?,
+        },
+        MeasuredItemRecord::Sketch { sketch, entity } => MeasuredItem::Sketch {
+            sketch: FeatureId::from_raw(*sketch),
+            entity: EntityId::from_raw(*entity),
+        },
+    })
+}
+
+fn restore_measurement(
+    record: &MeasurementRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Measurement {
+    let wanted = match record.quantity {
+        MeasuredQuantityRecord::Distance | MeasuredQuantityRecord::Angle => 2,
+        MeasuredQuantityRecord::Length
+        | MeasuredQuantityRecord::Radius
+        | MeasuredQuantityRecord::Area => 1,
+    };
+    let mut items: Vec<MeasuredItem> = record
+        .items
+        .iter()
+        .take(wanted)
+        .filter_map(|item| match item {
+            Lenient::Read(item) => restore_measured_item(item),
+            Lenient::Unreadable(_) => None,
+        })
+        .collect();
+    if items.len() < wanted {
+        issues.push(format!(
+            "What “{feature}” measures could not be read in full, so it measures from the origin \
+             instead; measure again and keep the measurement."
+        ));
+        items.resize(wanted, MeasuredItem::Point(PointReference::Origin));
+    }
+    let mut items = items.into_iter();
+    let mut next = || {
+        items
+            .next()
+            .unwrap_or(MeasuredItem::Point(PointReference::Origin))
+    };
+    let reading = match record.quantity {
+        MeasuredQuantityRecord::Distance => Reading::Between {
+            quantity: Between::Distance,
+            first: next(),
+            second: next(),
+        },
+        MeasuredQuantityRecord::Angle => Reading::Between {
+            quantity: Between::Angle,
+            first: next(),
+            second: next(),
+        },
+        MeasuredQuantityRecord::Length => Reading::Of {
+            quantity: Of::Length,
+            item: next(),
+        },
+        MeasuredQuantityRecord::Radius => Reading::Of {
+            quantity: Of::Radius,
+            item: next(),
+        },
+        MeasuredQuantityRecord::Area => Reading::Of {
+            quantity: Of::Area,
+            item: next(),
+        },
+    };
+    Measurement {
+        reading,
+        parameter: record.parameter.map(ParameterId::from_raw),
     }
 }
 

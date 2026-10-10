@@ -10,6 +10,12 @@ use crate::{
 impl Document {
     pub fn inline_parameter(&self, id: ParameterId) -> Result<Transaction, EditError> {
         let parameter = self.parameter(id).ok_or(EditError::MissingParameter)?;
+        if let Some(measurement) = self.measurement_of(id) {
+            return Err(EditError::MeasuredParameterInlined {
+                name: parameter.name.clone(),
+                measurement: measurement.name.clone(),
+            });
+        }
         let inline = |expression: &Expression, user: &str| {
             expression
                 .inlining(id, &parameter.expression)
@@ -126,7 +132,8 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
         | FeatureKind::Mirror(_)
         | FeatureKind::Split(_)
         | FeatureKind::SplitFace(_)
-        | FeatureKind::Remove(_) => Vec::new(),
+        | FeatureKind::Remove(_)
+        | FeatureKind::Measurement(_) => Vec::new(),
     }
 }
 

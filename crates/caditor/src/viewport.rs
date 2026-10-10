@@ -40,6 +40,7 @@ use crate::{
     isocurves::IsocurveDrawing,
     manipulator::{Manipulating, Manipulator},
     measure::MeasuredLine,
+    measurement_tools,
     menu_bar::MenuEntries,
     model::{Action, Model, Notice, RecomputeStatus},
     modifying::{Hint, Modifying, Outcome},
@@ -337,6 +338,7 @@ pub struct ViewportState {
     scene_bounds: Option<Aabb>,
     measured: Option<(MeasuredLine, String)>,
     problems: Vec<Problem>,
+    kept: Vec<measurement_tools::Shown>,
     interference: Vec<Mark>,
     uploading: bool,
     comb: Option<Arc<CombDrawing>>,
@@ -535,6 +537,7 @@ impl ViewportState {
             scene_bounds: None,
             measured: None,
             problems: Vec::new(),
+            kept: Vec::new(),
             interference: Vec::new(),
             uploading: false,
             comb: None,
@@ -1107,6 +1110,7 @@ impl ViewportState {
         let plane = self.scenes.edited_plane();
         self.scenes.set_section(self.shown_section(plane));
         self.problems = problems(model);
+        self.kept = measurement_tools::shown(model);
         self.scenes.show(Overlay {
             contrast: self.contrast,
             canvas: self.canvas,
@@ -1119,6 +1123,7 @@ impl ViewportState {
             ],
             measured: self.measured.as_ref().map(|(line, _)| [line.from, line.to]),
             problems: self.problems.iter().map(|problem| problem.place).collect(),
+            kept: self.kept.iter().filter_map(|kept| kept.line).collect(),
             interference: self.interference.clone(),
             comb: self.comb.clone(),
             isocurves: self.isocurves.clone(),
@@ -4071,7 +4076,16 @@ impl ViewportState {
                     canvas::chrome(painter.ctx()).error,
                 )
             });
-            for (index, (place, label, color)) in failures.chain(interference).enumerate() {
+            let kept = self.kept.iter().map(|kept| {
+                (
+                    kept.anchor,
+                    &kept.label,
+                    canvas::chrome(painter.ctx()).measure,
+                )
+            });
+            for (index, (place, label, color)) in
+                failures.chain(interference).chain(kept).enumerate()
+            {
                 let Some(pixel) = view.project(place) else {
                     continue;
                 };
@@ -4275,7 +4289,12 @@ impl ViewportState {
                 Some(FeatureKind::Datum(_) | FeatureKind::Pattern(_)) => CHOOSE_REFERENCES_PROMPT,
                 Some(FeatureKind::Thread(_)) => CHOOSE_THREAD_PROMPT,
                 Some(FeatureKind::Solid(_)) => CHOOSE_REGIONS_PROMPT,
-                Some(FeatureKind::Sketch(_) | FeatureKind::Import(_) | FeatureKind::Remove(_))
+                Some(
+                    FeatureKind::Sketch(_)
+                    | FeatureKind::Import(_)
+                    | FeatureKind::Remove(_)
+                    | FeatureKind::Measurement(_),
+                )
                 | None => CHANGE_IN_PANEL_PROMPT,
             };
             Some((prompt.to_owned(), CHOOSE_REGIONS_HINT.to_owned()))
