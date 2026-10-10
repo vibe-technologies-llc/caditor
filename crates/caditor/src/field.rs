@@ -20,6 +20,8 @@ use crate::{
 const ERROR_OUTLINE_WIDTH: f32 = 1.5;
 const FIELD_MARGIN: Margin = Margin::symmetric(6, 3);
 
+const SUGGESTING: &str = "suggesting";
+
 #[derive(Debug, Clone, Default)]
 struct Suggesting {
     names: Vec<String>,
@@ -53,6 +55,12 @@ pub fn busy<K: Ord>(ui: &Ui, fields: impl IntoIterator<Item = (K, Id)>) -> BTree
             .map(|(key, _)| key)
             .collect()
     })
+}
+
+pub fn focused_value_field(ui: &Ui) -> Option<Id> {
+    let focused = ui.memory(|memory| memory.focused())?;
+    ui.data(|data| data.get_temp::<Suggesting>(focused.with(SUGGESTING)))
+        .map(|_| focused)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,7 +133,7 @@ fn field<T>(
 ) -> FieldResponse<T> {
     let editing = ui.memory(|memory| memory.has_focus(id));
     let editing_parameter = completion::take_editing(ui, id);
-    let suggesting_key = id.with("suggesting");
+    let suggesting_key = id.with(SUGGESTING);
     let mut draft = ui
         .data(|data| data.get_temp::<Draft>(id))
         .filter(|draft| editing || draft.stored == stored);

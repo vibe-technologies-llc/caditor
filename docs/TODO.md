@@ -490,10 +490,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   `field::dimension_transaction` or the feature's `SetFeatureKind`, as SolidWorks shows a
   feature's dimensions on double-click. Which dimensions show for a hidden sketch or a sketch
   several features use needs a rule.
-- [low · easy] While a value field has focus, a click on a dimension label in the view inserts its
-  parameter's name (`completion.rs`, `field.rs`), but a click on a value in the Parameters panel
-  does not: the panel's rows could insert their name the same way, so a parameter seen there is
-  not retyped from memory.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge

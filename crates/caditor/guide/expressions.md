@@ -52,7 +52,7 @@ take away one unit of its last digit, and Shift with them ten: from 25.4 mm to 2
 13. An open feature previews each step like typing. A field holding an expression or a name is left
 alone and says so; press Enter to keep the stepped value.
 
-## Suggestions and clicking a dimension
+## Suggestions and clicking a dimension or a parameter
 
 While you type a name in a value field, a list under the field shows the parameters whose names
 start with what you typed (then those containing it), at most eight, each with its current value;
@@ -63,7 +63,9 @@ edited depend on itself is never listed. Up and Down step a number as before whi
 
 While a value field has focus, clicking a dimension in the view puts its parameter's name at the
 cursor instead of selecting it, or its value when it has no parameter, in brackets when it is a
-calculation. Screen readers read the list as a list box of options named "name, value".
+calculation. Clicking a value in the Parameters panel puts that parameter's name at the cursor the
+same way, unless the parameter being edited would then depend on itself. Screen readers read the
+list as a list box of options named "name, value".
 
 ## Mistakes
 

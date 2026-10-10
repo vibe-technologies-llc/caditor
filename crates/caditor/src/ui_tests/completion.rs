@@ -224,3 +224,58 @@ fn a_dimension_click_with_no_field_focused_still_selects_it() {
 
     assert!(!harness.workspace.viewport.selection().is_empty());
 }
+
+fn with_derived_parameters(harness: &mut Harness) {
+    let mut transaction = harness.document().transaction("Add parameters");
+    let wall = transaction.parse("3 mm").unwrap();
+    transaction.add_parameter("wall", wall);
+    let hole = transaction.parse("wall + 2 mm").unwrap();
+    transaction.add_parameter("hole", hole);
+    let gap = transaction.parse("7 mm").unwrap();
+    transaction.add_parameter("gap", gap);
+    let transaction: Transaction = transaction.finish();
+    harness.perform(Action::Apply(transaction));
+    harness.settle();
+}
+
+fn press_value(harness: &mut Harness, shown: &str) {
+    let value = harness.position_of(shown);
+    harness.events.push(Event::PointerMoved(value));
+    harness.frame();
+    harness.frame();
+    harness.press(value);
+    harness.frame();
+}
+
+#[test]
+fn clicking_a_value_in_the_parameters_panel_inserts_its_name_into_the_focused_field() {
+    let mut harness = Harness::new();
+    with_derived_parameters(&mut harness);
+    let gap = Focus::ParameterValue(harness.parameter("gap"));
+
+    harness.focus(gap);
+    harness.type_text("2 * ");
+    press_value(&mut harness, "5 mm");
+
+    assert_eq!(harness.focused(), Some(gap.field_id()));
+
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(harness.expression_text("gap"), "2 * hole");
+}
+
+#[test]
+fn a_parameter_value_that_would_form_a_cycle_is_not_inserted() {
+    let mut harness = Harness::new();
+    with_derived_parameters(&mut harness);
+    let wall = Focus::ParameterValue(harness.parameter("wall"));
+
+    harness.focus(wall);
+    harness.type_text("2 * ");
+    press_value(&mut harness, "5 mm");
+
+    assert_ne!(harness.focused(), Some(wall.field_id()));
+    assert_eq!(harness.expression_text("hole"), "wall + 2 mm");
+}
