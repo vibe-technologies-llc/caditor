@@ -28,6 +28,7 @@ use crate::{
     selection::{self, Pickable, Selection},
 };
 
+pub const BETWEEN_TITLE: &str = "Between them";
 pub const TOO_MANY: &str = "Select one or two items to measure between them.";
 pub const FAILED: &str = "The measurement could not be worked out for this selection.";
 pub const UNMEASURABLE: &str =
@@ -177,6 +178,15 @@ fn shown_face_area(model: &Model, result: &Arc<FeatureResult>, face: FaceId) -> 
             Accuracy::Approximate,
         ),
     })
+}
+
+pub fn face_area_of(model: &Model, body: FeatureId, face: FaceId) -> Option<(f64, Accuracy)> {
+    let result = body_result(model, body)?;
+    let reading = shown_face_area(model, &result, face)?;
+    match reading.value {
+        Value::Area(area) => Some((area, reading.accuracy)),
+        _ => None,
+    }
 }
 
 fn body_mass(model: &Model, body: FeatureId) -> Option<BodyMass> {
@@ -358,7 +368,7 @@ pub fn size_text(model: &Model, pickable: Pickable) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(SIZE_SEPARATOR))
 }
 
-const SIZE_SEPARATOR: &str = "  ·  ";
+pub const SIZE_SEPARATOR: &str = "  ·  ";
 const RIGHT_ANGLE_SLACK: f64 = 1e-6;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -641,6 +651,10 @@ fn regions_of_sketch(items: &mut [Item], sketch: FeatureId) -> Option<&mut Vec<R
         } if *gathered == sketch => Some(regions),
         _ => None,
     })
+}
+
+pub fn is_pair(selection: &Selection) -> bool {
+    item_count(selection) == 2
 }
 
 fn item_count(selection: &Selection) -> usize {
@@ -943,7 +957,7 @@ fn between(
     });
     Ok((
         Group {
-            title: "Between them".to_owned(),
+            title: BETWEEN_TITLE.to_owned(),
             readings,
             problem: None,
         },

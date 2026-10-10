@@ -376,7 +376,18 @@ paths:
   (`select.feature_faces`) adds, per body of the selected faces, every face whose `FaceOrigin`
   names the feature that made a selected one (`bodies::origin_feature`). Select the loop of the
   selected edge (`select.loop`) needs an edge and a face of its body selected and replaces the
-  selection with the edges of each loop of such a face that holds the edge (`loops_of`). An empty
+  selection with the edges of each loop of such a face that holds the edge (`loops_of`). Select
+  faces or edges like the selected ones (`select.similar`, Alt+Shift+A, Edit menu, palette, the
+  context menu's Select submenu) adds, from the shown bodies, every face and edge matching a
+  selected one's `similar::Shape` (`body_selection::similar_to`): a flat face by area
+  (`measure::face_area_of`, so the exact area once the body's mass properties arrive, the mesh's
+  before, with the looser `MESH_SLACK`), a cylinder by radius and by whether it is a hole wall
+  (`hole_faces`), so holes and bosses of one radius stay apart, a cone by half angle, a sphere by
+  radius, a torus by both radii, a line by length, a circle or arc by radius and sweep, an ellipse
+  by its radii and any other curve by length; a free-form face matches nothing. Sizes match within
+  a relative `EXACT_SLACK` (the model's linear resolution). The notice counts what matches in
+  all, selected ones included, and names the size when the selection holds one shape of that kind
+  ("Selected 12 faces of hole radius 3 mm", else "of 2 shapes"). An empty
   result is an info notice. Their
   availability is a cheap check on the selection, and the work runs only when triggered.
 

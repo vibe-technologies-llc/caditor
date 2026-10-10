@@ -9,7 +9,8 @@ Select a vertex, edge, face, sketch point or curve, datum or axis to read it: a 
 edge's length, a face's area and perimeter (around its outer edge), a circle's radius and centre,
 an arc's sweep, a plane's normal. Select two items for a
 **Between them** card with the distance, the offsets along each axis and the angle where it applies;
-the closest points are joined by a line in the view.
+the closest points are joined by a line in the view. With two items selected the status bar shows
+the distance, and the angle where there is one, even while Measure is closed.
 
 Selected regions of a sketch read their area, perimeter, centroid and second moments of area, the
 numbers a beam calculation needs.

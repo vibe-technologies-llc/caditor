@@ -186,6 +186,7 @@ pub enum Command {
     SelectInverse,
     SelectFeatureFaces,
     SelectLoop,
+    SelectSimilar,
     SaveSelectionSet,
     SelectionSets,
     ToggleVisibility,
@@ -677,6 +678,7 @@ plain_commands! {
     SelectInverse,
     SelectFeatureFaces,
     SelectLoop,
+    SelectSimilar,
     SaveSelectionSet,
     SelectionSets,
     ToggleVisibility,
@@ -1023,6 +1025,7 @@ impl Command {
             Self::SelectInverse => "select.inverse",
             Self::SelectFeatureFaces => "select.feature_faces",
             Self::SelectLoop => "select.loop",
+            Self::SelectSimilar => "select.similar",
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
@@ -1271,6 +1274,7 @@ impl Command {
             Self::SelectInverse => "Invert the selection",
             Self::SelectFeatureFaces => "Select the faces of the same feature",
             Self::SelectLoop => "Select the loop of the selected edge",
+            Self::SelectSimilar => "Select faces or edges like the selected ones",
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
@@ -1388,6 +1392,7 @@ impl Command {
             Self::SelectInverse => &["invert", "reverse selection", "opposite", "swap"],
             Self::SelectFeatureFaces => &["boss", "feature faces", "same feature"],
             Self::SelectLoop => &["edge loop", "ring", "boundary loop"],
+            Self::SelectSimilar => &["same size", "same radius", "holes", "matching", "equal"],
             Self::UndoHistory => &["history", "steps"],
             Self::HideSelection | Self::HideOthers | Self::ToggleVisibility => {
                 &["visibility", "show", "hide"]
@@ -1481,6 +1486,7 @@ impl Command {
             | Self::SelectInverse
             | Self::SelectFeatureFaces
             | Self::SelectLoop
+            | Self::SelectSimilar
             | Self::SaveSelectionSet
             | Self::SelectionSets
             | Self::DismissNotice => Category::Edit,
@@ -1751,6 +1757,7 @@ impl Command {
             Self::SelectInverse => vec![command_shift(Key::I)],
             Self::SelectFeatureFaces => vec![alt_shift(Key::F)],
             Self::SelectLoop => vec![alt_shift(Key::G)],
+            Self::SelectSimilar => vec![alt_shift(Key::A)],
             Self::ShowAll => vec![KeyboardShortcut::new(Modifiers::ALT, Key::H)],
             Self::SketchTool(tool) => tool_shortcut(tool).into_iter().collect(),
             Self::Constraint(tool) => vec![KeyboardShortcut::new(
