@@ -9,6 +9,7 @@ mod equation;
 mod kind_tests;
 mod memo;
 mod numeric;
+mod pair;
 #[cfg(test)]
 mod projection_tests;
 mod sparse;
@@ -31,6 +32,7 @@ use caditor_geometry::Point2;
 
 pub(crate) use crate::solve::{
     ellipse::ellipse_gap,
+    pair::curve_pair_gap,
     spline::{joined_at_end, joined_ends, not_joined, spline_gap, straight_spline},
     system::arc_joint,
 };

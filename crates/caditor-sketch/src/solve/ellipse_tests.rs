@@ -284,14 +284,10 @@ fn ellipse_constraints_refuse_what_does_not_fit() {
             ellipse: circle,
             value: mm(3.0),
         },
-        Constraint::Tangent(other, ellipse),
+        Constraint::Tangent(ellipse, ellipse),
+        Constraint::Tangent(other, center),
         Constraint::Distance {
             from: center,
-            to: ellipse,
-            value: mm(1.0),
-        },
-        Constraint::Distance {
-            from: other,
             to: ellipse,
             value: mm(1.0),
         },
@@ -665,4 +661,273 @@ fn a_point_on_a_slanted_ellipse_and_its_minor_axis_stays_at_the_minor_axis_end()
             })
             .is_err()
     );
+}
+
+fn upper_ellipse(sketch: &mut Sketch, minor_radius: f64) -> EntityId {
+    let ellipse = sketch.add_ellipse(Point2::new(0.0, 12.0), Point2::new(8.0, 12.0), minor_radius);
+    let (center, major) = axis_points(sketch, ellipse);
+    fix(sketch, center);
+    fix(sketch, major);
+    ellipse
+}
+
+fn minor_radius(sketch: &Sketch, ellipse: EntityId) -> f64 {
+    sketch.ellipse(ellipse).unwrap().minor_radius
+}
+
+fn tangents_parallel(sketch: &Sketch, first: EntityId, second: EntityId) -> bool {
+    let (on_first, on_second) = sketch.ellipse_gap(first, second).unwrap();
+    let direction = |curve: EntityId, at: Point2| {
+        let shape = sketch.ellipse(curve).unwrap();
+        shape.tangent_at(shape.parameter_of(at)).normalize()
+    };
+    on_first.distance(on_second) < EXACT
+        && direction(first, on_first)
+            .perp_dot(direction(second, on_second))
+            .abs()
+            < 1e-6
+}
+
+#[test]
+fn two_ellipses_sharing_no_point_touch_at_a_parameter_on_each() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let lower = pinned_ellipse(&mut sketch);
+    let upper = upper_ellipse(&mut sketch, 6.0);
+    add(&mut sketch, Constraint::Tangent(upper, lower));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_close(minor_radius(&solved.geometry, upper), 8.0);
+    assert!(tangents_parallel(&solved.geometry, lower, upper));
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn two_ellipses_keep_their_gap_where_they_come_closest() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let lower = pinned_ellipse(&mut sketch);
+    let upper = upper_ellipse(&mut sketch, 6.0);
+    let distance = add(
+        &mut sketch,
+        Constraint::Distance {
+            from: lower,
+            to: upper,
+            value: mm(1.5),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_close(minor_radius(&solved.geometry, upper), 6.5);
+    assert_close(
+        solved
+            .geometry
+            .measured(solved.geometry.constraint(distance).unwrap())
+            .unwrap(),
+        1.5,
+    );
+    assert_close(
+        sketch
+            .measured(sketch.constraint(distance).unwrap())
+            .unwrap(),
+        2.0,
+    );
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+fn arch_over_ellipse(sketch: &mut Sketch, middle_height: f64) -> (EntityId, EntityId) {
+    let spline = sketch.add_spline(&[
+        Point2::new(-6.0, 9.0),
+        Point2::new(0.0, middle_height),
+        Point2::new(6.0, 9.0),
+    ]);
+    let Some(Entity::Spline { points, .. }) = sketch.entity(spline).cloned() else {
+        panic!("expected a spline");
+    };
+    fix(sketch, points[0]);
+    fix(sketch, points[2]);
+    add(
+        sketch,
+        Constraint::VerticalPoints(points[1], EntityId::ORIGIN),
+    );
+    (spline, points[1])
+}
+
+#[test]
+fn a_spline_sharing_no_end_with_an_ellipse_touches_it_at_a_parameter_on_each() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = pinned_ellipse(&mut sketch);
+    let (spline, middle) = arch_over_ellipse(&mut sketch, 2.0);
+    add(&mut sketch, Constraint::Tangent(ellipse, spline));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_close(solved.geometry.point(middle).unwrap().y, -1.0);
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn a_spline_keeps_its_gap_from_an_ellipse_where_it_bulges_toward_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = pinned_ellipse(&mut sketch);
+    let (spline, middle) = arch_over_ellipse(&mut sketch, 2.0);
+    let distance = add(
+        &mut sketch,
+        Constraint::Distance {
+            from: spline,
+            to: ellipse,
+            value: mm(2.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_close(solved.geometry.point(middle).unwrap().y, 3.0);
+    assert_close(
+        solved
+            .geometry
+            .measured(solved.geometry.constraint(distance).unwrap())
+            .unwrap(),
+        2.0,
+    );
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+fn quarter_arc(sketch: &mut Sketch) -> (EntityId, EntityId) {
+    let arc = sketch.add_elliptical_arc(
+        Point2::ZERO,
+        Point2::new(10.0, 0.0),
+        4.0,
+        Point2::new(10.0, 0.0),
+        Point2::new(0.0, 4.0),
+    );
+    let (center, major) = axis_points(sketch, arc);
+    let (start, end) = arc_ends(sketch, arc);
+    for point in [center, major, start, end] {
+        fix(sketch, point);
+    }
+    (arc, end)
+}
+
+#[test]
+fn a_spline_ending_on_an_elliptical_arc_and_tangent_leaves_along_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let (arc, top) = quarter_arc(&mut sketch);
+    let spline = sketch.add_spline(&[
+        Point2::new(0.0, 4.0),
+        Point2::new(-5.0, 6.0),
+        Point2::new(-10.0, 0.0),
+    ]);
+    let Some(Entity::Spline { points, .. }) = sketch.entity(spline).cloned() else {
+        panic!("expected a spline");
+    };
+    let below = sketch.add_point(Point2::new(-5.0, 0.0));
+    fix(&mut sketch, below);
+    fix(&mut sketch, points[2]);
+    add(&mut sketch, Constraint::Coincident(points[0], top));
+    add(&mut sketch, Constraint::VerticalPoints(points[1], below));
+    add(&mut sketch, Constraint::Tangent(spline, arc));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_close(solved.geometry.point(points[1]).unwrap().y, 4.0);
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn ellipses_sharing_a_point_and_tangent_run_along_each_other_there() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let (arc, top) = quarter_arc(&mut sketch);
+    let upper = sketch.add_ellipse(Point2::new(2.0, 12.0), Point2::new(10.0, 12.0), 8.3);
+    let (center, major) = axis_points(&sketch, upper);
+    let anchor = sketch.add_point(Point2::new(0.0, 12.0));
+    fix(&mut sketch, anchor);
+    add(&mut sketch, Constraint::HorizontalPoints(center, anchor));
+    add(&mut sketch, Constraint::HorizontalPoints(center, major));
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: center,
+            to: major,
+            value: mm(8.0),
+        },
+    );
+    add(&mut sketch, Constraint::Coincident(top, upper));
+    add(&mut sketch, Constraint::Tangent(arc, upper));
+
+    let solved = solve(&sketch).unwrap();
+
+    assert_close(solved.geometry.point(center).unwrap().x, 0.0);
+    assert_close(minor_radius(&solved.geometry, upper), 8.0);
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn an_angle_from_an_elliptical_arc_is_taken_from_its_tangent_where_a_line_leaves_it() {
+    for (at_top, degrees) in [(true, 30.0), (false, 120.0)] {
+        let mut sketch = Sketch::new(Plane::XY);
+        let (arc, top) = quarter_arc(&mut sketch);
+        let (start, _) = arc_ends(&sketch, arc);
+        let (joint, from) = if at_top {
+            (top, Point2::new(0.0, 4.0))
+        } else {
+            (start, Point2::new(10.0, 0.0))
+        };
+        let line = sketch.add_line(from, from + Vector2::new(3.0, 5.0));
+        let Some(&Entity::Line {
+            start: line_start,
+            end,
+        }) = sketch.entity(line)
+        else {
+            panic!("expected a line");
+        };
+        add(&mut sketch, Constraint::Coincident(line_start, joint));
+        add(
+            &mut sketch,
+            Constraint::Distance {
+                from: line_start,
+                to: end,
+                value: mm(5.0),
+            },
+        );
+        let angle = add(
+            &mut sketch,
+            Constraint::Angle {
+                from: arc,
+                to: line,
+                reversed: false,
+                value: Expression::Measure(degrees, Unit::Degree),
+            },
+        );
+
+        let solved = solve(&sketch).unwrap();
+        let leaving = if at_top {
+            Vector2::new(1.0, 0.0)
+        } else {
+            Vector2::new(0.0, 1.0)
+        };
+        let (begin, finish) = solved.geometry.line_endpoints(line).unwrap();
+        let direction = (finish - begin).normalize();
+
+        assert_close(
+            leaving
+                .perp_dot(direction)
+                .atan2(leaving.dot(direction))
+                .to_degrees(),
+            degrees,
+        );
+        assert_close(
+            solved
+                .geometry
+                .measured(solved.geometry.constraint(angle).unwrap())
+                .unwrap(),
+            degrees,
+        );
+        assert!(solved.solution.redundancies().is_empty());
+        assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    }
 }

@@ -785,3 +785,42 @@ fn a_corner_of_two_elliptical_arcs_is_rounded_tangent_to_both() {
     }
     assert_clean(&solve(&sketch));
 }
+
+#[test]
+fn an_elliptical_arc_is_chamfered_by_a_distance_along_it_and_an_angle_from_it() {
+    for corner_at_start in [true, false] {
+        let (mut sketch, line, ellipse) = line_on_elliptical_arc(corner_at_start);
+        let corner = sketch.corner_between(ellipse, line).unwrap();
+        let size = ChamferSize::DistanceAndAngle {
+            distance: dimensioned(3.0),
+            angle: degrees(10.0),
+        };
+
+        sketch.chamfer(&corner, &size).unwrap();
+        let angle = sketch
+            .constraints()
+            .find(|(_, constraint)| matches!(constraint, Constraint::Angle { .. }))
+            .map(|(_, constraint)| constraint.clone())
+            .unwrap();
+
+        assert!(matches!(
+            angle,
+            Constraint::Angle { from, to, .. } if from == ellipse || to == ellipse
+        ));
+        assert!(
+            sketch
+                .measured(&angle)
+                .is_some_and(|found| (found - 10.0).abs() < 1e-6),
+            "{:?}",
+            sketch.measured(&angle)
+        );
+        let solved = solve(&sketch);
+        assert_clean(&solved);
+        assert!(
+            solved
+                .geometry
+                .measured(&angle)
+                .is_some_and(|found| (found - 10.0).abs() < 1e-6)
+        );
+    }
+}

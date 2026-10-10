@@ -153,10 +153,12 @@ impl ConstraintTool {
                 "Select two or more lines, the others turning square to the first, or a line and \
                  a circle or arc"
             }
-            Self::Angle => "Select two lines, a line and an arc sharing an end, or one arc",
+            Self::Angle => {
+                "Select two lines, a line and an arc or elliptical arc sharing an end, or one arc"
+            }
             Self::Tangent => {
                 "Select a line, circle or arc, and one or more circles, arcs, splines or ellipses to \
-                 touch it"
+                 touch it, or two curves"
             }
             Self::Curvature => "Select a spline and the line, arc or spline at one of its ends",
             Self::Equal => {
@@ -169,7 +171,7 @@ impl ConstraintTool {
             }
             Self::Distance => {
                 "Select one line or arc, two of points, lines and circles, or a spline or ellipse \
-                 and a point, line or circle"
+                 and a point, line, circle or ellipse"
             }
             Self::HorizontalDistance | Self::VerticalDistance => "Select two points or one line",
             Self::Radius => "Select one or more circles, arcs or ellipses",
@@ -304,8 +306,14 @@ impl ConstraintTool {
                 | &[(from, Line | Circular), (to, Line | Circular)]
                 | &[(from, Shape::Spline), (to, Line | Circular)]
                 | &[(from, Line | Circular), (to, Shape::Spline)]
-                | &[(from, Point | Line | Circular), (to, Elliptic)]
-                | &[(from, Elliptic), (to, Point | Line | Circular)],
+                | &[
+                    (from, Point | Line | Circular | Shape::Spline | Elliptic),
+                    (to, Elliptic),
+                ]
+                | &[
+                    (from, Elliptic),
+                    (to, Point | Line | Circular | Shape::Spline),
+                ],
             ) => Some(vec![measured(shown, |value| Constraint::Distance {
                 from,
                 to,
@@ -324,6 +332,9 @@ impl ConstraintTool {
             (Self::Angle, &[(line, Line), (arc, Circular)] | &[(arc, Circular), (line, Line)])
                 if is_arc(definition, arc) =>
             {
+                Some(vec![angle_to_arc(shown, line, arc)?])
+            }
+            (Self::Angle, &[(line, Line), (arc, Elliptic)] | &[(arc, Elliptic), (line, Line)]) => {
                 Some(vec![angle_to_arc(shown, line, arc)?])
             }
             (Self::Distance, &[(arc, Circular)]) if is_arc(definition, arc) => {
@@ -1481,6 +1492,63 @@ mod tests {
     }
 
     #[test]
+    fn ellipses_take_tangents_and_distances_with_splines_and_other_ellipses() {
+        let mut f = fixture();
+        let ellipse = f
+            .sketch
+            .add_ellipse(Point2::new(0.0, 20.0), Point2::new(6.0, 20.0), 2.0);
+        let other = f
+            .sketch
+            .add_ellipse(Point2::new(20.0, 20.0), Point2::new(20.0, 24.0), 1.0);
+
+        for pair in [[ellipse, other], [f.spline, ellipse], [ellipse, f.spline]] {
+            assert_eq!(
+                candidates(&f, ConstraintTool::Tangent, &pair),
+                Ok(vec![Constraint::Tangent(pair[0], pair[1])])
+            );
+            let Ok(found) = candidates(&f, ConstraintTool::Distance, &pair) else {
+                panic!("{pair:?} take a distance");
+            };
+            assert!(
+                matches!(
+                    found.as_slice(),
+                    [Constraint::Distance { from, to, .. }] if [*from, *to] == pair
+                ),
+                "{found:?}"
+            );
+        }
+
+        let arc = f.sketch.add_elliptical_arc(
+            Point2::new(40.0, 0.0),
+            Point2::new(50.0, 0.0),
+            4.0,
+            Point2::new(50.0, 0.0),
+            Point2::new(40.0, 4.0),
+        );
+        let leaving = f
+            .sketch
+            .add_line(Point2::new(40.0, 4.0), Point2::new(40.0, 10.0));
+        let (Some(&Entity::EllipticalArc { end, .. }), Some(&Entity::Line { start, .. })) =
+            (f.sketch.entity(arc), f.sketch.entity(leaving))
+        else {
+            panic!("expected an elliptical arc and a line");
+        };
+        f.sketch
+            .add_constraint(Constraint::Coincident(start, end))
+            .unwrap();
+        let Ok(found) = candidates(&f, ConstraintTool::Angle, &[leaving, arc]) else {
+            panic!("a line leaving an elliptical arc takes an angle");
+        };
+        assert!(
+            matches!(
+                found.as_slice(),
+                [Constraint::Angle { value, .. }] if *value == measure(90.0, Unit::Degree)
+            ),
+            "{found:?}"
+        );
+    }
+
+    #[test]
     fn splines_take_equal_lengths_and_distances_from_lines_and_circles() {
         let mut f = fixture();
         let other = f.sketch.add_spline(&[
@@ -1839,7 +1907,10 @@ mod tests {
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Angle, &[f.circle]),
-            Err("Select two lines, a line and an arc sharing an end, or one arc".to_owned())
+            Err(
+                "Select two lines, a line and an arc or elliptical arc sharing an end, or one arc"
+                    .to_owned()
+            )
         );
         assert_eq!(
             candidates(&f, ConstraintTool::Distance, &[f.circle, f.horizontal]),

@@ -132,11 +132,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   path would need a vector-equality or along-the-curve spacing the solver lacks), and text (a
   font, a height, bold and italic, set along a curve, its letters becoming closed regions that
   extrude).
-- [low · medium] Ellipses take no tangent or distance with a spline or another ellipse (each
-  would need a parameter on both curves, as `SplinesMeet` has for two splines), are refused by
-  Offset (an offset would be a spline within a tolerance that no constraint keeps at the
-  distance), and a chamfer by a distance and an angle from an elliptical arc is refused, since
-  `Angle` takes no ellipse.
+- [low · hard] An ellipse's offset is a free fit-point spline that does not follow the ellipse:
+  holding it would need a constraint keeping each fit point on the ellipse's normal at its own
+  parameter (a `Distance` from the ellipse lets every fit point slide along the offset and would
+  put a dimension on each), a new constraint kind with its solver form, file record and glyph.
+  An ellipse also cannot be offset within a chain of lines and arcs, whose joints would need the
+  spline to meet them.
 - [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading

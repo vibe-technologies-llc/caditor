@@ -429,6 +429,88 @@ impl SplineHandle {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum CurveHandle {
+    Spline(Arc<SplineHandle>),
+    Ellipse(EllipseHandle),
+}
+
+enum CurveAt<'a> {
+    Spline(&'a SplineHandle, SplineAt),
+    Ellipse(&'a EllipseHandle, EllipseAt),
+}
+
+impl CurveHandle {
+    fn at(&self, values: &[f64], context: &Context, parameter: usize) -> CurveAt<'_> {
+        match self {
+            Self::Spline(spline) => CurveAt::Spline(spline, spline.at(values, parameter)),
+            Self::Ellipse(ellipse) => {
+                CurveAt::Ellipse(ellipse, ellipse.at(values, context, parameter))
+            }
+        }
+    }
+}
+
+impl CurveAt<'_> {
+    fn point(&self) -> Point2 {
+        match self {
+            Self::Spline(_, at) => at.point,
+            Self::Ellipse(_, at) => at.point,
+        }
+    }
+
+    fn tangent(&self) -> Vector2 {
+        match self {
+            Self::Spline(_, at) => at.tangent,
+            Self::Ellipse(_, at) => at.tangent,
+        }
+    }
+
+    fn bend(&self) -> Vector2 {
+        match self {
+            Self::Spline(_, at) => at.bend,
+            Self::Ellipse(_, at) => at.bend,
+        }
+    }
+
+    fn tangent_line(&self, fallback: Vector2, context: &Context) -> Direction {
+        match self {
+            Self::Spline(_, at) => at.tangent_line(fallback, context),
+            Self::Ellipse(_, at) => Direction::of(at.tangent, fallback, context),
+        }
+    }
+
+    fn push_point(
+        &self,
+        values: &[f64],
+        context: &Context,
+        gradient: &mut Gradient,
+        partial: Vector2,
+    ) {
+        match self {
+            Self::Spline(spline, at) => spline.push_point(at, gradient, partial),
+            Self::Ellipse(ellipse, at) => {
+                ellipse.push_point(values, context, at, gradient, partial)
+            }
+        }
+    }
+
+    fn push_tangent(
+        &self,
+        values: &[f64],
+        context: &Context,
+        gradient: &mut Gradient,
+        partial: Vector2,
+    ) {
+        match self {
+            Self::Spline(spline, at) => spline.push_tangent(at, gradient, partial),
+            Self::Ellipse(ellipse, at) => {
+                ellipse.push_tangent(values, context, at, gradient, partial);
+            }
+        }
+    }
+}
+
 struct Direction {
     unit: Vector2,
     length: f64,
@@ -603,15 +685,15 @@ pub(crate) enum Form {
         side: f64,
         value: f64,
     },
-    SplinesMeet {
-        first: Arc<SplineHandle>,
-        second: Arc<SplineHandle>,
+    CurvesMeet {
+        first: CurveHandle,
+        second: CurveHandle,
         parameters: (usize, usize),
         along: Vector2,
     },
-    SplinesAlong {
-        first: Arc<SplineHandle>,
-        second: Arc<SplineHandle>,
+    CurvesAlong {
+        first: CurveHandle,
+        second: CurveHandle,
         parameters: (usize, usize),
         fallbacks: (Vector2, Vector2),
     },
@@ -705,6 +787,35 @@ pub(crate) enum Form {
         point: PointHandle,
         axis: LineHandle,
     },
+    CurvesFoot {
+        first: CurveHandle,
+        second: CurveHandle,
+        parameters: (usize, usize),
+        fallback: Vector2,
+    },
+    CurvesGap {
+        first: CurveHandle,
+        second: CurveHandle,
+        parameters: (usize, usize),
+        fallback: Vector2,
+        side: f64,
+        value: f64,
+    },
+    EllipsesTouch {
+        point: PointHandle,
+        first: EllipseHandle,
+        second: EllipseHandle,
+        fallbacks: (Vector2, Vector2),
+    },
+    NormalAngle {
+        line: LineHandle,
+        point: PointHandle,
+        ellipse: EllipseHandle,
+        fallback: Vector2,
+        ellipse_first: bool,
+        reversed: bool,
+        radians: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -750,7 +861,8 @@ impl Form {
             | Self::SplineDistance { value, .. }
             | Self::EllipseTangent { value, .. }
             | Self::EllipseDistance { value, .. }
-            | Self::EllipseOnCircle { value, .. } => Some(value),
+            | Self::EllipseOnCircle { value, .. }
+            | Self::CurvesGap { value, .. } => Some(value),
             Self::SameX(a, b) => fixed_coordinate(a, b, |position| position.x),
             Self::SameY(a, b) => fixed_coordinate(a, b, |position| position.y),
             Self::OnLine { .. }
@@ -772,8 +884,11 @@ impl Form {
             | Self::OnSpline { .. }
             | Self::SplineAlongLine { .. }
             | Self::SplineAcrossRadius { .. }
-            | Self::SplinesMeet { .. }
-            | Self::SplinesAlong { .. }
+            | Self::CurvesMeet { .. }
+            | Self::CurvesAlong { .. }
+            | Self::CurvesFoot { .. }
+            | Self::EllipsesTouch { .. }
+            | Self::NormalAngle { .. }
             | Self::SameLength(..)
             | Self::SplineFoot { .. }
             | Self::EndCurvature { .. }
@@ -1009,36 +1124,119 @@ impl Form {
                 line.push_vector(gradient, direction.back_from_unit(-offset.perp() * side));
                 direction.unit.perp_dot(offset) * side - value
             }
-            Self::SplinesMeet {
+            Self::CurvesMeet {
                 ref first,
                 ref second,
                 parameters: (one, other),
                 along,
             } => {
-                let (at, there) = (first.at(values, one), second.at(values, other));
-                first.push_point(&at, gradient, along);
-                gradient.push((one, along.dot(at.tangent)));
-                second.push_point(&there, gradient, -along);
-                gradient.push((other, -along.dot(there.tangent)));
-                along.dot(at.point - there.point)
+                let at = first.at(values, context, one);
+                let there = second.at(values, context, other);
+                at.push_point(values, context, gradient, along);
+                gradient.push((one, along.dot(at.tangent())));
+                there.push_point(values, context, gradient, -along);
+                gradient.push((other, -along.dot(there.tangent())));
+                along.dot(at.point() - there.point())
             }
-            Self::SplinesAlong {
+            Self::CurvesAlong {
                 ref first,
                 ref second,
                 parameters: (one, other),
                 fallbacks: (first_fallback, second_fallback),
             } => {
-                let (at, there) = (first.at(values, one), second.at(values, other));
+                let at = first.at(values, context, one);
+                let there = second.at(values, context, other);
                 let one_way = at.tangent_line(first_fallback, context);
                 let other_way = there.tangent_line(second_fallback, context);
                 let scale = context.scale;
                 let turning = one_way.back_from_unit(-other_way.unit.perp() * scale);
                 let other_turning = other_way.back_from_unit(one_way.unit.perp() * scale);
-                first.push_tangent(&at, gradient, turning);
-                gradient.push((one, turning.dot(at.bend)));
-                second.push_tangent(&there, gradient, other_turning);
-                gradient.push((other, other_turning.dot(there.bend)));
+                at.push_tangent(values, context, gradient, turning);
+                gradient.push((one, turning.dot(at.bend())));
+                there.push_tangent(values, context, gradient, other_turning);
+                gradient.push((other, other_turning.dot(there.bend())));
                 one_way.unit.perp_dot(other_way.unit) * scale
+            }
+            Self::CurvesFoot {
+                ref first,
+                ref second,
+                parameters: (one, other),
+                fallback,
+            } => {
+                let at = first.at(values, context, one);
+                let there = second.at(values, context, other);
+                let along = at.tangent_line(fallback, context);
+                let offset = there.point() - at.point();
+                let turning = along.back_from_unit(offset);
+                there.push_point(values, context, gradient, along.unit);
+                gradient.push((other, along.unit.dot(there.tangent())));
+                at.push_point(values, context, gradient, -along.unit);
+                at.push_tangent(values, context, gradient, turning);
+                gradient.push((one, turning.dot(at.bend()) - along.unit.dot(at.tangent())));
+                along.unit.dot(offset)
+            }
+            Self::CurvesGap {
+                ref first,
+                ref second,
+                parameters: (one, other),
+                fallback,
+                side,
+                value,
+            } => {
+                let at = first.at(values, context, one);
+                let there = second.at(values, context, other);
+                let along = at.tangent_line(fallback, context);
+                let offset = there.point() - at.point();
+                let normal = along.unit.perp() * side;
+                let turning = along.back_from_unit(-offset.perp() * side);
+                there.push_point(values, context, gradient, normal);
+                gradient.push((other, normal.dot(there.tangent())));
+                at.push_point(values, context, gradient, -normal);
+                at.push_tangent(values, context, gradient, turning);
+                gradient.push((one, turning.dot(at.bend()) - normal.dot(at.tangent())));
+                normal.dot(offset) - value
+            }
+            Self::EllipsesTouch {
+                point,
+                ref first,
+                ref second,
+                fallbacks,
+            } => ellipses_touch(point, (first, second), fallbacks, values, context, gradient),
+            Self::NormalAngle {
+                line,
+                point,
+                ref ellipse,
+                fallback,
+                ellipse_first,
+                reversed,
+                radians,
+            } => {
+                let mut unused = Vec::new();
+                let (_, normal) =
+                    ellipse_touch_along(Vector2::X, point, ellipse, values, context, &mut unused);
+                let along = line.direction(values, context);
+                let across = Direction::of(normal, fallback, context);
+                let (first, second) = if ellipse_first {
+                    (&across, &along)
+                } else {
+                    (&along, &across)
+                };
+                let scale = context.scale;
+                let angle = first
+                    .unit
+                    .perp_dot(second.unit)
+                    .atan2(first.unit.dot(second.unit));
+                let by_first = first.back_from_unit(-first.unit.perp() * scale);
+                let by_second = second.back_from_unit(second.unit.perp() * scale);
+                let (by_line, by_normal) = if ellipse_first {
+                    (by_second, by_first)
+                } else {
+                    (by_first, by_second)
+                };
+                line.push_vector(gradient, by_line);
+                ellipse_touch_along(by_normal, point, ellipse, values, context, gradient);
+                let turn = if reversed { PI } else { 0.0 };
+                wrap_angle(angle + turn - radians) * scale
             }
             Self::SameLength(ref first, ref second) => {
                 first.measure(values, context, gradient, 1.0)
@@ -1552,6 +1750,29 @@ fn ellipse_touch_along(
     (total / scale, normal / scale)
 }
 
+fn ellipses_touch(
+    point: PointHandle,
+    (first, second): (&EllipseHandle, &EllipseHandle),
+    (first_fallback, second_fallback): (Vector2, Vector2),
+    values: &[f64],
+    context: &Context,
+    gradient: &mut Gradient,
+) -> f64 {
+    let mut unused = Vec::new();
+    let (_, first_normal) =
+        ellipse_touch_along(Vector2::X, point, first, values, context, &mut unused);
+    let (_, second_normal) =
+        ellipse_touch_along(Vector2::X, point, second, values, context, &mut unused);
+    let one_way = Direction::of(first_normal, first_fallback, context);
+    let other_way = Direction::of(second_normal, second_fallback, context);
+    let scale = context.scale;
+    let turning = one_way.back_from_unit(-other_way.unit.perp() * scale);
+    let other_turning = other_way.back_from_unit(one_way.unit.perp() * scale);
+    ellipse_touch_along(turning, point, first, values, context, gradient);
+    ellipse_touch_along(other_turning, point, second, values, context, gradient);
+    one_way.unit.perp_dot(other_way.unit) * scale
+}
+
 struct EllipseTurn {
     angle: f64,
     by_point: Vector2,
@@ -1912,22 +2133,109 @@ mod tests {
                 side: -1.0,
                 value: 1.25,
             },
-            Form::SplinesMeet {
-                first: spline(0, 4),
-                second: spline(8, 4),
+            Form::CurvesMeet {
+                first: CurveHandle::Spline(spline(0, 4)),
+                second: CurveHandle::Spline(spline(8, 4)),
                 parameters: (16, 17),
                 along: Vector2::X,
             },
-            Form::SplinesMeet {
-                first: spline(2, 3),
-                second: spline(6, 5),
+            Form::CurvesMeet {
+                first: CurveHandle::Spline(spline(2, 3)),
+                second: CurveHandle::Spline(spline(6, 5)),
                 parameters: (17, 16),
                 along: Vector2::Y,
             },
-            Form::SplinesAlong {
-                first: spline(0, 5),
-                second: spline(6, 5),
+            Form::CurvesAlong {
+                first: CurveHandle::Spline(spline(0, 5)),
+                second: CurveHandle::Spline(spline(6, 5)),
                 parameters: (16, 17),
+                fallbacks: (Vector2::X, Vector2::Y),
+            },
+            Form::CurvesMeet {
+                first: CurveHandle::Ellipse(ellipse(0, 2, 10)),
+                second: CurveHandle::Spline(spline(4, 4)),
+                parameters: (16, 17),
+                along: Vector2::Y,
+            },
+            Form::CurvesMeet {
+                first: CurveHandle::Ellipse(ellipse(0, 2, 10)),
+                second: CurveHandle::Ellipse(ellipse(12, 6, 11)),
+                parameters: (16, 17),
+                along: Vector2::X,
+            },
+            Form::CurvesAlong {
+                first: CurveHandle::Spline(spline(4, 5)),
+                second: CurveHandle::Ellipse(ellipse(0, 2, 10)),
+                parameters: (16, 17),
+                fallbacks: (Vector2::X, Vector2::Y),
+            },
+            Form::CurvesAlong {
+                first: CurveHandle::Ellipse(ellipse(0, 2, 10)),
+                second: CurveHandle::Ellipse(ellipse(12, 6, 11)),
+                parameters: (17, 16),
+                fallbacks: (Vector2::X, Vector2::Y),
+            },
+            Form::CurvesFoot {
+                first: CurveHandle::Ellipse(ellipse(0, 2, 10)),
+                second: CurveHandle::Spline(spline(4, 4)),
+                parameters: (16, 17),
+                fallback: Vector2::X,
+            },
+            Form::CurvesFoot {
+                first: CurveHandle::Spline(periodic(4, 4)),
+                second: CurveHandle::Ellipse(ellipse(0, 2, 10)),
+                parameters: (17, 16),
+                fallback: Vector2::Y,
+            },
+            Form::CurvesGap {
+                first: CurveHandle::Ellipse(ellipse(0, 2, 10)),
+                second: CurveHandle::Ellipse(ellipse(12, 6, 11)),
+                parameters: (16, 17),
+                fallback: Vector2::X,
+                side: -1.0,
+                value: 0.75,
+            },
+            Form::CurvesGap {
+                first: CurveHandle::Spline(conic(4)),
+                second: CurveHandle::Ellipse(ellipse(0, 2, 10)),
+                parameters: (17, 16),
+                fallback: Vector2::Y,
+                side: 1.0,
+                value: 0.5,
+            },
+            Form::EllipsesTouch {
+                point: point(14),
+                first: ellipse(0, 2, 10),
+                second: ellipse(4, 8, 11),
+                fallbacks: (Vector2::X, Vector2::Y),
+            },
+            Form::NormalAngle {
+                line: line(4, 8),
+                point: point(14),
+                ellipse: ellipse(0, 2, 10),
+                fallback: Vector2::X,
+                ellipse_first: false,
+                reversed: false,
+                radians: 0.4,
+            },
+            Form::NormalAngle {
+                line: line(6, 12),
+                point: point(14),
+                ellipse: ellipse(0, 2, 11),
+                fallback: Vector2::Y,
+                ellipse_first: true,
+                reversed: true,
+                radians: -1.1,
+            },
+            Form::EllipsesTouch {
+                point: point(14),
+                first: ellipse(0, 2, 10),
+                second: EllipseHandle {
+                    center: PointHandle::Fixed(Point2::new(0.5, -0.25)),
+                    major: point(6),
+                    minor: RadiusHandle::Fixed(2.0),
+                    fallback: Vector2::X,
+                },
                 fallbacks: (Vector2::X, Vector2::Y),
             },
             Form::SameLength(

@@ -14,8 +14,9 @@ use crate::{
 };
 
 pub const PROMPT: &str = "Click on the side and at the distance the offset should run, or type it";
-pub const CHOOSE_PROMPT: &str =
-    "Click a line, arc or circle to take its chain, or select the curves to offset first";
+pub const CHOOSE_PROMPT: &str = "Click a line, arc or circle to take its chain, or an ellipse, or \
+                                 select the curves to offset first";
+pub const FREE_SPLINE: &str = "as a spline that will not follow it";
 pub const TRANSACTION: &str = "Offset curves";
 const KEYS: &str = "Type a distance, negative for the other side   Esc: back to Select";
 const CHOOSE_KEYS: &str = "Esc: back to Select";
@@ -111,6 +112,10 @@ impl Offsetting {
         };
         let subject = subject(sketch, chain);
         match (self.placement(), self.outline()) {
+            (Some((_, distance)), Some(Ok(_))) if !chain.follows() => Some(format!(
+                "Offset {subject} by {} {FREE_SPLINE}",
+                length_text(unit, distance)
+            )),
             (Some((_, distance)), Some(Ok(_))) => Some(format!(
                 "Offset {subject} by {}",
                 length_text(unit, distance)

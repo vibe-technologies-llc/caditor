@@ -10,6 +10,7 @@ use crate::{
     sketch::{Sketch, SketchError},
     solve::{
         equation::{Form, fallback_direction},
+        pair::{curve_pair_gap, is_elliptic_pair},
         system::{Joints, System},
     },
 };
@@ -54,7 +55,7 @@ impl System {
         Ok(Some((ellipse, (angle / TAU).rem_euclid(1.0))))
     }
 
-    fn ellipse_shape(
+    pub(super) fn ellipse_shape(
         &self,
         sketch: &Sketch,
         ellipse: EntityId,
@@ -203,6 +204,9 @@ pub(crate) fn ellipse_gap(
     ellipse: EntityId,
     other: EntityId,
 ) -> Option<(Point2, Point2)> {
+    if is_elliptic_pair(sketch, ellipse, other) {
+        return curve_pair_gap(sketch, ellipse, other);
+    }
     let drawn = sketch.ellipse(ellipse)?;
     let shape = EllipseGeometry::full(drawn.center, drawn.center + drawn.major, drawn.minor_radius);
     if let Some(point) = sketch.point(other) {

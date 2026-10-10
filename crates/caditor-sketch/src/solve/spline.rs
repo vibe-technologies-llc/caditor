@@ -16,6 +16,7 @@ use crate::{
             CircleHandle, Equation, Form, LengthOf, LineHandle, PointHandle, SplineEndHandle,
             SplineHandle, fallback_direction,
         },
+        pair::{Course, closest_pair, curve_pair_gap, is_elliptic_pair},
         system::{Joints, System},
     },
     spacing::{FitLayout, fit_controls},
@@ -72,7 +73,8 @@ impl System {
                             return Ok(Vec::new());
                         }
                         let (first, second) = (self.curve(sketch, a)?, self.curve(sketch, b)?);
-                        let (one, other) = closest_pair(&first, &second);
+                        let (one, other) =
+                            closest_pair(&Course::Spline(first), &Course::Spline(second));
                         Ok(vec![(a, one), (b, other)])
                     }
                     (Some(Role::Spline), Some(Role::Line | Role::Circular)) => {
@@ -332,7 +334,7 @@ impl System {
         }
     }
 
-    fn spline_handle(
+    pub(super) fn spline_handle(
         &self,
         _sketch: &Sketch,
         spline: EntityId,
@@ -343,7 +345,7 @@ impl System {
             .ok_or(SketchError::MissingEntity(spline))
     }
 
-    fn curve(&self, sketch: &Sketch, spline: EntityId) -> Result<BSpline, SketchError> {
+    pub(super) fn curve(&self, sketch: &Sketch, spline: EntityId) -> Result<BSpline, SketchError> {
         let handle = self.spline_handle(sketch, spline)?;
         let points = handle
             .points
@@ -682,7 +684,7 @@ impl System {
         })
     }
 
-    fn leg(
+    pub(super) fn leg(
         &self,
         sketch: &Sketch,
         spline: EntityId,
@@ -725,33 +727,7 @@ impl System {
                 self.leg(sketch, b, second)?,
             )]);
         }
-        let parameters = self.parameter_pair(id)?;
-        let (first, second) = (
-            self.spline_handle(sketch, a)?,
-            self.spline_handle(sketch, b)?,
-        );
-        let fallback = |spline: EntityId, parameter: usize| -> Result<Vector2, SketchError> {
-            let start = self.values.get(parameter).copied().unwrap_or(0.0);
-            let [tangent, _] = self.curve(sketch, spline)?.derivatives(start);
-            Ok(fallback_direction(tangent))
-        };
-        let fallbacks = (fallback(a, parameters.0)?, fallback(b, parameters.1)?);
-        let meet = |along| Form::SplinesMeet {
-            first: Arc::clone(&first),
-            second: Arc::clone(&second),
-            parameters,
-            along,
-        };
-        Ok(vec![
-            meet(Vector2::X),
-            meet(Vector2::Y),
-            Form::SplinesAlong {
-                first: Arc::clone(&first),
-                second: Arc::clone(&second),
-                parameters,
-                fallbacks,
-            },
-        ])
+        self.curves_touch(sketch, (a, b), self.parameter_pair(id)?)
     }
 
     pub(super) fn spline_length(
@@ -929,74 +905,14 @@ fn refine(
     (parameter, false)
 }
 
-fn closest_pair(first: &BSpline, second: &BSpline) -> (f64, f64) {
-    let samples = |curve: &BSpline| -> Vec<(f64, Point2)> {
-        let spans = curve
-            .control_points()
-            .len()
-            .saturating_sub(curve.degree())
-            .max(1);
-        let count = spans * SAMPLES_PER_SPAN;
-        (0..=count)
-            .map(|index| {
-                let parameter = index as f64 / count as f64;
-                (parameter, curve.point_at(parameter))
-            })
-            .collect()
-    };
-    let (ones, others) = (samples(first), samples(second));
-    let rough = ones
-        .iter()
-        .flat_map(|one| others.iter().map(move |other| (*one, *other)))
-        .min_by(|a, b| {
-            a.0.1
-                .distance_squared(a.1.1)
-                .total_cmp(&b.0.1.distance_squared(b.1.1))
-        })
-        .map_or((0.0, 0.0), |((one, _), (other, _))| (one, other));
-    let (mut one, mut other) = rough;
-    for _ in 0..REFINEMENTS {
-        let gap = first.point_at(one) - second.point_at(other);
-        let ([along, bend], [other_along, other_bend]) =
-            (first.derivatives(one), second.derivatives(other));
-        let gradient = (gap.dot(along), -gap.dot(other_along));
-        let across = -along.dot(other_along);
-        let hessian = (
-            along.dot(along) + gap.dot(bend),
-            across,
-            other_along.dot(other_along) - gap.dot(other_bend),
-        );
-        let determinant = hessian.0 * hessian.2 - hessian.1 * hessian.1;
-        if !(determinant.is_finite() && determinant.abs() > f64::EPSILON) {
-            break;
-        }
-        let step = (
-            (hessian.2 * gradient.0 - hessian.1 * gradient.1) / determinant,
-            (hessian.0 * gradient.1 - hessian.1 * gradient.0) / determinant,
-        );
-        let next = (
-            (one - step.0).clamp(0.0, 1.0),
-            (other - step.1).clamp(0.0, 1.0),
-        );
-        let moved = (next.0 - one).abs() + (next.1 - other).abs();
-        (one, other) = next;
-        if moved <= f64::EPSILON {
-            break;
-        }
-    }
-    let distance = |(one, other): (f64, f64)| first.point_at(one).distance(second.point_at(other));
-    if distance((one, other)) <= distance(rough) {
-        (one, other)
-    } else {
-        rough
-    }
-}
-
 pub(crate) fn spline_gap(
     sketch: &Sketch,
     spline: EntityId,
     other: EntityId,
 ) -> Option<(Point2, Point2)> {
+    if is_elliptic_pair(sketch, spline, other) {
+        return curve_pair_gap(sketch, spline, other);
+    }
     let curve = sketch.spline(spline)?;
     let slope_from = |center: Point2| {
         move |at: Point2, tangent: Vector2, bend: Vector2| {

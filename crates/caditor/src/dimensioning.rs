@@ -16,12 +16,11 @@ pub const PICKED_KEYS: &str =
 pub const PLACING_KEYS: &str = "Enter: the aligned distance   Esc: start again";
 pub const POINT_KEYS: &str = "Esc: start again";
 pub const AXIS_KEYS: &str = "Enter: the distance   Esc: start again";
-const SPLINE_REFUSED: &str = "A spline takes only a distance from a point, line, circle or arc; dimension the points \
-     or lines that shape it otherwise";
+const SPLINE_REFUSED: &str = "A spline takes only a distance from a point, line, circle, arc or \
+                              ellipse; dimension the points or lines that shape it otherwise";
 const NOT_IN_SKETCH: &str = "That is not part of the sketch being edited";
 const ELLIPSE_REFUSED: &str = "An ellipse takes its major and minor radii alone, or a distance from \
-                               a point, line, circle or arc; dimension its centre and axis points \
-                               otherwise";
+                               one point or curve; dimension its centre and axis points otherwise";
 const PARALLEL_TOLERANCE: f64 = 1e-9;
 const LEVEL_TOLERANCE: f64 = 1e-9;
 
@@ -65,14 +64,15 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
     };
     match kinds.as_slice() {
         [Kind::Ellipse] => return Fit::Ready(ConstraintTool::Radius),
-        [
-            Kind::Point | Kind::Line | Kind::Circle | Kind::Arc,
-            Kind::Ellipse,
-        ]
-        | [
-            Kind::Ellipse,
-            Kind::Point | Kind::Line | Kind::Circle | Kind::Arc,
-        ] => return Fit::Ready(ConstraintTool::Distance),
+        [Kind::Line, Kind::Ellipse] | [Kind::Ellipse, Kind::Line]
+            if picks
+                .first()
+                .zip(picks.get(1))
+                .is_some_and(|(first, second)| sketch.angle_vertex(*first, *second).is_some()) =>
+        {
+            return Fit::Ready(ConstraintTool::Angle);
+        }
+        [_, Kind::Ellipse] | [Kind::Ellipse, _] => return Fit::Ready(ConstraintTool::Distance),
         _ if kinds.contains(&Kind::Ellipse) => return Fit::Refused(ELLIPSE_REFUSED),
         [Kind::Spline]
             if picks
@@ -448,6 +448,20 @@ mod tests {
         assert_eq!(
             fitting(&sketch, &[spline, other_spline]),
             Fit::Refused(SPLINE_REFUSED)
+        );
+        let ellipse = sketch.add_ellipse(Point2::new(0.0, 9.0), Point2::new(4.0, 9.0), 2.0);
+        let other_ellipse = sketch.add_ellipse(Point2::new(9.0, 9.0), Point2::new(9.0, 12.0), 1.0);
+        assert_eq!(
+            fitting(&sketch, &[spline, ellipse]),
+            Fit::Ready(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            fitting(&sketch, &[ellipse, other_ellipse]),
+            Fit::Ready(ConstraintTool::Distance)
+        );
+        assert_eq!(
+            fitting(&sketch, &[ellipse, other_ellipse, spline]),
+            Fit::Refused(ELLIPSE_REFUSED)
         );
         assert_eq!(
             fitting(&sketch, &[level, arc]),
