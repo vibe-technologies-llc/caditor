@@ -68,6 +68,7 @@ mod headless;
 mod history;
 mod hole_on_curve;
 mod hole_panel;
+mod hole_placement;
 mod hole_tools;
 mod icon_font;
 mod icons;

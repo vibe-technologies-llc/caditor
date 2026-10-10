@@ -316,7 +316,7 @@ fn face_profile(
     })
 }
 
-fn same_plane(first: &Plane, second: &Plane) -> bool {
+pub fn same_plane(first: &Plane, second: &Plane) -> bool {
     first.normal().cross(second.normal()).length() <= ANGULAR_RESOLUTION
         && first.normal().dot(second.normal()) > 0.0
         && first.signed_distance(second.origin()).abs() <= LINEAR_RESOLUTION

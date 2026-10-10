@@ -15066,6 +15066,24 @@ fn open_combo(harness: &mut Harness, caption: &str) {
         harness.frame();
     }
     harness.hold_still();
+    let mut center = combo_centre(harness, caption);
+    harness.events.push(Event::PointerMoved(center));
+    harness.hold_still();
+    for _ in 0..STILL_FRAMES {
+        let settled = combo_centre(harness, caption);
+        if settled == center {
+            break;
+        }
+        center = settled;
+        harness.events.push(Event::PointerMoved(center));
+        harness.hold_still();
+    }
+    harness.click_screen(center);
+    harness.show_new_windows();
+    harness.frame();
+}
+
+fn combo_centre(harness: &Harness, caption: &str) -> Pos2 {
     let captions: Vec<NodeId> = harness
         .accessible
         .iter()
@@ -15085,13 +15103,10 @@ fn open_combo(harness: &mut Harness, caption: &str) {
         .filter_map(|(_, node)| node.bounds())
         .max_by(|a, b| a.y0.total_cmp(&b.y0))
         .unwrap_or_else(|| panic!("no list captioned '{caption}'"));
-    let center = Pos2::new(
+    Pos2::new(
         (0.5 * (bounds.x0 + bounds.x1)) as f32,
         (0.5 * (bounds.y0 + bounds.y1)) as f32,
-    );
-    harness.click_screen(center);
-    harness.show_new_windows();
-    harness.frame();
+    )
 }
 
 fn extrusion_above_plate(harness: &mut Harness, height: f64) -> FeatureId {
@@ -20326,7 +20341,12 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
     assert!(harness.shows(crate::feature_fields::POSITION_CAPTIONS[0]));
     assert_eq!(point_of(&harness), Point2::new(20.0, 20.0));
 
-    harness.type_into_field(Id::new(("hole-position", hole, 0_usize)), "8 mm");
+    let point = harness
+        .sketch(sketch)
+        .entities()
+        .find_map(|(id, entity)| matches!(entity, Entity::Point(_)).then_some(id))
+        .expect("the hole's sketch holds its point");
+    harness.type_into_field(Id::new(("hole-position", hole, point, 0_usize)), "8 mm");
     harness.settle();
 
     assert_eq!(harness.model.undo_label(), Some("Move Hole 1"));
@@ -20368,6 +20388,303 @@ fn a_hole_drilled_on_a_face_moves_by_its_position_fields_and_a_click_on_the_face
     harness.settle();
 
     assert_eq!(harness.workspace.editing.feature(), Some(sketch));
+}
+
+fn plate_edge_at(harness: &Harness, body: FeatureId, middle: Point3) -> caditor_kernel::EdgeName {
+    let solid = harness.model.evaluation().body(body).unwrap();
+    solid
+        .edges()
+        .find(|(_, edge)| (edge.curve().point(edge.interval().middle()) - middle).length() < 1e-6)
+        .map(|(_, edge)| edge.name())
+        .expect("the plate has that edge")
+}
+
+fn placed_holes(
+    harness: &Harness,
+    hole: FeatureId,
+) -> Vec<(crate::hole_placement::PlacedHole, Point3)> {
+    let definition = open_hole(harness, hole);
+    let plane = crate::scene::sketch_plane(
+        harness.document(),
+        harness.model.evaluation(),
+        definition.sketch,
+    )
+    .expect("the hole's sketch has a plane");
+    crate::hole_placement::read(harness.document(), &definition)
+        .expect("the hole's sketch is a placement")
+        .holes
+        .into_iter()
+        .map(|placed| {
+            let at =
+                crate::hole_placement::solved_point(&harness.model, definition.sketch, &placed);
+            (placed, plane.to_world(at))
+        })
+        .collect()
+}
+
+fn open_hole_on(harness: &mut Harness, face: Pickable) -> FeatureId {
+    harness.select([face]);
+    harness.click("Hole");
+    harness.settle();
+    harness.workspace.editing.solid().expect("the hole is open")
+}
+
+#[test]
+fn a_hole_measured_from_two_edges_keeps_its_distances_when_the_plate_grows() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let hole = open_hole_on(&mut harness, top);
+    let front = plate_edge_at(&harness, plate, Point3::new(20.0, 0.0, 10.0));
+    let left = plate_edge_at(&harness, plate, Point3::new(0.0, 20.0, 10.0));
+
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    harness.click(crate::hole_panel::MEASURE_SELECTED);
+    harness.settle();
+    let holes = placed_holes(&harness, hole);
+    let crate::hole_placement::Anchor::Edges(edges) = &holes[0].0.anchor else {
+        panic!("the hole is measured from an edge");
+    };
+    let from_front = edges[0].held.constraint;
+
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Place Hole 1 from an edge")
+    );
+    assert_eq!(edges.len(), 1);
+    assert_eq!(harness.document().expression_text(&edges[0].value), "20 mm");
+    assert!(harness.shows(crate::hole_panel::MEASURED_FROM));
+    assert!(!harness.shows(crate::feature_fields::POSITION_CAPTIONS[0]));
+
+    harness.type_into_field(Id::new(("hole-edge-distance", hole, from_front)), "8 mm");
+    harness.settle();
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: left,
+    }]);
+    harness.click(crate::hole_panel::MEASURE_SELECTED);
+    harness.settle();
+    let from_left = match &placed_holes(&harness, hole)[0].0.anchor {
+        crate::hole_placement::Anchor::Edges(edges) => edges[1].held.constraint,
+        anchor => panic!("the hole is measured from two edges, not {anchor:?}"),
+    };
+    harness.type_into_field(Id::new(("hole-edge-distance", hole, from_left)), "12 mm");
+    harness.settle();
+
+    assert!(
+        placed_holes(&harness, hole)[0]
+            .1
+            .distance(Point3::new(12.0, 8.0, 10.0))
+            < 1e-6
+    );
+    assert!(!harness.shows(crate::hole_panel::MEASURE_SELECTED));
+    assert!(!harness.shows(crate::hole_panel::MEASURE_CHOOSE));
+    assert!(removed_about(
+        &harness,
+        plate,
+        std::f64::consts::PI * 9.0 * 10.0
+    ));
+
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: front,
+    }]);
+    let refused = crate::hole_placement::edge_change(
+        &harness.model,
+        harness.workspace.viewport.selection(),
+        hole,
+        &open_hole(&harness, hole),
+        placed_holes(&harness, hole)[0].0.point,
+    );
+
+    assert!(refused.unwrap_err().contains("two edges"));
+
+    let base = open_extrude(&harness, plate).sketch;
+    let widened: Vec<Edit> = harness
+        .sketch(base)
+        .entities()
+        .filter_map(|(id, entity)| match entity {
+            Entity::Point(at) if at.x.abs() < 1e-9 => Some(Edit::SetSketchEntity {
+                feature: base,
+                id,
+                entity: Entity::Point(Point2::new(-10.0, at.y)),
+            }),
+            _ => None,
+        })
+        .collect();
+    harness.perform(Action::Apply(Transaction::new("Widen the plate", widened)));
+    harness.settle();
+
+    assert!(
+        placed_holes(&harness, hole)[0]
+            .1
+            .distance(Point3::new(2.0, 8.0, 10.0))
+            < 1e-6
+    );
+
+    harness.click_button("Stop measuring hole 1 from this edge");
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Free Hole 1 from an edge"));
+    assert!(matches!(
+        &placed_holes(&harness, hole)[0].0.anchor,
+        crate::hole_placement::Anchor::Edges(edges) if edges.len() == 1
+    ));
+}
+
+#[test]
+fn a_hole_centred_on_a_round_edge_follows_it_and_takes_further_holes_clicked_on_the_face() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let first = open_hole_on(&mut harness, top);
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.settle();
+    let top = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| {
+            pickable.describe(harness.document(), harness.model.evaluation())
+                == "Extrude 1 › Extrude 1 end face"
+        })
+        .expect("the top face is still pickable");
+    let second = open_hole_on(&mut harness, top);
+    let mouth = {
+        let solid = harness.model.evaluation().body(plate).unwrap();
+        solid
+            .edges()
+            .find(|(_, edge)| {
+                let middle = edge.curve().point(edge.interval().middle());
+                (middle.z - 10.0).abs() < 1e-6
+                    && ((middle - Point3::new(20.0, 20.0, 10.0)).length() - 3.0).abs() < 1e-6
+            })
+            .map(|(_, edge)| edge.name())
+            .expect("the first hole's mouth is an edge")
+    };
+    harness.type_into_field(Id::new(("hole-field", "diameter", second)), "10 mm");
+    harness.settle();
+
+    assert!(
+        placed_holes(&harness, second)[0]
+            .1
+            .distance(Point3::new(20.0, 20.0, 10.0))
+            > 5.0
+    );
+
+    harness.select([Pickable::Edge {
+        body: plate,
+        edge: mouth,
+    }]);
+    harness.click(crate::hole_panel::CENTRE_SELECTED);
+    harness.settle();
+
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Make Hole 2 concentric with an edge")
+    );
+    assert!(harness.shows(crate::hole_panel::CONCENTRIC_WITH));
+    assert!(
+        placed_holes(&harness, second)[0]
+            .1
+            .distance(Point3::new(20.0, 20.0, 10.0))
+            < 1e-6
+    );
+
+    let first_hole = open_hole(&harness, first);
+    let first_point = placed_holes(&harness, first)[0].0.point;
+    let moved = crate::hole_placement::moved(
+        harness.document(),
+        first,
+        &first_hole,
+        first_point,
+        Point2::new(12.0, 25.0),
+    )
+    .unwrap();
+    harness.perform(Action::Apply(moved));
+    harness.settle();
+
+    assert!(
+        placed_holes(&harness, second)[0]
+            .1
+            .distance(Point3::new(12.0, 25.0, 10.0))
+            < 1e-6
+    );
+
+    harness.select([]);
+    harness.click(crate::hole_panel::ADD_HOLE);
+    harness.settle();
+
+    assert_eq!(
+        harness
+            .workspace
+            .editing
+            .picking()
+            .map(|picking| picking.slot),
+        Some(crate::reference_picking::Slot::HoleAdd)
+    );
+
+    let plane = crate::scene::sketch_plane(
+        harness.document(),
+        harness.model.evaluation(),
+        open_hole(&harness, second).sketch,
+    )
+    .expect("the sketch has a plane");
+    harness.click_pickable(plane, Point2::new(32.0, 8.0), top);
+    harness.settle();
+    harness.click_pickable(plane, Point2::new(32.0, 32.0), top);
+    harness.settle();
+    let holes = placed_holes(&harness, second);
+
+    assert_eq!(harness.model.undo_label(), Some("Add a hole to Hole 2"));
+    assert_eq!(
+        harness
+            .workspace
+            .editing
+            .picking()
+            .map(|picking| picking.slot),
+        Some(crate::reference_picking::Slot::HoleAdd)
+    );
+    assert_eq!(holes.len(), 3);
+    assert!(holes[1].1.distance(Point3::new(32.0, 8.0, 10.0)) < 0.01);
+    assert!(holes[2].1.distance(Point3::new(32.0, 32.0, 10.0)) < 0.01);
+    assert!(harness.shows("Hole 3"));
+
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.click_button("Remove hole 2");
+    harness.settle();
+    let holes = placed_holes(&harness, second);
+
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Remove a hole from Hole 2")
+    );
+    assert_eq!(holes.len(), 2);
+    assert!(holes[1].1.distance(Point3::new(32.0, 32.0, 10.0)) < 0.01);
+
+    let mut chosen = crate::selection::Selection::default();
+    chosen.toggle(top);
+    let added = crate::hole_placement::add_change(
+        &harness.model,
+        &chosen,
+        second,
+        &open_hole(&harness, second),
+    )
+    .unwrap();
+    harness.perform(Action::Apply(added));
+    harness.settle();
+    let holes = placed_holes(&harness, second);
+
+    assert_eq!(holes.len(), 3);
+    assert!(
+        holes
+            .iter()
+            .take(2)
+            .all(|(_, at)| at.distance(holes[2].1) > 5.0)
+    );
 }
 
 #[test]

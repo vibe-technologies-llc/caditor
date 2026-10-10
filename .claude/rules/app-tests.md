@@ -31,7 +31,9 @@ paths:
   after it is the finished one. `point_at`, and so `click_at`, settles first when a recompute or
   meshing is still running: its result changes the panels (a sketch's status pills), and a
   layout change landing between working out a screen position and the frame that reads the
-  pointer would put the pointer somewhere else in the sketch.
+  pointer would put the pointer somewhere else in the sketch. `open_combo` likewise moves the
+  pointer onto the list and holds still until the list stays put before pressing, since a tree
+  taller than its panel can scroll when the pointer arrives over it.
 - A constraint trial (`app-sketching.md`) is waited for at the end of each harness frame
   (`Model::finish_checking_constraints`), so a constraint button's result is in the document by
   the next check as if applied at once.

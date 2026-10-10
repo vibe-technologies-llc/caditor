@@ -261,15 +261,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   handle is held or hovered, committing to the dragged field, would give the drag-to-geometry and
   typed values of Fusion's handles; a snap sets a measured value rather than a reference, and the
   readout would say what it snapped to.
-- [medium · medium] A hole placed on a face moves only by Position X and Y along its hidden
-  sketch's own axes or by dragging, so a hole 8 mm from two edges, or concentric with a round edge,
-  means editing the sketch, projecting the edges and dimensioning. While `hole_tools::lone_point`
-  holds, the hole panel (`hole_panel.rs`) could have From an edge rows (a straight edge of the face
-  picked with Use selected or Choose in the view, and a distance) that project the edge into the
-  hidden sketch and add a `Distance` from it in one change, and Concentric with a picked round edge
-  (its projection's centre `Coincident` with the point), so the hole follows those edges when the
-  body changes; Add another hole could place a further point on the face by a click, as Fusion's
-  hole places several.
+- [low · medium] A hole's placement handles (`place_handles.rs`) stand only on a lone free point
+  (`hole_tools::lone_point`): a hole of several points, or one measured from edges or centred on
+  one (`hole_placement.rs`), drags nothing. Each free point could carry its own square, and each
+  edge distance an arrow along the edge's normal committing to its `Distance` through
+  `manipulator::Held`. Place by takes only edges of bodies, not another sketch's curves, datum
+  axes or the origin.
 - [low · medium] Primitives and patterns have no size handles: a box's width, depth and height, a
   cylinder's radius and height and the other primitives' sizes are only typed, while only their
   position drags (`place_handles.rs`), and a linear pattern's spacing and count or a circular

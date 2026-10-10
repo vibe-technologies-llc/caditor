@@ -17,6 +17,7 @@ paths:
   - "crates/caditor/src/move_tools.rs"
   - "crates/caditor/src/hole_tools.rs"
   - "crates/caditor/src/hole_panel.rs"
+  - "crates/caditor/src/hole_placement.rs"
   - "crates/caditor/src/thread_tools.rs"
   - "crates/caditor/src/thread_panel.rs"
   - "crates/caditor/src/move_panel.rs"
@@ -463,17 +464,47 @@ paths:
   bottom a 118° cone, with its Drill point angle field, key `drill-point-angle`), Reverse direction, and the Sketch and Body rows (the body
   a list of `bodies_before`; the Sketch row's Edit the sketch enters it, hidden or not). A size sets exact millimetre values; typing any hole, counterbore or
   countersink size makes it Custom again.
-- While the hole's sketch holds one point and no constraint (`hole_tools::lone_point`, as a hole
-  made on a face starts), the panel opens with Placed on (the face the sketch lies on, with Use
-  selected or Choose in the view, `Slot::HolePlace`) and Position X and Y (key `hole-position`,
-  the point in the sketch plane, previewed while typed, committed as one "Move <hole>"
-  `SetSketchEntity`, `hole_tools::moved`). A click on a flat face while choosing
+- The panel places the holes while the sketch reads as a placement (`hole_placement::read`): only
+  free points, each held by nothing (free), by `Distance` constraints to at most `MAX_EDGES`
+  projected straight edges, or by a `Coincident` with the centre of one projected round edge,
+  every projection an edge of a body (`ProjectionSource::Edge`, an `EdgeReference`) used by
+  exactly one of those constraints. The placement lives wholly in the hidden sketch, so no
+  record is added, the file format is the sketch's and the hole follows those edges whenever the
+  body changes, as any projection does. A sketch drawn otherwise (a curve, another constraint)
+  is placed by editing it, the Placed on row then only naming its face.
+- Placed on names the face the sketch lies on; while the sketch holds one point and no
+  constraint (`hole_tools::lone_point`, as a hole made on a face starts) it also has Use selected
+  or Choose in the view (`Slot::HolePlace`): a click on a flat face while choosing
   (`hole_tools::place_click`, routed by `pick_action` with the pointer's ray) puts the point where
   the ray meets the face's plane, the keyboard highlight or Use selected at the face's middle; a
   face other than the sketch's re-attaches the sketch there (`SetSketchPlacement`) and moves the
-  hole to that face's body, all in one change. A sketch with more points or constraints is moved
-  by editing it.
-- While such a hole is open (and nothing is being chosen in the view), its centre carries handles
+  hole to that face's body, all in one change. Below it Add another hole
+  (`hole_panel::ADD_HOLE`) chooses in the view (`Slot::HoleAdd`, routed by `pick_action` like the
+  place, staying on after each click until Escape or Stop adding holes): a click on a face lying
+  in the sketch plane (`solid_tools::same_plane`) adds a free point where the ray meets the
+  plane, the keyboard highlight the spot of that face farthest from its edges and the other
+  holes (`hole_tools::clear_spot`), each one "Add a hole to <hole>" change sharing the hole's
+  size and depth (`hole_placement::added_at`).
+- Each hole is listed (with several, a "Hole n" row saying how it is placed, with Remove hole n,
+  `hole_placement::removed`, which takes its point and anchors in one change and refuses the
+  last point). A free one has Position X and Y (key `("hole-position", feature, point, axis)`,
+  the point in the sketch plane, previewed while typed, one "Move <hole>" `SetSketchEntity`,
+  `hole_placement::moved`). One measured from edges has a Measured from row per edge (the edge in
+  words as the sketch sees it, `edge_words`, and Stop measuring hole n from this edge,
+  `released`) with its Distance (key `hole-edge-distance`, the constraint's expression,
+  previewed, one "Move <hole>" `SetDimension`). One centred on an edge has Concentric with and its
+  Stop centring row. Then Place by offers From an edge (`Slot::HoleEdge(point)`, while fewer than
+  two edges hold it and it is not centred) and Concentric (`Slot::HoleConcentric(point)`), each
+  reading "… the selected edge" and applying at once when the one selected edge gives a change,
+  else choosing in the view. From an edge (`hole_placement::edge_change`) projects a straight
+  edge of a body seen by the sketch into it as construction (`add_projected`) and adds a
+  `Distance` from the point at its measured value in the model's unit, refusing in words an edge
+  made after the sketch, a curved one, one standing square to the face, the same edge, one
+  parallel to the first, the centre lying on the edge, a third edge and a centred hole.
+  Concentric (`concentric_change`) projects a circle or arc as construction (so it drills
+  nothing and sizes nothing), moves the point to its centre and adds the `Coincident`, replacing
+  whatever held the point, in one "Make <hole> concentric with an edge" change.
+- While a hole of one free point is open (and nothing is being chosen in the view), its centre carries handles
   on the face (`place_handles.rs`, `Manipulator::Place`): a square to drag it anywhere on the face
   and an arrow along the sketch plane's x and y (`PlaceGrip`), drawn and hit-tested like the move
   arrows, in `canvas::SNAP` at `ARROW_SHARE` of their length. A drag follows where the
