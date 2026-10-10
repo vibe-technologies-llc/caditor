@@ -2489,7 +2489,7 @@ fn pickable_points(sources: &Sources<'_>, pickable: Pickable, reference_size: f6
             .map(|mass| mass.properties.centroid)
             .into_iter()
             .collect(),
-        Pickable::FeatureValue { .. } => Vec::new(),
+        Pickable::FeatureValue { .. } | Pickable::BodyItem { .. } => Vec::new(),
         Pickable::ShellFace { feature, face } => bodies
             .body_before()
             .filter(|open| open.feature == feature)

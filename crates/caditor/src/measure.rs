@@ -288,7 +288,8 @@ fn subject_of(model: &Model, pickable: Pickable) -> Option<Subject> {
         | Pickable::FeatureValue { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
-        | Pickable::ShellFace { .. } => Subject::Unmeasurable,
+        | Pickable::ShellFace { .. }
+        | Pickable::BodyItem { .. } => Subject::Unmeasurable,
     })
 }
 

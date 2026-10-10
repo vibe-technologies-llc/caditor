@@ -5,7 +5,7 @@ use caditor_document::{
     vertex_outline,
 };
 use caditor_geometry::{Plane, Point2, Point3, Vector2};
-use caditor_kernel::Edge;
+use caditor_kernel::{Edge, EdgeName, VertexName};
 
 use crate::{
     bodies,
@@ -16,6 +16,7 @@ use crate::{
 };
 
 const SAME_POINT: f64 = 1e-9;
+const ARC_PREVIEW_SEGMENTS: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyPart {
@@ -39,6 +40,44 @@ impl BodyPart {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BodyItem {
+    Corner(VertexName),
+    Centre(EdgeName),
+    Edge(EdgeName),
+}
+
+impl BodyItem {
+    pub fn words(self, body: &str) -> String {
+        match self {
+            Self::Corner(_) => format!("Corner of {body}"),
+            Self::Centre(_) => format!("Centre of a round edge of {body}"),
+            Self::Edge(_) => format!("Edge of {body}"),
+        }
+    }
+
+    fn part(self) -> BodyPart {
+        match self {
+            Self::Corner(_) => BodyPart::Corner,
+            Self::Centre(_) => BodyPart::Centre,
+            Self::Edge(_) => BodyPart::Edge,
+        }
+    }
+
+    fn key(self) -> Key {
+        match self {
+            Self::Corner(vertex) => Key::Vertex(vertex),
+            Self::Centre(edge) | Self::Edge(edge) => Key::Edge(edge),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Key {
+    Vertex(VertexName),
+    Edge(EdgeName),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BodyTarget {
     pub source: usize,
@@ -51,6 +90,8 @@ pub struct Source {
     pub projection: ProjectionSource,
     pub outline: Outline,
     body: String,
+    owner: FeatureId,
+    key: Key,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -74,6 +115,24 @@ enum Path {
 }
 
 impl Path {
+    fn polyline(&self) -> Vec<Point2> {
+        match self {
+            Self::Segment(start, end) => vec![*start, *end],
+            Self::Arc {
+                center,
+                radius,
+                start,
+                sweep,
+            } => (0..=ARC_PREVIEW_SEGMENTS)
+                .map(|index| {
+                    let angle = start + sweep * index as f64 / ARC_PREVIEW_SEGMENTS as f64;
+                    *center + Vector2::from_angle(angle) * *radius
+                })
+                .collect(),
+            Self::Polyline(points) => points.clone(),
+        }
+    }
+
     fn closest(&self, point: Point2) -> Option<Point2> {
         match self {
             Self::Segment(start, end) => Some(closest_on_segment(*start, *end, point)),
@@ -221,11 +280,19 @@ impl BodySnaps {
         snaps
     }
 
-    fn add_source(&mut self, projection: ProjectionSource, outline: Outline, body: &str) -> usize {
+    fn add_source(
+        &mut self,
+        projection: ProjectionSource,
+        outline: Outline,
+        (owner, body): (FeatureId, &str),
+        key: Key,
+    ) -> usize {
         self.sources.push(Source {
             projection,
             outline,
             body: body.to_owned(),
+            owner,
+            key,
         });
         self.sources.len() - 1
     }
@@ -252,7 +319,8 @@ impl BodySnaps {
                     vertex: vertex_name,
                 },
                 outline,
-                name,
+                (body, name),
+                Key::Vertex(vertex_name),
             );
             self.points.push(SnapPoint {
                 position,
@@ -288,7 +356,7 @@ impl BodySnaps {
             };
             let middle = middle_of(&outline);
             let centre = centre_of(&outline);
-            let source = self.add_source(projection, outline, name);
+            let source = self.add_source(projection, outline, (body, name), Key::Edge(edge.name()));
             for (position, part) in [(middle, BodyPart::Middle), (centre, BodyPart::Centre)] {
                 if let Some(position) = position {
                     self.points.push(SnapPoint {
@@ -354,6 +422,52 @@ impl BodySnaps {
         (target.generation == self.generation)
             .then(|| self.sources.get(target.source))
             .flatten()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn item(&self, target: BodyTarget) -> Option<(FeatureId, BodyItem)> {
+        let source = self.source(target)?;
+        let item = match (target.part, source.key) {
+            (BodyPart::Corner, Key::Vertex(vertex)) => BodyItem::Corner(vertex),
+            (BodyPart::Centre, Key::Edge(edge)) => BodyItem::Centre(edge),
+            (BodyPart::Edge, Key::Edge(edge)) => BodyItem::Edge(edge),
+            (BodyPart::Corner | BodyPart::Centre | BodyPart::Edge | BodyPart::Middle, _) => {
+                return None;
+            }
+        };
+        Some((source.owner, item))
+    }
+
+    pub fn find(&self, body: FeatureId, item: BodyItem) -> Option<BodyTarget> {
+        let key = item.key();
+        let source = self
+            .sources
+            .iter()
+            .position(|source| source.owner == body && source.key == key)?;
+        Some(BodyTarget {
+            source,
+            part: item.part(),
+            generation: self.generation,
+        })
+    }
+
+    pub fn position(&self, target: BodyTarget) -> Option<Point2> {
+        self.source(target)?;
+        self.points
+            .iter()
+            .find(|point| point.source == target.source && point.part == target.part)
+            .map(|point| point.position)
+    }
+
+    pub fn path(&self, target: BodyTarget) -> Option<Vec<Point2>> {
+        self.source(target)?;
+        self.edges
+            .iter()
+            .find(|edge| edge.source == target.source)
+            .map(|edge| edge.path.polyline())
     }
 
     pub fn label(&self, target: BodyTarget) -> Option<String> {

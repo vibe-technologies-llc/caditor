@@ -6,6 +6,7 @@ use egui_phosphor::regular as phosphor;
 
 use crate::{
     analysis::AnalysisCommand,
+    body_snap::BodyItem,
     commands::{CameraMove, Command},
     editing::Tool,
     icon_font,
@@ -562,5 +563,10 @@ pub fn pickable(pickable: Pickable, document: &Document) -> &'static str {
             .feature(datum)
             .map_or(PLANE, |feature| self::feature(&feature.kind)),
         Pickable::CentreOfMass(_) => CENTRE_OF_MASS,
+        Pickable::BodyItem {
+            item: BodyItem::Edge(_),
+            ..
+        } => EDGE,
+        Pickable::BodyItem { .. } => VERTEX,
     }
 }

@@ -33,4 +33,5 @@ above it, shows a dashed guide and lines the new point up with it.
   below the prompt says snapping is off.
 - {command:view.toggle_grid_snapping} puts free points on the grid's crossings.
 
-Dragging geometry with Select snaps the same way, except to bodies.
+Dragging geometry with Select snaps the same way, bodies included: a point dragged onto a body's
+corner or edge projects it and stays on it, in the same undoable change.

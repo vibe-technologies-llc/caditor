@@ -13,6 +13,7 @@ use caditor_sketch::{ConstraintId, EntityId};
 
 use crate::{
     bodies::{self, FaceKey, VertexKey},
+    body_snap::BodyItem,
     datum_tools,
     editing::Context,
     feature_values::ValueSlot,
@@ -202,6 +203,11 @@ pub enum Pickable {
         feature: FeatureId,
         value: ValueSlot,
     },
+    BodyItem {
+        sketch: FeatureId,
+        body: FeatureId,
+        item: BodyItem,
+    },
 }
 
 pub fn sketch_regions(evaluation: &Evaluation, sketch: FeatureId) -> Option<&[SketchRegion]> {
@@ -261,7 +267,10 @@ impl Pickable {
             | Self::Datum(feature)
             | Self::FrameAxis { feature, .. }
             | Self::FramePlane { feature, .. }
-            | Self::FeatureValue { feature, .. } => Some(feature),
+            | Self::FeatureValue { feature, .. }
+            | Self::BodyItem {
+                sketch: feature, ..
+            } => Some(feature),
             Self::Face { body, .. }
             | Self::Edge { body, .. }
             | Self::Vertex { body, .. }
@@ -363,6 +372,7 @@ impl Pickable {
                 format!("{} › {}", frame_name(document, feature), plane.name())
             }
             Self::CentreOfMass(body) => format!("Centre of mass of {}", body_name(document, body)),
+            Self::BodyItem { body, item, .. } => item.words(body_name(document, body)),
             Self::FeatureValue { feature, value } => {
                 let owner = document
                     .feature(feature)
@@ -530,6 +540,11 @@ impl Pickable {
                     && bodies::shown(evaluation, body).is_some()
             }
             Self::FeatureValue { .. } => false,
+            Self::BodyItem { sketch, body, .. } => {
+                editing == Some(sketch)
+                    && !context.projecting
+                    && visibility::is_shown(document, body)
+            }
         }
     }
 }

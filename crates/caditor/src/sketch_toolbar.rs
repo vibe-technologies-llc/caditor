@@ -12,6 +12,8 @@ use crate::{
     appearance::{
         self, CONTROL_HEIGHT, ICON_SIZE, SPACE_M, SPACE_S, SPACE_XS, Tokens, WIDGET_RADIUS,
     },
+    body_picks::{self, BodyPick, Projections, Staged},
+    body_snap::BodySnaps,
     commands::{Command, CommandFrame},
     constraint_trial::ConstraintTrial,
     editing::{ActiveSketch, EditingCommand, SketchEditing, Tool},
@@ -178,6 +180,8 @@ type Offer = (ConstraintTool, Result<Vec<Constraint>, String>);
 struct OfferBasis {
     feature: FeatureId,
     selected: Vec<EntityId>,
+    bodies: Vec<BodyPick>,
+    snaps: u64,
     revision: u64,
     evaluation: u64,
     sketches: u64,
@@ -191,18 +195,37 @@ pub struct ConstraintOffers {
     computations: usize,
 }
 
+fn offers_among(
+    definition: &Sketch,
+    shown: &Sketch,
+    picks: &[EntityId],
+    units: Units,
+) -> Vec<Offer> {
+    let relations = definition.relations();
+    ConstraintTool::ALL
+        .into_iter()
+        .map(|tool| {
+            let candidates = tool
+                .candidates_among(definition, shown, picks, &relations)
+                .map(|constraints| sketch_tools::in_unit(constraints, units));
+            (tool, candidates)
+        })
+        .collect()
+}
+
 impl ConstraintOffers {
     fn refresh(
         &mut self,
         model: &Model,
-        feature: &Feature,
-        definition: &Sketch,
-        shown: &Sketch,
-        selected: &[EntityId],
+        (feature, definition, shown): (&Feature, &Sketch, &Sketch),
+        (selected, bodies): (&[EntityId], &[BodyPick]),
+        snaps: &BodySnaps,
     ) -> Arc<Vec<Offer>> {
         let basis = OfferBasis {
             feature: feature.id(),
             selected: selected.to_vec(),
+            bodies: bodies.to_vec(),
+            snaps: snaps.generation(),
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
             sketches: model.display().sketches.generation(),
@@ -215,16 +238,22 @@ impl ConstraintOffers {
                 {
                     self.computations += 1;
                 }
-                let relations = definition.relations();
-                let offers = ConstraintTool::ALL
-                    .into_iter()
-                    .map(|tool| {
-                        let candidates = tool
-                            .candidates_among(definition, shown, selected, &relations)
-                            .map(|constraints| sketch_tools::in_unit(constraints, basis.units));
-                        (tool, candidates)
-                    })
-                    .collect();
+                let offers = if bodies.is_empty() {
+                    offers_among(definition, shown, selected, basis.units)
+                } else {
+                    match Staged::new(model, feature.id(), snaps, selected, bodies) {
+                        Ok(staged) => offers_among(
+                            &staged.definition,
+                            &staged.shown,
+                            &staged.picks,
+                            basis.units,
+                        ),
+                        Err(unstaged) => ConstraintTool::ALL
+                            .into_iter()
+                            .map(|tool| (tool, Err(unstaged.to_string())))
+                            .collect(),
+                    }
+                };
                 self.current.insert((basis, Arc::new(offers)))
             }
         };
@@ -241,7 +270,7 @@ pub fn show(
     ui: &mut Ui,
     model: &Model,
     editing: &SketchEditing,
-    selection: &Selection,
+    (selection, snaps): (&Selection, &BodySnaps),
     commands: &mut CommandFrame<'_>,
     panels: &mut PanelState,
     actions: &mut Vec<Action>,
@@ -257,9 +286,13 @@ pub fn show(
         return;
     };
     let selected = sketch_tools::selected_entities(selection, feature.id());
-    let offers = panels
-        .constraint_offers
-        .refresh(model, feature, definition, &shown, &selected);
+    let bodies = body_picks::selected(selection, feature.id());
+    let offers = panels.constraint_offers.refresh(
+        model,
+        (feature, definition, &shown),
+        (&selected, &bodies),
+        snaps,
+    );
     let deletable = Deletable {
         entities: selected
             .iter()
@@ -336,7 +369,15 @@ pub fn show(
         actions.push(Action::Editing(EditingCommand::SetMode(mode)));
     }
     if let Some((tool, constraints)) = request.constraints {
-        let added = sketch_tools::add_constraints(model, feature.id(), tool, constraints);
+        let projections = if bodies.is_empty() {
+            Projections::default()
+        } else {
+            Staged::new(model, feature.id(), snaps, &selected, &bodies)
+                .map(|staged| staged.projections)
+                .unwrap_or_default()
+        };
+        let added =
+            sketch_tools::add_constraints(model, feature.id(), tool, constraints, &projections);
         if tool.is_dimension()
             && let Some(constraint) = added.constraints.first()
             && !added.references.contains(constraint)

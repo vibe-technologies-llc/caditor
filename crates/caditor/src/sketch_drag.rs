@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use caditor_document::FeatureId;
 use caditor_geometry::{Point2, Vector2};
@@ -7,10 +7,11 @@ use caditor_sketch::{
 };
 
 use crate::{
-    drag_solver::{DragCommand, Join},
+    body_snap::BodySnaps,
+    drag_solver::{BodyJoin, DragCommand, Join},
     feature_tree::count,
-    snap::{Hold, Pointer, Screen},
-    tracking::{self, Acquired, Landing},
+    snap::{Accept, Hold, Pointer, Screen, Snapped, Target},
+    tracking::{self, Acquired, Landing, Tracks},
 };
 
 const SMALLEST_DRAGGED_RADIUS: f64 = 1e-3;
@@ -41,6 +42,16 @@ pub struct Grab {
     landing: Option<Landing>,
     guides: Vec<[Point2; 2]>,
     acquired: Acquired,
+    bodies: SharedSnaps,
+}
+
+#[derive(Debug, Clone, Default)]
+struct SharedSnaps(Arc<BodySnaps>);
+
+impl PartialEq for SharedSnaps {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 impl Grab {
@@ -88,6 +99,7 @@ impl Grab {
             landing: None,
             guides: Vec::new(),
             acquired: Acquired::default(),
+            bodies: SharedSnaps::default(),
         };
         grab.acquire_neighbours(sketch);
         Some(grab)
@@ -131,6 +143,48 @@ impl Grab {
         self.landing
     }
 
+    pub fn snapping_to_bodies(mut self, bodies: &Arc<BodySnaps>) -> Self {
+        self.bodies = SharedSnaps(Arc::clone(bodies));
+        self
+    }
+
+    pub fn landing_label(&self, sketch: &Sketch) -> Option<String> {
+        let landing = self.landing?;
+        match landing.target {
+            Some(Target::Body(target)) => self.bodies.0.label(target),
+            _ => landing.label(sketch),
+        }
+    }
+
+    fn onto_body(
+        &self,
+        landing: Option<Landing>,
+        screen: &impl Screen,
+        pointer: Pointer,
+    ) -> Option<Landing> {
+        let on_body = |snapped: Snapped| Landing {
+            position: snapped.position,
+            target: Some(snapped.target),
+            tracks: Tracks::default(),
+            on_grid: false,
+        };
+        match landing {
+            Some(landing) if landing.target.is_some_and(Target::is_point_like) => Some(landing),
+            Some(landing) => self
+                .bodies
+                .0
+                .point(screen, pointer, Accept::Anything)
+                .map(on_body)
+                .or(Some(landing)),
+            None => self
+                .bodies
+                .0
+                .point(screen, pointer, Accept::Anything)
+                .or_else(|| self.bodies.0.edge(screen, pointer, Accept::Anything))
+                .map(on_body),
+        }
+    }
+
     pub fn guides(&self) -> &[[Point2; 2]] {
         &self.guides
     }
@@ -152,7 +206,11 @@ impl Grab {
                 };
                 let ignored = self.moving_with(sketch);
                 let landing =
-                    tracking::land(sketch, screen, pointer, &self.acquired, &ignored, hold)?;
+                    tracking::land(sketch, screen, pointer, &self.acquired, &ignored, hold);
+                let landing = match hold {
+                    Some(_) => landing,
+                    None => self.onto_body(landing, screen, pointer),
+                }?;
                 Some((sketch, landing))
             });
         if let Some((sketch, landing)) = landing
@@ -179,6 +237,16 @@ impl Grab {
                 point,
                 at: landing.position,
                 constraints: landing.joins(point),
+                body: match landing.target {
+                    Some(Target::Body(target)) => self.bodies.0.source(target).map(|source| {
+                        Box::new(BodyJoin {
+                            projection: source.projection.clone(),
+                            outline: source.outline.clone(),
+                            part: target.part,
+                        })
+                    }),
+                    _ => None,
+                },
             });
         DragCommand::Finish { join }
     }
@@ -1098,6 +1166,7 @@ mod tests {
                     point: end,
                     at: Point2::new(10.0, 10.0),
                     constraints: vec![Constraint::Coincident(end, lone)],
+                    body: None,
                 }),
             }
         );
@@ -1139,6 +1208,7 @@ mod tests {
                     point: end,
                     at: Point2::new(30.0, 20.0),
                     constraints: vec![Constraint::Coincident(end, lone)],
+                    body: None,
                 }),
             }
         );
@@ -1172,6 +1242,7 @@ mod tests {
                     point: end,
                     at: Point2::new(20.0, 10.0),
                     constraints: vec![Constraint::HorizontalPoints(end, start)],
+                    body: None,
                 }),
             }
         );
@@ -1207,6 +1278,7 @@ mod tests {
                     point: end,
                     at: Point2::new(10.0, 10.0),
                     constraints: Vec::new(),
+                    body: None,
                 }),
             }
         );

@@ -9,6 +9,7 @@ use caditor_sketch::{
 };
 
 use crate::{
+    body_picks::Projections,
     feature_tree::count,
     field::{self, DimensionTarget, sentence},
     model::Model,
@@ -1019,6 +1020,7 @@ pub fn selected_entities(selection: &Selection, feature: FeatureId) -> Vec<Entit
             | Pickable::FrameAxis { .. }
             | Pickable::FramePlane { .. }
             | Pickable::FeatureValue { .. }
+            | Pickable::BodyItem { .. }
             | Pickable::Datum(_) => None,
         })
         .collect()
@@ -1047,6 +1049,7 @@ pub fn selected_constraints(selection: &Selection, feature: FeatureId) -> Vec<Co
             | Pickable::CentreOfMass(_)
             | Pickable::FrameAxis { .. }
             | Pickable::FramePlane { .. }
+            | Pickable::BodyItem { .. }
             | Pickable::FeatureValue { .. }
             | Pickable::Datum(_) => None,
         })
@@ -1064,13 +1067,16 @@ pub fn add_constraints(
     feature: FeatureId,
     tool: ConstraintTool,
     constraints: Vec<Constraint>,
+    projections: &Projections,
 ) -> Added {
     let solution = model
         .settled_solution(feature)
         .filter(|_| tool.is_dimension());
     let determined: Vec<bool> = constraints
         .iter()
-        .map(|constraint| solution.is_some_and(|solution| determines(solution, constraint)))
+        .map(|constraint| {
+            solution.is_some_and(|solution| determines(solution, constraint, projections))
+        })
         .collect();
     let label = if determined.iter().all(|determined| *determined) && !determined.is_empty() {
         format!("Add reference {}", tool.label())
@@ -1078,6 +1084,7 @@ pub fn add_constraints(
         format!("Add {}", tool.label())
     };
     let mut transaction = settled_transaction(model, feature, label);
+    projections.project(&mut transaction, feature);
     let constraints: Vec<ConstraintId> = constraints
         .into_iter()
         .map(|constraint| transaction.add_sketch_constraint(feature, constraint))
@@ -1098,14 +1105,18 @@ pub fn add_constraints(
     }
 }
 
-fn determines(solution: &SketchSolution, constraint: &Constraint) -> bool {
+fn determines(
+    solution: &SketchSolution,
+    constraint: &Constraint,
+    projections: &Projections,
+) -> bool {
     let shapes_without_freedom = matches!(constraint, Constraint::Rho { .. });
     constraint.dimension().is_some()
         && !shapes_without_freedom
-        && constraint
-            .entities()
-            .into_iter()
-            .all(|entity| solution.entity_state(entity) == Some(EntityState::FullyConstrained))
+        && constraint.entities().into_iter().all(|entity| {
+            projections.is_fixed(entity)
+                || solution.entity_state(entity) == Some(EntityState::FullyConstrained)
+        })
 }
 
 pub fn remove_items(

@@ -14,6 +14,7 @@ paths:
   - "crates/caditor/src/shape_modes.rs"
   - "crates/caditor/src/snap.rs"
   - "crates/caditor/src/body_snap.rs"
+  - "crates/caditor/src/body_picks.rs"
   - "crates/caditor/src/tracking.rs"
   - "crates/caditor/src/sketch_tools.rs"
   - "crates/caditor/src/sketch_toolbar.rs"
@@ -605,10 +606,38 @@ paths:
   itself (a circle through it, a polygon's side middle) it uses the projected point. One undo
   takes the drawing and its projections away together. The candidates come from `BodySnaps`, a
   cache per sketch session of the corners (one sharing its name with another vertex is left out,
-  as Project refuses it) and non-seam edges, held in `Drawing` behind an `Arc` and rebuilt by
-  `Drawing::track_bodies` only when the edited sketch, its plane or a shown body's result `Arc`
-  changes (`Basis`), so a hover walks only its points and edges, as for the sketch's own. A
+  as Project refuses it) and non-seam edges, held in `ViewportState` behind an `Arc`, rebuilt
+  each frame a sketch is edited only when the edited sketch, its plane or a shown body's result
+  `Arc` changes (`Basis`), and shared with `Drawing` (`Drawing::use_bodies`), a grab and the
+  constraint offers, so a hover walks only its points and edges, as for the sketch's own. A
   placement made from an older cache (its `generation`) lands free.
+- With Select or Smart dimension, a body item is picked as a sketch item is
+  (`ViewportState::body_hover`, `Pickable::BodyItem` with the edited sketch, the body and a stable
+  `BodyItem`: a corner by its `VertexName`, a round edge's centre or an edge by its `EdgeName`,
+  so a pick survives a rebuild of the cache): where the GPU hover is no sketch point, the nearest
+  body corner or round-edge centre within `POINT_TOLERANCE` is hovered, else, where it is no
+  sketch curve either, the nearest body edge (middles are not offered, the edge being the item).
+  It is described "Corner of Base", "Centre of a round edge of Base" or "Edge of Base", drawn by
+  `ViewportState::body_preview` (hovered: the snap marker on a point or the edge dashed; picked:
+  a preview point or the edge as a preview curve), and available only while that sketch is
+  edited. `body_picks::Staged` turns the picked sketch entities and body items into one sketch:
+  each body item is projected through a throwaway transaction (`add_projected`, reusing the
+  sketch's existing projection of that source or one already staged), its entities inserted
+  into clones of the definition and displayed sketch as projected, and the item stands for the
+  projected point, the round edge's centre or the projected curve; the staged ids are the ones
+  the real transaction allocates, since a sketch's ids come from its counter in order. Smart
+  dimension (`dimensioning::dimension`, its prompt and hover words naming body items through
+  `Staged::names`) and the constraint offers (`ConstraintOffers`, whose basis holds the body
+  picks and the cache's generation) work on that sketch, and `sketch_tools::add_constraints`
+  adds the staged `Projections` first in the constraint's own transaction, so one undo removes
+  both. Staged projected entities count as determined for the reference rule. A body item whose
+  source left the cache is refused naming its body (`Unstaged::Gone`).
+- A grab snaps to body items as drawing does (`Grab::snapping_to_bodies`, `Grab::onto_body`):
+  where `tracking::land` found no point-like target, a body corner, middle or centre, else where
+  it found nothing, a body edge; never with Alt held. Release carries the projection and part in
+  `Join::body` (`BodyJoin`), and `Model::commit_drag` projects it (or reuses the projection) in
+  the settle transaction with the join's `Coincident` or `Midpoint`, checked on a sketch holding
+  the projected entities, adding the projection only when its constraint is kept.
 - Preview curves are faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take
   the scene's `Faceting`); the snap target and a direction's reference line
   (`Drawing::snap_entities`) replace the GPU hover while a drawing tool is active.
@@ -706,7 +735,8 @@ paths:
   (`ConstraintTool::candidates_among`, `add_constraints`), the field taking the typed value. The
   prompt says what Enter would add and the hover what a click would; with the tool active labels
   are not interactive, Activate picks the highlighted item as a click would, and Escape lets go of
-  the picks before leaving the tool.
+  the picks before leaving the tool. A body corner, round-edge centre or edge is picked too and
+  projected with the dimension (Snapping).
 - Constraint states, degrees of freedom and redundancies come from the last evaluation
   (`sketch_status.rs`, `scene.rs`), never from solving on the UI thread (drags solve on their own
   worker).

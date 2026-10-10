@@ -99,6 +99,7 @@ mod selection_sets;
 mod selection_targets;
 mod shaped_sweeps;
 mod sketch_blend_curves;
+mod sketch_body_picks;
 mod sketch_body_snaps;
 mod sketch_breaks;
 mod sketch_chain_arcs;

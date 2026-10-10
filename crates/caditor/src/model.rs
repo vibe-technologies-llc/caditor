@@ -9,8 +9,8 @@ use std::{
 use caditor_document::{
     Base, Document, Editor, Evaluation, Feature, FeatureError, FeatureId, FeatureKind,
     FeatureResult, FeatureState, ModelEvaluator, Move, Outcome, ParameterValues, Pivot, Prepared,
-    Progress, Recomputer, Rgb, SketchResult, Stale, Transaction, TurnCentre, UndoMark,
-    displayed_axis, displayed_frame,
+    Progress, Recomputer, Rgb, SketchResult, Stale, Transaction, TransactionBuilder, TurnCentre,
+    UndoMark, displayed_axis, displayed_frame,
 };
 use caditor_file::{
     Closing, FileDigest, Flusher, JournalEntry, JournalFailure, KeepRequest, Recovered, Report,
@@ -22,6 +22,7 @@ use caditor_sketch::{Constraint, Sketch, SketchSolution};
 use parking_lot::Mutex;
 
 use crate::{
+    body_picks,
     constraint_trial::{ConstraintTrial, Trials, Verdict},
     display::{Display, Displayed},
     drag_solver::{self, DragCommand, Finished, Join, Polled},
@@ -1027,9 +1028,13 @@ impl Model {
             )));
             return;
         };
-        let mut transaction = self.editor.document().transaction(label);
+        let document = self.editor.document();
+        let mut transaction = document.transaction(label);
         transaction.settle_sketch(feature, &sketch);
-        for constraint in join.map(|join| reached(&sketch, join)).unwrap_or_default() {
+        let constraints = join
+            .map(|join| reached_with_body(document, feature, &sketch, join, &mut transaction))
+            .unwrap_or_default();
+        for constraint in constraints {
             transaction.add_sketch_constraint(feature, constraint);
         }
         let transaction = transaction.finish();
@@ -1547,6 +1552,40 @@ fn saved_notice(backup: Option<&Path>, dropped_for_size: usize) -> Option<Notice
     };
     let sentences: Vec<String> = backup.into_iter().chain(dropped).collect();
     (!sentences.is_empty()).then(|| Notice::warning(format!("Saved. {}", sentences.join(" "))))
+}
+
+fn reached_with_body(
+    document: &Document,
+    feature: FeatureId,
+    sketch: &Sketch,
+    mut join: Join,
+    transaction: &mut TransactionBuilder<'_>,
+) -> Vec<Constraint> {
+    let Some(body) = join.body.take() else {
+        return reached(sketch, join);
+    };
+    let Some(FeatureKind::Sketch(definition)) = document.feature(feature).map(|owner| &owner.kind)
+    else {
+        return reached(sketch, join);
+    };
+    let mut shadow = sketch.clone();
+    let mut trial = document.transaction(String::new());
+    trial.settle_sketch(feature, sketch);
+    let Some(joined) = body_picks::body_join(
+        &mut trial,
+        (definition, feature),
+        &mut shadow,
+        join.point,
+        &body,
+    ) else {
+        return reached(sketch, join);
+    };
+    join.constraints.push(joined.constraint.clone());
+    let constraints = reached(&shadow, join);
+    if joined.projects && constraints.contains(&joined.constraint) {
+        transaction.add_projected(feature, body.projection, &body.outline);
+    }
+    constraints
 }
 
 fn reached(sketch: &Sketch, join: Join) -> Vec<Constraint> {
