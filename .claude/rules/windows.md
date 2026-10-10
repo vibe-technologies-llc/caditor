@@ -29,6 +29,9 @@ so call sites stay platform-free.
   - `FileId`: volume serial and 128-bit file ID (`GetFileInformationByHandleEx`, `FileIdInfo`),
     the Windows counterpart of `(dev, ino)`; `of_path` opens without access and without following
     a reparse point.
+  - `final_path`: `GetFinalPathNameByHandleW` on a handle opened without access, with the `\\?\`
+    (and `\\?\UNC\`) prefix removed so the name is the one a user knows; it fails for a path that
+    does not exist.
   - `process_running`: `OpenProcess` plus a zero wait; access denied counts as running.
   - `machine_guid` and `boot_id` read `MachineGuid` and the `PrefetchParameters\BootId` counter
     from the registry for temporary-file tags; either may be missing.
@@ -57,6 +60,12 @@ so call sites stay platform-free.
   handle. Journals are renamed over while their owner holds them open and locked, which needs NTFS
   POSIX rename semantics; on a volume without them the adjacent journal fails and the next
   candidate, the recovery directory, takes it.
+- Fallback journals (`file-<hash>.journal`) and journal markers hash the path's identity
+  (`os::journal_identity`): the final path of the file, else of its folder plus the name, else the
+  absolute spelling, lowercased, so `C:\A\m.caditor` and `c:\a\M.caditor` share one journal.
+  Journals written under the hash of the path as spelled (`paths::path_hash`) are still looked up
+  (`paths::journals_for`, `journal_markers`), and the next journal written is named by the
+  identity while recovery removes the old one (`Start::replaces`).
 - Paths stored as bytes (journal header, recovery markers, recent files) are WTF-8 from
   `as_encoded_bytes`, decoded back with a safe WTF-8 decoder, so unpaired surrogates survive.
 

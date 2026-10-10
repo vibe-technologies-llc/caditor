@@ -68,6 +68,10 @@ paths:
 - After a write error (`Report::JournalFailed`) it keeps the lock, stops appending and rewrites the
   whole journal every `RETRY_INTERVAL` until it succeeds (`Report::JournalRestored`).
 - A replaced journal is removed only once the new one is written.
+- A fallback journal is named by a hash of the model's path identity (`os::journal_identity`:
+  the path as is on Unix, the case-folded final path on Windows, `windows.md`). Lookups
+  (`paths::journals_for`, `journal_markers`) also try the hash of the path as spelled, which older
+  versions used on Windows; writing uses `journal_destinations`, the identity's name alone.
 - A `Flusher` lets the panic hook and the termination handlers (signals, a closing console, the
   end of a Windows session) wait for pending entries.
 

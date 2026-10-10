@@ -230,10 +230,13 @@ fn set_aside_journals(recovery_dir: Option<&Path>, recent: &[PathBuf]) -> Vec<Pa
 
 pub(crate) fn mark_journal(journal: &Path, recovery_dir: &Path) -> io::Result<()> {
     let journal = std::path::absolute(journal)?;
-    let marker = paths::journal_marker(&journal, recovery_dir);
-    if marker.exists() {
+    if paths::journal_markers(&journal, recovery_dir)
+        .iter()
+        .any(|marker| marker.exists())
+    {
         return Ok(());
     }
+    let marker = paths::journal_marker(&journal, recovery_dir);
     fs::create_dir_all(recovery_dir)?;
     write_atomically(&marker, &os::path_bytes(journal.as_os_str()))
 }
@@ -242,11 +245,12 @@ pub(crate) fn unmark_journal(journal: &Path, recovery_dir: &Path) {
     let Ok(journal) = std::path::absolute(journal) else {
         return;
     };
-    let marker = paths::journal_marker(&journal, recovery_dir);
-    match fs::remove_file(&marker) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => log::warn!("could not remove {}: {error}", marker.display()),
+    for marker in paths::journal_markers(&journal, recovery_dir) {
+        match fs::remove_file(&marker) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => log::warn!("could not remove {}: {error}", marker.display()),
+        }
     }
 }
 
@@ -267,7 +271,7 @@ fn marked_journals(recovery_dir: &Path) -> Vec<PathBuf> {
                 && journal
                     .extension()
                     .is_some_and(|extension| extension == JOURNAL_EXTENSION)
-                && paths::journal_marker(&journal, recovery_dir) == marker;
+                && paths::journal_markers(&journal, recovery_dir).contains(&marker);
             match fs::symlink_metadata(&journal) {
                 Ok(_) if usable => Some(journal),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {

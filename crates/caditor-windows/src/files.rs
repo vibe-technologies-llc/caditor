@@ -1,15 +1,21 @@
 use std::{
+    ffi::OsString,
     fs::{File, OpenOptions},
     io,
-    os::windows::{ffi::OsStrExt, fs::OpenOptionsExt, io::AsRawHandle},
-    path::{self, Path},
+    os::windows::{
+        ffi::{OsStrExt, OsStringExt},
+        fs::OpenOptionsExt,
+        io::AsRawHandle,
+    },
+    path::{self, Path, PathBuf},
     ptr,
 };
 
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_HIDDEN, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO,
-    FileIdInfo, GetFileInformationByHandleEx, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-    MoveFileExW, REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW,
+    FILE_NAME_NORMALIZED, FileIdInfo, GetFileInformationByHandleEx, GetFinalPathNameByHandleW,
+    MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    REPLACEFILE_IGNORE_MERGE_ERRORS, ReplaceFileW, VOLUME_NAME_DOS,
 };
 
 pub const HIDDEN_ATTRIBUTE: u32 = FILE_ATTRIBUTE_HIDDEN;
@@ -19,6 +25,8 @@ const VERBATIM_UNC: &str = r"\\?\UNC\";
 const UNC: &str = r"\\";
 const DEVICE: &str = r"\\.\";
 const NO_ACCESS: u32 = 0;
+const FINAL_PATH_ROOM: usize = 512;
+const DRIVE_COLON_AT: usize = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId {
@@ -58,6 +66,44 @@ pub fn open_for_identity(path: &Path) -> io::Result<File> {
         .access_mode(NO_ACCESS)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)
+}
+
+pub fn final_path(path: &Path) -> io::Result<PathBuf> {
+    let file = open_for_identity(path)?;
+    let mut buffer = vec![0u16; FINAL_PATH_ROOM];
+    loop {
+        let room = u32::try_from(buffer.len()).map_err(io::Error::other)?;
+        #[allow(unsafe_code)]
+        let written = unsafe {
+            GetFinalPathNameByHandleW(
+                file.as_raw_handle(),
+                buffer.as_mut_ptr(),
+                room,
+                FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
+            )
+        };
+        let written = usize::try_from(written).map_err(io::Error::other)?;
+        if written == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if written >= buffer.len() {
+            buffer.resize(written + 1, 0);
+            continue;
+        }
+        let units = buffer.get(..written).unwrap_or_default();
+        return Ok(PathBuf::from(OsString::from_wide(&without_verbatim(units))));
+    }
+}
+
+fn without_verbatim(units: &[u16]) -> Vec<u16> {
+    let unc = units_of(UNC);
+    if let Some(share) = units.strip_prefix(units_of(VERBATIM_UNC).as_slice()) {
+        return unc.into_iter().chain(share.iter().copied()).collect();
+    }
+    match units.strip_prefix(units_of(VERBATIM).as_slice()) {
+        Some(rest) if rest.get(DRIVE_COLON_AT) == units_of(":").first() => rest.to_vec(),
+        _ => units.to_vec(),
+    }
 }
 
 pub fn replace_file(replacement: &Path, replaced: &Path) -> io::Result<()> {
@@ -121,6 +167,11 @@ fn verbatim(path: &Path) -> io::Result<Vec<u16>> {
 
 fn units_of(text: &str) -> Vec<u16> {
     text.encode_utf16().collect()
+}
+
+#[cfg(test)]
+pub(crate) fn without_verbatim_for_tests(text: &str) -> String {
+    String::from_utf16_lossy(&without_verbatim(&units_of(text)))
 }
 
 #[cfg(test)]

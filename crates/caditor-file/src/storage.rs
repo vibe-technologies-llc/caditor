@@ -651,7 +651,7 @@ impl Worker {
 
     fn journal_candidates(&self) -> Vec<PathBuf> {
         match &self.file {
-            Some(file) => paths::journals_for(file, self.recovery_dir.as_deref()),
+            Some(file) => paths::journal_destinations(file, self.recovery_dir.as_deref()),
             None => self.untitled.iter().cloned().collect(),
         }
     }

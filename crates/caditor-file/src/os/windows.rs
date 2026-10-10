@@ -11,6 +11,8 @@ use std::{
 
 use caditor_windows::{FileId, HIDDEN_ATTRIBUTE};
 
+use crate::paths;
+
 const REPLACEMENT_CHARACTER: u16 = 0xfffd;
 
 pub(crate) fn state_base() -> Option<PathBuf> {
@@ -149,6 +151,19 @@ pub(crate) fn boot_ids() -> Vec<String> {
         .map(|boot| format!("{boot:016x}"))
         .into_iter()
         .collect()
+}
+
+pub(crate) fn journal_identity(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let resolved = caditor_windows::final_path(&absolute)
+        .ok()
+        .or_else(|| {
+            let name = absolute.file_name()?;
+            let parent = caditor_windows::final_path(absolute.parent()?).ok()?;
+            Some(parent.join(name))
+        })
+        .unwrap_or(absolute);
+    paths::lowercase_spelling(&resolved)
 }
 
 pub(crate) fn same_file_path(first: &Path, second: &Path) -> bool {

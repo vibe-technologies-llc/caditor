@@ -96,3 +96,38 @@ fn the_state_and_configuration_folders_are_the_local_and_roaming_application_dat
     assert_eq!(state_dir(), local.map(|base| base.join("caditor")));
     assert_eq!(config_dir(), roaming.map(|base| base.join("caditor")));
 }
+
+#[test]
+fn every_spelling_of_a_model_shares_a_fallback_journal_and_one_written_under_the_old_hash_is_found()
+{
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("Model.caditor");
+    let recovery = dir.path().join("recovery");
+    let shouted = dir.path().join("MODEL.CADITOR");
+    save(&sample(), &path, false).unwrap();
+    crash_journal(&dir, &path, &sample());
+    let journal = dir.path().join(".Model.caditor.journal");
+    fs::create_dir_all(&recovery).unwrap();
+    let legacy = paths::fallback_named(paths::path_hash(&shouted), &recovery);
+    fs::rename(&journal, &legacy).unwrap();
+
+    let found = journal_for(&shouted, Some(&recovery));
+
+    assert_eq!(
+        paths::fallback_journal(&path, &recovery),
+        paths::fallback_journal(&shouted, &recovery)
+    );
+    assert!(matches!(found, FileJournal::Recoverable(_)), "{found:?}");
+}
+
+fn crash_journal(dir: &TempDir, path: &Path, base: &Document) {
+    let start = Start {
+        file: Some(path.to_path_buf()),
+        on_disk: None,
+        ..untitled(base)
+    };
+    let storage = Storage::spawn(config(dir), start, || {}).unwrap();
+    let mut editor = Editor::new(base.clone());
+    record_session(&storage, &mut editor);
+    crash(storage);
+}

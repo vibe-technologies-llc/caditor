@@ -8,8 +8,9 @@ use std::{
 use tempfile::TempDir;
 
 use crate::{
-    FileId, HIDDEN_ATTRIBUTE, boot_id, files::verbatim_for_tests, machine_guid, move_file_durably,
-    process_running, replace_file,
+    FileId, HIDDEN_ATTRIBUTE, boot_id,
+    files::{verbatim_for_tests, without_verbatim_for_tests},
+    final_path, machine_guid, move_file_durably, process_running, replace_file,
 };
 
 #[test]
@@ -111,4 +112,35 @@ fn paths_are_made_verbatim_for_long_names() {
         verbatim_for_tests(Path::new(r"\\?\C:\a.caditor")).unwrap(),
         r"\\?\C:\a.caditor"
     );
+}
+
+#[test]
+fn verbatim_prefixes_are_dropped_from_final_paths() {
+    assert_eq!(
+        without_verbatim_for_tests(r"\\?\C:\models\a.caditor"),
+        r"C:\models\a.caditor"
+    );
+    assert_eq!(
+        without_verbatim_for_tests(r"\\?\UNC\server\share\a.caditor"),
+        r"\\server\share\a.caditor"
+    );
+    assert_eq!(
+        without_verbatim_for_tests(r"\\?\Volume{1}\a.caditor"),
+        r"\\?\Volume{1}\a.caditor"
+    );
+}
+
+#[test]
+fn the_final_path_of_a_file_is_absolute_without_a_verbatim_prefix_and_in_its_real_case() {
+    let dir = TempDir::new().unwrap();
+    let file = dir.path().join("Model.caditor");
+    fs::write(&file, "a").unwrap();
+    let shouted = dir.path().join("MODEL.CADITOR");
+
+    let resolved = final_path(&shouted).unwrap();
+
+    assert!(resolved.is_absolute());
+    assert!(!resolved.to_string_lossy().starts_with(r"\\?\"));
+    assert!(resolved.ends_with("Model.caditor"));
+    assert!(final_path(&dir.path().join("missing")).is_err());
 }
