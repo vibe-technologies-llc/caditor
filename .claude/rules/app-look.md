@@ -40,7 +40,9 @@ paths:
 ## Fonts, icons and theme
 
 - Inter (variable, `assets/fonts`) is registered at weights 400, 500 and 600 through its `wght`
-  axis as the proportional, `medium` and `semibold` families. Phosphor icons have their own
+  axis as the proportional, `medium` and `semibold` families. Its italic face
+  (`InterVariable-Italic.ttf`) is embedded too but only for SVG text import
+  (`file-import-export.md`); the interface has no italic. Phosphor icons have their own
   `icons` family, since Inter's private-use glyphs would shadow them; `icons.rs` holds one icon
   per command, tool, constraint and feature kind. Fonts install on the first frame, which draws
   nothing.

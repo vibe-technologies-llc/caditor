@@ -1748,7 +1748,11 @@ impl Files {
                         replacing: None,
                     }
                 } else {
-                    match read_drawing(&path, TextOutlines::InFont(fonts::INTER), &cancel) {
+                    let text_outlines = TextOutlines::InFont {
+                        upright: fonts::INTER,
+                        italic: Some(fonts::INTER_ITALIC),
+                    };
+                    match read_drawing(&path, text_outlines, &cancel) {
                         Ok(drawing) => Event::DrawingRead {
                             path,
                             session,

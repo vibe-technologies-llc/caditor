@@ -139,12 +139,15 @@ paths:
   and elements of other namespaces (Inkscape's, Sodipodi's) ignored. Shapes whose numbers overflow are left out and counted; the curve, point and empty limits
   are DXF's.
 - Text becomes the outlines of its letters, given a font: `parse_svg` and `read_drawing` take
-  `TextOutlines`, `InFont(bytes)` or `LeftOut`. The font is handed in rather than bundled by
-  `caditor-file`, so Inter, which the app already embeds for its interface (`caditor`'s
-  `fonts::INTER`, the variable `InterVariable.ttf`), is carried once; the app passes it for every
+  `TextOutlines`, `InFont { upright, italic }` or `LeftOut`. The fonts are handed in rather than
+  bundled by `caditor-file`: Inter's upright face, which the app already embeds for its interface
+  (`caditor`'s `fonts::INTER`, the variable `InterVariable.ttf`), and its italic face
+  (`fonts::INTER_ITALIC`, `InterVariable-Italic.ttf`, the same Inter 4.1 release under the same
+  licence, used by the import only, never by the interface); the app passes both for every
   drawing import, and anything importing headless must pass the same bytes to get the same
-  letters. Without font data, or with bytes `ttf-parser` cannot read, each `text` is counted as
-  left out as before.
+  letters. Without upright font data, or with bytes `ttf-parser` cannot read, each `text` is
+  counted as left out as before; an `italic` that is `None` or unreadable leaves italic text
+  drawn upright.
 - Layout (`lettering.rs`): the `text` element's content and its `tspan` and `a` children are
   gathered into letters, each with its inherited style; whitespace is collapsed as CSS's normal
   white space does (newlines and tabs are spaces, runs of spaces one, leading and trailing ones
@@ -157,7 +160,7 @@ paths:
   each glyph's advance plus `letter-spacing` (and `word-spacing` after a space; lengths or em),
   with the font's pair kerning (the GPOS `kern` lookups of the Latin, else default, script, pair
   adjustments of both formats, at the default instance) between two letters of the same weight
-  unless the second is placed absolutely.
+  and face unless the second is placed absolutely.
 - Text style (`text_style.rs`) cascades like the other properties: `font-size` (lengths, em, ex,
   rem, percentages of the parent's, the keywords, `larger` and `smaller`; 16 px when unset),
   `font-family`, `font-weight` (keywords, `bolder` and `lighter` as CSS steps them, 1 to 1000),
@@ -166,11 +169,13 @@ paths:
   is ignored). Every family is drawn in Inter: a first family other than Inter or a generic
   sans-serif is named in one note listing them (at most `MAX_NAMED_ELEMENTS`). The weight sets the
   font's `wght` axis, clamped to its range (100 to 900 for Inter); italic and oblique text is
-  drawn upright and counted in a note, since only the upright face is carried. A character the
+  set in the italic face, with its own glyphs, advances and kerning, and only when no italic face
+  was handed in is it drawn upright and counted in a note. A character the
   font has no glyph for takes the advance of its missing glyph, draws nothing and is counted;
   `textPath` is left out and counted.
-- Glyphs (`font.rs`) are read in font units at each weight (one `ttf_parser::Face` per weight,
-  outlines cached per weight and glyph), scaled by size over units per em with y flipped, turned
+- Glyphs (`font.rs`) are read in font units at each weight of each face (a `Cut` per face, an
+  `Instance` of weight and italic naming one, one `ttf_parser::Face` per weight, outlines cached
+  per weight and glyph), scaled by size over units per em with y flipped, turned
   by the letter's rotation, placed at its position and taken through the element's transforms;
   their quadratic and cubic segments become the same exact Bézier splines and lines `path` makes.
   A variable font keeps overlapping contours (Inter's `e` is one contour whose bar crosses its

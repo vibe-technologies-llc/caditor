@@ -7,6 +7,8 @@ use ttf_parser::{Face, GlyphId, OutlineBuilder, Rect, Tag};
 use crate::import::{Drawing, DrawingCurve, ImportError, TextOutlines, parse_svg};
 
 const INTER: &[u8] = include_bytes!("../../../caditor/assets/fonts/InterVariable.ttf");
+const INTER_ITALIC: &[u8] =
+    include_bytes!("../../../caditor/assets/fonts/InterVariable-Italic.ttf");
 const SVG_OPEN: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="200mm" height="100mm" viewBox="0 0 200 100">"#;
 const JOINED: f64 = 1e-6;
 const CLOSE: f64 = 1e-6;
@@ -16,7 +18,14 @@ fn svg(body: &str) -> Vec<u8> {
 }
 
 fn read(body: &str) -> Drawing {
-    parse_svg(&svg(body), TextOutlines::InFont(INTER)).unwrap()
+    parse_svg(
+        &svg(body),
+        TextOutlines::InFont {
+            upright: INTER,
+            italic: Some(INTER_ITALIC),
+        },
+    )
+    .unwrap()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -298,6 +307,27 @@ fn substituted_families_and_italics_are_noted_once() {
     );
     assert!(!family_notes[0].contains("Arial"), "{family_notes:?}");
     assert!(
+        drawing.notes.iter().all(|note| !note.contains("italic")),
+        "{:?}",
+        drawing.notes
+    );
+}
+
+#[test]
+fn italic_text_without_an_italic_face_is_drawn_upright_with_a_note() {
+    let text = svg(r#"<text y="40" font-size="20" font-style="italic">I</text>"#);
+
+    let drawing = parse_svg(
+        &text,
+        TextOutlines::InFont {
+            upright: INTER,
+            italic: None,
+        },
+    )
+    .unwrap();
+    let upright = read(r#"<text y="40" font-size="20">I</text>"#);
+
+    assert!(
         drawing
             .notes
             .iter()
@@ -305,6 +335,32 @@ fn substituted_families_and_italics_are_noted_once() {
         "{:?}",
         drawing.notes
     );
+    assert_close(whole(&drawing).width(), whole(&upright).width());
+}
+
+#[test]
+fn italic_and_oblique_text_is_set_in_the_italic_face() {
+    let upright = whole(&read(r#"<text y="40" font-size="20">I</text>"#));
+    let italic = read(r#"<text y="40" font-size="20" font-style="italic">I</text>"#);
+    let oblique = read(r#"<text y="40" font-size="20" style="font: oblique 20px Inter">I</text>"#);
+
+    assert_eq!(loops(&italic).len(), 1);
+    assert!(italic.notes.is_empty(), "{:?}", italic.notes);
+    assert!(whole(&italic).width() > upright.width() + 0.5);
+    assert_close(whole(&italic).height(), upright.height());
+    assert_close(whole(&oblique).width(), whole(&italic).width());
+}
+
+#[test]
+fn italic_text_follows_the_weight_and_kerning_of_its_own_face() {
+    let regular = read(r#"<text y="40" font-size="20" font-style="italic">HH</text>"#);
+    let bold =
+        read(r#"<text y="40" font-size="20" font-style="italic" font-weight="700">HH</text>"#);
+    let mixed = read(r#"<text y="40" font-size="20">H<tspan font-style="italic">H</tspan></text>"#);
+
+    assert_eq!(loops(&regular).len(), 2);
+    assert_eq!(loops(&mixed).len(), 2);
+    assert!(whole(&bold).width() > whole(&regular).width());
 }
 
 #[test]
@@ -338,7 +394,14 @@ fn without_font_data_text_is_left_out_with_a_note() {
     let text = svg(r#"<line x1="0" y1="0" x2="10" y2="0"/><text y="50">Label</text>"#);
 
     let drawing = parse_svg(&text, TextOutlines::LeftOut).unwrap();
-    let unusable = parse_svg(&text, TextOutlines::InFont(b"not a font")).unwrap();
+    let unusable = parse_svg(
+        &text,
+        TextOutlines::InFont {
+            upright: b"not a font",
+            italic: Some(INTER_ITALIC),
+        },
+    )
+    .unwrap();
     let only_text = parse_svg(&svg(r#"<text y="50">Label</text>"#), TextOutlines::LeftOut);
 
     for drawing in [&drawing, &unusable] {

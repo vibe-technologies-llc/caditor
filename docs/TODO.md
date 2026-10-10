@@ -316,11 +316,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Drawing import and export
 
-- [low · medium] SVG text comes in as outlines in Inter's upright face only: italic text is drawn
-  upright, `textPath` is left out, vertical writing modes, `textLength`, `baseline-shift` and
-  shaping beyond pair kerning (ligatures, marks, right-to-left scripts) are not applied, and
-  letters of different glyphs that overlap are not merged into one outline. Inter's italic
-  (`InterVariable-Italic.ttf`) would have to be bundled beside the upright face.
+- [low · medium] SVG text comes in as outlines in Inter (upright and italic): `textPath` is left
+  out, vertical writing modes, `textLength`, `baseline-shift` and shaping beyond pair kerning
+  (ligatures, marks, right-to-left scripts) are not applied, and letters of different glyphs that
+  overlap are not merged into one outline.
 
 ## Mesh import and export
 
