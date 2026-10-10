@@ -1,8 +1,9 @@
 use caditor_document::Rgb;
 use caditor_file::{Settings, SettingsError};
 use caditor_render::{AdapterPreference, Msaa, ProjectionMode, Shading};
-use egui::{Id, KeyboardShortcut, Label, ThemePreference, Ui};
+use egui::{Id, KeyboardShortcut, Label, Ui};
 
+pub use crate::themes::{Accent, Appearance, Theme, ViewChoice};
 use crate::{
     appearance::{self, MAX_SCALE, MIN_SCALE, SCALE_STEP, SPACE_M, SPACE_S},
     body_appearance::SWATCHES,
@@ -16,8 +17,10 @@ use crate::{
     model::Notice,
     onboarding::{Hint, Onboarding},
     palette,
+    scene_palette::{Canvas, Contrast},
+    themes::{Look, UserThemes},
     units::{AngleUnit, LengthUnit},
-    widgets::{self, DialogWidth, Tab},
+    widgets::{self, DialogWidth, Tab, ThemeSample, Tone},
 };
 
 pub const MIN_SPEED: f64 = 0.25;
@@ -25,6 +28,8 @@ pub const MAX_SPEED: f64 = 4.0;
 const UNIT_KEY: &str = "units.length";
 const ANGLE_UNIT_KEY: &str = "units.angle";
 const THEME_KEY: &str = "appearance.theme";
+const ACCENT_KEY: &str = "appearance.accent";
+const VIEW_KEY: &str = "appearance.view";
 const SCALE_KEY: &str = "appearance.scale";
 const HIGH_CONTRAST_KEY: &str = "appearance.high_contrast";
 const ORBIT_KEY: &str = "navigation.orbit_speed";
@@ -52,54 +57,6 @@ pub fn unreadable_notice(error: &SettingsError) -> Notice {
         "Your preferences file {cause}, so caditor started with its default settings and \
          shortcuts. A copy of it is kept beside it when you next change a preference."
     ))
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Theme {
-    #[default]
-    System,
-    Dark,
-    Light,
-}
-
-impl Theme {
-    pub const ALL: [Self; 3] = [Self::System, Self::Dark, Self::Light];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::System => "Follow the system",
-            Self::Dark => "Dark",
-            Self::Light => "Light",
-        }
-    }
-
-    fn description(self) -> &'static str {
-        match self {
-            Self::System => "Dark or light as the desktop is, changing when it changes",
-            Self::Dark => "Light text on dark panels",
-            Self::Light => "Dark text on light panels",
-        }
-    }
-
-    fn key(self) -> &'static str {
-        match self {
-            Self::System => "system",
-            Self::Dark => "dark",
-            Self::Light => "light",
-        }
-    }
-
-    fn from_key(key: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|theme| theme.key() == key)
-    }
-
-    pub fn egui(self) -> ThemePreference {
-        match self {
-            Self::System => ThemePreference::System,
-            Self::Dark => ThemePreference::Dark,
-            Self::Light => ThemePreference::Light,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -190,8 +147,8 @@ impl PreferencesTab {
                  changes; shortcuts are reset in the shortcut editor"
             }
             Self::Appearance => {
-                "Go back to the system theme at normal size and contrast with caditor's title \
-                 bar. Only this tab changes"
+                "Go back to the system theme with its own accent and 3D view, at normal size and \
+                 contrast with caditor's title bar. Only this tab changes"
             }
             Self::Navigation => {
                 "Go back to perspective, normal orbit and zoom speeds, and scrolling up to zoom \
@@ -373,23 +330,6 @@ impl Default for Navigation {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Appearance {
-    pub theme: Theme,
-    pub scale: f32,
-    pub high_contrast: bool,
-}
-
-impl Default for Appearance {
-    fn default() -> Self {
-        Self {
-            theme: Theme::default(),
-            scale: 1.0,
-            high_contrast: false,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Preferences {
     pub unit: LengthUnit,
@@ -414,6 +354,8 @@ pub enum PreferenceChange {
     Unit(LengthUnit),
     Angle(AngleUnit),
     Theme(Theme),
+    Accent(Accent),
+    View(ViewChoice),
     Scale(f32),
     HighContrast(bool),
     OrbitSpeed(f64),
@@ -468,6 +410,7 @@ pub enum PreferencesCommand {
     ShowConfigurations,
     CloseConfigurations,
     ShowDefenderReminder,
+    ReloadThemes,
     SelectSet(usize),
     Tab(PreferencesTab),
     Change(PreferenceChange),
@@ -540,6 +483,14 @@ impl Preferences {
                     .text(THEME_KEY)
                     .and_then(Theme::from_key)
                     .unwrap_or_default(),
+                accent: raw
+                    .text(ACCENT_KEY)
+                    .and_then(Accent::from_key)
+                    .unwrap_or_default(),
+                view: raw
+                    .text(VIEW_KEY)
+                    .and_then(ViewChoice::from_key)
+                    .unwrap_or_default(),
                 scale: raw
                     .number(SCALE_KEY)
                     .map_or(1.0, |scale| appearance::clamp_scale(scale as f32)),
@@ -579,7 +530,9 @@ impl Preferences {
         let mut settings = self.raw.clone();
         settings.set_text(UNIT_KEY, self.unit.symbol());
         settings.set_text(ANGLE_UNIT_KEY, self.angle.symbol());
-        settings.set_text(THEME_KEY, self.appearance.theme.key());
+        settings.set_text(THEME_KEY, &self.appearance.theme.key());
+        settings.set_text(ACCENT_KEY, self.appearance.accent.key());
+        settings.set_text(VIEW_KEY, self.appearance.view.key());
         settings.set_number(SCALE_KEY, f64::from(self.appearance.scale));
         settings.set_flag(HIGH_CONTRAST_KEY, self.appearance.high_contrast);
         settings.set_number(ORBIT_KEY, self.navigation.orbit_speed);
@@ -618,6 +571,8 @@ impl Preferences {
             PreferenceChange::Unit(unit) => self.unit = unit,
             PreferenceChange::Angle(angle) => self.angle = angle,
             PreferenceChange::Theme(theme) => self.appearance.theme = theme,
+            PreferenceChange::Accent(accent) => self.appearance.accent = accent,
+            PreferenceChange::View(view) => self.appearance.view = view,
             PreferenceChange::Scale(scale) => {
                 self.appearance.scale = appearance::clamp_scale(scale);
             }
@@ -699,7 +654,7 @@ impl Preferences {
                 self.default_template.clone_from(&from.default_template);
             }
             PreferencesTab::Appearance => {
-                self.appearance = from.appearance;
+                self.appearance = from.appearance.clone();
                 self.title_bar = from.title_bar;
             }
             PreferencesTab::Navigation => self.navigation = from.navigation,
@@ -714,6 +669,7 @@ pub struct PreferencesView<'a> {
     pub templates: &'a Templates,
     pub switch_keys: bool,
     pub restored: Option<&'a Restored>,
+    pub themes: &'a UserThemes,
 }
 
 pub fn dialog(
@@ -818,7 +774,7 @@ fn body(
             ui.set_min_height(tallest);
             ui.scope(|ui| match tab {
                 PreferencesTab::General => general(ui, preferences, view.templates, command),
-                PreferencesTab::Appearance => appearance(ui, preferences, command),
+                PreferencesTab::Appearance => appearance(ui, preferences, view.themes, command),
                 PreferencesTab::Navigation => navigation(ui, preferences, command),
                 PreferencesTab::Graphics => {
                     graphics::tab(ui, &preferences.graphics, view.hardware, command);
@@ -1089,14 +1045,192 @@ fn tips(ui: &mut Ui, preferences: &Preferences, command: &mut Option<Preferences
     });
 }
 
-fn appearance(ui: &mut Ui, preferences: &Preferences, command: &mut Option<PreferencesCommand>) {
-    let current = preferences.appearance;
-    let note = "Panels and menus follow the theme; the 3D view keeps its dark background.";
-    section(ui, "Colours", "colours", Some(note.to_owned()), |ui| {
-        widgets::property(ui, "Theme", |ui| {
-            let options = Theme::ALL.map(|theme| (theme, theme.label(), theme.description()));
-            if let Some(theme) = choice(ui, &options, current.theme) {
+pub const RELOAD_THEMES: &str = "Reload themes";
+pub const THEMES_SECTION: &str = "Theme";
+
+pub fn theme_card_id(theme: &Theme) -> Id {
+    Id::new(("theme-card", theme.key()))
+}
+
+pub fn accent_name(accent: Accent) -> String {
+    format!("Accent: {}", accent.label())
+}
+
+fn sample(look: &Look, appearance: &Appearance) -> ThemeSample {
+    let skin = appearance.skin_of(look);
+    let tokens = skin.tokens;
+    let contrast = Contrast::of(skin.high_contrast);
+    let palette = contrast.palette(skin.canvas);
+    let canvas = skin.canvas.colour();
+    let to_colour = |colour: caditor_render::Color| {
+        let channel = |value: f32, under: u8| {
+            (value * 255.0 * colour.alpha + f32::from(under) * (1.0 - colour.alpha))
+                .round()
+                .clamp(0.0, 255.0) as u8
+        };
+        egui::Color32::from_rgb(
+            channel(colour.red, canvas.r()),
+            channel(colour.green, canvas.g()),
+            channel(colour.blue, canvas.b()),
+        )
+    };
+    ThemeSample {
+        panel: tokens.panel,
+        raised: tokens.raised,
+        border: tokens.border,
+        text: tokens.text,
+        muted: tokens.text_muted,
+        accent: tokens.accent,
+        canvas,
+        grid: to_colour(palette.grid),
+        body: egui::Color32::from_rgb(
+            crate::body_appearance::DEFAULT_COLOUR.red,
+            crate::body_appearance::DEFAULT_COLOUR.green,
+            crate::body_appearance::DEFAULT_COLOUR.blue,
+        ),
+        edge: to_colour(palette.body_edge),
+    }
+}
+
+fn theme_samples(theme: &Theme, themes: &UserThemes, appearance: &Appearance) -> Vec<ThemeSample> {
+    match theme {
+        Theme::System => [Theme::Dark, Theme::Light]
+            .iter()
+            .filter_map(|half| half.preview(themes))
+            .map(|look| sample(&look, appearance))
+            .collect(),
+        other => other
+            .preview(themes)
+            .map(|look| vec![sample(&look, appearance)])
+            .unwrap_or_default(),
+    }
+}
+
+fn theme_cards(
+    ui: &mut Ui,
+    current: &Appearance,
+    themes: &UserThemes,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let mut offered: Vec<Theme> = Theme::SHIPPED.to_vec();
+    offered.extend(
+        themes
+            .themes()
+            .iter()
+            .map(|theme| Theme::User(theme.key.clone())),
+    );
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(SPACE_M, SPACE_M);
+        for theme in offered {
+            let samples = theme_samples(&theme, themes, current);
+            let name = themes.name_of(&theme);
+            let chosen = current.theme == theme;
+            let response = widgets::theme_card(
+                ui,
+                theme_card_id(&theme),
+                &samples,
+                &name,
+                theme.description(),
+                chosen,
+            );
+            if response.clicked() && !chosen {
                 change(command, PreferenceChange::Theme(theme));
+            }
+        }
+    });
+}
+
+fn themes_folder(ui: &mut Ui, themes: &UserThemes, command: &mut Option<PreferencesCommand>) {
+    let note = match themes.folder() {
+        Some(folder) => format!(
+            "Choosing a theme changes the whole window at once. Your own themes are JSON files \
+             in {}, each a base (dark or light), a view (dark or light) and colours by name, \
+             checked for readable contrast before they are offered.",
+            folder.display()
+        ),
+        None => "Choosing a theme changes the whole window at once. Your own themes need a \
+                 configuration folder, and caditor could not find one."
+            .to_owned(),
+    };
+    ui.add_space(SPACE_S);
+    ui.add(Label::new(widgets::muted(note, ui)).wrap());
+    for refusal in themes.refused() {
+        ui.add_space(SPACE_S);
+        widgets::callout(ui, Tone::Warning, |ui| {
+            ui.add(Label::new(refusal.words()).wrap());
+        });
+    }
+    if themes.folder().is_some() {
+        ui.add_space(SPACE_S);
+        let button = widgets::small_button(ui, icons::RELOAD, RELOAD_THEMES);
+        if ui
+            .add(button)
+            .on_hover_text("Read the themes folder again, after adding or changing a theme")
+            .clicked()
+        {
+            *command = Some(PreferencesCommand::ReloadThemes);
+        }
+    }
+}
+
+fn accent_swatches(
+    ui: &mut Ui,
+    current: &Appearance,
+    themes: &UserThemes,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let look = current.theme.preview(themes).unwrap_or(Look {
+        tokens: appearance::DARK,
+        dark: true,
+        canvas: Canvas::Dark,
+    });
+    ui.horizontal_wrapped(|ui| {
+        for accent in Accent::ALL {
+            let offered = accent.applied(&look);
+            let fill = offered.map_or(look.tokens.accent, |tokens| tokens.accent);
+            let chosen = current.accent == accent;
+            let name = accent_name(accent);
+            let response = ui
+                .add_enabled_ui(offered.is_some() && !current.high_contrast, |ui| {
+                    widgets::swatch(ui, fill, &name, chosen)
+                })
+                .inner
+                .on_disabled_hover_text(if current.high_contrast {
+                    "High contrast keeps its own accent"
+                } else {
+                    "This accent would not keep its text readable in this theme"
+                });
+            if response.clicked() && !chosen {
+                change(command, PreferenceChange::Accent(accent));
+            }
+        }
+    });
+}
+
+fn appearance(
+    ui: &mut Ui,
+    preferences: &Preferences,
+    themes: &UserThemes,
+    command: &mut Option<PreferencesCommand>,
+) {
+    let current = &preferences.appearance;
+    ui.add_space(SPACE_M);
+    widgets::section(ui, "preferences-theme", THEMES_SECTION, None, None, |ui| {
+        widgets::card(ui, |ui| {
+            theme_cards(ui, current, themes, command);
+            themes_folder(ui, themes, command);
+        });
+    });
+    let note = "The accent colours buttons, selections and links. High contrast replaces the \
+                theme's colours with stronger ones of the same lightness.";
+    section(ui, "Colours", "colours", Some(note.to_owned()), |ui| {
+        widgets::property(ui, "Accent", |ui| {
+            accent_swatches(ui, current, themes, command);
+        });
+        widgets::property(ui, "3D view", |ui| {
+            let options = ViewChoice::ALL.map(|view| (view, view.label(), view.description()));
+            if let Some(view) = choice(ui, &options, current.view) {
+                change(command, PreferenceChange::View(view));
             }
         });
         widgets::property(ui, "Contrast", |ui| {
@@ -1300,6 +1434,38 @@ mod tests {
             Preferences::default().settings().texts(RECENT_COLOURS_KEY),
             None
         );
+    }
+
+    #[test]
+    fn themes_accents_and_the_view_are_stored_and_older_files_read_as_before() {
+        let mut older = Settings::default();
+        older.set_text(THEME_KEY, "light");
+        let read = Preferences::from_settings(older);
+
+        assert_eq!(read.appearance.theme, Theme::Light);
+        assert_eq!(read.appearance.accent, Accent::Theme);
+        assert_eq!(read.appearance.view, ViewChoice::Theme);
+
+        let mut preferences = Preferences::default();
+        preferences.apply(PreferenceChange::Theme(Theme::User("ocean".to_owned())));
+        preferences.apply(PreferenceChange::Accent(Accent::Rose));
+        preferences.apply(PreferenceChange::View(ViewChoice::Light));
+        let settings = preferences.settings();
+        let again = Preferences::from_settings(settings.clone());
+
+        assert_eq!(settings.text(THEME_KEY), Some("user:ocean"));
+        assert_eq!(settings.text(ACCENT_KEY), Some("rose"));
+        assert_eq!(settings.text(VIEW_KEY), Some("light"));
+        assert_eq!(again.appearance, preferences.appearance);
+
+        let mut unknown = Settings::default();
+        unknown.set_text(THEME_KEY, "from a newer caditor");
+        unknown.set_text(ACCENT_KEY, "chartreuse");
+        let read = Preferences::from_settings(unknown);
+        assert_eq!(read.appearance, Appearance::default());
+
+        preferences.apply(PreferenceChange::Defaults(PreferencesTab::Appearance));
+        assert_eq!(preferences.appearance, Appearance::default());
     }
 
     #[test]

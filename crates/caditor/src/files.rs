@@ -58,12 +58,14 @@ use crate::{
     samples::Sample,
     sketch_placement::FaceChoice,
     snapshot::Snapshot,
+    themes::{Refusal, UserTheme, UserThemes},
     version_preview::{self, Picture, PictureFailure, Prepared, PreviewFailure, Started},
     widgets::{self, DialogWidth, MenuEntry, Tone},
 };
 
 pub mod parameters;
 pub mod templates;
+mod themes;
 
 const OPEN_RECENT: &str = "Open recent";
 pub const KEEP_CONSTRUCTION_HINT: &str = "Export sketch writes construction geometry dashed on a \
@@ -125,6 +127,7 @@ pub enum FileCommand {
     NewFromTemplate(Option<PathBuf>),
     SaveAsTemplate,
     ListTemplates,
+    ListThemes,
     Open,
     OpenPath(PathBuf),
     Save,
@@ -584,6 +587,10 @@ enum Event {
         listed: Vec<PathBuf>,
         then: Option<Purpose>,
     },
+    ThemesListed {
+        themes: Vec<UserTheme>,
+        refused: Vec<Refusal>,
+    },
     TemplateLoaded {
         path: PathBuf,
         origin: Origin,
@@ -794,6 +801,7 @@ pub struct Files {
     closing: Option<(Closing, Instant)>,
     stored_settings: Option<Settings>,
     templates: Templates,
+    themes: UserThemes,
     default_template: Option<String>,
     parameter_import: Option<ParameterImportDraft>,
     quit: bool,
@@ -807,6 +815,7 @@ impl Files {
     pub fn new(config: FilesConfig, dialogs: Box<dyn Dialogs>, make_waker: WakerFactory) -> Self {
         let (events, inbox) = mpsc::channel();
         let templates = Templates::in_config(config.config_dir.as_deref());
+        let themes = UserThemes::in_config(config.config_dir.as_deref());
         Self {
             config,
             dialogs,
@@ -841,6 +850,7 @@ impl Files {
             closing: None,
             stored_settings: None,
             templates,
+            themes,
             default_template: None,
             parameter_import: None,
             quit: false,
@@ -866,6 +876,7 @@ impl Files {
             || Event::ScanFailed,
         );
         self.list_templates(None, model);
+        self.list_themes();
         match open {
             Some(path) if is_importable_file(&path) => self.dropped(vec![path], None, model),
             Some(path) => self.perform(FileCommand::OpenPath(path), model),
@@ -982,6 +993,7 @@ impl Files {
                 }
             }
             FileCommand::ListTemplates => self.list_templates(None, model),
+            FileCommand::ListThemes => self.list_themes(),
             FileCommand::OpenSample(sample) => self.request(Intent::Sample(sample), model),
             FileCommand::Open => self.request(Intent::Open(None), model),
             FileCommand::OpenPath(path) => self.request(Intent::Open(Some(path)), model),
@@ -1540,6 +1552,7 @@ impl Files {
                 }
             }
             Event::TemplatesListed { listed, then } => self.templates_listed(listed, then, model),
+            Event::ThemesListed { themes, refused } => self.themes.listed(themes, refused),
             Event::TemplateLoaded {
                 path,
                 origin,
@@ -3511,7 +3524,7 @@ fn show_report(ctx: &egui::Context, report: &Report) -> Option<FileCommand> {
                                 widgets::icon_label(
                                     ui,
                                     Tone::Info.icon(),
-                                    Tone::Info.color(tokens),
+                                    Tone::Info.color(&tokens),
                                 );
                                 ui.add(egui::Label::new(issue.as_str()).wrap());
                             });

@@ -421,6 +421,10 @@ impl Renderer {
         }
     }
 
+    pub fn set_background(&mut self, background: wgpu::Color) {
+        self.viewport.set_background(background);
+    }
+
     pub fn resize(&mut self, size: SurfaceSize) {
         let size = clamp_size(size, self.gpu.largest_side());
         self.gpu.config.width = size.width;
@@ -566,7 +570,11 @@ impl Renderer {
             },
             || match ChannelOrder::of(viewport.format()) {
                 Some(_) => viewport.image_sibling(&gpu.device),
-                None => gpu.image_viewport(shading),
+                None => {
+                    let mut image = gpu.image_viewport(shading);
+                    image.set_background(viewport.background());
+                    image
+                }
             },
             request,
             TILE_SIDE.min(gpu.largest_side()),
@@ -707,7 +715,9 @@ impl Renderer {
         }
         let mut gpu = recovered.gpu;
         self.pick_dropped |= self.viewport.is_pick_pending();
+        let background = self.viewport.background();
         self.viewport = gpu.viewport(self.graphics);
+        self.viewport.set_background(background);
         self.gpu = gpu;
         self.generation = self.generation.wrapping_add(1);
         self.needs_reconfigure = false;

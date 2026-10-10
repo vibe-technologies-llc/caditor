@@ -923,23 +923,24 @@ impl Annotations {
             actions.push(Action::Apply(transaction.finish()));
         }
 
+        let chrome = canvas::chrome(ui.ctx());
         let color = |constraint, standing| {
             let pickable = pickable(constraint);
             if self.hovered == Some(pickable) || surface.highlight == Some(pickable) {
-                canvas::HOVERED
+                chrome.hovered
             } else if selection.contains(pickable) {
-                canvas::SELECTED
+                chrome.selected
             } else {
                 match standing {
-                    Standing::Normal => canvas::DIMENSION,
-                    Standing::Conflicting => canvas::ERROR,
-                    Standing::Redundant => canvas::WARNING,
-                    Standing::Inactive => canvas::MUTED,
+                    Standing::Normal => chrome.dimension,
+                    Standing::Conflicting => chrome.error,
+                    Standing::Redundant => chrome.warning,
+                    Standing::Inactive => chrome.muted,
                 }
             }
         };
         let framed = |standing: Standing| {
-            appearance::is_high_contrast(ui.visuals())
+            appearance::is_high_contrast(ui)
                 .then(|| standing.frame())
                 .flatten()
         };
@@ -969,17 +970,17 @@ impl Annotations {
             let (end, at) = (to_pos(surface.rect, *end), to_pos(surface.rect, *at));
             painter.extend(Shape::dashed_line(
                 &[end, at],
-                Stroke::new(STROKE_WIDTH, canvas::MUTED),
+                Stroke::new(STROKE_WIDTH, chrome.muted),
                 BEYOND_DASH,
                 BEYOND_DASH,
             ));
-            painter.circle_stroke(at, BEYOND_RADIUS, Stroke::new(RING_WIDTH, canvas::MUTED));
+            painter.circle_stroke(at, BEYOND_RADIUS, Stroke::new(RING_WIDTH, chrome.muted));
         }
         for end in &marks.open_ends {
             painter.circle_stroke(
                 to_pos(surface.rect, *end),
                 OPEN_END_RADIUS,
-                Stroke::new(RING_WIDTH, canvas::WARNING),
+                Stroke::new(RING_WIDTH, chrome.warning),
             );
         }
         self.show_field(ui, model, surface, &marks, actions);

@@ -108,6 +108,7 @@ mod sketch_tangent_circles;
 mod sketch_tidying;
 mod svg_import;
 mod templates;
+mod themes;
 mod typed_values;
 mod upload_indicator;
 mod user_guide;
@@ -4042,7 +4043,7 @@ fn clicking_a_glyph_selects_its_constraint_and_delete_removes_it_in_one_step() {
     harness.events.push(Event::PointerGone);
     harness.frame();
     harness.frame();
-    assert_eq!(harness.color_of("H"), canvas::SELECTED);
+    assert_eq!(harness.color_of("H"), canvas::DARK_CHROME.selected);
 
     harness.key(Key::Delete, Modifiers::NONE);
     harness.frame();
@@ -4063,8 +4064,8 @@ fn clicking_a_glyph_selects_its_constraint_and_delete_removes_it_in_one_step() {
 fn a_conflict_colours_the_dimensions_and_glyphs_involved() {
     let mut harness = Harness::new();
     let base = edit_base_sketch(&mut harness);
-    assert_ne!(harness.color_of("H"), canvas::ERROR);
-    assert_ne!(harness.color_of("width = 40 mm"), canvas::ERROR);
+    assert_ne!(harness.color_of("H"), canvas::DARK_CHROME.error);
+    assert_ne!(harness.color_of("width = 40 mm"), canvas::DARK_CHROME.error);
     let line = entities_of_kind(harness.sketch(base), "Line")[0];
     harness.select([Pickable::SketchEntity {
         feature: base,
@@ -4078,9 +4079,9 @@ fn a_conflict_colours_the_dimensions_and_glyphs_involved() {
     harness.add_stored_constraint(base, Constraint::Vertical(line));
     assert!(harness.shows("Conflicting constraints"));
     for mark in ["H", "V"] {
-        assert_eq!(harness.color_of(mark), canvas::ERROR, "{mark}");
+        assert_eq!(harness.color_of(mark), canvas::DARK_CHROME.error, "{mark}");
     }
-    assert_ne!(harness.color_of("width = 40 mm"), canvas::ERROR);
+    assert_ne!(harness.color_of("width = 40 mm"), canvas::DARK_CHROME.error);
 }
 
 fn frame_strokes(harness: &Harness, color: Color32) -> (usize, usize) {
@@ -4134,23 +4135,23 @@ fn high_contrast_frames_redundant_constraints_dashed_and_conflicting_ones_solid(
     harness.add_stored_constraint(base, Constraint::Horizontal(line));
     harness.frame();
     assert!(harness.shows("1 redundant constraint"));
-    assert_eq!(frame_strokes(&harness, canvas::WARNING), (0, 0));
+    assert_eq!(frame_strokes(&harness, canvas::DARK_CHROME.warning), (0, 0));
 
     set_high_contrast(&mut harness, true);
-    let (solid, dashes) = frame_strokes(&harness, canvas::WARNING);
+    let (solid, dashes) = frame_strokes(&harness, canvas::DARK_CHROME.warning);
     assert_eq!(solid, 0);
     assert!(dashes >= 8, "{dashes} dashes");
-    assert_eq!(frame_strokes(&harness, canvas::ERROR), (0, 0));
+    assert_eq!(frame_strokes(&harness, canvas::DARK_CHROME.error), (0, 0));
 
     harness.add_stored_constraint(base, Constraint::Vertical(line));
     harness.frame();
     assert!(harness.shows("Conflicting constraints"));
-    let (solid, dashes) = frame_strokes(&harness, canvas::ERROR);
+    let (solid, dashes) = frame_strokes(&harness, canvas::DARK_CHROME.error);
     assert!(solid >= 2, "{solid} frames");
     assert_eq!(dashes, 0);
 
     set_high_contrast(&mut harness, false);
-    assert_eq!(frame_strokes(&harness, canvas::ERROR), (0, 0));
+    assert_eq!(frame_strokes(&harness, canvas::DARK_CHROME.error), (0, 0));
 }
 
 #[test]
@@ -16706,7 +16707,7 @@ fn the_window_buttons_are_wide_targets_a_control_tall_and_close_turns_red() {
         );
     }
     harness.hover_button(window_frame::CLOSE);
-    let tokens = appearance::tokens_for(&harness.context.global_style().visuals);
+    let tokens = appearance::tokens_of(&harness.context);
     assert_eq!(harness.color_of(icons::CLOSE), tokens.text_on_accent);
 }
 
@@ -16720,7 +16721,7 @@ fn the_top_right_corner_of_a_maximized_window_closes_it() {
 
     harness.events.push(Event::PointerMoved(corner));
     harness.frame();
-    let tokens = appearance::tokens_for(&harness.context.global_style().visuals);
+    let tokens = appearance::tokens_of(&harness.context);
     let highlighted = harness.color_of(icons::CLOSE) == tokens.text_on_accent;
     harness.click_screen(corner);
 
@@ -17339,7 +17340,7 @@ fn draft_analysis_bands_the_faces_of_a_plate_and_leaves_the_model_alone() {
     let mut harness = Harness::new();
     extruded_plate(&mut harness);
     let revision = harness.model.revision();
-    let palette = Contrast::Standard.palette();
+    let palette = Contrast::Standard.palette(crate::scene_palette::Canvas::Dark);
     let on_screen =
         |harness: &mut Harness, band: Band| painted_faces(harness, band.colour(palette));
 
@@ -17379,7 +17380,7 @@ fn reach_analysis_colours_what_a_tool_from_above_gets_to_and_reverses_to_the_oth
     let mut harness = Harness::new();
     extruded_plate(&mut harness);
     let revision = harness.model.revision();
-    let palette = Contrast::Standard.palette();
+    let palette = Contrast::Standard.palette(crate::scene_palette::Canvas::Dark);
     let on_screen =
         |harness: &mut Harness, band: Band| painted_faces(harness, band.colour(palette));
 
@@ -17413,7 +17414,7 @@ fn curvature_zebra_and_chrome_show_on_the_bodies_and_leave_the_model_alone() {
     let mut harness = Harness::new();
     extruded_plate(&mut harness);
     let revision = harness.model.revision();
-    let palette = Contrast::Standard.palette();
+    let palette = Contrast::Standard.palette(crate::scene_palette::Canvas::Dark);
 
     run_from_palette(&mut harness, "analyse curvature");
     harness.frame();
@@ -17527,7 +17528,9 @@ fn the_curvature_comb_combs_the_chosen_sketch_curves_and_names_the_jump_where_th
     );
     let feature = harness.add_sketch(sketch);
     let revision = harness.model.revision();
-    let look = Contrast::Standard.palette().comb;
+    let look = Contrast::Standard
+        .palette(crate::scene_palette::Canvas::Dark)
+        .comb;
 
     harness.select([line, arc].map(|entity| Pickable::SketchEntity { feature, entity }));
     run_from_palette(&mut harness, "curvature comb");
@@ -17571,7 +17574,9 @@ fn the_curvature_comb_follows_a_selected_body_edge_and_reads_it_as_straight() {
         .pickables()
         .find(|pickable| matches!(pickable, Pickable::Edge { .. }))
         .expect("an edge is pickable");
-    let look = Contrast::Standard.palette().comb;
+    let look = Contrast::Standard
+        .palette(crate::scene_palette::Canvas::Dark)
+        .comb;
 
     run_from_palette(&mut harness, "curvature comb");
     harness.frame();
@@ -17621,7 +17626,9 @@ fn isocurves_draw_the_parameter_lines_of_the_chosen_faces_with_their_combs() {
         .filter(|pickable| matches!(pickable, Pickable::Face { .. }))
         .collect();
     let revision = harness.model.revision();
-    let look = Contrast::Standard.palette().comb;
+    let look = Contrast::Standard
+        .palette(crate::scene_palette::Canvas::Dark)
+        .comb;
 
     run_from_palette(&mut harness, "isocurves");
     harness.frame();

@@ -251,20 +251,21 @@ pub fn show(
         .flatten()
         .and_then(|(_, step)| neighbour(&projector, current, step));
 
+    let chrome = canvas::chrome(ui.ctx());
     let lit = |direction: Vector3| {
         (hovered == Some(direction)).then_some(if pressed {
-            canvas::CUBE_PRESSED
+            chrome.cube_pressed
         } else {
-            canvas::CUBE_HOVERED
+            chrome.cube_hovered
         })
     };
     let painter = ui.painter_at(rect.expand(PAINT_ROOM));
     for cell in &cells {
-        let fill = lit(cell.direction).unwrap_or_else(|| canvas::cube_face(cell.facing));
+        let fill = lit(cell.direction).unwrap_or_else(|| chrome.cube_face(cell.facing));
         painter.add(Shape::convex_polygon(
             cell.corners.to_vec(),
             fill,
-            Stroke::new(DIVIDER_WIDTH, canvas::CUBE_DIVIDER),
+            Stroke::new(DIVIDER_WIDTH, chrome.cube_divider),
         ));
     }
     for face in &FACES {
@@ -276,13 +277,13 @@ pub fn show(
             .map(|(a, b)| projector.project(face.normal + face.u * a + face.v * b));
         painter.add(Shape::closed_line(
             outline.to_vec(),
-            Stroke::new(EDGE_WIDTH, canvas::CUBE_EDGE),
+            Stroke::new(EDGE_WIDTH, chrome.cube_edge),
         ));
         if facing > canvas::CUBE_DIMMEST_LABELLED_FACING {
             let color = if lit(face.normal).is_some() {
-                canvas::CUBE_LABEL_ON_HOVER
+                chrome.cube_label_on_hover
             } else {
-                canvas::CUBE_LABEL
+                chrome.cube_label
             };
             painter.text(
                 projector.project(face.normal),

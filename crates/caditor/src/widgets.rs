@@ -306,6 +306,205 @@ fn paint_swatch(
     name_button(response, name, Some(chosen)).on_hover_text(name)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ThemeSample {
+    pub panel: Color32,
+    pub raised: Color32,
+    pub border: Color32,
+    pub text: Color32,
+    pub muted: Color32,
+    pub accent: Color32,
+    pub canvas: Color32,
+    pub grid: Color32,
+    pub body: Color32,
+    pub edge: Color32,
+}
+
+pub const THEME_CARD_WIDTH: f32 = 128.0;
+const THEME_SAMPLE_HEIGHT: f32 = 62.0;
+const THEME_CARD_PADDING: f32 = 6.0;
+const THEME_CARD_CHOSEN_WIDTH: f32 = 2.0;
+const SAMPLE_BAR: f32 = 9.0;
+const SAMPLE_SIDE_SHARE: f32 = 0.38;
+const SAMPLE_LINE: f32 = 3.0;
+const SAMPLE_INSET: f32 = 5.0;
+const SAMPLE_GRID_STEP: f32 = 9.0;
+const SAMPLE_BODY: f32 = 18.0;
+
+pub fn theme_card(
+    ui: &mut Ui,
+    id: Id,
+    samples: &[ThemeSample],
+    name: &str,
+    hover: &str,
+    chosen: bool,
+) -> Response {
+    let tokens = appearance::tokens(ui);
+    let name_height = ui.text_style_height(&TextStyle::Small);
+    let size = vec2(
+        THEME_CARD_WIDTH,
+        THEME_SAMPLE_HEIGHT + name_height + THEME_CARD_PADDING * 3.0,
+    );
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let response = ui.interact(rect, id, Sense::click());
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let radius = CornerRadius::same(CARD_RADIUS);
+        let fill = if response.hovered() || response.has_focus() {
+            tokens.hover
+        } else {
+            tokens.raised
+        };
+        painter.rect_filled(rect, radius, fill);
+        let (outline, width) = if chosen {
+            (tokens.accent_text, THEME_CARD_CHOSEN_WIDTH)
+        } else if response.hovered() {
+            (tokens.border_strong, BORDER_WIDTH)
+        } else {
+            (tokens.border, BORDER_WIDTH)
+        };
+        painter.rect_stroke(
+            rect,
+            radius,
+            Stroke::new(width, outline),
+            StrokeKind::Inside,
+        );
+        let sample = Rect::from_min_size(
+            rect.min + Vec2::splat(THEME_CARD_PADDING),
+            vec2(rect.width() - THEME_CARD_PADDING * 2.0, THEME_SAMPLE_HEIGHT),
+        );
+        let share = sample.width() / samples.len().max(1) as f32;
+        for (index, theme) in samples.iter().enumerate() {
+            let left = sample.left() + share * index as f32;
+            let slice = Rect::from_x_y_ranges(left..=left + share, sample.y_range());
+            paint_theme_sample(&painter.with_clip_rect(slice), sample, theme);
+        }
+        painter.rect_stroke(
+            sample,
+            CornerRadius::same(WIDGET_RADIUS),
+            Stroke::new(BORDER_WIDTH, tokens.border),
+            StrokeKind::Inside,
+        );
+        let name_top = sample.bottom() + THEME_CARD_PADDING;
+        let mut name_left = sample.left();
+        if chosen {
+            let check = painter.text(
+                pos2(name_left, name_top),
+                Align2::LEFT_TOP,
+                icons::DONE,
+                egui::FontId::new(SMALL_SIZE, fonts::icons()),
+                tokens.accent_text,
+            );
+            name_left = check.right() + SPACE_S;
+        }
+        let colour = if chosen {
+            tokens.text
+        } else {
+            tokens.text_muted
+        };
+        let font = if chosen {
+            egui::FontId::new(SMALL_SIZE, fonts::semibold())
+        } else {
+            egui::FontId::new(SMALL_SIZE, egui::FontFamily::Proportional)
+        };
+        let room = (sample.right() - name_left).max(0.0);
+        let mut job = egui::text::LayoutJob::simple_singleline(name.to_owned(), font, colour);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+        let galley = painter.layout_job(job);
+        painter.galley(pos2(name_left, name_top), galley, colour);
+        if response.has_focus() {
+            paint_focus_ring(ui, rect);
+        }
+    }
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+    }
+    name_button(response, name, Some(chosen)).on_hover_text(hover)
+}
+
+fn paint_theme_sample(painter: &egui::Painter, rect: Rect, theme: &ThemeSample) {
+    let radius = CornerRadius::same(WIDGET_RADIUS);
+    painter.rect_filled(rect, radius, theme.panel);
+    let bar = Rect::from_min_size(rect.min, vec2(rect.width(), SAMPLE_BAR));
+    painter.rect_filled(
+        bar,
+        CornerRadius {
+            nw: WIDGET_RADIUS,
+            ne: WIDGET_RADIUS,
+            sw: 0,
+            se: 0,
+        },
+        theme.raised,
+    );
+    painter.hline(
+        bar.x_range(),
+        bar.bottom(),
+        Stroke::new(BORDER_WIDTH, theme.border),
+    );
+    for step in 0..3 {
+        let x = bar.left() + SAMPLE_INSET + step as f32 * (SAMPLE_LINE * 3.0);
+        painter.circle_filled(pos2(x, bar.center().y), SAMPLE_LINE / 2.0, theme.muted);
+    }
+    let side = Rect::from_min_max(
+        pos2(rect.left(), bar.bottom()),
+        pos2(
+            rect.left() + rect.width() * SAMPLE_SIDE_SHARE,
+            rect.bottom(),
+        ),
+    );
+    let line = |top: f32, share: f32, colour: Color32| {
+        let left = side.left() + SAMPLE_INSET;
+        let width = (side.width() - SAMPLE_INSET * 2.0) * share;
+        painter.rect_filled(
+            Rect::from_min_size(pos2(left, top), vec2(width, SAMPLE_LINE)),
+            CornerRadius::same(1),
+            colour,
+        );
+    };
+    let first = side.top() + SAMPLE_INSET;
+    line(first, 0.9, theme.text);
+    line(first + SAMPLE_LINE * 2.5, 0.6, theme.muted);
+    line(first + SAMPLE_LINE * 5.0, 0.75, theme.muted);
+    let button = Rect::from_min_size(
+        pos2(
+            side.left() + SAMPLE_INSET,
+            side.bottom() - SAMPLE_INSET - SAMPLE_LINE * 2.5,
+        ),
+        vec2((side.width() - SAMPLE_INSET * 2.0) * 0.8, SAMPLE_LINE * 2.5),
+    );
+    painter.rect_filled(button, CornerRadius::same(2), theme.accent);
+    let view = Rect::from_min_max(pos2(side.right(), bar.bottom()), rect.max);
+    painter.rect_filled(
+        view,
+        CornerRadius {
+            nw: 0,
+            ne: 0,
+            sw: 0,
+            se: WIDGET_RADIUS,
+        },
+        theme.canvas,
+    );
+    painter.vline(
+        side.right(),
+        view.y_range(),
+        Stroke::new(BORDER_WIDTH, theme.border),
+    );
+    let grid = Stroke::new(BORDER_WIDTH, theme.grid);
+    let mut y = view.bottom() - SAMPLE_GRID_STEP / 2.0;
+    while y > view.top() {
+        painter.hline(view.x_range(), y, grid);
+        y -= SAMPLE_GRID_STEP;
+    }
+    let body = Rect::from_center_size(view.center(), Vec2::splat(SAMPLE_BODY));
+    painter.rect(
+        body,
+        CornerRadius::same(2),
+        theme.body,
+        Stroke::new(BORDER_WIDTH, theme.edge),
+        StrokeKind::Inside,
+    );
+}
+
 pub fn instance_toggle(ui: &mut Ui, kept: bool, name: &str, hover: &str) -> Response {
     let side = ui.spacing().interact_size.y;
     let glyph = if kept { icons::DONE } else { "" };
@@ -411,7 +610,7 @@ impl EmphasizedButton {
 impl Widget for EmphasizedButton {
     fn ui(self, ui: &mut Ui) -> Response {
         let tokens = appearance::tokens(ui);
-        let [rest, hover, pressed] = self.emphasis.fills(tokens);
+        let [rest, hover, pressed] = self.emphasis.fills(&tokens);
         let response = ui
             .scope(|ui| {
                 let widgets = &mut ui.visuals_mut().widgets;
@@ -785,10 +984,10 @@ pub fn pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> Response {
     let tokens = appearance::tokens(ui);
     let text = RichText::new(text)
         .text_style(TextStyle::Small)
-        .color(tone.color(tokens));
+        .color(tone.color(&tokens));
     let room = pill_room(&[unwrapped(ui, text.clone(), TextStyle::Small)], 0.0);
     ui.allocate_ui(room, |ui| {
-        pill_frame(tokens, tone)
+        pill_frame(&tokens, tone)
             .show(ui, |ui| ui.add(Label::new(text).selectable(false)))
             .inner
     })
@@ -868,7 +1067,7 @@ fn glyph_pill_sized(
     role: PillRole<'_>,
 ) -> Response {
     let tokens = appearance::tokens(ui);
-    let color = tone.color(tokens);
+    let color = tone.color(&tokens);
     let icon = RichText::new(glyph)
         .font(icon_font(SMALL_SIZE))
         .color(color);
@@ -885,7 +1084,7 @@ fn glyph_pill_sized(
     let hidden_text = role != PillRole::Shown;
     let response = ui
         .allocate_ui(room, |ui| {
-            pill_frame(tokens, tone).show(ui, |ui| {
+            pill_frame(&tokens, tone).show(ui, |ui| {
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = PILL_ICON_GAP;
                     let glyph = ui.add(Label::new(icon).selectable(false));
@@ -937,7 +1136,7 @@ pub fn announced_status_pill(ui: &mut Ui, tone: Tone, text: impl Into<String>) -
 
 fn status_pill_parts(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> (Response, Response) {
     let tokens = appearance::tokens(ui);
-    let color = tone.color(tokens);
+    let color = tone.color(&tokens);
     let icon = RichText::new(tone.icon())
         .font(icon_font(SMALL_SIZE))
         .color(color);
@@ -953,7 +1152,7 @@ fn status_pill_parts(ui: &mut Ui, tone: Tone, text: impl Into<String>) -> (Respo
     );
     let shown = ui
         .allocate_ui(room, |ui| {
-            pill_frame(tokens, tone).show(ui, |ui| {
+            pill_frame(&tokens, tone).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = PILL_ICON_GAP;
                     let glyph = ui.add(Label::new(icon).selectable(false));
@@ -987,13 +1186,13 @@ fn pill_room(parts: &[Arc<Galley>], row_height: f32) -> Vec2 {
 pub fn callout<R>(ui: &mut Ui, tone: Tone, add: impl FnOnce(&mut Ui) -> R) -> R {
     let tokens = appearance::tokens(ui);
     Frame::new()
-        .fill(tone.fill(tokens))
+        .fill(tone.fill(&tokens))
         .corner_radius(CornerRadius::same(WIDGET_RADIUS))
         .inner_margin(CALLOUT_MARGIN)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal_top(|ui| {
-                icon_label(ui, tone.icon(), tone.color(tokens));
+                icon_label(ui, tone.icon(), tone.color(&tokens));
                 ui.vertical(add).inner
             })
             .inner

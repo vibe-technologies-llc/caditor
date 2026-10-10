@@ -24,13 +24,58 @@ impl Contrast {
         }
     }
 
-    pub fn palette(self) -> &'static ScenePalette {
-        match self {
-            Self::Standard => &STANDARD,
-            Self::High => &HIGH_CONTRAST,
+    pub fn palette(self, canvas: Canvas) -> &'static ScenePalette {
+        match (self, canvas) {
+            (Self::Standard, Canvas::Dark) => &STANDARD,
+            (Self::High, Canvas::Dark) => &HIGH_CONTRAST,
+            (Self::Standard, Canvas::Light) => &LIGHT_STANDARD,
+            (Self::High, Canvas::Light) => &LIGHT_HIGH_CONTRAST,
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Canvas {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl Canvas {
+    #[cfg(test)]
+    pub const ALL: [Self; 2] = [Self::Dark, Self::Light];
+
+    pub fn background(self) -> wgpu::Color {
+        match self {
+            Self::Dark => caditor_render::BACKGROUND,
+            Self::Light => LIGHT_BACKGROUND,
+        }
+    }
+
+    pub fn colour(self) -> egui::Color32 {
+        let background = self.background();
+        let channel = |value: f64| (value * 255.0).round().clamp(0.0, 255.0) as u8;
+        egui::Color32::from_rgb(
+            channel(background.r),
+            channel(background.g),
+            channel(background.b),
+        )
+    }
+
+    pub fn chrome(self) -> &'static canvas::Chrome {
+        match self {
+            Self::Dark => &canvas::DARK_CHROME,
+            Self::Light => &canvas::LIGHT_CHROME,
+        }
+    }
+}
+
+const LIGHT_BACKGROUND: wgpu::Color = wgpu::Color {
+    r: 226.0 / 255.0,
+    g: 229.0 / 255.0,
+    b: 234.0 / 255.0,
+    a: 1.0,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SketchState {
@@ -142,6 +187,7 @@ pub struct ScenePalette {
     pub projected: Look,
     pub background: Look,
     pub hole: Color,
+    pub outline: Color,
     pub preview_curve: Color,
     pub preview_point: Color,
     pub trimmed_curve: Color,
@@ -160,6 +206,12 @@ pub struct ScenePalette {
     pub followed_edge: Color,
     pub centre_of_mass: Color,
     pub thread: Color,
+    pub snap: Color,
+    pub measured: Color,
+    pub problem: Color,
+    pub unchecked: Color,
+    pub handle: Color,
+    pub handle_highlighted: Color,
     pub bands: Bands,
     pub comb: CombLook,
     pub datum_edge: Color,
@@ -210,17 +262,25 @@ const fn axis_color(axis: [u8; 3]) -> Color {
     Color::from_rgb8(red, green, blue)
 }
 
-const HOVERED: Color = opaque(canvas::HOVERED);
-const SELECTED: Color = opaque(canvas::SELECTED);
-const HOVERED_SELECTED: Color = Color::from_rgb8(150, 205, 255);
 const LINE_HIGHLIGHTS: Highlights = Highlights {
-    hovered: HOVERED,
-    selected: SELECTED,
-    hovered_selected: HOVERED_SELECTED,
+    hovered: opaque(canvas::DARK_CHROME.hovered),
+    selected: opaque(canvas::DARK_CHROME.selected),
+    hovered_selected: Color::from_rgb8(150, 205, 255),
+};
+const LIGHT_LINE_HIGHLIGHTS: Highlights = Highlights {
+    hovered: Color::from_rgb8(150, 86, 0),
+    selected: Color::from_rgb8(0, 100, 210),
+    hovered_selected: Color::from_rgb8(50, 120, 215),
+};
+const FACE_HIGHLIGHTS_ON_A_BODY: Highlights = Highlights {
+    hovered: Color::from_rgb8(120, 70, 0),
+    selected: Color::from_rgb8(0, 70, 190),
+    hovered_selected: Color::from_rgb8(0, 50, 140),
 };
 const CURVE_WIDTH: f32 = 2.0;
 const POINT_DIAMETER: f32 = 7.0;
 const CANVAS_HOLE: Color = Color::from_rgb8(27, 28, 31);
+const LIGHT_CANVAS_HOLE: Color = Color::from_rgb8(226, 229, 234);
 
 pub const STANDARD: ScenePalette = ScenePalette {
     grid: Color::from_rgba8(210, 215, 225, 90),
@@ -265,6 +325,7 @@ pub const STANDARD: ScenePalette = ScenePalette {
         Color::from_rgb8(118, 122, 132),
     ),
     hole: CANVAS_HOLE,
+    outline: CANVAS_HOLE,
     preview_curve: Color::from_rgb8(190, 150, 255),
     preview_point: Color::from_rgb8(214, 190, 255),
     trimmed_curve: Color::from_rgb8(255, 96, 84),
@@ -276,7 +337,7 @@ pub const STANDARD: ScenePalette = ScenePalette {
     body_edge: Color::from_rgb8(30, 32, 38),
     background_body_edge: Color::from_rgb8(62, 64, 70),
     drawing_face: Color::from_rgb8(236, 238, 242),
-    chosen_region: translucent(canvas::SELECTED, CHOSEN_REGION_ALPHA),
+    chosen_region: translucent(canvas::DARK_CHROME.selected, CHOSEN_REGION_ALPHA),
     open_region: Color::from_rgba8(210, 214, 224, 26),
     closed_region: Color::from_rgba8(120, 170, 255, 52),
     revolve_axis: Color::from_rgb8(255, 150, 60),
@@ -305,6 +366,12 @@ pub const STANDARD: ScenePalette = ScenePalette {
         envelope_width: 2.0,
         isocurve_width: 1.5,
     },
+    snap: opaque(canvas::DARK_CHROME.snap),
+    measured: opaque(canvas::DARK_CHROME.measure),
+    problem: opaque(canvas::DARK_CHROME.error),
+    unchecked: opaque(canvas::DARK_CHROME.warning),
+    handle: opaque(canvas::DARK_CHROME.snap),
+    handle_highlighted: opaque(canvas::DARK_CHROME.hovered),
     datum_edge: Color::from_rgba8(236, 178, 92, 220),
     datum_fill: Color::from_rgba8(236, 178, 92, 26),
     failed_datum_edge: Color::from_rgba8(214, 120, 110, 220),
@@ -331,11 +398,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     sketch_horizontal_axis: Color::from_rgb8(255, 110, 110),
     sketch_vertical_axis: Color::from_rgb8(120, 220, 100),
     lines: LINE_HIGHLIGHTS,
-    faces: Highlights {
-        hovered: Color::from_rgb8(120, 70, 0),
-        selected: Color::from_rgb8(0, 70, 190),
-        hovered_selected: Color::from_rgb8(0, 50, 140),
-    },
+    faces: FACE_HIGHLIGHTS_ON_A_BODY,
     under_constrained: Look::formed(
         Color::from_rgb8(255, 255, 255),
         Weight::Regular,
@@ -372,6 +435,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
         PointFill::Solid,
     ),
     hole: CANVAS_HOLE,
+    outline: CANVAS_HOLE,
     preview_curve: Color::from_rgb8(205, 170, 255),
     preview_point: Color::from_rgb8(225, 205, 255),
     trimmed_curve: Color::from_rgb8(255, 110, 100),
@@ -383,7 +447,7 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
     body_edge: Color::from_rgb8(0, 0, 0),
     background_body_edge: Color::from_rgb8(150, 154, 164),
     drawing_face: Color::from_rgb8(255, 255, 255),
-    chosen_region: translucent(canvas::SELECTED, CHOSEN_REGION_ALPHA),
+    chosen_region: translucent(canvas::DARK_CHROME.selected, CHOSEN_REGION_ALPHA),
     open_region: Color::from_rgba8(210, 214, 224, 40),
     closed_region: Color::from_rgba8(120, 170, 255, 70),
     revolve_axis: Color::from_rgb8(255, 160, 70),
@@ -412,10 +476,199 @@ pub const HIGH_CONTRAST: ScenePalette = ScenePalette {
         envelope_width: 3.0,
         isocurve_width: 2.0,
     },
+    snap: opaque(canvas::DARK_CHROME.snap),
+    measured: opaque(canvas::DARK_CHROME.measure),
+    problem: opaque(canvas::DARK_CHROME.error),
+    unchecked: opaque(canvas::DARK_CHROME.warning),
+    handle: opaque(canvas::DARK_CHROME.snap),
+    handle_highlighted: opaque(canvas::DARK_CHROME.hovered),
     datum_edge: Color::from_rgb8(245, 190, 100),
     datum_fill: Color::from_rgba8(245, 190, 100, 34),
     failed_datum_edge: Color::from_rgb8(255, 150, 140),
     failed_datum_fill: Color::from_rgba8(255, 150, 140, 34),
+    curve_width: CURVE_WIDTH,
+    heavy_curve_width: 3.5,
+    body_edge_width: 2.0,
+    point_diameter: 9.0,
+    hole_diameter: 4.0,
+    selection_widening: 2.0,
+    troubled_edges_dashed: true,
+};
+
+pub const LIGHT_STANDARD: ScenePalette = ScenePalette {
+    grid: Color::from_rgba8(60, 66, 80, 80),
+    origin: Color::from_rgb8(40, 44, 52),
+    plane_fill: Color::from_rgba8(60, 100, 170, 22),
+    plane_edge: Color::from_rgba8(50, 90, 160, 170),
+    axes: [
+        Color::from_rgb8(196, 50, 50),
+        Color::from_rgb8(46, 132, 36),
+        Color::from_rgb8(40, 100, 210),
+    ],
+    sketch_horizontal_axis: Color::from_rgb8(196, 50, 50),
+    sketch_vertical_axis: Color::from_rgb8(46, 132, 36),
+    lines: LIGHT_LINE_HIGHLIGHTS,
+    faces: LIGHT_LINE_HIGHLIGHTS,
+    under_constrained: Look::plain(Color::from_rgb8(40, 44, 54), Color::from_rgb8(20, 22, 28)),
+    fully_constrained: Look::plain(Color::from_rgb8(24, 128, 48), Color::from_rgb8(16, 108, 36)),
+    conflicting: Look::plain(Color::from_rgb8(200, 40, 34), Color::from_rgb8(176, 28, 24)),
+    redundant: Look::plain(Color::from_rgb8(184, 92, 0), Color::from_rgb8(160, 78, 0)),
+    failed: Look::plain(Color::from_rgb8(170, 70, 60), Color::from_rgb8(150, 56, 48)),
+    projected: Look::plain(
+        Color::from_rgb8(130, 60, 190),
+        Color::from_rgb8(112, 46, 170),
+    ),
+    background: Look::plain(
+        Color::from_rgb8(150, 154, 164),
+        Color::from_rgb8(136, 140, 150),
+    ),
+    hole: LIGHT_CANVAS_HOLE,
+    outline: Color::from_rgb8(0, 0, 0),
+    preview_curve: Color::from_rgb8(110, 60, 210),
+    preview_point: Color::from_rgb8(90, 44, 190),
+    trimmed_curve: Color::from_rgb8(210, 40, 30),
+    cut_preview: Color::from_rgb8(220, 80, 70),
+    cut_preview_edge: Color::from_rgb8(180, 40, 30),
+    failed_body: Color::from_rgb8(200, 134, 124),
+    outdated_body: Color::from_rgb8(182, 170, 130),
+    background_body: Color::from_rgb8(196, 200, 208),
+    body_edge: Color::from_rgb8(30, 32, 38),
+    background_body_edge: Color::from_rgb8(150, 154, 164),
+    drawing_face: Color::from_rgb8(250, 250, 252),
+    chosen_region: translucent(canvas::LIGHT_CHROME.selected, CHOSEN_REGION_ALPHA),
+    open_region: Color::from_rgba8(40, 50, 70, 22),
+    closed_region: Color::from_rgba8(40, 100, 220, 48),
+    revolve_axis: Color::from_rgb8(196, 92, 0),
+    followed_edge: Color::from_rgb8(20, 104, 196),
+    centre_of_mass: Color::from_rgb8(176, 120, 0),
+    thread: Color::from_rgb8(28, 84, 150),
+    bands: LIGHT_BANDS,
+    comb: CombLook {
+        teeth: Color::from_rgb8(30, 130, 190),
+        envelope: Color::from_rgb8(0, 96, 150),
+        isocurve: Color::from_rgb8(150, 92, 0),
+        tooth_width: 1.0,
+        envelope_width: 2.0,
+        isocurve_width: 1.5,
+    },
+    snap: opaque(canvas::LIGHT_CHROME.snap),
+    measured: opaque(canvas::LIGHT_CHROME.measure),
+    problem: opaque(canvas::LIGHT_CHROME.error),
+    unchecked: opaque(canvas::LIGHT_CHROME.warning),
+    handle: opaque(canvas::LIGHT_CHROME.snap),
+    handle_highlighted: opaque(canvas::LIGHT_CHROME.hovered),
+    datum_edge: Color::from_rgba8(170, 100, 0, 230),
+    datum_fill: Color::from_rgba8(170, 100, 0, 26),
+    failed_datum_edge: Color::from_rgba8(170, 70, 60, 220),
+    failed_datum_fill: Color::from_rgba8(170, 70, 60, 26),
+    curve_width: CURVE_WIDTH,
+    heavy_curve_width: CURVE_WIDTH,
+    body_edge_width: 1.5,
+    point_diameter: POINT_DIAMETER,
+    hole_diameter: 0.0,
+    selection_widening: 1.0,
+    troubled_edges_dashed: false,
+};
+
+const LIGHT_BANDS: Bands = Bands {
+    drafted: Color::from_rgb8(30, 120, 50),
+    too_little_draft: Color::from_rgb8(140, 100, 0),
+    undercut: Color::from_rgb8(190, 40, 36),
+    too_tight: Color::from_rgb8(176, 30, 110),
+    blocked: Color::from_rgb8(100, 70, 200),
+    curvature: [
+        Color::from_rgb8(40, 80, 200),
+        Color::from_rgb8(16, 106, 146),
+        Color::from_rgb8(36, 116, 56),
+        Color::from_rgb8(150, 94, 0),
+        Color::from_rgb8(190, 50, 40),
+    ],
+};
+
+pub const LIGHT_HIGH_CONTRAST: ScenePalette = ScenePalette {
+    grid: Color::from_rgba8(40, 44, 52, 170),
+    origin: Color::from_rgb8(0, 0, 0),
+    plane_fill: Color::from_rgba8(40, 80, 160, 34),
+    plane_edge: Color::from_rgb8(30, 70, 150),
+    axes: [
+        Color::from_rgb8(170, 20, 20),
+        Color::from_rgb8(20, 110, 10),
+        Color::from_rgb8(20, 70, 190),
+    ],
+    sketch_horizontal_axis: Color::from_rgb8(170, 20, 20),
+    sketch_vertical_axis: Color::from_rgb8(20, 110, 10),
+    lines: LIGHT_LINE_HIGHLIGHTS,
+    faces: FACE_HIGHLIGHTS_ON_A_BODY,
+    under_constrained: Look::formed(
+        Color::from_rgb8(0, 0, 0),
+        Weight::Regular,
+        PointFill::Hollow,
+    ),
+    fully_constrained: Look::formed(
+        Color::from_rgb8(0, 100, 28),
+        Weight::Heavy,
+        PointFill::Solid,
+    ),
+    conflicting: Look::formed(Color::from_rgb8(170, 0, 0), Weight::Heavy, PointFill::Solid),
+    redundant: Look::formed(
+        Color::from_rgb8(140, 64, 0),
+        Weight::Heavy,
+        PointFill::Solid,
+    ),
+    failed: Look::formed(
+        Color::from_rgb8(150, 36, 28),
+        Weight::Regular,
+        PointFill::Solid,
+    ),
+    projected: Look::formed(
+        Color::from_rgb8(96, 26, 160),
+        Weight::Heavy,
+        PointFill::Solid,
+    ),
+    background: Look::formed(
+        Color::from_rgb8(84, 88, 98),
+        Weight::Regular,
+        PointFill::Solid,
+    ),
+    hole: LIGHT_CANVAS_HOLE,
+    outline: Color::from_rgb8(0, 0, 0),
+    preview_curve: Color::from_rgb8(90, 40, 180),
+    preview_point: Color::from_rgb8(70, 26, 160),
+    trimmed_curve: Color::from_rgb8(180, 20, 10),
+    cut_preview: Color::from_rgb8(220, 80, 70),
+    cut_preview_edge: Color::from_rgb8(160, 20, 10),
+    failed_body: Color::from_rgb8(200, 134, 124),
+    outdated_body: Color::from_rgb8(182, 170, 130),
+    background_body: Color::from_rgb8(214, 217, 224),
+    body_edge: Color::from_rgb8(0, 0, 0),
+    background_body_edge: Color::from_rgb8(84, 88, 98),
+    drawing_face: Color::from_rgb8(255, 255, 255),
+    chosen_region: translucent(canvas::LIGHT_CHROME.selected, CHOSEN_REGION_ALPHA),
+    open_region: Color::from_rgba8(40, 50, 70, 34),
+    closed_region: Color::from_rgba8(40, 100, 220, 64),
+    revolve_axis: Color::from_rgb8(170, 76, 0),
+    followed_edge: Color::from_rgb8(0, 84, 170),
+    centre_of_mass: Color::from_rgb8(150, 100, 0),
+    thread: Color::from_rgb8(0, 50, 130),
+    bands: LIGHT_BANDS,
+    comb: CombLook {
+        teeth: Color::from_rgb8(0, 96, 150),
+        envelope: Color::from_rgb8(20, 100, 190),
+        isocurve: Color::from_rgb8(140, 86, 0),
+        tooth_width: 1.5,
+        envelope_width: 3.0,
+        isocurve_width: 2.0,
+    },
+    snap: opaque(canvas::LIGHT_CHROME.snap),
+    measured: opaque(canvas::LIGHT_CHROME.measure),
+    problem: opaque(canvas::LIGHT_CHROME.error),
+    unchecked: opaque(canvas::LIGHT_CHROME.warning),
+    handle: opaque(canvas::LIGHT_CHROME.snap),
+    handle_highlighted: opaque(canvas::LIGHT_CHROME.hovered),
+    datum_edge: Color::from_rgb8(150, 86, 0),
+    datum_fill: Color::from_rgba8(150, 86, 0, 34),
+    failed_datum_edge: Color::from_rgb8(150, 36, 28),
+    failed_datum_fill: Color::from_rgba8(150, 36, 28, 34),
     curve_width: CURVE_WIDTH,
     heavy_curve_width: 3.5,
     body_edge_width: 2.0,
@@ -434,16 +687,27 @@ mod tests {
 
     const VISIBLE: f32 = 3.0;
 
-    fn channel(value: f64) -> u8 {
-        (value * 255.0).round().clamp(0.0, 255.0) as u8
+    fn every_palette() -> [(&'static ScenePalette, Canvas); 4] {
+        [
+            (&STANDARD, Canvas::Dark),
+            (&HIGH_CONTRAST, Canvas::Dark),
+            (&LIGHT_STANDARD, Canvas::Light),
+            (&LIGHT_HIGH_CONTRAST, Canvas::Light),
+        ]
     }
 
-    fn canvas() -> Color32 {
-        let background = caditor_render::BACKGROUND;
+    fn high_contrast_palettes() -> [(&'static ScenePalette, Canvas); 2] {
+        [
+            (&HIGH_CONTRAST, Canvas::Dark),
+            (&LIGHT_HIGH_CONTRAST, Canvas::Light),
+        ]
+    }
+
+    fn body() -> Color32 {
         Color32::from_rgb(
-            channel(background.r),
-            channel(background.g),
-            channel(background.b),
+            DEFAULT_COLOUR.red,
+            DEFAULT_COLOUR.green,
+            DEFAULT_COLOUR.blue,
         )
     }
 
@@ -472,85 +736,139 @@ mod tests {
     }
 
     #[test]
+    fn each_contrast_and_canvas_has_its_own_palette() {
+        for contrast in [Contrast::Standard, Contrast::High] {
+            for canvas in Canvas::ALL {
+                let expected = every_palette()
+                    .into_iter()
+                    .find(|(palette, on)| {
+                        *on == canvas
+                            && (palette.troubled_edges_dashed == (contrast == Contrast::High))
+                    })
+                    .map(|(palette, _)| palette)
+                    .unwrap();
+                assert_eq!(contrast.palette(canvas), expected);
+            }
+        }
+        assert_eq!(Canvas::Dark.colour(), Color32::from_rgb(27, 28, 31));
+        assert_eq!(Canvas::Light.colour(), Color32::from_rgb(226, 229, 234));
+    }
+
+    #[test]
+    fn markers_and_handles_stand_out_from_the_canvas() {
+        for (palette, canvas) in every_palette() {
+            for (what, color) in [
+                ("snap", palette.snap),
+                ("measurement", palette.measured),
+                ("problem", palette.problem),
+                ("unchecked", palette.unchecked),
+                ("handle", palette.handle),
+                ("highlighted handle", palette.handle_highlighted),
+            ] {
+                assert_visible(what, color, canvas.colour());
+            }
+        }
+    }
+
+    #[test]
     fn the_hole_of_a_hollow_point_is_the_canvas() {
-        assert_eq!(opaque32(CANVAS_HOLE), canvas());
+        for (palette, canvas) in every_palette() {
+            assert_eq!(opaque32(palette.hole), canvas.colour(), "{canvas:?}");
+        }
     }
 
     #[test]
     fn high_contrast_sketch_geometry_stands_out_from_the_canvas_and_dimmed_bodies() {
-        let palette = &HIGH_CONTRAST;
-        let dimmed = opaque32(palette.background_body);
-        let mut drawn_over_bodies = vec![
-            ("hovered", palette.lines.hovered),
-            ("selected", palette.lines.selected),
-            ("hovered and selected", palette.lines.hovered_selected),
-            ("sketch origin", palette.origin),
-            ("sketch horizontal axis", palette.sketch_horizontal_axis),
-            ("sketch vertical axis", palette.sketch_vertical_axis),
-            ("preview curve", palette.preview_curve),
-            ("preview point", palette.preview_point),
-            ("trimmed curve", palette.trimmed_curve),
-        ];
-        for state in SketchState::ALL {
-            let look = palette.look(state);
-            drawn_over_bodies.push(("sketch curve", look.curve));
-            drawn_over_bodies.push(("sketch point", look.point));
+        for (palette, canvas) in high_contrast_palettes() {
+            let canvas = canvas.colour();
+            let dimmed = opaque32(palette.background_body);
+            let mut drawn_over_bodies = vec![
+                ("hovered", palette.lines.hovered),
+                ("selected", palette.lines.selected),
+                ("hovered and selected", palette.lines.hovered_selected),
+                ("sketch origin", palette.origin),
+                ("sketch horizontal axis", palette.sketch_horizontal_axis),
+                ("sketch vertical axis", palette.sketch_vertical_axis),
+                ("preview curve", palette.preview_curve),
+                ("preview point", palette.preview_point),
+                ("trimmed curve", palette.trimmed_curve),
+            ];
+            for state in SketchState::ALL {
+                let look = palette.look(state);
+                drawn_over_bodies.push(("sketch curve", look.curve));
+                drawn_over_bodies.push(("sketch point", look.point));
+            }
+            for (what, color) in drawn_over_bodies {
+                assert_visible(what, color, canvas);
+                assert_visible(what, color, dimmed);
+            }
+            for (what, color) in [
+                ("grid", palette.grid),
+                ("x axis", palette.axis(Axis::X)),
+                ("y axis", palette.axis(Axis::Y)),
+                ("z axis", palette.axis(Axis::Z)),
+                ("plane edge", palette.plane_edge),
+                ("datum", palette.datum_edge),
+                ("failed datum", palette.failed_datum_edge),
+                ("revolve axis", palette.revolve_axis),
+                ("followed edge", palette.followed_edge),
+                ("cut preview edge", palette.cut_preview_edge),
+            ] {
+                assert_visible(what, color, canvas);
+            }
+            assert_visible("dimmed body edge", palette.background_body_edge, dimmed);
         }
-        for (what, color) in drawn_over_bodies {
-            assert_visible(what, color, canvas());
-            assert_visible(what, color, dimmed);
+    }
+
+    #[test]
+    fn the_light_canvas_keeps_its_sketch_states_and_grid_visible() {
+        let palette = &LIGHT_STANDARD;
+        let canvas = Canvas::Light.colour();
+        for state in SketchState::ALL
+            .into_iter()
+            .filter(|state| *state != SketchState::Background)
+        {
+            assert_visible("sketch curve", palette.look(state).curve, canvas);
         }
         for (what, color) in [
-            ("grid", palette.grid),
+            ("hovered", palette.lines.hovered),
+            ("selected", palette.lines.selected),
+            ("origin", palette.origin),
+            ("preview curve", palette.preview_curve),
             ("x axis", palette.axis(Axis::X)),
             ("y axis", palette.axis(Axis::Y)),
             ("z axis", palette.axis(Axis::Z)),
-            ("plane edge", palette.plane_edge),
-            ("datum", palette.datum_edge),
-            ("failed datum", palette.failed_datum_edge),
-            ("revolve axis", palette.revolve_axis),
-            ("followed edge", palette.followed_edge),
-            ("cut preview edge", palette.cut_preview_edge),
         ] {
-            assert_visible(what, color, canvas());
+            assert_visible(what, color, canvas);
         }
-        assert_visible("dimmed body edge", palette.background_body_edge, dimmed);
+        assert!(contrast_ratio(over(palette.grid, canvas), canvas) > 1.4);
     }
 
     #[test]
     fn high_contrast_edges_and_highlighted_faces_stand_out_on_a_body() {
-        let palette = &HIGH_CONTRAST;
-        let body = Color32::from_rgb(
-            DEFAULT_COLOUR.red,
-            DEFAULT_COLOUR.green,
-            DEFAULT_COLOUR.blue,
-        );
-        for (what, color) in [
-            ("edge", palette.body_edge),
-            ("thread", palette.thread),
-            ("hovered face", palette.faces.hovered),
-            ("selected face", palette.faces.selected),
-            ("hovered and selected face", palette.faces.hovered_selected),
-        ] {
-            assert_visible(what, color, body);
+        for (palette, _) in high_contrast_palettes() {
+            for (what, color) in [
+                ("edge", palette.body_edge),
+                ("thread", palette.thread),
+                ("hovered face", palette.faces.hovered),
+                ("selected face", palette.faces.selected),
+                ("hovered and selected face", palette.faces.hovered_selected),
+            ] {
+                assert_visible(what, color, body());
+            }
+            assert_visible(
+                "edge on a drawing face",
+                palette.body_edge,
+                opaque32(palette.drawing_face),
+            );
+            assert!(palette.body_edge_width > STANDARD.body_edge_width);
         }
-        assert_visible(
-            "edge on a drawing face",
-            palette.body_edge,
-            opaque32(palette.drawing_face),
-        );
-        assert!(palette.body_edge_width > STANDARD.body_edge_width);
     }
 
     #[test]
     fn the_centre_of_mass_marker_stands_out_from_its_outline_and_the_outline_from_a_body() {
-        let body = Color32::from_rgb(
-            DEFAULT_COLOUR.red,
-            DEFAULT_COLOUR.green,
-            DEFAULT_COLOUR.blue,
-        );
-        for palette in [&STANDARD, &HIGH_CONTRAST] {
-            let outline = opaque32(palette.hole);
+        for (palette, _) in every_palette() {
+            let outline = opaque32(palette.outline);
             for (what, color) in [
                 ("centre of mass", palette.centre_of_mass),
                 ("hovered centre of mass", palette.lines.hovered),
@@ -562,13 +880,13 @@ mod tests {
             ] {
                 assert_visible(what, color, outline);
             }
-            assert_visible("centre of mass outline", palette.hole, body);
+            assert_visible("centre of mass outline", palette.outline, body());
         }
     }
 
     #[test]
     fn the_analysis_bands_stand_out_from_the_canvas_and_from_each_other() {
-        for palette in [&STANDARD, &HIGH_CONTRAST] {
+        for (palette, canvas) in every_palette() {
             let bands = palette.bands;
             let all = [
                 ("drafted", bands.drafted),
@@ -578,7 +896,7 @@ mod tests {
                 ("blocked", bands.blocked),
             ];
             for (what, color) in all {
-                assert_visible(what, color, canvas());
+                assert_visible(what, color, canvas.colour());
             }
             for (index, (what, color)) in all.iter().enumerate() {
                 for (other, against) in all.iter().skip(index + 1) {
@@ -590,10 +908,10 @@ mod tests {
 
     #[test]
     fn the_curvature_map_steps_stand_out_from_the_canvas_and_from_each_other() {
-        for palette in [&STANDARD, &HIGH_CONTRAST] {
+        for (palette, canvas) in every_palette() {
             let steps = palette.bands.curvature;
             for (index, color) in steps.iter().enumerate() {
-                assert_visible("curvature step", *color, canvas());
+                assert_visible("curvature step", *color, canvas.colour());
                 for other in steps.iter().skip(index + 1) {
                     assert_ne!(color, other);
                 }
@@ -603,63 +921,64 @@ mod tests {
 
     #[test]
     fn the_curvature_comb_stands_out_from_its_outline_and_the_outline_from_a_body() {
-        let body = Color32::from_rgb(
-            DEFAULT_COLOUR.red,
-            DEFAULT_COLOUR.green,
-            DEFAULT_COLOUR.blue,
-        );
-        for palette in [&STANDARD, &HIGH_CONTRAST] {
-            let outline = opaque32(palette.hole);
+        for (palette, canvas) in every_palette() {
+            let outline = opaque32(palette.outline);
             for (what, color) in [
                 ("comb teeth", palette.comb.teeth),
                 ("comb envelope", palette.comb.envelope),
                 ("isocurve", palette.comb.isocurve),
             ] {
                 assert_visible(what, color, outline);
-                assert_visible(what, color, canvas());
+                assert_visible(what, color, canvas.colour());
             }
-            assert_visible("comb outline", palette.hole, body);
+            assert_visible("comb outline", palette.outline, body());
             assert!(palette.comb.envelope_width > palette.comb.tooth_width);
         }
     }
 
     #[test]
     fn high_contrast_tells_sketch_states_apart_without_colour() {
-        let palette = &HIGH_CONTRAST;
-        let free = palette.look(SketchState::UnderConstrained);
-        let fixed = palette.look(SketchState::FullyConstrained);
+        for (palette, _) in high_contrast_palettes() {
+            let free = palette.look(SketchState::UnderConstrained);
+            let fixed = palette.look(SketchState::FullyConstrained);
 
-        assert_ne!(free.weight, fixed.weight);
-        assert_ne!(free.fill, fixed.fill);
-        assert_eq!(free.fill, PointFill::Hollow);
-        for state in [
-            SketchState::FullyConstrained,
-            SketchState::Conflicting,
-            SketchState::Redundant,
-            SketchState::Projected,
-        ] {
-            assert_eq!(palette.look(state).weight, Weight::Heavy, "{state:?}");
-            assert_eq!(palette.look(state).fill, PointFill::Solid, "{state:?}");
+            assert_ne!(free.weight, fixed.weight);
+            assert_ne!(free.fill, fixed.fill);
+            assert_eq!(free.fill, PointFill::Hollow);
+            for state in [
+                SketchState::FullyConstrained,
+                SketchState::Conflicting,
+                SketchState::Redundant,
+                SketchState::Projected,
+            ] {
+                assert_eq!(palette.look(state).weight, Weight::Heavy, "{state:?}");
+                assert_eq!(palette.look(state).fill, PointFill::Solid, "{state:?}");
+            }
+            assert!(
+                palette.curve_width(Weight::Heavy) >= palette.curve_width(Weight::Regular) + 1.0
+            );
+            assert!(
+                palette.hole_diameter > 0.0
+                    && palette.hole_diameter <= palette.point_diameter - 4.0
+            );
+            assert_visible("a hollow point's ring", free.point, opaque32(palette.hole));
         }
-        assert!(palette.curve_width(Weight::Heavy) >= palette.curve_width(Weight::Regular) + 1.0);
-        assert!(
-            palette.hole_diameter > 0.0 && palette.hole_diameter <= palette.point_diameter - 4.0
-        );
-        assert_visible("a hollow point's ring", free.point, opaque32(palette.hole));
     }
 
     #[test]
-    fn the_standard_palette_draws_every_state_in_one_form() {
-        for state in SketchState::ALL {
-            let look = STANDARD.look(state);
+    fn the_standard_palettes_draw_every_state_in_one_form() {
+        for palette in [&STANDARD, &LIGHT_STANDARD] {
+            for state in SketchState::ALL {
+                let look = palette.look(state);
+                assert_eq!(
+                    (look.weight, look.fill),
+                    (Weight::Regular, PointFill::Solid)
+                );
+            }
             assert_eq!(
-                (look.weight, look.fill),
-                (Weight::Regular, PointFill::Solid)
+                palette.curve_width(Weight::Heavy),
+                palette.curve_width(Weight::Regular)
             );
         }
-        assert_eq!(
-            STANDARD.curve_width(Weight::Heavy),
-            STANDARD.curve_width(Weight::Regular)
-        );
     }
 }

@@ -10,12 +10,10 @@ use caditor_sketch::Reference;
 use crate::{
     manipulator::{self, Held},
     model::Model,
-    move_manipulator::{
-        ABOUT_AXIS, ARROW_POINTS, Arrow, GAP_POINTS, HIGHLIGHTED, HIT_POINTS, Handle,
-        segment_distance,
-    },
+    move_manipulator::{ARROW_POINTS, Arrow, GAP_POINTS, HIT_POINTS, Handle, segment_distance},
     reach_handles::start_offset,
     scene,
+    scene_palette::ScenePalette,
     units::Units,
 };
 
@@ -312,13 +310,13 @@ impl TurnHandles {
         Some(self.swing.at(self.grip(end)?.degrees))
     }
 
-    pub fn add_to(&self, batch: &mut Batch, highlighted: Option<Handle>) {
+    pub fn add_to(&self, batch: &mut Batch, palette: &ScenePalette, highlighted: Option<Handle>) {
         for grip in self.grips.iter().flatten() {
             let (from, tip, direction) = self.segment(*grip);
             let colour = if highlighted == Some(Handle::Revolve(grip.end)) {
-                HIGHLIGHTED
+                palette.handle_highlighted
             } else {
-                ABOUT_AXIS
+                palette.handle
             };
             Arrow {
                 from,

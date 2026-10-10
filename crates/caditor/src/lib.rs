@@ -158,6 +158,7 @@ mod split_panel;
 mod split_tools;
 mod status_bar;
 mod tangent_circling;
+mod themes;
 mod thread_panel;
 mod thread_tools;
 mod tidy_panel;

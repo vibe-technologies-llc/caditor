@@ -22,6 +22,7 @@ pub const AUTOMATIC_CONSTRAINTS: &str = phosphor::SPARKLE;
 pub const FIX: &str = phosphor::WRENCH;
 pub const EDIT: &str = phosphor::PENCIL_SIMPLE;
 pub const DONE: &str = phosphor::CHECK;
+pub const RELOAD: &str = phosphor::ARROW_CLOCKWISE;
 pub const MORE: &str = phosphor::DOTS_THREE;
 pub const DELETE: &str = phosphor::TRASH;
 pub const REMOVE_BODY: &str = phosphor::CUBE_FOCUS;

@@ -213,15 +213,15 @@ impl Drawn {
     pub fn add_to(&self, batch: &mut Batch, palette: &ScenePalette) {
         match &self.manipulator {
             Manipulator::Move(handles) => handles.add_to(batch, palette, self.highlighted),
-            Manipulator::Reach(handles) => handles.add_to(batch, self.highlighted),
+            Manipulator::Reach(handles) => handles.add_to(batch, palette, self.highlighted),
             Manipulator::Place(handles, length) => {
-                handles.add_to(batch, self.highlighted);
+                handles.add_to(batch, palette, self.highlighted);
                 if let Some(length) = length {
-                    length.add_to(batch, self.highlighted);
+                    length.add_to(batch, palette, self.highlighted);
                 }
             }
-            Manipulator::Length(handles) => handles.add_to(batch, self.highlighted),
-            Manipulator::Revolve(handles) => handles.add_to(batch, self.highlighted),
+            Manipulator::Length(handles) => handles.add_to(batch, palette, self.highlighted),
+            Manipulator::Revolve(handles) => handles.add_to(batch, palette, self.highlighted),
         }
     }
 }

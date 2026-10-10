@@ -22,6 +22,7 @@ mod selection_sets;
 mod settings;
 mod step_cache;
 mod storage;
+mod themes;
 mod untrusted;
 
 pub use crate::{
@@ -72,6 +73,10 @@ pub use crate::{
     storage::{
         Closing, Flusher, JournalFailure, KeepRequest, Report, SaveRequest, Start, Storage,
         StorageConfig, StorageStopped,
+    },
+    themes::{
+        MAX_THEME_FILE, MAX_THEME_FILES, ReadTheme, THEME_EXTENSION, THEMES_FOLDER, ThemeFile,
+        ThemeFileError, parse_theme, read_theme, read_themes, themes_folder,
     },
 };
 

@@ -38,11 +38,13 @@ finished. Each rule below avoids a failure mode FreeCAD is known for.
 - Everything works from the keyboard: every action is a palette command, and the viewport has
   keyboard views, camera moves, highlighting and typed coordinates. An action only a mouse can
   reach is not finished.
-- Every panel text colour meets 4.5:1 against its background in both themes (7:1 for body text in
-  high contrast), tested in `appearance.rs`. Colours come from `appearance::tokens` or the current
+- Every panel text colour meets 4.5:1 against its background in every theme, shipped or loaded
+  from a file (7:1 for body text in high contrast), checked by `appearance::check`, which refuses
+  a loaded theme in words naming the failing pair. Colours come from `appearance::tokens` or the current
   visuals, never fixed values; text on the dark 3D view uses the tested colours and backdrop of
   `canvas.rs`.
-- High contrast reaches the 3D view: its scene palette holds every line and point to 3:1 against
+- The 3D view is dark or light with the theme or on its own, each with its own chrome and scene
+  palette under the same checks. High contrast reaches the 3D view: its scene palette holds every line and point to 3:1 against
   the canvas and dimmed bodies, edges and highlighted faces to 3:1 on a body (`scene_palette.rs`),
   and no state is told by colour alone (`app-sketching.md`): selected geometry widens twice as
   much as hovered geometry (`selection_widening`), a failed or outdated body's edges are dashed

@@ -11,10 +11,10 @@ use crate::{
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
-        ABOUT_AXIS, ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIGHLIGHTED, HIT_POINTS, Handle,
-        segment_distance, step_for,
+        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, segment_distance, step_for,
     },
     scene,
+    scene_palette::ScenePalette,
     units::Units,
 };
 
@@ -233,12 +233,12 @@ impl LengthHandles {
         Some(from.lerp(tip, 0.6) + self.direction * along)
     }
 
-    pub fn add_to(&self, batch: &mut Batch, highlighted: Option<Handle>) {
+    pub fn add_to(&self, batch: &mut Batch, palette: &ScenePalette, highlighted: Option<Handle>) {
         let (from, tip) = self.segment();
         let colour = if highlighted == Some(Handle::Length) {
-            HIGHLIGHTED
+            palette.handle_highlighted
         } else {
-            ABOUT_AXIS
+            palette.handle
         };
         Arrow {
             from,

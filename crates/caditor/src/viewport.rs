@@ -55,7 +55,7 @@ use crate::{
     scene::{self, BuiltScene, EditedSketch, Highlight, PickTable, SketchShapes, Sources},
     scene_cache::{Overlay, Revisions, SceneCache, SceneInputs},
     scene_description::{Item, SceneDescription},
-    scene_palette::Contrast,
+    scene_palette::{Canvas, Contrast},
     section::{self, SectionCommand},
     sectioned_screen::SectionedScreen,
     selection::{Pickable, Selection, SelectionFilter},
@@ -349,6 +349,7 @@ pub struct ViewportState {
     filter_applies: bool,
     style: DisplayStyle,
     contrast: Contrast,
+    canvas: Canvas,
     snapping: bool,
     grid_snapping: bool,
     lasso: bool,
@@ -546,6 +547,7 @@ impl ViewportState {
             filter_applies: true,
             style: DisplayStyle::default(),
             contrast: Contrast::default(),
+            canvas: Canvas::default(),
             snapping: true,
             grid_snapping: false,
             lasso: false,
@@ -648,6 +650,14 @@ impl ViewportState {
 
     pub fn set_contrast(&mut self, contrast: Contrast) {
         self.contrast = contrast;
+    }
+
+    pub fn set_canvas(&mut self, canvas: Canvas) {
+        self.canvas = canvas;
+    }
+
+    pub fn canvas(&self) -> Canvas {
+        self.canvas
     }
 
     pub fn filter(&self) -> SelectionFilter {
@@ -1062,6 +1072,7 @@ impl ViewportState {
                 aids: self.aids,
                 analyses: &self.analyses,
                 contrast: self.contrast,
+                canvas: self.canvas,
             },
             context.solid,
         );
@@ -1081,6 +1092,7 @@ impl ViewportState {
                 aids: self.aids,
                 analysed: self.analyses.finished(),
                 contrast: self.contrast,
+                canvas: self.canvas,
                 draft: model.draft_generation(),
             },
             context,
@@ -1097,6 +1109,7 @@ impl ViewportState {
         self.problems = problems(model);
         self.scenes.show(Overlay {
             contrast: self.contrast,
+            canvas: self.canvas,
             plane,
             previews: vec![
                 self.drawing.preview(faceting),
@@ -1244,6 +1257,7 @@ impl ViewportState {
             aids: ViewAids::default(),
             analyses: &Analyses::default(),
             contrast: Contrast::Standard,
+            canvas: Canvas::Dark,
             draft: None,
         };
         let context = editing.context();
@@ -3822,6 +3836,7 @@ impl ViewportState {
                 aids: self.aids,
                 analyses: &self.analyses,
                 contrast: self.contrast,
+                canvas: self.canvas,
             },
             editing.context().solid,
         );
@@ -4035,7 +4050,7 @@ impl ViewportState {
                     Align2::CENTER_BOTTOM,
                     label,
                     canvas::body(),
-                    canvas::MEASURE,
+                    canvas::chrome(painter.ctx()).measure,
                 );
                 canvas::announce(ui, shown, "measure", label, None);
             }
@@ -4043,16 +4058,19 @@ impl ViewportState {
         if let Some(view) = self.view() {
             let interference = self.interference.iter().map(|mark| {
                 let color = match mark.kind {
-                    MarkKind::Overlap => canvas::ERROR,
-                    MarkKind::Touch => canvas::MEASURE,
-                    MarkKind::Unchecked => canvas::WARNING,
+                    MarkKind::Overlap => canvas::chrome(painter.ctx()).error,
+                    MarkKind::Touch => canvas::chrome(painter.ctx()).measure,
+                    MarkKind::Unchecked => canvas::chrome(painter.ctx()).warning,
                 };
                 (mark.place, &mark.label, color)
             });
-            let failures = self
-                .problems
-                .iter()
-                .map(|problem| (problem.place, &problem.label, canvas::ERROR));
+            let failures = self.problems.iter().map(|problem| {
+                (
+                    problem.place,
+                    &problem.label,
+                    canvas::chrome(painter.ctx()).error,
+                )
+            });
             for (index, (place, label, color)) in failures.chain(interference).enumerate() {
                 let Some(pixel) = view.project(place) else {
                     continue;
@@ -4100,7 +4118,7 @@ impl ViewportState {
                 Align2::LEFT_TOP,
                 &label,
                 canvas::small(),
-                canvas::SNAP,
+                canvas::chrome(painter.ctx()).snap,
             );
             canvas::announce(ui, shown, "snap", &label, None);
         }
@@ -4121,7 +4139,7 @@ impl ViewportState {
                 Align2::LEFT_TOP,
                 &size,
                 canvas::small(),
-                canvas::TEXT,
+                canvas::chrome(painter.ctx()).text,
             );
             canvas::announce(ui, shown, "drawing size", &size, None);
         }
@@ -4149,7 +4167,7 @@ impl ViewportState {
                 Align2::LEFT_TOP,
                 &cue,
                 canvas::small(),
-                canvas::WARNING,
+                canvas::chrome(painter.ctx()).warning,
             );
             canvas::announce(ui, shown, "drag blocked", &cue, Some(Live::Polite));
         }
@@ -4171,7 +4189,7 @@ impl ViewportState {
                 painter,
                 &text,
                 canvas::readout(),
-                canvas::TEXT,
+                canvas::chrome(painter.ctx()).text,
                 f32::INFINITY,
             );
             let wanted = Align2::LEFT_BOTTOM.anchor_size(bottom_left, label.size());
@@ -4193,7 +4211,7 @@ impl ViewportState {
                 painter,
                 text,
                 canvas::readout(),
-                canvas::TEXT,
+                canvas::chrome(painter.ctx()).text,
                 f32::INFINITY,
             );
             let wanted =
@@ -4424,7 +4442,7 @@ impl ViewportState {
             painter,
             description.clone(),
             canvas::body(),
-            canvas::TEXT,
+            canvas::chrome(painter.ctx()).text,
             band.width(),
         );
         let mut min = band.left_top();
@@ -4470,7 +4488,13 @@ fn top_band(rect: Rect) -> Rect {
 
 fn paint_prompt(painter: &egui::Painter, rect: Rect, band: Rect, text: &str, keys: &str) -> Rect {
     let width = band.width().min(PROMPT_MAX_WIDTH);
-    let title = canvas::Label::new(painter, text, canvas::title(), canvas::PROMPT, width);
+    let title = canvas::Label::new(
+        painter,
+        text,
+        canvas::title(),
+        canvas::chrome(painter.ctx()).prompt,
+        width,
+    );
     let hints = canvas::Hints::new(painter, keys, width, Align::Center);
     let reach = PROMPT_MARGIN + title.size().y + canvas::MARGIN / 2.0 + hints.size().y;
     let hints = (rect.top() + reach <= rect.bottom() - view_cube::TRIAD_WIDTH).then_some(hints);
@@ -4504,7 +4528,7 @@ fn paint_area(painter: &egui::Painter, rect: Rect, area: &ScreenArea) {
             let outline: Vec<egui::Pos2> = points.iter().map(|point| corner(*point)).collect();
             painter.add(Shape::closed_line(
                 outline,
-                Stroke::new(BOX_STROKE_WIDTH, canvas::SELECTED),
+                Stroke::new(BOX_STROKE_WIDTH, canvas::chrome(painter.ctx()).selected),
             ));
             return;
         }
@@ -4515,17 +4539,25 @@ fn paint_area(painter: &egui::Painter, rect: Rect, area: &ScreenArea) {
             painter.rect_filled(
                 drawn,
                 0.0,
-                canvas::SELECTED.gamma_multiply(BOX_FILL_OPACITY),
+                canvas::chrome(painter.ctx())
+                    .selected
+                    .gamma_multiply(BOX_FILL_OPACITY),
             );
             painter.rect_stroke(
                 drawn,
                 0.0,
-                Stroke::new(BOX_STROKE_WIDTH, canvas::SELECTED),
+                Stroke::new(BOX_STROKE_WIDTH, canvas::chrome(painter.ctx()).selected),
                 egui::StrokeKind::Inside,
             );
         }
         BoxMode::Crossing => {
-            painter.rect_filled(drawn, 0.0, canvas::SNAP.gamma_multiply(BOX_FILL_OPACITY));
+            painter.rect_filled(
+                drawn,
+                0.0,
+                canvas::chrome(painter.ctx())
+                    .snap
+                    .gamma_multiply(BOX_FILL_OPACITY),
+            );
             let outline = [
                 drawn.left_top(),
                 drawn.right_top(),
@@ -4535,7 +4567,7 @@ fn paint_area(painter: &egui::Painter, rect: Rect, area: &ScreenArea) {
             ];
             painter.extend(Shape::dashed_line(
                 &outline,
-                Stroke::new(BOX_STROKE_WIDTH, canvas::SNAP),
+                Stroke::new(BOX_STROKE_WIDTH, canvas::chrome(painter.ctx()).snap),
                 BOX_DASH,
                 BOX_GAP,
             ));
@@ -4617,6 +4649,7 @@ struct SourceParts<'a> {
     aids: ViewAids,
     analyses: &'a Analyses,
     contrast: Contrast,
+    canvas: Canvas,
 }
 
 fn scene_sources<'a>(
@@ -4633,6 +4666,7 @@ fn scene_sources<'a>(
         aids: parts.aids,
         analyses: parts.analyses,
         contrast: parts.contrast,
+        canvas: parts.canvas,
         draft: solid.and_then(|feature| model.draft_evaluation_of(feature)),
     }
 }

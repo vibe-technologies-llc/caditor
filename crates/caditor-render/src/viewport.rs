@@ -864,6 +864,7 @@ pub struct ViewportRenderer {
     pick_refused: bool,
     pick_window: Option<ClipWindow>,
     sectioned: bool,
+    background: wgpu::Color,
 }
 
 impl ViewportRenderer {
@@ -928,6 +929,7 @@ impl ViewportRenderer {
             pick_refused: false,
             pick_window: None,
             sectioned: false,
+            background: BACKGROUND,
         }
     }
 
@@ -977,6 +979,14 @@ impl ViewportRenderer {
 
     pub fn set_shading(&mut self, shading: Shading) {
         self.shading = shading;
+    }
+
+    pub fn set_background(&mut self, background: wgpu::Color) {
+        self.background = background;
+    }
+
+    pub fn background(&self) -> wgpu::Color {
+        self.background
     }
 
     pub fn picking(&mut self) -> &mut Picking {
@@ -1044,10 +1054,11 @@ impl ViewportRenderer {
         };
 
         let Some(targets) = self.targets.as_ref() else {
-            clear_surface(encoder, surface);
+            clear_surface(encoder, surface, self.background);
             return faults;
         };
         let shown = Shown {
+            background: self.background,
             rect: viewport.map(|viewport| viewport.rect),
             grid: viewport.is_some_and(|viewport| viewport.scene.grid.is_some()),
         };
@@ -1090,7 +1101,7 @@ impl ViewportRenderer {
                 depth_slice: None,
                 resolve_target: attachment.resolve_target,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(BACKGROUND),
+                    load: wgpu::LoadOp::Clear(self.background),
                     store: attachment.store,
                 },
             })],
@@ -1184,6 +1195,7 @@ impl ViewportRenderer {
             pick_refused: false,
             pick_window: None,
             sectioned: false,
+            background: self.background,
         }
     }
 
@@ -1232,7 +1244,7 @@ impl ViewportRenderer {
             anchor: self.anchor.unwrap_or_else(|| request.view.eye()),
             pixels_per_point: valid_scale(request.pixels_per_point),
             clear: match request.background {
-                Background::Viewport => BACKGROUND,
+                Background::Viewport => self.background,
                 Background::Transparent => wgpu::Color::TRANSPARENT,
             },
             grid: request.scene.grid.is_some(),
@@ -1695,7 +1707,11 @@ struct AnchoredView<'a> {
     anchor: Point3,
 }
 
-fn clear_surface(encoder: &mut wgpu::CommandEncoder, surface: &SurfaceTarget<'_>) {
+fn clear_surface(
+    encoder: &mut wgpu::CommandEncoder,
+    surface: &SurfaceTarget<'_>,
+    background: wgpu::Color,
+) {
     drop(encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("viewport background"),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1703,7 +1719,7 @@ fn clear_surface(encoder: &mut wgpu::CommandEncoder, surface: &SurfaceTarget<'_>
             depth_slice: None,
             resolve_target: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(BACKGROUND),
+                load: wgpu::LoadOp::Clear(background),
                 store: wgpu::StoreOp::Store,
             },
         })],

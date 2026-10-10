@@ -8,8 +8,16 @@ const ICON_GAP: f32 = 5.0;
 
 pub fn show(ui: &Ui, view: Rect) {
     let painter = ui.painter();
-    let icon = painter.layout_no_wrap(icons::UPLOADING.to_owned(), canvas::icon(), canvas::MUTED);
-    let text = painter.layout_no_wrap(TEXT.to_owned(), canvas::small(), canvas::MUTED);
+    let icon = painter.layout_no_wrap(
+        icons::UPLOADING.to_owned(),
+        canvas::icon(),
+        canvas::chrome(painter.ctx()).muted,
+    );
+    let text = painter.layout_no_wrap(
+        TEXT.to_owned(),
+        canvas::small(),
+        canvas::chrome(painter.ctx()).muted,
+    );
 
     let content = vec2(
         icon.size().x + ICON_GAP + text.size().x,
@@ -25,8 +33,8 @@ pub fn show(ui: &Ui, view: Rect) {
     let inner = badge.shrink2(canvas::PADDING);
     let icon_at = Align2::LEFT_CENTER.anchor_size(inner.left_center(), icon.size());
     let text_at = Align2::RIGHT_CENTER.anchor_size(inner.right_center(), text.size());
-    painter.galley(icon_at.min, icon, canvas::MUTED);
-    painter.galley(text_at.min, text, canvas::MUTED);
+    painter.galley(icon_at.min, icon, canvas::chrome(painter.ctx()).muted);
+    painter.galley(text_at.min, text, canvas::chrome(painter.ctx()).muted);
 
     canvas::announce(ui, badge, NAME, TEXT, None);
 }

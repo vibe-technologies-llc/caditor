@@ -414,14 +414,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   found again in the copy's recomputed result (by matching it in the original's) before the paste
   is applied. Pasted features also take no group, and a copy from another model keeps none of its
   references outside the copied set.
-- [low · hard] Themes are four fixed `Tokens` sets in `appearance.rs` (dark, light and their
-  high-contrast variants) and the 3D view is dark in all of them. Add themes as data: a few shipped
-  ones beyond dark and light, a choice of accent colour, a light 3D view (background, grid, edges
-  and the `canvas.rs` chrome) chosen with the theme or on its own, and user themes loaded from the
-  config directory and picked in Preferences with a live preview. Every theme, shipped or loaded,
-  goes through the contrast checks `appearance.rs` runs today (4.5:1, 7:1 for body text in high
-  contrast), and a loaded theme that fails them or cannot be read is refused in words, naming the
-  colour pair, with the previous theme kept.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's

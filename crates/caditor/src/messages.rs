@@ -30,7 +30,7 @@ pub fn dialog(ctx: &egui::Context, model: &Model) -> bool {
                     let kind = recorded.notice.kind;
                     let tone = kind.tone();
                     ui.horizontal_top(|ui| {
-                        widgets::described_icon(ui, tone.icon(), tone.color(tokens), kind.label());
+                        widgets::described_icon(ui, tone.icon(), tone.color(&tokens), kind.label());
                         ui.vertical(|ui| {
                             ui.label(&recorded.notice.text);
                             ui.label(widgets::muted(ago(recorded.at), ui));

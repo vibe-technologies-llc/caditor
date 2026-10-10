@@ -36,6 +36,10 @@ impl OffscreenRenderer {
         })
     }
 
+    pub fn set_background(&mut self, background: wgpu::Color) {
+        self.viewport.set_background(background);
+    }
+
     pub fn render(&mut self, request: &ImageRequest<'_>) -> Result<ImageBands, ImageError> {
         let tile_side = TILE_SIDE.min(self.device.limits().max_texture_dimension_2d);
         let viewport = &self.viewport;

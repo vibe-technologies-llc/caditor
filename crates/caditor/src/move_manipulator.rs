@@ -8,10 +8,9 @@ use caditor_geometry::{
 use caditor_render::{Batch, Color, Fill, Layer, Line, Stroke, View};
 
 use crate::{
-    canvas,
     manipulator::{self, Held},
     model::Model,
-    move_panel, scene,
+    move_panel,
     scene_palette::ScenePalette,
     selection::Axis,
     solid_panel,
@@ -146,9 +145,6 @@ fn axis_colour(palette: &ScenePalette, axis: MoveAxis) -> Color {
         MoveAxis::Z => Axis::Z,
     })
 }
-
-pub const HIGHLIGHTED: Color = scene::opaque(canvas::HOVERED);
-pub const ABOUT_AXIS: Color = scene::opaque(canvas::SNAP);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Turning {
@@ -418,7 +414,7 @@ impl MoveHandles {
         let manipulator = self;
         let colour = |handle: Handle, axis: MoveAxis| {
             if highlighted == Some(handle) {
-                HIGHLIGHTED
+                palette.handle_highlighted
             } else {
                 axis_colour(palette, axis)
             }
@@ -440,8 +436,8 @@ impl MoveHandles {
             };
             let colour = match handle {
                 Handle::Turn(axis) => colour(handle, axis),
-                _ if highlighted == Some(handle) => HIGHLIGHTED,
-                _ => ABOUT_AXIS,
+                _ if highlighted == Some(handle) => palette.handle_highlighted,
+                _ => palette.handle,
             };
             for pair in ring.windows(2) {
                 if let [start, end] = pair {

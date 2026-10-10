@@ -168,7 +168,7 @@ impl IsocurveDrawing {
         let halos = self
             .lines
             .iter()
-            .map(|segment| line(*segment, palette.hole, look.isocurve_width + HALO_WIDTH));
+            .map(|segment| line(*segment, palette.outline, look.isocurve_width + HALO_WIDTH));
         let lines = self
             .lines
             .iter()
