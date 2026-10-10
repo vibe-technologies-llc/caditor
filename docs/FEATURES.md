@@ -230,12 +230,25 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
+- [medium · easy] The command line exports only the active configuration: `caditor --export`
+  (`cli.rs`, `headless.rs`) takes no configuration, though the window already exports one file
+  per configuration (`configuration_export.rs`, `ConfigurationJob`), so size variants kept as
+  configurations cannot be exported from a script or CI. Add `--configuration NAME` and
+  `--all-configurations`, naming files as the window does; this is not the scripting entry below,
+  which needs a language and safety decision this does not.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge
   found again in the copy's recomputed result (by matching it in the original's) before the paste
   is applied. Pasted features also take no group, and a copy from another model keeps none of its
   references outside the copied set.
+- [low · medium] The configurations table cannot leave or enter the model as a spreadsheet:
+  parameters round-trip through CSV with a preview (`caditor-file` `parameters.rs`,
+  `Document::plan_parameter_import`), but configurations, the variant families usually kept in a
+  spreadsheet (fastener or enclosure sizes), are typed cell by cell in their dialog. A CSV of
+  rows by configured values (parameter expressions, suppression, body colour) planned and applied
+  as one checked transaction would close the pair; the column header format and unknown names
+  need settling first.
 - [low · hard] No automation: nothing can be driven by a script or macro, as Fusion's scripts and
   add-ins do, to make repetitive geometry, run a batch over files or add a tool. An interface
   would go through `Action`s and `Transaction`s like the UI, so scripts cannot break the model's
@@ -243,3 +256,4 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   or the network unasked).
 - [low · hard] One document per process.
 - [low · hard] No localisation.
+

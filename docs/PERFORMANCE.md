@@ -56,16 +56,41 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Interface
 
+- [medium · easy] Frames and scene rebuilds walk linear lists once per item, unmeasured but
+  quadratic on large imports (one feature per body, so a 954-body assembly is about 954 features):
+  `Highlight::is_of_chosen_row` scans the tree's chosen rows with `contains` for every face and
+  edge of every body on each base-scene rebuild; the Bodies tree lays out every body row each frame
+  with no off-screen skip, looking each up with `Document::feature` and building a visibility
+  `Transaction` and label per row; the feature tree tests `chosen.contains` per row and runs
+  `group_run` (a fresh `Vec` of every feature) per group header; `BodyMeshes::update` rebuilds the
+  whole body map every frame though a generation would skip it; the keyboard highlight is checked
+  with `highlightable().contains` over every pickable each frame; and with a face analysis open
+  `Analyses::of` retains and scans every entry once per body, so the legend is O(B²) a frame and
+  computes `shown_meshes` again. Sorted sets, generation keys and the feature tree's off-screen
+  rows would make each a lookup; time them on an import first.
+- [medium · medium] `Document::feature` and `feature_index` scan the feature list, and are called
+  inside per-body and per-item loops: `body_snap::Basis::of` runs `is_shown` for every body every
+  frame a sketch is edited, `whole_bodies` every frame the Bodies filter hovers a face,
+  `Selection::is_available` once per selected item when the selection or revision changes (whole
+  bodies of an import are tens of thousands of faces), and `InsertFeature` checks ids and names in
+  O(F), so a transaction adding N imports is O(N²). An index from id to position, kept by every
+  structural edit (or rebuilt lazily), makes them logarithmic.
 - [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of
   that to upload for a sketch of 24,000 curves in a release build. A batch per feature, with pick
   ids of its own, would limit both to what changed.
+- [low · easy] The sketch fillet clones the whole sketch every frame it aims at a crossing:
+  `Filleting::hovered` calls `aim.found_in(&mut sketch.clone())` while a first curve is chosen and
+  the pointer is over a second, and `prepared` clones it again every frame once a crossing corner
+  is chosen and its radius dragged, O(sketch) a pointer move on a large sketch. Cache the prepared
+  sketch by the displayed sketch's generation and the aims.
 - [low · hard] Snapping projects every point and curve of the sketch on every hover frame
   (`snap.rs`), a cost linear in the sketch that is most of the frame for tens of thousands of lines,
   mostly walking the entities, and a line or slot end walks every line again to find the nearest for
   parallel and perpendicular inference (`drawing.rs` `guides`); a screen-space index would need the
   preimage of the snap radius on the sketch plane, unbounded near the horizon.
+
 
 ## Sketch solver
 
@@ -79,3 +104,12 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   Jacobian per free direction); a larger part keeps the `STIFF` solve's pose, or the last frame's
   when that fails, so a long chain dragged past its reach stops instead of following. A sparse
   null-space basis, or Hessian-vector products inside CGLS, would lift the limit.
+
+## Recompute
+
+- [low · easy] A recompute builds a glimpse before every feature it evaluates: `offer_glimpse`
+  returns early only when nothing was recomputed since the last glimpse, which is never true once
+  a feature was evaluated, so `glimpse` clones the statuses, bodies and inputs and walks the rest
+  of the tree before each feature, and `into_evaluation` builds `Measured::of` again though the run
+  holds it, O(F²) for a cold open of a long tree while the presenter keeps only the latest glimpse
+  and reports none before `FEATURES_DONE_AFTER`. Build one only once a report is due.

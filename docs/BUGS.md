@@ -5,8 +5,65 @@ its reproduction or pinning test where one exists.
 
 Entries are tagged and ordered as `ROADMAP.md` describes.
 
+## Files and recovery
+
+- [high · easy] A 3MF import can crash the whole app: `import/mesh.rs` parses the model part and
+  `_rels/.rels` with `roxmltree::Document::parse`, whose tokenizer recurses once per nesting level
+  (the reason `import/svg/xml.rs` exists, `file-import-export.md`), so a part of some 100,000
+  nested elements, a few hundred bytes deflated, overflows the import thread's stack, which
+  `catch_unwind` cannot catch. Parse both parts with `xml.rs`, which bounds depth and elements, and
+  pin it with a deeply nested part.
+- [high · easy] A 3MF's components expand without a total budget: `add_object` recurses through
+  `<component>` up to `MAX_COMPONENT_DEPTH` (16) and copies the leaf mesh for every instance, so
+  16 objects of 4 components each place about 4·10⁹ meshes from a few kilobytes until the
+  allocator aborts, and the loop never polls the cancel token, so Cancel does not stop it; objects
+  are also found by a linear scan per item and component. DXF, SVG and STEP charge
+  `MAX_EXPANDED_OBJECTS` or `MAX_INSTANCES`; charge placed objects and triangles here the same way,
+  index objects in an `UntrustedMap` and poll the cancel.
+- [high · easy] A save can replace an outside change without asking: `save_with` compares the
+  file's head with `unless_changed_from` only before encoding, and encoding (zstd at level 9,
+  thinning, recompressing versions) can take seconds on a large model; a sync client or another
+  program writing the file meanwhile is then renamed over, neither kept as a version nor reported
+  as `ChangedOnDisk`. `write_sharing` even notices (`changed_since_read`), logs and carries on.
+  Check again in the read-back closure, by `changed_since_read` and by the target's `FileKey`
+  against the file read (a rename-replace leaves the old handle's stamp unchanged, also on
+  Windows), and do the same in `set_version_kept`.
+- [high · medium] One damaged byte in a journal's snapshot withholds every change after it:
+  `decode_journal` returns `DamagedJournal` when the `Snapshot` chunk fails its checksum, though
+  the header and entries are intact, so `journal_for` sets the journal aside, the scan never
+  offers it and it is deleted after `SET_ASIDE_KEPT_SECONDS`. A plain snapshot is the last saved
+  state by definition: when the model file's head digest equals the header's `on_disk`, load the
+  file as the base, replay the entries and report it; a `RebasedSnapshot` keeps today's handling.
+- [medium · easy] Quitting while an export runs drops it silently: `Files::request(Intent::Quit)`
+  only abandons an open in flight, `run` closes storage and quits without asking
+  `Exporter::is_running` or the image export, and their threads die with the process, leaving
+  only a temporary. Ask first ("An export to … is still running") or let the Closing modal wait
+  for it as it waits for storage.
+- [medium · easy] Three concatenated zstd frames still reach the port's history underflow that
+  `SPARE_ROOM` was meant to rule out (`zstd.md`): a frame filling the recorded size, one filling
+  the spare byte and a third holding sequences start the third on an empty output, where
+  `totalHistorySize` is computed before the port's empty-output guard, so builds with overflow
+  checks (tests, fuzzing, `cargo run`) can abort inside `extern "C"` on a crafted `VersionData`
+  chunk with valid checksums; release builds wrap and fail as before. Refuse a payload that is not
+  exactly one frame (`ZSTD_findFrameCompressedSize`) and pin three frames beside the two-frame
+  test.
+- [low · easy] The read-back before a save's rename checks records only: `binary::reads_back`
+  checks chunk checksums and the head and records digests, never decoding the delta written for
+  the state the save replaces, nor deltas rewritten by thinning, so a compressor defect there would
+  leave the most restored version unrebuildable, found only when a restore is refused. Rebuild
+  version 0 (and any rewritten delta) against its digest in `check_reads_back`.
+
 ## Kernel
 
+- [high · easy] Offset face renames edges that had to be told apart: the shell's inner solid ends
+  with `built.renamed(|name, origin| (name, origin))`, and `Solid::renamed` sets every edge to
+  plain `between` or `seam` of its faces with none of the `between_at`/`occurrence`
+  disambiguation `derived_edge_names` does, while `offset_faces` (`Naming::Kept`) returns that
+  solid as it is. On a block whose top a groove splits into two pieces of one name, offsetting
+  any other face leaves both groove edges named `between(top, groove)` with the same ends, so a
+  fillet holding either fails as `Ambiguous`, against `kernel-operations.md`'s promise that kept
+  names keep their edges. Rename only for `Naming::Shell`, or through `derived_edge_names`, and pin
+  edge references across an offset (the offset tests compare face names only).
 - [high · hard] Booleans between the fixture solids in random placements all succeed on the
   survey's seed (`boolean::tests::random_placements_of_every_fixture`, ignored), but another seed
   still fails an extruded spline against a torus with `Invalid(EdgeOffSurface)` (an edge 1.3e-6 off
@@ -53,8 +110,17 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   them down to 1e-7, and the mesh then uses one edge twice in the same direction
   (`assert_watertight` fails on it).
 
+
 ## Modelling
 
+- [high · easy] A parameter derived from a measurement keeps an old result when its other inputs
+  change: the global `ParameterValues::evaluate` makes every parameter reading a measurement
+  `Unmeasured`, `fingerprint` turns that error into `None`, and `Key::of` fingerprints the
+  feature's parameters from those global values with only the measurement in its upstream. With
+  Measurement 1 feeding `clearance`, `half = clearance / k` and a datum point offset by `half`,
+  changing `k` from 2 to 4 reuses the cached point though Parameters shows the new `half`; tests
+  miss it because their `evaluate` helper builds a fresh `Recompute`. Fingerprint from the
+  overlaid values of the feature's view, or add every parameter the derived ones reach.
 - [high · hard] An edge reference keeps only the piece that kept its curve's id when an upstream
   sketch edit splits the edge, silently: the 10×8×4 block of `blend_tests` with its front and left
   top edges filleted 1 mm, whose front sketch line is then notched (lines from (4, 0) to (4, 2),
@@ -67,6 +133,32 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
+- [medium · easy] A Split, or a Move that copies, cannot be edited once something uses its body:
+  `SetFeatureKind` keeps a body only for imports and new-body solids and primitives, so any other
+  kind whose id another feature's `bodies_used` holds is refused as `BodyInUse`, though
+  `makes_body` is true for both. Changing a split's plane under a fillet on the split-off part is
+  refused, and so are Update references (`healing.rs` emits the same edit) and, through one
+  refused edit, the whole `complete_origins` transaction on loading, logged only. Decide it as
+  `Feature { kind: new, .. }.makes_body()`.
+- [medium · easy] Sketch dimensions escape the measurement-order check: `set_dimension` and
+  `add_sketch_constraint` check references only, and `check_measurement_order` runs on
+  `SetFeatureKind` and `InsertFeature`, which a sketch never takes after insertion. A dimension of
+  the sketch an extrusion sweeps, set to the parameter a measurement of that extrusion feeds, is
+  accepted, closing a cycle the rules refuse as `MeasurementBelowUser`; recompute then fails the
+  sketch blaming the measurement, which cannot be moved above it. Run the check on the edited
+  sketch in both edits.
+- [medium · easy] A fillet hides the chamfer form it keeps from parameter uses: `Blend::expressions`,
+  `expressions_mut`, `parameters` and `uses_parameter` go through `chamfer_form`, which is `Equal`
+  for a fillet, so a chamfer by two distances using `d2`, switched to a fillet, lets `d2` be
+  deleted (and inlining and pasting miss it), after which switching back fails as
+  `MissingParameter`; a pasted fillet keeps the source model's raw id. `document.md` says the extra
+  expression counts among the feature's; make the four read `form` whatever the kind.
+- [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
+  cut through without measuring) does not cut, so the exact depth must be found. Not reproduced in
+  `caditor-document` on a flat plate (one side, 10 mm to 999999 mm, volumes right), so the cause
+  is outside that path: a curved or filleted body, the open cut's tool meshed and shown at a
+  100 m length, the drag arrow or the camera. Reproduce through the UI harness first; Through all
+  already covers the intent and should be offered when a distance reaches far past the body.
 - [medium · hard] A concave fillet running out under a rounded rim whose fill reaches nearly to
   the rim's tangent with the top face (a 3 mm fillet on a notch floor 3.5 mm under a puck's top
   with a 3 mm rim) fails as a face that could not be divided; smaller ones and chamfers work
@@ -96,6 +188,44 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   face nor a round face to clip by); until then the remedy should say to move the feature above
   the one that blended the corner
   (`blend::tests::vertical_edges_are_rounded_after_the_top_rim_is_chamfered`, ignored).
+- [low · easy] Undo undercounts a sketch's size: `FeatureKind::approximate_size` for a sketch counts
+  entities, constraints and projections but not its `uses` map, `inactive`, `labels`,
+  `construction` and `projected` sets or the attachment's neighbour names, so deleting a sketch of
+  100,000 imported curves keeps several megabytes past `MAX_UNDO_BYTES`. Give `Sketch` a
+  `heap_size` covering every map.
+
+
+## Application
+
+- [medium · easy] Reload import from its file and Replace from file touch the file on the UI
+  thread: `kept_source` calls `is_file` and `replace_import` calls `import::is_model` (which opens
+  and reads a file whose extension is unknown) before the import thread starts, so an import whose
+  share has gone (NFS, SMB) freezes the window, against `ux.md`; the ordinary import runs the same
+  check on its thread. Move both checks into the `start_import` job.
+- [medium · easy] A new model keeps two ids from the last one: `Workspace::sync` resets every
+  panel holding ids but `MeasureTool::relative_to` and the analysis's `Pull::Picked`, which then
+  resolve against the new document's features of the same id (a coordinate system the user never
+  chose, or a warning naming an unrelated feature). Clear both in the new-session branch, as the
+  comb's and section's `forget` are, with a test like theirs.
+- [medium · easy] A sketch drag or a constraint trial lands after an undo: a drag still solving at
+  release keeps `finishing` and `poll` hands the solution to `commit_drag` with no revision
+  check, and a trial's verdict up to `PATIENCE` later applies the transaction it was built with,
+  so Ctrl+Z pressed in that window is overwritten on top and its redo dropped. Carry the revision
+  in `Finished` and in `Trials::Running` and drop a stale result with a notice.
+- [low · easy] Two caches miss the units: the offers' `Basis` holds only the length unit while
+  `Offers::size` writes sweeps and half angles in the angle unit, and `scene_description::Key`
+  holds no unit while it speaks lengths, so switching degrees to radians, or the length unit,
+  leaves the status bar and the 3D view's description stale until the selection or model
+  changes. Key them on `Units`.
+- [low · easy] The 3D view's description can read "-0": `scene_description.rs` trims
+  `format!("{:.3}")` without the `-0` guard `caditor-expression`'s `format_number` has, so a
+  direction component of -0.0002 is spoken "along -0, 0.707, 0.707". Nine copies of that trimming
+  have drifted (`hole_standard.rs` lacks the guard too); one shared function would end it.
+- [low · easy] A frame that panics mid-drag leaves the drag shown: `after_failed_frame` resets the
+  interface but never sends `DragCommand::Cancel` (Escape and `Model::switch_to` do), and
+  `Display::evaluated` clears only a released drag, so the sketch stays at its uncommitted
+  positions for snapping, Measure and region picks until the next edit, and the worker's drag
+  carries on from the old start.
 
 ## Sketching
 
@@ -141,14 +271,26 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
   edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
   outright when the file declares no precision.
+- [medium · easy] A body that cannot be rebuilt is reported with kernel internals:
+  `describe_build` (`read/topology.rs`) puts a `ValidationError`'s or `BuildError`'s own text in
+  the note ("does not make a closed, valid solid (shell ShellId(0) has Euler characteristic 1,
+  …)"), Debug ids and topology words included, which reaches the import report and the failure
+  notice, against `ux.md`. Word each validation error plainly in an exhaustive match, log the raw
+  text, and pin that no note holds `Id(`.
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve
   cannot be read still loses the whole body. An offset that folds anywhere in its basis's domain
   is refused even where the face's own region is clear: fit over the region the face uses.
 
+
 ## Viewer
 
+- [medium · easy] The axis triad in the corner of the 3D view draws in fixed colours:
+  `view_cube::show_axis_triad` takes `Axis::rgb()` (the dark canvas's red, green and blue) for its
+  lines and letters, never `ScenePalette::axis`, so on the light canvas its Y reads at about 1.7:1
+  and high contrast never reaches it, and its letters have no backdrop, against `ux.md`. Draw it
+  from the palette, put the letters on `canvas::backdrop` and add it to the palette checks.
 - [low · medium · blocked by: wgpu's GL backend] On GL and other devices without texture view
   formats the multisample resolve still averages in gamma space. A resolve of its own (a pass
   reading the samples through a `texture_multisampled_2d` and averaging them in linear light) was
@@ -156,3 +298,4 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   multisampled texture as `TEXTURE_2D` (`gles::Texture::get_info_from_desc` never chooses
   `TEXTURE_2D_MULTISAMPLE`), so every sample reads as zero there and the frame comes out black. It
   needs that fixed in wgpu, or a GL-only blit resolve into an sRGB texture.
+
