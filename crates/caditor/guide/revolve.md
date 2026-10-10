@@ -7,6 +7,10 @@ The axis is the line, construction line, sketch axis, datum axis, principal axis
 round face selected last; select it together with the sketch before choosing Revolve. In the
 panel, {command:model.use_selected_axis} or Choose in the view changes it.
 
+With flat faces of one body selected that lie in one plane, and an axis, straight edge or round
+face selected with them, Revolve turns those faces about it and adds the result to their body,
+through a hidden sketch that follows their edges.
+
 ## Extent
 
 - **Full turn**, **One side** by an angle, **Symmetric** both ways, or **Two sides** each with its

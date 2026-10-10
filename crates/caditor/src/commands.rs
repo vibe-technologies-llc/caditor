@@ -1193,7 +1193,7 @@ impl Command {
             Self::ContextMenu => "Show the context menu",
             Self::HideSelection => "Hide selection",
             Self::HideOthers => "Hide everything but the selection",
-            Self::LookAtFace => "Look straight at the selected face",
+            Self::LookAtFace => "Look straight at the selection",
             Self::LookAtSketch => "Look straight at the edited sketch",
             Self::SelectAllShapes => "Select all faces, edges or vertices",
             Self::SelectTangentEdges => "Select the edges tangent to the selected edges",

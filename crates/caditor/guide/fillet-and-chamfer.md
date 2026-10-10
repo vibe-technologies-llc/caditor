@@ -1,7 +1,9 @@
 # Fillet and chamfer
 
 {command:model.fillet} rounds edges of a body and {command:model.chamfer} bevels them. Select one
-or more edges of one body, then choose the tool.
+or more edges of one body, then choose the tool. A selected face stands for every edge around it,
+and a body chosen in the tree, with nothing selected in the view, for every edge of the body; the
+edges are taken as they are then, so edges a later change adds to that face are not rounded.
 
 While it is open, the edges of the body before it can be clicked in the view to add or leave them
 out; the panel lists the chosen ones in words, each with a button to leave it out, and hovering

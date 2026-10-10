@@ -8,8 +8,8 @@ body, or cuts them into one.
 - With the sketch being edited, or curves or regions of one sketch selected, it extrudes that
   sketch. Selected regions alone are swept; selecting curves that close up sweeps what they
   enclose.
-- With one flat face of a body selected, it extrudes that face outward, through a hidden sketch
-  that follows the face.
+- With flat faces of one body selected that lie in one plane, it extrudes them outward together,
+  through a hidden sketch that follows their edges.
 - With nothing selected, it takes the last sketch not yet swept.
 
 In the open panel, click regions in the view to add or leave them out, and

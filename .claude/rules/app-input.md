@@ -195,9 +195,13 @@ paths:
   suppressed or rolled-back feature with the reason.
 - Window commands (minimize, maximize or restore, full screen) are egui viewport commands
   (`window_frame::commands`); closing the window is Quit.
-- Viewport commands cover measure, standard views, looking straight at the one selected flat face
-  (outward normal from `sketch_placement::face_to_look_at`, framed on the face like Fit view),
-  projection, orbit, pan and zoom. Fit view, Show where, looking at a face or sketch and the
+- Viewport commands cover measure, standard views, looking straight at the selection
+  (`look_at::look_target`, framed on it like Fit view: a flat face along its outward normal, a
+  principal, datum or coordinate system plane along its normal, the geometry of one sketch facing
+  its solved plane with its axes, a round face, straight edge or axis along it from the side the
+  view is on; pressed, or Look at sketch pressed, while the view already looks that way it turns a
+  quarter turn about that direction, `look_at::quarter_turned`, while entering a sketch only
+  faces it), projection, orbit, pan and zoom. Fit view, Show where, looking at a face or sketch and the
   orbit, pan and zoom keys start from where the camera is heading (`Camera::destination_view`),
   not the view shown mid-turn, so a key pressed during an animation never keeps a half-turned
   view; the keys glide (`Camera::glide_to`) and the orbit step is `KEYBOARD_ORBIT_FRACTION` of the

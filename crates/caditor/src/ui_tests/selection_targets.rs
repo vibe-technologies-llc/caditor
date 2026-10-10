@@ -270,8 +270,14 @@ fn a_fillet_and_a_shell_say_what_they_left_out_of_the_selection() {
         body: plate,
         edge: top_edge_along_x(&harness, plate, 0.0),
     };
+    let corner = harness
+        .built()
+        .picks
+        .pickables()
+        .find(|pickable| matches!(pickable, Pickable::Vertex { body, .. } if *body == plate))
+        .expect("a corner of the plate is pickable");
 
-    harness.select([edge, top]);
+    harness.select([edge, corner]);
     harness.click("Fillet");
     harness.settle();
     let fillet_told = notice_text(&harness);
@@ -286,7 +292,7 @@ fn a_fillet_and_a_shell_say_what_they_left_out_of_the_selection() {
 
     assert_eq!(
         fillet_told,
-        "Fillet takes edges only, so 1 face selected was left out."
+        "Fillet takes edges, faces and bodies only, so 1 vertex selected was left out."
     );
     assert_eq!(
         shell_told,

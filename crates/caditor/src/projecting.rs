@@ -136,7 +136,7 @@ pub fn project(
             let result = seen_or_refuse(model, sketch, body)?;
             let id =
                 bodies::find_face(result, face).ok_or_else(|| later_geometry(document, sketch))?;
-            face_projections(result, body, id, &plane)
+            face_projections(result, body, &[id], &plane)
         }
         Pickable::SketchEntity { feature, entity } => {
             let position = |id: FeatureId| document.features().position(|other| other.id() == id);
@@ -189,10 +189,13 @@ pub fn project(
 pub fn face_projections(
     result: &SolidResult,
     body: FeatureId,
-    face: FaceId,
+    faces: &[FaceId],
     plane: &Plane,
 ) -> Vec<(ProjectionSource, Outline)> {
-    let mut edges: Vec<EdgeId> = face_boundary(&result.solid, face);
+    let mut edges: Vec<EdgeId> = faces
+        .iter()
+        .flat_map(|face| face_boundary(&result.solid, *face))
+        .collect();
     let mut seen_edges = BTreeSet::new();
     edges.retain(|edge| seen_edges.insert(*edge));
     edges

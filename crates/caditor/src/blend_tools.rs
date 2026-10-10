@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use caditor_document::{
     Blend, BlendKind, ChamferForm, Document, Edit, Evaluation, Feature, FeatureId, FeatureKind,
-    Transaction,
+    SolidResult, Transaction,
 };
 use caditor_expression::{Expression, Unit};
 use caditor_kernel::{EdgeId, EdgeName, EdgeNaming, EdgeReference, Solid, blend_chain};
@@ -27,29 +27,86 @@ pub struct EdgeSource {
     pub left_out: Vec<Pickable>,
 }
 
-pub fn selected_edges(selection: &Selection) -> Result<EdgeSource, &'static str> {
+pub const NOTHING_TO_BLEND: &str =
+    "Select edges or faces of a body, or choose a body in the tree, first";
+pub const SEVERAL_BODIES: &str = "Select edges or faces of one body only";
+const FACE_GONE: &str = "A selected face is no longer part of the model";
+const NO_EDGES: &str = "The selected faces or body have no edges to round";
+
+pub fn selected_edges(
+    model: &Model,
+    selection: &Selection,
+    tree: &[FeatureId],
+) -> Result<EdgeSource, &'static str> {
+    match tree {
+        [] => edges_of_selection(model, selection),
+        [body] => edges_of_body(model, *body),
+        [_, _, ..] => Err(SEVERAL_BODIES),
+    }
+}
+
+fn edges_of_body(model: &Model, body: FeatureId) -> Result<EdgeSource, &'static str> {
+    let shown = bodies::shown(model.evaluation(), body).ok_or(NO_SHAPE)?;
+    let edges = edge_names(shown, shown.solid.edges().map(|(id, _)| id));
+    if edges.is_empty() {
+        return Err(NO_EDGES);
+    }
+    Ok(EdgeSource {
+        body,
+        edges,
+        left_out: Vec::new(),
+    })
+}
+
+fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource, &'static str> {
     let mut body = None;
     let mut edges = Vec::new();
     let mut left_out = Vec::new();
     for pickable in selection.iter() {
-        if let Pickable::Edge { body: owner, edge } = pickable {
-            match body {
-                Some(known) if known != owner => return Err("Select edges of one body only"),
-                _ => body = Some(owner),
+        let owner = match pickable {
+            Pickable::Edge { body, .. } | Pickable::Face { body, .. } => body,
+            _ => {
+                left_out.push(pickable);
+                continue;
             }
-            edges.push(edge);
-        } else {
-            left_out.push(pickable);
+        };
+        match body {
+            Some(known) if known != owner => return Err(SEVERAL_BODIES),
+            _ => body = Some(owner),
+        }
+        match pickable {
+            Pickable::Face { face, .. } => {
+                let shown = bodies::shown(model.evaluation(), owner).ok_or(NO_SHAPE)?;
+                let found = bodies::find_face(shown, face).ok_or(FACE_GONE)?;
+                edges.extend(edge_names(
+                    shown,
+                    body_selection::face_boundary(&shown.solid, found),
+                ));
+            }
+            Pickable::Edge { edge, .. } => edges.push(edge),
+            _ => {}
         }
     }
-    match body {
-        Some(body) => Ok(EdgeSource {
-            body,
-            edges,
-            left_out,
-        }),
-        None => Err("Select the edges of a body first"),
+    let body = body.ok_or(NOTHING_TO_BLEND)?;
+    let mut seen = BTreeSet::new();
+    edges.retain(|edge| seen.insert(*edge));
+    if edges.is_empty() {
+        return Err(NO_EDGES);
     }
+    Ok(EdgeSource {
+        body,
+        edges,
+        left_out,
+    })
+}
+
+fn edge_names(shown: &SolidResult, edges: impl IntoIterator<Item = EdgeId>) -> Vec<EdgeName> {
+    edges
+        .into_iter()
+        .filter(|edge| !bodies::is_seam(&shown.solid, *edge))
+        .filter_map(|edge| shown.solid.edge(edge))
+        .map(|edge| edge.name())
+        .collect()
 }
 
 pub fn create(
@@ -102,7 +159,7 @@ pub fn create_actions(
         Ok((transaction, feature)) => {
             let told = body_selection::left_out_words(&source.left_out).map(|words| {
                 Action::Inform(Notice::warning(format!(
-                    "{} takes edges only, so {words}.",
+                    "{} takes edges, faces and bodies only, so {words}.",
                     kind.title()
                 )))
             });
@@ -324,17 +381,24 @@ pub fn with_selected_edges(
         .flat_map(|resolution| blend_chain(solid, resolution.found()))
         .collect();
     let mut changed = blend.clone();
-    for pickable in selection.iter() {
-        let Pickable::Edge { body, edge } = pickable else {
+    let picked: Vec<EdgeId> = selection
+        .iter()
+        .filter(|pickable| pickable.body() == Some(blend.body))
+        .flat_map(|pickable| match pickable {
+            Pickable::Edge { edge, .. } => bodies::find_edge(input, edge).into_iter().collect(),
+            Pickable::Face { face, .. } => bodies::find_face(input, face)
+                .map(|face| body_selection::face_boundary(solid, face))
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|edge| !bodies::is_seam(solid, *edge))
+                .collect(),
+            _ => Vec::new(),
+        })
+        .collect();
+    for found in picked {
+        if taken.contains(&found) {
             continue;
-        };
-        let Some(found) = (body == blend.body)
-            .then(|| bodies::find_edge(input, edge))
-            .flatten()
-            .filter(|found| !taken.contains(found))
-        else {
-            continue;
-        };
+        }
         changed
             .edges
             .push(EdgeReference::capture_in(&naming, found)?);

@@ -40,7 +40,8 @@ paths:
 - Entering faces the camera to the plane, fits it, dims other features (unpickable) and keeps only
   that sketch selected.
 - Look at sketch (`Command::LookAtSketch`, Alt+Shift+V, the palette and the button beside Finish
-  in the sketch bar) animates back to the same facing view at any time while editing.
+  in the sketch bar) animates back to the same facing view at any time while editing, and turns it
+  a quarter turn when the view already faces the sketch.
 - The edited sketch, its origin and axes and the drawing preview go on `Layer::Front`
   (`render.md`), so a body never hides or z-fights with them wherever the sketch lies.
 - Slice the bodies at the sketch plane (`SectionCommand::SliceSketch`, Sketch menu, palette, no

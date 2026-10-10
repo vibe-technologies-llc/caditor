@@ -949,10 +949,13 @@ fn feature_panel_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) 
     shoot_open(model, gpu, out, "panel-extrude", look);
 
     let pickables: Vec<Pickable> = model.built().picks.pickables().collect();
-    let edge = pickables.iter().find_map(|pickable| {
-        let selection = only(*pickable);
-        blend_tools::selected_edges(&selection).ok()
-    });
+    let edge = pickables
+        .iter()
+        .filter(|pickable| matches!(pickable, Pickable::Edge { .. }))
+        .find_map(|pickable| {
+            let selection = only(*pickable);
+            blend_tools::selected_edges(&model.model, &selection, &[]).ok()
+        });
     if let Some(source) = edge {
         let actions = blend_tools::create_actions(
             model.document(),
