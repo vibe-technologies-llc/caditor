@@ -771,6 +771,7 @@ dependencies = [
 name = "caditor-windows"
 version = "0.1.0"
 dependencies = [
+ "parking_lot",
  "raw-window-handle",
  "windows-sys 0.61.2",
 ]
