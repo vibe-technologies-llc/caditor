@@ -229,6 +229,7 @@ pub(crate) struct JournalContents {
 #[error("the recovery journal is damaged")]
 pub(crate) struct DamagedJournal;
 
+#[cfg(any(test, feature = "fuzzing"))]
 pub(crate) fn decode_journal(bytes: &[u8]) -> Result<JournalContents, DamagedJournal> {
     decode_journal_with(bytes, |_, _| None)
 }
