@@ -22,10 +22,11 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   takes no taper, up to next or curved face; a revolve turns up to a face or plane only when it
   holds the axis, never up to a curved face or the next face it meets; and a hole stops at the
   next face only where that face is flat.
-- [medium · hard] Blends: only line and circle edges along planes, parallel cylinders and coaxial
-  surfaces; no ellipse, spline or intersection edges, not even a straight edge beside a spline
-  extrusion face; ends at steps and T-junctions refused; no variable radius; a round corner only
-  for three convex straight edges meeting at three planes (other corners mitre). Missing as shapes
+- [medium · hard] Blends: ends at steps and T-junctions refused, and a lofted chain (an edge that is
+  no line along its faces nor a circle about their axis, and the tangent chain holding it) refused
+  where it ends at a rounded corner; a lofted chain's feet are not checked against other blends'
+  feet; no variable radius; a round corner only for three convex straight edges meeting at three
+  planes (other corners mitre). Missing as shapes
   of their own: a full-round fillet across a narrow face between two others, a fillet sized by
   chord length, a fillet that runs by a rule over every edge of a kind, setback corners where three
   fillets meet, a tangency weight, and a curvature-continuous (G2) fillet.

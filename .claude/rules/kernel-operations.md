@@ -250,12 +250,56 @@ paths:
   pair that cannot be united stays apart; a pair whose bounding boxes lie more than `APART_TOOLS`
   apart is joined as separate lumps by `Solid::beside`, without a boolean, valid by construction)
   and each group is applied in one boolean, or tool by tool when that fails.
-- Supported: straight edges whose faces run along them (planes, parallel cylinders), swept by
-  extrusion; circles whose faces share their axis, swept by revolution; else `Unsupported`. A
-  revolved profile may reach the axis (a fillet as large as the round fill it runs along, where a
-  notch's back edge continues up the ends of its rounded sides) when neither end extends, the
-  touching point becoming a pole; one crossing the axis, or reaching it with an end that extends,
-  is `TooLarge`.
+- Swept exactly: straight edges whose faces run along them (planes, parallel cylinders), by
+  extrusion; circles whose faces share their axis, by revolution. A revolved profile may reach
+  the axis (a fillet as large as the round fill it runs along, where a notch's back edge continues
+  up the ends of its rounded sides) when neither end extends, the touching point becoming a pole;
+  one crossing the axis, or reaching it with an end that extends, is `TooLarge`.
+- Every other sharp edge between two faces of any surface kind (ellipses, splines, intersection
+  curves: a pocket's rim on a cylinder, torus or sphere, its rounded corners' rims, a hole meeting
+  a tapered side at a slant, a rim along a spline face) is blended by a lofted tool
+  (`general.rs`), and so is the whole tangent chain holding one (`chain.rs` orders a chain into
+  runs, a closed edge alone split in two), so joints never pair a swept tool with a lofted one.
+  When the swept tools of a choice fail in their profile, sweep or boolean, the same edges are
+  blended again lofted before the error is reported (`planned_and_applied`). `Unsupported` is
+  left for an edge not between two faces and a chain turning from convex to concave.
+- A lofted run is solved in sections (`station.rs`): at each station a plane through the edge
+  point square to the tangent (the cross product of the faces' normals, smooth where a marched
+  edge's own tangent is not), in which Newton on the true surfaces finds the rolling ball's centre
+  and its contacts (a fillet), or the feet at the chord distances or at the angle (chamfers),
+  started from the section of the faces' tangent planes. The faces searched for a contact are the
+  run's own and those reached from them across smooth edges (`tangent_faces`), the nearest
+  solution with both feet inside its faces winning; a run is split where a contact moves onto the
+  next face, at the parameter where the contact crosses the edge the two faces share, found by
+  bisection on its signed distance from that edge, so every piece is smooth on one face per side.
+  A chamfer's split is moved `BREAK_OFFSET` past that edge, as a tool joint lying on a body edge
+  leaves the boolean nothing to divide; a fillet's is not, since its contact moves by the radius
+  over the face's radius times the offset. Sections are doubled from `FIRST_STATIONS` until the
+  rows interpolated through them hold the sections between them within `OUTLINE_FIT` (a chamfer)
+  or `FOOT_FIT` for the chord and feet and `ARC_FIT` for the arc (a fillet), at most
+  `MAX_STATIONS` (`Intricate` beyond). The station tangents of a piece blend linearly into the
+  joint tangents, and the two sections meeting at a joint, solved on slightly different faces, are
+  averaged when within `JOINT_GAP` (else `Intricate`), so neighbouring pieces share it exactly.
+- The tool (`loft.rs`) is a prism of ruled B-spline faces through each section's outline: the
+  chord between the feet overhanging both by `OVERHANG` of its length, so it crosses the faces
+  transversally, and an apex `APEX_REACH` reaches out along the feet's normal bisector (into the
+  body for a concave edge), with planar caps at an open chain's ends. Square, slanted and round
+  ends all take the swept tool's `End`s, except that a square end is extended and, where the
+  extension would change something, clipped, rather than flush (`SquareEnd::Past`): the stations
+  run on past the end along the faces' own intersection (`on_both`), so the clip or trim cuts the
+  loft where it is smooth, never at a joint. A lofted chain ending at a rounded corner (a
+  `Setback`) is `UnsupportedEnd`; a section with no ball or feet, or with a foot outside its
+  faces before an end plane, is `TooLarge`; `feet.rs` does not check lofted feet against other
+  blends' feet.
+- A chamfer is the tool's boolean. A fillet's boolean leaves the chord faces, which `rounding.rs`
+  turns into the fillet: each face named after a lofted run is matched to its chord surface and
+  given the rolling-ball surface lofted through the same sections (a rational B-spline, cubic
+  along the run, the exact circular arc across it at every section), its sense voted by the
+  normals at its edges' middles; its edges along the feet take the feet's rows, its joints the
+  section's arc, and every other edge (against an end face, or another lofted fillet) is traced
+  again between its vertices on the new surfaces (`IntersectionCurve::through`). The solid is
+  rebuilt through `SolidBuilder` with every pcurve on a changed face or edge fitted again, and
+  validated.
 - `TooLarge` covers a blend that does not fit on both faces at sampled points along the edge, whose
   foot on a face crosses an edge of that face (other than seams and edges at the blended edge's
   ends), whose foot crosses another blend's on that face (`feet.rs`; edges sharing a vertex

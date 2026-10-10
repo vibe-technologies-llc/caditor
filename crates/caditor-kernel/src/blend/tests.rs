@@ -14,7 +14,7 @@ use crate::{
 
 const SPANDREL_CENTROID: f64 = (10.0 - 3.0 * PI) / (12.0 - 3.0 * PI);
 
-fn spandrel(radius: f64) -> f64 {
+pub(super) fn spandrel(radius: f64) -> f64 {
     (1.0 - PI / 4.0) * radius * radius
 }
 
@@ -24,7 +24,7 @@ fn moved(solid: Solid, offset: (f64, f64, f64)) -> Solid {
     solid.transformed(&transform).unwrap()
 }
 
-fn swept(plane: Plane, curves: &[ProfileCurve], height: f64) -> Solid {
+pub(super) fn swept(plane: Plane, curves: &[ProfileCurve], height: f64) -> Solid {
     let regions = Profile::new(curves)
         .unwrap()
         .select(&Selection::EvenDepth)
@@ -32,7 +32,7 @@ fn swept(plane: Plane, curves: &[ProfileCurve], height: f64) -> Solid {
     extrude(&plane, &regions, LinearExtent::one_side(height).unwrap(), 1).unwrap()
 }
 
-fn polygon(points: &[(f64, f64)]) -> Vec<ProfileCurve> {
+pub(super) fn polygon(points: &[(f64, f64)]) -> Vec<ProfileCurve> {
     (0..points.len())
         .map(|index| {
             line(
@@ -44,7 +44,7 @@ fn polygon(points: &[(f64, f64)]) -> Vec<ProfileCurve> {
         .collect()
 }
 
-fn volume(solid: &Solid) -> f64 {
+pub(super) fn volume(solid: &Solid) -> f64 {
     solid
         .tessellate(&SamplingTolerance::new(1e-3, 0.05).unwrap())
         .unwrap()
@@ -52,7 +52,7 @@ fn volume(solid: &Solid) -> f64 {
         .volume
 }
 
-fn check(name: &str, solid: &Solid, expected: f64) {
+pub(super) fn check(name: &str, solid: &Solid, expected: f64) {
     assert_eq!(solid.validate(), Ok(()), "{name}");
     assert_watertight(name, &solid.tessellate(&solid.default_tolerance()).unwrap());
     let found = volume(solid);
@@ -62,7 +62,7 @@ fn check(name: &str, solid: &Solid, expected: f64) {
     );
 }
 
-fn edge_through(solid: &Solid, point: (f64, f64, f64)) -> EdgeId {
+pub(super) fn edge_through(solid: &Solid, point: (f64, f64, f64)) -> EdgeId {
     let point = Point3::new(point.0, point.1, point.2);
     solid
         .edges()
@@ -74,14 +74,14 @@ fn edge_through(solid: &Solid, point: (f64, f64, f64)) -> EdgeId {
         .unwrap_or_else(|| panic!("no edge passes through {point}"))
 }
 
-fn run(solid: &Solid, edges: &[EdgeId], shape: BlendShape) -> Solid {
+pub(super) fn run(solid: &Solid, edges: &[EdgeId], shape: BlendShape) -> Solid {
     match blend(solid, edges, shape, 50) {
         Ok(result) => result,
         Err(error) => panic!("blend failed: {error}"),
     }
 }
 
-fn fillet(radius: f64) -> BlendShape {
+pub(super) fn fillet(radius: f64) -> BlendShape {
     BlendShape::Fillet { radius }
 }
 
@@ -508,13 +508,6 @@ fn every_refusal_names_what_cannot_be_blended() {
         Err(BlendError::MissingEdge(gone))
     );
 
-    let bulged = crate::fixtures::spline_topped_block(10.0, 4.0, 3.0);
-    let rim = edge_through(&bulged, (5.0, 0.0, 4.0));
-    assert_eq!(
-        blend(&bulged, &[rim], fillet(0.5), 1),
-        Err(BlendError::Unsupported(rim))
-    );
-
     let sheared = swept(
         Plane::XY,
         &polygon(&[(0.0, 0.0), (10.0, 0.0), (10.0, 5.0), (-60.0, 5.0)]),
@@ -857,7 +850,7 @@ fn tools_apart_are_joined_as_lumps_without_a_boolean() {
     assert!(matches!(stopped, Err(BooleanError::Cancelled(_))));
 }
 
-fn block_at(min: (f64, f64, f64), size: (f64, f64, f64), feature: u64) -> Solid {
+pub(super) fn block_at(min: (f64, f64, f64), size: (f64, f64, f64), feature: u64) -> Solid {
     let (x, y, z) = min;
     let (width, depth, height) = size;
     let curves = polygon(&[

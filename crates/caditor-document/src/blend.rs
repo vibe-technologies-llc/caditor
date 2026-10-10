@@ -417,10 +417,16 @@ impl Context<'_> {
             ),
             BlendError::Unsupported(_) => self.error(
                 format!(
-                    "A {noun} cannot follow {edge}: only straight edges along flat or cylindrical \
-                     faces, and circular edges around an axis, can be blended."
+                    "A {noun} cannot follow {edge}: the faces there do not meet along one edge \
+                     on each side, or the edge turns from an outer corner to an inner one."
                 ),
-                "Leave this edge out.".to_owned(),
+                "Blend the outer and inner parts of the edge in separate features, or leave \
+                 this edge out."
+                    .to_owned(),
+            ),
+            BlendError::Intricate(_) => self.error(
+                format!("The faces next to {edge} curve too sharply for the {noun} to follow."),
+                format!("Enter a smaller {what}, or leave this edge out."),
             ),
             BlendError::Smooth(_) => self.error(
                 format!("The faces meet smoothly at {edge}, so there is no corner to blend."),
@@ -462,7 +468,11 @@ impl Context<'_> {
                     "Blend the inner and the outer edges in separate features.".to_owned(),
                 )
             }
-            BlendError::Profile { .. } | BlendError::Sweep { .. } | BlendError::Boolean { .. } => {
+            BlendError::Profile { .. }
+            | BlendError::Sweep { .. }
+            | BlendError::Boolean { .. }
+            | BlendError::Loft { .. }
+            | BlendError::Rounding { .. } => {
                 log::warn!("{} could not be built: {error}", self.feature.name);
                 match error.edge() {
                     Some(_) => self.error(

@@ -12,6 +12,7 @@ use thiserror::Error;
 
 pub(crate) use self::{
     clip::{guided_intervals, inside_intervals},
+    linear::solve_dense,
     patch::{boxes_overlap, patch_bounds, wrap_into},
     surface_surface::line_window,
 };

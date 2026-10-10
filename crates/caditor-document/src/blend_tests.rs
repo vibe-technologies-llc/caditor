@@ -1227,3 +1227,139 @@ fn a_lost_face_fails_the_blend_in_words_about_the_face() {
         "A chosen face is no longer part of the body of Base."
     );
 }
+
+fn rounded_rectangle() -> Sketch {
+    let mut sketch = Sketch::new(Plane::XY);
+    let point = Point2::new;
+    sketch.add_line(point(3.0, 0.0), point(17.0, 0.0));
+    sketch.add_arc(point(17.0, 3.0), point(17.0, 0.0), point(20.0, 3.0));
+    sketch.add_line(point(20.0, 3.0), point(20.0, 13.0));
+    sketch.add_arc(point(17.0, 13.0), point(20.0, 13.0), point(17.0, 16.0));
+    sketch.add_line(point(17.0, 16.0), point(3.0, 16.0));
+    sketch.add_arc(point(3.0, 13.0), point(3.0, 16.0), point(0.0, 13.0));
+    sketch.add_line(point(0.0, 13.0), point(0.0, 3.0));
+    sketch.add_arc(point(3.0, 3.0), point(0.0, 3.0), point(3.0, 0.0));
+    sketch
+}
+
+fn through_hole(document: &mut Document, body: FeatureId, sketch: SketchFeature) {
+    let mut transaction = document.transaction("Drill");
+    let sketch = transaction.add_feature("Side hole sketch", FeatureKind::Sketch(sketch));
+    transaction.add_feature(
+        "Side hole",
+        FeatureKind::Hole(Hole {
+            sketch,
+            body,
+            diameter: mm("4"),
+            depth: HoleDepth::ThroughAll,
+            style: HoleStyle::Plain,
+            reversed: false,
+            shape: HoleShape::Round,
+            standard: None,
+            sizing: HoleSizing::Typed,
+            bottom: HoleBottom::Flat,
+            thread: TappedThread::default(),
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+}
+
+fn blended(document: &Document, body: FeatureId, edge: EdgeReference, kind: BlendKind) -> Document {
+    let mut blended = document.clone();
+    let mut transaction = blended.transaction("Blend");
+    transaction.add_feature(
+        "Rim blend",
+        FeatureKind::Blend(Blend {
+            kind,
+            body,
+            groups: Vec::new(),
+            edges: vec![edge],
+            size: mm("0.2"),
+            form: ChamferForm::Equal,
+            flipped: false,
+        }),
+    );
+    blended.apply(transaction.finish()).unwrap();
+    blended
+}
+
+#[test]
+fn the_rim_a_hole_leaves_through_the_far_tapered_side_is_rounded_and_chamfered() {
+    let mut document = Document::default();
+    let mut transaction = document.transaction("Build");
+    let outline = transaction.add_feature("Outline", FeatureKind::from(rounded_rectangle()));
+    let block = transaction.add_feature(
+        "Block",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(mm("20"), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: Some(Box::new(Expression::parse("7 deg", &|_| None).unwrap())),
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let solid = evaluate(&document, &mut Recompute::default())
+        .body(block)
+        .unwrap()
+        .clone();
+    let slant = 7.0_f64.to_radians().tan();
+    let at = Point3::new(10.0, 12.0 * slant, 12.0);
+    let (front, frame) = solid
+        .faces()
+        .find_map(|(id, face)| match face.surface() {
+            caditor_kernel::Surface::Plane(plane)
+                if (at - plane.frame().origin())
+                    .dot(plane.frame().normal())
+                    .abs()
+                    < 1e-6 =>
+            {
+                Some((id, *plane.frame()))
+            }
+            _ => None,
+        })
+        .unwrap();
+    let outward = frame.normal() * solid.face(front).unwrap().sense().sign();
+    let plane = Plane::from_frame(frame.origin(), outward, caditor_geometry::Vector3::X).unwrap();
+    let mut sketch = Sketch::new(plane);
+    sketch.add_point(plane.to_local(at));
+    through_hole(
+        &mut document,
+        block,
+        SketchFeature {
+            sketch,
+            attachment: Some(SketchAttachment::Face(FaceAttachment {
+                body: block,
+                face: FaceReference::capture(&solid, front).unwrap(),
+            })),
+            projections: std::collections::BTreeMap::new(),
+        },
+    );
+    let evaluation = evaluate(&document, &mut Recompute::default());
+    let drilled = evaluation.body(block).unwrap().clone();
+    let before = volume(&evaluation, block);
+    let (far_rim, _) = drilled
+        .edges()
+        .find(|(_, edge)| {
+            matches!(edge.curve(), caditor_kernel::Curve::Ellipse(_))
+                && edge.curve().point(edge.interval().start()).y > 8.0
+        })
+        .unwrap();
+    let far_rim = EdgeReference::capture(&drilled, far_rim).unwrap();
+
+    let rounded = blended(&document, block, far_rim, BlendKind::Fillet);
+    let chamfered = blended(&document, block, far_rim, BlendKind::Chamfer);
+    let rounded_evaluation = evaluate(&rounded, &mut Recompute::default());
+    let chamfered_evaluation = evaluate(&chamfered, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    assert_eq!(rounded_evaluation.failed_count(), 0);
+    assert_eq!(chamfered_evaluation.failed_count(), 0);
+    let rounded_away = before - volume(&rounded_evaluation, block);
+    let chamfered_away = before - volume(&chamfered_evaluation, block);
+    assert!(rounded_away > 0.0 && chamfered_away > rounded_away);
+}
