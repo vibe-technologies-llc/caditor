@@ -5,7 +5,7 @@ use caditor_geometry::{Aabb, Point3, RigidTransform, Vector3};
 use glam::Vec3;
 
 use crate::{
-    by_mesh::{ByMesh, OfMesh, mesh_key},
+    by_mesh::{ByMesh, DrawnOrder, OfMesh, mesh_key},
     culling::{ClipWindow, placed_corners},
     gpu::{self, Bytes, Pack},
     scene::{Color, PickId},
@@ -1037,6 +1037,7 @@ pub struct MeshCache {
     refused: ByMesh<Arc<ShadedMesh>>,
     staging: Bytes,
     uploading: bool,
+    order: DrawnOrder,
 }
 
 impl MeshCache {
@@ -1074,6 +1075,7 @@ impl MeshCache {
             refused: ByMesh::default(),
             staging: Bytes::default(),
             uploading: false,
+            order: DrawnOrder::default(),
         }
     }
 
@@ -1094,7 +1096,12 @@ impl MeshCache {
             refused: ByMesh::default(),
             staging: Bytes::default(),
             uploading: false,
+            order: DrawnOrder::default(),
         }
+    }
+
+    pub fn changed(&self) -> bool {
+        self.order.changed()
     }
 
     pub fn prepare(
@@ -1109,6 +1116,7 @@ impl MeshCache {
         self.refused.refill(&mut self.rejected);
         self.uploading = false;
         let mut newly_rejected = 0;
+        let mut rewritten = false;
         for instance in instances
             .iter()
             .filter(|instance| !instance.mesh.is_empty())
@@ -1152,6 +1160,7 @@ impl MeshCache {
                 ready.write_styles(queue, staging, instance, anchor);
                 ready
             });
+            rewritten = true;
             match error {
                 None => self.meshes.push(ready),
                 Some(error) => {
@@ -1166,17 +1175,23 @@ impl MeshCache {
         }
         self.refused.clear();
         if self.uploading {
-            self.keep_previous(device, queue, anchor);
+            rewritten |= self.keep_previous(device, queue, anchor);
         }
         self.previous.clear();
+        self.order.note(&self.meshes, rewritten);
         newly_rejected
     }
 
-    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, anchor: Point3) {
+    fn keep_previous(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        anchor: Point3,
+    ) -> bool {
         let mut previous: Vec<GpuMesh> = self.previous.rest().collect();
         if !previous.iter().any(|mesh| mesh.needs_unpicking(anchor)) {
             self.meshes.append(&mut previous);
-            return;
+            return false;
         }
         let staging = &mut self.staging;
         let ((), error) = gpu::scoped(device, || {
@@ -1191,6 +1206,7 @@ impl MeshCache {
                 previous.len()
             ),
         }
+        true
     }
 
     pub fn draw(

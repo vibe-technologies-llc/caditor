@@ -162,13 +162,9 @@ fn render_with(
         dimension: wgpu::TextureDimension::D2,
         format: renderer.format(),
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[renderer.format().add_srgb_suffix()],
+        view_formats: &[],
     });
     let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
-    let linear_view = target.create_view(&wgpu::TextureViewDescriptor {
-        format: Some(renderer.format().add_srgb_suffix()),
-        ..Default::default()
-    });
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("offscreen readback"),
         size: u64::from(ROW_PITCH * SIZE),
@@ -183,7 +179,6 @@ fn render_with(
         &mut encoder,
         &SurfaceTarget {
             view: &target_view,
-            linear_view: Some(&linear_view),
             width: SIZE,
             height: SIZE,
         },
@@ -202,7 +197,7 @@ fn render_with(
         target.size(),
     );
     queue.submit([encoder.finish()]);
-    renderer.picking().after_submit();
+    renderer.after_submit();
     readback.map_async(wgpu::MapMode::Read, .., |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
 
@@ -1067,7 +1062,6 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read_once_an
             &mut encoder,
             &SurfaceTarget {
                 view: &target_view,
-                linear_view: None,
                 width: SIZE,
                 height: SIZE,
             },
@@ -1144,7 +1138,6 @@ fn a_viewport_of_no_size_keeps_its_meshes_until_the_scene_drops_them() {
             &mut encoder,
             &SurfaceTarget {
                 view: &target_view,
-                linear_view: None,
                 width: SIZE,
                 height: SIZE,
             },
@@ -2378,7 +2371,6 @@ fn a_failed_readback_replaces_the_pick_buffer_and_the_next_pick_is_read() {
             &mut encoder,
             &SurfaceTarget {
                 view: &target_view,
-                linear_view: None,
                 width: SIZE,
                 height: SIZE,
             },
@@ -3336,7 +3328,6 @@ struct Bench<'a> {
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
     target: wgpu::TextureView,
-    linear: wgpu::TextureView,
 }
 
 impl<'a> Bench<'a> {
@@ -3353,16 +3344,12 @@ impl<'a> Bench<'a> {
             dimension: wgpu::TextureDimension::D2,
             format: FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[FORMAT.add_srgb_suffix()],
+            view_formats: &[],
         });
         Self {
             device,
             queue,
             target: target.create_view(&wgpu::TextureViewDescriptor::default()),
-            linear: target.create_view(&wgpu::TextureViewDescriptor {
-                format: Some(FORMAT.add_srgb_suffix()),
-                ..Default::default()
-            }),
         }
     }
 
@@ -3401,7 +3388,6 @@ impl<'a> Bench<'a> {
                 &mut encoder,
                 &SurfaceTarget {
                     view: &self.target,
-                    linear_view: Some(&self.linear),
                     width: BENCH_SIZE.width,
                     height: BENCH_SIZE.height,
                 },
@@ -3419,7 +3405,7 @@ impl<'a> Bench<'a> {
                 }),
             );
             queue.submit([encoder.finish()]);
-            renderer.picking().after_submit();
+            renderer.after_submit();
             let submitted = Instant::now();
             device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
             let polled = Instant::now();
@@ -3728,7 +3714,7 @@ fn marker_at(scene: &Scene) -> Point3 {
 }
 
 #[test]
-fn an_unchanged_scene_is_uploaded_once_and_the_camera_moves_without_uploading_it() {
+fn an_unchanged_scene_is_uploaded_and_drawn_once_and_the_camera_moves_without_uploading_it() {
     let Some((device, queue)) = gpu() else {
         return;
     };
@@ -3776,6 +3762,7 @@ fn an_unchanged_scene_is_uploaded_once_and_the_camera_moves_without_uploading_it
             uploads: 1,
             sorts: 1,
             pipeline_builds: 0,
+            view_passes: 1,
         }
     );
     assert_eq!(
@@ -3784,6 +3771,7 @@ fn an_unchanged_scene_is_uploaded_once_and_the_camera_moves_without_uploading_it
             uploads: 1,
             sorts: 2,
             pipeline_builds: 0,
+            view_passes: 2,
         }
     );
     assert_eq!(idle.pixels, first.pixels);
@@ -3996,6 +3984,7 @@ fn translucent_fills_are_ordered_again_when_the_view_turns_over() {
             uploads: 1,
             sorts: 2,
             pipeline_builds: 0,
+            view_passes: 2,
         }
     );
     assert_eq!(above_draws, vec![(0, 6..12), (0, 0..6)]);
@@ -4060,7 +4049,6 @@ fn viewport_targets_the_device_refuses_are_reported_once_and_the_frame_is_still_
             &mut encoder,
             &SurfaceTarget {
                 view: &target_view,
-                linear_view: None,
                 width: side,
                 height: side,
             },
@@ -4231,4 +4219,161 @@ fn a_mesh_moved_to_another_style_or_also_drawn_see_through_draws_at_once_without
     assert_eq!(moved.pick.hits[0].id, PickId::from_index(14).unwrap());
     assert!(!both_uploading);
     assert_eq!(both.pick.hits[0].id, PickId::from_index(14).unwrap());
+}
+
+fn drawn_again_once(
+    renderer: &mut ViewportRenderer,
+    (device, queue): (&wgpu::Device, &wgpu::Queue),
+    frame: &ViewportFrame<'_>,
+    before: &Rendered,
+    fresh: &Rendered,
+) -> Rendered {
+    let passes = renderer.work().view_passes;
+
+    let drawn = render_with(renderer, device, queue, frame);
+    let drawn_passes = renderer.work().view_passes;
+    let copied = render_with(renderer, device, queue, frame);
+
+    assert_eq!(drawn_passes, passes + 1);
+    assert_eq!(renderer.work().view_passes, drawn_passes);
+    assert!(differing_pixels(&drawn, before) > 0);
+    assert_eq!(differing_pixels(&drawn, fresh), 0);
+    assert_eq!(copied.pixels, drawn.pixels);
+    assert_eq!(copied.pick, drawn.pick);
+    drawn
+}
+
+#[test]
+fn an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let gpu = (&device, &queue);
+    let viewpoint =
+        Viewpoint::looking_from(Vector3::new(0.4, -0.7, 1.0), Point3::ZERO, 160.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let middle = DVec2::splat(f64::from(SIZE) / 2.0);
+    let shown = Scene {
+        meshes: vec![styled_box(Color::from_rgb8(40, 200, 40), 10)],
+        ..scene()
+    };
+    let mut restyled = shown.clone();
+    restyled.meshes[0].faces[4].color = Color::from_rgb8(230, 160, 30);
+    let mut overlaid = restyled.clone();
+    overlaid.batches.push(Arc::new(Batch {
+        lines: vec![Line {
+            start: Point3::new(-30.0, -30.0, 25.0),
+            end: Point3::new(30.0, 30.0, 25.0),
+            color: Color::from_rgb8(30, 120, 250),
+            width: 4.0,
+            layer: Layer::Front,
+            pick: None,
+            stroke: Stroke::Solid,
+        }],
+        ..Batch::default()
+    }));
+    let mut sectioned = overlaid.clone();
+    sectioned.section = vec![SectionPlane {
+        plane: Plane::new(Point3::new(10.0, 0.0, 0.0), Vector3::X).unwrap(),
+        cut_face: CutFace::Hatched,
+    }];
+    let mut gridded = sectioned.clone();
+    gridded.grid = Some(Grid {
+        plane: Plane::XY,
+        color: Color::from_rgb8(255, 255, 255),
+    });
+    let rect = ViewportRect {
+        x: 30.0,
+        y: 20.0,
+        width: 150.0,
+        height: 170.0,
+    };
+    let inset_view = View::new(viewpoint, f64::from(rect.width), f64::from(rect.height));
+    let inset = |scene| ViewportFrame {
+        rect,
+        pick_at: Some(DVec2::new(75.0, 85.0)),
+        ..full_frame(&inset_view, scene, middle)
+    };
+    let doubled = |scene| ViewportFrame {
+        pixels_per_point: 2.0,
+        ..inset(scene)
+    };
+    let fresh = |samples, shading, frame: &ViewportFrame<'_>| {
+        let mut fresh = viewport_renderer(&device, samples);
+        fresh.set_shading(shading);
+        render_with(&mut fresh, &device, &queue, frame)
+    };
+    let mut renderer = viewport_renderer(&device, 4);
+
+    let first = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &shown, middle),
+    );
+    let copied = render_with(
+        &mut renderer,
+        &device,
+        &queue,
+        &full_frame(&view, &shown, middle),
+    );
+
+    assert_eq!(renderer.work().view_passes, 1);
+    assert_eq!(copied.pixels, first.pixels);
+    assert_eq!(copied.pick, first.pick);
+    assert_eq!(
+        copied.pick.hits.first().map(|hit| hit.id),
+        PickId::from_index(14)
+    );
+
+    let mut last = copied;
+    for scene in [&restyled, &overlaid, &sectioned, &gridded] {
+        let frame = full_frame(&view, scene, middle);
+        let expected = fresh(4, Shading::Standard, &frame);
+        last = drawn_again_once(&mut renderer, gpu, &frame, &last, &expected);
+    }
+    for frame in [inset(&gridded), doubled(&gridded)] {
+        let expected = fresh(4, Shading::Standard, &frame);
+        last = drawn_again_once(&mut renderer, gpu, &frame, &last, &expected);
+    }
+    renderer.set_shading(Shading::Enhanced);
+    let expected = fresh(4, Shading::Enhanced, &doubled(&gridded));
+    last = drawn_again_once(&mut renderer, gpu, &doubled(&gridded), &last, &expected);
+    renderer.set_sample_count(&device, 1);
+    let expected = fresh(1, Shading::Enhanced, &doubled(&gridded));
+    last = drawn_again_once(&mut renderer, gpu, &doubled(&gridded), &last, &expected);
+
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("never submitted"),
+        size: wgpu::Extent3d {
+            width: SIZE,
+            height: SIZE,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let mut unsubmitted = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+    renderer.draw(
+        &device,
+        &queue,
+        &mut unsubmitted,
+        &SurfaceTarget {
+            view: &target.create_view(&wgpu::TextureViewDescriptor::default()),
+            width: SIZE,
+            height: SIZE,
+        },
+        Some(&ViewportFrame {
+            pick_at: None,
+            ..doubled(&shown)
+        }),
+    );
+    drop(unsubmitted);
+    renderer.abandon_unsubmitted();
+    let expected = fresh(1, Shading::Enhanced, &doubled(&shown));
+    drawn_again_once(&mut renderer, gpu, &doubled(&shown), &last, &expected);
 }

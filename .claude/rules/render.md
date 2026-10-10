@@ -16,6 +16,22 @@ paths:
 - `begin_frame` reconfigures the surface when the size differs or it is outdated, draws the
   viewport and returns `FrameStart::Ready` with a `Frame` whose encoder the app draws the UI into;
   `submit` presents it.
+- The 3D pass resolves into a surface-sized texture of the scene targets (`kept.rs`, `KeptView`)
+  that one full-screen triangle (`ViewCopy`, `kept.wgsl`, an exact `textureLoad` of each pixel)
+  copies onto the surface every frame, so an egui-only repaint (a tooltip, hover over a panel, a
+  spinner tick) copies the last view instead of drawing it again. The renderer decides alone,
+  trusting no caller's generation: a frame draws the view when the view uniform's bytes (view,
+  anchor, scale, shading, reflection, section) or the grid's changed, a mesh or silhouette cache
+  wrote a placement or styles or draws a different list (`DrawnOrder`, the mesh addresses in
+  draw order), a batch slot uploaded or the batch count changed, the fills were sorted again, or
+  the rect or the grid's presence differs from what the kept view holds (`kept::Shown`); anything
+  new the 3D pass reads must join that check (`Prepared::changed`, worked out in `upload`). New
+  scene targets (resize, multisampling, linear resolve, a new device) start empty. The kept view
+  counts only once its frame is submitted (`ViewportRenderer::after_submit`; `begin_frame`'s
+  `abandon_unsubmitted` forgets an unsubmitted one, as for picks), so a dropped encoder never
+  leaves a stale view claimed. The pick pass is drawn whenever asked, copied frame or not
+  (offscreen test). The surface is configured for `RENDER_ATTACHMENT` alone, so the copy is a
+  draw rather than `copy_texture_to_texture`, which would need `COPY_DST` on the surface.
 - `Hidden` (occluded) makes the app stop drawing until the window is shown again or a probe timer
   fires, so a hidden Wayland window does not block the UI thread on the acquire timeout every
   frame. `Skipped` (timeout, outdated or lost surface) is a retry, never a reason to stop.
@@ -125,23 +141,23 @@ paths:
   (`to_linear`), lights it and encodes the result (`to_srgb`), the light constants tuned so a
   face lit by ambient alone or fully lit reads about as it did when lighting was in gamma space, the
   tones between a little lighter. Zebra and chrome keep their sRGB-space look.
-- The multisample resolve averages in linear light where views allow it: the surface is
-  configured with its sRGB twin in `view_formats` when the adapter has both
-  `SURFACE_VIEW_FORMATS` and `VIEW_FORMATS` (else, when that configuration is refused, or once
-  the surface is configured conservatively, without it), `Frame` hands the viewport that view as `SurfaceTarget::linear_view`, and a renderer told
-  so (`set_linear_resolve`, from `gpu::resolves_linearly`) gives its multisampled colour target
-  an sRGB view, stores the scene pass instead of resolving it and resolves in an empty pass
-  through the two sRGB views (`ColorAttachment`), so a half-covered edge pixel is the linear mean
-  of its samples (offscreen test). Image tiles on the viewport background do the same; a
-  transparent image resolves in gamma, since its bands straighten premultiplied colour there.
-  GL and other devices without view formats resolve in gamma as before. The extra pass costs a
-  few microseconds a frame in the frame-cost benchmark (release, 1600 by 1000 at 4x).
+- The multisample resolve averages in linear light where views allow it: a renderer told so
+  (`set_linear_resolve`, from `gpu::resolves_linearly`, the adapter's `VIEW_FORMATS`) gives its
+  multisampled colour target and the kept view an sRGB view each, stores the scene pass instead
+  of resolving it and resolves in an empty pass through the two sRGB views (`ColorAttachment`),
+  so a half-covered edge pixel is the linear mean of its samples (offscreen test). The resolve
+  lands in the kept view, never the surface, so the surface needs no sRGB view format and a
+  conservatively configured one resolves linearly too. Image tiles on the viewport background do
+  the same; a transparent image resolves in gamma, since its bands straighten premultiplied
+  colour there. GL and other devices without view formats resolve in gamma as before. The extra
+  pass costs a few microseconds a frame in the frame-cost benchmark (release, 1600 by 1000 at
+  4x).
 
 ## Depth, buffers and layers
 
 - Reverse-Z, infinite far plane, `Depth32Float`, multisampled at the level in use (never stored;
-  colour is resolved into the surface, through the linear resolve pass where views allow it). The
-  UI is drawn on the resolved surface after the 3D pass.
+  colour is resolved into the kept view, through the linear resolve pass where views allow it,
+  and copied onto the surface). The UI is drawn on the surface after the copy.
 - Each batch has a `GpuBatch` slot of `GrowableBuffer`s. A slot uploads only when its `Arc`
   differs or the anchor moved, so an idle frame or a camera move writes no vertices. A batch past
   `max_buffer_size` draws only its first whole primitives (logged once). A buffer an upload

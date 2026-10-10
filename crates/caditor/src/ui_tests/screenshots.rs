@@ -47,7 +47,6 @@ use crate::{
 
 const OUTPUT: &str = "CADITOR_SCREENSHOTS";
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
-const LINEAR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const SAMPLES: u32 = 4;
 
 struct Gpu {
@@ -192,13 +191,9 @@ impl Harness {
             dimension: wgpu::TextureDimension::D2,
             format: FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[LINEAR_FORMAT],
+            view_formats: &[],
         });
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let linear_view = target.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(LINEAR_FORMAT),
-            ..Default::default()
-        });
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
         let mut viewport = ViewportRenderer::new(device, FORMAT, SAMPLES);
@@ -221,7 +216,6 @@ impl Harness {
             &mut encoder,
             &SurfaceTarget {
                 view: &view,
-                linear_view: Some(&linear_view),
                 width,
                 height,
             },

@@ -386,10 +386,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Interface performance
 
-- [medium · medium] An egui-only repaint (a tooltip, hover over a panel, a spinner tick) draws the
-  whole 3D pass again. Keeping the resolved view in a surface-sized texture and copying it while
-  the scene generation, view, rect, graphics settings and picks are unchanged would save the GPU
-  that work.
 - [low · easy] Smaller per-frame costs measured or found in the resource survey:
   - `CommandFrame::invoke_detailed` allocates each unavailable reason with `to_string`
     (`commands.rs`).

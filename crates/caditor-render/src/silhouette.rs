@@ -4,7 +4,7 @@ use caditor_geometry::{Point3, RigidTransform};
 use glam::Vec3;
 
 use crate::{
-    by_mesh::{ByMesh, OfMesh},
+    by_mesh::{ByMesh, DrawnOrder, OfMesh},
     culling::{ClipWindow, placed_corners},
     gpu::{self, Bytes, Pack},
     mesh::{Corner, Placed, PlacedAt, ShadedMesh, UploadBudget},
@@ -294,6 +294,7 @@ pub struct SilhouetteCache {
     started: ByMesh<SilhouetteUpload>,
     refused: ByMesh<Arc<ShadedMesh>>,
     staging: Bytes,
+    order: DrawnOrder,
 }
 
 impl SilhouetteCache {
@@ -320,6 +321,7 @@ impl SilhouetteCache {
             started: ByMesh::default(),
             refused: ByMesh::default(),
             staging: Bytes::default(),
+            order: DrawnOrder::default(),
         }
     }
 
@@ -341,11 +343,16 @@ impl SilhouetteCache {
             started: ByMesh::default(),
             refused: ByMesh::default(),
             staging: Bytes::default(),
+            order: DrawnOrder::default(),
         }
     }
 
     pub fn is_uploading(&self) -> bool {
         !self.uploads.is_empty()
+    }
+
+    pub fn changed(&self) -> bool {
+        self.order.changed()
     }
 
     pub fn prepare(
@@ -360,6 +367,7 @@ impl SilhouetteCache {
         self.started.refill(&mut self.uploads);
         self.refused.refill(&mut self.rejected);
         let mut newly_rejected = 0;
+        let mut rewritten = false;
         for silhouette in silhouettes
             .iter()
             .filter(|silhouette| !silhouette.mesh.is_empty())
@@ -395,7 +403,10 @@ impl SilhouetteCache {
                 Prepared::Ready(Box::new(ready))
             });
             match (prepared, error) {
-                (Prepared::Ready(gpu), None) => self.silhouettes.push(*gpu),
+                (Prepared::Ready(gpu), None) => {
+                    rewritten = true;
+                    self.silhouettes.push(*gpu);
+                }
                 (Prepared::Uploading(upload), None) => self.uploads.push(upload),
                 (_, Some(error)) => {
                     log::warn!(
@@ -410,13 +421,19 @@ impl SilhouetteCache {
         self.started.clear();
         self.refused.clear();
         if self.is_uploading() {
-            self.keep_previous(device, queue, anchor);
+            rewritten |= self.keep_previous(device, queue, anchor);
         }
         self.previous.clear();
+        self.order.note(&self.silhouettes, rewritten);
         newly_rejected
     }
 
-    fn keep_previous(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, anchor: Point3) {
+    fn keep_previous(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        anchor: Point3,
+    ) -> bool {
         let mut previous: Vec<GpuSilhouette> = self.previous.rest().collect();
         if previous.iter().all(|silhouette| {
             silhouette
@@ -424,7 +441,7 @@ impl SilhouetteCache {
                 .is_none_or(|written| written.placed.anchor == anchor)
         }) {
             self.silhouettes.append(&mut previous);
-            return;
+            return false;
         }
         let staging = &mut self.staging;
         let ((), error) = gpu::scoped(device, || {
@@ -449,6 +466,7 @@ impl SilhouetteCache {
                 previous.len()
             ),
         }
+        true
     }
 
     pub fn draw(
