@@ -238,9 +238,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   within once round it: an open chain cannot be wrapped (a helical stripe running round more than
   once, a band whose ends meet after one turn), and nothing wraps onto a cone (by its unrolled
   sector) or a sphere.
-- [low · medium] A kept measurement reads no position (a point's coordinate along an axis) and no
-  mass property (a body's volume, mass or centre of mass, which come from `BodyMass` on the app's
-  meshing pool, not from recompute). Open decision: a failed or suppressed measurement fails the
+- [low · medium] Open decision on kept measurements: a failed or suppressed measurement fails the
   features using its value, as a failing feature's dependents do; whether they should instead keep
   its last reading (the measured parameter's stored value already holds it) is undecided.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three

@@ -8939,3 +8939,61 @@ fn offsets_along_an_axis_sweeps_and_perimeters_are_saved_and_loaded() {
         MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::X))
     );
 }
+
+#[test]
+fn positions_and_body_volumes_and_masses_are_saved_and_loaded() {
+    use caditor_document::{
+        AxisReference, MeasuredItem, Measurement, Of, PointReference, PrincipalAxis, Reading,
+    };
+    let (mut document, _, _) = measured_model();
+    let body = MeasuredItem::Body(FeatureId::from_raw(1));
+    let mut transaction = document.transaction("Keep");
+    let position = transaction.add_feature(
+        "Position",
+        FeatureKind::from(Measurement {
+            reading: Reading::Position {
+                item: MeasuredItem::Point(PointReference::Origin),
+                axis: MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::Z)),
+            },
+            parameter: None,
+        }),
+    );
+    for (name, quantity) in [("Volume", Of::Volume), ("Mass", Of::Mass)] {
+        transaction.add_feature(
+            name,
+            FeatureKind::from(Measurement {
+                reading: Reading::Of {
+                    quantity,
+                    item: body.clone(),
+                },
+                parameter: None,
+            }),
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let unreadable_axis =
+        decode_text(&text.replacen("{\"axis\":{\"principal\":\"z\"}}", "{\"axis\":7}", 1));
+
+    assert!(text.contains("\"quantity\":\"position\""), "{text}");
+    assert!(text.contains("\"quantity\":\"volume\""));
+    assert!(text.contains("\"quantity\":\"mass\""));
+    assert!(text.contains("{\"body\":{\"body\":1}}"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    let Some(Reading::Position { axis, .. }) = unreadable_axis
+        .document
+        .feature(position)
+        .and_then(|feature| feature.kind.measurement())
+        .map(|measurement| &measurement.reading)
+    else {
+        panic!("a position stays one");
+    };
+    assert_eq!(
+        *axis,
+        MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::X))
+    );
+    assert_eq!(unreadable_axis.issues.len(), 1);
+}

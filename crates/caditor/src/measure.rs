@@ -44,6 +44,8 @@ pub enum Value {
     Position(Point3),
     Direction(Vector3),
     SecondMoment(f64),
+    Volume(f64),
+    Mass(f64),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -683,7 +685,9 @@ impl Relative {
             value @ (Value::Length(_)
             | Value::Area(_)
             | Value::Angle(_)
-            | Value::SecondMoment(_)) => value,
+            | Value::SecondMoment(_)
+            | Value::Volume(_)
+            | Value::Mass(_)) => value,
         };
         Reading { value, ..reading }
     }

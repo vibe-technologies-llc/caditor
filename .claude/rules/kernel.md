@@ -244,8 +244,10 @@ paths:
   polynomial spline's strip is exact at once. Values are about the centre of the box of edges,
   which keeps second moments from cancelling. A face that does not converge within
   `FACE_EVALUATIONS`, or meets a non-finite value, takes its mesh triangles instead and is listed
-  in `SolidMass::meshed_faces`; nothing depends on the mesh otherwise. `face_area` is the same
-  integral for one face (`None` when it gives up).
+  in `SolidMass::meshed_faces`; nothing depends on the mesh otherwise.
+  `mass_properties_tessellating` takes a sampling tolerance instead of a mesh and tessellates the
+  solid only when some face does not converge (a failed tessellation is `MeasureError::Meshing`).
+  `face_area` is the same integral for one face (`None` when it gives up).
 - `extent` is the tight box, not a bound like `Solid::bounding_box`: vertices, conic edges' closed
   form extremes, spline and intersection edges' critical points along each axis (bisection and
   Newton between samples), sphere and torus extremes inside their faces, and for revolution and

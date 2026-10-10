@@ -302,6 +302,9 @@ pub(crate) enum MeasuredQuantityRecord {
     Area,
     Sweep,
     Perimeter,
+    Position,
+    Volume,
+    Mass,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -313,6 +316,7 @@ pub(crate) enum MeasuredItemRecord {
     Edge { body: u64, edge: Box<EdgeRecord> },
     Face { body: u64, face: FaceRecord },
     Sketch { sketch: u64, entity: u64 },
+    Body { body: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6947,7 +6951,10 @@ fn measurement_record(measurement: &Measurement) -> MeasurementRecord {
             Of::Area => MeasuredQuantityRecord::Area,
             Of::Sweep => MeasuredQuantityRecord::Sweep,
             Of::Perimeter => MeasuredQuantityRecord::Perimeter,
+            Of::Volume => MeasuredQuantityRecord::Volume,
+            Of::Mass => MeasuredQuantityRecord::Mass,
         },
+        Reading::Position { .. } => MeasuredQuantityRecord::Position,
     };
     MeasurementRecord {
         quantity,
@@ -6978,6 +6985,7 @@ fn measured_item_record(item: &MeasuredItem) -> MeasuredItemRecord {
             sketch: sketch.raw(),
             entity: entity.raw(),
         },
+        MeasuredItem::Body(body) => MeasuredItemRecord::Body { body: body.raw() },
     }
 }
 
@@ -6998,6 +7006,7 @@ fn restore_measured_item(record: &MeasuredItemRecord) -> Option<MeasuredItem> {
             sketch: FeatureId::from_raw(*sketch),
             entity: EntityId::from_raw(*entity),
         },
+        MeasuredItemRecord::Body { body } => MeasuredItem::Body(FeatureId::from_raw(*body)),
     })
 }
 
@@ -7008,12 +7017,16 @@ fn restore_measurement(
 ) -> Measurement {
     let wanted = match record.quantity {
         MeasuredQuantityRecord::Along => 3,
-        MeasuredQuantityRecord::Distance | MeasuredQuantityRecord::Angle => 2,
+        MeasuredQuantityRecord::Distance
+        | MeasuredQuantityRecord::Angle
+        | MeasuredQuantityRecord::Position => 2,
         MeasuredQuantityRecord::Length
         | MeasuredQuantityRecord::Radius
         | MeasuredQuantityRecord::Area
         | MeasuredQuantityRecord::Sweep
-        | MeasuredQuantityRecord::Perimeter => 1,
+        | MeasuredQuantityRecord::Perimeter
+        | MeasuredQuantityRecord::Volume
+        | MeasuredQuantityRecord::Mass => 1,
     };
     let items: Vec<MeasuredItem> = record
         .items
@@ -7026,7 +7039,9 @@ fn restore_measurement(
         .collect();
     if items.len() < wanted {
         let instead = match record.quantity {
-            MeasuredQuantityRecord::Along => "from the origin or along the X axis",
+            MeasuredQuantityRecord::Along | MeasuredQuantityRecord::Position => {
+                "from the origin or along the X axis"
+            }
             _ => "from the origin",
         };
         issues.push(format!(
@@ -7082,6 +7097,19 @@ fn restore_measurement(
             quantity: Of::Area,
             item: next(),
         },
+        MeasuredQuantityRecord::Volume => Reading::Of {
+            quantity: Of::Volume,
+            item: next(),
+        },
+        MeasuredQuantityRecord::Mass => Reading::Of {
+            quantity: Of::Mass,
+            item: next(),
+        },
+        MeasuredQuantityRecord::Position => {
+            let item = next();
+            let axis = items.next().unwrap_or_else(along_x);
+            Reading::Position { item, axis }
+        }
     };
     Measurement {
         reading,

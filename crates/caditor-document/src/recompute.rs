@@ -18,7 +18,9 @@ use caditor_sketch::{
 };
 
 use crate::{
-    attachment, blend, combine,
+    attachment, blend,
+    body_appearance::BodyAppearance,
+    combine,
     datum::{self, DatumResult},
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     healing::{self, Healing},
@@ -26,7 +28,7 @@ use crate::{
     hole, import,
     lookahead::Lookahead,
     mate,
-    measurement::{self, Measured, MeasurementResult},
+    measurement::{self, Measured, Measurement, MeasurementResult},
     mirror, movement, offset_face, pattern,
     pool::{Claim, Job, Landed, LastMeshes, Pool, Threads, Work, available_workers},
     presenting::{Glimpse, MESHES_REPORTED_EVERY, Presentation, SettledBody},
@@ -485,6 +487,7 @@ impl Evaluation {
 }
 
 type ParameterFingerprint = Vec<(ParameterId, Option<Quantity>)>;
+type Appearances = Vec<(FeatureId, Option<BodyAppearance>)>;
 type BodiesSeen = BTreeMap<FeatureId, FeatureId>;
 
 #[derive(Debug, Clone)]
@@ -537,6 +540,7 @@ impl Names {
 pub(crate) struct CacheEntry {
     definition: Arc<Feature>,
     parameters: ParameterFingerprint,
+    appearances: Appearances,
     names: Names,
     upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)>,
     suppressed_upstream: BTreeSet<FeatureId>,
@@ -586,12 +590,14 @@ impl CacheEntry {
             && same_definition
             && same_message
             && self.parameters == key.parameters
+            && self.appearances == key.appearances
             && same_upstream
     }
 }
 
 struct Key {
     parameters: ParameterFingerprint,
+    appearances: Appearances,
     names: Names,
     upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)>,
     suppressed_upstream: BTreeSet<FeatureId>,
@@ -604,7 +610,27 @@ impl Key {
         (tree, suppressed): (&Arc<[String]>, &BTreeSet<FeatureId>),
         view: &View,
     ) -> Self {
-        let used_parameters = feature.kind.parameters();
+        let appearances: Appearances = feature
+            .kind
+            .measurement()
+            .map(Measurement::appearance_bodies)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|body| {
+                let appearance = run
+                    .document
+                    .feature(body)
+                    .map(|feature| feature.appearance.clone());
+                (body, appearance)
+            })
+            .collect();
+        let mut used_parameters = feature.kind.parameters();
+        used_parameters.extend(
+            appearances
+                .iter()
+                .filter_map(|(_, appearance)| appearance.as_ref())
+                .flat_map(BodyAppearance::parameters),
+        );
         let mut upstream: Vec<(FeatureId, Option<Arc<FeatureResult>>)> = run
             .measured
             .features_read_by(&feature.kind)
@@ -623,6 +649,7 @@ impl Key {
             .collect();
         Self {
             parameters: run.parameters.fingerprint(&used_parameters),
+            appearances,
             names: Names::of(
                 run.document,
                 (feature, index),
@@ -984,6 +1011,7 @@ impl Recompute {
                 let entry = CacheEntry {
                     definition: Arc::clone(feature),
                     parameters: key.parameters,
+                    appearances: key.appearances,
                     names: key.names,
                     upstream: key.upstream,
                     suppressed_upstream: key.suppressed_upstream,

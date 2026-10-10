@@ -1,6 +1,11 @@
+use std::sync::Arc;
+
 use caditor_expression::{Dimension, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3};
-use caditor_kernel::{FaceForm, FaceReference, Solid, VertexName, face_form, vertex_names};
+use caditor_kernel::{
+    FaceForm, FaceReference, MeasureError, Solid, VertexName, face_form, interruptible,
+    vertex_names,
+};
 use caditor_sketch::Sketch;
 
 use crate::*;
@@ -475,5 +480,199 @@ fn a_measurement_reads_an_offset_along_an_axis_a_perimeter_and_a_sweep() {
         failure(&evaluation, not_an_arc)
             .reason
             .contains("is not an arc")
+    );
+}
+
+fn set_density(model: &mut Model, density: f64) {
+    let appearance = BodyAppearance {
+        density: Some(Expression::number(density)),
+        ..BodyAppearance::default()
+    };
+    model
+        .document
+        .apply(Transaction::single(
+            "Density",
+            Edit::SetBodyAppearance {
+                id: model.base,
+                appearance,
+            },
+        ))
+        .unwrap();
+}
+
+#[test]
+fn a_measurement_reads_a_point_position_along_an_axis() {
+    let mut model = model();
+    let evaluation = evaluate(&model.document);
+    let solid = evaluation.body(model.base).unwrap();
+    let top = MeasuredItem::Point(PointReference::Vertex {
+        body: model.base,
+        vertex: corner(solid, Point3::new(10.0, 8.0, 4.0)),
+    });
+    let along = |axis| MeasuredItem::Axis(AxisReference::Principal(axis));
+    let (across, _) = keep(
+        &mut model,
+        "across",
+        Reading::Position {
+            item: top.clone(),
+            axis: along(PrincipalAxis::Y),
+        },
+    );
+    let (up, _) = keep(
+        &mut model,
+        "up",
+        Reading::Position {
+            item: top,
+            axis: along(PrincipalAxis::Z),
+        },
+    );
+
+    let first = evaluate(&model.document);
+    set_height(&mut model, 6.0);
+    let second = evaluate(&model.document);
+
+    assert!((reading_value(&first, across) - 8.0).abs() < CLOSE);
+    assert!((reading_value(&first, up) - 4.0).abs() < CLOSE);
+    assert!((reading_value(&second, up) - 6.0).abs() < CLOSE);
+    assert_eq!(
+        reading(&second, up).line,
+        Some((Point3::ZERO, Point3::new(0.0, 0.0, 6.0)))
+    );
+}
+
+#[test]
+fn a_measurement_reads_a_body_volume_area_and_centre_of_mass() {
+    let mut model = model();
+    let body = MeasuredItem::Body(model.base);
+    let (volume, volume_parameter) = keep(
+        &mut model,
+        "volume",
+        Reading::Of {
+            quantity: Of::Volume,
+            item: body.clone(),
+        },
+    );
+    let (area, _) = keep(
+        &mut model,
+        "area",
+        Reading::Of {
+            quantity: Of::Area,
+            item: body.clone(),
+        },
+    );
+    let (centre, _) = keep(
+        &mut model,
+        "centre",
+        Reading::Position {
+            item: body,
+            axis: MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::Z)),
+        },
+    );
+
+    let evaluation = evaluate(&model.document);
+    let followed = model.document.following_readings(&evaluation);
+    model.document.apply(followed).unwrap();
+
+    assert!((reading_value(&evaluation, volume) - 320.0).abs() < 1e-6);
+    assert_eq!(
+        reading(&evaluation, volume).value.dimension,
+        Dimension::VOLUME
+    );
+    assert!((reading_value(&evaluation, area) - 304.0).abs() < 1e-6);
+    assert!((reading_value(&evaluation, centre) - 2.0).abs() < 1e-6);
+    assert_eq!(
+        model
+            .document
+            .parameter(volume_parameter)
+            .unwrap()
+            .expression,
+        Expression::WithUnit(
+            Box::new(Expression::number(reading_value(&evaluation, volume))),
+            Unit::Millimetre,
+            3
+        )
+    );
+}
+
+#[test]
+fn a_mass_reading_needs_a_density_and_follows_it_without_integrating_the_body_again() {
+    let mut model = model();
+    let body = MeasuredItem::Body(model.base);
+
+    let (mass, _) = keep(
+        &mut model,
+        "mass",
+        Reading::Of {
+            quantity: Of::Mass,
+            item: body,
+        },
+    );
+    let mut recompute = Recompute::default();
+    let mut run = |document: &Document| {
+        recompute.run(document, &ModelEvaluator, &CancelToken::never(), &|_, _| {})
+    };
+
+    let without = run(&model.document);
+    set_density(&mut model, 2.0);
+    let dense = run(&model.document);
+    set_density(&mut model, 3.0);
+    let denser = run(&model.document);
+
+    let error = failure(&without, mass);
+    assert!(error.reason.contains("has no density"), "{}", error.reason);
+    assert_eq!(error.fix, Some(FixTarget::Feature(model.base)));
+    assert!((reading_value(&dense, mass) - 0.64).abs() < 1e-9);
+    assert!((reading_value(&denser, mass) - 0.96).abs() < 1e-9);
+    assert_eq!(reading(&denser, mass).value.dimension, MASS);
+    let body = denser.body_result(model.base).unwrap();
+    assert!(Arc::ptr_eq(body, without.body_result(model.base).unwrap()));
+    assert!(body.solid().unwrap().is_mass_known());
+}
+
+#[test]
+fn working_out_a_body_mass_stops_at_the_kernel_interrupt_and_is_not_kept() {
+    let model = model();
+    let evaluation = evaluate(&model.document);
+    let body = evaluation.body_result(model.base).unwrap().solid().unwrap();
+
+    let stopped = interruptible(Arc::new(|| true), || body.exact_mass());
+
+    assert!(matches!(stopped, Err(MeasureError::Cancelled(_))));
+    assert!(!body.is_mass_known());
+    assert!((body.exact_mass().unwrap().properties.volume - 320.0).abs() < 1e-6);
+    assert!(body.is_mass_known());
+}
+
+#[test]
+fn reading_a_body_quantity_of_anything_else_fails_in_words() {
+    let mut model = model();
+    let (volume, _) = keep(
+        &mut model,
+        "volume",
+        Reading::Of {
+            quantity: Of::Volume,
+            item: MeasuredItem::Point(PointReference::Origin),
+        },
+    );
+    let (position, _) = keep(
+        &mut model,
+        "position",
+        Reading::Position {
+            item: MeasuredItem::Plane(PlaneReference::Principal(PrincipalPlane::Xy)),
+            axis: MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::X)),
+        },
+    );
+
+    let evaluation = evaluate(&model.document);
+
+    assert!(
+        failure(&evaluation, volume)
+            .reason
+            .contains("is not a body")
+    );
+    assert!(
+        failure(&evaluation, position)
+            .reason
+            .contains("has no position")
     );
 }

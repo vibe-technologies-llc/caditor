@@ -7,8 +7,8 @@ use caditor_expression::{Dimension, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::{
     Accuracy, Axis, Curve, EdgeForm, EdgeId, EdgeReference, Element, FaceForm, FaceId,
-    FaceReference, Interval, ReferenceError, Solid, angle, curve_measure, distance, edge_measure,
-    face_area, face_form,
+    FaceReference, Interval, MeasureError, ReferenceError, Solid, angle, curve_measure, distance,
+    edge_measure, face_area, face_form,
 };
 use caditor_sketch::EntityId;
 
@@ -22,7 +22,7 @@ use crate::{
     edit::{Edit, Transaction},
     origins, paste,
     recompute::{CancelToken, Evaluation, Failure, FeatureResult, FeatureState, Inputs},
-    solid::profile_curve,
+    solid::{ExactMass, profile_curve},
     values::{ParameterError, ParameterValues, evaluation_order},
 };
 
@@ -43,6 +43,7 @@ pub enum MeasuredItem {
         sketch: FeatureId,
         entity: EntityId,
     },
+    Body(FeatureId),
 }
 
 impl MeasuredItem {
@@ -53,7 +54,7 @@ impl MeasuredItem {
             Self::Plane(plane) => plane.heap_size(),
             Self::Edge { .. } => size_of::<EdgeReference>(),
             Self::Face { face, .. } => face.heap_size(),
-            Self::Sketch { .. } => 0,
+            Self::Sketch { .. } | Self::Body(_) => 0,
         }
     }
 
@@ -62,7 +63,7 @@ impl MeasuredItem {
             Self::Point(point) => point.body(),
             Self::Axis(axis) => axis.body(),
             Self::Plane(plane) => plane.body(),
-            Self::Edge { body, .. } | Self::Face { body, .. } => Some(*body),
+            Self::Edge { body, .. } | Self::Face { body, .. } | Self::Body(body) => Some(*body),
             Self::Sketch { .. } => None,
         }
     }
@@ -72,7 +73,7 @@ impl MeasuredItem {
             Self::Point(point) => point.sketch(),
             Self::Axis(axis) => axis.sketch(),
             Self::Sketch { sketch, .. } => Some(*sketch),
-            Self::Plane(_) | Self::Edge { .. } | Self::Face { .. } => None,
+            Self::Plane(_) | Self::Edge { .. } | Self::Face { .. } | Self::Body(_) => None,
         }
     }
 
@@ -81,7 +82,7 @@ impl MeasuredItem {
             Self::Point(point) => point.frame(),
             Self::Axis(axis) => axis.frame(),
             Self::Plane(plane) => plane.frame(),
-            Self::Edge { .. } | Self::Face { .. } | Self::Sketch { .. } => None,
+            Self::Edge { .. } | Self::Face { .. } | Self::Sketch { .. } | Self::Body(_) => None,
         }
     }
 
@@ -90,7 +91,7 @@ impl MeasuredItem {
             Self::Point(point) => point.datum(),
             Self::Axis(axis) => axis.datum(),
             Self::Plane(plane) => plane.datum(),
-            Self::Edge { .. } | Self::Face { .. } | Self::Sketch { .. } => None,
+            Self::Edge { .. } | Self::Face { .. } | Self::Sketch { .. } | Self::Body(_) => None,
         };
         [self.body(), self.sketch(), self.frame(), datum]
             .into_iter()
@@ -105,7 +106,7 @@ impl MeasuredItem {
             Self::Plane(plane) => plane.origin_features(),
             Self::Edge { edge, .. } => origins::of_edge(edge),
             Self::Face { face, .. } => origins::of_face(face).into_iter().collect(),
-            Self::Sketch { .. } => BTreeSet::new(),
+            Self::Sketch { .. } | Self::Body(_) => BTreeSet::new(),
         }
     }
 
@@ -126,8 +127,15 @@ impl MeasuredItem {
                     );
                 format!("{label} of {}", feature_name(document, *sketch))
             }
+            Self::Body(body) => body_name(document, *body),
         }
     }
+}
+
+fn body_name(document: &Document, body: FeatureId) -> String {
+    document
+        .body_name(body)
+        .map_or_else(|| feature_name(document, body), str::to_owned)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -154,15 +162,19 @@ pub enum Of {
     Area,
     Sweep,
     Perimeter,
+    Volume,
+    Mass,
 }
 
 impl Of {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::Length,
         Self::Radius,
         Self::Sweep,
         Self::Area,
         Self::Perimeter,
+        Self::Volume,
+        Self::Mass,
     ];
 
     pub fn label(self) -> &'static str {
@@ -172,6 +184,8 @@ impl Of {
             Self::Area => "Area",
             Self::Sweep => "Sweep",
             Self::Perimeter => "Perimeter",
+            Self::Volume => "Volume",
+            Self::Mass => "Mass",
         }
     }
 }
@@ -192,9 +206,15 @@ pub enum Reading {
         quantity: Of,
         item: MeasuredItem,
     },
+    Position {
+        item: MeasuredItem,
+        axis: MeasuredItem,
+    },
 }
 
 pub const ALONG: &str = "Along";
+pub const POSITION: &str = "Position";
+pub const MASS: Dimension = Dimension::NONE;
 
 impl Reading {
     pub fn items(&self) -> Vec<&MeasuredItem> {
@@ -206,6 +226,7 @@ impl Reading {
                 axis,
             } => vec![first, second, axis],
             Self::Of { item, .. } => vec![item],
+            Self::Position { item, axis } => vec![item, axis],
         }
     }
 
@@ -218,6 +239,7 @@ impl Reading {
                 axis,
             } => vec![first, second, axis],
             Self::Of { item, .. } => vec![item],
+            Self::Position { item, axis } => vec![item, axis],
         }
     }
 
@@ -226,6 +248,7 @@ impl Reading {
             Self::Between { quantity, .. } => quantity.label(),
             Self::Along { .. } => ALONG,
             Self::Of { quantity, .. } => quantity.label(),
+            Self::Position { .. } => POSITION,
         }
     }
 
@@ -254,7 +277,26 @@ impl Reading {
             Self::Of { quantity, item } => {
                 format!("{} of {}", quantity.label(), item.describe(document))
             }
+            Self::Position { item, axis } => format!(
+                "{} along {}",
+                positioned(document, item),
+                axis.describe(document)
+            ),
         }
+    }
+
+    pub fn measuring_axis(&self) -> Option<&MeasuredItem> {
+        match self {
+            Self::Along { axis, .. } | Self::Position { axis, .. } => Some(axis),
+            Self::Between { .. } | Self::Of { .. } => None,
+        }
+    }
+}
+
+fn positioned(document: &Document, item: &MeasuredItem) -> String {
+    match item {
+        MeasuredItem::Body(body) => format!("Centre of mass of {}", body_name(document, *body)),
+        _ => format!("Position of {}", item.describe(document)),
     }
 }
 
@@ -347,6 +389,17 @@ impl Measurement {
             .flat_map(MeasuredItem::origin_features)
             .collect()
     }
+
+    pub fn appearance_bodies(&self) -> BTreeSet<FeatureId> {
+        self.reading
+            .items()
+            .into_iter()
+            .filter_map(|item| match item {
+                MeasuredItem::Body(body) => Some(*body),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -376,6 +429,7 @@ enum Located<'a> {
         curve: Box<Curve>,
         interval: Interval,
     },
+    Body(ExactMass),
 }
 
 impl Located<'_> {
@@ -393,6 +447,7 @@ impl Located<'_> {
                 curve,
                 interval: *interval,
             },
+            Self::Body(mass) => Element::Point(mass.properties.centroid),
         }
     }
 
@@ -406,6 +461,7 @@ impl Located<'_> {
             }),
             Self::Face { solid, face } => face_middle(solid, *face),
             Self::Curve { curve, interval } => curve.point(interval.middle()),
+            Self::Body(mass) => mass.properties.centroid,
         }
     }
 }
@@ -540,6 +596,25 @@ impl<'a> Measuring<'a> {
                     }
                 }
             }
+            MeasuredItem::Body(body) => {
+                let result = self
+                    .resolver
+                    .inputs
+                    .bodies
+                    .get(body)
+                    .and_then(|(_, result)| result.solid())
+                    .ok_or_else(|| self.resolver.inputs.missing_body(*body))?;
+                match result.exact_mass() {
+                    Ok(mass) => Located::Body(mass),
+                    Err(MeasureError::Cancelled(_)) => return Err(Failure::Cancelled),
+                    Err(_) => {
+                        return Err(self.unmeasurable(format!(
+                            "The mass properties of {} could not be worked out.",
+                            body_name(document, *body)
+                        )));
+                    }
+                }
+            }
         })
     }
 
@@ -555,6 +630,34 @@ impl<'a> Measuring<'a> {
             reason,
             "Measure something that has this value, or delete this measurement.",
         )
+    }
+
+    fn mass_of(&self, item: &MeasuredItem, volume: f64) -> Result<f64, Failure> {
+        let document = self.document();
+        let MeasuredItem::Body(body) = item else {
+            return Err(self.unmeasurable(format!(
+                "{} is not a body, so it has no mass.",
+                capitalised(&item.describe(document))
+            )));
+        };
+        let name = body_name(document, *body);
+        let appearance = document
+            .feature(*body)
+            .map(|feature| &feature.appearance)
+            .ok_or_else(|| self.resolver.inputs.missing_body(*body))?;
+        match appearance.mass_grams(volume, self.resolver.inputs.parameters) {
+            Some(Ok(grams)) => Ok(grams),
+            None => Err(self.resolver.error(
+                format!("{name} has no density, so its mass cannot be read."),
+                format!("Give {name} a density in its colour and material."),
+                *body,
+            )),
+            Some(Err(error)) => Err(self.resolver.error(
+                format!("The mass of {name} cannot be read: {error}."),
+                format!("Correct the density of {name} in its colour and material."),
+                *body,
+            )),
+        }
     }
 }
 
@@ -661,6 +764,40 @@ pub(crate) fn evaluate(
                 accuracy: separation.accuracy,
             }
         }
+        Reading::Position { item, axis } => {
+            let located = measuring.locate(item)?;
+            let (point, accuracy) = match &located {
+                Located::Point(point) => (*point, Accuracy::Exact),
+                Located::Body(mass) => (mass.properties.centroid, mass.accuracy),
+                _ => {
+                    return Err(measuring.unmeasurable(format!(
+                        "{} is not a point or a body, so it has no position.",
+                        capitalised(&item.describe(document))
+                    )));
+                }
+            };
+            let (origin, direction) = match measuring.locate(axis)? {
+                Located::Axis(line) => line
+                    .direction
+                    .try_normalize()
+                    .map(|direction| (line.origin, direction)),
+                _ => None,
+            }
+            .ok_or_else(|| {
+                measuring.unmeasurable(format!(
+                    "{} gives no direction, so no position is read along it.",
+                    capitalised(&axis.describe(document))
+                ))
+            })?;
+            let coordinate = (point - origin).dot(direction);
+            let foot = origin + direction * coordinate;
+            MeasurementResult {
+                value: Quantity::length(coordinate),
+                line: Some((origin, foot)),
+                anchor: origin.midpoint(foot),
+                accuracy,
+            }
+        }
         Reading::Of { quantity, item } => {
             let located = measuring.locate(item)?;
             let described = item.describe(document);
@@ -747,6 +884,24 @@ pub(crate) fn evaluate(
                     })?;
                     (Quantity::length(length), accuracy)
                 }
+                (Of::Volume, Located::Body(mass)) => (
+                    Quantity::new(mass.properties.volume, Dimension::VOLUME),
+                    mass.accuracy,
+                ),
+                (Of::Area, Located::Body(mass)) => {
+                    (Quantity::new(mass.properties.area, AREA), mass.accuracy)
+                }
+                (Of::Mass, Located::Body(mass)) => (
+                    Quantity::new(measuring.mass_of(item, mass.properties.volume)?, MASS),
+                    mass.accuracy,
+                ),
+                (Of::Volume | Of::Mass, _) => {
+                    return Err(measuring.unmeasurable(format!(
+                        "{} is not a body, so it has no {}.",
+                        capitalised(&described),
+                        quantity.label().to_lowercase()
+                    )));
+                }
                 (Of::Sweep, _) => {
                     return Err(measuring.unmeasurable(format!(
                         "{} is not an arc, so it has no sweep.",
@@ -773,7 +928,7 @@ pub(crate) fn evaluate(
                 }
                 (Of::Area, _) => {
                     return Err(measuring.unmeasurable(format!(
-                        "{} is not a face, so it has no area.",
+                        "{} is not a face or a body, so it has no area.",
                         capitalised(&described)
                     )));
                 }
@@ -835,6 +990,11 @@ pub fn reading_literal(value: Quantity) -> Option<Expression> {
             Box::new(Expression::number(value.value)),
             Unit::Millimetre,
             2,
+        )),
+        Dimension::VOLUME => Some(Expression::WithUnit(
+            Box::new(Expression::number(value.value)),
+            Unit::Millimetre,
+            3,
         )),
         _ => paste::literal(value),
     }

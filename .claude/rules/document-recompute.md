@@ -71,6 +71,11 @@ paths:
   never stands for two buffers. The history keeps a running total, so an insert looks at the
   earlier entries only when over budget; the least recently used go first, and the latest entry
   of a feature is never dropped for size.
+- A measurement of a whole body also keys on that body's appearance (`Key::appearances`, the
+  `BodyAppearance` of each `Measurement::appearance_bodies`), its density's parameters joining the
+  parameter fingerprint, since the density a mass reads and the body's name lie outside the
+  features and parameters it uses; the body's mass properties themselves are cached in its result
+  (`SolidResult::exact_mass`, `document.md`), so such a recompute integrates nothing again.
 - A failed result is also recomputed when a name its message could hold changed (its own, those of
   the parameters and features it uses, those of every feature before it, which name the faces it
   works on); which used features are suppressed is part of its key too.
