@@ -131,9 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [low · easy] A parameter import that left rows out still shows the success notice: Apply always
-  posts `Notice::success`, so a partial import reads as complete beside the refused rows' text.
-  Use a warning whenever a row was refused.
 - [low · easy] Two caches miss the units: the offers' `Basis` holds only the length unit while
   `Offers::size` writes sweeps and half angles in the angle unit, and `scene_description::Key`
   holds no unit while it speaks lengths, so switching degrees to radians, or the length unit,

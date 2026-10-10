@@ -195,11 +195,11 @@ impl Files {
                 }
                 match plan(model, &draft.path, &draft.rows, draft.replace) {
                     Ok(plan) => {
-                        let note = summary(&plan);
+                        let notice = summary(&plan);
                         if let Some(transaction) = plan.transaction {
                             model.perform(Action::Apply(transaction));
                         }
-                        model.set_notice(Notice::success(note));
+                        model.set_notice(notice);
                     }
                     Err(reason) => model.set_notice(Notice::failure(reason)),
                 }
@@ -221,7 +221,7 @@ fn plan(
         .map_err(|error| format!("Could not import parameters from “{name}”: {error}."))
 }
 
-fn summary(plan: &ParameterImport) -> String {
+fn summary(plan: &ParameterImport) -> Notice {
     let added = plan.count(|outcome| matches!(outcome, ImportOutcome::Added));
     let changed = plan.count(|outcome| matches!(outcome, ImportOutcome::Changed { .. }));
     let kept = plan.count(|outcome| matches!(outcome, ImportOutcome::Kept { .. }));
@@ -237,16 +237,25 @@ fn summary(plan: &ParameterImport) -> String {
         parts.push(format!("kept the model's value for {kept}"));
     }
     if refused > 0 {
-        parts.push(format!("left out {refused} that could not be read"));
+        parts.push(format!(
+            "left out {} that could not be read",
+            count(refused, "row", "rows")
+        ));
     }
     if parts.is_empty() {
-        return "The parameters in the file match the model's, so nothing changed.".to_owned();
+        return Notice::success(
+            "The parameters in the file match the model's, so nothing changed.",
+        );
     }
     let mut sentence = format!("Imported parameters: {}.", parts.join(", "));
     if added + changed > 0 {
         sentence.push_str(" Undo takes the import back in one step.");
     }
-    sentence
+    if refused > 0 {
+        Notice::warning(sentence)
+    } else {
+        Notice::success(sentence)
+    }
 }
 
 fn outcome_pill(ui: &mut Ui, outcome: &ImportOutcome) {

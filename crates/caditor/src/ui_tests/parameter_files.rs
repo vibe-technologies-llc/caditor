@@ -3,7 +3,10 @@ use std::fs;
 use tempfile::TempDir;
 
 use super::{Harness, run_from_palette};
-use crate::files::{FileCommand, parameters::ParametersCommand};
+use crate::{
+    files::{FileCommand, parameters::ParametersCommand},
+    model::NoticeKind,
+};
 
 fn notice_says(harness: &Harness, text: &str) -> bool {
     harness
@@ -83,4 +86,57 @@ fn a_file_without_the_columns_is_refused_in_words() {
              and an “expression” column.",
         )
     });
+}
+
+fn import_file(harness: &mut Harness, dir: &TempDir, contents: &str) {
+    let file = dir.path().join("rows.csv");
+    fs::write(&file, contents).unwrap();
+
+    harness.answer_dialog(Some(file));
+    harness.command(FileCommand::ImportParameters);
+    harness.wait_until("the preview opens", |harness| {
+        harness.shows("Import parameters from “rows.csv”")
+    });
+
+    harness.command(FileCommand::Parameters(ParametersCommand::Apply));
+    harness.settle();
+}
+
+#[test]
+fn an_import_that_left_a_row_out_is_a_warning_counting_both() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::new();
+
+    import_file(
+        &mut harness,
+        &dir,
+        "name,expression,note\ndepth,height + 5 mm,\n2bad,1 mm,\n",
+    );
+
+    let notice = harness.model.notice().unwrap();
+    assert_eq!(notice.kind, NoticeKind::Warning);
+    assert!(
+        notice
+            .text
+            .contains("added 1 parameter, left out 1 row that could not be read"),
+        "{}",
+        notice.text
+    );
+    assert!(harness.document().parameter_named("depth").is_some());
+}
+
+#[test]
+fn an_import_that_left_nothing_out_stays_a_success() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::new();
+
+    import_file(
+        &mut harness,
+        &dir,
+        "name,expression,note\ndepth,height + 5 mm,\n",
+    );
+
+    let notice = harness.model.notice().unwrap();
+    assert_eq!(notice.kind, NoticeKind::Success);
+    assert!(notice.text.contains("added 1 parameter"), "{}", notice.text);
 }

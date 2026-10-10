@@ -305,7 +305,8 @@ paths:
   callout counting rows left out. "Replace values the model already has" (on by default) replans
   with conflicts kept instead. Import replans against the model as it is then and applies one
   transaction ("Import parameters from <file>", undone in one step) with a notice summing up what
-  was added, changed, kept and left out; Import is disabled with the reason when nothing would
+  was added, changed, kept and left out, a warning rather than a success whenever a row was left
+  out; Import is disabled with the reason when nothing would
   change. A file that cannot be read at all is a notice saying why.
 
 ## Model properties
