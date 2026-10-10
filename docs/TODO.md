@@ -125,6 +125,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   with a zero distance from that arc to the spline's first point. `sketch_solve` finds such cases
   within minutes once it requires `solve_from` of a solved geometry to succeed; it does not yet (it
   discards that result), so the property is unchecked.
+- [low · easy] Parameter CSV files carry no version and are read like typed text, so a CSV an older
+  version exported with `10 mm^2` (then (10 mm)²) now imports as 10 mm²; a version line in new
+  exports, with unversioned files read by the stored reading, would close it.
 
 ## Sketching
 
