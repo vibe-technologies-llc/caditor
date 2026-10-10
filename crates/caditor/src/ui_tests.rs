@@ -80,6 +80,7 @@ mod frame_costs;
 mod import_costs;
 mod import_jobs;
 mod large_interface;
+mod model_dimensions;
 mod paint_selection;
 mod palette_and_notices;
 mod panel_fields;

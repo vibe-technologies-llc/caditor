@@ -45,6 +45,7 @@ use crate::{
     measurement_tools,
     menu_bar::MenuEntries,
     model::{Action, Model, Notice, RecomputeStatus},
+    model_dimensions::{self, ModelDimensions, Outside},
     modifying::{Hint, Modifying, Outcome},
     move_manipulator::Handle,
     offset_face_tools,
@@ -82,6 +83,7 @@ use crate::{
 
 const INITIAL_LOOK_FROM: Vector3 = Vector3::new(1.0, -1.0, 1.0);
 const INITIAL_DISTANCE: f64 = 200.0;
+const SUBJECT_ITEMS_READ: usize = 16;
 const ZOOM_PER_SCROLL_POINT: f64 = 0.0025;
 const HIT_CURSOR_TOLERANCE_POINTS: f64 = 1.5;
 const PROMPT_MARGIN: f32 = 16.0;
@@ -190,6 +192,14 @@ impl Screen for SketchScreen {
 }
 
 impl SketchScreen {
+    pub fn new(view: View, plane: Plane, pixels_per_point: f64) -> Self {
+        Self {
+            view,
+            plane,
+            pixels_per_point,
+        }
+    }
+
     pub fn projector(&self) -> SketchProjector {
         SketchProjector(
             self.view
@@ -382,6 +392,8 @@ pub struct ViewportState {
     typed_dimensions: bool,
     first_dimension_scales: bool,
     glyphs_shown: bool,
+    dimensions_shown: bool,
+    model_dimensions: ModelDimensions,
     aids: ViewAids,
     section: Vec<SectionPlane>,
     sketch_slice: bool,
@@ -582,6 +594,8 @@ impl ViewportState {
             typed_dimensions: true,
             first_dimension_scales: false,
             glyphs_shown: true,
+            dimensions_shown: false,
+            model_dimensions: ModelDimensions::default(),
             aids: ViewAids::default(),
             section: Vec::new(),
             sketch_slice: false,
@@ -664,6 +678,15 @@ impl ViewportState {
 
     pub fn glyphs_shown(&self) -> bool {
         self.glyphs_shown
+    }
+
+    pub fn dimensions_shown(&self) -> bool {
+        self.dimensions_shown
+    }
+
+    #[cfg(test)]
+    pub fn model_labels(&self) -> &[Pickable] {
+        self.model_dimensions.highlightable()
     }
 
     pub fn style(&self) -> DisplayStyle {
@@ -857,6 +880,7 @@ impl ViewportState {
         self.trimming = Trimming::default();
         self.modifying = Modifying::default();
         self.annotations = Annotations::default();
+        self.model_dimensions.clear();
         self.typed_point = TypedPoint::default();
         self.moving = None;
         self.moving_label = None;
@@ -1072,9 +1096,12 @@ impl ViewportState {
                         .map(move |entity| Pickable::SketchEntity { feature, entity })
                 })
                 .collect()
-        } else if let Some(annotation) =
-            self.annotations.hovered().or(highlighted
-                .filter(|highlight| matches!(highlight, Pickable::SketchConstraint { .. })))
+        } else if let Some(annotation) = self
+            .annotations
+            .hovered()
+            .or(self.model_dimensions.hovered())
+            .or(highlighted)
+            .filter(|highlight| matches!(highlight, Pickable::SketchConstraint { .. }))
         {
             annotation.constrained_entities(document)
         } else if let Some(row) = self.hovered_in_tree {
@@ -1162,6 +1189,7 @@ impl ViewportState {
             && !self.scenes.highlightable().contains(&highlight)
             && !(matches!(highlight, Pickable::SketchConstraint { .. })
                 && highlight.is_available(document, evaluation, context))
+            && !self.model_dimensions.holds(highlight)
         {
             self.keyboard_highlight = None;
         }
@@ -2550,6 +2578,18 @@ impl ViewportState {
         if commands.available(Command::ToggleGlyphs) {
             self.glyphs_shown = !self.glyphs_shown;
         }
+        if commands.available(Command::ToggleDimensions) {
+            self.dimensions_shown = !self.dimensions_shown;
+            if !self.dimensions_shown {
+                self.model_dimensions.clear();
+                self.keyboard_highlight = self.keyboard_highlight.filter(|highlight| {
+                    !matches!(
+                        highlight,
+                        Pickable::FeatureValue { .. } | Pickable::SketchConstraint { .. }
+                    ) || editing.feature().is_some()
+                });
+            }
+        }
         if commands.available(Command::ToggleCentresOfMass) {
             self.aids.centres_of_mass = !self.aids.centres_of_mass;
             if !self.aids.centres_of_mass {
@@ -2720,6 +2760,7 @@ impl ViewportState {
             .ok_or("Highlight an item first, with Highlight the next item in the view");
         if commands.invoke(Command::ActivateHighlighted, &activation)
             && let Some(highlight) = self.keyboard_highlight
+            && (editing.feature().is_some() || !self.model_dimensions.open(highlight))
         {
             self.choose(model, editing, highlight, true, actions);
         }
@@ -3345,6 +3386,13 @@ impl ViewportState {
                 projecting.is_none_or(|active| projecting::projectable(model, active, *pickable))
             })
             .chain(constraints)
+            .chain(
+                self.model_dimensions
+                    .highlightable()
+                    .iter()
+                    .copied()
+                    .filter(|_| editing.feature().is_none() && self.dimensions_shown),
+            )
             .collect();
         let count = highlightable.len();
         if count == 0 {
@@ -3784,6 +3832,10 @@ impl ViewportState {
             {
                 self.annotations.request_field(feature, constraint);
             } else if editing.feature().is_none()
+                && let Some(highlight) = self.keyboard_highlight
+                && self.model_dimensions.open(highlight)
+            {
+            } else if editing.feature().is_none()
                 && let Some(command) = open_command(self.keyboard_highlight, model)
             {
                 actions.push(Action::Editing(command));
@@ -4069,6 +4121,21 @@ impl ViewportState {
             let plane = scene::sketch_plane(model.document(), model.evaluation(), feature)?;
             Some((feature, plane))
         });
+        if editing.feature().is_some() || !self.dimensions_shown {
+            self.model_dimensions.clear();
+        } else if let Some(view) = self.view() {
+            let subjects = self.dimension_subjects(model, editing);
+            let outside = Outside {
+                rect,
+                view: &view,
+                pixels_per_point: f64::from(self.pixels_per_point),
+                subjects: &subjects,
+                highlight: self.keyboard_highlight,
+                interactive: true,
+            };
+            self.model_dimensions
+                .show(ui, model, &outside, &mut self.selection, actions);
+        }
         let (Some((feature, plane)), Some(view)) = (edited, self.view()) else {
             self.annotations.clear();
             return;
@@ -4089,9 +4156,40 @@ impl ViewportState {
             glyphs: self.glyphs_shown,
             highlight: self.keyboard_highlight,
             first_dimension_scales: self.first_dimension_scales,
+            outside: false,
         };
         self.annotations
             .show(ui, model, &surface, &mut self.selection, actions);
+    }
+
+    fn dimension_subjects(&self, model: &Model, editing: &SketchEditing) -> Vec<FeatureId> {
+        let subject = |pickable: Pickable| match pickable {
+            Pickable::FeatureValue { feature, .. } | Pickable::SketchConstraint { feature, .. } => {
+                Some(feature)
+            }
+            _ => feature_of(pickable, model),
+        };
+        let mut subjects: Vec<FeatureId> = Vec::new();
+        let candidates = self
+            .highlighted()
+            .and_then(subject)
+            .into_iter()
+            .chain(self.rows_to_highlight(editing.context()))
+            .chain(
+                self.selection
+                    .iter()
+                    .take(SUBJECT_ITEMS_READ)
+                    .filter_map(subject),
+            );
+        for candidate in candidates {
+            if Some(candidate) != editing.solid() && !subjects.contains(&candidate) {
+                subjects.push(candidate);
+            }
+            if subjects.len() >= model_dimensions::MAX_SUBJECTS {
+                break;
+            }
+        }
+        subjects
     }
 
     fn decorate(

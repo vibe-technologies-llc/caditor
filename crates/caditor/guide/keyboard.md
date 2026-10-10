@@ -36,7 +36,8 @@ cannot be bound. Shortcuts shown in this guide are your current ones.
 - {command:view.context_menu} opens the view's right-click menu at the highlighted item, else at
   the selection; the arrows move through it and Enter runs an entry.
 - In a sketch, the highlight also reaches constraints and dimensions, and Enter on a dimension
-  edits its value.
+  edits its value. With {command:view.toggle_dimensions} on, it reaches the dimensions and values
+  shown on the model the same way.
 - With a drawing tool active, type a number, or `=` before a parameter's name, to place a point
   exactly, or use {command:sketch.type_value}; see [sketches](sketches).
 

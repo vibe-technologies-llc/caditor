@@ -20,6 +20,8 @@ paths:
   - "crates/caditor/src/display.rs"
   - "crates/caditor/src/annotations.rs"
   - "crates/caditor/src/annotation_layout.rs"
+  - "crates/caditor/src/model_dimensions.rs"
+  - "crates/caditor/src/feature_values.rs"
   - "crates/caditor/src/typed_point.rs"
   - "crates/caditor/src/viewport.rs"
   - "crates/caditor/src/dimensioning.rs"
@@ -823,3 +825,49 @@ paths:
 - Double-clicking a label opens an inline `commit_field` with the value selected, as does a new
   dimension or any `Focus::Dimension` of the edited sketch, which the app takes from the panels
   and hands to the viewport, waiting until the dimension can be drawn.
+
+## Dimensions on the model
+
+- Show or hide dimensions on the model (`Command::ToggleDimensions`, View menu, palette, no
+  default key) is a view toggle kept for the session (`ViewportState::dimensions_shown`, off at
+  first, not saved). While it is on and no sketch is edited, `ViewportState::annotate` hands
+  `model_dimensions::ModelDimensions` the view and the subjects: the feature of the highlighted or
+  hovered item (`viewport::feature_of`; a value label or dimension stands for its own feature),
+  the rows chosen or hovered in the tree, then the features of the first `SUBJECT_ITEMS_READ`
+  selected items, at most `MAX_SUBJECTS` and never the open feature, whose handles already show
+  its values. The feature of an open field and of a hovered value label stay subjects
+  (`ModelDimensions::held`), so moving the pointer onto the field never takes it away.
+- Sketch dimensions: every active sketch that is not hidden, plus the sketch a subject sweeps
+  (`feature_values::sketch_of`: an extrusion's, revolve's or hole's) or a subject sketch itself
+  even when hidden, which is the rule for hidden sketches; a sketch several features sweep shows
+  once. The list is kept until the revision or the subjects change. Each sketch has its own
+  `Annotations` laid out on its solved plane with `Surface::outside`: the same cached `Measures`
+  and `Marks` (by revision and view, so a still frame lays nothing out), lanes, thinning and
+  collapsing as for the edited sketch, but no glyphs, open ends or points beyond, labels that do
+  not drag or select, and an inline field opened by a double-click or Enter.
+- Feature values (`feature_values.rs`): an extrusion's distance, total, forward and backward
+  distances (`ValueSlot::Extrude` of its `Reach`), a revolve's angles, a fillet's radius or a
+  chamfer's first distance, a shell's thickness, a hole's diameter and blind depth, and a linear
+  pattern's counts and spacings or a circular one's count and total angle, each with the panel
+  row's caption, dimension and `feature_fields::Rule`. They are worked out when the revision,
+  evaluation, units or subjects change. An extrusion's distances are drawn as dimension lines
+  along its reach (`reach_handles::reach_lines`, from the sketch's centre along its normal) with
+  the label at the middle; the others stack under the centre of the faces the feature made (their
+  `FaceOrigin` names it, `origin_feature`; a pattern's copies count as its own), else of its
+  body. Labels read `<caption> <value>`, or `<caption> <expression> = <value>`, on the canvas
+  backdrop in `canvas::body`, and are announced as buttons named "<feature> <caption>: <text>".
+- A label whose value is a parameter, owned (`ParameterOwner::Feature` with the caption, or a
+  dimension's) or a bare reference to a model parameter, reads `name = value`
+  (`field::driving_parameter`), and its field holds `name = expression` (`field::driven_text`):
+  typing `name = expression` renames that parameter and sets its expression
+  (`NamedField::through_reference`, refused in words for a measured parameter), typing a value
+  alone replaces the reference. Otherwise the field follows the feature panel exactly
+  (`NamedField::transaction` with the panel's parse and rule, `feature_values::change` a checked
+  "Edit <feature>" `SetFeatureKind`; for a sketch dimension `field::dimension_edit` with
+  `Reference::Followed`), each commit one undoable transaction.
+- Keyboard: the shown labels (laid out or collapsed sketch dimensions as
+  `Pickable::SketchConstraint`, feature values as `Pickable::FeatureValue`, which nothing selects
+  or picks) follow the scene's pickables in the highlight order, stay highlighted while shown
+  (`ModelDimensions::holds`), and Enter or Activate opens the highlighted one's field
+  (`ModelDimensions::open`).
+

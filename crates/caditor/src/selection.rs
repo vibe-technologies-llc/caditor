@@ -15,6 +15,7 @@ use crate::{
     bodies::{self, FaceKey, VertexKey},
     datum_tools,
     editing::Context,
+    feature_values::ValueSlot,
     variants::all_variants,
     visibility,
 };
@@ -197,6 +198,10 @@ pub enum Pickable {
         plane: PrincipalPlane,
     },
     CentreOfMass(FeatureId),
+    FeatureValue {
+        feature: FeatureId,
+        value: ValueSlot,
+    },
 }
 
 pub fn sketch_regions(evaluation: &Evaluation, sketch: FeatureId) -> Option<&[SketchRegion]> {
@@ -255,7 +260,8 @@ impl Pickable {
             | Self::ShellFace { feature, .. }
             | Self::Datum(feature)
             | Self::FrameAxis { feature, .. }
-            | Self::FramePlane { feature, .. } => Some(feature),
+            | Self::FramePlane { feature, .. }
+            | Self::FeatureValue { feature, .. } => Some(feature),
             Self::Face { body, .. }
             | Self::Edge { body, .. }
             | Self::Vertex { body, .. }
@@ -357,6 +363,12 @@ impl Pickable {
                 format!("{} › {}", frame_name(document, feature), plane.name())
             }
             Self::CentreOfMass(body) => format!("Centre of mass of {}", body_name(document, body)),
+            Self::FeatureValue { feature, value } => {
+                let owner = document
+                    .feature(feature)
+                    .map_or("A deleted feature", |owner| owner.name.as_str());
+                format!("{owner} › {}", value.words())
+            }
             Self::ShellFace { feature, face } => {
                 let owner = document
                     .feature(feature)
@@ -517,6 +529,7 @@ impl Pickable {
                     && visibility::is_shown(document, body)
                     && bodies::shown(evaluation, body).is_some()
             }
+            Self::FeatureValue { .. } => false,
         }
     }
 }

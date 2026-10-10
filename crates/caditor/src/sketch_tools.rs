@@ -1000,6 +1000,7 @@ pub fn selected_entities(selection: &Selection, feature: FeatureId) -> Vec<Entit
             | Pickable::CentreOfMass(_)
             | Pickable::FrameAxis { .. }
             | Pickable::FramePlane { .. }
+            | Pickable::FeatureValue { .. }
             | Pickable::Datum(_) => None,
         })
         .collect()
@@ -1028,6 +1029,7 @@ pub fn selected_constraints(selection: &Selection, feature: FeatureId) -> Vec<Co
             | Pickable::CentreOfMass(_)
             | Pickable::FrameAxis { .. }
             | Pickable::FramePlane { .. }
+            | Pickable::FeatureValue { .. }
             | Pickable::Datum(_) => None,
         })
         .collect()
