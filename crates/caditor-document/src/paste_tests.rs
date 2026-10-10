@@ -216,6 +216,7 @@ fn a_feature_picking_edges_of_a_copied_body_is_left_out_with_its_reason() {
         FeatureKind::Blend(Blend {
             kind: BlendKind::Fillet,
             body: base,
+            groups: Vec::new(),
             edges,
             size: Expression::measure(1.0, caditor_expression::Unit::Millimetre),
             form: ChamferForm::Equal,

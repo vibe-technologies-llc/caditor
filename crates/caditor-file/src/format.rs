@@ -4,21 +4,22 @@ use caditor_document::{
     AngleMate, AngleSides, AxisMate, AxisReference, AxisSide, AxisTurn, Between, Blend, BlendKind,
     BodyAppearance, BodyOperation, BodyPlacement, ChamferForm, CircularPattern, Combine,
     CombineOperation, ConfigurationId, CopyOrientation, CurvePattern, CurveSpacing, CurveStation,
-    Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd,
-    ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound, FacePair,
-    FaceTangent, Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth,
-    HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection,
-    LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS,
-    MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate,
-    MatePair, MeasuredItem, Measurement, MetricSize, Mirror, ModelProperties, ModelProperty, Move,
-    NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of, OffsetFace, Parameter, ParameterOwner,
-    Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointMate,
-    PointReference, PointTarget, PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape,
-    PrincipalAxis, PrincipalGeometry, PrincipalPlane, ProjectionSource, Reading, RegionChoice,
-    Remove, Revolve, RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView, SavedViews, Scale,
-    Shell, SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong,
-    SplitCarry, SplitFace, TappedThread, Thread, ThreadFamily, ThreadHand, ThreadLength,
-    ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name, view_name,
+    Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, EdgeGroup, Edit, Extrude,
+    ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceAxisMate, FaceColour, FaceMate, FaceOnRound,
+    FacePair, FaceTangent, Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom,
+    HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle, Import,
+    LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
+    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
+    MIN_OPACITY_PERCENT, Mate, MatePair, MeasuredItem, Measurement, MetricSize, Mirror,
+    ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, Of,
+    OffsetFace, Parameter, ParameterOwner, Pattern, PatternKind, PlaneReference, PlaneRotation,
+    PlaneThrough, PointBy, PointMate, PointReference, PointTarget, PointsPattern, Primitive,
+    PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry, PrincipalPlane,
+    ProjectionSource, Reading, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent, Rgb,
+    RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
+    SolidFeature, SolidStart, Split, SplitAlong, SplitCarry, SplitFace, TappedThread, Thread,
+    ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall,
+    group_name, material_name, view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -260,6 +261,20 @@ pub(crate) enum FeatureKindRecord {
     FaceOnRoundMate(Box<FaceOnRoundMateRecord>),
     Measurement(Box<MeasurementRecord>),
     SplitFaceWrapped(Box<SplitFaceWrappedRecord>),
+    BlendGroups(Box<BlendGroupsRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct BlendGroupsRecord {
+    pub feature: FeatureKindRecord,
+    pub groups: Vec<Lenient<EdgeGroupRecord>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EdgeGroupRecord {
+    Face(FaceRecord),
+    Body,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -736,7 +751,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 75] = [
+pub(crate) const FEATURE_KINDS: [&str; 76] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -812,6 +827,7 @@ pub(crate) const FEATURE_KINDS: [&str; 75] = [
     "face_on_round_mate",
     "measurement",
     "split_face_wrapped",
+    "blend_groups",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2142,6 +2158,27 @@ fn restore_appearance(
 }
 
 fn feature_kind_record(kind: &FeatureKind) -> FeatureKindRecord {
+    if let FeatureKind::Blend(blend) = kind
+        && !blend.groups.is_empty()
+    {
+        let listed = Blend {
+            groups: Vec::new(),
+            ..blend.clone()
+        };
+        return FeatureKindRecord::BlendGroups(Box::new(BlendGroupsRecord {
+            feature: feature_kind_record(&FeatureKind::Blend(listed)),
+            groups: blend
+                .groups
+                .iter()
+                .map(|group| {
+                    Lenient::Read(match group {
+                        EdgeGroup::Face(face) => EdgeGroupRecord::Face(face_record(face)),
+                        EdgeGroup::Body => EdgeGroupRecord::Body,
+                    })
+                })
+                .collect(),
+        }));
+    }
     if let FeatureKind::Combine(combine) = kind
         && (!combine.more_tools.is_empty() || combine.keep_tool)
     {
@@ -4792,6 +4829,34 @@ fn restore_kind(
             }
             kind
         }
+        FeatureKindRecord::BlendGroups(grouped) => {
+            let mut kind = restore_kind(&grouped.feature, name, texts, issues);
+            let groups: Vec<EdgeGroup> = grouped
+                .groups
+                .iter()
+                .filter_map(|group| match group {
+                    Lenient::Read(EdgeGroupRecord::Face(face)) => {
+                        restore_face(&face.face, face.origin, face.copy, &face.neighbours)
+                            .map(EdgeGroup::Face)
+                    }
+                    Lenient::Read(EdgeGroupRecord::Body) => Some(EdgeGroup::Body),
+                    Lenient::Unreadable(_) => None,
+                })
+                .collect();
+            if groups.len() < grouped.groups.len() {
+                issues.push(format!(
+                    "Some faces whose edges “{name}” rounds could not be read and were left out."
+                ));
+            }
+            match &mut kind {
+                FeatureKind::Blend(blend) => blend.groups = groups,
+                _ => issues.push(format!(
+                    "“{name}” was to round every edge of faces or a body, but it is not a fillet \
+                     or chamfer, so that was left out."
+                )),
+            }
+            kind
+        }
         FeatureKindRecord::SplitFaceWrapped(wrapped) => {
             let mut kind = restore_kind(&wrapped.feature, name, texts, issues);
             match &mut kind {
@@ -7202,6 +7267,7 @@ fn restore_blend(
         kind,
         body: FeatureId::from_raw(record.body),
         edges,
+        groups: Vec::new(),
         size,
         form: ChamferForm::Equal,
         flipped: false,

@@ -25,6 +25,7 @@ const MODEL_PARAMETERS_EXPLANATION: &str = "Dimensions and feature values given 
                                             name = value in their field. Other expressions use \
                                             them by that name.";
 const OWNER_GONE: &str = "Its dimension or feature was deleted";
+pub const INSERT_HINT: &str = "Click to put its name in the field being edited";
 const COLUMNS: usize = 4;
 const SPACING: Vec2 = vec2(SPACE_M, SPACE_S);
 const VALUE_WIDTH: f32 = 64.0;
@@ -452,7 +453,8 @@ fn row(
             });
         });
     }
-    ui.scope(|ui| {
+    let insertable = insertable_into_focused(ui, document, id);
+    let value_cell = ui.scope(|ui| {
         ui.set_width(widths.value);
         ui.horizontal(|ui| match model.parameters().get(id) {
             Some(Ok(value)) => {
@@ -466,6 +468,9 @@ fn row(
                     .on_hover_ui(|ui| {
                         ui.label(&shown);
                         ui.label(used_by(&document.parameter_users(id)));
+                        if insertable {
+                            ui.label(INSERT_HINT);
+                        }
                     });
             }
             Some(Err(error)) => {
@@ -484,6 +489,9 @@ fn row(
             None => {}
         });
     });
+    if insertable && ui.rect_contains_pointer(value_cell.response.rect) {
+        completion::offer_insertion(ui.ctx(), parameter.name.clone());
+    }
     let band = Rect::from_x_y_ranges(
         ui.clip_rect().x_range(),
         name.response.rect.expand(SPACING.y / 2.0).y_range(),
@@ -491,6 +499,22 @@ fn row(
     let hovered = ui.rect_contains_pointer(band);
     delete_button(ui, document, actions, parameter, hovered, used);
     name.error.or(expression.error)
+}
+
+fn insertable_into_focused(ui: &Ui, document: &Document, parameter: ParameterId) -> bool {
+    let Some(focused) = field::focused_value_field(ui) else {
+        return false;
+    };
+    let editing = document
+        .parameters()
+        .iter()
+        .map(Parameter::id)
+        .find(|other| Focus::ParameterValue(*other).field_id() == focused);
+    match (editing, completion::available(ui.ctx())) {
+        (Some(target), Some(completions)) => !completions.forms_cycle(target, parameter),
+        (Some(target), None) => target != parameter,
+        (None, _) => true,
+    }
 }
 
 fn note_icon(ui: &mut Ui, parameter: &Parameter) {

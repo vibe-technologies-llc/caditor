@@ -161,6 +161,26 @@ paths:
   with the font's pair kerning (the GPOS `kern` lookups of the Latin, else default, script, pair
   adjustments of both formats, at the default instance) between two letters of the same weight
   and face unless the second is placed absolutely.
+- `textLength` on a `text`, `tspan` or `textPath` (a length, percentages of the viewport width)
+  makes its letters span that length, innermost element first: `lengthAdjust` `spacing` (the
+  default) spreads the difference over the gaps between them, `spacingAndGlyphs` stretches their
+  places and glyphs (`Placed::stretch`, a horizontal scale before the rotation) by the ratio;
+  later letters of the chunk move with the end. `baseline-shift` raises (positive) or lowers a
+  span's letters without moving the pen: `sub` by 0.2 and `super` by 0.4 of the parent's font
+  size, a percentage of the parent's font size, a length or em of its own; shifts add up through
+  nested spans (`TextStyle::rise`).
+- `textPath` (`text_path.rs`) lays its letters along the shape it references (`href` or
+  `xlink:href`, one of the drawn shape elements, through its own `transform`) or its SVG 2 `path`
+  data: the shape is sampled into a `Track` (lines exact, arcs 128 steps a turn, Béziers 32 a
+  span, at most `MAX_TRACK_POINTS`; moves add no length), `side="right"` walks it backwards, and
+  `startOffset` (a length or a percentage of its length) is where the run starts. The run is laid
+  out straight from zero with the usual advances, kerning, spacing, `dx`, `dy`, `rotate` and
+  `textLength`, anchored by its first letter's `text-anchor` about the start offset, then each
+  letter's middle is put on the track at its distance, the letter turned to the tangent there and
+  `dy` and the baseline shift moving it square to it; absolute `x` and `y` are ignored inside it.
+  A letter whose middle falls off either end is left out and counted, as browsers do. Text after
+  the `textPath` in the same `text` carries on, straight, from where the last letter on the path
+  ends. A reference that does not name a drawn shape is counted as missing and its text left out.
 - Text style (`text_style.rs`) cascades like the other properties: `font-size` (lengths, em, ex,
   rem, percentages of the parent's, the keywords, `larger` and `smaller`; 16 px when unset),
   `font-family`, `font-weight` (keywords, `bolder` and `lighter` as CSS steps them, 1 to 1000),
@@ -171,8 +191,7 @@ paths:
   font's `wght` axis, clamped to its range (100 to 900 for Inter); italic and oblique text is
   set in the italic face, with its own glyphs, advances and kerning, and only when no italic face
   was handed in is it drawn upright and counted in a note. A character the
-  font has no glyph for takes the advance of its missing glyph, draws nothing and is counted;
-  `textPath` is left out and counted.
+  font has no glyph for takes the advance of its missing glyph, draws nothing and is counted.
 - Glyphs (`font.rs`) are read in font units at each weight of each face (a `Cut` per face, an
   `Instance` of weight and italic naming one, one `ttf_parser::Face` per weight, outlines cached
   per weight and glyph), scaled by size over units per em with y flipped, turned

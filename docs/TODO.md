@@ -340,11 +340,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [low · medium] Open decision on kept measurements: a failed or suppressed measurement fails the
   features using its value, as a failing feature's dependents do; whether they should instead keep
   its last reading (the measured parameter's stored value already holds it) is undecided.
-- [low · medium] Fillet and Chamfer on a selected face or a whole body store the edges they
-  resolve to when the feature is made, so an edge a later upstream change adds to that face or body
-  is not rounded; storing the face or body itself (a new blend reference re-expanded to its edges on
-  each recompute, saved as a record of its own) would let the rounding follow, as Fusion's rule
-  fillets do.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three
   axes (a plane stays a plane, but a cylinder becomes an elliptical one, which the kernel's
   surfaces do not have).
@@ -416,10 +411,14 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Drawing import and export
 
-- [low · medium] SVG text comes in as outlines in Inter (upright and italic): `textPath` is left
-  out, vertical writing modes, `textLength`, `baseline-shift` and shaping beyond pair kerning
-  (ligatures, marks, right-to-left scripts) are not applied, and letters of different glyphs that
-  overlap are not merged into one outline.
+- [low · hard] SVG text comes in as outlines in Inter (upright and italic): vertical writing
+  modes and shaping beyond pair kerning (ligatures, marks, right-to-left scripts) are not applied,
+  which needs a shaping engine (rustybuzz) and bidirectional reordering rather than the per-letter
+  layout `lettering.rs` does, and letters of different glyphs that overlap are not merged into one
+  outline (`overlap.rs` merges each glyph alone; merging across letters needs the profile built
+  over the whole text). `textPath`'s `method` and `spacing` are ignored, and `sub`, `super` and
+  percentage baseline shifts use fixed shares of the font size rather than the font's own
+  subscript and superscript metrics.
 
 ## Mesh import and export
 
@@ -474,10 +473,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   distance, a chamfer's second value, a move's offsets and a thread's depth are not offered yet
   (`feature_values::values_of`), and labels of different sketches and features are thinned each on
   its own, so two sketches' labels can overlap.
-- [low · easy] While a value field has focus, a click on a dimension label in the view inserts its
-  parameter's name (`completion.rs`, `field.rs`), but a click on a value in the Parameters panel
-  does not: the panel's rows could insert their name the same way, so a parameter seen there is
-  not retyped from memory.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge

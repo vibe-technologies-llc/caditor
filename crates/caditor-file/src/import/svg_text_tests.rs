@@ -364,13 +364,13 @@ fn italic_text_follows_the_weight_and_kerning_of_its_own_face() {
 }
 
 #[test]
-fn letters_the_font_lacks_and_text_on_paths_are_left_out_with_notes() {
+fn letters_the_font_lacks_and_letters_past_the_end_of_their_path_are_left_out_with_notes() {
     let drawing = read(
-        r##"<defs><path id="p" d="M 0 0 L 100 0"/></defs>
-            <text y="50" font-size="20">I&#x4E2D;<textPath href="#p">I</textPath></text>"##,
+        r##"<defs><path id="p" d="M 0 80 L 6 80"/></defs>
+            <text y="50" font-size="20">I&#x4E2D;<textPath href="#p">II</textPath></text>"##,
     );
 
-    assert_eq!(loops(&drawing).len(), 1);
+    assert_eq!(loops(&drawing).len(), 2);
     assert!(
         drawing
             .notes
@@ -383,10 +383,140 @@ fn letters_the_font_lacks_and_text_on_paths_are_left_out_with_notes() {
         drawing
             .notes
             .iter()
-            .any(|note| note.starts_with("1 text laid along a path was left out")),
+            .any(|note| note.starts_with("1 letter running past the end of its path was left out")),
         "{:?}",
         drawing.notes
     );
+}
+
+fn assert_same_bounds(actual: &[Bounds], expected: &[Bounds]) {
+    assert_eq!(actual.len(), expected.len(), "{actual:?} {expected:?}");
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert!(
+            (actual.low - expected.low).length() < 1e-6
+                && (actual.high - expected.high).length() < 1e-6,
+            "{actual:?} is not {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn text_on_a_straight_path_sits_on_it_as_text_on_that_baseline_does() {
+    let straight = read(r#"<text x="10" y="50" font-size="20">HIH</text>"#);
+    let on_path = read(
+        r##"<defs><path id="p" d="M 10 50 L 190 50"/></defs>
+            <text font-size="20"><textPath href="#p">HIH</textPath></text>"##,
+    );
+    let transformed = read(
+        r##"<defs><path id="p" d="M 0 0 L 180 0" transform="translate(10 50)"/></defs>
+            <text font-size="20"><textPath xlink:href="#p" xmlns:xlink="http://www.w3.org/1999/xlink">HIH</textPath></text>"##,
+    );
+
+    assert_same_bounds(&loops(&on_path), &loops(&straight));
+    assert_same_bounds(&loops(&transformed), &loops(&straight));
+    assert!(on_path.notes.is_empty(), "{:?}", on_path.notes);
+}
+
+#[test]
+fn letters_on_a_path_turn_with_its_tangent() {
+    let upright = loops(&read(r#"<text x="50" y="50" font-size="20">I</text>"#));
+    let turned = loops(&read(
+        r#"<text font-size="20"><textPath path="M 50 10 L 50 90">I</textPath></text>"#,
+    ));
+    let around = loops(&read(
+        r#"<text font-size="20"><textPath path="M 100 50 A 40 40 0 1 1 20 50">IIIII</textPath></text>"#,
+    ));
+
+    assert_eq!(turned.len(), 1);
+    assert_close(turned[0].width(), upright[0].height());
+    assert_close(turned[0].height(), upright[0].width());
+    assert!(turned[0].low.x >= 50.0 - 1e-9, "{turned:?}");
+    assert_eq!(around.len(), 5);
+    let centre = Point2::new(60.0, -50.0);
+    assert!(
+        around
+            .iter()
+            .all(|letter| ((letter.low + letter.high) / 2.0 - centre).length() > 40.0),
+        "{around:?}"
+    );
+}
+
+#[test]
+fn the_start_offset_and_anchor_place_text_along_its_path() {
+    let at = |offset: &str, anchor: &str| {
+        whole(&read(&format!(
+            r##"<defs><path id="p" d="M 0 50 L 200 50"/></defs>
+                <text font-size="20" text-anchor="{anchor}"><textPath href="#p" startOffset="{offset}">II</textPath></text>"##
+        )))
+    };
+
+    let start = at("0", "start");
+    let middle = at("50%", "middle");
+    let end = at("100", "end");
+
+    let face = regular();
+    let scale = 20.0 / f64::from(face.units_per_em());
+    let width = advance(&face, 'I') * 2.0 * scale;
+    assert_close(middle.low.x - start.low.x, 100.0 - width / 2.0);
+    assert_close(end.low.x - start.low.x, 100.0 - width);
+}
+
+#[test]
+fn text_after_a_path_carries_on_from_where_the_path_text_ends() {
+    let drawing =
+        read(r#"<text font-size="20"><textPath path="M 10 80 L 10 10">I</textPath>I</text>"#);
+
+    let outlines = loops(&drawing);
+
+    assert_eq!(outlines.len(), 2);
+    assert!(outlines[1].low.y > -80.0 + 1.0, "{outlines:?}");
+    assert!(outlines[1].width() < outlines[1].height(), "{outlines:?}");
+}
+
+#[test]
+fn a_text_length_spreads_the_letters_or_stretches_them() {
+    let spaced = |length: &str| {
+        loops(&read(&format!(
+            r#"<text x="10" y="50" font-size="20" textLength="{length}">III</text>"#
+        )))
+    };
+    let stretched = |length: &str| {
+        loops(&read(&format!(
+            r#"<text x="10" y="50" font-size="20" textLength="{length}" lengthAdjust="spacingAndGlyphs">I</text>"#
+        )))
+    };
+    let followed = loops(&read(
+        r#"<text x="10" y="50" font-size="20"><tspan textLength="100">II</tspan>I</text>"#,
+    ));
+    let natural = loops(&read(r#"<text x="10" y="50" font-size="20">III</text>"#));
+
+    let (narrow, wide) = (spaced("100"), spaced("160"));
+    assert_eq!(wide.len(), 3);
+    assert_close(wide[1].low.x - narrow[1].low.x, 30.0);
+    assert_close(wide[2].low.x - narrow[2].low.x, 60.0);
+    assert_close(wide[0].low.x, narrow[0].low.x);
+    let (single, double) = (stretched("20"), stretched("40"));
+    assert_close(double[0].width(), single[0].width() * 2.0);
+    assert_close(double[0].height(), single[0].height());
+    let delta = followed[1].low.x - natural[1].low.x;
+    assert_close(followed[2].low.x - natural[2].low.x, delta);
+}
+
+#[test]
+fn a_baseline_shift_raises_or_lowers_its_letters() {
+    let drawing = read(
+        r#"<text x="10" y="50" font-size="20">I<tspan baseline-shift="super">I</tspan><tspan baseline-shift="sub">I</tspan><tspan baseline-shift="-3">I<tspan baseline-shift="50%" font-size="10">I</tspan></tspan>I</text>"#,
+    );
+
+    let outlines = loops(&drawing);
+
+    assert_eq!(outlines.len(), 6);
+    let base = outlines[0].low.y;
+    assert_close(outlines[1].low.y - base, 8.0);
+    assert_close(outlines[2].low.y - base, -4.0);
+    assert_close(outlines[3].low.y - base, -3.0);
+    assert_close(outlines[4].low.y - base, 7.0);
+    assert_close(outlines[5].low.y, base);
 }
 
 #[test]

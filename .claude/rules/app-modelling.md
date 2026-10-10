@@ -321,15 +321,21 @@ paths:
 - Fillet, Chamfer and Shell take the selected edges (or flat faces) of one body and create a
   feature that opens. Fillet and Chamfer also take selected faces of the body, each standing for
   its boundary edges, and a lone body chosen in the tree for every edge of it
-  (`blend_tools::selected_edges`, `Offers::blend`; seams left out, each edge once); the edges are
-  captured as they stand, as a selection of edges is, so edges a later change adds to such a face
-  are not taken. The edges and flat faces of the body before the feature
+  (`blend_tools::selected_edges`, `Offers::blend`, an `EdgeSource` of the edges picked one by one
+  and `GroupSource`s; seams left out, each edge once, an edge lying on a selected face left to the
+  face). The face (a `FaceReference`) or the body is stored as an `EdgeGroup` and expanded again on
+  every recompute (`document.md`), so an edge a later change adds to it is rounded too; the panel
+  lists it as "All edges of <face>" or "All edges of <body>" (`blend_panel::group_row`), its hover
+  lighting the edges it stands for. A click on an edge an `EdgeGroup` stands for
+  (`blend_tools::toggle_edge`) replaces that group with its current edges less the clicked one's
+  chain. The edges and flat faces of the body before the feature
   (`BodyMeshes::body_before`) are `Pickable::BlendEdge` and `Pickable::ShellFace`, drawn as in
   Preview while open, and a click toggles one. The
   panel lists the edges or faces in words (a split edge as its pieces).
 - Choose in the view on a fillet or chamfer first adds the edges selected in the view of its
-  body and the edges around its selected faces (`blend_tools::with_selected_edges`, one undoable
-  change, edges already in a chosen chain skipped), then opens it, so those and the edges it held show chosen and a click leaves one out.
+  body and its selected faces as `EdgeGroup`s (`blend_tools::with_selected_edges`, one undoable
+  change, edges already in a chosen chain and faces whose edges are all chosen skipped), then
+  opens it, so those and the edges it held show chosen and a click leaves one out.
   A shell's and an offset face's Choose in the view do the same with the selected faces of its
   body (`shell_tools::with_selected_faces`, flat faces only, and
   `offset_face_tools::with_selected_faces`; faces already chosen skipped), the panels taking the

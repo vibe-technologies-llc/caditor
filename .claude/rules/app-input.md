@@ -70,7 +70,12 @@ paths:
   passes, so the pointer must rest on the label before pressing) and the press inserts it at the
   caret or over the selection, spaced from a name before it, and marks the press taken
   (`completion::mark_taken`); the label's click then does not select (`take_click`), the app
-  forgetting a mark left unused once the button is up (`forget_taken_click`).
+  forgetting a mark left unused once the button is up (`forget_taken_click`). A row's value
+  column in the Parameters panel does the same with the parameter's name while a value field
+  holds focus (`field::focused_value_field`, known from the field's `Suggesting` in temp data),
+  its hover adding `parameter_table::INSERT_HINT`; it offers nothing to the row's own field or a
+  parameter field whose parameter it would make depend on itself (`Completions::forms_cycle`,
+  `parameter_table::insertable_into_focused`).
 
 ## Keyboard focus
 

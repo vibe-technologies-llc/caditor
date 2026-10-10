@@ -10,6 +10,8 @@ const LIGHTEST_WEIGHT: f64 = 1.0;
 const HEAVIEST_WEIGHT: f64 = 1000.0;
 const SIZE_STEP: f64 = 1.2;
 const EX_PER_EM: f64 = 0.5;
+const SUBSCRIPT_SHIFT_EMS: f64 = -0.2;
+const SUPERSCRIPT_SHIFT_EMS: f64 = 0.4;
 const SHORTHAND: &str = "font";
 const KEYWORD_SIZES: [(&str, f64); 8] = [
     ("xx-small", 9.0),
@@ -69,6 +71,13 @@ pub(super) enum Spacing {
     Ems(f64),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum BaselineShift {
+    Pixels(f64),
+    Ems(f64),
+    OfParentSize(f64),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub(super) struct TextProperties<'a> {
     pub size: Option<FontSize>,
@@ -79,6 +88,7 @@ pub(super) struct TextProperties<'a> {
     pub letter_spacing: Option<Spacing>,
     pub word_spacing: Option<Spacing>,
     pub preserve_space: Option<bool>,
+    pub baseline_shift: Option<BaselineShift>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -115,6 +125,7 @@ impl<'a> TextProperties<'a> {
             anchor: property("text-anchor").and_then(anchor),
             letter_spacing: property("letter-spacing").and_then(spacing),
             word_spacing: property("word-spacing").and_then(spacing),
+            baseline_shift: property("baseline-shift").and_then(baseline_shift),
             preserve_space: space.and_then(|space| match space.trim() {
                 "preserve" => Some(true),
                 "default" => Some(false),
@@ -145,6 +156,7 @@ pub(super) struct TextStyle<'a> {
     pub letter_spacing: f64,
     pub word_spacing: f64,
     pub preserve_space: bool,
+    pub rise: f64,
 }
 
 impl Default for TextStyle<'_> {
@@ -158,6 +170,7 @@ impl Default for TextStyle<'_> {
             letter_spacing: 0.0,
             word_spacing: 0.0,
             preserve_space: false,
+            rise: 0.0,
         }
     }
 }
@@ -180,6 +193,12 @@ impl<'a> TextStyle<'a> {
             Some(Spacing::Ems(ems)) => ems * size,
             None => inherited,
         };
+        let shift = match properties.baseline_shift {
+            Some(BaselineShift::Pixels(pixels)) => pixels,
+            Some(BaselineShift::Ems(ems)) => ems * size,
+            Some(BaselineShift::OfParentSize(share)) => share * self.size,
+            None => 0.0,
+        };
         Self {
             size,
             family: properties.family.or(self.family),
@@ -189,6 +208,7 @@ impl<'a> TextStyle<'a> {
             letter_spacing: spaced(properties.letter_spacing, self.letter_spacing),
             word_spacing: spaced(properties.word_spacing, self.word_spacing),
             preserve_space: properties.preserve_space.unwrap_or(self.preserve_space),
+            rise: self.rise + shift,
         }
     }
 }
@@ -305,6 +325,28 @@ fn spacing(value: &str) -> Option<Spacing> {
         Spacing::Pixels(amount) | Spacing::Ems(amount) => amount.is_finite(),
     };
     finite.then_some(spacing)
+}
+
+fn baseline_shift(value: &str) -> Option<BaselineShift> {
+    let value = value.trim();
+    let shift = match value.to_ascii_lowercase().as_str() {
+        "baseline" => BaselineShift::Pixels(0.0),
+        "sub" => BaselineShift::OfParentSize(SUBSCRIPT_SHIFT_EMS),
+        "super" => BaselineShift::OfParentSize(SUPERSCRIPT_SHIFT_EMS),
+        _ => relative(value, BaselineShift::Ems, BaselineShift::Pixels).or_else(|| {
+            let length = Length::parse(value)?;
+            Some(match length.unit {
+                Unit::Percent => BaselineShift::OfParentSize(length.value / 100.0),
+                _ => BaselineShift::Pixels(length.pixels(0.0)),
+            })
+        })?,
+    };
+    let finite = match shift {
+        BaselineShift::Pixels(amount)
+        | BaselineShift::Ems(amount)
+        | BaselineShift::OfParentSize(amount) => amount.is_finite(),
+    };
+    finite.then_some(shift)
 }
 
 fn shorthand(value: &str) -> Option<Shorthand<'_>> {

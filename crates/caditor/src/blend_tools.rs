@@ -1,14 +1,17 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{
-    Blend, BlendKind, ChamferForm, Document, Edit, Evaluation, Feature, FeatureId, FeatureKind,
-    SolidResult, Transaction,
+    Blend, BlendKind, ChamferForm, Document, EdgeGroup, Edit, Evaluation, Feature, FeatureId,
+    FeatureKind, GroupResolution, Resolution, SolidResult, Transaction,
 };
 use caditor_expression::{Expression, Unit};
-use caditor_kernel::{EdgeId, EdgeName, EdgeNaming, EdgeReference, Solid, blend_chain};
+use caditor_kernel::{
+    EdgeId, EdgeName, EdgeNaming, EdgeReference, FaceId, FaceReference, Solid, blend_chain,
+};
 
 use crate::{
-    bodies, body_selection,
+    bodies::{self, FaceKey},
+    body_selection,
     editing::{self, EditingCommand},
     last_values::{self, Remembered, Starts},
     model::{Action, Model, Notice},
@@ -44,10 +47,18 @@ const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try
 
 pub const KINDS: [BlendKind; 2] = [BlendKind::Fillet, BlendKind::Chamfer];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupSource {
+    Face(FaceKey),
+    Body,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdgeSource {
     pub body: FeatureId,
     pub edges: Vec<EdgeName>,
+    pub picked: Vec<EdgeName>,
+    pub groups: Vec<GroupSource>,
     pub left_out: Vec<Pickable>,
 }
 
@@ -71,20 +82,24 @@ pub fn selected_edges(
 
 fn edges_of_body(model: &Model, body: FeatureId) -> Result<EdgeSource, &'static str> {
     let shown = bodies::shown(model.evaluation(), body).ok_or(NO_SHAPE)?;
-    let edges = edge_names(shown, shown.solid.edges().map(|(id, _)| id));
+    let edges = edge_names(shown, &GroupResolution::Body.edges(&shown.solid));
     if edges.is_empty() {
         return Err(NO_EDGES);
     }
     Ok(EdgeSource {
         body,
         edges,
+        picked: Vec::new(),
+        groups: vec![GroupSource::Body],
         left_out: Vec::new(),
     })
 }
 
 fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource, &'static str> {
     let mut body = None;
-    let mut edges = Vec::new();
+    let mut around = Vec::new();
+    let mut picked = Vec::new();
+    let mut groups = Vec::new();
     let mut left_out = Vec::new();
     for pickable in selection.iter() {
         let owner = match pickable {
@@ -102,33 +117,41 @@ fn edges_of_selection(model: &Model, selection: &Selection) -> Result<EdgeSource
             Pickable::Face { face, .. } => {
                 let shown = bodies::shown(model.evaluation(), owner).ok_or(NO_SHAPE)?;
                 let found = bodies::find_face(shown, face).ok_or(FACE_GONE)?;
-                edges.extend(edge_names(
-                    shown,
-                    body_selection::face_boundary(&shown.solid, found),
-                ));
+                let resolution = GroupResolution::Face(Resolution::One(found));
+                around.extend(edge_names(shown, &resolution.edges(&shown.solid)));
+                if !groups.contains(&GroupSource::Face(face)) {
+                    groups.push(GroupSource::Face(face));
+                }
             }
-            Pickable::Edge { edge, .. } => edges.push(edge),
+            Pickable::Edge { edge, .. } => picked.push(edge),
             _ => {}
         }
     }
     let body = body.ok_or(NOTHING_TO_BLEND)?;
-    let mut seen = BTreeSet::new();
-    edges.retain(|edge| seen.insert(*edge));
+    let mut seen: BTreeSet<EdgeName> = around.iter().copied().collect();
+    picked.retain(|edge| seen.insert(*edge));
+    let mut listed = BTreeSet::new();
+    let edges: Vec<EdgeName> = around
+        .into_iter()
+        .chain(picked.iter().copied())
+        .filter(|edge| listed.insert(*edge))
+        .collect();
     if edges.is_empty() {
         return Err(NO_EDGES);
     }
     Ok(EdgeSource {
         body,
         edges,
+        picked,
+        groups,
         left_out,
     })
 }
 
-fn edge_names(shown: &SolidResult, edges: impl IntoIterator<Item = EdgeId>) -> Vec<EdgeName> {
+fn edge_names(shown: &SolidResult, edges: &[EdgeId]) -> Vec<EdgeName> {
     edges
-        .into_iter()
-        .filter(|edge| !bodies::is_seam(&shown.solid, *edge))
-        .filter_map(|edge| shown.solid.edge(edge))
+        .iter()
+        .filter_map(|edge| shown.solid.edge(*edge))
         .map(|edge| edge.name())
         .collect()
 }
@@ -143,18 +166,32 @@ pub fn create(
     let shown = bodies::shown(evaluation, source.body).ok_or(NO_SHAPE)?;
     let naming = EdgeNaming::new(&shown.solid);
     let edges: Vec<EdgeReference> = source
-        .edges
+        .picked
         .iter()
         .filter_map(|name| {
             let edge = bodies::find_edge(shown, *name)?;
             EdgeReference::capture_in(&naming, edge)
         })
         .collect();
-    if edges.is_empty() {
+    let groups: Vec<EdgeGroup> = source
+        .groups
+        .iter()
+        .filter_map(|group| match group {
+            GroupSource::Face(key) => {
+                FaceReference::capture(&shown.solid, bodies::find_face(shown, *key)?)
+                    .map(EdgeGroup::Face)
+            }
+            GroupSource::Body => Some(EdgeGroup::Body),
+        })
+        .collect();
+    if edges.is_empty() && groups.is_empty() {
         return Err("The selected edges are no longer part of the model");
     }
-    if edges.len() < source.edges.len() {
+    if edges.len() < source.picked.len() {
         return Err("Some of the selected edges are no longer part of the model");
+    }
+    if groups.len() < source.groups.len() {
+        return Err(FACE_GONE);
     }
     let name = editing::next_feature_name(document, kind.title());
     let mut transaction = document.transaction(format!("Create {name}"));
@@ -164,6 +201,7 @@ pub fn create(
             kind,
             body: source.body,
             edges,
+            groups,
             size: starts.length(size_slot(kind), DEFAULT_SIZE),
             form: starting_form(kind, starts),
             flipped: false,
@@ -342,10 +380,12 @@ pub struct ChosenEdges {
 
 pub fn chosen_edges(solid: &Solid, blend: &Blend) -> ChosenEdges {
     let name = |edge: &EdgeId| solid.edge(*edge).map(|edge| edge.name());
+    let mut seen = BTreeSet::new();
     let explicit: Vec<EdgeId> = blend
-        .resolutions(solid)
-        .iter()
-        .flat_map(|resolution| resolution.found().iter().copied())
+        .entry_edges(solid)
+        .into_iter()
+        .flatten()
+        .filter(|edge| seen.insert(*edge))
         .collect();
     let followed = blend_chain(solid, &explicit)
         .iter()
@@ -364,21 +404,49 @@ pub fn toggle_edge(model: &Model, feature: FeatureId, edge: EdgeName) -> Option<
     let input = bodies::input(model.evaluation(), feature)?;
     let clicked = bodies::find_edge(input, edge)?;
     let solid = &input.solid;
+    let naming = EdgeNaming::new(solid);
+    let reaches = |found: &[EdgeId]| blend_chain(solid, found).contains(&clicked);
+    let entries = blend.entry_edges(solid);
+    let (edge_entries, group_entries) = entries.split_at(blend.edges.len().min(entries.len()));
     let mut changed = blend.clone();
     changed.edges = blend
         .edges
         .iter()
-        .zip(blend.resolutions(solid))
-        .filter(|(_, resolution)| !blend_chain(solid, resolution.found()).contains(&clicked))
+        .zip(edge_entries)
+        .filter(|(_, found)| !reaches(found))
         .map(|(reference, _)| *reference)
         .collect();
-    let label = if changed.edges.len() == blend.edges.len() {
+    let mut opened = Vec::new();
+    changed.groups = blend
+        .groups
+        .iter()
+        .zip(group_entries)
+        .filter_map(|(group, found)| {
+            if reaches(found) {
+                opened.extend(found.iter().copied());
+                None
+            } else {
+                Some(group.clone())
+            }
+        })
+        .collect();
+    let left_out = changed.entry_count() < blend.entry_count();
+    let label = if left_out {
+        let mut taken: BTreeSet<EdgeId> =
+            changed.entry_edges(solid).into_iter().flatten().collect();
+        for found in opened {
+            if !reaches(&[found]) && taken.insert(found) {
+                changed
+                    .edges
+                    .push(EdgeReference::capture_in(&naming, found)?);
+            }
+        }
+        format!("Leave an edge out of {}", owner.name)
+    } else {
         changed
             .edges
-            .push(EdgeReference::capture_in(&EdgeNaming::new(solid), clicked)?);
+            .push(EdgeReference::capture_in(&naming, clicked)?);
         format!("Add an edge to {}", owner.name)
-    } else {
-        format!("Leave an edge out of {}", owner.name)
     };
     Some(Transaction::single(
         label,
@@ -400,25 +468,46 @@ pub fn with_selected_edges(
     let solid = &input.solid;
     let naming = EdgeNaming::new(solid);
     let mut taken: BTreeSet<EdgeId> = blend
-        .resolutions(solid)
+        .entry_edges(solid)
         .iter()
-        .flat_map(|resolution| blend_chain(solid, resolution.found()))
+        .flat_map(|found| blend_chain(solid, found))
+        .collect();
+    let mut grouped: BTreeSet<FaceId> = blend
+        .group_resolutions(solid)
+        .iter()
+        .filter_map(|resolution| match resolution {
+            GroupResolution::Face(face) => Some(face.found().to_vec()),
+            GroupResolution::Body => None,
+        })
+        .flatten()
         .collect();
     let mut changed = blend.clone();
-    let picked: Vec<EdgeId> = selection
-        .iter()
-        .filter(|pickable| pickable.body() == Some(blend.body))
-        .flat_map(|pickable| match pickable {
-            Pickable::Edge { edge, .. } => bodies::find_edge(input, edge).into_iter().collect(),
-            Pickable::Face { face, .. } => bodies::find_face(input, face)
-                .map(|face| body_selection::face_boundary(solid, face))
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|edge| !bodies::is_seam(solid, *edge))
-                .collect(),
-            _ => Vec::new(),
-        })
-        .collect();
+    let mut picked = Vec::new();
+    for pickable in selection.iter() {
+        if pickable.body() != Some(blend.body) {
+            continue;
+        }
+        match pickable {
+            Pickable::Edge { edge, .. } => picked.extend(bodies::find_edge(input, edge)),
+            Pickable::Face { face, .. } => {
+                let Some(found) = bodies::find_face(input, face) else {
+                    continue;
+                };
+                if !grouped.insert(found) {
+                    continue;
+                }
+                let around = GroupResolution::Face(Resolution::One(found)).edges(solid);
+                if around.iter().all(|edge| taken.contains(edge)) {
+                    continue;
+                }
+                changed
+                    .groups
+                    .push(EdgeGroup::Face(FaceReference::capture(solid, found)?));
+                taken.extend(blend_chain(solid, &around));
+            }
+            _ => {}
+        }
+    }
     for found in picked {
         if taken.contains(&found) {
             continue;
@@ -428,7 +517,7 @@ pub fn with_selected_edges(
             .push(EdgeReference::capture_in(&naming, found)?);
         taken.extend(blend_chain(solid, &[found]));
     }
-    (changed.edges.len() > blend.edges.len()).then(|| {
+    (changed.entry_count() > blend.entry_count()).then(|| {
         Transaction::single(
             format!("Add the selected edges to {}", owner.name),
             Edit::SetFeatureKind {
@@ -467,7 +556,9 @@ mod tests {
                 BlendKind::Fillet,
                 &EdgeSource {
                     body,
+                    picked: edges.clone(),
                     edges,
+                    groups: Vec::new(),
                     left_out: Vec::new(),
                 },
                 &Starts::defaults(LengthUnit::Millimetre),

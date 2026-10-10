@@ -1,9 +1,9 @@
 use caditor_document::{
-    Blend, BlendKind, ChamferForm, Document, Feature, FeatureId, Resolution, SolidResult,
-    Transaction,
+    Blend, BlendKind, ChamferForm, Document, Feature, FeatureId, GroupResolution, Resolution,
+    SolidResult, Transaction,
 };
 use caditor_expression::Dimension;
-use caditor_kernel::EdgeId;
+use caditor_kernel::{EdgeId, FaceId};
 use egui::{Id, Ui};
 
 use crate::{
@@ -204,16 +204,52 @@ fn edge_row(document: &Document, input: &SolidResult, resolution: &Resolution<Ed
     }
 }
 
+fn group_row(
+    document: &Document,
+    input: &SolidResult,
+    blend: &Blend,
+    resolution: &GroupResolution,
+) -> String {
+    let all_of = |what: &str| format!("All edges of {what}");
+    match resolution {
+        GroupResolution::Body => all_of(document.body_name(blend.body).unwrap_or("the body")),
+        GroupResolution::Face(Resolution::One(face)) => {
+            all_of(&bodies::describe_face_id(document, input, *face))
+        }
+        GroupResolution::Face(Resolution::Pieces(pieces)) => {
+            match pieces
+                .first()
+                .and_then(|face: &FaceId| input.solid.face(*face))
+            {
+                Some(first) => format!(
+                    "{}, split into {} pieces",
+                    all_of(&bodies::describe_origin(document, first.origin())),
+                    pieces.len()
+                ),
+                None => FACE_GONE.to_owned(),
+            }
+        }
+        GroupResolution::Face(Resolution::Tied(candidates)) => format!(
+            "All edges of a face that now matches {} separate faces; leave it out and choose it \
+             again",
+            candidates.len()
+        ),
+        GroupResolution::Face(Resolution::Missing) => FACE_GONE.to_owned(),
+    }
+}
+
+const FACE_GONE: &str = "All edges of a face that is no longer there";
+
 fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) -> ReferenceRows {
-    let mut summary = count(blend.edges.len(), "edge", "edges");
     let Some(input) = input else {
         return ReferenceRows {
-            summary,
-            rows: vec![NO_SHAPE_YET.to_owned(); blend.edges.len()],
+            summary: count(blend.entry_count(), "entry", "entries"),
+            rows: vec![NO_SHAPE_YET.to_owned(); blend.entry_count()],
         };
     };
     let solid = &input.solid;
     let chosen = blend_tools::chosen_edges(solid, blend);
+    let mut summary = count(chosen.explicit.len(), "edge", "edges");
     let extra = chosen.followed.len().saturating_sub(chosen.explicit.len());
     if extra > 0 {
         summary.push_str(&format!(
@@ -226,6 +262,12 @@ fn edge_rows(document: &Document, input: Option<&SolidResult>, blend: &Blend) ->
         .resolutions(solid)
         .iter()
         .map(|resolution| edge_row(document, input, resolution))
+        .chain(
+            blend
+                .group_resolutions(solid)
+                .iter()
+                .map(|resolution| group_row(document, input, blend, resolution)),
+        )
         .collect();
     ReferenceRows { summary, rows }
 }
@@ -257,13 +299,18 @@ fn edges_row(ui: &mut Ui, row: &EdgesRow<'_>, cache: &mut RowCache, actions: &mu
         ui.label(&listed.summary);
         for (index, text) in listed.rows.iter().enumerate() {
             let text = widgets::muted(text, ui);
-            let row = widgets::removable_row_hovered(ui, text, "Leave this edge out");
+            let hover = if index < blend.edges.len() {
+                "Leave this edge out"
+            } else {
+                "Leave these edges out"
+            };
+            let row = widgets::removable_row_hovered(ui, text, hover);
             if row.hovered && opened {
                 previewed = edge_pickables(model, id, blend, index);
             }
             if row.removed {
                 let mut changed = blend.clone();
-                changed.edges.remove(index);
+                changed.remove_entry(index);
                 actions.push(feature_fields::applied(
                     &feature.name,
                     change(model, id, changed),
@@ -295,11 +342,10 @@ fn edge_pickables(model: &Model, feature: FeatureId, blend: &Blend, index: usize
     };
     let solid = &input.solid;
     blend
-        .resolutions(solid)
+        .entry_edges(solid)
         .get(index)
-        .map(|resolution| {
-            resolution
-                .found()
+        .map(|found| {
+            found
                 .iter()
                 .filter_map(|edge| solid.edge(*edge))
                 .map(|edge| Pickable::BlendEdge {

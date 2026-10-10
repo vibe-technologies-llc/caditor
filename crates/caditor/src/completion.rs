@@ -68,6 +68,14 @@ impl Completions {
         }
     }
 
+    pub fn forms_cycle(&self, target: ParameterId, candidate: ParameterId) -> bool {
+        candidate == target
+            || self
+                .graph
+                .cycle(target, &Expression::Parameter(candidate))
+                .is_some()
+    }
+
     pub fn matching(
         &self,
         typed: &str,
@@ -77,13 +85,7 @@ impl Completions {
         let wanted = typed.to_lowercase();
         let usable = |candidate: &&Candidate| {
             candidate.name != typed
-                && editing.is_none_or(|target| {
-                    candidate.id != target
-                        && self
-                            .graph
-                            .cycle(target, &Expression::Parameter(candidate.id))
-                            .is_none()
-                })
+                && editing.is_none_or(|target| !self.forms_cycle(target, candidate.id))
         };
         let starting = self
             .candidates
