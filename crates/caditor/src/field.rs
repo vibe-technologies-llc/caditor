@@ -1,16 +1,17 @@
 use std::collections::BTreeSet;
 
 use caditor_document::{Document, Edit, FeatureId, ParameterOwner, ParameterValues, Transaction};
-use caditor_expression::{Dimension, Expression, Naming};
+use caditor_expression::{Dimension, Expression, Naming, ParameterId};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{
-    Align, Event, Id, Key, Margin, Response, Stroke, StrokeKind, TextEdit, Ui,
+    Align, Event, Id, Key, Margin, Rect, Response, Stroke, StrokeKind, TextEdit, Ui,
     text::{CCursor, CCursorRange},
     vec2,
 };
 
 use crate::{
     appearance::WIDGET_RADIUS,
+    completion::{self, Candidate, PopupKey},
     stepping::{self, Direction, Refusal},
     units::{Units, attach_unit},
     widgets,
@@ -18,6 +19,15 @@ use crate::{
 
 const ERROR_OUTLINE_WIDTH: f32 = 1.5;
 const FIELD_MARGIN: Margin = Margin::symmetric(6, 3);
+
+#[derive(Debug, Clone, Default)]
+struct Suggesting {
+    names: Vec<String>,
+    rows: Vec<Rect>,
+    selected: usize,
+    navigated: bool,
+    dismissed: Option<String>,
+}
 
 #[derive(Debug, Clone, Default)]
 struct Draft {
@@ -110,19 +120,33 @@ fn field<T>(
     stored: &str,
     width: f32,
     focus: bool,
-    stepping: bool,
+    value: bool,
     validate: impl FnOnce(&str) -> Result<T, String>,
 ) -> FieldResponse<T> {
     let editing = ui.memory(|memory| memory.has_focus(id));
+    let editing_parameter = completion::take_editing(ui, id);
+    let suggesting_key = id.with("suggesting");
     let mut draft = ui
         .data(|data| data.get_temp::<Draft>(id))
         .filter(|draft| editing || draft.stored == stored);
     let mut text = draft
         .as_ref()
         .map_or_else(|| stored.to_owned(), |draft| draft.text.clone());
-    let mut stepped = false;
+    let mut suggesting = if value && editing {
+        ui.data(|data| data.get_temp::<Suggesting>(suggesting_key))
+            .unwrap_or_default()
+    } else {
+        Suggesting::default()
+    };
+    let popup_open = !suggesting.names.is_empty();
+    let mut completed = Completed::default();
+    if value && editing {
+        completed = complete(ui, id, &mut text, &mut suggesting);
+        completed.held |= pointer_holds(ui, id, completed.held);
+    }
+    let mut stepped = completed.replaced;
     let mut refusal: Option<Refusal> = None;
-    if stepping
+    if value
         && editing
         && let Some(requested) = take_step(ui)
     {
@@ -141,7 +165,8 @@ fn field<T>(
                 .id(id)
                 .desired_width(width)
                 .margin(FIELD_MARGIN)
-                .min_size(vec2(width, 0.0)),
+                .min_size(vec2(width, 0.0))
+                .event_filter(completion::filter(popup_open)),
         )
     });
     widgets::tie_to_caption(ui, &response);
@@ -149,8 +174,25 @@ fn field<T>(
         response.request_focus();
         response.scroll_to_me(Some(Align::Center));
     }
-    if arrived(ui, id, response.has_focus()) && text == stored {
+    if completed.held {
+        response.request_focus();
+    }
+    let focused = response.has_focus() || completed.held;
+    if arrived(ui, id, focused) && text == stored {
         select_all(ui.ctx(), id, &text);
+    }
+    if value && focused {
+        suggest(
+            ui,
+            &response,
+            &text,
+            completed.caret,
+            editing_parameter,
+            &mut suggesting,
+        );
+        ui.data_mut(|data| data.insert_temp(suggesting_key, suggesting));
+    } else {
+        ui.data_mut(|data| data.remove::<Suggesting>(suggesting_key));
     }
     let changed = response.changed() || stepped;
     let edited = changed.then(|| text.trim().to_owned());
@@ -169,8 +211,9 @@ fn field<T>(
         });
     }
 
+    let left = response.lost_focus() && !completed.held;
     let mut committed = None;
-    if response.lost_focus() {
+    if left {
         let reverted = ui.input(|input| input.key_pressed(Key::Escape));
         if reverted || text.trim() == stored {
             draft = None;
@@ -206,7 +249,6 @@ fn field<T>(
         }
         None => data.remove::<Draft>(id),
     });
-    let left = response.lost_focus();
     FieldResponse {
         committed,
         error,
@@ -214,6 +256,161 @@ fn field<T>(
         left,
         response,
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Holding;
+
+fn pointer_holds(ui: &Ui, id: Id, started: bool) -> bool {
+    let key = id.with("holding");
+    if started {
+        ui.data_mut(|data| data.insert_temp(key, Holding));
+        return true;
+    }
+    let holding = ui.data(|data| data.get_temp::<Holding>(key).is_some());
+    let (down, released) =
+        ui.input(|input| (input.pointer.any_down(), input.pointer.any_released()));
+    if holding && !down && !released {
+        ui.data_mut(|data| data.remove::<Holding>(key));
+    }
+    holding
+}
+
+#[derive(Debug, Default)]
+struct Completed {
+    replaced: bool,
+    held: bool,
+    caret: Option<usize>,
+}
+
+fn complete(ui: &Ui, id: Id, text: &mut String, suggesting: &mut Suggesting) -> Completed {
+    let ctx = ui.ctx();
+    let mut completed = Completed::default();
+    let pressed = ui.input(|input| {
+        input
+            .pointer
+            .primary_pressed()
+            .then(|| input.pointer.interact_pos())
+            .flatten()
+    });
+    if let Some(position) = pressed {
+        if let Some(row) = suggesting
+            .rows
+            .iter()
+            .position(|rect| rect.contains(position))
+        {
+            accept(ctx, id, text, suggesting, row, &mut completed);
+            completed.held = true;
+            return completed;
+        }
+        if let Some(offered) = completion::offered(ctx) {
+            let (start, end) = completion::selection_of(ctx, id, text);
+            let (next, caret) = completion::inserted(text, start, end, &offered);
+            *text = next;
+            completion::place_caret(ctx, id, caret);
+            completion::mark_taken(ctx);
+            *suggesting = Suggesting::default();
+            completed.replaced = true;
+            completed.held = true;
+            completed.caret = Some(caret);
+            return completed;
+        }
+    }
+    let count = suggesting.names.len();
+    if count == 0 {
+        return completed;
+    }
+    match completion::take_key(ui, suggesting.navigated) {
+        Some(PopupKey::Next) => {
+            suggesting.selected = (suggesting.selected + 1) % count;
+            suggesting.navigated = true;
+        }
+        Some(PopupKey::Previous) => {
+            suggesting.selected = (suggesting.selected + count - 1) % count;
+            suggesting.navigated = true;
+        }
+        Some(PopupKey::Accept | PopupKey::Enter) => {
+            let row = suggesting.selected;
+            accept(ctx, id, text, suggesting, row, &mut completed);
+        }
+        Some(PopupKey::Close) => {
+            let (_, caret) = completion::selection_of(ctx, id, text);
+            suggesting.dismissed = completion::token_at(text, caret).map(|token| token.text);
+            suggesting.names.clear();
+            suggesting.rows.clear();
+            suggesting.navigated = false;
+        }
+        None => {}
+    }
+    completed
+}
+
+fn accept(
+    ctx: &egui::Context,
+    id: Id,
+    text: &mut String,
+    suggesting: &mut Suggesting,
+    row: usize,
+    completed: &mut Completed,
+) {
+    let Some(name) = suggesting.names.get(row).cloned() else {
+        return;
+    };
+    let (_, caret) = completion::selection_of(ctx, id, text);
+    if let Some(token) = completion::token_at(text, caret) {
+        let (next, placed) = completion::replaced(text, token.start, token.end, &name);
+        *text = next;
+        completion::place_caret(ctx, id, placed);
+        completed.replaced = true;
+        completed.caret = Some(placed);
+    }
+    suggesting.dismissed = Some(name);
+    suggesting.names.clear();
+    suggesting.rows.clear();
+    suggesting.selected = 0;
+    suggesting.navigated = false;
+}
+
+fn suggest(
+    ui: &Ui,
+    response: &Response,
+    text: &str,
+    caret: Option<usize>,
+    editing_parameter: Option<ParameterId>,
+    suggesting: &mut Suggesting,
+) {
+    let ctx = ui.ctx();
+    let (first, last) = completion::selection_of(ctx, response.id, text);
+    let caret = caret.unwrap_or(last);
+    let token = (caret == last && first == last)
+        .then(|| completion::token_at(text, caret))
+        .flatten();
+    let token_text = token.map(|token| token.text);
+    let blocked = suggesting.dismissed.is_some() && suggesting.dismissed == token_text;
+    if !blocked {
+        suggesting.dismissed = None;
+    }
+    let shown: Vec<Candidate> = match (&token_text, completion::available(ctx)) {
+        (Some(typed), Some(completions)) if !blocked => {
+            completions.matching(typed, editing_parameter, completion::MAX_SHOWN)
+        }
+        _ => Vec::new(),
+    };
+    let names: Vec<String> = shown
+        .iter()
+        .map(|candidate| candidate.name.clone())
+        .collect();
+    if names != suggesting.names {
+        suggesting.selected = 0;
+        suggesting.navigated = false;
+    }
+    suggesting.selected = suggesting.selected.min(names.len().saturating_sub(1));
+    suggesting.names = names;
+    suggesting.rows = if shown.is_empty() {
+        Vec::new()
+    } else {
+        completion::list(ui, response, &shown, suggesting.selected)
+    };
 }
 
 #[derive(Debug, Clone, Copy)]

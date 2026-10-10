@@ -505,12 +505,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   `field::dimension_transaction` or the feature's `SetFeatureKind`, as SolidWorks shows a
   feature's dimensions on double-click. Which dimensions show for a hidden sketch or a sketch
   several features use needs a rule.
-- [medium · medium] Expression fields complete nothing: a parameter's name is typed exactly from
-  memory or looked up in the Parameters panel. Typing in a `field::commit_field` could list the
-  parameters whose names start with what is typed, with their values, Tab taking one; and while a
-  field has focus, a click on a dimension label in the view or a value in the Parameters panel could
-  insert its parameter's name (naming the value first when it has none, as `field::NamedField`
-  does), as SolidWorks inserts a dimension clicked while an equation is typed.
+- [low · easy] While a value field has focus, a click on a dimension label in the view inserts its
+  parameter's name (`completion.rs`, `field.rs`), but a click on a value in the Parameters panel
+  does not: the panel's rows could insert their name the same way, so a parameter seen there is
+  not retyped from memory.
 - [medium · hard] Pasting features cannot carry a feature that picks faces or edges of another
   copied feature (a fillet copied with its extrusion): face and edge names are digests over the
   feature id, so the copy is left out with the reason. Renaming them needs each picked face or edge

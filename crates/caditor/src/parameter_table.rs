@@ -9,7 +9,7 @@ use egui::{Grid, Id, Label, Rect, TextEdit, Ui, Vec2, vec2};
 use crate::{
     appearance::{self, CONTROL_HEIGHT, SPACE_M, SPACE_S, SPACE_XS},
     commands::{Command, CommandFrame},
-    field, icons,
+    completion, field, icons,
     model::{Action, Model, Notice},
     panels::{Focus, PanelState},
     tree_row,
@@ -400,6 +400,7 @@ fn row(
         (Some(_), Some(Ok(value))) => model.units().show(*value),
         _ => document.expression_text(&parameter.expression),
     };
+    completion::editing_parameter(ui, value_focus.field_id(), id);
     let expression = field::value_field(
         ui,
         value_focus.field_id(),

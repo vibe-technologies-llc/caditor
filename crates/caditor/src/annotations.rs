@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use caditor_document::{FeatureId, FeatureState, Transaction};
+use caditor_document::{Document, FeatureId, FeatureState, Transaction};
 use caditor_expression::{Dimension, Expression, Quantity};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
@@ -13,7 +13,7 @@ use egui::{
 
 use crate::{
     annotation_layout::{self, DimensionLayout, GlyphKind, GlyphSite, LabelFrame, Reach, Thinning},
-    appearance, canvas,
+    appearance, canvas, completion,
     feature_tree::count,
     field::{self, DimensionTarget},
     model::{Action, Model},
@@ -1322,7 +1322,7 @@ impl Annotations {
         {
             let reach = PointerReach::of(ui, self.dragging);
             for target in placed.filter(|target| reach.reaches(surface.feature, target)) {
-                self.interact(ui, surface, target, selection, definition);
+                self.interact(ui, surface, target, selection, model.document(), definition);
             }
         }
         if let Some(drop) = self.dropped.take()
@@ -1455,6 +1455,7 @@ impl Annotations {
         surface: &Surface<'_>,
         target: Placed,
         selection: &mut Selection,
+        document: &Document,
         definition: &Sketch,
     ) {
         let hit = target.hit.intersect(surface.rect);
@@ -1469,6 +1470,7 @@ impl Annotations {
         let response = ui.interact(hit, annotation_id(surface.feature, target.key), sense);
         if let Some(pickable) = target.pickable {
             self.pick(ui, surface, &target, pickable, &response, selection);
+            Self::offer(document, surface.feature, &target, &response);
         }
         response.on_hover_ui(|ui| {
             ui.label(target.hover.describe(definition));
@@ -1492,7 +1494,7 @@ impl Annotations {
         {
             self.drag_label(surface, response, constraint, label, frame);
         }
-        if response.clicked() {
+        if response.clicked() && !completion::take_click(ui.ctx()) {
             let toggle = ui.input(|input| input.modifiers.shift || input.modifiers.command);
             if toggle {
                 selection.toggle(pickable);
@@ -1508,6 +1510,26 @@ impl Annotations {
             } = pickable
         {
             self.open(feature, constraint);
+        }
+    }
+
+    fn offer(document: &Document, feature: FeatureId, target: &Placed, response: &egui::Response) {
+        let (Hover::Dimension(constraint) | Hover::Collapsed(constraint)) = target.hover else {
+            return;
+        };
+        if !response.hovered() {
+            return;
+        }
+        let expression = document
+            .feature(feature)
+            .and_then(|owner| owner.kind.sketch())
+            .and_then(|sketch| sketch.constraint(constraint))
+            .and_then(Constraint::dimension);
+        if let Some(expression) = expression {
+            completion::offer_insertion(
+                &response.ctx,
+                completion::dimension_text(document, expression),
+            );
         }
     }
 
@@ -1581,6 +1603,9 @@ impl Annotations {
             constraint: open.constraint,
         };
         let stored = field::value_text(document, &target.owner(), expression);
+        if let Some(held) = document.owned_parameter(&target.owner(), expression) {
+            completion::editing_parameter(ui, id, held.id());
+        }
         let field = egui::Area::new(id.with("area"))
             .order(Order::Foreground)
             .fixed_pos(to_pos(surface.rect, mark.layout.label) - vec2(0.0, FIELD_LIFT))
@@ -1624,7 +1649,7 @@ impl Annotations {
                 open.select_all_pending = false;
             }
         }
-        let lost_focus = field.response.lost_focus();
+        let lost_focus = field.left;
         let entered = ui.input(|input| input.key_pressed(Key::Enter));
         if lost_focus && field.error.is_some() && entered {
             open.focus_pending = true;

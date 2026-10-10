@@ -29,6 +29,7 @@ use crate::{
     comb::CombTool,
     comb_panel,
     commands::{self, Clipboard, Command, CommandFrame, Offer, Situation},
+    completion,
     configurations::{self, ConfigurationsDraft},
     constraint_trial, defender, drawing_export, drop_target,
     editing::{self, EditingCommand, SketchEditing, Tool},
@@ -494,6 +495,7 @@ pub fn show(
     actions: &mut Vec<Action>,
 ) {
     workspace.sync(model);
+    completion::publish(ui.ctx(), model);
     if model.is_checking_constraints() {
         ui.ctx().request_repaint_after(constraint_trial::PATIENCE);
     }
@@ -863,6 +865,7 @@ pub fn show(
     viewport.set_canvas(canvas::canvas(ui.ctx()));
     let selection_before = viewport.selection().generation();
     viewport.show(ui, model, editing, keys_free, &mut commands, actions);
+    completion::forget_taken_click(ui.ctx());
     if viewport.selection().generation() != selection_before && !viewport.selection().is_empty() {
         panels.selected = None;
     }

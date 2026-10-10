@@ -68,6 +68,7 @@ use crate::{
 };
 
 mod cancel_and_parameters;
+mod completion;
 mod configurations;
 mod coordinate_systems;
 mod custom_colours;
