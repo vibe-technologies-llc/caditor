@@ -31,8 +31,7 @@ paths:
 - The check job also runs the offscreen render tests (`caditor-render`'s `offscreen_tests`) with
   `WGPU_BACKEND=gl`, `LIBGL_ALWAYS_SOFTWARE=1` and `CADITOR_REQUIRE_GPU=1` on Mesa's llvmpipe through
   surfaceless EGL, since `packaging/INSTALL.md` promises OpenGL; a test of the same file asserts the
-  adapter is the backend asked for, so the step cannot pass on Vulkan by accident. Two tests that
-  fail on GL are skipped by name (`docs/TODO.md`).
+  adapter is the backend asked for, so the step cannot pass on Vulkan by accident.
 - The package and release jobs install Xvfb and the Mesa drivers (`.github/linux-display.sh`, which
   also removes them again before `check-packages.sh --install`, so the `.deb` still has to bring
   its own libraries) and run `check-install.sh` with `CADITOR_REQUIRE_DISPLAY=1`. Besides the
