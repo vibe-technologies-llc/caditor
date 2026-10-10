@@ -1,6 +1,7 @@
 mod constrained;
 mod density;
 mod face;
+mod gaps;
 mod insertion;
 mod mass;
 mod parallel;
