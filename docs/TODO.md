@@ -143,12 +143,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   track, since it is not in the sketch until a point lands on it; acquiring it would need tracks
   that hold a point the shape has yet to project. A grab (dragging with Select) does not snap to
   bodies either.
-- [medium · medium] The Line tool cannot turn into an arc mid-chain: carrying on with a tangent arc
-  means the Tangent arc key, then the Line key again. A press on the chain's last point dragged
-  away (`drawing.rs`; a press-drag now places the press only for a first point,
-  `viewport::DRAG_DRAWS_FROM_PRESS`) could draw a tangent arc from it, the release placing its end and the
-  chain carrying on with lines afterwards, as Fusion's line tool does; the chain's anchors
-  (`ChainStep`) already let the two tools share one chain.
 - [low · medium] Sketch fillet and chamfer join two curves at their crossing only for lines, arcs
   and circles (`Sketch::join_at_crossing`): an elliptical arc that does not already end at the
   other curve is `NotCrossable`, though `intersect` finds its crossings; carrying its end round

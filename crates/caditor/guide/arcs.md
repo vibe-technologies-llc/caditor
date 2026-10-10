@@ -14,4 +14,5 @@ each keeps its own key.
 show beside the pointer.
 
 Switching between Line and Tangent arc in the middle of a chain keeps the chain going, so an
-outline of lines and rounded turns is drawn without stopping. See [Line](line).
+outline of lines and rounded turns is drawn without stopping. Within Line, dragging from the last
+point, or the Tangent arc key, draws one tangent arc and goes back to lines. See [Line](line).

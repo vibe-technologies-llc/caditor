@@ -154,6 +154,7 @@ pub fn command(command: Command) -> &'static str {
         Command::NewSketch => phosphor::PENCIL_LINE,
         Command::FinishSketch => phosphor::CHECK,
         Command::ReverseArc => phosphor::ARROWS_COUNTER_CLOCKWISE,
+        Command::ChainArc => self::tool(Tool::TangentArc),
         Command::TakeBackPoint => phosphor::BACKSPACE,
         Command::FinishShape => phosphor::CHECK_CIRCLE,
         Command::CancelShape => phosphor::X_CIRCLE,

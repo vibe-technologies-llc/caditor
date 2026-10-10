@@ -99,6 +99,7 @@ mod shaped_sweeps;
 mod sketch_blend_curves;
 mod sketch_body_snaps;
 mod sketch_breaks;
+mod sketch_chain_arcs;
 mod sketch_chamfers;
 mod sketch_conics;
 mod sketch_driven_patterns;
@@ -6144,7 +6145,7 @@ fn a_line_chain_goes_on_as_a_tangent_arc_and_back_to_lines_without_starting_over
     harness.click_at(Point2::new(10.0, 10.0));
     harness.click_at(Point2::new(40.0, 10.0));
 
-    harness.use_tool(Key::T);
+    choose_tangent_arc_on_the_ribbon(&mut harness);
     assert_eq!(harness.tool(), Some(Tool::TangentArc));
     harness.click_at(Point2::new(60.0, 30.0));
     let sketch = harness.sketch(feature);
@@ -6167,7 +6168,7 @@ fn a_line_chain_goes_on_as_a_tangent_arc_and_back_to_lines_without_starting_over
     assert_eq!(lines.len(), 2);
     assert_eq!(constraints_of_kind(sketch, "Coincident").len(), 2);
 
-    harness.use_tool(Key::T);
+    choose_tangent_arc_on_the_ribbon(&mut harness);
     harness.key(Key::Backspace, Modifiers::NONE);
     harness.frame();
     harness.frame();
@@ -6175,6 +6176,12 @@ fn a_line_chain_goes_on_as_a_tangent_arc_and_back_to_lines_without_starting_over
     assert_eq!(entities_of_kind(harness.sketch(feature), "Arc").len(), 1);
     harness.click_at(Point2::new(70.0, 50.0));
     assert_eq!(entities_of_kind(harness.sketch(feature), "Arc").len(), 2);
+}
+
+fn choose_tangent_arc_on_the_ribbon(harness: &mut Harness) {
+    harness.click_button(sketch_toolbar::ARC_WAYS_LABEL);
+    harness.click(Tool::TangentArc.label());
+    harness.frame();
 }
 
 #[test]
