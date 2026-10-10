@@ -6,7 +6,8 @@
 
 - **STEP**, for other CAD programs, with the colours and opacity of bodies and faces, and threads.
 - **STL**, for 3D printing, binary or text.
-- **3MF**, for 3D printing, with a thumbnail of the model.
+- **3MF**, for 3D printing, with a thumbnail of the model and each cosmetic thread as metadata on
+  its body, which programs that do not know it ignore.
 - **OBJ** and **glTF** (`.glb`), for other 3D programs.
 
 {command:file.export_again} writes the same bodies again to the file the last export wrote, in the

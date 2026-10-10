@@ -8,7 +8,7 @@ use std::{
     },
 };
 
-use caditor_document::{CancelToken, ModelProperties};
+use caditor_document::{CancelToken, ModelProperties, ThreadSide};
 use caditor_geometry::{Plane, Point2, Point3, Vector2, Vector3};
 use caditor_kernel::{FaceId, LinearExtent, Profile, ProfileCurve, Selection, Solid, extrude};
 use caditor_sketch::Sketch;
@@ -935,6 +935,8 @@ fn a_glb_node_and_an_obj_object_name_the_threads_of_their_body() {
     let block = block();
     let threads = [ExportThread {
         designation: "M6-6H".to_owned(),
+        side: ThreadSide::Internal,
+        pitch: 1.0,
         start: Point3::new(5.0, 5.0, 10.0),
         direction: -Vector3::Z,
         length: 8.0,
@@ -2240,4 +2242,122 @@ fn sketches_and_faces_nest_into_one_drawing() {
         ),
         Err(ExportError::NoCurves)
     );
+}
+
+fn thread_of(designation: &str, side: ThreadSide) -> ExportThread {
+    ExportThread {
+        designation: designation.to_owned(),
+        side,
+        pitch: 1.25,
+        start: Point3::new(5.0, 5.0, 10.0),
+        direction: -Vector3::Z,
+        length: 8.5,
+    }
+}
+
+#[test]
+fn a_3mf_object_carries_its_threads_as_metadata_in_the_caditor_namespace() {
+    let block = block();
+    let pin = pin();
+    let threads = [
+        thread_of("M8x1.25-6H & <more>", ThreadSide::Internal),
+        thread_of("M6-6g", ThreadSide::External),
+    ];
+    let mut meshes = [
+        mesh_of(&block, MeshResolution::Coarse),
+        mesh_of(&pin, MeshResolution::Coarse),
+    ];
+    meshes[0].threads = &threads;
+
+    let entries = unzip(&three_mf::encode(&meshes, &ModelProperties::default()).unwrap());
+
+    let model = String::from_utf8(entries[MODEL_PATH].clone()).unwrap();
+    let document = roxmltree::Document::parse(&model).unwrap();
+    let root = document.root_element();
+    assert_eq!(
+        root.lookup_namespace_uri(Some("caditor")),
+        Some(three_mf::CADITOR_NAMESPACE)
+    );
+    assert_eq!(three_mf::CADITOR_NAMESPACE, "urn:caditor:3mf");
+    let objects: Vec<_> = document
+        .descendants()
+        .filter(|node| node.has_tag_name("object"))
+        .collect();
+    assert_eq!(objects.len(), 2);
+    let groups: Vec<_> = objects
+        .iter()
+        .map(|object| {
+            object
+                .children()
+                .filter(|child| child.has_tag_name("metadatagroup"))
+                .count()
+        })
+        .collect();
+    assert_eq!(groups, [1, 0]);
+    let children: Vec<_> = objects[0]
+        .children()
+        .filter(|child| child.is_element())
+        .map(|child| child.tag_name().name())
+        .collect();
+    assert_eq!(children, ["metadatagroup", "mesh"]);
+
+    let entries: Vec<(&str, &str)> = objects[0]
+        .children()
+        .find(|child| child.has_tag_name("metadatagroup"))
+        .unwrap()
+        .children()
+        .filter(|child| child.is_element())
+        .map(|entry| {
+            assert!(entry.has_tag_name("metadata"));
+            assert_eq!(entry.attribute("preserve"), Some("1"));
+            (entry.attribute("name").unwrap(), entry.text().unwrap())
+        })
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            ("caditor:thread.1.designation", "M8x1.25-6H & <more>"),
+            ("caditor:thread.1.side", "internal"),
+            ("caditor:thread.1.pitch", "1.25"),
+            ("caditor:thread.1.length", "8.5"),
+            ("caditor:thread.1.start", "5 5 10"),
+            ("caditor:thread.1.direction", "0 0 -1"),
+            ("caditor:thread.2.designation", "M6-6g"),
+            ("caditor:thread.2.side", "external"),
+            ("caditor:thread.2.pitch", "1.25"),
+            ("caditor:thread.2.length", "8.5"),
+            ("caditor:thread.2.start", "5 5 10"),
+            ("caditor:thread.2.direction", "0 0 -1"),
+        ]
+    );
+    let mut names: Vec<&str> = entries.iter().map(|(name, _)| *name).collect();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), entries.len());
+}
+
+#[test]
+fn a_3mf_without_threads_is_byte_for_byte_what_it_was() {
+    let block = block();
+    let threads = [thread_of("M6-6H", ThreadSide::Internal)];
+    let plain = [mesh_of(&block, MeshResolution::Coarse)];
+    let mut threaded = [mesh_of(&block, MeshResolution::Coarse)];
+    threaded[0].threads = &threads;
+
+    let without = three_mf::encode(&plain, &ModelProperties::default()).unwrap();
+    let with = three_mf::encode(&threaded, &ModelProperties::default()).unwrap();
+    let again = three_mf::encode(&plain, &ModelProperties::default()).unwrap();
+
+    assert_eq!(without, again);
+    let without = String::from_utf8(unzip(&without)[MODEL_PATH].clone()).unwrap();
+    let with = String::from_utf8(unzip(&with)[MODEL_PATH].clone()).unwrap();
+    assert!(!without.contains(three_mf::CADITOR_NAMESPACE));
+    assert!(!without.contains("metadatagroup"));
+    assert!(!without.contains("xmlns:"));
+    let group_start = with.find("<metadatagroup>").unwrap();
+    let group_end = with.find("</metadatagroup>").unwrap() + "</metadatagroup>".len();
+    let declaration = format!(r#" xmlns:caditor="{}""#, three_mf::CADITOR_NAMESPACE);
+    let stripped =
+        format!("{}{}", &with[..group_start], &with[group_end..]).replace(&declaration, "");
+    assert_eq!(stripped, without);
 }

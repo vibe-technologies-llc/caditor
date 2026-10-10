@@ -229,6 +229,8 @@ impl ExportSource {
                 .filter(|thread| thread.body == body)
                 .map(|thread| ExportThread {
                     designation: thread.designation,
+                    side: thread.side,
+                    pitch: thread.pitch,
                     start: thread.placement.start,
                     direction: thread.placement.direction,
                     length: thread.placement.length,
