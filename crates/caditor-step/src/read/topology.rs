@@ -1391,7 +1391,17 @@ fn polygon_plane(points: &[Point3], orientation: bool, uncertainty: f64) -> Opti
 }
 
 fn describe_build(error: &BuildError, precision: Option<f64>) -> String {
+    log::debug!("a body could not be rebuilt: {error} ({error:?})");
     match error {
+        BuildError::UnknownVertex(_)
+        | BuildError::UnknownEdge(_)
+        | BuildError::UnknownFace(_)
+        | BuildError::UnknownShell(_) => {
+            "refers to a part of the body that it does not contain".to_owned()
+        }
+        BuildError::NonFinitePoint => {
+            "has a point whose position is not a finite number".to_owned()
+        }
         BuildError::VertexOffCurve { distance, .. } => format!(
             "has a vertex {} mm away from the end of its edge",
             short(*distance)
@@ -1400,10 +1410,22 @@ fn describe_build(error: &BuildError, precision: Option<f64>) -> String {
         BuildError::IntervalOutsideDomain => {
             "has an edge that runs past the end of its curve".to_owned()
         }
+        BuildError::EmptyLoop => "has a face whose boundary has no edges".to_owned(),
+        BuildError::TooManyEntities => "has more parts than caditor can hold".to_owned(),
         BuildError::Pcurve { .. } => {
             "has an edge that could not be followed across its face".to_owned()
         }
-        BuildError::Invalid(ValidationError::EdgeOffSurface { distance, .. }) => match precision {
+        BuildError::Geometry(_) => {
+            "has a curve or surface that caditor cannot represent".to_owned()
+        }
+        BuildError::Invalid(validation) => describe_validation(validation, precision),
+        BuildError::Cancelled(_) => "was not rebuilt, because the import was cancelled".to_owned(),
+    }
+}
+
+fn describe_validation(error: &ValidationError, precision: Option<f64>) -> String {
+    match error {
+        ValidationError::EdgeOffSurface { distance, .. } => match precision {
             Some(precision) if *distance <= precision => format!(
                 "has faces that meet only within {} mm, which the file's precision of {} mm \
                      allows, but caditor needs them to meet within {} mm, so the model would \
@@ -1419,10 +1441,79 @@ fn describe_build(error: &BuildError, precision: Option<f64>) -> String {
                 short(LINEAR_RESOLUTION)
             ),
         },
-        BuildError::Invalid(validation) => {
-            format!("does not make a closed, valid solid ({validation})")
+        ValidationError::Cancelled(_) => {
+            "was not checked, because the import was cancelled".to_owned()
         }
-        other => format!("could not be rebuilt ({other})"),
+        other => format!(
+            "does not make a closed, valid solid: {}",
+            invalid_reason(other)
+        ),
+    }
+}
+
+fn invalid_reason(error: &ValidationError) -> String {
+    match error {
+        ValidationError::NoShells => "it has no shell of faces".to_owned(),
+        ValidationError::EmptyShell(_) => "one of its shells has no faces".to_owned(),
+        ValidationError::FaceWithoutLoops(_) => "a face has no boundary".to_owned(),
+        ValidationError::EmptyLoop(_) => "the boundary of a face has no edges".to_owned(),
+        ValidationError::MissingEntity => "it refers to a part it does not contain".to_owned(),
+        ValidationError::UnusedVertex(_) => "a vertex belongs to no edge".to_owned(),
+        ValidationError::ZeroLengthEdge(_) => "an edge has no length".to_owned(),
+        ValidationError::VertexOffEdge { distance, .. } => format!(
+            "a vertex lies {} mm from the end of its edge",
+            short(*distance)
+        ),
+        ValidationError::EdgeUseCount { uses, .. } => format!(
+            "an edge is used {uses} times instead of by exactly two faces, so the faces do not close up"
+        ),
+        ValidationError::EdgeSenses(_) => {
+            "two faces run the same way along a shared edge, so one of them faces the wrong way"
+                .to_owned()
+        }
+        ValidationError::EdgeAcrossShells(_) => {
+            "an edge joins faces of two separate shells".to_owned()
+        }
+        ValidationError::LoopBreak { .. } => {
+            "the edges around a face do not join end to end".to_owned()
+        }
+        ValidationError::PcurveEnds(_)
+        | ValidationError::PcurveGap(_)
+        | ValidationError::PcurveOffEdge { .. } => {
+            "an edge cannot be followed across its face".to_owned()
+        }
+        ValidationError::EdgeOffSurface { .. } => "an edge does not lie on its face".to_owned(),
+        ValidationError::LoopOrientation { .. } => {
+            "the boundary of a face winds the wrong way round it".to_owned()
+        }
+        ValidationError::InnerLoopOutside(_) => {
+            "a hole in a face lies outside the face's outer boundary".to_owned()
+        }
+        ValidationError::ShellDisconnected { .. } => {
+            "a face is not connected to the rest of its shell".to_owned()
+        }
+        ValidationError::EulerPoincare { .. } => {
+            "its faces do not close up into one surface without gaps or extra edges".to_owned()
+        }
+        ValidationError::Tessellation(_) => {
+            "its faces could not be turned into a mesh to check them".to_owned()
+        }
+        ValidationError::EmptyVolume(_) => "one of its shells encloses no volume".to_owned(),
+        ValidationError::VoidOutside(_) => {
+            "a shell facing inward lies inside no outer shell".to_owned()
+        }
+        ValidationError::LumpsOverlap { .. } => {
+            "two of its shells overlap or lie inside one another".to_owned()
+        }
+        ValidationError::LumpsCoincide { .. } => {
+            "two of its shells lie on top of each other".to_owned()
+        }
+        ValidationError::DanglingEdge { .. } => {
+            "a face uses an edge twice at the same place".to_owned()
+        }
+        ValidationError::Cancelled(_) => {
+            "it was not checked, because the import was cancelled".to_owned()
+        }
     }
 }
 
@@ -1433,7 +1524,10 @@ pub(crate) fn short(value: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use caditor_kernel::BSplineSurface;
+    use caditor_kernel::{
+        BSplineSurface, CoedgeId, GeometryError, Interrupted, LoopId, PcurveError,
+        TessellationError,
+    };
 
     use super::*;
 
@@ -1462,6 +1556,136 @@ mod tests {
         samples
             .iter()
             .all(|point| surface.distance(*point) <= CLEAN)
+    }
+
+    fn some_ids() -> (VertexId, EdgeId, FaceId, ShellId, LoopId, CoedgeId) {
+        let solid = crate::fixtures::plate_with_hole();
+        (
+            solid.vertices().next().unwrap().0,
+            solid.edges().next().unwrap().0,
+            solid.faces().next().unwrap().0,
+            solid.shells().next().unwrap().0,
+            solid.loops().next().unwrap().0,
+            solid.coedges().next().unwrap().0,
+        )
+    }
+
+    fn every_kind_of_build_error() -> Vec<BuildError> {
+        let (vertex, edge, face, shell, face_loop, coedge) = some_ids();
+        let validations = vec![
+            ValidationError::NoShells,
+            ValidationError::EmptyShell(shell),
+            ValidationError::FaceWithoutLoops(face),
+            ValidationError::EmptyLoop(face_loop),
+            ValidationError::MissingEntity,
+            ValidationError::UnusedVertex(vertex),
+            ValidationError::ZeroLengthEdge(edge),
+            ValidationError::VertexOffEdge {
+                edge,
+                vertex,
+                distance: 0.5,
+            },
+            ValidationError::EdgeUseCount { edge, uses: 3 },
+            ValidationError::EdgeSenses(edge),
+            ValidationError::EdgeAcrossShells(edge),
+            ValidationError::LoopBreak { face_loop, coedge },
+            ValidationError::PcurveEnds(coedge),
+            ValidationError::EdgeOffSurface {
+                edge,
+                face,
+                distance: 0.5,
+            },
+            ValidationError::PcurveOffEdge {
+                coedge,
+                distance: 0.5,
+            },
+            ValidationError::PcurveGap(coedge),
+            ValidationError::LoopOrientation {
+                face_loop,
+                area: -1.0,
+            },
+            ValidationError::InnerLoopOutside(face_loop),
+            ValidationError::ShellDisconnected { shell, face },
+            ValidationError::EulerPoincare {
+                shell,
+                characteristic: 1,
+            },
+            ValidationError::Tessellation(TessellationError::EdgeSampling(edge)),
+            ValidationError::EmptyVolume(shell),
+            ValidationError::VoidOutside(shell),
+            ValidationError::LumpsOverlap {
+                shell,
+                other: shell,
+            },
+            ValidationError::LumpsCoincide {
+                shell,
+                other: shell,
+            },
+            ValidationError::DanglingEdge { edge, face },
+            ValidationError::Cancelled(Interrupted),
+        ];
+        let mut errors: Vec<BuildError> =
+            validations.into_iter().map(BuildError::Invalid).collect();
+        errors.extend([
+            BuildError::UnknownVertex(vertex),
+            BuildError::UnknownEdge(edge),
+            BuildError::UnknownFace(face),
+            BuildError::UnknownShell(shell),
+            BuildError::NonFinitePoint,
+            BuildError::VertexOffCurve {
+                vertex,
+                distance: 0.5,
+            },
+            BuildError::IntervalOutsideDomain,
+            BuildError::ZeroLengthEdge,
+            BuildError::EmptyLoop,
+            BuildError::TooManyEntities,
+            BuildError::Pcurve {
+                edge,
+                error: PcurveError::NotMonotone,
+            },
+            BuildError::Geometry(GeometryError::DegenerateSurface),
+            BuildError::Cancelled(Interrupted),
+        ]);
+        errors
+    }
+
+    #[test]
+    fn no_note_about_a_body_that_cannot_be_rebuilt_shows_kernel_internals() {
+        let errors = every_kind_of_build_error();
+        let forbidden = [
+            "Id(", "ShellId", "FaceId", "EdgeId", "Euler", "Poincar", "pcurve", "coedge", "{", "}",
+        ];
+
+        for precision in [None, Some(0.1), Some(0.001)] {
+            for error in &errors {
+                let note = describe_build(error, precision);
+
+                assert!(!note.is_empty());
+                for word in forbidden {
+                    assert!(
+                        !note.contains(word),
+                        "the note {note:?} for {error:?} holds {word:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_shell_that_does_not_close_up_is_worded_plainly() {
+        let (_, _, _, shell, _, _) = some_ids();
+        let error = BuildError::Invalid(ValidationError::EulerPoincare {
+            shell,
+            characteristic: 1,
+        });
+
+        let note = describe_build(&error, None);
+
+        assert_eq!(
+            note,
+            "does not make a closed, valid solid: its faces do not close up into one surface without gaps or extra edges"
+        );
     }
 
     #[test]

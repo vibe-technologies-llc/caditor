@@ -173,12 +173,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   8.7 s against 7.6 s. Healing still traces an edge only between exactly two distinct faces, so an
   edge used twice by one face (a cylinder seam) with a vertex a few micrometres off is refused
   outright when the file declares no precision.
-- [medium · easy] A body that cannot be rebuilt is reported with kernel internals:
-  `describe_build` (`read/topology.rs`) puts a `ValidationError`'s or `BuildError`'s own text in
-  the note ("does not make a closed, valid solid (shell ShellId(0) has Euler characteristic 1,
-  …)"), Debug ids and topology words included, which reaches the import report and the failure
-  notice, against `ux.md`. Word each validation error plainly in an exhaustive match, log the raw
-  text, and pin that no note holds `Id(`.
 - [low · hard] A face whose surface cannot be read is left out (`step-read.md`, "Unreadable
   faces"), but from the outer shell that turns the whole body into flat facets, since the kernel
   holds only closed solids, and a lost face with holes is not closed at all; an edge whose curve

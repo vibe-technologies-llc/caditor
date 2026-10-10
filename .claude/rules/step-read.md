@@ -37,7 +37,11 @@ paths:
   or wireframes it holds. A body that fails does not stop the others; when none is left the first
   failure is `ReadError::NotRebuilt { name, entity, reason }`, else the first placement that left a
   body out is `ReadError::NotPlaced { name, misplacement }` (`Misplacement` also words the notes).
-- Every solid goes through `SolidBuilder::build`: valid, or a sentence naming the entity. A solid
+- Every solid goes through `SolidBuilder::build`: valid, or a sentence naming the entity. The
+  sentence words every `BuildError` and `ValidationError` in an exhaustive `match` in `describe_build`
+  (no ids, no topology terms; the raw text goes to the debug log), so a new kernel variant fails to
+  compile there until it is worded, and `no_note_about_a_body_that_cannot_be_rebuilt_shows_kernel_internals`
+  pins it. A solid
   whose faces cross (`Solid::find_crossing`) is refused naming the face entities; an inconclusive
   check imports it with a note that features built on it may fail.
 - `STEP_CORPUS=<dir>` (narrowed by `STEP_CORPUS_ONLY=<part of a name>`) makes
