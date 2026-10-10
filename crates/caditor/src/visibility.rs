@@ -99,6 +99,7 @@ pub fn owner(pickable: Pickable) -> Option<FeatureId> {
         | Pickable::Axis(_)
         | Pickable::Plane(_)
         | Pickable::SketchConstraint { .. }
+        | Pickable::FeatureValue { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
         | Pickable::ShellFace { .. } => None,
@@ -120,6 +121,7 @@ pub fn principal(pickable: Pickable) -> Option<PrincipalGeometry> {
         | Pickable::Vertex { .. }
         | Pickable::SketchConstraint { .. }
         | Pickable::SketchRegion { .. }
+        | Pickable::FeatureValue { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }
         | Pickable::ShellFace { .. } => None,

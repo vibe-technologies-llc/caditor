@@ -237,6 +237,7 @@ pub fn item_of(model: &Model, pickable: Pickable) -> Option<MeasuredItem> {
             plane,
         }),
         Pickable::SketchConstraint { .. }
+        | Pickable::FeatureValue { .. }
         | Pickable::SketchRegion { .. }
         | Pickable::Region { .. }
         | Pickable::BlendEdge { .. }

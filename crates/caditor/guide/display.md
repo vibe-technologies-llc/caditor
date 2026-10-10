@@ -32,4 +32,19 @@ and can be undone.
 {command:view.toggle_glyphs} hides the constraint marks of the edited sketch, keeping dimensions.
 {command:view.toggle_centres_of_mass} marks the centre of mass of each shown body; [Measure](measure)
 reads distances to it.
+
+## Dimensions on the model
+
+{command:view.toggle_dimensions} shows sizes on the model without opening a sketch or a panel:
+
+- The dimensions of every shown sketch, laid out on its plane.
+- For the feature under the pointer, the selected one and the rows chosen in the
+  [feature tree](feature-tree): its own values (an extrusion's distance along its reach, a revolve's
+  angle, a fillet's radius, a shell's thickness, a hole's diameter and depth, a pattern's count and
+  spacing) and the dimensions of the sketch it sweeps, even while that sketch is hidden.
+
+Double-click a label, or highlight it with {command:view.highlight_next} and press Enter, to
+change it in place. The field takes units, expressions and parameter names as the feature's panel
+does, and the change is one step to undo. A value held by a parameter reads `name = value`: type
+`name = 30 mm` to change the parameter, or a plain value to stop using it.
 [Section view](section-view) cuts the bodies at planes to look inside them.

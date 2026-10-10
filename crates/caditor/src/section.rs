@@ -209,6 +209,7 @@ pub fn base_plane(model: &Model, pickable: Pickable) -> Option<Plane> {
         | Pickable::BlendEdge { .. }
         | Pickable::ShellFace { .. }
         | Pickable::FrameAxis { .. }
+        | Pickable::FeatureValue { .. }
         | Pickable::CentreOfMass(_) => None,
     }
 }

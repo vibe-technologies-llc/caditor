@@ -479,16 +479,14 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
-- [high · medium] Outside sketch editing no dimension is shown on the model (`viewport.rs` hands
-  `annotations::Annotations` only the edited sketch), so changing a size means opening the
-  feature's panel or entering its sketch. Selecting a face or opening a feature could show, on the
-  model, the dimensions of the sketch it was swept from (laid out by `annotation_layout` on that
-  sketch's solved plane, as for the edited sketch) with the feature's own values as dimensions (an
-  extrusion's distances along its reach, a revolve's angles, a fillet's radius, a hole's diameter
-  and depth), each double-clicked to an inline `commit_field` committing through
-  `field::dimension_transaction` or the feature's `SetFeatureKind`, as SolidWorks shows a
-  feature's dimensions on double-click. Which dimensions show for a hidden sketch or a sketch
-  several features use needs a rule.
+- [medium · medium] Dimensions on the model (`model_dimensions.rs`) draw only an extrusion's
+  distances as dimensions along its geometry; a revolve's angles, a fillet's radius, a shell's
+  thickness, a hole's diameter and depth and a pattern's values stack as labels under the centre
+  of the faces the feature made. A revolve's angle could be an arc about its axis, a hole's depth a
+  line along its axis and a radius a leader to the round face. Primitives' sizes, an offset face's
+  distance, a chamfer's second value, a move's offsets and a thread's depth are not offered yet
+  (`feature_values::values_of`), and labels of different sketches and features are thinned each on
+  its own, so two sketches' labels can overlap.
 - [low · easy] While a value field has focus, a click on a dimension label in the view inserts its
   parameter's name (`completion.rs`, `field.rs`), but a click on a value in the Parameters panel
   does not: the panel's rows could insert their name the same way, so a parameter seen there is

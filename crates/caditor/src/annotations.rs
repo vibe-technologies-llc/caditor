@@ -15,7 +15,7 @@ use crate::{
     annotation_layout::{self, DimensionLayout, GlyphKind, GlyphSite, LabelFrame, Reach, Thinning},
     appearance, canvas, completion,
     feature_tree::count,
-    field::{self, DimensionTarget},
+    field::{self, DimensionTarget, Reference},
     model::{Action, Model},
     selection::{Pickable, Selection},
     sketch_status, sketch_tools,
@@ -75,6 +75,8 @@ const COLLAPSED_SPACING: f64 = 8.0;
 const MAX_MEASURED_TEXTS: usize = 1 << 16;
 const EDIT_HINT: &str = "Double-click to change it, or drag its label to move it.";
 const COLLAPSED_HINT: &str = "Click to show its label, or double-click to change it.";
+const OUTSIDE_HINT: &str = "Double-click to change it, or highlight it from the keyboard and \
+                            press Enter.";
 const CLUSTERED_ENDS_HELP: &str = "here, too close together to ring one by one at this zoom: \
                                    curve ends joined to nothing. Zoom in to tell them apart, and \
                                    join them to close the outline.";
@@ -225,8 +227,15 @@ enum Hover {
 }
 
 impl Hover {
-    fn describe(&self, sketch: &Sketch) -> String {
+    fn describe(&self, sketch: &Sketch, outside: bool) -> String {
         match self {
+            Self::Dimension(constraint) | Self::Collapsed(constraint) if outside => {
+                let described = sketch
+                    .constraint(*constraint)
+                    .map(|constraint| sketch.describe(constraint))
+                    .unwrap_or_default();
+                format!("{described}. {OUTSIDE_HINT}")
+            }
             Self::Dimension(constraint) => {
                 let described = sketch
                     .constraint(*constraint)
@@ -346,16 +355,18 @@ struct SketchKey {
     evaluation: u64,
     sketches: u64,
     dragged: Option<ConstraintId>,
+    outside: bool,
 }
 
 impl SketchKey {
-    fn of(model: &Model, feature: FeatureId, dragged: Option<ConstraintId>) -> Self {
+    fn of(model: &Model, feature: FeatureId, dragged: Option<ConstraintId>, outside: bool) -> Self {
         Self {
             feature,
             revision: model.revision(),
             evaluation: model.evaluation_generation(),
             sketches: model.display().sketches.generation(),
             dragged,
+            outside,
         }
     }
 }
@@ -392,6 +403,9 @@ impl Measures {
                 measured.push((id, annotation::measured(shown, constraint)));
                 continue;
             }
+            if key.outside {
+                continue;
+            }
             for (entity, kind) in annotation_layout::glyphs_of(shown, constraint) {
                 groups.entry(entity).or_default().push(GlyphItem {
                     constraint: id,
@@ -424,7 +438,8 @@ impl Measures {
                 })
             })
             .collect();
-        let result = sketch_status::up_to_date_result(model.evaluation(), key.feature);
+        let result = sketch_status::up_to_date_result(model.evaluation(), key.feature)
+            .filter(|_| !key.outside);
         let open_ends = result
             .into_iter()
             .flat_map(|result| &result.open_ends)
@@ -954,6 +969,7 @@ pub struct Surface<'a> {
     pub glyphs: bool,
     pub highlight: Option<Pickable>,
     pub first_dimension_scales: bool,
+    pub outside: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1113,6 +1129,22 @@ impl Annotations {
             .collect()
     }
 
+    pub fn shown_dimensions(&self) -> Vec<ConstraintId> {
+        let Some(marks) = &self.marks else {
+            return Vec::new();
+        };
+        let mut shown: Vec<ConstraintId> = marks
+            .dimensions
+            .iter()
+            .filter(|mark| mark.label.is_some())
+            .map(|mark| mark.constraint)
+            .chain(marks.collapsed.iter().map(|mark| mark.constraint))
+            .collect();
+        shown.sort_unstable();
+        shown.dedup();
+        shown
+    }
+
     pub fn request_field(&mut self, feature: FeatureId, constraint: ConstraintId) {
         self.request = Some(FieldRequest {
             feature,
@@ -1181,7 +1213,12 @@ impl Annotations {
         let definition = owner.kind.sketch()?;
         let shown = model.displayed_sketch(owner)?;
         self.texts.refresh(painter, model, surface.feature);
-        let sketch = SketchKey::of(model, surface.feature, dragged.map(|(id, _)| id));
+        let sketch = SketchKey::of(
+            model,
+            surface.feature,
+            dragged.map(|(id, _)| id),
+            surface.outside,
+        );
         let measures = match self.measures.take() {
             Some(measures) if measures.key == sketch => measures,
             _ => Measures::collect(model, sketch, definition, &shown),
@@ -1463,8 +1500,8 @@ impl Annotations {
             return;
         }
         let sense = match (target.pickable, target.label) {
-            (Some(_), Some(_)) => Sense::click_and_drag(),
-            (Some(_), None) => Sense::CLICK,
+            (Some(_), Some(_)) if !surface.outside => Sense::click_and_drag(),
+            (Some(_), _) => Sense::CLICK,
             (None, _) => Sense::hover(),
         };
         let response = ui.interact(hit, annotation_id(surface.feature, target.key), sense);
@@ -1473,7 +1510,7 @@ impl Annotations {
             Self::offer(document, surface.feature, &target, &response);
         }
         response.on_hover_ui(|ui| {
-            ui.label(target.hover.describe(definition));
+            ui.label(target.hover.describe(definition, surface.outside));
         });
     }
 
@@ -1491,10 +1528,11 @@ impl Annotations {
         }
         if let (Some((label, frame)), Pickable::SketchConstraint { constraint, .. }) =
             (target.label, pickable)
+            && !surface.outside
         {
             self.drag_label(surface, response, constraint, label, frame);
         }
-        if response.clicked() && !completion::take_click(ui.ctx()) {
+        if response.clicked() && !surface.outside && !completion::take_click(ui.ctx()) {
             let toggle = ui.input(|input| input.modifiers.shift || input.modifiers.command);
             if toggle {
                 selection.toggle(pickable);
@@ -1602,7 +1640,11 @@ impl Annotations {
             feature: open.feature,
             constraint: open.constraint,
         };
-        let stored = field::value_text(document, &target.owner(), expression);
+        let stored = if surface.outside {
+            field::driven_text(document, &target.owner(), expression)
+        } else {
+            field::value_text(document, &target.owner(), expression)
+        };
         if let Some(held) = document.owned_parameter(&target.owner(), expression) {
             completion::editing_parameter(ui, id, held.id());
         }
@@ -1622,12 +1664,22 @@ impl Annotations {
                             FIELD_WIDTH,
                             open.focus_pending,
                             |text| {
-                                sketch_tools::dimension_change(
-                                    model,
-                                    target,
-                                    text,
-                                    surface.first_dimension_scales,
-                                )
+                                if surface.outside {
+                                    field::dimension_edit(
+                                        document,
+                                        model.parameters(),
+                                        (target, Reference::Followed),
+                                        text,
+                                        model.units(),
+                                    )
+                                } else {
+                                    sketch_tools::dimension_change(
+                                        model,
+                                        target,
+                                        text,
+                                        surface.first_dimension_scales,
+                                    )
+                                }
                             },
                         );
                         if let Some(error) = &field.error {
@@ -2007,7 +2059,7 @@ mod tests {
         );
         assert!(
             Hover::OpenEnds(12)
-                .describe(&Sketch::new(caditor_geometry::Plane::XY))
+                .describe(&Sketch::new(caditor_geometry::Plane::XY), false)
                 .starts_with("12 open ends here")
         );
     }

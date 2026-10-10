@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use caditor_document::{Document, Edit, FeatureId, ParameterOwner, ParameterValues, Transaction};
+use caditor_document::{
+    Document, Edit, FeatureId, Parameter, ParameterOwner, ParameterValues, Transaction,
+};
 use caditor_expression::{Dimension, Expression, Naming, ParameterId};
 use caditor_sketch::{Constraint, ConstraintId, DimensionError};
 use egui::{
@@ -511,6 +513,37 @@ pub fn value_text(document: &Document, owner: &ParameterOwner, expression: &Expr
     }
 }
 
+fn referenced_parameter<'a>(
+    document: &'a Document,
+    expression: &Expression,
+) -> Option<&'a Parameter> {
+    match expression {
+        Expression::Parameter(id) => document.parameter(*id),
+        _ => None,
+    }
+}
+
+pub fn driving_parameter<'a>(
+    document: &'a Document,
+    owner: &ParameterOwner,
+    expression: &Expression,
+) -> Option<&'a Parameter> {
+    document
+        .owned_parameter(owner, expression)
+        .or_else(|| referenced_parameter(document, expression))
+}
+
+pub fn driven_text(document: &Document, owner: &ParameterOwner, expression: &Expression) -> String {
+    match driving_parameter(document, owner, expression) {
+        Some(parameter) => format!(
+            "{} = {}",
+            parameter.name,
+            document.expression_text(&parameter.expression)
+        ),
+        None => document.expression_text(expression),
+    }
+}
+
 pub fn shown_value<'a>(
     document: &'a Document,
     owner: &ParameterOwner,
@@ -545,23 +578,7 @@ impl NamedField<'_> {
                 let unnamed = hold(parse(text)?)?;
                 checked(document, document.releasing(unnamed, [parameter.id()]))
             }
-            (Some(naming), Some(parameter)) => {
-                let expression = self.with_unit(parse(naming.expression)?);
-                let id = parameter.id();
-                let renaming = (naming.name != parameter.name).then(|| Edit::RenameParameter {
-                    id,
-                    name: naming.name.to_owned(),
-                });
-                let changing = (expression != parameter.expression)
-                    .then_some(Edit::SetParameterExpression { id, expression });
-                checked(
-                    document,
-                    Transaction::new(
-                        format!("Edit {}", naming.name),
-                        renaming.into_iter().chain(changing).collect(),
-                    ),
-                )
-            }
+            (Some(naming), Some(parameter)) => self.edit_parameter(parameter, &naming, parse),
             (Some(naming), None) => {
                 let expression = self.with_unit(parse(naming.expression)?);
                 let marker =
@@ -580,6 +597,53 @@ impl NamedField<'_> {
                 checked(document, transaction.finish())
             }
         }
+    }
+
+    pub fn through_reference(
+        &self,
+        text: &str,
+        parse: impl Fn(&str) -> Result<Expression, String>,
+    ) -> Option<Result<Transaction, String>> {
+        let document = self.document;
+        if document
+            .owned_parameter(&self.owner, self.current)
+            .is_some()
+        {
+            return None;
+        }
+        let parameter = referenced_parameter(document, self.current)?;
+        let naming = Naming::split(text)?;
+        if let Some(measurement) = document.measurement_of(parameter.id()) {
+            return Some(Err(format!(
+                "{} is the reading of {}, taken again on every recompute; change the model to \
+                 change it",
+                parameter.name, measurement.name
+            )));
+        }
+        Some(self.edit_parameter(parameter, &naming, parse))
+    }
+
+    fn edit_parameter(
+        &self,
+        parameter: &Parameter,
+        naming: &Naming<'_>,
+        parse: impl Fn(&str) -> Result<Expression, String>,
+    ) -> Result<Transaction, String> {
+        let expression = self.with_unit(parse(naming.expression)?);
+        let id = parameter.id();
+        let renaming = (naming.name != parameter.name).then(|| Edit::RenameParameter {
+            id,
+            name: naming.name.to_owned(),
+        });
+        let changing = (expression != parameter.expression)
+            .then_some(Edit::SetParameterExpression { id, expression });
+        checked(
+            self.document,
+            Transaction::new(
+                format!("Edit {}", naming.name),
+                renaming.into_iter().chain(changing).collect(),
+            ),
+        )
     }
 
     fn with_unit(&self, expression: Expression) -> Expression {
@@ -610,10 +674,32 @@ impl DimensionTarget {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reference {
+    Replaced,
+    Followed,
+}
+
 pub fn dimension_transaction(
     document: &Document,
     parameters: &ParameterValues,
     target: DimensionTarget,
+    text: &str,
+    unit: impl Into<Units>,
+) -> Result<Transaction, String> {
+    dimension_edit(
+        document,
+        parameters,
+        (target, Reference::Replaced),
+        text,
+        unit,
+    )
+}
+
+pub fn dimension_edit(
+    document: &Document,
+    parameters: &ParameterValues,
+    (target, reference): (DimensionTarget, Reference),
     text: &str,
     unit: impl Into<Units>,
 ) -> Result<Transaction, String> {
@@ -675,6 +761,11 @@ pub fn dimension_transaction(
         owner: target.owner(),
         current,
     };
+    if reference == Reference::Followed
+        && let Some(edited) = field.through_reference(text, parse)
+    {
+        return edited;
+    }
     field.transaction(text, parse, hold)
 }
 

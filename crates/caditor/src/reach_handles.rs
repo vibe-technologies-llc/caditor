@@ -139,6 +139,42 @@ fn held(model: &Model, feature: FeatureId, extrude: &Extrude, reach: Reach) -> O
     ))
 }
 
+fn base_of(model: &Model, feature: FeatureId, extrude: &Extrude) -> Option<(Point3, Vector3)> {
+    if extrude.direction.is_some() {
+        return None;
+    }
+    let document = model.document();
+    let plane = crate::scene::sketch_plane(document, model.evaluation(), extrude.sketch)?;
+    let start = start_offset(model, feature, &plane, extrude.start.as_ref())?;
+    let bounds = model.sketch_bounds(document.feature(extrude.sketch)?)?;
+    let normal = plane.normal();
+    Some((
+        plane.to_world(plane.to_local(bounds.center())) + normal * start,
+        normal,
+    ))
+}
+
+pub fn reach_lines(model: &Model, feature: FeatureId) -> Vec<(Reach, [Point3; 2])> {
+    let Some(extrude) = committed_extrude(model, feature) else {
+        return Vec::new();
+    };
+    let Some((base, normal)) = base_of(model, feature, extrude) else {
+        return Vec::new();
+    };
+    reaches(model.parameters(), &extrude.extent)
+        .into_iter()
+        .flatten()
+        .map(|(reach, sign, distance)| {
+            let direction = normal * sign * distance;
+            let from = match reach {
+                Reach::Symmetric => base - direction,
+                Reach::Only | Reach::Forward | Reach::Backward => base,
+            };
+            (reach, [from, base + direction])
+        })
+        .collect()
+}
+
 impl ReachHandles {
     pub fn of(
         model: &Model,
@@ -147,16 +183,8 @@ impl ReachHandles {
         pixels_per_point: f64,
     ) -> Option<Self> {
         let extrude = shown_extrude(model, feature)?;
-        if extrude.direction.is_some() {
-            return None;
-        }
         let parameters = model.shown_parameters(feature);
-        let document = model.document();
-        let plane = crate::scene::sketch_plane(document, model.evaluation(), extrude.sketch)?;
-        let start = start_offset(model, feature, &plane, extrude.start.as_ref())?;
-        let bounds = model.sketch_bounds(document.feature(extrude.sketch)?)?;
-        let normal = plane.normal();
-        let base = plane.to_world(plane.to_local(bounds.center())) + normal * start;
+        let (base, normal) = base_of(model, feature, extrude)?;
         let forward = view.forward();
         let arrow = |found: Option<(Reach, f64, f64)>| {
             let (reach, sign, distance) = found?;

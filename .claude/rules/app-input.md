@@ -272,7 +272,9 @@ paths:
   while a sketch is edited, through its constraints and dimensions in id order
   (`Pickable::SketchConstraint`, coloured as hovered and lighting their entities); Activate
   selects one and Enter opens a highlighted dimension's inline field, so dimensions are edited
-  without a pointer. Activate
+  without a pointer. Outside sketch editing, while dimensions are shown on the model, they then
+  step through its dimension and value labels, and Enter or Activate opens the highlighted one's
+  field (`app-sketching.md`). Activate
   acts as a click would (selection toggle, or the region, blend edge, shell face or sketch plane
   action through `pick_action`); Enter opens what the item belongs to as a double-click would,
   and with nothing highlighted Enter confirms the open feature like its checkmark. With Trim,

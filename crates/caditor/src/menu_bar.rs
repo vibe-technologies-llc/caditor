@@ -674,6 +674,7 @@ impl Menus<'_> {
             self.choice(ui, Command::TogglePaintSelection);
             self.choice(ui, Command::ToggleSelectThrough);
             self.choice(ui, Command::ToggleGlyphs);
+            self.choice(ui, Command::ToggleDimensions);
             self.choice(ui, Command::ToggleCentresOfMass);
             self.choice(ui, Command::ToggleControlPolygons);
             ui.separator();

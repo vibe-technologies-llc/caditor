@@ -212,6 +212,7 @@ pub enum Command {
     TypeValue,
     ToggleFirstDimensionScales,
     ToggleGlyphs,
+    ToggleDimensions,
     ToggleCentresOfMass,
     ToggleControlPolygons,
     MinimizeWindow,
@@ -654,6 +655,7 @@ plain_commands! {
     TypeValue,
     ToggleFirstDimensionScales,
     ToggleGlyphs,
+    ToggleDimensions,
     ToggleCentresOfMass,
     ToggleControlPolygons,
     Measure,
@@ -1051,6 +1053,7 @@ impl Command {
             Self::TypeValue => "sketch.type_value",
             Self::ToggleFirstDimensionScales => "sketch.toggle_first_dimension_scales",
             Self::ToggleGlyphs => "view.toggle_glyphs",
+            Self::ToggleDimensions => "view.toggle_dimensions",
             Self::ToggleCentresOfMass => "view.toggle_centres_of_mass",
             Self::ToggleControlPolygons => "view.toggle_control_polygons",
             Self::MinimizeWindow => "view.minimize_window",
@@ -1301,6 +1304,7 @@ impl Command {
             Self::TypeValue => "Type an exact value",
             Self::ToggleFirstDimensionScales => "Scale the whole sketch on its first dimension",
             Self::ToggleGlyphs => "Show or hide constraint glyphs",
+            Self::ToggleDimensions => "Show or hide dimensions on the model",
             Self::ToggleCentresOfMass => "Show or hide centres of mass",
             Self::ToggleControlPolygons => "Show or hide spline control polygons",
             Self::MinimizeWindow => "Minimize the window",
@@ -1542,6 +1546,7 @@ impl Command {
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
             | Self::ToggleGlyphs
+            | Self::ToggleDimensions
             | Self::ToggleCentresOfMass
             | Self::ToggleControlPolygons
             | Self::MinimizeWindow
@@ -1889,6 +1894,7 @@ impl Command {
             | Self::TogglePaintSelection
             | Self::ToggleSelectThrough
             | Self::CycleSelectionPriority
+            | Self::ToggleDimensions
             | Self::ToggleCentresOfMass
             | Self::ToggleControlPolygons
             | Self::MinimizeWindow
