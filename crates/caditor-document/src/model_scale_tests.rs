@@ -316,6 +316,121 @@ fn a_named_value_scales_with_the_plain_values() {
     assert!(!scaled.summary.kept.contains(&"Fillet 1".to_owned()));
 }
 
+fn two_heights(model: &mut Model) -> (ConfigurationId, ConfigurationId) {
+    let configure = model
+        .document
+        .configuring(ConfiguredValue::Parameter(model.height))
+        .unwrap();
+    model.document.apply(configure).unwrap();
+    let (short, short_id) = model.document.adding_configuration(Some("Short"));
+    model.document.apply(short).unwrap();
+    let (tall, tall_id) = model.document.adding_configuration(Some("Tall"));
+    model.document.apply(tall).unwrap();
+    let twelve = model.document.transaction("Parse").parse("12 mm").unwrap();
+    let change = model
+        .document
+        .setting_configuration(
+            tall_id,
+            ConfiguredValue::Parameter(model.height),
+            Setting::Expression(twelve),
+        )
+        .unwrap();
+    model.document.apply(change).unwrap();
+    (short_id, tall_id)
+}
+
+fn configured_height(model: &Model, row: ConfigurationId) -> String {
+    match model
+        .document
+        .configuration_setting(row, ConfiguredValue::Parameter(model.height))
+    {
+        Some(Setting::Expression(expression)) => text(&model.document, &expression),
+        other => panic!("an expression was expected, found {other:?}"),
+    }
+}
+
+#[test]
+fn scaling_the_model_scales_the_other_configurations_too() {
+    let mut model = model();
+    let (short, tall) = two_heights(&mut model);
+
+    let scaled = model
+        .document
+        .scaled(&scale(2.0, Point3::ZERO, ScaledValues::AndParameters))
+        .unwrap();
+    model.document.apply(scaled.transaction).unwrap();
+
+    assert_eq!(configured_height(&model, short), "8 mm");
+    assert_eq!(configured_height(&model, tall), "24 mm");
+    let switch = model.document.activating(tall).unwrap();
+    model.document.apply(switch).unwrap();
+    let after = evaluate(&model.document);
+    let (_, high) = bounds(&after, model.base);
+    assert!(near(high, [20.0, 16.0, 24.0]), "{high:?}");
+}
+
+#[test]
+fn scaling_only_plain_values_leaves_the_cells_of_parameters_it_does_not_scale() {
+    let mut model = model();
+    let (_, tall) = two_heights(&mut model);
+
+    let scaled = model
+        .document
+        .scaled(&scale(2.0, Point3::ZERO, ScaledValues::Plain))
+        .unwrap();
+    model.document.apply(scaled.transaction).unwrap();
+
+    assert_eq!(configured_height(&model, tall), "12 mm");
+}
+
+#[test]
+fn scaling_plain_values_scales_the_cells_of_a_named_value_in_the_other_configurations() {
+    let mut model = model();
+    let mut transaction = model.document.transaction("Name");
+    let named = transaction.add_owned_parameter(
+        "radius",
+        transaction.parse("1 mm").unwrap(),
+        ParameterOwner::Feature {
+            feature: model.fillet,
+            value: "Radius".to_owned(),
+        },
+    );
+    model.document.apply(transaction.finish()).unwrap();
+    let configure = model
+        .document
+        .configuring(ConfiguredValue::Parameter(named))
+        .unwrap();
+    model.document.apply(configure).unwrap();
+    let (first, _) = model.document.adding_configuration(Some("Fine"));
+    model.document.apply(first).unwrap();
+    let (second, wide) = model.document.adding_configuration(Some("Wide"));
+    model.document.apply(second).unwrap();
+    let two = model.document.transaction("Parse").parse("2 mm").unwrap();
+    let change = model
+        .document
+        .setting_configuration(
+            wide,
+            ConfiguredValue::Parameter(named),
+            Setting::Expression(two),
+        )
+        .unwrap();
+    model.document.apply(change).unwrap();
+
+    let scaled = model
+        .document
+        .scaled(&scale(3.0, Point3::ZERO, ScaledValues::Plain))
+        .unwrap();
+    model.document.apply(scaled.transaction).unwrap();
+
+    let cell = model
+        .document
+        .configuration_setting(wide, ConfiguredValue::Parameter(named));
+    let Some(Setting::Expression(expression)) = cell else {
+        panic!("an expression was expected");
+    };
+    assert_eq!(text(&model.document, &expression), "6 mm");
+}
+
 #[test]
 fn a_thin_wall_thickens_with_the_model() {
     let mut model = model();

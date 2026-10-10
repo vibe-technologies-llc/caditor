@@ -12,6 +12,7 @@ use caditor_sketch::{Constraint, Entity};
 use crate::{
     attachment::SketchFeature,
     blend::ChamferForm,
+    configurations::{Configurations, ConfiguredValue, Setting},
     datum::{
         AxisReference, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, PlaneReference,
         PlaneThrough, PointBy, PointReference, PrincipalGeometry, PrincipalPlane,
@@ -158,6 +159,7 @@ impl Document {
             edits.extend(changed);
         }
         edits.extend(rescaler.views(self));
+        edits.extend(rescaler.configurations(self)?);
         rescaler.summary.moved = displaced;
         rescaler.summary.datums = placed.names;
         Ok(ScaledModel {
@@ -244,6 +246,47 @@ impl Rescaler {
             }
         }
         Ok(edits)
+    }
+
+    fn configurations(&self, document: &Document) -> Result<Option<Edit>, ModelScaleError> {
+        let mut table = Configurations::clone(document.configurations());
+        let mut changed = false;
+        for row in &mut table.rows {
+            if table.active == Some(row.id) {
+                continue;
+            }
+            for (value, setting) in &mut row.settings {
+                let (ConfiguredValue::Parameter(id), Setting::Expression(expression)) =
+                    (value, &mut *setting)
+                else {
+                    continue;
+                };
+                let (Some(parameter), Ok(old)) = (document.parameter(*id), self.old.value(*id))
+                else {
+                    continue;
+                };
+                let power = old.dimension.length_power();
+                let rewritten = match self.values {
+                    ScaledValues::AndParameters => true,
+                    ScaledValues::Plain => {
+                        parameter.owner.is_some()
+                            && power != 0
+                            && expression.parameters().is_empty()
+                    }
+                };
+                if !rewritten {
+                    continue;
+                }
+                let scaled = self.rewritten(expression, power, &parameter.name)?;
+                if scaled != *expression {
+                    *expression = scaled;
+                    changed = true;
+                }
+            }
+        }
+        Ok(changed.then(|| Edit::SetConfigurations {
+            configurations: Box::new(table),
+        }))
     }
 
     fn rewritten(

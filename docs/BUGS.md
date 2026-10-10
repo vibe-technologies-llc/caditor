@@ -58,12 +58,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Modelling
 
-- [high · medium] Scale model leaves every other configuration at the old size: `Document::scaled`
-  rewrites parameters, feature lengths and saved views but never reads `configurations`, and a
-  parameter edit copies its new expression into the active row only, so switching to another
-  configuration afterwards rebuilds the part unscaled. Rewrite the inactive rows' length cells with
-  the same rescaler in the scale transaction (one `SetConfigurations`), leaving angles, counts,
-  suppression and the active row alone.
 - [high · hard] An edge reference keeps only the piece that kept its curve's id when an upstream
   sketch edit splits the edge, silently: the 10×8×4 block of `blend_tests` with its front and left
   top edges filleted 1 mm, whose front sketch line is then notched (lines from (4, 0) to (4, 2),

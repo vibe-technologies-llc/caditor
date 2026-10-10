@@ -17,7 +17,8 @@ the body's box as it was before scaling.
 adding a feature. Give the factor and the centre, and choose whether to scale only the values
 typed as numbers or the parameters too. A note afterwards says what changed, what was left to
 follow parameters, which holes lost their standard size and which threads to check. Undo takes it
-back in one step.
+back in one step. The other [configurations](configurations) are scaled alike, so switching to one
+afterwards gives the part at the new size.
 
 The principal planes, axes and origin never move. When the centre is off one that a feature uses
 (a mirror across the YZ plane, a revolve or circular pattern about the Z axis, a coordinate system

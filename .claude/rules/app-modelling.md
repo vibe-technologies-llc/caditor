@@ -750,7 +750,10 @@ paths:
   less, 1) stays in the dialog as an error callout and nothing is applied. While the centre is
   off principal geometry some features use, an info callout (`moving_words`, from
   `displaced_by_scale` cached per revision and centre) names each feature and the geometry it
-  uses before anything is applied, and the notice says which datums they now use.
+  uses before anything is applied, and the notice says which datums they now use. The scale
+  transaction also rewrites the length cells of the inactive configuration rows with the same
+  rescaler as the parameters they set, in one `SetConfigurations` (the active row follows the live
+  values), so switching afterwards keeps the new size.
 
 ## Configurations
 
