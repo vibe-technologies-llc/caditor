@@ -8,6 +8,7 @@ mod sizing;
 mod style;
 mod syntax;
 mod text;
+mod text_path;
 mod text_style;
 mod xml;
 
@@ -251,7 +252,7 @@ struct Tally {
     substituted_families: BTreeSet<String>,
     italic: usize,
     missing_letters: usize,
-    on_path: usize,
+    off_path: usize,
 }
 
 struct Walker<'a, 't> {
@@ -825,10 +826,10 @@ impl<'a, 't> Walker<'a, 't> {
             "left out.",
         );
         count(
-            tally.on_path,
-            "text laid along a path",
-            "texts laid along a path",
-            "left out, since caditor sets text only along a line.",
+            tally.off_path,
+            "letter running past the end of its path",
+            "letters running past the ends of their paths",
+            "left out, as browsers leave them out.",
         );
         count(
             tally.missing_letters,

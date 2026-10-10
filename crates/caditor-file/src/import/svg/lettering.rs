@@ -4,11 +4,13 @@ use ttf_parser::GlyphId;
 use crate::import::{
     ImportError, MAX_READ_CURVES,
     svg::{
-        Context, MAX_NAMED_ELEMENTS, MAX_NESTING, Walker,
+        Context, MAX_NAMED_ELEMENTS, MAX_NESTING, Walker, XLINK_NAMESPACE,
         font::{Instance, Typeface},
-        shapes::Axis,
+        path::path_outline,
+        shapes::{Axis, outline_of},
         style::Inherited,
-        syntax::{Length, Matrix, numbers},
+        syntax::{Length, Matrix, numbers, transform_list},
+        text_path::{Side, Track},
         text_style::Anchor,
         xml::{Content, Node},
     },
@@ -18,11 +20,15 @@ const SPACE: char = ' ';
 const MAX_FAMILY_CHARS: usize = 40;
 const INTER_NAMES: [&str; 4] = ["inter", "intervariable", "intervar", "interdisplay"];
 const SANS_SERIF_NAMES: [&str; 3] = ["sans-serif", "system-ui", "ui-sans-serif"];
+const TRACK_SHAPES: [&str; 7] = [
+    "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
+];
 
 #[derive(Debug, Clone, Copy)]
 struct Letter<'a> {
     character: char,
     style: Inherited<'a>,
+    track: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -32,11 +38,14 @@ struct Span<'a, 't> {
     end: usize,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Gathered<'a, 't> {
     letters: Vec<Letter<'a>>,
     spans: Vec<Span<'a, 't>>,
+    tracks: Vec<Track>,
+    track: Option<usize>,
     after_space: bool,
+    viewport: Vector2,
 }
 
 impl<'a> Gathered<'a, '_> {
@@ -52,7 +61,11 @@ impl<'a> Gathered<'a, '_> {
                 continue;
             }
             self.after_space = is_space;
-            self.letters.push(Letter { character, style });
+            self.letters.push(Letter {
+                character,
+                style,
+                track: self.track,
+            });
         }
     }
 
@@ -66,6 +79,14 @@ impl<'a> Gathered<'a, '_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Fit {
+    start: usize,
+    end: usize,
+    length: f64,
+    glyphs: bool,
+}
+
 #[derive(Debug, Clone)]
 struct Positions {
     x: Vec<Option<f64>>,
@@ -73,6 +94,7 @@ struct Positions {
     dx: Vec<Option<f64>>,
     dy: Vec<Option<f64>>,
     rotate: Vec<Option<f64>>,
+    fits: Vec<Fit>,
 }
 
 impl Positions {
@@ -83,6 +105,7 @@ impl Positions {
             dx: vec![None; count],
             dy: vec![None; count],
             rotate: vec![None; count],
+            fits: Vec::new(),
         };
         for span in spans {
             let start = span.start.min(count);
@@ -108,6 +131,21 @@ impl Positions {
                     *target = Some(angles.get(index).copied().unwrap_or(last));
                 }
             }
+            let fitted = lengths(node.attribute("textLength"), viewport.x)
+                .first()
+                .copied()
+                .filter(|length| *length >= 0.0);
+            if let Some(length) = fitted
+                && start < end
+            {
+                positions.fits.push(Fit {
+                    start,
+                    end,
+                    length,
+                    glyphs: node.attribute("lengthAdjust").map(str::trim)
+                        == Some("spacingAndGlyphs"),
+                });
+            }
         }
         positions
     }
@@ -132,7 +170,24 @@ struct Placed {
     glyph: Option<GlyphId>,
     instance: Instance,
     scale: f64,
+    stretch: f64,
     rotate: f64,
+    rise: f64,
+    off_path: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Run {
+    Straight,
+    OnPath(usize),
+    AfterPath,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Chunk {
+    start: usize,
+    end: usize,
+    run: Run,
 }
 
 impl<'a, 't> Walker<'a, 't> {
@@ -142,12 +197,21 @@ impl<'a, 't> Walker<'a, 't> {
         context: &Context<'a>,
     ) -> Result<(), ImportError> {
         let mut gathered = Gathered {
+            letters: Vec::new(),
+            spans: Vec::new(),
+            tracks: Vec::new(),
+            track: None,
             after_space: true,
-            ..Gathered::default()
+            viewport: context.viewport,
         };
         self.gather(node, context.style, context.depth, &mut gathered);
         gathered.trim_end();
-        let Gathered { letters, spans, .. } = gathered;
+        let Gathered {
+            letters,
+            spans,
+            tracks,
+            ..
+        } = gathered;
         if letters.is_empty() {
             return Ok(());
         }
@@ -156,7 +220,7 @@ impl<'a, 't> Walker<'a, 't> {
             return Ok(());
         };
         let italic_carried = typeface.has_italic();
-        let placed = lay_out(typeface, &letters, &positions);
+        let placed = lay_out(typeface, &letters, &positions, &tracks);
         self.note_style(&letters, italic_carried);
         let mut unpainted = false;
         let mut hidden = false;
@@ -167,6 +231,12 @@ impl<'a, 't> Walker<'a, 't> {
                 }
                 continue;
             };
+            if placed.off_path {
+                if !letter.character.is_whitespace() {
+                    self.tally.off_path = self.tally.off_path.saturating_add(1);
+                }
+                continue;
+            }
             if !letter.style.visible {
                 hidden = true;
                 continue;
@@ -175,7 +245,7 @@ impl<'a, 't> Walker<'a, 't> {
                 unpainted = true;
                 continue;
             }
-            if placed.scale <= 0.0 {
+            if placed.scale <= 0.0 || placed.stretch <= 0.0 {
                 continue;
             }
             let Some(typeface) = self.typeface.as_mut() else {
@@ -188,7 +258,7 @@ impl<'a, 't> Walker<'a, 't> {
                 continue;
             }
             let outline = typeface.outline(placed.instance, glyph);
-            let matrix = Matrix::scale(placed.scale, -placed.scale)
+            let matrix = Matrix::scale(placed.scale * placed.stretch, -placed.scale)
                 .then(&Matrix::rotation(placed.rotate))
                 .then(&Matrix::translation(placed.at.x, placed.at.y))
                 .then(&context.matrix);
@@ -243,22 +313,65 @@ impl<'a, 't> Walker<'a, 't> {
         depth: usize,
         gathered: &mut Gathered<'a, 't>,
     ) {
-        match child.name() {
-            "tspan" | "a" => {
-                if depth >= MAX_NESTING {
-                    self.tally.too_deep += 1;
-                    return;
-                }
-                let properties = self.properties(child);
-                if properties.hidden {
-                    self.tally.hidden += 1;
-                    return;
-                }
-                self.gather(child, style.under(&properties), depth + 1, gathered);
-            }
-            "textPath" => self.tally.on_path += 1,
-            _ => {}
+        let on_path = child.name() == "textPath";
+        if !on_path && !matches!(child.name(), "tspan" | "a") {
+            return;
         }
+        if depth >= MAX_NESTING {
+            self.tally.too_deep += 1;
+            return;
+        }
+        let properties = self.properties(child);
+        if properties.hidden {
+            self.tally.hidden += 1;
+            return;
+        }
+        let style = style.under(&properties);
+        if !on_path || gathered.track.is_some() {
+            self.gather(child, style, depth + 1, gathered);
+            return;
+        }
+        let Some(track) = self.track(child, gathered.viewport) else {
+            self.tally.missing += 1;
+            return;
+        };
+        gathered.track = Some(gathered.tracks.len());
+        gathered.tracks.push(track);
+        self.gather(child, style, depth + 1, gathered);
+        gathered.track = None;
+    }
+
+    fn track(&self, text_path: Node<'a, 't>, viewport: Vector2) -> Option<Track> {
+        let side = match text_path.attribute("side").map(str::trim) {
+            Some("right") => Side::Right,
+            _ => Side::Left,
+        };
+        let mut track = match text_path.attribute("path") {
+            Some(data) => Track::of(&path_outline(data), &Matrix::IDENTITY, side),
+            None => {
+                let target = text_path
+                    .attribute("href")
+                    .or_else(|| text_path.attribute_in(XLINK_NAMESPACE, "href"))
+                    .and_then(|reference| reference.trim().strip_prefix('#'))
+                    .and_then(|id| self.ids.get(id).copied())
+                    .filter(|target| {
+                        self.is_svg(*target) && TRACK_SHAPES.contains(&target.name())
+                    })?;
+                let matrix = target
+                    .attribute("transform")
+                    .and_then(transform_list)
+                    .unwrap_or(Matrix::IDENTITY);
+                Track::of(&outline_of(target, viewport), &matrix, side)
+            }
+        };
+        let length = track.length();
+        track.start = text_path
+            .attribute("startOffset")
+            .and_then(|offset| Length::parse(offset.trim()))
+            .map(|offset| offset.pixels(length))
+            .filter(|offset| offset.is_finite())
+            .unwrap_or(0.0);
+        Some(track)
     }
 
     fn note_style(&mut self, letters: &[Letter<'a>], italic_carried: bool) {
@@ -287,17 +400,37 @@ fn lay_out(
     typeface: &mut Typeface<'_>,
     letters: &[Letter<'_>],
     positions: &Positions,
+    tracks: &[Track],
 ) -> Vec<Placed> {
     let units_per_em = typeface.units_per_em();
     let mut placed: Vec<Placed> = Vec::with_capacity(letters.len());
-    let mut chunks = Vec::new();
+    let mut starts: Vec<(usize, Run)> = Vec::new();
     let mut pen = Point2::ZERO;
     let mut previous: Option<(GlyphId, Instance, f64)> = None;
     for (index, letter) in letters.iter().enumerate() {
         let at = |list: &[Option<f64>]| list.get(index).copied().flatten();
-        let (x, y) = (at(&positions.x), at(&positions.y));
-        if index == 0 || x.is_some() || y.is_some() {
-            chunks.push(index);
+        let before = index
+            .checked_sub(1)
+            .and_then(|before| letters.get(before))
+            .map(|before| before.track);
+        let entering = letter.track.is_some() && before != Some(letter.track);
+        let leaving = letter.track.is_none() && before.flatten().is_some();
+        let (x, y) = match letter.track {
+            Some(_) => (None, None),
+            None => (at(&positions.x), at(&positions.y)),
+        };
+        let absolute = x.is_some() || y.is_some();
+        if entering || leaving {
+            pen = Point2::ZERO;
+            previous = None;
+        }
+        if index == 0 || entering || leaving || absolute {
+            let run = match letter.track {
+                Some(track) => Run::OnPath(track),
+                None if leaving && !absolute => Run::AfterPath,
+                None => Run::Straight,
+            };
+            starts.push((index, run));
         }
         let instance = typeface.instance(letter.style.text.weight, letter.style.text.italic);
         let glyph = typeface.glyph(letter.character, instance);
@@ -325,7 +458,10 @@ fn lay_out(
             glyph,
             instance,
             scale,
+            stretch: 1.0,
             rotate: at(&positions.rotate).unwrap_or(0.0),
+            rise: letter.style.text.rise,
+            off_path: false,
         });
         let word_spacing = if letter.character == SPACE {
             letter.style.text.word_spacing
@@ -335,30 +471,127 @@ fn lay_out(
         pen.x += advance + letter.style.text.letter_spacing + word_spacing;
         previous = glyph.map(|glyph| (glyph, instance, scale));
     }
-    let ends = chunks.iter().skip(1).copied().chain([letters.len()]);
-    for (start, end) in chunks.iter().copied().zip(ends) {
+    let ends = starts
+        .iter()
+        .skip(1)
+        .map(|(start, _)| *start)
+        .chain([letters.len()]);
+    let chunks: Vec<Chunk> = starts
+        .iter()
+        .zip(ends)
+        .map(|((start, run), end)| Chunk {
+            start: *start,
+            end,
+            run: *run,
+        })
+        .collect();
+    for fit in positions.fits.iter().rev() {
+        let end_of_chunk = chunks
+            .iter()
+            .find(|chunk| (chunk.start..chunk.end).contains(&fit.start))
+            .map_or(fit.end, |chunk| chunk.end.max(fit.end));
+        fitted(&mut placed, fit, end_of_chunk);
+    }
+    let mut path_end: Option<Point2> = None;
+    for chunk in &chunks {
         let anchor = letters
-            .get(start)
+            .get(chunk.start)
             .map_or(Anchor::Start, |letter| letter.style.text.anchor);
-        anchored(placed.get_mut(start..end).unwrap_or_default(), anchor);
+        let Some(run) = placed.get_mut(chunk.start..chunk.end) else {
+            continue;
+        };
+        anchored(run, anchor);
+        match chunk.run {
+            Run::OnPath(track) => {
+                path_end = tracks.get(track).and_then(|track| along(run, track));
+            }
+            Run::AfterPath => {
+                let shift = path_end.map_or(Vector2::ZERO, |end| end - Point2::ZERO);
+                for letter in run.iter_mut() {
+                    letter.at += shift;
+                    letter.at.y -= letter.rise;
+                }
+            }
+            Run::Straight => {
+                for letter in run.iter_mut() {
+                    letter.at.y -= letter.rise;
+                }
+            }
+        }
     }
     placed
+}
+
+fn fitted(placed: &mut [Placed], fit: &Fit, end_of_chunk: usize) {
+    let Some(run) = placed.get_mut(fit.start..fit.end) else {
+        return;
+    };
+    let (low, high) = extent(run);
+    let natural = high - low;
+    if !natural.is_finite() {
+        return;
+    }
+    let delta = fit.length - natural;
+    if fit.glyphs {
+        if natural <= 0.0 {
+            return;
+        }
+        let factor = fit.length / natural;
+        for letter in run.iter_mut() {
+            letter.at.x = low + (letter.at.x - low) * factor;
+            letter.advance *= factor;
+            letter.stretch *= factor;
+        }
+    } else {
+        let gaps = run.len().saturating_sub(1);
+        if gaps == 0 {
+            return;
+        }
+        let step = delta / gaps as f64;
+        for (index, letter) in run.iter_mut().enumerate() {
+            letter.at.x += step * index as f64;
+        }
+    }
+    for letter in placed.get_mut(fit.end..end_of_chunk).unwrap_or_default() {
+        letter.at.x += delta;
+    }
+}
+
+fn along(run: &mut [Placed], track: &Track) -> Option<Point2> {
+    let mut end = None;
+    for letter in run {
+        let middle = track.start + letter.at.x + letter.advance / 2.0;
+        let Some((point, tangent)) = track.at(middle) else {
+            letter.off_path = true;
+            continue;
+        };
+        let normal = Vector2::new(-tangent.y, tangent.x);
+        let offset = letter.at.y - letter.rise;
+        letter.at = point - tangent * (letter.advance / 2.0) + normal * offset;
+        letter.rotate += tangent.y.atan2(tangent.x).to_degrees();
+        letter.rise = 0.0;
+        end = Some(point + tangent * (letter.advance / 2.0));
+    }
+    end
+}
+
+fn extent(chunk: &[Placed]) -> (f64, f64) {
+    chunk
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), placed| {
+            let end = placed.at.x + placed.advance;
+            (
+                low.min(placed.at.x).min(end),
+                high.max(placed.at.x).max(end),
+            )
+        })
 }
 
 fn anchored(chunk: &mut [Placed], anchor: Anchor) {
     let Some(first) = chunk.first().map(|placed| placed.at.x) else {
         return;
     };
-    let (low, high) =
-        chunk
-            .iter()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), placed| {
-                let end = placed.at.x + placed.advance;
-                (
-                    low.min(placed.at.x).min(end),
-                    high.max(placed.at.x).max(end),
-                )
-            });
+    let (low, high) = extent(chunk);
     let shift = first
         - match anchor {
             Anchor::Start => low,

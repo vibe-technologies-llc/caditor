@@ -430,10 +430,14 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Drawing import and export
 
-- [low · medium] SVG text comes in as outlines in Inter (upright and italic): `textPath` is left
-  out, vertical writing modes, `textLength`, `baseline-shift` and shaping beyond pair kerning
-  (ligatures, marks, right-to-left scripts) are not applied, and letters of different glyphs that
-  overlap are not merged into one outline.
+- [low · hard] SVG text comes in as outlines in Inter (upright and italic): vertical writing
+  modes and shaping beyond pair kerning (ligatures, marks, right-to-left scripts) are not applied,
+  which needs a shaping engine (rustybuzz) and bidirectional reordering rather than the per-letter
+  layout `lettering.rs` does, and letters of different glyphs that overlap are not merged into one
+  outline (`overlap.rs` merges each glyph alone; merging across letters needs the profile built
+  over the whole text). `textPath`'s `method` and `spacing` are ignored, and `sub`, `super` and
+  percentage baseline shifts use fixed shares of the font size rather than the font's own
+  subscript and superscript metrics.
 
 ## Mesh import and export
 
