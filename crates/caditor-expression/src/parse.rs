@@ -165,6 +165,7 @@ struct Token {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum References {
     ByName,
+    ByNameStoredReading,
     Stored,
 }
 
@@ -173,6 +174,13 @@ pub fn parse(
     resolve: &dyn Fn(&str) -> Option<ParameterId>,
 ) -> Result<Expression, ParseError> {
     parse_with(text, MAX_LENGTH, References::ByName, resolve)
+}
+
+pub fn parse_by_name_stored_reading(
+    text: &str,
+    resolve: &dyn Fn(&str) -> Option<ParameterId>,
+) -> Result<Expression, ParseError> {
+    parse_with(text, MAX_LENGTH, References::ByNameStoredReading, resolve)
 }
 
 pub fn parse_stored(text: &str) -> Result<Expression, ParseError> {

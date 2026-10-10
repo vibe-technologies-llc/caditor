@@ -140,6 +140,8 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   Kept when the model's own differs and `replace_existing` is off, Unchanged, or Refused with an
   `ImportRefusal`) and one transaction, or none when nothing changes. Rows merge by name; an
   owned parameter keeps its owner. A note in the file replaces the model's, an empty one leaves it.
+- Each row carries the `ExpressionReading` its text is parsed with: `Typed`, or `Stored` for rows
+  of files written before a power after a unit raised the unit (`expression.md`).
 - Rows are refused alone, never the whole file: a name `check_name` refuses or seen on an earlier
   row, a note too long, text that does not parse (names resolve to the model's parameters and to
   the file's other rows, so rows may refer to later ones), a cycle on the merged graph

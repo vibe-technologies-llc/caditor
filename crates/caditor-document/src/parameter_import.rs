@@ -14,6 +14,27 @@ pub struct ImportedParameter {
     pub name: String,
     pub expression: String,
     pub note: String,
+    pub reading: ExpressionReading,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ExpressionReading {
+    #[default]
+    Typed,
+    Stored,
+}
+
+impl ExpressionReading {
+    fn parse(
+        self,
+        text: &str,
+        resolve: &dyn Fn(&str) -> Option<ParameterId>,
+    ) -> Result<Expression, ParseError> {
+        match self {
+            Self::Typed => Expression::parse(text, resolve),
+            Self::Stored => Expression::parse_by_name_stored_reading(text, resolve),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -129,7 +150,7 @@ impl Document {
             let Some(id) = ids.get(row.name.trim()).copied() else {
                 continue;
             };
-            match Expression::parse(row.expression.trim(), &resolve) {
+            match row.reading.parse(row.expression.trim(), &resolve) {
                 Ok(expression) => {
                     let existing = self
                         .parameter(id)

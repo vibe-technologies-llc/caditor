@@ -25,7 +25,7 @@ fn parameters_export_to_csv_and_import_back_after_a_preview_as_one_change() {
     let written = fs::read_to_string(dir.path().join("dimensions.csv")).unwrap();
     assert_eq!(
         written,
-        "name,expression,value,note\r\nwidth,40 mm,40 mm,\r\nheight,width / 2,20 mm,\r\n"
+        "caditor-parameters,2\r\nname,expression,value,note\r\nwidth,40 mm,40 mm,\r\nheight,width / 2,20 mm,\r\n"
     );
 
     let edited = dir.path().join("edited.csv");

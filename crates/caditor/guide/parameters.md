@@ -38,6 +38,9 @@ expression, so the name stays. A value that uses other parameters, such as `dept
 [Measure](measure) becomes a parameter from its row's menu.
 {command:file.export_parameters} writes them to a CSV file a spreadsheet opens;
 {command:file.import_parameters} reads one back and shows what would be added, changed or left out
-before anything is applied. The import is one change, so Undo takes it back.
+before anything is applied. The import is one change, so Undo takes it back. The file starts with a
+`caditor-parameters` row naming its format; keep it when you edit the file in a spreadsheet. A file
+without it, such as one an older version of caditor wrote, reads `10 mm^2` the way that version did,
+as (10 mm)², so add the row only to a file written the current way.
 
 To keep several sets of values in one model, see [Configurations](configurations).
