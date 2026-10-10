@@ -17,9 +17,9 @@ const TOLERANCE: f64 = 1e-7;
 pub enum TrimError {
     #[error("the curve to trim no longer exists")]
     NoSuchCurve(EntityId),
-    #[error("{label} is not a line, circle or arc, so it cannot be trimmed")]
+    #[error("{label} is not a curve, so it cannot be trimmed")]
     NotACurve { entity: EntityId, label: String },
-    #[error("{label} cannot be trimmed; only lines, circles and arcs can")]
+    #[error("{label} cannot be trimmed; only lines, circles, arcs and ellipses can")]
     NotTrimmable { entity: EntityId, label: String },
     #[error("{label} has no length to trim")]
     NoLength { entity: EntityId, label: String },
@@ -149,6 +149,7 @@ enum Course {
     Line { start: Point2, end: Point2 },
     Circle { center: Point2, radius: f64 },
     Arc(ArcGeometry),
+    Ellipse(EllipseGeometry),
 }
 
 impl Course {
@@ -163,6 +164,16 @@ impl Course {
                 center: arc.center,
                 radius: arc.radius,
             }),
+            Self::Ellipse(_) => None,
+        }
+    }
+
+    fn has_length(&self) -> bool {
+        match self {
+            Self::Ellipse(ellipse) => ellipse.major_radius() > 0.0 && ellipse.minor_radius > 0.0,
+            Self::Line { .. } | Self::Circle { .. } | Self::Arc(_) => {
+                self.slack(1.0) > 0.0 && self.carrier().is_some()
+            }
         }
     }
 
@@ -171,6 +182,7 @@ impl Course {
             Self::Line { start, end } => Shape::Segment { start, end },
             Self::Circle { center, radius } => Shape::Circle { center, radius },
             Self::Arc(arc) => Shape::Arc(arc),
+            Self::Ellipse(ellipse) => Shape::Ellipse(ellipse),
         }
     }
 
@@ -179,7 +191,11 @@ impl Course {
     }
 
     fn is_closed(&self) -> bool {
-        matches!(self, Self::Circle { .. })
+        match self {
+            Self::Circle { .. } => true,
+            Self::Ellipse(ellipse) => ellipse.is_full(),
+            Self::Line { .. } | Self::Arc(_) => false,
+        }
     }
 
     fn span(&self) -> f64 {
@@ -187,6 +203,7 @@ impl Course {
             Self::Line { .. } => 1.0,
             Self::Circle { .. } => TAU,
             Self::Arc(arc) => arc.sweep,
+            Self::Ellipse(ellipse) => ellipse.sweep,
         }
     }
 
@@ -202,15 +219,16 @@ impl Course {
                 }
             }
             Self::Circle { center, .. } => direction_angle(point - center).rem_euclid(TAU),
-            Self::Arc(arc) => {
-                let offset =
-                    (direction_angle(point - arc.center) - arc.start_angle).rem_euclid(TAU);
-                if offset <= arc.sweep {
+            Self::Arc(arc) => within_span(
+                (direction_angle(point - arc.center) - arc.start_angle).rem_euclid(TAU),
+                arc.sweep,
+            ),
+            Self::Ellipse(ellipse) => {
+                let offset = (ellipse.parameter_of(point) - ellipse.start).rem_euclid(TAU);
+                if ellipse.is_full() {
                     offset
-                } else if offset - arc.sweep < TAU - offset {
-                    arc.sweep
                 } else {
-                    0.0
+                    within_span(offset, ellipse.sweep)
                 }
             }
         }
@@ -221,6 +239,7 @@ impl Course {
             Self::Line { start, end } => start + (end - start) * parameter,
             Self::Circle { center, radius } => center + Vector2::from_angle(parameter) * radius,
             Self::Arc(arc) => arc.point_at(arc.start_angle + parameter),
+            Self::Ellipse(ellipse) => ellipse.point_at(ellipse.start + parameter),
         }
     }
 
@@ -229,6 +248,7 @@ impl Course {
             Self::Line { start, end } => start.distance(end),
             Self::Circle { radius, .. } => radius,
             Self::Arc(arc) => arc.radius,
+            Self::Ellipse(ellipse) => ellipse.major_radius().max(ellipse.minor_radius),
         };
         if size > 0.0 { tolerance / size } else { 0.0 }
     }
@@ -249,7 +269,23 @@ impl Course {
                 ..arc
             }
             .faceted(faceting),
+            Self::Ellipse(ellipse) => EllipseGeometry {
+                start: ellipse.start + from,
+                sweep: to - from,
+                ..ellipse
+            }
+            .faceted(faceting),
         }
+    }
+}
+
+fn within_span(offset: f64, span: f64) -> f64 {
+    if offset <= span {
+        offset
+    } else if offset - span < TAU - offset {
+        span
+    } else {
+        0.0
     }
 }
 
@@ -281,6 +317,9 @@ impl Cutter {
     }
 
     fn cut_positions(&self, course: &Course, tolerance: f64) -> Vec<Point2> {
+        if let Course::Ellipse(ellipse) = course {
+            return self.ellipse_cut_positions(ellipse, tolerance);
+        }
         let Some(carrier) = course.carrier() else {
             return Vec::new();
         };
@@ -288,6 +327,63 @@ impl Cutter {
             Self::Shape(shape) => overlap_ends(course, shape, tolerance)
                 .unwrap_or_else(|| intersect::crossings(carrier, shape, tolerance)),
             Self::Axis(_) => self.crossings(carrier, tolerance),
+        }
+    }
+
+    fn ellipse_cut_positions(&self, own: &EllipseGeometry, tolerance: f64) -> Vec<Point2> {
+        let full = EllipseGeometry {
+            start: 0.0,
+            sweep: TAU,
+            ..*own
+        };
+        let along = |through: Point2, direction: Vector2| {
+            intersect::crossings(
+                Carrier::Line { through, direction },
+                &Shape::Ellipse(full),
+                tolerance,
+            )
+        };
+        let around = |center: Point2, radius: f64| {
+            intersect::crossings(
+                Carrier::Circle { center, radius },
+                &Shape::Ellipse(full),
+                tolerance,
+            )
+        };
+        match self {
+            Self::Axis(direction) => along(Point2::ZERO, *direction),
+            Self::Shape(Shape::Segment { start, end }) => {
+                let Some(direction) = (*end - *start).try_normalize() else {
+                    return Vec::new();
+                };
+                let length = start.distance(*end);
+                along(*start, direction)
+                    .into_iter()
+                    .filter(|point| {
+                        let reach = (*point - *start).dot(direction);
+                        reach >= -tolerance && reach <= length + tolerance
+                    })
+                    .collect()
+            }
+            Self::Shape(Shape::Circle { center, radius }) => around(*center, *radius),
+            Self::Shape(Shape::Arc(arc)) => around(arc.center, arc.radius)
+                .into_iter()
+                .filter(|point| intersect::on_arc(arc, *point, tolerance))
+                .collect(),
+            Self::Shape(Shape::Spline(spline)) => intersect::spline_roots(
+                spline,
+                |point| intersect::ellipse_level(&full, point),
+                tolerance,
+            ),
+            Self::Shape(Shape::Ellipse(other)) if same_ellipse(&full, other, tolerance) => {
+                Shape::Ellipse(*other)
+                    .ends()
+                    .map(|(start, end)| vec![start, end])
+                    .unwrap_or_default()
+            }
+            Self::Shape(Shape::Ellipse(other)) => {
+                intersect::ellipse_ellipse(other, &full, tolerance)
+            }
         }
     }
 
@@ -409,6 +505,12 @@ impl Sketch {
             .into_iter()
             .filter(|point| intersect::on_ellipse_sweep(ellipse, *point, tolerance))
             .collect(),
+            Some(Shape::Ellipse(other)) if !same_ellipse(ellipse, &other, tolerance) => {
+                intersect::ellipse_ellipse(&other, ellipse, tolerance)
+                    .into_iter()
+                    .filter(|point| intersect::on_ellipse_sweep(ellipse, *point, tolerance))
+                    .collect()
+            }
             Some(Shape::Ellipse(_)) | None => Vec::new(),
         }
     }
@@ -488,7 +590,7 @@ impl Sketch {
         let course = self.trim_course(curve)?;
         let parameter = match course {
             Course::Line { .. } => course.parameter(near).clamp(0.0, 1.0),
-            Course::Circle { .. } | Course::Arc(_) => course.parameter(near),
+            Course::Circle { .. } | Course::Arc(_) | Course::Ellipse(_) => course.parameter(near),
         };
         let inside = |piece: &Piece| {
             (parameter >= piece.from && parameter <= piece.to)
@@ -670,7 +772,7 @@ impl Sketch {
                     label: label(),
                 });
             }
-            Entity::Spline { .. } | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+            Entity::Spline { .. } => {
                 return Err(TrimError::NotTrimmable {
                     entity: curve,
                     label: label(),
@@ -685,8 +787,11 @@ impl Sketch {
                 Course::Circle { center, radius }
             }
             Entity::Arc { .. } => Course::Arc(self.arc(curve).ok_or_else(no_length)?),
+            Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                Course::Ellipse(self.ellipse(curve).ok_or_else(no_length)?)
+            }
         };
-        if course.slack(1.0) == 0.0 || course.carrier().is_none() {
+        if !course.has_length() {
             return Err(no_length());
         }
         Ok(course)
@@ -863,23 +968,134 @@ impl Sketch {
                 self.join(far_start, &second, curve)?;
                 Trimmed::Split { piece: split }
             }
-            (Entity::Line { .. } | Entity::Circle { .. } | Entity::Arc { .. }, None, None)
-            | (Entity::Circle { .. }, _, _) => {
+            (
+                Entity::Ellipse {
+                    center,
+                    major,
+                    minor_radius,
+                },
+                Some(first),
+                Some(second),
+            ) => {
+                let start = self.add_point(second.position);
+                let end = self.add_point(first.position);
+                let arc = Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end,
+                };
+                self.restructure(curve, arc, &[], |_| true)?;
+                self.join(start, &second, curve)?;
+                self.join(end, &first, curve)?;
+                Trimmed::Opened
+            }
+            (
+                Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end,
+                },
+                None,
+                Some(cut),
+            ) => {
+                let kept = self.add_point(cut.position);
+                let arc = Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start: kept,
+                    end,
+                };
+                self.restructure(curve, arc, &[], keeps_sweep)?;
+                self.join(kept, &cut, curve)?;
+                self.drop_if_unused(start)?;
+                Trimmed::Shortened
+            }
+            (
+                Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end,
+                },
+                Some(cut),
+                None,
+            ) => {
+                let kept = self.add_point(cut.position);
+                let arc = Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end: kept,
+                };
+                self.restructure(curve, arc, &[], keeps_sweep)?;
+                self.join(kept, &cut, curve)?;
+                self.drop_if_unused(end)?;
+                Trimmed::Shortened
+            }
+            (
+                Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end,
+                },
+                Some(first),
+                Some(second),
+            ) => {
+                let near_end = self.add_point(first.position);
+                let far_start = self.add_point(second.position);
+                let moved = self.far_constraints(curve, start, end);
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
+                let arc = Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end: near_end,
+                };
+                self.restructure(curve, arc, &moved_ids, keeps_sweep)?;
+                let split = self.add_piece(
+                    curve,
+                    Entity::EllipticalArc {
+                        center,
+                        major,
+                        minor_radius,
+                        start: far_start,
+                        end,
+                    },
+                )?;
+                self.move_constraints(moved, curve, split)?;
+                self.add_constraint(Constraint::Equal(curve, split))?;
+                self.join(near_end, &first, curve)?;
+                self.join(far_start, &second, curve)?;
+                Trimmed::Split { piece: split }
+            }
+            (
+                Entity::Line { .. }
+                | Entity::Circle { .. }
+                | Entity::Arc { .. }
+                | Entity::Ellipse { .. }
+                | Entity::EllipticalArc { .. },
+                None,
+                None,
+            )
+            | (Entity::Circle { .. } | Entity::Ellipse { .. }, _, _) => {
                 self.delete_curve(curve)?;
                 Trimmed::Deleted
             }
-            (
-                Entity::Point(_)
-                | Entity::Spline { .. }
-                | Entity::Ellipse { .. }
-                | Entity::EllipticalArc { .. },
-                _,
-                _,
-            ) => {
+            (Entity::Point(_) | Entity::Spline { .. }, _, _) => {
                 return Err(SketchError::WrongKind {
                     entity: curve,
                     found: self.entity_label(curve),
-                    needed: "a line, a circle or an arc",
+                    needed: "a line, a circle, an arc or an ellipse",
                 });
             }
         })
@@ -1287,6 +1503,14 @@ fn overlap_ends(course: &Course, cutter: &Shape, tolerance: f64) -> Option<Vec<P
 
 fn arc_ends(arc: &ArcGeometry) -> Vec<Point2> {
     vec![arc.point_at(arc.start_angle), arc.point_at(arc.end_angle())]
+}
+
+fn same_ellipse(own: &EllipseGeometry, other: &EllipseGeometry, tolerance: f64) -> bool {
+    let axis_matches = own.major.distance(other.major) <= tolerance
+        || own.major.distance(-other.major) <= tolerance;
+    own.center.distance(other.center) <= tolerance
+        && axis_matches
+        && (own.minor_radius - other.minor_radius).abs() <= tolerance
 }
 
 fn same_circle(center: Point2, radius: f64, other: Point2, size: f64, tolerance: f64) -> bool {

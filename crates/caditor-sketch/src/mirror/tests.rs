@@ -240,3 +240,50 @@ fn mirroring_needs_geometry_off_a_line_or_axis() {
     assert!(sketch.mirror(&[across], EntityId::ORIGIN).is_err());
     assert_eq!(sketch, before);
 }
+
+#[test]
+fn a_mirrored_ellipse_keeps_its_minor_radius_by_equal_and_an_arc_by_its_ends() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(20.0, 5.0), Point2::new(28.0, 9.0), 3.0);
+    let arc = sketch.add_elliptical_arc(
+        Point2::new(20.0, 30.0),
+        Point2::new(28.0, 30.0),
+        3.0,
+        Point2::new(20.0 + 8.0 * 0.5_f64.cos(), 30.0 + 3.0 * 0.5_f64.sin()),
+        Point2::new(20.0, 33.0),
+    );
+    let free = solve(&sketch).solution.degrees_of_freedom();
+
+    let copies = sketch
+        .mirror(&[ellipse, arc], EntityId::VERTICAL_AXIS)
+        .unwrap();
+    let solved = solve(&sketch);
+
+    assert_clean(&solved);
+    assert_eq!(solved.solution.degrees_of_freedom(), free);
+    assert_eq!(count_of(&sketch, "Equal"), 1);
+    let ellipse_copy = solved.geometry.ellipse(copies[0]).unwrap();
+    assert_near(ellipse_copy.center, Point2::new(-20.0, 5.0));
+    assert_near(
+        ellipse_copy.center + ellipse_copy.major,
+        Point2::new(-28.0, 9.0),
+    );
+    let arc_copy = solved.geometry.ellipse(copies[1]).unwrap();
+    assert_near(arc_copy.point_at(arc_copy.start), Point2::new(-20.0, 33.0));
+    assert_near(
+        arc_copy.point_at(arc_copy.end()),
+        Point2::new(-20.0 - 8.0 * 0.5_f64.cos(), 30.0 + 3.0 * 0.5_f64.sin()),
+    );
+    assert!((arc_copy.sweep - std::f64::consts::FRAC_PI_2 + 0.5).abs() < EXACT);
+}
+
+#[test]
+fn an_ellipse_on_the_mirror_line_is_its_own_image() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(0.0, 5.0), Point2::new(0.0, 12.0), 3.0);
+
+    assert!(matches!(
+        sketch.mirror(&[ellipse], EntityId::VERTICAL_AXIS),
+        Err(MirrorError::NothingToMirror { .. })
+    ));
+}

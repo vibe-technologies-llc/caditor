@@ -113,6 +113,18 @@ paths:
   share a point it is `Form::EllipseTouch`, the line along the ellipse's tangent there, for the
   same reason a joined circle tangency is a right angle. `MajorRadius` is a `PointDistance` and
   `MinorRadius` a `Radius` on the minor radius.
+- A circle or arc tangent to an ellipse at a shared point is `Form::EllipseTouchCircle`: the same
+  touch with the circle's radius there turned a right angle as the tangent, so the radius runs
+  along the ellipse's normal, one equation for either side. Without a shared point there is no
+  form (it would need a parameter along the ellipse, as splines have), so the constraint is
+  refused and a solve that lost its joint fails as `NotJoined`.
+- `Equal` between ellipses is `EqualLength` of the centre-to-axis spans and `EqualRadius` of the
+  minor radii (`EllipseHandle::minor_circle`), only the latter when both handles share the centre
+  and axis point, so a split elliptical arc's pieces get no zero row.
+- `Midpoint` on an elliptical arc is `Form::OnEllipse` and `Form::EllipseMiddle`: the major radius
+  times the wrapped difference between the point's parameter (`atan2(y/b, x/a)` in the ellipse's
+  frame) and the start's plus half the counter-clockwise sweep to the end, a single branch, since
+  the opposite point is half a turn away.
 
 ## Curvature at a spline's end
 

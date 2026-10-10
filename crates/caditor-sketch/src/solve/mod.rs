@@ -31,7 +31,7 @@ use caditor_geometry::Point2;
 pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
 pub(crate) use crate::solve::{
     spline::{joined_at_end, joined_ends, not_joined, spline_gap, straight_spline},
-    system::arc_joint,
+    system::{arc_joint, share_a_point},
 };
 use crate::{
     id::{ConstraintId, EntityId},

@@ -564,3 +564,41 @@ fn a_part_wider_than_the_sheet_is_placed_alone_with_its_name_below() {
         "{text}"
     );
 }
+
+#[test]
+fn an_ellipse_writes_its_radii_as_leaders_along_its_axes() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(10.0, 5.0), Point2::new(18.0, 5.0), 3.0);
+    for constraint in [
+        Constraint::MajorRadius {
+            ellipse,
+            value: Expression::Measure(8.0, Unit::Millimetre),
+        },
+        Constraint::MinorRadius {
+            ellipse,
+            value: Expression::Measure(3.0, Unit::Millimetre),
+        },
+    ] {
+        sketch.add_constraint(constraint).unwrap();
+    }
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("ellipse.dxf");
+
+    let exported = export_sketches(
+        &path,
+        &[NamedSketch {
+            name: "Ellipse",
+            sketch: &sketch,
+        }],
+        SketchFormat::Dxf,
+        &annotated(),
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+
+    assert_eq!(exported.dimensions, 2);
+    assert_eq!(text.matches("\nAcDbRadialDimension\n").count(), 2);
+    assert!(text.contains("  1\nR8\n"));
+    assert!(text.contains("  1\nR3\n"));
+}

@@ -32,7 +32,7 @@ impl Acquired {
                     self.line(line);
                 }
             }
-            Target::Quadrant { centre, .. } => self.point(centre),
+            Target::Quadrant { centre, .. } | Target::AxisEnd { centre, .. } => self.point(centre),
             Target::Midpoint(curve)
             | Target::Curve(curve)
             | Target::Extension(curve)

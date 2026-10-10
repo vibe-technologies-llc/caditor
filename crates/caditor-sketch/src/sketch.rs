@@ -11,7 +11,7 @@ use crate::{
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
     entity::{Entity, Role, SplineKind},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
-    solve::{arc_joint, joined_at_end, not_joined, spline_gap, straight_spline},
+    solve::{arc_joint, joined_at_end, not_joined, share_a_point, spline_gap, straight_spline},
 };
 
 pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<BSpline> {
@@ -906,6 +906,12 @@ impl Sketch {
                     (Role::Elliptic, Role::Line) | (Role::Line, Role::Elliptic) => {
                         self.check_not_only_reference(&entities)
                     }
+                    (Role::Elliptic, Role::Circular) | (Role::Circular, Role::Elliptic) => {
+                        if !share_a_point(self, a, b) {
+                            return Err(not_joined(self, constraint, a, b));
+                        }
+                        self.check_not_only_reference(&entities)
+                    }
                     (Role::Elliptic, _) | (_, Role::Elliptic) => {
                         Err(self.not_applicable(constraint, a, b))
                     }
@@ -935,8 +941,8 @@ impl Sketch {
                 self.check_not_only_reference(&entities)
             }
             Constraint::Equal(a, b) => {
-                let needed = "a line, a circle, an arc or a spline";
-                let kinds = [Role::Line, Role::Circular, Role::Spline];
+                let needed = "a line, a circle, an arc, a spline or an ellipse";
+                let kinds = [Role::Line, Role::Circular, Role::Spline, Role::Elliptic];
                 let first = self.expect(a, &kinds, needed)?;
                 let second = self.expect(b, &kinds, needed)?;
                 let lengths = matches!(
@@ -950,10 +956,10 @@ impl Sketch {
                 Ok(())
             }
             Constraint::Midpoint { point, curve } => {
-                let needed = "a line or an arc";
+                let needed = "a line, an arc or an elliptical arc";
                 self.expect(point, &[Role::Point], "a point")?;
-                self.expect(curve, &[Role::Line, Role::Circular], needed)?;
-                if let Some(Entity::Circle { .. }) = self.entity(curve) {
+                self.expect(curve, &[Role::Line, Role::Circular, Role::Elliptic], needed)?;
+                if let Some(Entity::Circle { .. } | Entity::Ellipse { .. }) = self.entity(curve) {
                     return Err(SketchError::WrongKind {
                         entity: curve,
                         found: self.entity_label(curve),

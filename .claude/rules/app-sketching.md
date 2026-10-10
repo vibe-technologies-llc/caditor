@@ -96,12 +96,14 @@ paths:
   with a lasso on, a freehand outline taking what lies inside it (`app-input.md`). It replaces
   the selection (Shift or Ctrl adds); a point is left out when a curve it belongs to was taken.
 - Split the selected curve at the selected point (`Command::SplitCurve`, Sketch menu, palette;
-  `sketch_tools::SplitChange`) takes one selected point and the line or arc selected with it, or
-  the one line or arc the point lies on by `Coincident`, and splits it there in one transaction;
+  `sketch_tools::SplitChange`) takes one selected point and the line, arc or elliptical arc
+  selected with it, or the one such curve the point lies on by `Coincident`, and splits it there
+  in one transaction;
   anything else is refused with `NOTHING_TO_SPLIT` or the sketch's reason. A point placed on a
   curve first (the Point tool snaps onto it) gives a split anywhere.
 - Break the selected curves at every crossing (`Command::BreakCurves`, Sketch menu, palette;
-  `sketch_tools::BreakChange`) takes the selected lines and arcs and breaks each at every
+  `sketch_tools::BreakChange`) takes the selected lines, arcs and elliptical arcs and breaks each
+  at every
   crossing with the other curves and the axes in one transaction (`sketch.md`, Break), so the
   pieces of a profile come in one command rather than one point at a time. Nothing selected, or
   nothing selected that crosses another curve, is refused with `NOTHING_TO_BREAK` or the
@@ -308,7 +310,9 @@ paths:
   hold the tools' UI state; geometry and constraint rules are the sketch's (`sketch.md`). Each
   frame the tool aims through the displayed sketch, previews the result and puts its words, or
   why not, where hover descriptions go. Trim and Extend aim at splines too, so they can be refused
-  in words. The sketch axes and collinear or co-circular overlaps cut and bound them like any
+  in words. Ellipses and elliptical arcs are Trim's targets like lines, circles and arcs
+  (`trimming::is_trimmable`, the keyboard's steps and the trim path included); Extend refuses
+  them in words. The sketch axes and collinear or co-circular overlaps cut and bound them like any
   curve (`sketch.md`): the words name "Vertical axis" or the overlapping curve, the preview marks
   the cuts and the axis or overlapping curve is highlighted; the axes themselves are never aimed
   at.
@@ -421,16 +425,24 @@ paths:
 
 - `snap.rs` runs on the UI thread against the displayed sketch in screen space. Priority: the
   shape's pending point; points and the origin within `POINT_TOLERANCE`; then, only where any snap
-  is accepted and within the same tolerance, the middle of a line or arc (`Target::Midpoint`), the
+  is accepted and within the same tolerance, the middle of a line, arc or elliptical arc
+  (`Target::Midpoint`, an elliptical arc's halfway round its parameter), the
   centre of a closed outline (`Target::Centre`), the crossing of two of the up to
   `MAX_CROSSING_CURVES` curves nearest the pointer, axes included (`Target::Intersection`; a
   spline crosses lines, circles, arcs, axes and other splines, and an ellipse lines, circles, arcs,
-  axes and splines, through `Sketch::curve_crossings`) and the right, top, left and bottom of a circle or of an arc
-  sweeping through them (`Target::Quadrant`); lines, circles, arcs, splines and axes within
+  axes, splines and other ellipses, through `Sketch::curve_crossings`), the right, top, left and
+  bottom of a circle or of an arc sweeping through them (`Target::Quadrant`) and the far end of an
+  ellipse's major axis and both ends of its minor axis, those an elliptical arc sweeps through
+  (`Target::AxisEnd`); lines, circles, arcs, splines and axes within
   `CURVE_TOLERANCE`, projecting onto the curve. A snapped point gets a `Coincident` with its
   target (with both curves at a crossing), a `Midpoint` constraint for a middle, a `Symmetric`
   about it of two opposite corners for a centre, or for a side a `Coincident` with the curve and
-  a horizontal or vertical points constraint with its centre.
+  a horizontal or vertical points constraint with its centre. The far end of a major axis is held
+  by a `Symmetric` of the axis point and the new point about the centre; a minor axis end by a
+  `Coincident` with the ellipse and, when the major axis is level or upright, a vertical or
+  horizontal points constraint with the centre (`AxisEnd::MinorUpright`, `MinorLevel`). On a
+  slanted ellipse (`MinorSlanted`) nothing keeps it at the end, since the sketch has no
+  constraint for a point on a line through the centre square to the axis, and the label says so.
 - A line's end within `POINT_TOLERANCE` of where a line from its start would touch a circle, arc,
   ellipse or elliptical arc (`snap::tangents_from`, the two tangent points from outside it, within
   an arc's sweep; an ellipse's found on the unit circle it scales to) lands

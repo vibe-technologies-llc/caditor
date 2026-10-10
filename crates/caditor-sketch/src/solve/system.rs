@@ -345,6 +345,43 @@ impl System {
         })
     }
 
+    fn ellipse_circle_tangent(
+        &self,
+        sketch: &Sketch,
+        joints: &Joints,
+        constraint: &Constraint,
+        circle: EntityId,
+        ellipse: EntityId,
+    ) -> Result<Form, SketchError> {
+        let point = joints
+            .joint(sketch, circle, ellipse)
+            .ok_or_else(|| not_joined(sketch, constraint, circle, ellipse))?;
+        let (circle, point) = (self.circle(sketch, circle)?, self.point(point)?);
+        Ok(Form::EllipseTouchCircle {
+            fallback: self.initial_direction(circle.center, point),
+            circle,
+            point,
+            ellipse: self.ellipse(sketch, ellipse)?,
+        })
+    }
+
+    fn equal_ellipses(
+        &self,
+        sketch: &Sketch,
+        a: EntityId,
+        b: EntityId,
+    ) -> Result<Vec<Form>, SketchError> {
+        let (first, second) = (self.ellipse(sketch, a)?, self.ellipse(sketch, b)?);
+        let minor = Form::EqualRadius(first.minor_circle(), second.minor_circle());
+        if first.center == second.center && first.major == second.major {
+            return Ok(vec![minor]);
+        }
+        Ok(vec![
+            Form::EqualLength(self.line(sketch, a)?, self.line(sketch, b)?),
+            minor,
+        ])
+    }
+
     fn ellipse_tangent(
         &self,
         sketch: &Sketch,
@@ -457,6 +494,17 @@ impl System {
             Constraint::HorizontalPoints(a, b) => vec![Form::SameY(self.point(a)?, self.point(b)?)],
             Constraint::VerticalPoints(a, b) => vec![Form::SameX(self.point(a)?, self.point(b)?)],
             Constraint::Midpoint { point, curve } => match sketch.entity(curve) {
+                Some(&Entity::EllipticalArc { start, end, .. }) => {
+                    let (point, ellipse) = (self.point(point)?, self.ellipse(sketch, curve)?);
+                    vec![
+                        Form::OnEllipse { point, ellipse },
+                        Form::EllipseMiddle {
+                            point,
+                            ends: (self.point(start)?, self.point(end)?),
+                            ellipse,
+                        },
+                    ]
+                }
                 Some(&Entity::Arc { start, end, .. }) => {
                     let (point, arc) = (self.point(point)?, self.circle(sketch, curve)?);
                     let (start, end) = (self.point(start)?, self.point(end)?);
@@ -600,6 +648,14 @@ impl System {
                     let joints = joints.get_or_init(|| Joints::of(sketch));
                     vec![self.ellipse_tangent(sketch, joints, b, a)?]
                 }
+                (Role::Circular, Role::Elliptic) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    vec![self.ellipse_circle_tangent(sketch, joints, constraint, a, b)?]
+                }
+                (Role::Elliptic, Role::Circular) => {
+                    let joints = joints.get_or_init(|| Joints::of(sketch));
+                    vec![self.ellipse_circle_tangent(sketch, joints, constraint, b, a)?]
+                }
                 _ => return Err(not_applicable(a, b)),
             },
             Constraint::Curvature(a, b) => {
@@ -626,6 +682,7 @@ impl System {
                     self.circle(sketch, a)?,
                     self.circle(sketch, b)?,
                 )],
+                (Role::Elliptic, Role::Elliptic) => self.equal_ellipses(sketch, a, b)?,
                 (Role::Spline, Role::Spline | Role::Line) | (Role::Line, Role::Spline) => {
                     vec![Form::SameLength(
                         self.spline_length(sketch, a)?,
@@ -1011,6 +1068,10 @@ impl ArcJoint {
 
 pub(crate) fn arc_joint(sketch: &Sketch, arc: EntityId, other: EntityId) -> Option<ArcJoint> {
     Joints::of(sketch).arc_joint(sketch, arc, other)
+}
+
+pub(crate) fn share_a_point(sketch: &Sketch, first: EntityId, second: EntityId) -> bool {
+    Joints::of(sketch).joint(sketch, first, second).is_some()
 }
 
 pub(super) struct Joints {

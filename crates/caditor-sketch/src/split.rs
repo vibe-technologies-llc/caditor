@@ -5,6 +5,7 @@ use crate::{
     curve::direction_angle,
     entity::Entity,
     id::{ConstraintId, EntityId},
+    intersect,
     sketch::{Sketch, SketchError},
     trim::{keeps_length, keeps_sweep},
 };
@@ -13,7 +14,7 @@ const TOLERANCE: f64 = 1e-7;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum SplitError {
-    #[error("{label} cannot be split; only lines and arcs can")]
+    #[error("{label} cannot be split; only lines, arcs and elliptical arcs can")]
     NotLineOrArc { entity: EntityId, label: String },
     #[error("{label} is not a point")]
     NotAPoint { entity: EntityId, label: String },
@@ -76,11 +77,18 @@ impl Sketch {
                 };
                 off <= tolerance && turned > slack && turned < arc.sweep - slack
             }
+            Entity::EllipticalArc { .. } => {
+                let ellipse = self.ellipse(curve).ok_or_else(not_line_or_arc)?;
+                let reach = ellipse.major_radius().max(ellipse.minor_radius);
+                let off = intersect::ellipse_level(&ellipse, at).abs();
+                let turned = (ellipse.parameter_of(at) - ellipse.start).rem_euclid(TAU);
+                let slack = if reach > 0.0 { tolerance / reach } else { 0.0 };
+                off <= tolerance && turned > slack && turned < ellipse.sweep - slack
+            }
             Entity::Point(_)
             | Entity::Circle { .. }
             | Entity::Spline { .. }
-            | Entity::Ellipse { .. }
-            | Entity::EllipticalArc { .. } => {
+            | Entity::Ellipse { .. } => {
                 return Err(not_line_or_arc());
             }
         };
@@ -95,6 +103,14 @@ impl Sketch {
             .map_err(SplitError::Edit)?;
         *self = working;
         Ok(piece)
+    }
+
+    pub(crate) fn lies_on_major_axis(&self, curve: EntityId, point: EntityId) -> bool {
+        let (Some(ellipse), Some(at)) = (self.ellipse(curve), self.point(point)) else {
+            return false;
+        };
+        let across = (at - ellipse.center).dot(ellipse.axis().perp());
+        across.abs() <= TOLERANCE * ellipse.major_radius().max(ellipse.minor_radius).max(1.0)
     }
 
     fn split_curve(&mut self, curve: EntityId, point: EntityId) -> Result<EntityId, SketchError> {
@@ -179,14 +195,51 @@ impl Sketch {
                 self.move_constraints(moved, curve, piece)?;
                 Ok(piece)
             }
+            Entity::EllipticalArc {
+                center,
+                major,
+                minor_radius,
+                start,
+                end,
+            } => {
+                let on_axis = self.lies_on_major_axis(curve, point);
+                let moved = self.far_constraints(curve, start, end);
+                let moved_ids: Vec<ConstraintId> = moved.iter().map(|(id, _, _)| *id).collect();
+                self.restructure(
+                    curve,
+                    Entity::EllipticalArc {
+                        center,
+                        major,
+                        minor_radius,
+                        start,
+                        end: point,
+                    },
+                    &moved_ids,
+                    keeps_sweep,
+                )?;
+                let piece = self.add_piece(
+                    curve,
+                    Entity::EllipticalArc {
+                        center,
+                        major,
+                        minor_radius,
+                        start: point,
+                        end,
+                    },
+                )?;
+                self.move_constraints(moved, curve, piece)?;
+                if on_axis {
+                    self.add_constraint(Constraint::Equal(curve, piece))?;
+                }
+                Ok(piece)
+            }
             Entity::Point(_)
             | Entity::Circle { .. }
             | Entity::Spline { .. }
-            | Entity::Ellipse { .. }
-            | Entity::EllipticalArc { .. } => Err(SketchError::WrongKind {
+            | Entity::Ellipse { .. } => Err(SketchError::WrongKind {
                 entity: curve,
                 found: self.entity_label(curve),
-                needed: "a line or an arc",
+                needed: "a line, an arc or an elliptical arc",
             }),
         }
     }

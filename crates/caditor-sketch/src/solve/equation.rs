@@ -150,7 +150,7 @@ struct EllipsePartials {
 }
 
 impl EllipseHandle {
-    fn minor_circle(&self) -> CircleHandle {
+    pub(crate) fn minor_circle(&self) -> CircleHandle {
         CircleHandle {
             center: self.center,
             radius: self.minor,
@@ -589,6 +589,17 @@ pub(crate) enum Form {
         point: PointHandle,
         ellipse: EllipseHandle,
     },
+    EllipseMiddle {
+        point: PointHandle,
+        ends: (PointHandle, PointHandle),
+        ellipse: EllipseHandle,
+    },
+    EllipseTouchCircle {
+        circle: CircleHandle,
+        point: PointHandle,
+        ellipse: EllipseHandle,
+        fallback: Vector2,
+    },
     Through {
         point: PointHandle,
         terms: Arc<[(PointHandle, f64)]>,
@@ -667,6 +678,8 @@ impl Form {
             | Self::OnEllipse { .. }
             | Self::EllipseTangent { .. }
             | Self::EllipseTouch { .. }
+            | Self::EllipseMiddle { .. }
+            | Self::EllipseTouchCircle { .. }
             | Self::Through { .. } => None,
         }
     }
@@ -699,6 +712,35 @@ impl Form {
                 point,
                 ellipse,
             } => ellipse_touch(&line, point, &ellipse, values, context, gradient),
+            Self::EllipseMiddle {
+                point,
+                ends,
+                ellipse,
+            } => ellipse_middle(point, ends, &ellipse, values, context, gradient),
+            Self::EllipseTouchCircle {
+                circle,
+                point,
+                ellipse,
+                fallback,
+            } => {
+                let radius = Direction::of(
+                    point.at(values) - circle.center.at(values),
+                    fallback,
+                    context,
+                );
+                let (value, by_tangent) = ellipse_touch_along(
+                    radius.unit.perp(),
+                    point,
+                    &ellipse,
+                    values,
+                    context,
+                    gradient,
+                );
+                let by_radius = radius.back_from_unit(-by_tangent.perp());
+                point.push(gradient, by_radius);
+                circle.center.push(gradient, -by_radius);
+                value
+            }
             Self::SplineFoot {
                 point,
                 ref spline,
@@ -1278,7 +1320,20 @@ fn ellipse_touch(
     gradient: &mut Gradient,
 ) -> f64 {
     let direction = line.direction(values, context);
-    let tangent = direction.unit;
+    let (value, by_tangent) =
+        ellipse_touch_along(direction.unit, point, ellipse, values, context, gradient);
+    line.push_vector(gradient, direction.back_from_unit(by_tangent));
+    value
+}
+
+fn ellipse_touch_along(
+    tangent: Vector2,
+    point: PointHandle,
+    ellipse: &EllipseHandle,
+    values: &[f64],
+    context: &Context,
+    gradient: &mut Gradient,
+) -> (f64, Vector2) {
     let frame = ellipse.frame(values, context);
     let (unit, across) = (frame.axis.unit, frame.axis.unit.perp());
     let (a, b) = (frame.major, frame.minor);
@@ -1288,7 +1343,6 @@ fn ellipse_touch(
     let (on_unit, on_across) = (tangent.dot(unit), tangent.dot(across));
     let normal = unit * (x * b * b) + across * (y * a * a);
     let total = tangent.dot(normal);
-    line.push_vector(gradient, direction.back_from_unit(normal / scale));
     let by_x = b * b * on_unit / scale;
     let by_y = a * a * on_across / scale;
     let toward = unit * by_x + across * by_y;
@@ -1306,7 +1360,83 @@ fn ellipse_touch(
             minor: 2.0 * b * x * on_unit / scale - total / (b * scale),
         },
     );
-    total / scale
+    (total / scale, normal / scale)
+}
+
+struct EllipseTurn {
+    angle: f64,
+    by_point: Vector2,
+    partials: EllipsePartials,
+}
+
+fn ellipse_turn(
+    point: PointHandle,
+    ellipse: &EllipseHandle,
+    frame: &EllipseFrame,
+    values: &[f64],
+) -> EllipseTurn {
+    let (unit, across) = (frame.axis.unit, frame.axis.unit.perp());
+    let (a, b) = (frame.major, frame.minor);
+    let offset = point.at(values) - ellipse.center.at(values);
+    let (x, y) = (offset.dot(unit) / a, offset.dot(across) / b);
+    let spread = x * x + y * y;
+    let angle = y.atan2(x);
+    if !(spread > f64::EPSILON && spread.is_finite()) {
+        return EllipseTurn {
+            angle,
+            by_point: Vector2::ZERO,
+            partials: EllipsePartials {
+                axis: Vector2::ZERO,
+                major: 0.0,
+                minor: 0.0,
+            },
+        };
+    }
+    let (by_x, by_y) = (-y / spread, x / spread);
+    EllipseTurn {
+        angle,
+        by_point: unit * (by_x / a) + across * (by_y / b),
+        partials: EllipsePartials {
+            axis: offset * (by_x / a) - offset.perp() * (by_y / b),
+            major: -by_x * x / a,
+            minor: -by_y * y / b,
+        },
+    }
+}
+
+fn ellipse_middle(
+    point: PointHandle,
+    (start, end): (PointHandle, PointHandle),
+    ellipse: &EllipseHandle,
+    values: &[f64],
+    context: &Context,
+    gradient: &mut Gradient,
+) -> f64 {
+    let frame = ellipse.frame(values, context);
+    let a = frame.major;
+    let turns = [
+        (point, 1.0, ellipse_turn(point, ellipse, &frame, values)),
+        (start, -0.5, ellipse_turn(start, ellipse, &frame, values)),
+        (end, -0.5, ellipse_turn(end, ellipse, &frame, values)),
+    ];
+    let [(_, _, at), (_, _, from), (_, _, to)] = &turns;
+    let sweep = (to.angle - from.angle).rem_euclid(TAU);
+    let off = wrap_angle(at.angle - from.angle - sweep / 2.0);
+    let mut partials = EllipsePartials {
+        axis: Vector2::ZERO,
+        major: off,
+        minor: 0.0,
+    };
+    for (handle, weight, turn) in &turns {
+        let factor = a * weight;
+        handle.push(gradient, turn.by_point * factor);
+        ellipse.center.push(gradient, -turn.by_point * factor);
+        partials.axis += turn.partials.axis * factor;
+        partials.major += turn.partials.major * factor;
+        partials.minor += turn.partials.minor * factor;
+    }
+    ellipse.push(values, context, &frame, gradient, &partials);
+    a * off
 }
 
 pub(crate) fn wrap_angle(angle: f64) -> f64 {
@@ -1695,6 +1825,28 @@ mod tests {
                 fallback: Vector2::Y,
                 side: -1.0,
                 value: 0.75,
+            },
+            Form::EllipseTouchCircle {
+                circle: arc(14, 8),
+                point: point(12),
+                ellipse: ellipse(0, 2, 10),
+                fallback: Vector2::X,
+            },
+            Form::EllipseTouchCircle {
+                circle: circle(6, 11),
+                point: point(4),
+                ellipse: ellipse(14, 8, 10),
+                fallback: Vector2::Y,
+            },
+            Form::EllipseMiddle {
+                point: point(4),
+                ends: (point(6), point(12)),
+                ellipse: ellipse(0, 2, 10),
+            },
+            Form::EllipseMiddle {
+                point: point(14),
+                ends: (point(8), PointHandle::Fixed(Point2::new(-1.0, 2.5))),
+                ellipse: ellipse(12, 6, 11),
             },
             Form::Through {
                 point: point(14),

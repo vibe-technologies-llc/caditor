@@ -234,3 +234,32 @@ fn pieces_of_a_construction_line_are_construction_lines() {
 
     assert!(sketch.is_construction(pieces[0]));
 }
+
+#[test]
+fn an_elliptical_arc_is_broken_where_a_line_crosses_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let center = Point2::new(30.0, 20.0);
+    let at = |angle: f64| center + Point2::new(10.0 * angle.cos(), 4.0 * angle.sin());
+    let arc = sketch.add_elliptical_arc(
+        center,
+        center + Point2::new(10.0, 0.0),
+        4.0,
+        at(0.3),
+        at(2.8),
+    );
+    sketch.add_line(
+        center + Point2::new(2.0, -2.0),
+        center + Point2::new(2.0, 9.0),
+    );
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+
+    let pieces = sketch.break_curve(arc).unwrap();
+    let solved = assert_clean(&sketch);
+
+    assert_eq!(pieces.len(), 1);
+    let first = solved.geometry.ellipse(arc).unwrap();
+    let second = solved.geometry.ellipse(pieces[0]).unwrap();
+    assert!((first.minor_radius - second.minor_radius).abs() < EXACT);
+    assert!((first.point_at(first.end()).x - center.x - 2.0).abs() < EXACT);
+    assert_eq!(solved.solution.degrees_of_freedom(), freedom);
+}

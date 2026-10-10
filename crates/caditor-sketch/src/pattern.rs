@@ -46,8 +46,6 @@ pub enum PatternError {
     SpreadOutsideTurn,
     #[error("the pattern reaches further than {} m from the origin", MAX_LENGTH / 1_000.0)]
     OutOfReach,
-    #[error("{label} is an ellipse, which cannot be patterned yet; leave it out of the selection")]
-    Ellipse { entity: EntityId, label: String },
     #[error(transparent)]
     Edit(SketchError),
 }
@@ -335,16 +333,6 @@ impl Sketch {
         let (lone, curves): (Vec<EntityId>, Vec<EntityId>) = chosen
             .into_iter()
             .partition(|item| matches!(self.entity(*item), Some(Entity::Point(_))));
-        if let Some(ellipse) = curves
-            .iter()
-            .copied()
-            .find(|curve| self.is_elliptic(*curve))
-        {
-            return Err(PatternError::Ellipse {
-                entity: ellipse,
-                label: self.entity_label(ellipse),
-            });
-        }
         Ok(Chosen { curves, lone })
     }
 
@@ -398,11 +386,32 @@ impl Sketch {
                         points: points.into_iter().map(image_of).collect(),
                         kind,
                     },
-                    Entity::Point(_) | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
-                        continue;
-                    }
+                    Entity::Ellipse {
+                        center,
+                        major,
+                        minor_radius,
+                    } => Entity::Ellipse {
+                        center: image_of(center),
+                        major: image_of(major),
+                        minor_radius,
+                    },
+                    Entity::EllipticalArc {
+                        center,
+                        major,
+                        minor_radius,
+                        start,
+                        end,
+                    } => Entity::EllipticalArc {
+                        center: image_of(center),
+                        major: image_of(major),
+                        minor_radius,
+                        start: image_of(start),
+                        end: image_of(end),
+                    },
+                    Entity::Point(_) => continue,
                 };
-                let round = matches!(image, Entity::Circle { .. });
+                let round = self.copy_needs_equal(*curve);
+
                 let copy = EntityId::from_raw(self.next_id());
                 self.insert_entity(copy, image)?;
                 if self.is_construction(*curve) {
@@ -421,12 +430,12 @@ impl Sketch {
             copies.extend(lone);
             maps.push(map);
         }
-        for (original, copy) in equal {
-            self.add_constraint(Constraint::Equal(original, copy))?;
-        }
         match centre {
             None => self.tie_shifts(plan, &maps)?,
             Some(centre) => self.tie_turns(plan, &maps, centre)?,
+        }
+        for (original, copy) in equal {
+            self.add_constraint(Constraint::Equal(original, copy))?;
         }
         Ok(copies)
     }

@@ -9,7 +9,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum BreakError {
-    #[error("select the lines and arcs to break")]
+    #[error("select the lines, arcs and elliptical arcs to break")]
     NothingSelected,
     #[error("none of the selected curves crosses another curve between its ends")]
     NothingToBreak,
@@ -17,7 +17,7 @@ pub enum BreakError {
     NoSuchCurve(EntityId),
     #[error("{label} is not a curve, so it cannot be broken")]
     NotACurve { entity: EntityId, label: String },
-    #[error("{label} cannot be broken; only lines and arcs can")]
+    #[error("{label} cannot be broken; only lines, arcs and elliptical arcs can")]
     NotLineOrArc { entity: EntityId, label: String },
     #[error("{label} has no length to break")]
     NoLength { entity: EntityId, label: String },

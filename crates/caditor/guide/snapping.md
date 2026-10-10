@@ -5,9 +5,11 @@ snapped point keeps the relation as a constraint, so a line ending on a circle s
 
 ## What it snaps to
 
-- Points, the sketch origin and the middle of lines and arcs.
+- Points, the sketch origin and the middle of lines, arcs and elliptical arcs.
 - The centre of a closed outline such as a rectangle, slot or regular polygon.
 - Where two curves cross, and the right, top, left and bottom of circles and arcs.
+- The far end of an ellipse's major axis and the ends of its minor axis. On a slanted ellipse the
+  point stays on the ellipse but is not kept at the end of the minor axis, and the label says so.
 - Any line, circle, arc, spline or axis, and the extension of a line past its ends.
 - The point where a line from its start would touch a circle or arc.
 

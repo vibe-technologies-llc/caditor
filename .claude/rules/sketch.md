@@ -117,7 +117,9 @@ paths:
   crossing a line keeps a bulge at the distance rather than measuring zero.
 - `Equal` holds lines and splines to one length, any mix with at least one spline (a spline's
   length is a five-point Gauss–Legendre sum per knot span, `BSpline::length`, the same rule the
-  solver differentiates), and circles and arcs to one radius.
+  solver differentiates), circles and arcs to one radius, and ellipses and elliptical arcs to both
+  radii (only the minor one when they share their centre and axis point, whose major radius is
+  then one already).
 - `Angle` also takes a line and an arc sharing an end (joined directly, by `Coincident`, or the
   arc's end lying on the line; refused otherwise as `NotJoined`). The arc's direction there is its
   tangent leaving the joint along the arc (`Sketch::angle_direction`, `angle_vertex`), so trim,
@@ -125,18 +127,24 @@ paths:
 - Ellipses take `Coincident` with a point (on the whole ellipse, never one of its own points),
   `Concentric` with circles, arcs, ellipses and points, `Horizontal`/`Vertical` (its major axis,
   the same as `HorizontalPoints` on the centre and axis point, so `restating` finds either),
-  `Tangent` with a line only, and `MajorRadius`/`MinorRadius` (a dimension above zero; the major
-  one restates a `Distance` between the centre and the axis point). Every other constraint,
-  `Radius` and `Equal` included, refuses them.
+  `Tangent` with a line, or with a circle or arc sharing a point with it (directly or through
+  `Coincident`; refused otherwise as `NotJoined`, and a solve whose joint was taken away since
+  fails the same way), `Equal` with another ellipse, `Midpoint` (an elliptical arc only) and
+  `MajorRadius`/`MinorRadius` (a dimension above zero; the major one restates a `Distance`
+  between the centre and the axis point). Every other constraint, `Radius` and `Distance` to the
+  curve included, refuses them.
 - `Rho { conic, value }` is a dimension of a conic's rho (`Dimension::NONE`, a plain number within
   `MIN_RHO..=MAX_RHO`, `DimensionError::RhoOutOfRange`): it adds no equation and takes no degree
   of freedom, since rho is not solved for; the solver shapes the conic with the evaluated value
   (`System::rhos`) and writes it into the solved geometry, so a parameter drives the shape.
   `Sketch::measured` gives the conic's rho. Projected conics refuse it (`OnlyReference`).
-- `Midpoint { point, curve }` takes a line or an arc, never a circle. On an arc it is two
-  single-branch equations (`Form::OnBisector`, the point on the chord's perpendicular bisector, and
-  `Form::ArcBulge`, its signed distance from the centre across the chord equal to the radius on the
-  side a counter-clockwise arc bulges), so a solve never lands on the opposite side of the circle.
+- `Midpoint { point, curve }` takes a line, an arc or an elliptical arc, never a circle or a whole
+  ellipse. On an arc it is two single-branch equations (`Form::OnBisector`, the point on the
+  chord's perpendicular bisector, and `Form::ArcBulge`, its signed distance from the centre across
+  the chord equal to the radius on the side a counter-clockwise arc bulges), so a solve never lands
+  on the opposite side of the circle. On an elliptical arc the middle is by parameter (the angle of
+  `Sketch::ellipse`), halfway round the sweep: affine-natural, so an arc symmetric about an axis
+  has its middle on it, though not halfway along its length.
 
 ## Editing operations
 
@@ -177,14 +185,19 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
     gets `Parallel` and an arc nothing. The closing `Coincident` of a closed chain is added last, so
     the one relation a closed loop repeats is never a whole redundant constraint.
 - Mirror (`mirror.rs`): points on the mirror line are shared, others copied with `Symmetric` to the
-  original; arcs swap ends to stay counter-clockwise, circles add `Equal`, a curve that is its own
-  image is left out. No other constraint is copied, since symmetry holds the copy.
-- Patterns (`pattern.rs`): `rectangular_pattern` repeats the chosen curves and lone points along one
-  or two directions (a `PatternRow` each: count including the original, spacing, angle from the x
-  axis, the second defaulting to square to the first), `circular_pattern` about an existing point,
-  the origin included (`CircularPattern`: a count including the original, spread over a full turn
-  or across a total angle). Copies get fresh IDs and the construction flag, circles an `Equal` to
-  the original. Instances are capped at `MAX_PATTERN_INSTANCES` and must stay within `MAX_LENGTH`.
+  original; arcs and elliptical arcs swap ends to stay counter-clockwise, circles and ellipses add
+  `Equal` (`Sketch::copy_needs_equal`: an ellipse's minor radius is a variable its points do not
+  hold, while an elliptical arc's ends fix it, unless both lie on its major axis), a curve that is
+  its own image is left out (an ellipse whose centre is on the line and whose axis lies along or
+  square to it). No other constraint is copied, since symmetry holds the copy.
+- Patterns (`pattern.rs`): `rectangular_pattern` repeats the chosen curves and lone points along
+  one or two directions (a `PatternRow` each: count including the original, spacing, angle from the
+  x axis, the second defaulting to square to the first), `circular_pattern` about an existing point,
+  the origin included (`CircularPattern`: a count including the original, spread over a full turn or
+  across a total angle). Copies get fresh IDs and the construction flag, circles and ellipses an
+  `Equal` to the original (`copy_needs_equal`, as for mirror), added after the ties so that only the
+  ellipse's major radius, already held by its points, is the dependent row and no tie is reported
+  redundant. Instances are capped at `MAX_PATTERN_INSTANCES` and must stay within `MAX_LENGTH`.
   - Copies stay parametric with existing constraints, each tied to the instance before it (the
     first to the original), so editing the original or any spacing moves everything after it. A
     rectangular copy's every point is tied to its predecessor by `HorizontalDistance` and
@@ -207,12 +220,19 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
     angle of 0° or a full turn or more, geometry reaching past `MAX_LENGTH`. `rectangular_image`
     and `circular_image` give the faceted copies for a preview without touching the sketch.
 - Ellipses cut other curves (`intersect::Shape::Ellipse`, crossings by sampled roots along the
-  ellipse as for splines) and are cutters for trim, extend and break, but are never trimmed,
-  extended, split, broken, offset, filleted, mirrored or patterned: each refuses them in words
-  (`NotTrimmable`, `NotExtendable` or `Closed`, `NotLineOrArc`, `NotOffsettable`,
-  `MirrorError::Ellipse`, `PatternError::Ellipse`), since a copy would need its minor radius held
-  equal and no constraint does that. `Sketch::curve_crossings` gives where a spline or an ellipse
-  crosses another curve.
+  ellipse as for splines; two ellipses by the roots of one's level along the other,
+  `intersect::ellipse_ellipse`) and are cutters for trim, extend and break. Trim takes them as a
+  `Course::Ellipse` cut by the crossings of the whole ellipse with each cutter
+  (`Cutter::ellipse_cut_positions`; an ellipse lying on the same ellipse cuts at its ends): a whole
+  ellipse cut twice opens into an elliptical arc keeping its constraints, an elliptical arc is
+  shortened (`keeps_sweep`) or split into two arcs sharing the centre and axis point, the far
+  piece held to the kept one by `Equal`, which then holds only the minor radius. Split and break
+  take elliptical arcs: the pieces share the centre and axis point, and the shared point fixes one
+  minor radius for both, except where it lies on the major axis (`lies_on_major_axis`), where an
+  `Equal` holds them. They are never extended, offset or filleted, each refusing in words
+  (`NotExtendable` or `Closed`, `NotOffsettable`, `NotLineOrArc`); a whole ellipse cannot be split
+  or broken, having no ends. `Sketch::curve_crossings` gives where a spline or an ellipse crosses
+  another curve.
 - Fillet (`fillet.rs`): a `Corner` is where exactly two lines or arcs end, kept by one of its
   points. `rounding` refuses a radius whose touching point would not lie on a curve short of its far
   end (`TooLarge`). `fillet` adds the arc `Tangent` to both with a `Radius` dimension and keeps the
@@ -238,21 +258,22 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
   was the line's `Midpoint` makes the pieces `Equal`. An arc's pieces share the centre, so they
   keep one radius with no constraint added. Tangent, parallel, perpendicular and angle
   constraints joined at the far end move to the far piece (`far_constraints`, as trim does);
-  circles, splines and projected curves are refused.
-- Break (`breaking.rs`): `break_curve` splits a line or arc at every crossing with the other curves
-  and the two axes, found as trim finds its cuts (`open_cuts`: a collinear overlap cuts at its
-  ends, a crossing at a curve's own end is a joint). Each cut goes through `split_at` from the
-  start of the curve toward its end, the next cut lying on the piece just made, so the pieces'
-  `Collinear` constraints chain without repeating one another. The cut point is the end point of
-  the cutter lying there when one does (so two curves broken one after the other, or a line
-  ending on another, share one point), else a new point held on the cutter by `Coincident`
-  (an axis included); a crossing shared by several cutters is joined to one of them. The
-  pieces keep the curve's constraints as a split does and are fully determined by the crossings,
-  so the sketch's degrees of freedom do not change. `break_curves` breaks each of several curves
-  in turn on a working copy, skipping those that cannot break (circles, splines, reference or
-  projected curves, curves crossing nothing); `BreakError` names the curve for a single refusal
-  and says `NothingToBreak` or `NothingSelected` otherwise. Circles are refused like split, since
-  breaking one would replace it with arcs.
+  elliptical arcs split as above; circles, whole ellipses, splines and projected curves are
+  refused.
+- Break (`breaking.rs`): `break_curve` splits a line, arc or elliptical arc at every crossing with
+  the other curves and the two axes, found as trim finds its cuts (`open_cuts`: a collinear overlap
+  cuts at its ends, a crossing at a curve's own end is a joint). Each cut goes through `split_at`
+  from the start of the curve toward its end, the next cut lying on the piece just made, so the
+  pieces' `Collinear` constraints chain without repeating one another. The cut point is the end
+  point of the cutter lying there when one does (so two curves broken one after the other, or a line
+  ending on another, share one point), else a new point held on the cutter by `Coincident` (an axis
+  included); a crossing shared by several cutters is joined to one of them. The pieces keep the
+  curve's constraints as a split does and are fully determined by the crossings, so the sketch's
+  degrees of freedom do not change. `break_curves` breaks each of several curves in turn on a
+  working copy, skipping those that cannot break (circles, whole ellipses, splines, reference or
+  projected curves, curves crossing nothing); `BreakError` names the curve for a single refusal and
+  says `NothingToBreak` or `NothingSelected` otherwise. Circles and whole ellipses are refused like
+  split, since breaking one would replace it with arcs.
 
 ## Relations the geometry shows (`inference.rs`)
 

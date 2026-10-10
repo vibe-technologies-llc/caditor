@@ -7,16 +7,18 @@ A disabled button says on hover what to select.
 ## The constraints
 
 - **Coincident** joins two points, or puts points on a curve.
-- **Midpoint** puts a point at the middle of a line or arc.
+- **Midpoint** puts a point at the middle of a line, arc or elliptical arc.
 - **Concentric** gives circles, arcs and ellipses one centre.
 - **Collinear** puts lines on one straight line.
 - **Fix** locks points where they are.
 - **Horizontal** and **Vertical** level lines, or line up two points.
 - **Parallel** and **Perpendicular** relate lines; a line perpendicular to a circle runs through
   its centre.
-- **Tangent** makes a line and a curve, or two curves, touch smoothly.
+- **Tangent** makes a line and a curve, or two curves, touch smoothly; a circle or arc touches an
+  ellipse where the two share a point.
 - **Curvature** makes a spline run on from the curve at its end with no kink in its bending.
-- **Equal** gives lines the same length, or circles and arcs the same radius.
+- **Equal** gives lines the same length, circles and arcs the same radius, or ellipses the same
+  radii.
 - **Symmetric** mirrors two points, lines, circles or arcs about a line or a point.
 
 With more than two items, chaining constraints relate every item to the first one selected.

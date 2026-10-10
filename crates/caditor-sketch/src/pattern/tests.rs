@@ -534,3 +534,72 @@ fn nothing_to_pattern_a_small_count_or_a_zero_spacing_is_refused_in_words() {
         "a pattern needs a count of at least 2, counting the original"
     );
 }
+
+#[test]
+fn ellipses_repeat_with_their_minor_radius_held_by_equal() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(20.0, 5.0), Point2::new(28.0, 9.0), 3.0);
+    let free = solve(&sketch).solution.degrees_of_freedom();
+
+    let copies = sketch
+        .rectangular_pattern(&[ellipse], &across(3, 40.0))
+        .unwrap();
+    let solved = solve(&sketch);
+    let equal = sketch
+        .constraints()
+        .filter(|(_, constraint)| matches!(constraint, Constraint::Equal(..)))
+        .count();
+    let last = solved.geometry.ellipse(copies[1]).unwrap();
+
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), free);
+    assert_eq!(equal, 2);
+    assert!(last.center.distance(Point2::new(100.0, 5.0)) < EXACT);
+    assert!((last.minor_radius - 3.0).abs() < EXACT);
+}
+
+#[test]
+fn an_elliptical_arc_repeats_on_its_points_alone() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_elliptical_arc(
+        Point2::new(20.0, 30.0),
+        Point2::new(28.0, 30.0),
+        3.0,
+        Point2::new(20.0 + 8.0 * 0.5_f64.cos(), 30.0 + 3.0 * 0.5_f64.sin()),
+        Point2::new(20.0, 33.0),
+    );
+
+    let copies = sketch
+        .rectangular_pattern(&[arc], &across(2, 40.0))
+        .unwrap();
+    let solved = solve(&sketch);
+    let original = solved.geometry.ellipse(arc).unwrap();
+    let copy = solved.geometry.ellipse(copies[0]).unwrap();
+
+    assert!(
+        !sketch
+            .constraints()
+            .any(|(_, constraint)| matches!(constraint, Constraint::Equal(..)))
+    );
+    assert!((copy.minor_radius - 3.0).abs() < EXACT);
+    assert!((copy.sweep - original.sweep).abs() < EXACT);
+    assert!((copy.center - original.center).distance(Point2::new(40.0, 0.0)) < EXACT);
+}
+
+#[test]
+fn an_ellipse_turns_about_a_centre_with_its_minor_radius_held() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(20.0, 0.0), Point2::new(28.0, 0.0), 3.0);
+    let free = solve(&sketch).solution.degrees_of_freedom();
+
+    let copies = sketch
+        .circular_pattern(&[ellipse], EntityId::ORIGIN, &turns(4))
+        .unwrap();
+    let solved = solve(&sketch);
+    let quarter = solved.geometry.ellipse(copies[0]).unwrap();
+
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), free);
+    assert!(quarter.center.distance(Point2::new(0.0, 20.0)) < EXACT);
+    assert!((quarter.center + quarter.major).distance(Point2::new(0.0, 28.0)) < EXACT);
+}

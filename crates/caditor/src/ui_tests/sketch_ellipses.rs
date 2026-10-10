@@ -1,12 +1,13 @@
 use std::f64::consts::FRAC_PI_2;
 
 use caditor_geometry::{Plane, Point2};
-use caditor_sketch::{Entity, Sketch};
+use caditor_sketch::{Constraint, Entity, Sketch};
 
 use super::{
     DRAWN, Harness, constraints_of_kind, edit_free_sketch, entities_of_kind, entity_pickables,
+    run_from_palette,
 };
-use crate::{editing::Tool, sketch_toolbar};
+use crate::{editing::Tool, sketch_toolbar, sketch_tools};
 
 #[test]
 fn an_ellipse_is_drawn_from_its_centre_the_end_of_its_major_axis_and_its_minor_radius() {
@@ -96,4 +97,53 @@ fn the_radius_button_holds_both_radii_of_a_selected_ellipse() {
     let sketch = harness.sketch(feature);
     assert_eq!(constraints_of_kind(sketch, "Major radius").len(), 1);
     assert_eq!(constraints_of_kind(sketch, "Minor radius").len(), 1);
+}
+
+#[test]
+fn trim_opens_an_ellipse_where_a_line_crosses_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(30.0, 30.0), Point2::new(45.0, 30.0), 6.0);
+    sketch.add_line(Point2::new(40.0, 20.0), Point2::new(40.0, 40.0));
+    let label = sketch.entity_label(ellipse);
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    run_from_palette(&mut harness, "trim sketch curves");
+    assert_eq!(harness.tool(), Some(Tool::Trim));
+    harness.click_at(Point2::new(45.0, 30.0));
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert!(entities_of_kind(sketch, "Ellipse").is_empty());
+    assert_eq!(entities_of_kind(sketch, "Elliptical arc"), vec![ellipse]);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some(format!("Trim {label}").as_str())
+    );
+}
+
+#[test]
+fn an_elliptical_arc_is_split_at_the_selected_point_on_it() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = sketch.add_elliptical_arc(
+        Point2::new(30.0, 30.0),
+        Point2::new(45.0, 30.0),
+        6.0,
+        Point2::new(30.0 + 15.0 * 0.3_f64.cos(), 30.0 + 6.0 * 0.3_f64.sin()),
+        Point2::new(30.0 + 15.0 * 2.8_f64.cos(), 30.0 + 6.0 * 2.8_f64.sin()),
+    );
+    let point = sketch.add_point(Point2::new(30.0, 36.0));
+    sketch
+        .add_constraint(Constraint::Coincident(point, arc))
+        .unwrap();
+    let feature = edit_free_sketch(&mut harness, sketch);
+
+    harness.select(entity_pickables(feature, &[point]));
+    run_from_palette(&mut harness, "split the selected curve");
+    harness.settle();
+
+    let sketch = harness.sketch(feature);
+    assert_eq!(entities_of_kind(sketch, "Elliptical arc").len(), 2);
+    assert_eq!(harness.model.undo_label(), Some(sketch_tools::SPLIT_TITLE));
 }

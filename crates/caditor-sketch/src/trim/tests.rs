@@ -404,7 +404,7 @@ fn construction_curves_cut_and_pieces_stay_construction() {
 }
 
 #[test]
-fn ellipses_cut_other_curves_but_cannot_be_trimmed_split_or_extended() {
+fn ellipses_cut_other_curves_but_cannot_be_split_whole_or_extended() {
     let mut sketch = Sketch::new(Plane::XY);
     let ellipse = sketch.add_ellipse(Point2::new(20.0, 0.0), Point2::new(28.0, 0.0), 3.0);
     let arc = sketch.add_elliptical_arc(
@@ -416,10 +416,6 @@ fn ellipses_cut_other_curves_but_cannot_be_trimmed_split_or_extended() {
     );
     let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
 
-    assert!(matches!(
-        sketch.trim(ellipse, Point2::new(20.0, 3.0)),
-        Err(TrimError::NotTrimmable { .. })
-    ));
     assert!(matches!(
         sketch.extend(arc, Point2::new(5.0, 30.0)),
         Err(ExtendError::NotExtendable { .. })
@@ -436,6 +432,126 @@ fn ellipses_cut_other_curves_but_cannot_be_trimmed_split_or_extended() {
     let (_, end) = ends(&sketch, line);
     assert!(has(&sketch, &Constraint::Coincident(end, ellipse)));
     assert!((sketch.point(end).unwrap().x - 12.0).abs() < 1e-9);
+}
+
+fn elliptic_ends(sketch: &Sketch, curve: EntityId) -> (EntityId, EntityId) {
+    match sketch.entity(curve) {
+        Some(Entity::EllipticalArc { start, end, .. }) => (*start, *end),
+        other => panic!("expected an elliptical arc, found {other:?}"),
+    }
+}
+
+const AWAY: Point2 = Point2::new(40.0, 30.0);
+
+fn upright(sketch: &mut Sketch, x: f64) -> EntityId {
+    sketch.add_line(AWAY + Point2::new(x, -10.0), AWAY + Point2::new(x, 10.0))
+}
+
+fn top_arc(sketch: &mut Sketch) -> EntityId {
+    let at = |angle: f64| AWAY + Point2::new(10.0 * angle.cos(), 4.0 * angle.sin());
+    sketch.add_elliptical_arc(AWAY, AWAY + Point2::new(10.0, 0.0), 4.0, at(0.3), at(2.8))
+}
+
+#[test]
+fn trimming_an_ellipse_between_two_cuts_opens_it_into_an_elliptical_arc() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(AWAY, AWAY + Point2::new(10.0, 0.0), 4.0);
+    let line = upright(&mut sketch, 5.0);
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+
+    assert_eq!(
+        sketch.trim(ellipse, AWAY + Point2::new(10.0, 0.0)),
+        Ok(Trimmed::Opened)
+    );
+    let (start, end) = elliptic_ends(&sketch, ellipse);
+    let shape = sketch.ellipse(ellipse).unwrap();
+    let height = 4.0 * 0.75_f64.sqrt();
+    let kept = shape.parameter_of(AWAY + Point2::new(-10.0, 0.0));
+    let removed = shape.parameter_of(AWAY + Point2::new(10.0, 0.0));
+
+    assert_near(at(&sketch, start), AWAY + Point2::new(5.0, height));
+    assert_near(at(&sketch, end), AWAY + Point2::new(5.0, -height));
+    assert!(shape.within_sweep(kept).is_some());
+    assert!(shape.within_sweep(removed).is_none());
+    assert!(has(&sketch, &Constraint::Coincident(start, line)));
+    assert!(has(&sketch, &Constraint::Coincident(end, line)));
+    assert_eq!(
+        assert_solves_in_place(&sketch)
+            .solution
+            .degrees_of_freedom(),
+        freedom
+    );
+}
+
+#[test]
+fn trimming_the_end_of_an_elliptical_arc_shortens_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = top_arc(&mut sketch);
+    let line = upright(&mut sketch, 3.0);
+    let (_, old_end) = elliptic_ends(&sketch, arc);
+
+    assert_eq!(
+        sketch.trim(arc, AWAY + Point2::new(-8.0, 2.0)),
+        Ok(Trimmed::Shortened)
+    );
+    let (start, end) = elliptic_ends(&sketch, arc);
+
+    assert!(sketch.entity(old_end).is_none());
+    assert!(at(&sketch, start).x > AWAY.x + 3.0);
+    assert!((at(&sketch, end).x - AWAY.x - 3.0).abs() < EXACT);
+    assert!(has(&sketch, &Constraint::Coincident(end, line)));
+    assert_solves_in_place(&sketch);
+}
+
+#[test]
+fn trimming_the_middle_of_an_elliptical_arc_leaves_two_pieces_of_one_ellipse() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let arc = top_arc(&mut sketch);
+    upright(&mut sketch, -3.0);
+    upright(&mut sketch, 3.0);
+    let freedom = solve(&sketch).solution.degrees_of_freedom();
+
+    let Ok(Trimmed::Split { piece }) = sketch.trim(arc, AWAY + Point2::new(0.0, 4.0)) else {
+        panic!("expected a split");
+    };
+
+    let Some(&Entity::EllipticalArc { center, major, .. }) = sketch.entity(piece) else {
+        panic!("expected an elliptical arc");
+    };
+    let Some(&Entity::EllipticalArc {
+        center: own_center,
+        major: own_major,
+        ..
+    }) = sketch.entity(arc)
+    else {
+        panic!("expected an elliptical arc");
+    };
+    assert_eq!((center, major), (own_center, own_major));
+    assert!(has(&sketch, &Constraint::Equal(arc, piece)));
+    assert_eq!(
+        assert_solves_in_place(&sketch)
+            .solution
+            .degrees_of_freedom(),
+        freedom
+    );
+}
+
+#[test]
+fn an_ellipse_crossing_another_is_cut_where_they_cross() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(AWAY, AWAY + Point2::new(10.0, 0.0), 4.0);
+    sketch.add_ellipse(AWAY, AWAY + Point2::new(0.0, 8.0), 6.0);
+
+    let pieces = sketch.trim_pieces(ellipse).unwrap();
+
+    assert_eq!(pieces.len(), 4);
+    for piece in &pieces {
+        for cut in [piece.start, piece.end].into_iter().flatten() {
+            let local = cut.position - AWAY;
+            let other = (local.x / 6.0).powi(2) + (local.y / 8.0).powi(2);
+            assert!((other - 1.0).abs() < 1e-6, "{other}");
+        }
+    }
 }
 
 #[test]

@@ -22,8 +22,6 @@ pub enum MirrorError {
     NoLength { entity: EntityId, label: String },
     #[error("everything selected lies on {label} or is its own mirror image about it")]
     NothingToMirror { entity: EntityId, label: String },
-    #[error("{label} is an ellipse, which cannot be mirrored yet; leave it out of the selection")]
-    Ellipse { entity: EntityId, label: String },
     #[error(transparent)]
     Edit(SketchError),
 }
@@ -152,12 +150,6 @@ impl Sketch {
         if chosen.is_empty() {
             return Err(MirrorError::NothingSelected);
         }
-        if let Some(ellipse) = chosen.iter().copied().find(|item| self.is_elliptic(*item)) {
-            return Err(MirrorError::Ellipse {
-                entity: ellipse,
-                label: self.entity_label(ellipse),
-            });
-        }
         let scale = chosen
             .iter()
             .filter_map(|item| self.entity(*item))
@@ -226,7 +218,48 @@ impl Sketch {
                 let backward = points.iter().rev().map(|point| at(*point));
                 forward.zip(backward).all(|(a, b)| same(a, b))
             }
-            Some(Entity::Point(_) | Entity::Ellipse { .. } | Entity::EllipticalArc { .. })
+            Some(Entity::Ellipse { center, major, .. }) => {
+                same(at(*center), at(*center))
+                    && self.keeps_axis(*center, *major, reflection, tolerance)
+            }
+            Some(Entity::EllipticalArc {
+                center,
+                major,
+                start,
+                end,
+                ..
+            }) => {
+                same(at(*center), at(*center))
+                    && self.keeps_axis(*center, *major, reflection, tolerance)
+                    && same(at(*start), at(*end))
+            }
+            Some(Entity::Point(_)) | None => false,
+        }
+    }
+
+    fn keeps_axis(
+        &self,
+        center: EntityId,
+        major: EntityId,
+        reflection: &Reflection,
+        tolerance: f64,
+    ) -> bool {
+        let (Some(center), Some(major)) = (self.point(center), self.point(major)) else {
+            return false;
+        };
+        let image = reflection.of(major);
+        image.distance(major) <= tolerance || image.distance(center * 2.0 - major) <= tolerance
+    }
+
+    pub(crate) fn copy_needs_equal(&self, curve: EntityId) -> bool {
+        match self.entity(curve) {
+            Some(Entity::Circle { .. } | Entity::Ellipse { .. }) => true,
+            Some(&Entity::EllipticalArc { start, end, .. }) => {
+                self.lies_on_major_axis(curve, start) && self.lies_on_major_axis(curve, end)
+            }
+            Some(
+                Entity::Point(_) | Entity::Line { .. } | Entity::Arc { .. } | Entity::Spline { .. },
+            )
             | None => false,
         }
     }
@@ -278,19 +311,40 @@ impl Sketch {
                     points: points.into_iter().map(image_of).collect(),
                     kind,
                 },
-                Entity::Point(_) | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
-                    continue;
-                }
+                Entity::Ellipse {
+                    center,
+                    major,
+                    minor_radius,
+                } => Entity::Ellipse {
+                    center: image_of(center),
+                    major: image_of(major),
+                    minor_radius,
+                },
+                Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end,
+                } => Entity::EllipticalArc {
+                    center: image_of(center),
+                    major: image_of(major),
+                    minor_radius,
+                    start: image_of(end),
+                    end: image_of(start),
+                },
+                Entity::Point(_) => continue,
             };
-            let circle = matches!(image, Entity::Circle { .. });
+            let needs_equal = self.copy_needs_equal(*curve);
             let copy = EntityId::from_raw(self.next_id());
             self.insert_entity(copy, image)?;
             if self.is_construction(*curve) {
                 self.set_construction(copy, true)?;
             }
-            if circle {
+            if needs_equal {
                 equal.push((*curve, copy));
             }
+
             copies.push(copy);
         }
         for (first, second) in symmetric {
