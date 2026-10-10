@@ -45,7 +45,7 @@ pub use crate::{
     id::{ConstraintId, EntityId, Reference},
     inference::{ANGLE_DEGREES, InferenceError, Kept, RELATIVE_DISTANCE, RelationKind, Tolerance},
     mirror::{MirrorError, MirrorImage},
-    offset::{Chain, OffsetError, Outline, Side},
+    offset::{Caps, Chain, OffsetError, Outline, Side},
     pattern::{
         CircularPattern, Dimensioned, MAX_PATTERN_INSTANCES, PatternError, PatternImage,
         PatternRow, RectangularPattern, Spread,

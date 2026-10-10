@@ -206,12 +206,28 @@ every constraint still true of it. Joints are judged by a `TOLERANCE` relative t
     corner; after a smooth joint or round corner it follows from the `Tangent` there, so a line only
     gets `Parallel` and an arc nothing. The closing `Coincident` of a closed chain is added last, so
     the one relation a closed loop repeats is never a whole redundant constraint.
+  - `offset_both_sides` (`Chain::both_sides`, a `Caps` of `Round` or `Flat`) offsets by the
+    distance to each side. A closed chain gets the two one-sided outlines. An open chain becomes
+    one closed outline (`Chain::capped`): the left outline, a cap round the chain's end point, the
+    right outline reversed, a cap round its start point, the start cap's joint closing the loop as
+    a closed chain's closing `Coincident` does. A round cap is a half circle centred on the chain's
+    end point (`Made::Cap`, the arc's centre that point) joined by `Tangent` to both sides, so the
+    side after it is carried as after a round corner; a flat cap is a line through the end point
+    (`Coincident` with it) `Perpendicular` to the end curve (square to a line, through an arc's
+    centre), joined sharp. Either way the outline adds no freedom and no redundancy. Caps crossing
+    the outline are `CrossesItself`; an open elliptical arc, whose offsets are free splines, is
+    `CapsOnSpline`. The outline is profile geometry even round a construction chain, since a
+    centreline is usually construction and the outline is drawn to be extruded.
 - Mirror (`mirror.rs`): points on the mirror line are shared, others copied with `Symmetric` to the
   original; arcs and elliptical arcs swap ends to stay counter-clockwise, circles and ellipses add
   `Equal` (`Sketch::copy_needs_equal`: an ellipse's minor radius is a variable its points do not
   hold, while an elliptical arc's ends fix it, unless both lie on its major axis), a curve that is
   its own image is left out (an ellipse whose centre is on the line and whose axis lies along or
-  square to it). No other constraint is copied, since symmetry holds the copy.
+  square to it). No other constraint is copied, since symmetry holds the copy. A point already
+  held `Symmetric` about the same line, or joined by `Coincident` to one that is
+  (`symmetric_partner`), takes that image instead of a new one, so a curve mirrored after its
+  neighbour (drawing symmetrically, a chain drawn segment by segment) joins the image already
+  there.
 - Patterns (`pattern.rs`): `rectangular_pattern` repeats the chosen curves and lone points along
   one or two directions (a `PatternRow` each: count including the original, spacing, angle from the
   x axis, the second defaulting to square to the first), `circular_pattern` about an existing point,

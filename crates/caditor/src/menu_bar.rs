@@ -791,6 +791,7 @@ impl Menus<'_> {
                     Tool::Polygon,
                     Tool::Slot,
                     Tool::BlendCurve,
+                    Tool::Offset,
                 ] {
                     if tool != Tool::Rectangle {
                         ui.separator();
@@ -804,6 +805,7 @@ impl Menus<'_> {
             );
             self.item(ui, Command::TypeValue);
             self.choice(ui, Command::ToggleTypedDimensions);
+            self.choice(ui, Command::DrawSymmetrically);
             self.choice(ui, Command::Section(SectionCommand::SliceSketch));
             self.choice(ui, Command::ToggleFirstDimensionScales);
             ui.separator();

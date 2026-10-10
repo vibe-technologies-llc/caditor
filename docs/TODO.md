@@ -199,16 +199,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
-- [low · medium] Offset copies a chain to one side only: an outline round a centreline (a slot
-  following a path, a wall drawn by its middle) needs two offsets and the closing lines or arcs
-  drawn by hand. A Both sides way of Offset (`offsetting.rs`, the distance on each side) closing an
-  open chain's ends with arcs or lines (the cap ends of Fusion and SolidWorks), each held to the
-  original as the one-sided offset is, would make the closed profile in one step; a thin wall
-  extrusion covers only an outline extruded straight.
-- [low · medium] No symmetric drawing: while half of a symmetric outline is drawn the other half
-  cannot be made with it. Choosing a sketch line or axis to draw about (a Sketch menu toggle, as
-  SolidWorks's dynamic mirror) could add each finished shape's mirror image with its `Symmetric`
-  constraints in the shape's own transaction, as Mirror does afterwards (`mirroring.rs`).
 - [low · easy] Trim cuts at the reference axes as at any curve (`Cutter::Axis`), so a circle
   centred on the X axis, as a lever's pivot on the origin or a slot along the axis is, loses only
   the quarter between a tangent line's touching point and the axis when its inside is picked: the

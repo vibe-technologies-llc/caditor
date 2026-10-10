@@ -223,6 +223,19 @@ paths:
   Switching between the Line and Tangent arc tools with a segment started (`Drawing::sync`) keeps
   the chain and its anchors: the arc leaves along the line just drawn, and the lines go on from the
   arc's end. Stepping back onto a line step while arcing finds its tangent again from the sketch.
+- Draw symmetrically about the selected line (`Command::DrawSymmetrically`, Sketch menu,
+  palette, no default key; `symmetric_drawing.rs`) takes the one line or axis selected
+  (`symmetric_drawing::chosen_line`, refused with `NO_LINE_SELECTED` otherwise) and keeps it in
+  `ViewportState::symmetry` for that sketch; run again it turns off, and it turns off by itself
+  when the sketch is no longer edited or the line no longer resolves (`Mirror::of`, worked out
+  each frame in `track_drawing`). While on, `Drawing::draw_about` makes `Drawing::click` and
+  `finish` pass each finished shape's transaction through `symmetric_drawing::mirrored`: the
+  document with the transaction applied gives the drawn sketch, `Sketch::mirror` of its new,
+  non-projected entities about the line gives the image, and the entities and constraints the
+  image adds are appended to the same transaction under their own ids, labelled "Draw line
+  symmetrically", so one undo takes both halves. The preview gains the reflection of the shape's
+  curves and points (`Mirror::add_image`) and the drawing prompt ends ", mirrored about Line 4".
+  A shape that is its own image is drawn once.
 - What a placed point may snap to is `Drawing::accept` (points only where a curve would add no
   constraint); width points of slots and three-point rectangles never snap. Per-shape constraints
   and degrees of freedom are in `shapes.rs` and its tests, not here.
@@ -247,7 +260,10 @@ paths:
   curve of that kind through the placed points and the pointer.
 - Blend curve keeps its two ways the same way: tangent (G1) and curvature-continuous (G2)
   (`ShapeMode::Blend`, `ShapeModes::blend`), listed with the shapes under Sketch › Ways to draw
-  shapes; the modify tool reads the way each frame and its prompt leads with it.
+  shapes; the modify tool reads the way each frame and its prompt leads with it. Offset does the
+  same with its three ways (`ShapeMode::Offset`, `ShapeModes::offset`); its compact button steps
+  them when its command runs while it is active and its corner menu lists them under its partners
+  (`sketch_toolbar::partnered_tool_button`).
 - Running the tool's command while it is active steps to its next way, round to the first;
   clicking its ribbon button only chooses the tool. Off-ribbon tools with ways (Blend curve) step
   the same way from their command (`sketch_toolbar::off_ribbon_tool`). Every way is also its own command
@@ -336,7 +352,11 @@ paths:
 - Offset works on the selected chain; with none, a click on a curve selects its chain (an
   ellipse or elliptical arc alone). The pointer's side and distance choose side and distance,
   previewed live; an ellipse's words end `offsetting::FREE_SPLINE`, since its offset spline does
-  not follow it (`sketch.md`). Mirror copies the
+  not follow it (`sketch.md`). Its ways (`ShapeMode::Offset`, `OffsetMode`: to one side, to both
+  sides with round ends, to both sides with flat ends) put the distance on each side for the two
+  both-sides ways, the pointer's side not mattering and a negative typed value its magnitude; the
+  words say "to both sides with round ends" or, for a closed chain, "inside and outside", and the
+  change is one "Offset curves to both sides" transaction (`Sketch::offset_both_sides`). Mirror copies the
   selection about the line or axis under the pointer (sketch lines win a tie with an axis).
 - Mirror and both patterns select inside the tool, as Smart dimension picks: started with nothing
   selected (or once the selection empties) they gather (`Modifying::gathers`), where a click on a

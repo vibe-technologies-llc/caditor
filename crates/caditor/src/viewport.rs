@@ -11,7 +11,7 @@ use caditor_render::{
     SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing, is_cut_away,
     section_slack,
 };
-use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH, Sketch, SketchClip};
+use caditor_sketch::{ConstraintId, Entity, EntityId, Faceting, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
     Align, Align2, Id, Key, Modifiers, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke,
     Ui, UiBuilder, Vec2, WidgetInfo, WidgetType, accesskit::Live, pos2, vec2,
@@ -69,7 +69,9 @@ use crate::{
     sketch_placement::{DatumTarget, FaceChoice},
     sketch_status, sketch_toolbar, sketch_tools,
     snap::{Hold, Pointer, Screen},
-    snapshot, solid_tools, split_face_tools, toggles,
+    snapshot, solid_tools, split_face_tools,
+    symmetric_drawing::{self, Mirror, Symmetry},
+    toggles,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
     upload_badge,
@@ -380,6 +382,8 @@ pub struct ViewportState {
     paint: bool,
     select_through: bool,
     typed_dimensions: bool,
+    symmetry: Option<Symmetry>,
+    mirror: Option<Mirror>,
     first_dimension_scales: bool,
     glyphs_shown: bool,
     aids: ViewAids,
@@ -580,6 +584,8 @@ impl ViewportState {
             paint: false,
             select_through: false,
             typed_dimensions: true,
+            symmetry: None,
+            mirror: None,
             first_dimension_scales: false,
             glyphs_shown: true,
             aids: ViewAids::default(),
@@ -618,6 +624,62 @@ impl ViewportState {
 
     pub fn typed_dimensions(&self) -> bool {
         self.typed_dimensions
+    }
+
+    pub fn draws_symmetrically(&self) -> bool {
+        self.symmetry.is_some()
+    }
+
+    fn symmetry_offered(&self, model: &Model, editing: &SketchEditing) -> Result<Symmetry, String> {
+        let feature = editing
+            .feature()
+            .ok_or_else(|| symmetric_drawing::NO_LINE_SELECTED.to_owned())?;
+        let shown = model
+            .document()
+            .feature(feature)
+            .and_then(|owner| model.displayed_sketch(owner))
+            .ok_or_else(|| symmetric_drawing::NO_LINE_SELECTED.to_owned())?;
+        let selected = sketch_tools::selected_entities(&self.selection, feature);
+        let line = symmetric_drawing::chosen_line(&shown, &selected).map_err(str::to_owned)?;
+        Ok(Symmetry { feature, line })
+    }
+
+    fn symmetry_command(
+        &mut self,
+        model: &Model,
+        editing: &SketchEditing,
+        commands: &mut CommandFrame<'_>,
+        actions: &mut Vec<Action>,
+    ) {
+        if editing.feature().is_none() {
+            return;
+        }
+        let offered = match self.symmetry {
+            Some(symmetry) => Ok(symmetry),
+            None => self.symmetry_offered(model, editing),
+        };
+        if !commands.invoke(Command::DrawSymmetrically, &offered) {
+            return;
+        }
+        if self.symmetry.take().is_some() {
+            if commands.state_unseen(Command::DrawSymmetrically) {
+                actions.push(Action::Inform(Notice::info(symmetric_drawing::TURNED_OFF)));
+            }
+            return;
+        }
+        let Ok(symmetry) = offered else {
+            return;
+        };
+        self.symmetry = Some(symmetry);
+        let label = model
+            .document()
+            .feature(symmetry.feature)
+            .and_then(|owner| model.displayed_sketch(owner))
+            .map(|shown| shown.entity_label(symmetry.line))
+            .unwrap_or_default();
+        actions.push(Action::Inform(Notice::info(symmetric_drawing::turned_on(
+            &label,
+        ))));
     }
 
     pub fn first_dimension_scales(&self) -> bool {
@@ -1143,7 +1205,7 @@ impl ViewportState {
             canvas: self.canvas,
             plane,
             previews: vec![
-                self.drawing.preview(faceting),
+                self.drawn_preview(faceting),
                 self.trimming.preview(faceting),
                 self.modifying.preview(faceting),
                 self.grab_preview(),
@@ -2116,6 +2178,16 @@ impl ViewportState {
             .and_then(|feature| model.displayed_sketch(feature));
         self.drawing
             .sync(editing.active(), editing.modes(), displayed.as_deref());
+        self.mirror = self
+            .symmetry
+            .filter(|symmetry| editing.feature() == Some(symmetry.feature))
+            .zip(displayed.as_deref())
+            .and_then(|(symmetry, sketch)| Mirror::of(sketch, symmetry.line));
+        if self.mirror.is_none() {
+            self.symmetry = None;
+        }
+        self.drawing
+            .draw_about(self.mirror.as_ref().map(|mirror| mirror.line));
         self.drawing.track_bodies(model);
         self.drawing
             .place_freely(self.placing_freely || !(self.snapping || self.snap_held));
@@ -2512,6 +2584,14 @@ impl ViewportState {
         }
     }
 
+    fn drawn_preview(&self, faceting: Faceting) -> Preview {
+        let mut preview = self.drawing.preview(faceting);
+        if let Some(mirror) = &self.mirror {
+            mirror.add_image(&mut preview);
+        }
+        preview
+    }
+
     fn keyboard_commands(
         &mut self,
         model: &Model,
@@ -2519,6 +2599,7 @@ impl ViewportState {
         commands: &mut CommandFrame<'_>,
         actions: &mut Vec<Action>,
     ) {
+        self.symmetry_command(model, editing, commands, actions);
         let home = model.document().saved_views().home;
         for view in StandardView::ALL {
             if commands.available(Command::View(view)) {
@@ -4489,8 +4570,12 @@ impl ViewportState {
                     } else {
                         String::new()
                     };
+                    let text = match &self.mirror {
+                        Some(mirror) => symmetric_drawing::prompt(&prompt.text, &mirror.label),
+                        None => prompt.text,
+                    };
                     (
-                        prompt.text,
+                        text,
                         format!(
                             "{mode}{reverse}{sides}{}{take_back}   {placement}   {HELD_SNAP_HINT}   {TYPE_POINT_HINT}{typed_sides}",
                             prompt.keys
