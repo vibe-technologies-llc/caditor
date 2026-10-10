@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, VecDeque};
+use std::{collections::VecDeque, ops::Range};
 
 use spade::{
     Point2 as PlanePoint, Triangulation,
@@ -9,7 +9,7 @@ use crate::{
     interrupt::{self, Interrupted},
     tessellation::{
         POLL_EVERY, TessellationError,
-        constrained::{self, Built, Splitting},
+        constrained::{self, Built, Outline, Splitting},
         parallel,
     },
     topology::FaceId,
@@ -18,8 +18,13 @@ use crate::{
 pub(super) const SPLIT_POINTS: usize = 4096;
 const POINTS_PER_PIECE: usize = 1024;
 const MAX_PIECES: usize = 16;
-const REACH_SHARE: usize = 4;
+const REACH_SHARE: usize = 3;
+const SLACK_SHARE: usize = 2;
 const DOMINANT_SHARE: usize = 4;
+const CENTRE_ERROR: f64 = 16.0;
+const BAND_SHARE: f64 = 1e-9;
+const TURN_BOUND: f64 = 4.0 * (3.0 + 16.0 * f64::EPSILON) * f64::EPSILON;
+const IN_CIRCLE_BOUND: f64 = 4.0 * (10.0 + 96.0 * f64::EPSILON) * f64::EPSILON;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Span {
@@ -41,11 +46,46 @@ impl Span {
 struct Strip {
     core: Span,
     reach: Span,
+    band: f64,
 }
 
 impl Strip {
-    fn owns(&self, x: f64) -> bool {
-        self.core.low <= x && x < self.core.high
+    fn clear_of_cuts(&self, x: f64) -> bool {
+        self.core.low + self.band < x && x + self.band < self.core.high
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Circle {
+    centre: PlanePoint<f64>,
+    radius: f64,
+    error: f64,
+}
+
+impl Circle {
+    fn through(corners: [PlanePoint<f64>; 3]) -> Option<Self> {
+        let [a, b, c] = corners;
+        let (bx, by, cx, cy) = (b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
+        let twice = 2.0 * (bx * cy - by * cx);
+        let (b_square, c_square) = (bx * bx + by * by, cx * cx + cy * cy);
+        let centre_x = (cy * b_square - by * c_square) / twice;
+        let centre_y = (bx * c_square - cx * b_square) / twice;
+        let radius = centre_x.hypot(centre_y);
+        let centre = PlanePoint::new(a.x + centre_x, a.y + centre_y);
+        let spread = cy.abs() * b_square
+            + by.abs() * c_square
+            + centre_x.abs() * 2.0 * ((bx * cy).abs() + (by * cx).abs());
+        let error = CENTRE_ERROR * f64::EPSILON * (spread / twice.abs() + centre.x.abs());
+        (radius.is_finite() && centre.x.is_finite() && centre.y.is_finite() && error.is_finite())
+            .then_some(Self {
+                centre,
+                radius,
+                error,
+            })
+    }
+
+    fn within(&self, span: &Span) -> bool {
+        span.low < self.centre.x - self.radius && self.centre.x + self.radius < span.high
     }
 }
 
@@ -53,7 +93,7 @@ impl Strip {
 struct Piece {
     triangles: Vec<[usize; 3]>,
     border: Vec<(usize, usize)>,
-    covered: Vec<(usize, usize)>,
+    covered: Vec<usize>,
 }
 
 pub(super) fn allowed(points: usize, body_points: usize) -> bool {
@@ -63,62 +103,137 @@ pub(super) fn allowed(points: usize, body_points: usize) -> bool {
 pub(super) fn triangles(
     face: FaceId,
     mapped: &[PlanePoint<f64>],
-    segments: &[(usize, usize)],
+    outline: &Outline,
     threads: usize,
 ) -> Result<Option<Vec<[usize; 3]>>, Interrupted> {
-    let strips = strips(mapped);
+    let strips = strips(mapped, outline);
     if strips.len() < 2 {
         return Ok(None);
     }
-    match in_pieces(face, mapped, segments, &strips, threads) {
+    match in_pieces(face, mapped, outline, &strips, threads) {
         Ok(triangles) => Ok(Some(triangles)),
         Err(TessellationError::Cancelled(interrupted)) => Err(interrupted),
         Err(_) => Ok(None),
     }
 }
 
-fn strips(mapped: &[PlanePoint<f64>]) -> Vec<Strip> {
+struct Ranked {
+    xs: Vec<f64>,
+    hole_lows: Vec<f64>,
+    hole_highs: Vec<f64>,
+}
+
+impl Ranked {
+    fn new(mapped: &[PlanePoint<f64>], outline: &Outline) -> Self {
+        let sorted = |values: Vec<f64>| {
+            let mut values = values;
+            values.sort_by(f64::total_cmp);
+            values
+        };
+        Self {
+            xs: sorted(mapped.iter().map(|point| point.x).collect()),
+            hole_lows: sorted(outline.holes.iter().map(|hole| hole.low).collect()),
+            hole_highs: sorted(outline.holes.iter().map(|hole| hole.high).collect()),
+        }
+    }
+
+    fn at(&self, rank: usize) -> Option<f64> {
+        self.xs
+            .get(rank.min(self.xs.len().saturating_sub(1)))
+            .copied()
+    }
+
+    fn between(&self, rank: usize) -> Option<f64> {
+        let middle = 0.5 * (self.at(rank.checked_sub(1)?)? + self.at(rank)?);
+        middle.is_finite().then_some(middle)
+    }
+
+    fn straddling(&self, x: f64) -> usize {
+        let opened = self.hole_lows.partition_point(|low| *low < x);
+        let closed = self.hole_highs.partition_point(|high| *high < x);
+        opened.saturating_sub(closed)
+    }
+
+    fn clearest(&self, ranks: Range<usize>) -> Option<f64> {
+        ranks
+            .filter_map(|rank| {
+                let (before, after) = (self.at(rank.checked_sub(1)?)?, self.at(rank)?);
+                (before < after).then(|| {
+                    (
+                        self.straddling(0.5 * (before + after)),
+                        before - after,
+                        rank,
+                    )
+                })
+            })
+            .min_by(|one, other| {
+                one.0
+                    .cmp(&other.0)
+                    .then(one.1.total_cmp(&other.1))
+                    .then(one.2.cmp(&other.2))
+            })
+            .and_then(|(_, _, rank)| self.between(rank))
+    }
+}
+
+fn strips(mapped: &[PlanePoint<f64>], outline: &Outline) -> Vec<Strip> {
     let count = mapped.len();
     let pieces = (count / POINTS_PER_PIECE).min(MAX_PIECES);
     if count < SPLIT_POINTS || pieces < 2 {
         return Vec::new();
     }
-    let mut xs: Vec<f64> = mapped.iter().map(|point| point.x).collect();
-    xs.sort_by(f64::total_cmp);
-    let at = |rank: usize| xs.get(rank.min(count - 1)).copied();
+    let ranked = Ranked::new(mapped, outline);
     let reach = count / pieces / REACH_SHARE;
+    let slack = reach / SLACK_SHARE;
+    let band = match (ranked.xs.first(), ranked.xs.last()) {
+        (Some(low), Some(high)) => BAND_SHARE * (high - low),
+        _ => return Vec::new(),
+    };
     let mut cuts: Vec<(f64, usize)> = vec![(f64::NEG_INFINITY, 0)];
     for piece in 1..pieces {
         let rank = piece * count / pieces;
-        let (Some(before), Some(after)) = (at(rank.saturating_sub(1)), at(rank)) else {
+        let Some(cut) = ranked.between(rank) else {
             return Vec::new();
         };
-        let cut = 0.5 * (before + after);
-        if cut.is_finite() && cuts.last().is_some_and(|(last, _)| *last < cut) {
+        if cuts.last().is_some_and(|(last, _)| *last < cut) {
             cuts.push((cut, rank));
         }
     }
     cuts.push((f64::INFINITY, count));
     cuts.windows(2)
         .filter_map(|pair| match pair {
-            [(low, first), (high, end)] => Some(Strip {
-                core: Span {
-                    low: *low,
-                    high: *high,
-                },
-                reach: Span {
-                    low: if low.is_finite() {
-                        at(first.saturating_sub(reach))?.min(*low)
-                    } else {
-                        f64::NEG_INFINITY
+            [(low, first), (high, end)] => {
+                let below = first.saturating_sub(reach);
+                let above = (end + reach).min(count);
+                Some(Strip {
+                    core: Span {
+                        low: *low,
+                        high: *high,
                     },
-                    high: if high.is_finite() {
-                        at(end + reach)?.max(*high)
-                    } else {
-                        f64::INFINITY
+                    reach: Span {
+                        low: if low.is_finite() {
+                            ranked
+                                .clearest(below.saturating_sub(slack)..(below + slack).min(*first))
+                                .or_else(|| ranked.at(below))?
+                                .min(*low)
+                        } else {
+                            f64::NEG_INFINITY
+                        },
+                        high: if high.is_finite() {
+                            ranked
+                                .clearest(
+                                    above.saturating_sub(slack).max(*end)
+                                        ..(above + slack).min(count),
+                                )
+                                .or_else(|| ranked.at(above))?
+                                .max(*high)
+                        } else {
+                            f64::INFINITY
+                        },
                     },
-                },
-            }),
+                    band,
+                })
+            }
             _ => None,
         })
         .collect()
@@ -127,18 +242,15 @@ fn strips(mapped: &[PlanePoint<f64>]) -> Vec<Strip> {
 fn in_pieces(
     face: FaceId,
     mapped: &[PlanePoint<f64>],
-    segments: &[(usize, usize)],
+    outline: &Outline,
     strips: &[Strip],
     threads: usize,
 ) -> Result<Vec<[usize; 3]>, TessellationError> {
     let pieces = parallel::each_in_order(strips.len(), threads, 1, |index| {
-        let strip = strips
-            .get(index)
-            .ok_or(TessellationError::Triangulation(face))?;
-        piece(face, mapped, segments, strip)
+        piece(face, mapped, outline, strips, index)
     });
     let pieces = pieces.into_iter().collect::<Result<Vec<Piece>, _>>()?;
-    let remainder = remainder(face, mapped, segments, &pieces)?;
+    let remainder = remainder(face, mapped, outline, &pieces)?;
     let mut triangles: Vec<[usize; 3]> = pieces
         .into_iter()
         .flat_map(|piece| piece.triangles)
@@ -158,22 +270,32 @@ fn point(
         .ok_or(TessellationError::Triangulation(face))
 }
 
+fn core_of(strips: &[Strip], x: f64) -> usize {
+    strips.partition_point(|strip| strip.core.high <= x)
+}
+
 fn piece(
     face: FaceId,
     mapped: &[PlanePoint<f64>],
-    segments: &[(usize, usize)],
-    strip: &Strip,
+    outline: &Outline,
+    strips: &[Strip],
+    index: usize,
 ) -> Result<Piece, TessellationError> {
     interrupt::check()?;
+    let strip = strips
+        .get(index)
+        .ok_or(TessellationError::Triangulation(face))?;
     let mut member: Vec<bool> = mapped.iter().map(|at| strip.reach.holds(at.x)).collect();
     let mut crossing = Vec::new();
-    for (index, (from, to)) in segments.iter().enumerate() {
-        if index.is_multiple_of(POLL_EVERY) {
+    let mut crossing_segments = Vec::new();
+    for (step, (from, to)) in outline.segments.iter().enumerate() {
+        if step.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
         }
         let (a, b) = (point(mapped, *from, face)?, point(mapped, *to, face)?);
         if strip.reach.overlaps(a.x, b.x) {
             crossing.push((*from, *to));
+            crossing_segments.push(step);
             for end in [*from, *to] {
                 if let Some(slot) = member.get_mut(end) {
                     *slot = true;
@@ -187,38 +309,50 @@ fn piece(
         .filter(|(_, member)| **member)
         .map(|(index, _)| index)
         .collect();
-    let built = constrained::build(face, mapped, members, &crossing, Splitting::Allowed)?;
-    let x = |vertex: usize| {
-        built
-            .members
-            .get(vertex)
-            .and_then(|member| mapped.get(*member))
-            .map(|at| at.x)
-    };
+    let helpers: Vec<PlanePoint<f64>> = outline
+        .holes
+        .iter()
+        .filter(|hole| strip.reach.holds(hole.low) && strip.reach.holds(hole.high))
+        .map(|hole| hole.centre)
+        .collect();
+    let built = constrained::build(
+        face,
+        mapped,
+        members,
+        &crossing,
+        Splitting::Allowed,
+        &helpers,
+    )?;
     let within = |fixed: FixedFaceHandle<InnerTag>| {
         built
             .cdt
             .face(fixed)
-            .vertices()
+            .positions()
             .iter()
-            .all(|vertex| x(vertex.fix().index()).is_some_and(|x| strip.reach.holds(x)))
+            .all(|at| strip.reach.holds(at.x))
     };
     let inside = inside_within(&built, mapped, &crossing, face, &within)?;
-    let mut certified = vec![false; built.cdt.num_all_faces()];
+    let mut kept = vec![false; built.cdt.num_all_faces()];
     for fixed in built.cdt.fixed_inner_faces() {
-        if let Some(slot) = certified.get_mut(fixed.index()) {
-            *slot = inside.get(fixed.index()).copied().unwrap_or(false)
-                && certifies(&built, mapped, strip, fixed);
+        let here = inside.get(fixed.index()).copied().unwrap_or(false);
+        let Some(corners) = built.corners(fixed) else {
+            if here {
+                return Err(TessellationError::Triangulation(face));
+            }
+            continue;
+        };
+        if let Some(slot) = kept.get_mut(fixed.index()) {
+            *slot = here && keeps(&built, mapped, strips, index, fixed, corners);
         }
     }
-    let is_certified =
-        |fixed: FixedFaceHandle<InnerTag>| certified.get(fixed.index()).copied().unwrap_or(false);
+    let is_kept =
+        |fixed: FixedFaceHandle<InnerTag>| kept.get(fixed.index()).copied().unwrap_or(false);
     let mut made = Piece::default();
     for (step, face_handle) in built.cdt.inner_faces().enumerate() {
         if step.is_multiple_of(POLL_EVERY) {
             interrupt::check()?;
         }
-        if !is_certified(face_handle.fix()) {
+        if !is_kept(face_handle.fix()) {
             continue;
         }
         made.triangles.push(
@@ -227,49 +361,102 @@ fn piece(
                 .ok_or(TessellationError::Triangulation(face))?,
         );
         for edge in face_handle.adjacent_edges() {
-            let [from, to] = [edge.from(), edge.to()]
-                .map(|vertex| built.members.get(vertex.fix().index()).copied());
-            let (Some(from), Some(to)) = (from, to) else {
+            let (Some(from), Some(to)) = (
+                built.member(edge.from().fix()),
+                built.member(edge.to().fix()),
+            ) else {
                 return Err(TessellationError::Triangulation(face));
             };
-            if built.cdt.is_constraint_edge(edge.fix().as_undirected()) {
-                made.covered.push((from.min(to), from.max(to)));
-            } else if !edge
-                .rev()
-                .face()
-                .as_inner()
-                .is_some_and(|neighbour| is_certified(neighbour.fix()))
+            if !built.cdt.is_constraint_edge(edge.fix().as_undirected())
+                && !edge
+                    .rev()
+                    .face()
+                    .as_inner()
+                    .is_some_and(|neighbour| is_kept(neighbour.fix()))
             {
                 made.border.push((from, to));
             }
         }
     }
+    for (segment, (from, to)) in crossing_segments.iter().zip(&crossing) {
+        let edge = built
+            .handle(*from)
+            .zip(built.handle(*to))
+            .and_then(|(from, to)| built.cdt.get_edge_from_neighbors(from, to));
+        let covers = edge.is_some_and(|edge| {
+            [edge.face(), edge.rev().face()]
+                .iter()
+                .any(|side| side.as_inner().is_some_and(|inner| is_kept(inner.fix())))
+        });
+        if covers {
+            made.covered.push(*segment);
+        }
+    }
     Ok(made)
 }
 
-fn certifies(
+fn keeps(
     built: &Built,
     mapped: &[PlanePoint<f64>],
-    strip: &Strip,
+    strips: &[Strip],
+    index: usize,
     fixed: FixedFaceHandle<InnerTag>,
+    corners: [usize; 3],
 ) -> bool {
-    let Some(corners) = built.corners(fixed) else {
+    let mut canonical = corners;
+    canonical.sort_unstable();
+    let [Some(a), Some(b), Some(c)] = canonical.map(|corner| mapped.get(corner).copied()) else {
         return false;
     };
-    let [Some(a), Some(b), Some(c)] = corners.map(|corner| mapped.get(corner).copied()) else {
+    let (Some(strip), Some(circle)) = (strips.get(index), Circle::through([a, b, c])) else {
         return false;
     };
-    if ![a, b, c].iter().all(|at| strip.owns(at.x)) {
+    if core_of(strips, circle.centre.x) != index || !circle.within(&strip.reach) {
         return false;
     }
-    let (bx, by, cx, cy) = (b.x - a.x, b.y - a.y, c.x - a.x, c.y - a.y);
-    let twice = 2.0 * (bx * cy - by * cx);
-    let (b_square, c_square) = (bx * bx + by * by, cx * cx + cy * cy);
-    let centre_x = (cy * b_square - by * c_square) / twice;
-    let centre_y = (bx * c_square - cx * b_square) / twice;
-    let radius = centre_x.hypot(centre_y);
-    let centre = a.x + centre_x;
-    radius.is_finite() && strip.reach.low < centre - radius && centre + radius < strip.reach.high
+    let settled = circle.error * 4.0 <= strip.band && strip.clear_of_cuts(circle.centre.x);
+    settled || strictly_delaunay(built, fixed)
+}
+
+fn strictly_delaunay(built: &Built, fixed: FixedFaceHandle<InnerTag>) -> bool {
+    let face = built.cdt.face(fixed);
+    let corners = face.positions();
+    face.adjacent_edges().iter().all(|edge| {
+        if built.cdt.is_constraint_edge(edge.fix().as_undirected()) {
+            return true;
+        }
+        let across = edge.rev();
+        if across.face().is_outer() {
+            return true;
+        }
+        let apex = across.next().to();
+        built.member(apex.fix()).is_some() && strictly_outside(corners, apex.position())
+    })
+}
+
+fn turning(corners: [PlanePoint<f64>; 3]) -> f64 {
+    let [a, b, c] = corners;
+    let (left, right) = ((b.x - a.x) * (c.y - a.y), (b.y - a.y) * (c.x - a.x));
+    let turn = left - right;
+    if turn.abs() > TURN_BOUND * (left.abs() + right.abs()) {
+        turn.signum()
+    } else {
+        0.0
+    }
+}
+
+fn strictly_outside(corners: [PlanePoint<f64>; 3], at: PlanePoint<f64>) -> bool {
+    let turn = turning(corners);
+    let [a, b, c] = corners.map(|corner| (corner.x - at.x, corner.y - at.y));
+    let lift = |(x, y): (f64, f64)| x * x + y * y;
+    let (bc, cb) = (b.0 * c.1, c.0 * b.1);
+    let (ca, ac) = (c.0 * a.1, a.0 * c.1);
+    let (ab, ba) = (a.0 * b.1, b.0 * a.1);
+    let determinant = lift(a) * (bc - cb) + lift(b) * (ca - ac) + lift(c) * (ab - ba);
+    let permanent = (bc.abs() + cb.abs()) * lift(a)
+        + (ca.abs() + ac.abs()) * lift(b)
+        + (ab.abs() + ba.abs()) * lift(c);
+    turn * determinant < -IN_CIRCLE_BOUND * permanent
 }
 
 fn inside_within(
@@ -288,15 +475,11 @@ fn inside_within(
         if parity.get(fixed.index()).copied().flatten().is_some() || !within(fixed) {
             continue;
         }
-        let corners = built
-            .corners(fixed)
-            .ok_or(TessellationError::Triangulation(face))?;
-        let mut centroid = PlanePoint::new(0.0, 0.0);
-        for corner in corners {
-            let at = point(mapped, corner, face)?;
-            centroid.x += at.x / 3.0;
-            centroid.y += at.y / 3.0;
-        }
+        let corners = cdt.face(fixed).positions();
+        let centroid = PlanePoint::new(
+            corners.iter().map(|at| at.x / 3.0).sum(),
+            corners.iter().map(|at| at.y / 3.0).sum(),
+        );
         let seed = encloses(mapped, crossing, centroid, face)?;
         if let Some(slot) = parity.get_mut(fixed.index()) {
             *slot = Some(seed);
@@ -332,14 +515,17 @@ fn encloses(
 fn remainder(
     face: FaceId,
     mapped: &[PlanePoint<f64>],
-    segments: &[(usize, usize)],
+    outline: &Outline,
     pieces: &[Piece],
 ) -> Result<Vec<[usize; 3]>, TessellationError> {
     interrupt::check()?;
-    let covered: BTreeSet<(usize, usize)> = pieces
-        .iter()
-        .flat_map(|piece| piece.covered.iter().copied())
-        .collect();
+    let mut covered = vec![false; outline.segments.len()];
+    for segment in pieces.iter().flat_map(|piece| piece.covered.iter()) {
+        if let Some(slot) = covered.get_mut(*segment) {
+            *slot = true;
+        }
+    }
+    let is_covered = |segment: usize| covered.get(segment).copied().unwrap_or(false);
     let mut used = vec![false; mapped.len()];
     for corner in pieces
         .iter()
@@ -349,14 +535,23 @@ fn remainder(
             *slot = true;
         }
     }
-    let mut constraints: Vec<(usize, usize)> = pieces
+    let mut borders: Vec<(usize, usize)> = pieces
         .iter()
         .flat_map(|piece| piece.border.iter().copied())
         .collect();
+    borders.sort_unstable();
+    let mut constraints: Vec<(usize, usize)> = borders
+        .iter()
+        .filter(|(from, to)| borders.binary_search(&(*to, *from)).is_err())
+        .copied()
+        .collect();
     constraints.extend(
-        segments
+        outline
+            .segments
             .iter()
-            .filter(|(from, to)| !covered.contains(&(*from.min(to), *from.max(to)))),
+            .enumerate()
+            .filter(|(segment, _)| !is_covered(*segment))
+            .map(|(_, segment)| *segment),
     );
     let mut member: Vec<bool> = used.iter().map(|used| !used).collect();
     for end in constraints.iter().flat_map(|(from, to)| [*from, *to]) {
@@ -370,13 +565,29 @@ fn remainder(
         .filter(|(_, member)| **member)
         .map(|(index, _)| index)
         .collect();
-    let built = constrained::build(face, mapped, members, &constraints, Splitting::Refused)?;
+    let helpers: Vec<PlanePoint<f64>> = outline
+        .holes
+        .iter()
+        .filter(|hole| hole.segments.clone().any(|segment| !is_covered(segment)))
+        .map(|hole| hole.centre)
+        .collect();
+    let built = constrained::build(
+        face,
+        mapped,
+        members,
+        &constraints,
+        Splitting::Refused,
+        &helpers,
+    )?;
     constrained::inside_triangles(face, &built)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, f64::consts::TAU};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        f64::consts::TAU,
+    };
 
     use super::*;
 
@@ -387,11 +598,11 @@ mod tests {
 
     struct Plate {
         mapped: Vec<PlanePoint<f64>>,
-        segments: Vec<(usize, usize)>,
+        outline: Outline,
         area: f64,
     }
 
-    fn plate(lattice: bool) -> Plate {
+    fn plate(lattice: bool, stagger: f64) -> Plate {
         let mut mapped = vec![
             PlanePoint::new(0.0, 0.0),
             PlanePoint::new(SIDE, 0.0),
@@ -406,7 +617,7 @@ mod tests {
             for column in 0..HOLES {
                 let centre = PlanePoint::new(
                     pitch * (column as f64 + 0.5),
-                    pitch * (row as f64 + 0.5) + 0.3 * column as f64,
+                    pitch * (row as f64 + 0.5) + stagger * column as f64,
                 );
                 let mut hole = Vec::new();
                 for step in 0..HOLE_POINTS {
@@ -440,8 +651,8 @@ mod tests {
             }
         }
         Plate {
+            outline: constrained::outline(&mapped, &loops),
             mapped,
-            segments: constrained::segments(&loops),
             area,
         }
     }
@@ -466,6 +677,7 @@ mod tests {
             }
         }
         let boundary: BTreeSet<(usize, usize)> = plate
+            .outline
             .segments
             .iter()
             .map(|(from, to)| (*from.min(to), *from.max(to)))
@@ -479,30 +691,37 @@ mod tests {
     #[test]
     fn a_large_face_triangulated_in_pieces_is_covered_once_without_gaps() {
         let face = FaceId::from_index(0).unwrap();
-        for lattice in [false, true] {
-            let plate = plate(lattice);
+        for (lattice, stagger) in [(false, 0.3), (true, 0.3), (false, 0.0), (true, 0.0)] {
+            let plate = plate(lattice, stagger);
 
-            let whole = constrained::whole(face, &plate.mapped, &plate.segments).unwrap();
-            let alone = triangles(face, &plate.mapped, &plate.segments, 1).unwrap();
-            let shared = triangles(face, &plate.mapped, &plate.segments, 4).unwrap();
-            let strips = strips(&plate.mapped);
-            let certified: usize = strips
-                .iter()
-                .map(|strip| {
-                    piece(face, &plate.mapped, &plate.segments, strip)
+            let whole = constrained::whole(face, &plate.mapped, &plate.outline).unwrap();
+            let alone = triangles(face, &plate.mapped, &plate.outline, 1).unwrap();
+            let shared = triangles(face, &plate.mapped, &plate.outline, 4).unwrap();
+            let strips = strips(&plate.mapped, &plate.outline);
+            let kept: Vec<[usize; 3]> = (0..strips.len())
+                .flat_map(|strip| {
+                    piece(face, &plate.mapped, &plate.outline, &strips, strip)
                         .unwrap()
                         .triangles
-                        .len()
                 })
-                .sum();
+                .collect();
+            let certified = kept.len();
+            let straddling = kept
+                .iter()
+                .filter(|corners| {
+                    let cores = corners.map(|corner| core_of(&strips, plate.mapped[corner].x));
+                    cores.iter().any(|core| *core != cores[0])
+                })
+                .count();
 
             assert!(plate.mapped.len() >= SPLIT_POINTS);
             assert!(strips.len() >= 4, "{} strips", strips.len());
             assert!(
-                certified * 3 >= whole.len() * 2,
+                certified * 10 >= whole.len() * 9,
                 "{certified} of {} triangles made in pieces",
                 whole.len()
             );
+            assert!(straddling > 0);
             let alone = alone.unwrap();
             assert_eq!(shared, Some(alone.clone()));
             assert_eq!(alone.len(), whole.len());
@@ -519,12 +738,12 @@ mod tests {
         let face = FaceId::from_index(0).unwrap();
         let square =
             [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(x, y)| PlanePoint::new(x, y));
-        let segments = constrained::segments(&[vec![0, 1, 2, 3]]);
+        let outline = constrained::outline(&square, &[vec![0, 1, 2, 3]]);
 
         assert!(allowed(SPLIT_POINTS, SPLIT_POINTS * DOMINANT_SHARE));
         assert!(!allowed(SPLIT_POINTS, SPLIT_POINTS * DOMINANT_SHARE + 1));
         assert!(!allowed(SPLIT_POINTS - 1, SPLIT_POINTS));
-        assert!(strips(&square).is_empty());
-        assert_eq!(triangles(face, &square, &segments, 4), Ok(None));
+        assert!(strips(&square, &outline).is_empty());
+        assert_eq!(triangles(face, &square, &outline, 4), Ok(None));
     }
 }

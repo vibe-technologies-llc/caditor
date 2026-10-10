@@ -40,6 +40,17 @@ paths:
   quadratically when the points lie along one curve (a cap cut in half: 18,000 boundary points took
   2 s, against 5 ms in this order). Triangles are kept by the parity of constraint crossings from
   outside.
+- Exactly cocircular points send spade's in-circle predicate down its slow exact path, and round
+  holes and the interior grid are full of them. So a helper point is inserted first at the vertex
+  centroid of every inner loop turning against the outer one that sees each of its edges from
+  that centroid (`constrained::outline`, a `Hole`): the hole's interior becomes a fan around it
+  instead of triangles among its own cocircular samples, its triangles never cross the loop's
+  constraints, so they are outside the face and dropped (any kept triangle on a helper
+  triangulates again without helpers), and no point of the face is moved. Interior grid points
+  are nudged in the mapped plane only, by a fixed `scatter` of their cell of at most a millionth
+  of a cell (`GRID_NUDGE`), so grid squares are no longer cocircular; their uv and positions are
+  untouched. On the top of a plate with 113 holes the whole triangulation fell from 11 to 3 ms,
+  and exact predicates from about a quarter of all tessellation time to under a tenth.
 - Boundary points at one vertex whose parameters differ by a spatially negligible gap are merged,
   and a pinched vertex takes the uv of its first pass, so joints do not become spikes.
 - Where two boundary polylines leave one point along the same chord (tangent curves sampled at the
@@ -62,18 +73,33 @@ paths:
   positions placed before it (`pieces::allowed`) is triangulated in pieces (`pieces.rs`), so the
   largest face no longer bounds the body's time alone. The mapped plane is cut into vertical strips
   of equal point counts (one per `POINTS_PER_PIECE`, at most `MAX_PIECES`), each triangulated on a
-  thread of its own (`parallel.rs`) from the points within its reach (its core widened by a
-  `REACH_SHARE`th of a strip's points each side) and every loop segment overlapping it. A strip
-  keeps the triangles inside the face (parity spread among its triangles within the reach, seeded
-  by a vertical ray cast against those segments) whose corners all lie in its core and whose
-  circumcircle stays within its reach: triangles of the whole face's constrained Delaunay
-  triangulation, never overlapping another strip's. One more triangulation covers the rest: the
-  points no kept triangle uses or that lie on its border, constrained by the border and the loop
-  segments no kept triangle covers. No point is added, so the face's boundary stays the one its
-  neighbours share; the decision ignores the thread count, so one thread makes the same mesh; and
-  any trouble (a remainder constraint that would split) triangulates the face whole instead. On
-  the 6,784-point top of a plate with 113 holes six strips leave a fifth of the triangles to the
-  remainder (`a_large_face_triangulated_in_pieces_is_covered_once_without_gaps`).
+  thread of its own (`parallel.rs`) from the points within its reach and every loop segment
+  overlapping it, with the helpers of the holes lying wholly within the reach. A reach widens its
+  core by about a `REACH_SHARE`th of a strip's points each side, its edge moved within
+  `SLACK_SHARE` of that to where the fewest holes straddle it, then to the widest gap between
+  points, so its edge rarely cuts a hole whose samples would meet the exact predicates.
+- A strip keeps a triangle inside the face (parity spread among its triangles within the reach,
+  seeded by a vertical ray cast against those segments) whose circumcircle stays within its reach,
+  which makes it a triangle of the whole face's constrained Delaunay triangulation, and which it
+  owns: the strip whose core holds the circumcentre, computed from the corners in index order so
+  every strip computes the same bits. Its corners may lie in several cores, so triangles across a
+  cut are kept. Triangles of one cocircular cell share a circumcentre, so one strip owns them all;
+  as computed centres differ by rounding, a centre within `BAND_SHARE` of the face's width of a cut
+  or with an error bound (`Circle::error`) over a quarter of that is kept only when strictly
+  Delaunay: every neighbour across an edge that is not a constraint has its far corner outside the
+  circle by more than the in-circle error bound, which a triangle in a cell of four or more
+  cocircular points never has. So no two strips keep overlapping or equal triangles. One more
+  triangulation covers the rest: the points no kept triangle uses or that lie on the border of
+  the kept triangles (edges two strips both border cancel), constrained by that border and the
+  loop segments no kept triangle covers, with the helpers of the holes some of whose segments it
+  holds. No point is added, so the face's boundary stays the one its neighbours share; the
+  decision ignores the thread count, so one thread makes the same mesh; and any trouble (a
+  remainder constraint that would split, a kept triangle on a helper) triangulates the face whole
+  instead. On the 6,784-point top of a plate with 113 holes six strips keep 6,686 of its 7,008
+  triangles, leaving the remainder 0.2 ms: the fans along its long straight sides, whose
+  circumcircles leave every strip, and triangles bridging between holes wider than a reach
+  (`a_large_face_triangulated_in_pieces_is_covered_once_without_gaps`, at least nine tenths kept,
+  on staggered and mirror-symmetric plates).
 - A face makes a `FacePatch` (`patch.rs`): its interior points, its vertices, each on a boundary
   position or one of its own interior points, and its triangles in its own indices. Patches are
   placed in face order, numbering positions, vertices and triangles exactly as one thread would
@@ -94,8 +120,8 @@ paths:
   chord), so an edit that changes the body's box a little (a longer extrusion) keeps the tolerance
   and every face it left alone (`a_lengthened_extrusion_reuses_the_mesh_of_the_faces_it_left_alone`);
   one crossing a step meshes every face again. `display_mesh_costs` (ignored, release) times both:
-  on 16 threads a 119-face plate takes 14.5 ms (19 ms with its top triangulated whole) against
-  76 ms on one, and 5.5 ms when one face is added.
+  on 16 threads a 119-face plate takes 9 ms (11.5 ms with its top triangulated whole) against
+  44 ms on one, and 5.3 ms when one face is added.
 
 ## Quality
 
