@@ -17,7 +17,8 @@ panel, {command:model.use_selected_axis} or Choose in the view changes it.
 - {command:model.reverse_direction} turns a one-sided or Up to face revolve the other way.
 - **Profile**: Whole, or One side keeping only the regions on one side of the axis; Keep the other
   side of the axis swaps.
-- **Start** begins at the sketch plane or another face or plane, as for [Extrude](extrude).
+- **Start** begins at the sketch plane or another face or plane, as for [Extrude](extrude); the
+  angle arrows turn from there.
 
 ## Result
 

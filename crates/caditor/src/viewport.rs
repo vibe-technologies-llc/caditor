@@ -1344,6 +1344,11 @@ impl ViewportState {
     }
 
     #[cfg(test)]
+    pub fn handle_foot(&self, handle: Handle) -> Option<Point3> {
+        self.manipulator?.foot(handle)
+    }
+
+    #[cfg(test)]
     pub fn manipulator_step(&self) -> Option<f64> {
         self.manipulator.map(|manipulator| manipulator.step())
     }

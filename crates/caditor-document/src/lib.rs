@@ -136,7 +136,7 @@ pub use crate::{
     solid::{
         AxisSide, BodyOperation, Extrude, ExtrudeEnd, ExtrudeExtent, NameIndex, RegionChoice,
         Revolve, RevolveAxis, RevolveExtent, SketchRegion, SolidFeature, SolidResult, SolidStart,
-        Wall, body_part, body_parts, profile_curve, sketch_regions,
+        Wall, body_part, body_parts, displayed_start_offset, profile_curve, sketch_regions,
     },
     split::{HalfSpaceError, Split, SplitAlong, SweptError, is_open_chain},
     thread::{

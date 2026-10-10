@@ -21,11 +21,15 @@ use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
 use crate::{
     attachment::{AttachmentError, FaceAttachment, face_plane},
-    datum::{AxisReference, PlaneReference, Resolver, capitalized, describe_axis, describe_plane},
+    datum::{
+        AxisReference, PlaneReference, Resolver, capitalized, describe_axis, describe_plane,
+        displayed_plane,
+    },
     describe::describe_origin,
     document::{Feature, FeatureId, list_names},
     recompute::{
-        CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs, SketchResult,
+        CancelToken, Evaluation, Failure, FeatureError, FeatureResult, FixTarget, Inputs,
+        SketchResult,
     },
     tolerance,
     trouble::{self, boolean_trouble},
@@ -1279,6 +1283,17 @@ fn start_plane(
             })
         }
     }
+}
+
+pub fn displayed_start_offset(
+    evaluation: &Evaluation,
+    user: FeatureId,
+    sketch_plane: &Plane,
+    target: &PlaneReference,
+) -> Option<f64> {
+    let found = displayed_plane(evaluation, user, target)?;
+    tolerance::parallel(found.normal(), sketch_plane.normal())
+        .then(|| sketch_plane.signed_distance(found.origin()))
 }
 
 fn offset_plane(

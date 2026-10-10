@@ -1,9 +1,9 @@
 use caditor_document::{
     Extrude, ExtrudeEnd, ExtrudeExtent, FeatureId, FeatureKind, ParameterValues, SolidFeature,
-    SolidStart, Transaction,
+    SolidStart, Transaction, displayed_start_offset,
 };
 use caditor_expression::{Dimension, Expression};
-use caditor_geometry::{Point3, Ray, Vector2, Vector3};
+use caditor_geometry::{Plane, Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 
 use crate::{
@@ -64,6 +64,21 @@ fn length(parameters: &ParameterValues, expression: &Expression) -> Option<f64> 
     expression
         .evaluate_as(Dimension::LENGTH, &|id| parameters.value(id))
         .ok()
+}
+
+pub fn start_offset(
+    model: &Model,
+    feature: FeatureId,
+    sketch_plane: &Plane,
+    start: Option<&SolidStart>,
+) -> Option<f64> {
+    match start {
+        None => Some(0.0),
+        Some(SolidStart::Distance(distance)) => length(model.shown_parameters(feature), distance),
+        Some(SolidStart::Plane(target)) => {
+            displayed_start_offset(model.evaluation(), feature, sketch_plane, target)
+        }
+    }
 }
 
 fn reaches(parameters: &ParameterValues, extent: &ExtrudeExtent) -> [Option<(Reach, f64, f64)>; 2] {
@@ -135,13 +150,9 @@ impl ReachHandles {
             return None;
         }
         let parameters = model.shown_parameters(feature);
-        let start = match &extrude.start {
-            None => 0.0,
-            Some(SolidStart::Distance(distance)) => length(parameters, distance)?,
-            Some(SolidStart::Plane(_)) => return None,
-        };
         let document = model.document();
         let plane = crate::scene::sketch_plane(document, model.evaluation(), extrude.sketch)?;
+        let start = start_offset(model, feature, &plane, extrude.start.as_ref())?;
         let bounds = model.sketch_bounds(document.feature(extrude.sketch)?)?;
         let normal = plane.normal();
         let base = plane.to_world(plane.to_local(bounds.center())) + normal * start;
@@ -220,6 +231,14 @@ impl ReachHandles {
         let arrow = self.arrow(reach)?;
         let (from, tip) = arrow.segment();
         Some(from.lerp(tip, GRIP_FRACTION) + arrow.direction * along)
+    }
+
+    #[cfg(test)]
+    pub fn foot(&self, handle: Handle) -> Option<Point3> {
+        let Handle::Reach(reach) = handle else {
+            return None;
+        };
+        Some(self.arrow(reach)?.end)
     }
 
     pub fn add_to(&self, batch: &mut Batch, highlighted: Option<Handle>) {

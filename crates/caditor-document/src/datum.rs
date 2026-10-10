@@ -1105,7 +1105,11 @@ pub fn displayed_frame(evaluation: &Evaluation, frame: FeatureId) -> Option<Plan
         .frame()
 }
 
-pub fn displayed_plane(evaluation: &Evaluation, reference: &PlaneReference) -> Option<Plane> {
+pub fn displayed_plane(
+    evaluation: &Evaluation,
+    user: FeatureId,
+    reference: &PlaneReference,
+) -> Option<Plane> {
     match reference {
         PlaneReference::Principal(plane) => Some(plane.plane()),
         PlaneReference::Datum(feature) => evaluation
@@ -1115,7 +1119,9 @@ pub fn displayed_plane(evaluation: &Evaluation, reference: &PlaneReference) -> O
             .datum()?
             .plane(),
         PlaneReference::Face(attachment) => {
-            let solid = evaluation.body(attachment.body)?;
+            let solid = evaluation
+                .body_seen_by(user, attachment.body)
+                .or_else(|| evaluation.body(attachment.body))?;
             attachment.resolve(solid).ok()
         }
         PlaneReference::Frame { frame, plane } => {
