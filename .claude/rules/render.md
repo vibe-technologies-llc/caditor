@@ -51,6 +51,14 @@ paths:
   is installed on the UI thread, rebuilding the `ViewportRenderer` with the current settings and
   bumping `Renderer::generation`. A `Frame` from an older generation, or drawn while the device
   is lost, is dropped by `submit`; a pick in flight polls `Failed`.
+- A pick readback is answered without the app polling for it: after `submit`, `Picking` maps the
+  readback buffer and hands the device, the submission index and a settled flag to its helper
+  thread (`pick-readback`, started on the first pick), which blocks in `Device::poll` with
+  `PollType::Wait` in `WAIT_SLICE` steps until the map callback ran, then calls the renderer's
+  `Wake` (the renderer knows nothing of winit). The wait gives up after `WAIT_LIMIT`, on a poll
+  error, or when the `Picking` is dropped (a replaced device, shutdown; its drop joins the thread, at most one slice later), and wakes either way; a
+  lost device is also woken by `DeviceLoss`. `Picking::is_answered` and `poll` still poll the device
+  themselves, which is the app's slow fallback timer (`app.md`).
 
 ## Precision
 

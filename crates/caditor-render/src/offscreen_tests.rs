@@ -30,6 +30,21 @@ const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const ROW_PITCH: u32 = 1024;
 const LINE_COLOR: Color = Color::from_rgb8(250, 20, 20);
 
+fn answered_pick(picking: &mut crate::picking::Picking, device: &wgpu::Device) -> crate::PickPoll {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let polled = picking.poll(device);
+        if polled != crate::PickPoll::Pending || Instant::now() > deadline {
+            return polled;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn no_wake() -> crate::gpu::Wake {
+    Arc::new(|| {})
+}
+
 const REQUIRE_GPU: &str = "CADITOR_REQUIRE_GPU";
 
 fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
@@ -201,12 +216,14 @@ fn render_with(
         },
         target.size(),
     );
-    queue.submit([encoder.finish()]);
-    renderer.picking().after_submit();
+    let submission = queue.submit([encoder.finish()]);
+    renderer
+        .picking()
+        .after_submit(device, &no_wake(), submission);
     readback.map_async(wgpu::MapMode::Read, .., |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
 
-    let crate::PickPoll::Ready(pick) = renderer.picking().poll(device) else {
+    let crate::PickPoll::Ready(pick) = answered_pick(renderer.picking(), device) else {
         panic!("the pick should be read back");
     };
     let pixels = readback.get_mapped_range(..).unwrap().to_vec();
@@ -1035,7 +1052,7 @@ fn reference_fills_are_picked_only_where_nothing_else_is() {
 }
 
 #[test]
-fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read_once_answered() {
+fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_wakes_the_app_and_is_read() {
     let Some((device, queue)) = gpu() else {
         return;
     };
@@ -1094,8 +1111,20 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read_once_an
     let abandoned_is_answered = renderer.picking().is_answered(&device);
     let abandoned = renderer.picking().poll(&device);
     let encoder = draw(&mut renderer);
-    queue.submit([encoder.finish()]);
-    renderer.picking().after_submit();
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&wakes);
+    let wake: crate::gpu::Wake = Arc::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+    });
+    let submission = queue.submit([encoder.finish()]);
+    renderer.picking().after_submit(&device, &wake, submission);
+    let woken = (0..5_000).any(|_| {
+        let woken = wakes.load(Ordering::SeqCst) > 0;
+        if !woken {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        woken
+    });
     let answered = (0..5_000).any(|_| {
         let answered = renderer.picking().is_answered(&device);
         if !answered {
@@ -1109,6 +1138,7 @@ fn a_pick_whose_frame_was_never_submitted_fails_and_the_next_one_is_read_once_an
     assert_eq!(pending, crate::PickPoll::Pending);
     assert!(abandoned_is_answered);
     assert_eq!(abandoned, crate::PickPoll::Failed);
+    assert!(woken);
     assert!(answered);
     assert!(matches!(read, crate::PickPoll::Ready(pick) if !pick.hits.is_empty()));
 }
@@ -2384,13 +2414,15 @@ fn a_failed_readback_replaces_the_pick_buffer_and_the_next_pick_is_read() {
             },
             Some(&frame),
         );
-        queue.submit([encoder.finish()]);
-        renderer.picking().after_submit();
+        let submission = queue.submit([encoder.finish()]);
+        renderer
+            .picking()
+            .after_submit(&device, &no_wake(), submission);
         if lose_readback {
             renderer.picking().destroy_readback();
         }
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        renderer.picking().poll(&device)
+        answered_pick(renderer.picking(), &device)
     };
 
     let failed = pick(&mut renderer, true);
@@ -3418,14 +3450,16 @@ impl<'a> Bench<'a> {
                     pixels_per_point: 1.0,
                 }),
             );
-            queue.submit([encoder.finish()]);
-            renderer.picking().after_submit();
+            let submission = queue.submit([encoder.finish()]);
+            renderer
+                .picking()
+                .after_submit(device, &no_wake(), submission);
             let submitted = Instant::now();
             device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
             let polled = Instant::now();
             if shown.pick_at.is_some() {
                 assert!(matches!(
-                    renderer.picking().poll(device),
+                    answered_pick(renderer.picking(), device),
                     crate::PickPoll::Ready(_)
                 ));
             }

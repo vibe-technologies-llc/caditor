@@ -552,11 +552,14 @@ impl Renderer {
             log::warn!("dropping a frame drawn on a graphics device that was lost");
             return;
         }
-        self.gpu
+        let submission = self
+            .gpu
             .queue
             .submit(preceding.into_iter().chain([frame.encoder.finish()]));
         self.gpu.queue.present(frame.surface_texture);
-        self.viewport.picking().after_submit();
+        self.viewport
+            .picking()
+            .after_submit(&self.gpu.device, &self.wake, submission);
     }
 
     pub fn poll_pick(&mut self) -> PickPoll {

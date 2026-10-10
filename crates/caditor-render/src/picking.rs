@@ -1,4 +1,12 @@
-use std::sync::Arc;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    thread,
+    time::{Duration, Instant},
+};
 
 use ahash::AHashMap;
 use glam::DVec2;
@@ -6,7 +14,7 @@ use parking_lot::Mutex;
 
 use crate::{
     camera::View,
-    gpu,
+    gpu::{self, Wake},
     scene::{PickHit, PickId, PickResult},
 };
 
@@ -15,6 +23,9 @@ pub const ID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
 pub const DEPTH_VALUE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Uint;
 const TEXEL_BYTES: u32 = 4;
 const MAX_PICK_RADIUS: u32 = 63;
+const WAIT_SLICE: Duration = Duration::from_millis(50);
+const WAIT_LIMIT: Duration = Duration::from_secs(5);
+const IDLE_RECHECK: Duration = Duration::from_millis(1);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PickWindow {
@@ -65,6 +76,84 @@ impl PickWindow {
 }
 
 type MapOutcome = Arc<Mutex<Option<Result<(), wgpu::BufferAsyncError>>>>;
+
+struct Awaited {
+    device: wgpu::Device,
+    submission: wgpu::SubmissionIndex,
+    settled: Arc<AtomicBool>,
+}
+
+struct Waiter {
+    jobs: Option<mpsc::Sender<Awaited>>,
+    retired: Arc<AtomicBool>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl Waiter {
+    fn start(wake: Wake) -> std::io::Result<Self> {
+        let (jobs, receiver) = mpsc::channel::<Awaited>();
+        let retired = Arc::new(AtomicBool::new(false));
+        let stop = Arc::clone(&retired);
+        let thread = thread::Builder::new()
+            .name("pick-readback".into())
+            .spawn(move || {
+                while let Ok(awaited) = receiver.recv() {
+                    if stop.load(Ordering::Acquire) {
+                        return;
+                    }
+                    awaited.wait(&stop);
+                    wake();
+                }
+            })?;
+        Ok(Self {
+            jobs: Some(jobs),
+            retired,
+            thread: Some(thread),
+        })
+    }
+
+    fn watch(&self, awaited: Awaited) {
+        let sent = self.jobs.as_ref().map(|jobs| jobs.send(awaited));
+        if !matches!(sent, Some(Ok(()))) {
+            log::warn!("the pick readback thread ended; picks are checked on a timer instead");
+        }
+    }
+}
+
+impl Drop for Waiter {
+    fn drop(&mut self) {
+        self.retired.store(true, Ordering::Release);
+        self.jobs = None;
+        if let Some(thread) = self.thread.take()
+            && thread.join().is_err()
+        {
+            log::warn!("the pick readback thread panicked");
+        }
+    }
+}
+
+impl Awaited {
+    fn wait(&self, retired: &AtomicBool) {
+        let deadline = Instant::now() + WAIT_LIMIT;
+        while !self.settled.load(Ordering::Acquire)
+            && !retired.load(Ordering::Acquire)
+            && Instant::now() < deadline
+        {
+            let polled = self.device.poll(wgpu::PollType::Wait {
+                submission_index: Some(self.submission.clone()),
+                timeout: Some(WAIT_SLICE),
+            });
+            match polled {
+                Ok(_) => thread::sleep(IDLE_RECHECK),
+                Err(wgpu::PollError::Timeout) => {}
+                Err(error) => {
+                    log::warn!("could not wait for the pick readback: {error}");
+                    return;
+                }
+            }
+        }
+    }
+}
 
 enum Stage {
     Encoded,
@@ -148,6 +237,7 @@ pub struct Picking {
     readback_failed: bool,
     refused: bool,
     in_flight: Option<InFlight>,
+    waiter: Option<Waiter>,
 }
 
 impl Picking {
@@ -159,6 +249,7 @@ impl Picking {
             readback_failed: false,
             refused: false,
             in_flight: None,
+            waiter: None,
         }
     }
 
@@ -236,7 +327,12 @@ impl Picking {
         }
     }
 
-    pub fn after_submit(&mut self) {
+    pub fn after_submit(
+        &mut self,
+        device: &wgpu::Device,
+        wake: &Wake,
+        submission: wgpu::SubmissionIndex,
+    ) {
         let Some(in_flight) = self.in_flight.as_mut() else {
             return;
         };
@@ -245,12 +341,36 @@ impl Picking {
         }
         let outcome = MapOutcome::default();
         let sink = Arc::clone(&outcome);
+        let settled = Arc::new(AtomicBool::new(false));
+        let signal = Arc::clone(&settled);
         self.resources
             .readback
             .map_async(wgpu::MapMode::Read, .., move |result| {
                 *sink.lock() = Some(result);
+                signal.store(true, Ordering::Release);
             });
         in_flight.stage = Stage::Mapping(outcome);
+        let awaited = Awaited {
+            device: device.clone(),
+            submission,
+            settled,
+        };
+        self.watch(awaited, wake);
+    }
+
+    fn watch(&mut self, awaited: Awaited, wake: &Wake) {
+        if self.waiter.is_none() {
+            match Waiter::start(Arc::clone(wake)) {
+                Ok(waiter) => self.waiter = Some(waiter),
+                Err(error) => {
+                    log::warn!("could not start the pick readback thread: {error}");
+                    return;
+                }
+            }
+        }
+        if let Some(waiter) = &self.waiter {
+            waiter.watch(awaited);
+        }
     }
 
     pub fn is_answered(&self, device: &wgpu::Device) -> bool {

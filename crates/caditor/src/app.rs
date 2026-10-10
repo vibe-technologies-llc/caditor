@@ -132,7 +132,7 @@ const MAX_RETRY: Duration = Duration::from_secs(1);
 const MAX_RETRY_DOUBLINGS: u32 = 6;
 const HIDDEN_PROBE: Duration = Duration::from_secs(5);
 const LAYOUT_SAVE_DELAY: Duration = Duration::from_secs(1);
-const PICK_CHECK: Duration = Duration::from_millis(1);
+const PICK_FALLBACK: Duration = Duration::from_millis(250);
 const SETTINGS_FLUSH: Duration = Duration::from_secs(2);
 const NO_TIP: &str = "No tip is shown";
 const GIVE_UP_AFTER_FAILED_FRAMES: u32 = 5;
@@ -1726,7 +1726,7 @@ impl Session {
             self.pick_check = None;
             self.request_redraw();
         } else {
-            self.pick_check = now.checked_add(PICK_CHECK);
+            self.pick_check = now.checked_add(PICK_FALLBACK);
         }
     }
 
@@ -1945,7 +1945,7 @@ impl Session {
         let repaint_now = changed || repaint_after.is_some_and(|delay| delay.is_zero());
         let drawn = wait.is_none();
         self.pick_check = (drawn && self.renderer.is_pick_pending())
-            .then(|| now.checked_add(PICK_CHECK))
+            .then(|| now.checked_add(PICK_FALLBACK))
             .flatten();
         self.next_repaint = None;
         if let Some(wait) = wait {

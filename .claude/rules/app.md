@@ -135,9 +135,10 @@ paths:
 ## Redraws and frame pacing
 
 - caditor draws only when something asks (input, a worker's wake, egui's repaint request, or a
-  frame that must follow: an action, a camera animation). A pick in flight is checked every
-  `PICK_CHECK` from `about_to_wait` (`Renderer::is_pick_answered`) and a frame follows once it is
-  answered; an exported image's tiles advance on the wake its writer sends for each buffer it
+  frame that must follow: an action, a camera animation). A pick in flight wakes the app when
+  the device has answered it (the renderer's helper thread, below), and a frame follows; as a
+  fallback it is also checked every `PICK_FALLBACK` from `about_to_wait`
+  (`Renderer::is_pick_answered`), so a pick never waits on the helper alone; an exported image's tiles advance on the wake its writer sends for each buffer it
   returns. Neither draws frames while it waits. While the renderer is uploading meshes
   (`Renderer::is_uploading`) a frame follows each frame, the interface shows it (`app-look.md`), and the frame that sees the uploads
   finished asks for a pick again (`ViewportState::pick_again`), since picks made meanwhile could

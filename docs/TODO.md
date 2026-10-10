@@ -385,8 +385,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   whole 3D pass again. Keeping the resolved view in a surface-sized texture and copying it while
   the scene generation, view, rect, graphics settings and picks are unchanged would save the GPU
   that work.
-- [low · medium] A pick in flight is polled every millisecond (`PICK_CHECK`, `app.rs`) until it is
-  answered. A helper thread blocking on the device could wake the app instead.
 - [low · medium] GPU records are wider than needed. Mesh vertices are 28 B, where a normal packed
   into 16-bit values would give 20 to 24 B. Silhouette records are 60 B, and two 16-bit values per
   normal would give 48 B. Line, marker and fill records carry an `f32x4` colour that `Unorm8x4`
