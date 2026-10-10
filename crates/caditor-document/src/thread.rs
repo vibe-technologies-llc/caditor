@@ -122,6 +122,7 @@ pub struct PlacedThread {
     pub body: FeatureId,
     pub designation: String,
     pub side: ThreadSide,
+    pub pitch: f64,
     pub placement: ThreadPlacement,
 }
 
@@ -554,6 +555,7 @@ fn place_thread(
             body: *body,
             designation: evaluated.designation.clone(),
             side: bore.side,
+            pitch: thread.size.pitch(),
             placement: bore.placement(
                 evaluated.depth,
                 thread.reversed,
@@ -623,6 +625,7 @@ fn hole_threads(
                 body: *body,
                 designation: text.clone(),
                 side: bore.side,
+                pitch: designation.size.pitch(),
                 placement: bore.placement(depth, false, designation.size.drawn_diameter(bore.side)),
             });
         }

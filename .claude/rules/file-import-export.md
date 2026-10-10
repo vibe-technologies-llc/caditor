@@ -226,11 +226,24 @@ paths:
   `partnumber` when there is one body, glTF as `asset.extras` (`title`, `partNumber`, `revision`,
   `author`, `organisation`, `description`), OBJ as `# <Label>: <value>` lines after its header.
   STL has nowhere to put them.
-- `ExportBody::threads` (`ExportThread`: designation, start, direction, length; the app fills it
-  from `placed_threads` for the body) carry cosmetic threads where the format has room: STEP as a
-  thread property of the body's part (`step-write.md`), glTF as the node's `extras.threads` (the
-  designations), OBJ as a `# Thread: <designation>` line after the object's `o` line. STL and 3MF
-  carry none: 3MF would need metadata in a namespace of our own on each object.
+- `ExportBody::threads` (`ExportThread`: designation, side, pitch, start, direction, length; the
+  app fills it from `placed_threads` for the body) carry cosmetic threads where the format has
+  room: STEP as a thread property of the body's part (`step-write.md`), glTF as the node's
+  `extras.threads` (the designations), OBJ as a `# Thread: <designation>` line after the object's
+  `o` line, 3MF as object metadata (below). STL carries none.
+- 3MF threads are one `metadatagroup` first in the body's `object` (before its `mesh`), holding for
+  thread n (from 1) six `metadata` entries with `preserve="1"`, named
+  `caditor:thread.<n>.<field>`: `designation` (the notation text), `side` (`internal` or
+  `external`), `pitch` and `length` (millimetres), `start` and `direction` (three space-separated
+  numbers in the object's own coordinates, which are the model's, the vertices being written
+  untransformed; the direction runs along the thread's axis from its start). Values use the
+  coordinate format of the mesh. The `caditor` prefix is declared on the `model` element as
+  `xmlns:caditor="urn:caditor:3mf"` only when some body has a thread, and is not listed in
+  `requiredextensions`, so consumers that do not know it ignore the entries; a model without
+  threads is written exactly as before. The namespace URI is a URN of our own because the project
+  publishes no site or maintainer identity to base an `http` one on. It is `CADITOR_NAMESPACE` and
+  never changes once files carry it, whatever the entries grow into: new fields are new names in
+  it, a changed meaning a new name, never a new URI.
 - Saved atomically like a model. Cancellation is checked between bodies and before writing;
   failures are sentences naming the body. A body that cannot be meshed or written (a panic
   included) is left out and returned in `Exported::left_out` (the app says so in a notice that

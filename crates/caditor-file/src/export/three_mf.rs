@@ -3,10 +3,10 @@ use std::{
     io::{Seek, Write},
 };
 
-use caditor_document::{CancelToken, ModelProperties, ModelProperty};
+use caditor_document::{CancelToken, ModelProperties, ModelProperty, ThreadSide};
 
 use super::{
-    APPLICATION, ExportError, Look, MeshBody, exported_properties,
+    APPLICATION, ExportError, ExportThread, Look, MeshBody, exported_properties,
     zip::{Deflating, ZipWriter},
 };
 
@@ -40,9 +40,13 @@ const RELATIONSHIPS_END: &str = "</Relationships>";
 
 const CORE_NAMESPACE: &str = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02";
 
+pub(super) const CADITOR_NAMESPACE: &str = "urn:caditor:3mf";
+const CADITOR_PREFIX: &str = "caditor";
+
 const FIXED_MODEL_TEXT: u64 = 4096;
 const ESCAPED_BYTES: u64 = 6;
 const OBJECT_TEXT: u64 = 256;
+const THREAD_TEXT: u64 = 1024;
 const VERTEX_TEXT: u64 = 24;
 const TRIANGLE_TEXT: u64 = 60;
 
@@ -139,6 +143,12 @@ fn model_size_bound(bodies: &[MeshBody<'_>], properties: &ModelProperties) -> u6
             .saturating_mul(2)
             .saturating_add(body.look.and_then(|look| look.material).map_or(0, escaped))
             .saturating_add(escaped(&properties.part_number))
+            .saturating_add(
+                body.threads
+                    .iter()
+                    .map(|thread| escaped(&thread.designation).saturating_add(THREAD_TEXT))
+                    .fold(0, u64::saturating_add),
+            )
             .saturating_add(OBJECT_TEXT);
         let mesh = (body.positions.len() as u64)
             .saturating_mul(vertex)
@@ -192,7 +202,14 @@ fn write_resources_start(
 ) -> fmt::Result {
     write!(
         xml,
-        r#"<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="{CORE_NAMESPACE}"><metadata name="Application">{APPLICATION}</metadata>"#
+        r#"<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="{CORE_NAMESPACE}""#
+    )?;
+    if bodies.iter().any(|body| !body.threads.is_empty()) {
+        write!(xml, r#" xmlns:{CADITOR_PREFIX}="{CADITOR_NAMESPACE}""#)?;
+    }
+    write!(
+        xml,
+        r#"><metadata name="Application">{APPLICATION}</metadata>"#
     )?;
     for (property, value) in exported_properties(properties) {
         if let Some(name) = metadata_name(property) {
@@ -239,7 +256,9 @@ fn write_object(
     if let Some(look) = look {
         write!(xml, r#" pid="{materials}" pindex="{look}""#)?;
     }
-    xml.write_str("><mesh><vertices>")?;
+    xml.write_char('>')?;
+    write_threads(xml, body.threads)?;
+    xml.write_str("<mesh><vertices>")?;
     for position in &body.positions {
         write!(
             xml,
@@ -254,6 +273,35 @@ fn write_object(
         write!(xml, r#"<triangle v1="{a}" v2="{b}" v3="{c}"/>"#)?;
     }
     xml.write_str("</triangles></mesh></object>")
+}
+
+fn write_threads(xml: &mut impl fmt::Write, threads: &[ExportThread]) -> fmt::Result {
+    if threads.is_empty() {
+        return Ok(());
+    }
+    xml.write_str("<metadatagroup>")?;
+    for (index, thread) in threads.iter().enumerate() {
+        let number = index + 1;
+        let side = match thread.side {
+            ThreadSide::Internal => "internal",
+            ThreadSide::External => "external",
+        };
+        let entries: [(&str, &dyn fmt::Display); 6] = [
+            ("designation", &Escaped(&thread.designation)),
+            ("side", &side),
+            ("pitch", &Coordinate(thread.pitch)),
+            ("length", &Coordinate(thread.length)),
+            ("start", &Triple(thread.start.to_array())),
+            ("direction", &Triple(thread.direction.to_array())),
+        ];
+        for (field, value) in entries {
+            write!(
+                xml,
+                r#"<metadata name="{CADITOR_PREFIX}:thread.{number}.{field}" preserve="1">{value}</metadata>"#
+            )?;
+        }
+    }
+    xml.write_str("</metadatagroup>")
 }
 
 fn write_build(
@@ -297,6 +345,21 @@ impl fmt::Display for Coordinate {
             "-0" | "" => formatter.write_str("0"),
             trimmed => formatter.write_str(trimmed),
         }
+    }
+}
+
+struct Triple([f64; 3]);
+
+impl fmt::Display for Triple {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let [x, y, z] = self.0;
+        write!(
+            formatter,
+            "{} {} {}",
+            Coordinate(x),
+            Coordinate(y),
+            Coordinate(z)
+        )
     }
 }
 

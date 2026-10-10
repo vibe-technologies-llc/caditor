@@ -24,7 +24,7 @@ use std::{
     time::SystemTime,
 };
 
-use caditor_document::{CancelToken, ModelProperties, ModelProperty, Rgb};
+use caditor_document::{CancelToken, ModelProperties, ModelProperty, Rgb, ThreadSide};
 use caditor_geometry::{Aabb, Point3, Vector3};
 use caditor_kernel::{FaceId, Mesh, SamplingTolerance, Solid, TessellationError, interruptible};
 use caditor_sketch::Sketch;
@@ -451,6 +451,8 @@ pub struct ExportFace {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExportThread {
     pub designation: String,
+    pub side: ThreadSide,
+    pub pitch: f64,
     pub start: Point3,
     pub direction: Vector3,
     pub length: f64,
