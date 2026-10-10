@@ -167,6 +167,22 @@ impl DimensionValues {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DetachedConstraint {
+    pub(crate) constraint: Constraint,
+    active: bool,
+    label: Option<Vector2>,
+}
+
+impl DetachedConstraint {
+    pub(crate) fn with_entity_replaced(self, from: EntityId, to: EntityId) -> Self {
+        Self {
+            constraint: self.constraint.with_entity_replaced(from, to),
+            ..self
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Sketch {
     plane: Plane,
     entities: BTreeMap<EntityId, Entity>,
@@ -1273,6 +1289,35 @@ impl Sketch {
         self.labels.remove(&id);
         self.count_uses(&removed.entities(), false);
         Ok(removed)
+    }
+
+    pub(crate) fn detach_constraint(
+        &mut self,
+        id: ConstraintId,
+    ) -> Result<DetachedConstraint, SketchError> {
+        let active = self.is_active(id);
+        let label = self.label_offset(id);
+        let constraint = self.remove_constraint(id)?;
+        Ok(DetachedConstraint {
+            constraint,
+            active,
+            label,
+        })
+    }
+
+    pub(crate) fn attach_constraint(
+        &mut self,
+        id: ConstraintId,
+        detached: DetachedConstraint,
+    ) -> Result<(), SketchError> {
+        self.insert_constraint(id, detached.constraint)?;
+        if !detached.active {
+            self.set_active(id, false)?;
+        }
+        if detached.label.is_some() {
+            self.set_label_offset(id, detached.label)?;
+        }
+        Ok(())
     }
 
     fn count_uses(&mut self, used: &[EntityId], add: bool) {

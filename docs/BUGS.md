@@ -131,11 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Sketching
 
-- [medium · easy] Filleting or chamfering a corner held by two coincident points turns a disabled
-  dimension back on: `merge_point` removes each constraint on the discarded point and inserts it on
-  the kept one, while `remove_constraint` clears the inactive flag and the label offset and the
-  insert restores neither, so the solver enforces a value the user had switched off. Keep both
-  across the move, and pin a disabled distance on the second corner point.
 - [medium · hard] Offset keeps one offset curve per original, so an offset that would drop a curve
   is refused: a 30×20 rounded rectangle (2 mm tangent corner arcs) offset inward by 2 mm or more is
   `Collapses` on its first arc, where an arc shrinking to nothing should leave a sharp corner and

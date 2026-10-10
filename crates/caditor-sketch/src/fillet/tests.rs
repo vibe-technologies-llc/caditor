@@ -1,5 +1,5 @@
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
-use caditor_geometry::{Plane, Point2};
+use caditor_geometry::{Plane, Point2, Vector2};
 
 use crate::{
     ChamferSize, Constraint, ConstraintId, Dimensioned, Entity, EntityId, FilletError, Pick,
@@ -962,4 +962,91 @@ fn curves_that_never_meet_or_cannot_move_are_refused_in_words() {
         sketch.join_at_crossing([pick(first, 5.0, 0.0), pick(first, 6.0, 0.0)]),
         Err(FilletError::SameCurve { .. })
     ));
+}
+
+const PLACED_LABEL: Vector2 = Vector2::new(3.0, -7.0);
+
+struct DisabledOnSecondPoint {
+    sketch: Sketch,
+    corner: crate::Corner,
+    dimension: ConstraintId,
+    far: EntityId,
+}
+
+fn disabled_on_second_point() -> DisabledOnSecondPoint {
+    let mut sketch = Sketch::new(Plane::XY);
+
+    let first = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+    let second = sketch.add_line(Point2::new(40.0, 0.0), Point2::new(40.0, 20.0));
+    let far = sketch.add_point(Point2::new(60.0, 0.0));
+    let (_, first_end) = ends(&sketch, first);
+    let (second_start, _) = ends(&sketch, second);
+    sketch
+        .add_constraint(Constraint::Coincident(first_end, second_start))
+        .unwrap();
+    let dimension = sketch
+        .add_constraint(Constraint::Distance {
+            from: second_start,
+            to: far,
+            value: mm(20.0),
+        })
+        .unwrap();
+    sketch.set_active(dimension, false).unwrap();
+    sketch
+        .set_label_offset(dimension, Some(PLACED_LABEL))
+        .unwrap();
+    let corner = sketch.corner_between(first, second).unwrap();
+
+    DisabledOnSecondPoint {
+        sketch,
+        corner,
+        dimension,
+        far,
+    }
+}
+
+fn distance_to(sketch: &Sketch, far: EntityId) -> ConstraintId {
+    let found: Vec<ConstraintId> = sketch
+        .constraints()
+        .filter(
+            |(_, constraint)| matches!(constraint, Constraint::Distance { to, .. } if *to == far),
+        )
+        .map(|(id, _)| id)
+        .collect();
+    assert_eq!(found.len(), 1);
+    found[0]
+}
+
+#[test]
+fn a_disabled_dimension_on_the_second_corner_point_stays_disabled_and_placed_when_filleted() {
+    let DisabledOnSecondPoint {
+        mut sketch,
+        corner,
+        dimension,
+        far,
+    } = disabled_on_second_point();
+
+    sketch.fillet(&corner, 5.0, mm(5.0)).unwrap();
+
+    let moved = distance_to(&sketch, far);
+    assert_eq!(moved, dimension);
+    assert!(!sketch.is_active(moved));
+    assert_eq!(sketch.label_offset(moved), Some(PLACED_LABEL));
+}
+
+#[test]
+fn a_disabled_dimension_on_the_second_corner_point_stays_disabled_and_placed_when_chamfered() {
+    let DisabledOnSecondPoint {
+        mut sketch,
+        corner,
+        dimension,
+        far,
+    } = disabled_on_second_point();
+
+    sketch.chamfer(&corner, &equal(5.0)).unwrap();
+
+    let moved = distance_to(&sketch, far);
+    assert_eq!(moved, dimension);
+    assert!(!sketch.is_active(moved));
+    assert_eq!(sketch.label_offset(moved), Some(PLACED_LABEL));
 }
