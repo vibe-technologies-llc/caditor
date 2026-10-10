@@ -7,7 +7,7 @@ use crate::{
     culling::{ClipWindow, placed_corners},
     gpu::{self, Bytes, Pack},
     mesh::{Corner, Placed, PlacedAt, ShadedMesh, UploadBudget},
-    scene::{Color, Layer, Primitive},
+    scene::Color,
 };
 
 const SILHOUETTE_BYTES: usize = 48;
@@ -239,7 +239,7 @@ impl GpuSilhouette {
         bytes
             .vec4(placed.offset, silhouette.width)
             .floats(&silhouette.color.to_array())
-            .vec4(turn_x, Layer::Model.depth_bias(Primitive::Line))
+            .vec4(turn_x, 0.0)
             .vec4(turn_y, if silhouette.dashed { 1.0 } else { 0.0 })
             .vec4(turn_z, 0.0);
         queue.write_buffer(&self.uniform, 0, bytes.as_slice());

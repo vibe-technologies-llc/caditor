@@ -16,7 +16,7 @@ paths:
 - `begin_frame` reconfigures the surface when the size differs or it is outdated, draws the
   viewport and returns `FrameStart::Ready` with a `Frame` whose encoder the app draws the UI into;
   `submit` presents it.
-- The 3D pass resolves into a surface-sized texture of the scene targets (`kept.rs`, `KeptView`)
+- The 3D pass resolves into a texture of the scene targets (`kept.rs`, `KeptView`)
   that one full-screen triangle (`ViewCopy`, `kept.wgsl`, an exact `textureLoad` of each pixel)
   copies onto the surface every frame, so an egui-only repaint (a tooltip, hover over a panel, a
   spinner tick) copies the last view instead of drawing it again. The renderer decides alone,
@@ -32,6 +32,13 @@ paths:
   leaves a stale view claimed. The pick pass is drawn whenever asked, copied frame or not
   (offscreen test). The surface is configured for `RENDER_ATTACHMENT` alone, so the copy is a
   draw rather than `copy_texture_to_texture`, which would need `COPY_DST` on the surface.
+- Scene targets (multisampled colour, depth and the kept view, which must match each other for the
+  resolve) are made with each side rounded up to `TARGET_SIDE_STEP` (256 px, within the largest
+  texture side) and kept while the surface fits in them and they exceed its rounded size by at most
+  one step (`TargetSize::holds`), so an interactive resize makes new ones every 256 px rather than
+  every pixel. The pass draws within the surface's rect, the resolve fills the kept view of the
+  same size and the copy reads the surface's pixels from its top left, so the larger targets need
+  no resolve pass of their own.
 - `Hidden` (occluded) makes the app stop drawing until the window is shown again or a probe timer
   fires, so a hidden Wayland window does not block the UI thread on the acquire timeout every
   frame. `Skipped` (timeout, outdated or lost surface) is a retry, never a reason to stop.
@@ -188,17 +195,34 @@ paths:
   to under a quarter by one fitting that upload the same way, so the band between keeps it.
 - Vertex, index and silhouette records are packed one fixed-size `gpu::record` at a time straight
   into wgpu's staging memory (`gpu::write_records` over `Queue::write_buffer_with`), so no CPU copy
-  of a batch or mesh outlives its upload; the `Bytes` staging left for uniforms and face styles
+  of a batch or mesh outlives its upload (a batch's lines keep only a list of references and the
+  strips' ranges while they upload); the `Bytes` staging left for uniforms and face styles
   drops any capacity past 64 KiB when cleared. Replacing the frame-cost benchmark's batch every
   frame costs about 2.8 ms instead of 7.9.
 - Records are as narrow as the shaders allow: a mesh vertex is 20 bytes (`MESH_VERTEX_STRIDE`:
-  position, normal, face), a silhouette 48, a line 48, a marker 32 and a fill vertex 28. Normals are
+  position, normal, face), a silhouette 48, a line point 24, a marker 28 and a fill vertex 24.
+  Every layer's depth biases are WGSL constants chosen from the layer bits of the flags
+  (`line_depth_bias`, `marker_depth_bias`, `fill_depth_bias`), so no record repeats them. Normals are
   octahedral `Snorm16x2` (`Pack::octahedral`, `unfolded` in the shader), back within 0.01°; a zero
   or non-finite normal, which tessellation gives at a degenerate point and `facing_normal` replaces
   by the eye direction, is kept as the corner code (-1, -1) the shader reads as zero, and normals
   within about 0.02° of -Z that would land beside that code take the opposite corner instead.
   Colours are `Unorm8x4` (`Pack::unorm8x4`, rounded): palettes are 8-bit sRGB and every pass draws
   them unconverted on an 8-bit view, so an 8-bit colour reaches the target exactly as before.
+- A batch's lines upload as points, not segments (`lines.rs`, `LineStrips`): consecutive lines of
+  one style (colour, width, layer and stroke flags, and stroke kind) where one ends at the next
+  one's start form a strip sharing its inner points, and a strip of three or more whose last end
+  meets its first start is closed. A point record holds the position, the distance along, the pick
+  id and a word of the style index with two bits: `DRAWN` (a segment starts here) and `LINKED`
+  (a segment of the strip, drawn or not, starts here). Each instance reads four consecutive points
+  through the one buffer bound at four offsets (`LINE_POINT_SLOTS`: previous, start, end, next),
+  so it knows its neighbours, and an instance whose start is not `DRAWN` collapses. Between a
+  padding point at each end of the buffer, an open strip of n segments costs n + 1 points, a closed
+  one n + 3 (its last segment's start before it and its second point after it, both undrawn, so
+  the closing joint has neighbours on both sides), and a lone segment two, 48 bytes as before.
+  Styles (colour, width, flags) sit in a small `Rgba32Uint` texture per batch (`LineStyles`, laid
+  out by `StyleLayout` like face styles, bound as group 1 for the line pipelines); a batch with
+  more styles than the texture can hold draws only the lines before the first that does not fit.
 - A batch uploads its fills once, ordered pickable reference fills, then the other pickable fills,
   then the rest, each group in batch order (`FillGroups`): the pick pass draws the first two
   groups as one range each of the colour pass's buffer, and the colour pass's spans keep batch
@@ -219,7 +243,8 @@ paths:
   record holds the distance along for the hidden dashes), and its own record is drawn again after
   every batch's lines with a depth test of `Less` and no depth write (`hidden_lines` pipeline,
   `vs_hidden_line`, always dashed), so the dashes show only where a nearer face covers it. The
-  batch keeps the runs of its shown lines so stroked (`hidden_runs`), one draw each, so the scene
+  batch keeps the instance runs of its shown strips so stroked (`LineStrips::hidden_runs`, a run
+  reaching over the undrawn points between such strips), one draw each, so the scene
   holds no second copy of a line, and the pick pass never draws the hidden part (offscreen test,
   and pixel for pixel the look of the copies it replaced).
 - `Layer::Front` draws over everything whatever its depth, in view and picking alike (the app
@@ -318,16 +343,29 @@ paths:
   `fill_light.w`): each quad reaches `STROKE_FRINGE_PIXELS` beyond its edges and `fs_line` turns the
   distance from the segment, carried in screen space (the `stroke` varying times `w`, divided
   back per fragment), into coverage, so lines are smooth at every multisampling level, Off
-  included, at the same width. An opaque line also reaches half its width past each end and
-  rounds it, which closes the notches where a polyline's segments meet; a translucent one keeps
-  square ends, since overlapping caps would blend twice at every joint. The pick pass
+  included, at the same width. An opaque line also reaches half its width past an end and rounds
+  it; a translucent one keeps square ends where its strip ends. Where a segment joins its strip's
+  neighbour (the joint and both far ends ahead of the near plane, neither segment of no length on
+  screen; colour pass only, `line_joins`), its quad reaches its full half-width past the joint and
+  carries the neighbour's far end in its own frame (the `joints` varying), and `fs_line` gives each
+  pixel both strokes cover to one of them alone, by its side of the joint's bisector
+  (`neighbour_owns`, the outgoing segment taking ties). The two meet in a round join, the shape
+  opaque lines' overlapping caps made, with no notch and no pixel blended twice, translucent or not
+  (offscreen tests, with a fold back and a closed triangle, at 1x and 4x). Round rather than mitred
+  joins keep translucent and opaque polylines alike, so a hover that changes alpha never reshapes a
+  corner, and need no miter limit, since a fold back is split along its bisector too. The pick pass
   (`Strokes::Bare`) draws the bare quads as before, so pick reach is unchanged.
 - `Stroke::Dashed` carries the distance along the curve at its start, so dashes
-  (`DASH_PERIOD_POINTS`) run on across a polyline's segments at any zoom and interface size. The
+  (`DASH_PERIOD_POINTS`) run on across a polyline's segments and its joints at any zoom and
+  interface size: a translucent dashed line cut into collinear pieces draws as the whole line
+  (offscreen test). Each corner's distance in points is led by `DASH_LEAD_POINTS`, a whole number
+  of periods, so the clamp keeping it from going negative (a negative one reads as solid) never
+  bends the pattern at a segment that starts at distance 0. The
   pick pass draws dashed lines whole, so a gap still picks its curve.
 - A marker or line whose colour has no alpha draws nothing but is still picked, so pickable points
   and edges can stay invisible until hovered or selected. Such ones are uploaded after the drawn
-  ones of their batch (`shown_first`, order kept within each) and the colour pass draws only the
+  ones of their batch (`shown_first`, and for lines `LineStrips`, whose strips never join the two,
+  order kept within each) and the colour pass draws only the
   drawn ones, so body vertices and the edges of a style without them cost the colour pass nothing.
 - Markers at one place in one layer have equal depths, which `GreaterEqual` passes, so they draw in
   batch order: a smaller unpicked marker after a larger one makes a ring that still picks whole
