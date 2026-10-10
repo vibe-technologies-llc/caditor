@@ -2,7 +2,10 @@ use std::f64::consts::{FRAC_PI_2, PI};
 
 use caditor_geometry::{Plane, Point2, Point3, RigidTransform, Rotation3, Vector2, Vector3};
 
-use super::*;
+use super::{
+    collapse::{coedge_faces, loop_edges},
+    *,
+};
 use crate::{
     blend::{BlendShape, blend},
     build::{AngularExtent, Axis2, LinearExtent, extrude, revolve},
@@ -222,6 +225,15 @@ fn opened_faces_move_outward_so_the_body_only_needs_room_across_its_walls() {
 }
 
 fn convex_volume(planes: &[(Vector3, f64)]) -> f64 {
+    let (centre, areas) = convex_facets(planes);
+    planes
+        .iter()
+        .zip(areas)
+        .map(|((normal, offset), area)| area * (offset - normal.dot(centre)) / 3.0)
+        .sum()
+}
+
+fn convex_facets(planes: &[(Vector3, f64)]) -> (Point3, Vec<f64>) {
     let mut corners: Vec<Point3> = Vec::new();
     for (i, a) in planes.iter().enumerate() {
         for (j, b) in planes.iter().enumerate().skip(i + 1) {
@@ -243,7 +255,7 @@ fn convex_volume(planes: &[(Vector3, f64)]) -> f64 {
     }
     let centre =
         corners.iter().fold(Point3::ZERO, |sum, point| sum + *point) / corners.len() as f64;
-    planes
+    let areas = planes
         .iter()
         .map(|(normal, offset)| {
             let mut on: Vec<Point3> = corners
@@ -264,9 +276,10 @@ fn convex_volume(planes: &[(Vector3, f64)]) -> f64 {
             let area: Vector3 = (0..on.len())
                 .map(|index| (on[index] - middle).cross(on[(index + 1) % on.len()] - middle) / 2.0)
                 .sum();
-            area.length() * (offset - normal.dot(centre)) / 3.0
+            area.length()
         })
-        .sum()
+        .collect();
+    (centre, areas)
 }
 
 fn bevelled_planes(size: Vector3, chamfer: f64) -> Vec<(Vector3, f64)> {
@@ -1131,4 +1144,93 @@ fn walls_name_a_few_faces_and_not_a_whole_body() {
     assert!(ShellError::walls_at(faces[..NAMED_WALL_FACES].iter().copied()).names_the_cause());
     assert!(!ShellError::walls_at(faces).names_the_cause());
     assert!(!ShellError::walls_at([]).names_the_cause());
+}
+
+fn seam_split_rim() -> Solid {
+    let drum = cylinder(5.0, 9.0);
+    let turn = RigidTransform::rotation_about(Point3::ZERO, Vector3::Z, PI / 4.0).unwrap();
+    let lift = RigidTransform::translation(Vector3::new(0.0, 0.0, 9.0)).unwrap();
+    let cap = frustum(5.0, 4.0, 1.0)
+        .transformed(&turn)
+        .unwrap()
+        .transformed(&lift)
+        .unwrap();
+    boolean(&drum, &cap, BooleanOperation::Union).unwrap()
+}
+
+#[test]
+fn a_rim_split_by_a_seam_closes_up_where_the_walls_meet() {
+    let solid = seam_split_rim();
+    let cone_face = solid
+        .faces()
+        .find(|(_, face)| matches!(face.surface(), Surface::Cone(_)))
+        .map(|(id, _)| id)
+        .unwrap();
+    let split_side = loop_edges(&solid, cone_face)
+        .into_iter()
+        .filter(|edge| coedge_faces(&solid, *edge).contains(&cone_face))
+        .filter(|edge| {
+            coedge_faces(&solid, *edge)
+                .iter()
+                .any(|face| matches!(solid.face(*face).unwrap().surface(), Surface::Cylinder(_)))
+        })
+        .count();
+    assert_eq!(split_side, 2, "the cylinder's seam splits the rim");
+
+    let bottom = face_facing(&solid, Vector3::NEG_Z, Point3::ZERO);
+    let cup = run(&solid, &[bottom], 2.0);
+    let outer = 225.0 * PI + frustum_volume(5.0, 4.0, 1.0);
+    check("seam split rim", &cup, outer - 9.0 * PI * 8.0);
+    let cavity: Vec<&Surface> = cup
+        .faces()
+        .filter(|(_, face)| face.origin() == Some(FaceOrigin::Shell { feature: 70 }))
+        .map(|(_, face)| face.surface())
+        .collect();
+    assert_eq!(cavity.len(), 2, "the cavity is a plain cylinder");
+    assert!(
+        cavity
+            .iter()
+            .all(|surface| !matches!(surface, Surface::Cone(_)))
+    );
+
+    let closed = run(&solid, &[], 2.0);
+    check("hollow seam split rim", &closed, outer - 9.0 * PI * 6.0);
+}
+
+#[test]
+fn a_chamfered_box_keeps_every_face_its_walls_leave_room_for() {
+    for size in [Vector3::splat(10.0), Vector3::new(10.0, 14.0, 10.0)] {
+        let solid = cuboid(size);
+        let every: Vec<EdgeId> = solid.edges().map(|(id, _)| id).collect();
+        let bevelled = blend(&solid, &every, BlendShape::Chamfer { distance: 1.0 }, 5).unwrap();
+        let top = face_facing(&bevelled, Vector3::Z, Point3::new(5.0, 5.0, size.z));
+        let outer = bevelled_planes(size, 1.0);
+        for thickness in [0.5, 1.5, 2.0] {
+            let cavity: Vec<(Vector3, f64)> = outer
+                .iter()
+                .map(|(normal, offset)| {
+                    if *normal == Vector3::Z {
+                        (*normal, *offset)
+                    } else {
+                        (*normal, offset - thickness)
+                    }
+                })
+                .collect();
+            let name = format!("bevelled {size} at {thickness}");
+            let result = run(&bevelled, &[top], thickness);
+            check(
+                &name,
+                &result,
+                convex_volume(&outer) - convex_volume(&cavity),
+            );
+
+            let (_, areas) = convex_facets(&cavity);
+            let walls = areas.iter().filter(|area| **area > 1e-9).count() - 1;
+            let cavity_faces = result
+                .faces()
+                .filter(|(_, face)| face.origin() == Some(FaceOrigin::Shell { feature: 70 }))
+                .count();
+            assert_eq!(cavity_faces, walls, "{name}");
+        }
+    }
 }

@@ -4,7 +4,7 @@ use caditor_geometry::{Plane, Point2, Point3, Vector3};
 
 use super::{
     OFFSET_TOLERANCE, Offsets, ShellError,
-    collapse::{Collapses, coedge_faces},
+    collapse::{Collapses, coedge_faces, loop_edges},
     edge::{offset_edge, reverses},
     split::{Split, split_vertex},
 };
@@ -13,9 +13,10 @@ use crate::{
     curve::Curve,
     interrupt,
     naming::{EdgeName, FaceName, FaceOrigin},
+    sense::Sense,
     surface::Surface,
     tolerance::LINEAR_RESOLUTION,
-    topology::{EdgeId, Face, FaceId, Solid, VertexId},
+    topology::{CoedgeId, EdgeId, Face, FaceId, Solid, VertexId},
 };
 
 const VERTEX_ITERATIONS: usize = 40;
@@ -302,6 +303,7 @@ fn place_corners(
     offsets: &Offsets<'_>,
     collapses: &Collapses,
     clusters: &Clusters,
+    joints: &BTreeMap<VertexId, BTreeSet<FaceId>>,
     plan: &mut Plan,
 ) -> Result<Corners, ShellError> {
     let solid = offsets.solid;
@@ -316,11 +318,12 @@ fn place_corners(
             .flatten()
             .copied()
             .collect();
-        let live: BTreeSet<FaceId> = every
+        let mut live: BTreeSet<FaceId> = every
             .iter()
             .filter(|face| !collapses.contains(**face))
             .copied()
             .collect();
+        live.extend(joints.get(&root).into_iter().flatten().copied());
         let points: Vec<Point3> = members
             .iter()
             .filter_map(|vertex| Some(solid.vertex(*vertex)?.point()))
@@ -366,9 +369,113 @@ fn place_corners(
     Ok(corners)
 }
 
+struct Band {
+    face: FaceId,
+    chain: Vec<CoedgeId>,
+    side: CoedgeId,
+    beyond: FaceId,
+}
+
+fn sides(
+    solid: &Solid,
+    face: FaceId,
+    across: &BTreeSet<EdgeId>,
+    vanishing: &BTreeSet<EdgeId>,
+) -> Option<Vec<Vec<CoedgeId>>> {
+    let [only] = solid.face(face)?.loops() else {
+        return None;
+    };
+    let coedges: Vec<(CoedgeId, EdgeId)> = solid
+        .face_loop(*only)?
+        .coedges()
+        .iter()
+        .filter_map(|id| Some((*id, solid.coedge(*id)?.edge())))
+        .filter(|(_, edge)| across.contains(edge) || !vanishing.contains(edge))
+        .collect();
+    let first_cut = coedges.iter().position(|(_, edge)| across.contains(edge))?;
+    let mut sides = Vec::new();
+    let mut side = Vec::new();
+    for step in 1..=coedges.len() {
+        let (coedge, edge) = coedges.get((first_cut + step) % coedges.len())?;
+        if across.contains(edge) {
+            if !side.is_empty() {
+                sides.push(std::mem::take(&mut side));
+            }
+        } else {
+            side.push(*coedge);
+        }
+    }
+    Some(sides)
+}
+
+fn bands(solid: &Solid, collapses: &Collapses, vanishing: &BTreeSet<EdgeId>) -> Vec<Band> {
+    collapses
+        .shrinking()
+        .filter_map(|(face, across)| {
+            let sides = sides(solid, face, across, vanishing)?;
+            let [first, second] = sides.as_slice() else {
+                return None;
+            };
+            let (chain, side) = if first.len() == 1 {
+                (second, first)
+            } else {
+                (first, second)
+            };
+            let [side] = side.as_slice() else {
+                return None;
+            };
+            if chain.len() < 2 {
+                return None;
+            }
+            let beyond = coedge_faces(solid, solid.coedge(*side)?.edge())
+                .into_iter()
+                .find(|other| *other != face)?;
+            (!collapses.contains(beyond)).then(|| Band {
+                face,
+                chain: chain.clone(),
+                side: *side,
+                beyond,
+            })
+        })
+        .collect()
+}
+
+fn joints(
+    solid: &Solid,
+    clusters: &Clusters,
+    bands: &[Band],
+) -> BTreeMap<VertexId, BTreeSet<FaceId>> {
+    let mut joints: BTreeMap<VertexId, BTreeSet<FaceId>> = BTreeMap::new();
+    for band in bands {
+        let inner = band.chain.split_last().map_or(&[][..], |(_, inner)| inner);
+        for coedge in inner {
+            if let Some((_, end)) = solid.coedge_vertices(*coedge) {
+                joints
+                    .entry(clusters.find(end))
+                    .or_default()
+                    .insert(band.beyond);
+            }
+        }
+    }
+    joints
+}
+
+fn signed_area(polygon: &[Point2]) -> f64 {
+    let count = polygon.len();
+    (0..count)
+        .filter_map(|index| {
+            let from = polygon.get(index)?;
+            let to = polygon.get((index + 1) % count)?;
+            Some(from.x * to.y - to.x * from.y)
+        })
+        .sum::<f64>()
+        / 2.0
+}
+
 struct Layout {
     vanishing: BTreeSet<EdgeId>,
     clusters: Clusters,
+    bands: Vec<Band>,
     corners: Corners,
     plan: Plan,
 }
@@ -377,11 +484,14 @@ impl Layout {
     fn new(offsets: &Offsets<'_>, collapses: &Collapses) -> Result<Self, ShellError> {
         let vanishing = collapses.vanishing_edges(offsets.solid);
         let clusters = Clusters::new(offsets.solid, &vanishing);
+        let bands = bands(offsets.solid, collapses, &vanishing);
+        let joints = joints(offsets.solid, &clusters, &bands);
         let mut plan = Plan::default();
-        let corners = place_corners(offsets, collapses, &clusters, &mut plan)?;
+        let corners = place_corners(offsets, collapses, &clusters, &joints, &mut plan)?;
         Ok(Self {
             vanishing,
             clusters,
+            bands,
             corners,
             plan,
         })
@@ -412,6 +522,40 @@ impl Layout {
             .collect()
     }
 
+    fn outline_inverts(&self, solid: &Solid, face: FaceId) -> Option<bool> {
+        let definition = solid.face(face)?;
+        let surface = definition.surface();
+        let [only] = definition.loops() else {
+            return None;
+        };
+        let mut original = Vec::new();
+        let mut offset = Vec::new();
+        for coedge_id in solid.face_loop(*only)?.coedges() {
+            let coedge = solid.coedge(*coedge_id)?;
+            let (start, _) = solid.coedge_vertices(*coedge_id)?;
+            let uv = coedge.pcurve().start();
+            let point =
+                self.plan
+                    .point(self.corners.end(&self.clusters, start, coedge.edge())?)?;
+            original.push(uv);
+            offset.push(surface.project(point, Some(uv)));
+        }
+        Some(signed_area(&original) * signed_area(&offset) <= 0.0)
+    }
+
+    fn closes(&self, solid: &Solid, face: FaceId, sides: &[Vec<CoedgeId>]) -> bool {
+        let edge = |coedge: &CoedgeId| solid.coedge(*coedge).map(|coedge| coedge.edge());
+        match sides {
+            [] => true,
+            [first, second] => match (first.as_slice(), second.as_slice()) {
+                ([a], [b]) => edge(a) != edge(b),
+                ([_], _) | (_, [_]) => self.outline_inverts(solid, face) == Some(true),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
     fn shrinking_faces(
         &self,
         solid: &Solid,
@@ -422,53 +566,23 @@ impl Layout {
         if reversed.is_empty() {
             return shrinking;
         }
-        for (id, face) in solid.faces() {
+        for (id, _) in solid.faces() {
             if collapses.contains(id) {
                 continue;
             }
-            let [only] = face.loops() else {
-                continue;
-            };
-            let Some(face_loop) = solid.face_loop(*only) else {
-                continue;
-            };
-            let edges: Vec<EdgeId> = face_loop
-                .coedges()
-                .iter()
-                .filter_map(|coedge| Some(solid.coedge(*coedge)?.edge()))
-                .filter(|edge| !self.vanishing.contains(edge))
+            let across: BTreeSet<EdgeId> = loop_edges(solid, id)
+                .into_iter()
+                .filter(|edge| reversed.contains(edge))
                 .collect();
-            if let Some(across) = shrinks_across(&edges, &reversed) {
+            let Some(sides) = sides(solid, id, &across, &self.vanishing) else {
+                continue;
+            };
+            if self.closes(solid, id, &sides) {
                 shrinking.insert(id, across);
             }
         }
         shrinking
     }
-}
-
-fn shrinks_across(edges: &[EdgeId], reversed: &BTreeSet<EdgeId>) -> Option<BTreeSet<EdgeId>> {
-    let count = edges.len();
-    let across: BTreeSet<EdgeId> = edges
-        .iter()
-        .filter(|edge| reversed.contains(edge))
-        .copied()
-        .collect();
-    let kept: Vec<usize> = (0..count)
-        .filter(|index| {
-            edges
-                .get(*index)
-                .is_some_and(|edge| !reversed.contains(edge))
-        })
-        .collect();
-    let closes = match kept[..] {
-        [] => !across.is_empty(),
-        [first, second] => {
-            let apart = second - first > 1 && first + count - second > 1;
-            apart && edges.get(first) != edges.get(second)
-        }
-        _ => false,
-    };
-    closes.then_some(across)
 }
 
 struct Half {
@@ -505,17 +619,89 @@ fn merged_sense(solid: &Solid, first: EdgeId, second: EdgeId, same_ends: bool) -
     )
 }
 
+fn face_name(solid: &Solid, face: FaceId) -> FaceName {
+    solid.face(face).map_or(FaceName::NONE, |face| face.name())
+}
+
+fn place_band(
+    offsets: &Offsets<'_>,
+    collapses: &Collapses,
+    band: &Band,
+    layout: &mut Layout,
+    placed: &mut BTreeMap<EdgeId, Vec<Placed>>,
+) -> Result<(), ShellError> {
+    let solid = offsets.solid;
+    let refused = |edge: EdgeId| {
+        collapses
+            .refusal(solid, band.face)
+            .unwrap_or(ShellError::UnsupportedEdge(edge))
+    };
+    let mut pieces = Vec::with_capacity(band.chain.len());
+    for coedge_id in &band.chain {
+        let coedge = solid
+            .coedge(*coedge_id)
+            .ok_or(ShellError::walls_at([band.face]))?;
+        let edge = coedge.edge();
+        let [face] = coedge_faces(solid, edge)
+            .into_iter()
+            .filter(|face| *face != band.face)
+            .collect::<Vec<_>>()[..]
+        else {
+            return Err(refused(edge));
+        };
+        if collapses.contains(face) || face == band.beyond {
+            return Err(refused(edge));
+        }
+        let ends = layout.ends(solid, edge).ok_or_else(|| refused(edge))?;
+        let index = new_edge(
+            offsets,
+            edge,
+            &[face, band.beyond],
+            ends,
+            EdgeName::between(face_name(solid, face), face_name(solid, band.beyond)),
+            &mut layout.plan,
+        )?;
+        placed.insert(
+            edge,
+            vec![Placed {
+                edge: index,
+                flipped: false,
+            }],
+        );
+        pieces.push(Placed {
+            edge: index,
+            flipped: coedge.sense() == Sense::Reversed,
+        });
+    }
+    let side = solid
+        .coedge(band.side)
+        .ok_or(ShellError::walls_at([band.face]))?;
+    if side.sense().is_same() {
+        pieces.reverse();
+        for piece in &mut pieces {
+            piece.flipped = !piece.flipped;
+        }
+    }
+    placed.insert(side.edge(), pieces);
+    Ok(())
+}
+
 fn place_edges(
     offsets: &Offsets<'_>,
     collapses: &Collapses,
     layout: &mut Layout,
-) -> Result<BTreeMap<EdgeId, Placed>, ShellError> {
+) -> Result<BTreeMap<EdgeId, Vec<Placed>>, ShellError> {
     let solid = offsets.solid;
     let mut placed = BTreeMap::new();
+    let bands = std::mem::take(&mut layout.bands);
+    for band in &bands {
+        place_band(offsets, collapses, band, layout, &mut placed)?;
+    }
+    layout.bands = bands;
     let mut halves: BTreeMap<(usize, usize), Vec<Half>> = BTreeMap::new();
     for (id, edge) in solid.edges() {
         interrupt::check()?;
-        if layout.vanishing.contains(&id) {
+        if layout.vanishing.contains(&id) || placed.contains_key(&id) {
             continue;
         }
         let ends = layout
@@ -533,10 +719,10 @@ fn place_edges(
             let index = new_edge(offsets, id, &distinct, ends, edge.name(), &mut layout.plan)?;
             placed.insert(
                 id,
-                Placed {
+                vec![Placed {
                     edge: index,
                     flipped: false,
-                },
+                }],
             );
             continue;
         }
@@ -584,30 +770,32 @@ fn place_edges(
                     edge: lone,
                 }));
         };
-        let name = |face: FaceId| solid.face(face).map_or(FaceName::NONE, |face| face.name());
         let index = new_edge(
             offsets,
             *first,
             &[*first_face, *second_face],
             *ends,
-            EdgeName::between(name(*first_face), name(*second_face)),
+            EdgeName::between(
+                face_name(solid, *first_face),
+                face_name(solid, *second_face),
+            ),
             &mut layout.plan,
         )?;
         let flipped = merged_sense(solid, *first, *second, ends == second_ends)
             .ok_or(ShellError::UnsupportedEdge(*second))?;
         placed.insert(
             *first,
-            Placed {
+            vec![Placed {
                 edge: index,
                 flipped: false,
-            },
+            }],
         );
         placed.insert(
             *second,
-            Placed {
+            vec![Placed {
                 edge: index,
                 flipped,
-            },
+            }],
         );
     }
     Ok(placed)
@@ -631,7 +819,7 @@ fn new_edge(
 fn loops(
     solid: &Solid,
     face: FaceId,
-    placed: &BTreeMap<EdgeId, Placed>,
+    placed: &BTreeMap<EdgeId, Vec<Placed>>,
     layout: &Layout,
 ) -> Result<Vec<Vec<PlanCoedge>>, ShellError> {
     let definition = solid.face(face).ok_or(ShellError::MissingFace(face))?;
@@ -649,15 +837,30 @@ fn loops(
             if layout.vanishing.contains(&coedge.edge()) {
                 continue;
             }
-            let target = placed
+            let pieces = placed
                 .get(&coedge.edge())
                 .ok_or(ShellError::UnsupportedEdge(coedge.edge()))?;
-            let sense = if target.flipped {
-                coedge.sense().reversed()
-            } else {
-                coedge.sense()
+            let sense_of = |piece: &Placed| {
+                if piece.flipped {
+                    coedge.sense().reversed()
+                } else {
+                    coedge.sense()
+                }
             };
-            coedges.push(PlanCoedge::new(target.edge, sense));
+            if coedge.sense().is_same() {
+                coedges.extend(
+                    pieces
+                        .iter()
+                        .map(|piece| PlanCoedge::new(piece.edge, sense_of(piece))),
+                );
+            } else {
+                coedges.extend(
+                    pieces
+                        .iter()
+                        .rev()
+                        .map(|piece| PlanCoedge::new(piece.edge, sense_of(piece))),
+                );
+            }
             let detour = solid
                 .coedge_vertices(*coedge_id)
                 .and_then(|(_, end)| layout.corners.splits.get(&end))

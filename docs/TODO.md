@@ -64,11 +64,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   making a mixed fragment `Ambiguous` is unchecked against the random-placement survey, and
   splitting fragments exactly at coincident boundaries would replace it.
 - [low · medium] A face the shell's thickness closes up is dropped only when it has one loop and
-  keeps two single edges apart from each other, or none; a band whose side is a chain of edges (a
-  rim split by another face's seam) is refused as `EdgeCollapses`. Counting chains as sides closes
-  faces that survive (a chamfered box), so it needs the offset outline's orientation as well, and
-  the joint vertex of a chain then has too few live faces to be placed: a split vertex of two
-  offset surfaces only, which `offset_vertex` and `split_vertex` do not handle.
+  its kept edges form two sides apart of which at least one is a single edge, or none; a band
+  whose both sides are chains (a rim split by seams on both its circles) is refused as
+  `EdgeCollapses`, since no single edge spans the ridge to order the two chains' joints along it,
+  and a band whose single side's far face drops as well has no surface to place its joints on.
 - [low · hard] Meshes fold where two faces meet at a very small dihedral (lens tips, a plane nearly
   tangent to a torus), giving self-overlapping triangles that `validate` does not see: an extruded
   spline intersected with a frustum leaves two tangent edges at one vertex, the end parting bisects
