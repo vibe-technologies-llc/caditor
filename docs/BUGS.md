@@ -70,12 +70,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · medium] Configuration cells are not uses of a parameter: neither `used_parameters`
-  nor `remove_parameter` reads them, and `inline_parameter` rewrites the live model only, so a
-  parameter named only in an inactive configuration, or inlined out of the live model while a cell
-  still names it, can be deleted, after which switching to that configuration fails as a missing
-  parameter and rolls back. Count `Configurations::parameters_named` in both and inline stored
-  cells too, dropping a cell whose column is the removed parameter.
 - [medium · medium] Reported by the user: a Remove extrusion typed far past the body (100000 mm, to
   cut through without measuring) does not cut, so the exact depth must be found. Not reproduced in
   `caditor-document` on a flat plate (one side, 10 mm to 999999 mm, volumes right), so the cause

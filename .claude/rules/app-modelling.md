@@ -768,6 +768,12 @@ paths:
   itself. Add configuration copies the live values (the first becomes active) and Configure a
   value lists the parameters, features and bodies not yet configured. Every change is one
   undoable transaction checked first; a refusal stays in the dialog as an error callout.
+- A configured column and any expression in a row's cell count as uses of a parameter
+  (`Document::used_parameters`, `parameter_users`, which name "<row> configuration" or "the
+  configurations"), so Delete on it is `inline_parameter`: the cells of the other rows get its
+  value (the row's own cell when it is the column) and its column and cells go, in one
+  `SetConfigurations` before the removal; `Edit::RemoveParameter` refuses one the configurations
+  still name, and `transaction_to` empties the table first.
 - Typing in the palette lists each configuration as "Switch to <name>"
   (`Choice::Configuration`, `Palette::take_configuration`), the active one unavailable; Enter
   applies `configurations::switching`, so switching is reachable from the keyboard.

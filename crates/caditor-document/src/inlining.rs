@@ -1,7 +1,8 @@
 use caditor_expression::{Expression, ParameterId};
 
 use crate::{
-    document::{Document, FeatureKind},
+    configurations::{Configurations, ConfiguredValue, Setting},
+    document::{Document, FeatureKind, Parameter},
     edit::{Edit, EditError, Transaction},
     pattern::PatternKind,
     solid::{ExtrudeExtent, RevolveExtent, SolidFeature, SolidStart},
@@ -68,11 +69,52 @@ impl Document {
                 });
             }
         }
+        edits.extend(self.inlined_in_configurations(parameter)?);
         edits.push(Edit::RemoveParameter { id });
         Ok(Transaction::new(
             format!("Delete {}", parameter.name),
             edits,
         ))
+    }
+
+    fn inlined_in_configurations(&self, parameter: &Parameter) -> Result<Option<Edit>, EditError> {
+        let id = parameter.id();
+        let mut table = Configurations::clone(self.configurations());
+        let column = ConfiguredValue::Parameter(id);
+        let named = table.configures(column) || !self.configuration_users(id).is_empty();
+        if !named {
+            return Ok(None);
+        }
+        let active = table.active;
+        for row in &mut table.rows {
+            if active == Some(row.id) {
+                continue;
+            }
+            let own = match row.settings.get(&column) {
+                Some(Setting::Expression(expression)) => expression.clone(),
+                _ => parameter.expression.clone(),
+            };
+            for setting in row.settings.values_mut() {
+                if let Setting::Expression(expression) = setting
+                    && expression.uses(id)
+                {
+                    *expression =
+                        expression
+                            .inlining(id, &own)
+                            .map_err(|_| EditError::InliningTooLong {
+                                name: parameter.name.clone(),
+                                user: format!("{} configuration", row.name),
+                            })?;
+                }
+            }
+        }
+        table.values.retain(|value| *value != column);
+        for row in &mut table.rows {
+            row.settings.remove(&column);
+        }
+        Ok(Some(Edit::SetConfigurations {
+            configurations: Box::new(table),
+        }))
     }
 }
 

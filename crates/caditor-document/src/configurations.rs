@@ -13,6 +13,7 @@ pub const MAX_CONFIGURATIONS: usize = 256;
 pub const MAX_CONFIGURATION_NAME_CHARS: usize = 60;
 pub const MAX_CONFIGURED_VALUES: usize = 256;
 const NUMBERED_NAME: &str = "Configuration";
+const COLUMN_USER: &str = "the configurations";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConfigurationId(u64);
@@ -265,6 +266,26 @@ impl Document {
 
     pub fn active_configuration(&self) -> Option<&Configuration> {
         self.configurations.active_row()
+    }
+
+    pub(crate) fn configuration_users(&self, parameter: ParameterId) -> Vec<String> {
+        let rows = self
+            .configurations
+            .rows
+            .iter()
+            .filter(|row| !self.configurations.is_active(row.id))
+            .filter(|row| {
+                row.settings
+                    .values()
+                    .filter_map(Setting::expression)
+                    .any(|expression| expression.uses(parameter))
+            })
+            .map(|row| format!("{} configuration", row.name));
+        let column = self
+            .configurations
+            .configures(ConfiguredValue::Parameter(parameter))
+            .then(|| COLUMN_USER.to_owned());
+        rows.chain(column).collect()
     }
 
     pub fn live_setting(&self, value: ConfiguredValue) -> Option<Setting> {

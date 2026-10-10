@@ -18,7 +18,7 @@ The Parameters section of the model panel lists them with a name, an
 - {command:model.delete_unused_parameters}, also the button under the tables, deletes every
   parameter nothing refers to in one change.
 - Deleting a parameter in use writes its expression into each place that used it, so nothing
-  changes shape. Undo brings it back.
+  changes shape, other [configurations](configurations) included. Undo brings it back.
 - A value that cannot be worked out shows an error mark; hover it for the reason.
 
 ## Naming a value where it is typed

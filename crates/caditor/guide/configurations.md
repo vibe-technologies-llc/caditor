@@ -7,6 +7,8 @@ M6 and M8 screws) live in one file. {command:model.configurations} opens the tab
 - **Configure a value** adds a column: a [parameter](parameters)'s expression, whether a feature is
   suppressed, or a body's colour.
 - **Add configuration**, rename, duplicate and delete manage the rows.
+- A parameter named in a configuration, as a column or in a cell, counts as in use. Deleting it
+  writes its value into those cells and removes its column.
 
 Switching is one change, so Undo takes it back, and the model recomputes as after any edit. Typing
 the name of a configuration in the command search offers to switch to it.

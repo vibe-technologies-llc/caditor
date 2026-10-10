@@ -298,3 +298,80 @@ fn restoring_another_document_brings_its_configurations() {
 
     assert!(restored.same_content(&configured));
 }
+
+fn sized_by_another_in_one_configuration() -> (Editor, ParameterId, ParameterId, ConfigurationId) {
+    let mut document = Document::default();
+    let unit = parameter(&mut document, "unit", "3 mm");
+    let size = parameter(&mut document, "size", "4 mm");
+    let mut editor = Editor::new(document);
+    add(&mut editor, "Plain");
+    let configure = editor
+        .document()
+        .configuring(ConfiguredValue::Parameter(size))
+        .unwrap();
+    editor.apply(configure).unwrap();
+    let scaled = add(&mut editor, "Scaled");
+    let twice = expression(editor.document(), "unit * 2");
+    set(
+        &mut editor,
+        scaled,
+        ConfiguredValue::Parameter(size),
+        Setting::Expression(twice),
+    );
+    (editor, unit, size, scaled)
+}
+
+#[test]
+fn a_parameter_named_only_by_an_inactive_configuration_is_in_use_and_cannot_be_removed() {
+    let (mut editor, unit, _, _) = sized_by_another_in_one_configuration();
+
+    let used = editor.document().used_parameters();
+    let removal = editor.apply(Transaction::single(
+        "Delete unit",
+        Edit::RemoveParameter { id: unit },
+    ));
+
+    assert!(used.contains(&unit));
+    assert!(matches!(removal, Err(EditError::ParameterInUse { .. })));
+    assert_eq!(
+        editor.document().parameter_users(unit),
+        ["Scaled configuration"]
+    );
+}
+
+#[test]
+fn deleting_a_parameter_named_by_an_inactive_configuration_writes_its_value_into_the_cell() {
+    let (mut editor, unit, size, scaled) = sized_by_another_in_one_configuration();
+
+    let deletion = editor.document().inline_parameter(unit).unwrap();
+    editor.apply(deletion).unwrap();
+    switch(&mut editor, scaled);
+
+    let values = ParameterValues::evaluate(editor.document());
+    assert!(editor.document().parameter(unit).is_none());
+    assert_eq!(values.value(size).unwrap().value, 6.0);
+}
+
+#[test]
+fn deleting_a_configured_parameter_drops_its_column_so_switching_still_works() {
+    let (mut editor, _, size, scaled) = sized_by_another_in_one_configuration();
+    let plain = editor.document().configurations().rows[0].id;
+    let used = editor.document().used_parameters();
+
+    let deletion = editor.document().inline_parameter(size).unwrap();
+    editor.apply(deletion).unwrap();
+    switch(&mut editor, scaled);
+    switch(&mut editor, plain);
+
+    assert!(used.contains(&size));
+    assert!(editor.document().parameter(size).is_none());
+    assert!(editor.document().configurations().values.is_empty());
+    assert!(
+        editor
+            .document()
+            .configurations()
+            .rows
+            .iter()
+            .all(|row| row.settings.is_empty())
+    );
+}

@@ -1110,7 +1110,11 @@ impl Document {
             || self
                 .features
                 .iter()
-                .any(|feature| feature.uses_parameter(id));
+                .any(|feature| feature.uses_parameter(id))
+            || self
+                .configurations
+                .parameters_named()
+                .any(|named| named == id);
         if used {
             self.can_remove_parameter(id)?;
         }

@@ -1443,10 +1443,16 @@ impl Document {
             .as_ref()
             .and(self.configurations.active)
             .map(|_| Edit::SetActiveConfiguration { active: None });
+        let clearing = (configurations.is_some() && !self.configurations.is_empty()).then(|| {
+            Edit::SetConfigurations {
+                configurations: Box::default(),
+            }
+        });
         Transaction::new(
             label,
             deactivation
                 .into_iter()
+                .chain(clearing)
                 .chain(removals)
                 .chain(insertions)
                 .chain(visibility)
@@ -1502,7 +1508,10 @@ impl Document {
             .features
             .iter()
             .flat_map(|feature| feature.parameters());
-        by_parameters.chain(by_features).collect()
+        by_parameters
+            .chain(by_features)
+            .chain(self.configurations.parameters_named())
+            .collect()
     }
 
     pub fn parameter_user_ids(&self, parameter: ParameterId) -> Vec<ParameterUser> {
@@ -1530,7 +1539,10 @@ impl Document {
             .iter()
             .filter(|feature| feature.uses_parameter(parameter))
             .map(|feature| feature.name.clone());
-        parameters.chain(features).collect()
+        parameters
+            .chain(features)
+            .chain(self.configuration_users(parameter))
+            .collect()
     }
 
     pub(crate) fn parameter_dependencies(&self) -> BTreeMap<ParameterId, BTreeSet<ParameterId>> {
