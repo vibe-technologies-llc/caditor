@@ -12,6 +12,11 @@ snapped point keeps the relation as a constraint, so a line ending on a circle s
   end however the ellipse is turned.
 - Any line, circle, arc, spline or axis, and the extension of a line past its ends.
 - The point where a line from its start would touch a circle or arc.
+- The corners of bodies made before the sketch, the middles of their straight and round edges, the
+  centres of round edges and any point on an edge, as they fall on the sketch plane. The label
+  names the body, such as "Corner of Base". The corner or edge is
+  [projected](project-and-intersect) into the sketch with what you draw, and the point stays on
+  it; one undo takes both away.
 
 ## Directions and tracking
 
@@ -28,4 +33,4 @@ above it, shows a dashed guide and lines the new point up with it.
   below the prompt says snapping is off.
 - {command:view.toggle_grid_snapping} puts free points on the grid's crossings.
 
-Dragging geometry with Select snaps the same way.
+Dragging geometry with Select snaps the same way, except to bodies.

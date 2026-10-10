@@ -134,16 +134,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Sketching
 
-- [high · medium] A sketch reaches model geometry only through Project or Intersect first: drawing a
-  line from a body's corner, centring a circle on a round edge's centre or dimensioning a point
-  from a body's edge means projecting each item, then going back to the tool. Snapping (`snap.rs`,
-  `tracking.rs`) could take the corners, edge middles, round edges' centres and edges of the shown
-  bodies (as background while a sketch is edited, read from the body's state at the sketch through
-  `body_result_seen_by`), and a point landing on one would project that item in the shape's own
-  transaction and join the point to the projection, as Onshape and Fusion infer from model edges;
-  Smart dimension and the constraint tools would take a body edge or corner the same way. The body
-  vertices and edges then need projecting to the screen on the UI thread within the bounds the
-  sketch's own snapping keeps to (Interface performance).
+- [medium · medium] Drawing tools snap to body corners and edges and project them
+  (`body_snap.rs`), but Smart dimension and the constraint tools still reach model geometry only
+  through Project first: dimensioning a point from a body's edge means projecting the edge, then
+  going back to the tool. They could take a body edge or corner from the same `BodySnaps` cache,
+  projecting it in the dimension's or constraint's own transaction. A body item is also not
+  acquired for tracks, never pulled by the held snap (Alt) and never crossed by a direction or
+  track, since it is not in the sketch until a point lands on it; acquiring it would need tracks
+  that hold a point the shape has yet to project. A grab (dragging with Select) does not snap to
+  bodies either.
 - [medium · medium] The Line tool cannot turn into an arc mid-chain: carrying on with a tangent arc
   means the Tangent arc key, then the Line key again. A press on the chain's last point dragged
   away (`drawing.rs`; a press-drag now places the press only for a first point,

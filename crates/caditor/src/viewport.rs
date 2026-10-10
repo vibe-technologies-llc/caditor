@@ -2116,6 +2116,7 @@ impl ViewportState {
             .and_then(|feature| model.displayed_sketch(feature));
         self.drawing
             .sync(editing.active(), editing.modes(), displayed.as_deref());
+        self.drawing.track_bodies(model);
         self.drawing
             .place_freely(self.placing_freely || !(self.snapping || self.snap_held));
         self.drawing

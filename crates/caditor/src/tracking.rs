@@ -25,7 +25,8 @@ impl Acquired {
             Target::Pending(_)
             | Target::Intersection(..)
             | Target::Centre { .. }
-            | Target::Centroid(_) => {}
+            | Target::Centroid(_)
+            | Target::Body(_) => {}
             Target::Point(point) => {
                 self.point(point);
                 for line in lines_ending_at(sketch, point) {

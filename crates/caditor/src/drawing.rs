@@ -1,9 +1,10 @@
 use std::{
     f64::consts::{PI, TAU},
     mem::discriminant,
+    sync::Arc,
 };
 
-use caditor_document::{FeatureId, Transaction, TransactionBuilder};
+use caditor_document::{FeatureId, FeatureKind, Transaction, TransactionBuilder};
 use caditor_expression::Expression;
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
@@ -12,8 +13,10 @@ use caditor_sketch::{
 };
 
 use crate::{
+    body_snap::{BodyPart, BodySnaps, BodyTarget},
     editing::{self, ActiveSketch, Tool},
     model::Model,
+    projecting,
     shape_modes::{
         CircleMode, PolygonMode, RectangleMode, ShapeMode, ShapeModes, SlotMode, SplineMode,
     },
@@ -651,7 +654,8 @@ fn point_target(snap: Snap) -> Option<EntityId> {
         | Target::Tangent(_)
         | Target::Intersection(..)
         | Target::Centre { .. }
-        | Target::Centroid(_) => None,
+        | Target::Centroid(_)
+        | Target::Body(_) => None,
     }
 }
 
@@ -705,6 +709,7 @@ pub struct Drawing {
     typed_hover: Option<TypedMark>,
     heading: Option<Heading>,
     pointed: Option<Pointed>,
+    bodies: Arc<BodySnaps>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -828,6 +833,7 @@ impl Drawing {
                 sides: self.sides,
                 rho: self.rho.clone(),
                 acquired,
+                bodies: Arc::clone(&self.bodies),
                 ..Self::default()
             };
             if let Some(carried) = carried {
@@ -945,6 +951,15 @@ impl Drawing {
             format!("Draw construction {}", shape.name())
         } else {
             format!("Draw {}", shape.name())
+        }
+    }
+
+    pub fn track_bodies(&mut self, model: &Model) {
+        let Some((feature, _)) = self.context else {
+            return;
+        };
+        if let Some(refreshed) = BodySnaps::refreshed(&self.bodies, model, feature) {
+            self.bodies = refreshed;
         }
     }
 
@@ -1628,7 +1643,9 @@ impl Drawing {
             mark.position == placement.position
                 || placed.iter().any(|placed| placed.position == mark.position)
         });
-        let draft = |name: &str| Draft::new(model, feature, name, self.construction);
+        let bodies = &self.bodies;
+        let draft =
+            |name: &str| Draft::new(model, feature, name, self.construction, Arc::clone(bodies));
         let apart = |from: Placement, refusal: Refusal| {
             if from.position.distance(placement.position) < DEGENERATE_LENGTH {
                 Err(refusal)
@@ -1977,6 +1994,7 @@ impl Drawing {
             feature,
             &shapes::polygon_name(self.sides.0),
             self.construction,
+            Arc::clone(&self.bodies),
         )
     }
 
@@ -2047,7 +2065,13 @@ impl Drawing {
             return None;
         }
         let placed = std::mem::take(&mut self.placed);
-        let mut draft = Draft::new(model, feature, shape.name(), self.construction)?;
+        let mut draft = Draft::new(
+            model,
+            feature,
+            shape.name(),
+            self.construction,
+            Arc::clone(&self.bodies),
+        )?;
         draft.spline(&placed, kind);
         Some(draft.finish(&std::mem::take(&mut self.typed)))
     }
@@ -2332,6 +2356,10 @@ impl Drawing {
                 "Finish the spline".to_owned()
             }
             Target::Pending(_) => "Stop here".to_owned(),
+            Target::Body(body) => self
+                .bodies
+                .label(body)
+                .unwrap_or_else(|| target.label(sketch)),
             Target::Point(_)
                 if shape == Shape::TangentArc
                     && self.placed.is_empty()
@@ -2558,6 +2586,16 @@ impl Drawing {
             self.acquired.lines(),
             &[],
         );
+        let offers_bodies = !(shape == Shape::TangentArc && self.placed.is_empty());
+        let resolved = match resolved {
+            Some(resolved) if resolved.target.is_point_like() || !offers_bodies => Some(resolved),
+            None if !offers_bodies => None,
+            resolved => self
+                .bodies
+                .point(screen, pointer, accept)
+                .or(resolved)
+                .or_else(|| self.bodies.edge(screen, pointer, accept)),
+        };
         let touching = match (shape, self.placed.as_slice()) {
             (Shape::Line, &[start]) => snap::tangents_from(sketch, screen, pointer, start.position),
             _ => None,
@@ -2741,7 +2779,8 @@ fn round_under(sketch: &Sketch, start: Placement) -> Option<(EntityId, Point2)> 
         | Target::AxisEnd { .. }
         | Target::Intersection(..)
         | Target::Centre { .. }
-        | Target::Centroid(_) => return None,
+        | Target::Centroid(_)
+        | Target::Body(_) => return None,
     };
     let (centre, _) = sketch.circle(curve)?;
     Some((curve, centre))
@@ -2869,7 +2908,9 @@ fn aligned_on(
     };
     match snapped.target {
         Target::Pending(_) => None,
-        Target::Point(_)
+        Target::Body(body) if !body.part.is_point_like() => None,
+        Target::Body(_)
+        | Target::Point(_)
         | Target::Midpoint(_)
         | Target::Quadrant { .. }
         | Target::AxisEnd { .. }
@@ -2994,10 +3035,13 @@ fn placed_first(corners: &[Point2], placed: &[Placement]) -> Vec<Placement> {
 }
 
 struct Draft<'a> {
+    model: &'a Model,
     feature: FeatureId,
     transaction: TransactionBuilder<'a>,
     shadow: Sketch,
     construction: bool,
+    bodies: Arc<BodySnaps>,
+    projected: Vec<(usize, EntityId)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3013,7 +3057,13 @@ struct Polygon {
 }
 
 impl<'a> Draft<'a> {
-    fn new(model: &'a Model, feature: FeatureId, shape: &str, construction: bool) -> Option<Self> {
+    fn new(
+        model: &'a Model,
+        feature: FeatureId,
+        shape: &str,
+        construction: bool,
+        bodies: Arc<BodySnaps>,
+    ) -> Option<Self> {
         let shadow = editing::edited_sketch(model.document(), feature)?.clone();
         let kind = if construction {
             format!("construction {shape}")
@@ -3021,10 +3071,13 @@ impl<'a> Draft<'a> {
             shape.to_owned()
         };
         Some(Self {
+            model,
             feature,
             transaction: sketch_tools::settled_transaction(model, feature, format!("Draw {kind}")),
             shadow,
             construction,
+            bodies,
+            projected: Vec::new(),
         })
     }
 
@@ -3132,14 +3185,97 @@ impl<'a> Draft<'a> {
         }
     }
 
+    fn projection(&mut self, target: BodyTarget) -> Option<EntityId> {
+        if let Some((_, id)) = self
+            .projected
+            .iter()
+            .find(|(source, _)| *source == target.source)
+        {
+            return Some(*id);
+        }
+        let source = self.bodies.source(target)?;
+        let FeatureKind::Sketch(definition) = &self.model.document().feature(self.feature)?.kind
+        else {
+            return None;
+        };
+        let id = match projecting::existing_projection(definition, &source.projection) {
+            Some(id) => id,
+            None => {
+                let projected = self.transaction.add_projected(
+                    self.feature,
+                    source.projection.clone(),
+                    &source.outline,
+                );
+                for (id, entity) in projected.entities {
+                    let shown = self
+                        .shadow
+                        .insert_entity(id, entity)
+                        .and_then(|()| self.shadow.set_projected(id, true));
+                    if let Err(error) = shown {
+                        log::debug!(
+                            "the drawing check does not see projected entity {id}: {error}"
+                        );
+                    }
+                }
+                projected.id
+            }
+        };
+        self.projected.push((target.source, id));
+        Some(id)
+    }
+
+    fn body_point(&mut self, target: BodyTarget) -> Option<EntityId> {
+        match target.part {
+            BodyPart::Corner => self.projection(target),
+            BodyPart::Centre => {
+                let curve = self.projection(target)?;
+                match self.shadow.entity(curve)? {
+                    Entity::Circle { center, .. }
+                    | Entity::Arc { center, .. }
+                    | Entity::Ellipse { center, .. }
+                    | Entity::EllipticalArc { center, .. } => Some(*center),
+                    Entity::Point(_) | Entity::Line { .. } | Entity::Spline { .. } => None,
+                }
+            }
+            BodyPart::Middle | BodyPart::Edge => None,
+        }
+    }
+
+    fn body_joins(&mut self, target: BodyTarget, point: EntityId) -> Vec<Constraint> {
+        match target.part {
+            BodyPart::Corner | BodyPart::Centre => self
+                .body_point(target)
+                .map(|on| Constraint::Coincident(point, on))
+                .into_iter()
+                .collect(),
+            BodyPart::Middle => self
+                .projection(target)
+                .map(|curve| Constraint::Midpoint { point, curve })
+                .into_iter()
+                .collect(),
+            BodyPart::Edge => self
+                .projection(target)
+                .map(|curve| Constraint::Coincident(point, curve))
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    fn point_of(&mut self, snap: Snap) -> Option<EntityId> {
+        match snap.target()? {
+            Target::Body(body) => self.body_point(body),
+            _ => point_target(snap),
+        }
+    }
+
     fn point(&mut self, placement: Placement) -> EntityId {
         let point = self.entity(Entity::Point(placement.position));
-        for constraint in placement
-            .snap
-            .target()
-            .map(|target| target.joins(point))
-            .unwrap_or_default()
-        {
+        let joins = match placement.snap.target() {
+            Some(Target::Body(body)) => self.body_joins(body, point),
+            Some(target) => target.joins(point),
+            None => Vec::new(),
+        };
+        for constraint in joins {
             self.constrain(constraint);
         }
         for constraint in placement.tracks.constraints(point) {
@@ -3258,7 +3394,7 @@ impl<'a> Draft<'a> {
         let radius = center.position.distance(rim.position);
         let center = self.point(center);
         let circle = self.entity(Entity::Circle { center, radius });
-        if let Some(point) = point_target(rim.snap) {
+        if let Some(point) = self.point_of(rim.snap) {
             self.constrain(Constraint::Coincident(point, circle));
         }
     }
@@ -3269,17 +3405,18 @@ impl<'a> Draft<'a> {
             center,
             radius: circle.radius,
         });
-        for point in on
+        let points: Vec<EntityId> = on
             .iter()
-            .filter_map(|placement| point_target(placement.snap))
-        {
+            .filter_map(|placement| self.point_of(placement.snap))
+            .collect();
+        for point in points {
             self.constrain(Constraint::Coincident(point, id));
         }
         center
     }
 
     fn circle_on_diameter(&mut self, first: Placement, second: Placement, circle: ArcGeometry) {
-        match (point_target(first.snap), point_target(second.snap)) {
+        match (self.point_of(first.snap), self.point_of(second.snap)) {
             (Some(one_end), Some(other_end)) => {
                 let center = self.circle_through(circle, &[first]);
                 self.constrain(Constraint::Symmetric {
@@ -3382,7 +3519,7 @@ impl<'a> Draft<'a> {
         let end = self.point(end);
         let (start, end) = arc_ends(circular.counter_clockwise, start, end);
         let arc = self.entity(Entity::Arc { center, start, end });
-        if let Some(point) = point_target(through.snap) {
+        if let Some(point) = self.point_of(through.snap) {
             self.constrain(Constraint::Coincident(point, arc));
         }
     }
@@ -3536,7 +3673,7 @@ impl<'a> Draft<'a> {
             true,
         );
         self.constrain(Constraint::Tangent(polygon.first.curve, inscribed));
-        if let Some(point) = point_target(middle.snap) {
+        if let Some(point) = self.point_of(middle.snap) {
             self.constrain(Constraint::Midpoint {
                 point,
                 curve: polygon.first.curve,

@@ -9,6 +9,9 @@ be dragged and follows its source whenever the model changes.
 or point of another sketch, onto this sketch. Hover shows what a click would add. Projected curves
 make regions and take constraints like drawn ones.
 
+You rarely need it before drawing: a drawing tool that [snaps](snapping) to a body's corner or
+edge projects it for you.
+
 ## Intersect
 
 {command:sketch.intersect}, also in the small menu in the corner of the Project button, draws where

@@ -13,6 +13,7 @@ paths:
   - "crates/caditor/src/shapes.rs"
   - "crates/caditor/src/shape_modes.rs"
   - "crates/caditor/src/snap.rs"
+  - "crates/caditor/src/body_snap.rs"
   - "crates/caditor/src/tracking.rs"
   - "crates/caditor/src/sketch_tools.rs"
   - "crates/caditor/src/sketch_toolbar.rs"
@@ -279,6 +280,8 @@ paths:
   construction line, spanning the shown bodies (`datum_reach`). Each is one undoable transaction
   from the body's state at the sketch; a plane missing the face or body, a parallel plane, a later
   datum and cuts already drawn are refused in words.
+- The drawing tools project body corners and edges themselves when a point snaps to one
+  (Snapping), so drawing from a body needs no Project first.
 - Projected geometry is drawn in the `PROJECTED` palette, is never grabbed or dragged and follows
   its source on every recompute (`document.md`).
 
@@ -531,6 +534,34 @@ paths:
   upright with that start takes Horizontal or Vertical as an aligned point would ("On the grid,
   horizontal"). Width points still never snap, typed points are untouched, and with the grid hidden
   only entities are taken. The drawing tools' key hints name Alt beside Ctrl.
+- While a drawing tool draws, the shown bodies standing at the sketch
+  (`Evaluation::body_state_seen_by`; bodies made later in the tree or hidden are left out) are
+  snapped to as well (`body_snap.rs`, `Target::Body`): their corners, the middle of an edge that
+  projects to a line or arc, the centre of a round edge that projects to a circle, arc, ellipse or
+  elliptical arc, and any point on an edge, each matched where it projects onto the sketch plane,
+  as Project would draw it, so in a view facing the sketch they sit where the body's own are seen.
+  Every item of a shown body is offered, hidden or not: projected onto the plane, a hidden corner
+  lies where the one hiding it is, or is reached only through it, so leaving it out would hide
+  nothing but cost an occlusion test per hover. Where two project to one place the one nearer the
+  sketch plane wins (`BodySnaps` keeps its candidates sorted by depth, and a tie keeps the
+  first), so a corner on the plane is taken before the one behind it. Point-like sketch targets
+  win, then body corners, middles and centres, then sketch curves, then body edges. `Accept::Points`
+  takes body corners and centres only, `OnCircle` none, nor does a tangent arc's start; the held
+  snap (Alt), directions' and tracks' crossings and acquired points take none, as a body item is
+  not in the sketch until a point lands on it. The label names the body: "Corner of Base",
+  "Middle of an edge of Base", "Centre of a round edge of Base", "On an edge of Base".
+- A point landing on a body item projects that vertex or edge in the shape's own transaction
+  (`Draft::projection` through `TransactionBuilder::add_projected`: the same fixed geometry and
+  stable `ProjectionSource` Project makes, or the existing projection of that source, once per
+  shape) and joins it: a `Coincident` with the projected corner or round edge's centre, a
+  `Midpoint` on the projected edge, a `Coincident` on it; where a shape uses a target point
+  itself (a circle through it, a polygon's side middle) it uses the projected point. One undo
+  takes the drawing and its projections away together. The candidates come from `BodySnaps`, a
+  cache per sketch session of the corners (one sharing its name with another vertex is left out,
+  as Project refuses it) and non-seam edges, held in `Drawing` behind an `Arc` and rebuilt by
+  `Drawing::track_bodies` only when the edited sketch, its plane or a shown body's result `Arc`
+  changes (`Basis`), so a hover walks only its points and edges, as for the sketch's own. A
+  placement made from an older cache (its `generation`) lands free.
 - Preview curves are faceted like the sketch's (`Drawing::preview` and `Trimming::preview` take
   the scene's `Faceting`); the snap target and a direction's reference line
   (`Drawing::snap_entities`) replace the GPU hover while a drawing tool is active.

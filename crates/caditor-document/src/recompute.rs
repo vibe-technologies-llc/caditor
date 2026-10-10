@@ -419,8 +419,16 @@ impl Evaluation {
     }
 
     pub fn body_result_seen_by(&self, feature: FeatureId, body: FeatureId) -> Option<&SolidResult> {
+        self.body_state_seen_by(feature, body)?.solid()
+    }
+
+    pub fn body_state_seen_by(
+        &self,
+        feature: FeatureId,
+        body: FeatureId,
+    ) -> Option<&Arc<FeatureResult>> {
         let state = self.seen_bodies.get(&feature)?.get(&body)?;
-        body_part(self.features.get(state)?.result.as_ref()?, body)?.solid()
+        body_part(self.features.get(state)?.result.as_ref()?, body)
     }
 
     pub fn is_stale(&self, body: FeatureId) -> bool {

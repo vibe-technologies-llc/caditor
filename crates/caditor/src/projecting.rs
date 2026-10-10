@@ -7,6 +7,7 @@ use caditor_document::{
 };
 use caditor_geometry::{Aabb, Plane};
 use caditor_kernel::{EdgeId, EdgeReference, FaceId};
+use caditor_sketch::EntityId;
 
 use crate::{
     bodies, body_selection::face_boundary, datum_tools, editing::ActiveSketch, model::Model,
@@ -206,7 +207,7 @@ pub fn face_projections(
         .collect()
 }
 
-fn edge_projection(
+pub fn edge_projection(
     result: &SolidResult,
     body: FeatureId,
     edge: EdgeId,
@@ -224,10 +225,17 @@ fn edge_projection(
 }
 
 fn already_projected(definition: &SketchFeature, source: &ProjectionSource) -> bool {
+    existing_projection(definition, source).is_some()
+}
+
+pub fn existing_projection(
+    definition: &SketchFeature,
+    source: &ProjectionSource,
+) -> Option<EntityId> {
     definition
         .projections
-        .values()
-        .any(|existing| match (existing, source) {
+        .iter()
+        .find(|(_, existing)| match (*existing, source) {
             (
                 ProjectionSource::Edge { body, edge },
                 ProjectionSource::Edge {
@@ -250,8 +258,9 @@ fn already_projected(definition: &SketchFeature, source: &ProjectionSource) -> b
                 ProjectionSource::PrincipalPlane { plane, .. },
                 ProjectionSource::PrincipalPlane { plane: other, .. },
             ) => plane == other,
-            _ => existing == source,
+            _ => *existing == source,
         })
+        .map(|(id, _)| *id)
 }
 
 fn sketch_plane(model: &Model, sketch: FeatureId) -> Result<(&SketchFeature, Plane), String> {

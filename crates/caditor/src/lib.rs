@@ -14,6 +14,7 @@ mod bodies;
 mod bodies_tree;
 mod body_appearance;
 mod body_selection;
+mod body_snap;
 mod box_selection;
 mod canvas;
 mod cli;
