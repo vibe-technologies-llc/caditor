@@ -76,6 +76,22 @@ fn the_palette_shows_whether_a_toggle_is_on_and_quiet_toggles_say_what_changed()
 }
 
 #[test]
+fn a_refused_palette_command_closes_the_palette_and_says_why() {
+    let mut harness = Harness::new();
+
+    open_palette(&mut harness, "finish sketch");
+    let open_before = harness.workspace.palette.is_open();
+    harness.key(Key::Enter, Modifiers::NONE);
+    harness.show_new_windows();
+    harness.frame();
+    let told = notice_text(&harness);
+
+    assert!(open_before);
+    assert!(!harness.workspace.palette.is_open());
+    assert!(told.is_some_and(|text| text.starts_with("Finish sketch is not available")));
+}
+
+#[test]
 fn recent_palette_commands_outlast_a_failed_frame_and_a_restart() {
     let dir = TempDir::new().unwrap();
     let mut harness = Harness::with_directories(Some(dir.path()));

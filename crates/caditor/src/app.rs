@@ -982,6 +982,9 @@ pub fn show(
             model.document(),
             &toggles,
         );
+        if let Some(reason) = palette.take_refusal() {
+            actions.push(Action::Inform(Notice::warning(reason)));
+        }
         if palette.recent() != preferences.palette_recent.as_slice() {
             actions.push(Action::Preferences(PreferencesCommand::RememberRecent(
                 palette.recent().to_vec(),

@@ -156,6 +156,97 @@ fn an_angle_alone_locks_the_direction_and_the_pointer_sets_the_length() {
 }
 
 #[test]
+fn a_length_and_a_less_than_sign_hold_the_length_while_the_pointer_sets_the_direction() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "0, 0");
+    harness.point_at(Point2::new(3.0, 3.0));
+
+    type_point(&mut harness, "10<");
+    let locked =
+        harness.shows_containing("The length is locked: move the pointer to set the direction");
+    harness.point_at(Point2::new(0.0, 40.0));
+    let readout = harness.shows_containing("10.00 mm   90.0°   length locked");
+    harness.click_at(Point2::new(0.0, 40.0));
+    let released = !harness.shows_containing("The length is locked");
+    harness.click_at(Point2::new(30.0, 40.0));
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+
+    assert!(locked);
+    assert!(readout);
+    assert!(released);
+    let sketch = harness.sketch(feature);
+    let ends = line_ends(sketch);
+    assert_eq!(ends.len(), 2, "{ends:?}");
+    assert!(near(ends[0].1, Point2::new(0.0, 10.0)), "{:?}", ends[0]);
+    assert!(near(ends[1].1, Point2::new(30.0, 40.0)), "{:?}", ends[1]);
+    assert_eq!(constraints_of_kind(sketch, "Distance").len(), 1);
+}
+
+#[test]
+fn a_held_radius_keeps_the_circle_that_size_wherever_the_pointer_goes() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::C);
+    type_point(&mut harness, "0, 0");
+
+    harness.point_at(Point2::new(4.0, 0.0));
+    type_point(&mut harness, "12<");
+    let locked =
+        harness.shows_containing("The radius is locked: move the pointer to set the direction");
+    harness.click_at(Point2::new(-50.0, 30.0));
+
+    assert!(locked);
+    let sketch = harness.sketch(feature);
+    assert!(close(&radii_of_circles(sketch), &[12.0]));
+}
+
+#[test]
+fn backspace_and_escape_let_go_of_a_held_length_before_taking_back_the_point() {
+    let mut harness = Harness::new();
+    let feature = harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+    type_point(&mut harness, "0, 0");
+    harness.point_at(Point2::new(3.0, 3.0));
+
+    type_point(&mut harness, "10<");
+    harness.key(Key::Backspace, Modifiers::NONE);
+    harness.frame();
+    let released_by_backspace = !harness.shows_containing("The length is locked");
+    type_point(&mut harness, "10<");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    let released_by_escape = !harness.shows_containing("The length is locked");
+    harness.click_at(Point2::new(20.0, 0.0));
+
+    assert!(released_by_backspace);
+    assert!(released_by_escape);
+    let ends = line_ends(harness.sketch(feature));
+    assert_eq!(ends.len(), 1);
+    assert!(near(ends[0].1, Point2::new(20.0, 0.0)), "{:?}", ends[0]);
+}
+
+#[test]
+fn a_held_length_needs_a_placed_point_and_a_shape_that_is_waiting_for_its_second_point() {
+    let mut harness = Harness::new();
+    harness.draw_on_new_sketch();
+    harness.use_tool(Key::L);
+
+    type_point(&mut harness, "10<");
+    let needs_a_point = harness.shows_containing("A length held with < sets the distance");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    type_point(&mut harness, "0, 0");
+    type_point(&mut harness, "0<");
+    let above_zero = harness.shows_containing("A held length must be above zero");
+
+    assert!(needs_a_point);
+    assert!(above_zero);
+}
+
+#[test]
 fn escape_lets_go_of_a_locked_direction_before_the_shape() {
     let mut harness = Harness::new();
     let feature = harness.draw_on_new_sketch();

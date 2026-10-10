@@ -36,8 +36,12 @@ With a drawing tool active, start typing a number to open the point field:
 - `40 < 30` is 40 long at 30 degrees from the sketch's x axis.
 - A lone length, such as `25`, goes that far from the last point toward the pointer.
 - An angle alone, such as `< 30`, locks the direction from the last point: the pointer then sets
-  only the length, and a click places the point with the angle kept. Escape lets go of the
-  direction.
+  only the length, and a click places the point with the angle kept. Backspace or Escape lets go of
+  the direction.
+- A length followed by `<`, such as `25 <`, locks the length instead: the pointer then sets only
+  the direction, and a click places the point that far from the last one. The prompt and the
+  readout say the length (the radius for a circle or arc) is locked. Backspace or Escape lets go
+  of it.
 
 Values are [expressions](expressions), so parameters and units work. Letters choose tools, so to
 start with a parameter's name type `=` first, as in `=width, 20`, or put the name in brackets, as

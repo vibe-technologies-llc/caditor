@@ -51,7 +51,12 @@ const CANCEL_ELLIPSE: &str = "Esc: cancel the ellipse";
 const CANCEL_ELLIPTICAL_ARC: &str = "Esc: cancel the elliptical arc";
 pub const HEADING_PROMPT: &str = "The direction is locked: move the pointer to set the length and \
                                   click to place the point";
-const HEADING_KEYS: &str = "Type a length for an exact one   Esc: let go of the direction";
+const HEADING_KEYS: &str =
+    "Type a length for an exact one   Backspace or Esc: let go of the direction";
+const LENGTH_LOCK_KEYS: &str =
+    "Type an angle for an exact direction   Backspace or Esc: let go of it";
+const LENGTH_LOCK_REFUSED: &str = "A length is held from the last point once the shape has only its \
+                                   first point: place it, then type the length and <";
 
 const TOO_FEW_SIDES: &str = "A polygon needs at least three sides";
 const TOO_MANY_SIDES: &str = "A polygon has at most 64 sides";
@@ -702,21 +707,46 @@ pub struct Drawing {
     pointed: Option<Pointed>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Lock {
+    Direction(Vector2),
+    Length(f64),
+}
+
+impl Lock {
+    fn heading(degrees: f64) -> Self {
+        Self::Direction(Vector2::from_angle(degrees.to_radians()))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct Heading {
     from: Point2,
-    along: Vector2,
+    held: Lock,
     dimensions: Vec<TypedDimension>,
 }
 
 impl Heading {
     fn reach(&self, toward: Point2) -> Point2 {
-        self.from + self.along * (toward - self.from).dot(self.along).max(0.0)
+        match self.held {
+            Lock::Direction(along) => self.from + along * (toward - self.from).dot(along).max(0.0),
+            Lock::Length(length) => {
+                let away = (toward - self.from).try_normalize().unwrap_or(Vector2::X);
+                self.from + away * length
+            }
+        }
     }
 
     fn guide(&self, reached: Point2) -> Option<[Point2; 2]> {
+        let Lock::Direction(_) = self.held else {
+            return None;
+        };
         let drawn = reached - self.from;
         (drawn.length() >= DEGENERATE_LENGTH).then_some([self.from, reached + drawn])
+    }
+
+    fn holds_length(&self) -> bool {
+        matches!(self.held, Lock::Length(_))
     }
 }
 
@@ -1030,6 +1060,16 @@ impl Drawing {
     }
 
     pub fn readout(&self, unit: Units) -> Option<String> {
+        let drawn = self.shape_readout(unit)?;
+        Some(match self.active_heading() {
+            Some(heading) if heading.holds_length() => {
+                format!("{drawn}   {} locked", self.held_noun())
+            }
+            _ => drawn,
+        })
+    }
+
+    fn shape_readout(&self, unit: Units) -> Option<String> {
         let (_, shape) = self.context?;
         let hover = self.hover?.position;
         let length = |millimetres: f64| unit.readout_text(millimetres);
@@ -1187,11 +1227,22 @@ impl Drawing {
     }
 
     pub fn preview_heading(&mut self, sketch: &Sketch, degrees: f64) {
+        let held = Lock::heading(degrees);
+        self.preview_held(sketch, held);
+    }
+
+    pub fn preview_length(&mut self, sketch: &Sketch, length: f64) {
+        if self.can_hold_length() {
+            self.preview_held(sketch, Lock::Length(length));
+        }
+    }
+
+    fn preview_held(&mut self, sketch: &Sketch, held: Lock) {
         let Some(toward) = self.pointer_position() else {
             return;
         };
         self.keep_pointed();
-        self.heading = self.heading_from(degrees, Vec::new());
+        self.heading = self.heading_from(held, Vec::new());
         if let Some(reached) = self.heading.as_ref().map(|heading| heading.reach(toward)) {
             self.type_point(sketch, reached);
         }
@@ -1199,7 +1250,42 @@ impl Drawing {
 
     pub fn lock_heading(&mut self, degrees: f64, dimensions: Vec<TypedDimension>) {
         self.end_typed_preview();
-        self.heading = self.heading_from(degrees, dimensions);
+        let held = Lock::heading(degrees);
+        self.heading = self.heading_from(held, dimensions);
+    }
+
+    pub fn lock_length(
+        &mut self,
+        length: f64,
+        dimensions: Vec<TypedDimension>,
+    ) -> Result<(), &'static str> {
+        if !self.can_hold_length() {
+            return Err(LENGTH_LOCK_REFUSED);
+        }
+        self.end_typed_preview();
+        self.heading = self.heading_from(Lock::Length(length), dimensions);
+        Ok(())
+    }
+
+    fn can_hold_length(&self) -> bool {
+        match self.context {
+            Some((_, Shape::Spline(_))) => !self.placed.is_empty(),
+            Some(_) => self.placed.len() == 1,
+            None => false,
+        }
+    }
+
+    fn held_noun(&self) -> &'static str {
+        match self.context {
+            Some((
+                _,
+                Shape::Circle(CircleMode::Center)
+                | Shape::Arc
+                | Shape::Slot(SlotMode::Arc)
+                | Shape::Polygon(PolygonMode::Corner | PolygonMode::SideMiddle),
+            )) => "radius",
+            _ => "length",
+        }
     }
 
     pub fn has_heading(&self) -> bool {
@@ -1211,10 +1297,10 @@ impl Drawing {
         self.typed_hover = None;
     }
 
-    fn heading_from(&self, degrees: f64, dimensions: Vec<TypedDimension>) -> Option<Heading> {
+    fn heading_from(&self, held: Lock, dimensions: Vec<TypedDimension>) -> Option<Heading> {
         Some(Heading {
             from: self.last_placed()?,
-            along: Vector2::from_angle(degrees.to_radians()),
+            held,
             dimensions,
         })
     }
@@ -2259,10 +2345,21 @@ impl Drawing {
 
     pub fn prompt(&self) -> Option<Prompt> {
         let (_, shape) = self.context?;
-        if self.has_heading() {
-            return Some(Prompt {
-                text: HEADING_PROMPT.to_owned(),
-                keys: HEADING_KEYS,
+        if let Some(heading) = self.active_heading() {
+            return Some(if heading.holds_length() {
+                Prompt {
+                    text: format!(
+                        "The {} is locked: move the pointer to set the direction and click to \
+                         place the point",
+                        self.held_noun()
+                    ),
+                    keys: LENGTH_LOCK_KEYS,
+                }
+            } else {
+                Prompt {
+                    text: HEADING_PROMPT.to_owned(),
+                    keys: HEADING_KEYS,
+                }
             });
         }
         let prompt = |text: &str, keys| {

@@ -205,13 +205,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   one chain at a time, leaves the free ends of an open chain sliding along their curves and cannot
   offset splines; a sketch fillet cannot round a spline and drops equal lengths and midpoints of the
   lines it shortens, as trim does.
-- [low · easy] A typed value locks only a direction (`Drawing::lock_heading`): a line's length
-  cannot be held while the pointer chooses its direction, nor a circle's or arc's radius while the
-  pointer chooses where it goes round, nor one side of a rectangle while the pointer sets the other.
-  A lone length typed as a lock (a marker after it, with its own prompt beside `HEADING_PROMPT`)
-  could hold the distance from the last point, the pointer's direction landing on the circle of
-  that radius with snaps joining where they cross it, and keep the length as a dimension as a
-  typed one is (`TypedDimension`).
 - [low · medium] Offset copies a chain to one side only: an outline round a centreline (a slot
   following a path, a wall drawn by its middle) needs two offsets and the closing lines or arcs
   drawn by hand. A Both sides way of Offset (`offsetting.rs`, the distance on each side) closing an
@@ -520,9 +513,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Application
 
-- [low · easy] A command run from the palette and then refused (not offered in the current
-  context) leaves the palette open, so the next key press goes to the palette rather than the view
-  or the panel it was meant for; a refusal should close the palette as a run command does.
 - [high · medium] Outside sketch editing no dimension is shown on the model (`viewport.rs` hands
   `annotations::Annotations` only the edited sketch), so changing a size means opening the
   feature's panel or entering its sketch. Selecting a face or opening a feature could show, on the
