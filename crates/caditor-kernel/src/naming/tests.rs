@@ -75,6 +75,14 @@ fn digests_of_fixed_generators_never_change() {
         FaceName::pattern(7, [2, 1], side).digest(),
         0x5c42_9d04_89de_d475_6312_f995_f01a_efd9
     );
+    assert_eq!(
+        FaceName::split(7, side, SplitPiece::Inside).digest(),
+        0xbddc_6fec_8f57_3722_96f8_e45b_ed63_cd4f
+    );
+    assert_eq!(
+        FaceName::split(7, side, SplitPiece::Outside).digest(),
+        0xbddc_6fec_9057_3722_96f8_e45b_ed63_ce8a
+    );
     let region = Profile::new(&rectangle(1, (0.0, 0.0), (4.0, 3.0))).unwrap();
     assert_eq!(
         region.regions()[0].key().digest(),

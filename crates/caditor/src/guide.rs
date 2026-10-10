@@ -61,6 +61,7 @@ pub enum Page {
     Mate,
     Mirror,
     Split,
+    SplitFace,
     Scale,
     Patterns,
     Datums,
@@ -134,6 +135,7 @@ all_variants!(
     Mate,
     Mirror,
     Split,
+    SplitFace,
     Scale,
     Patterns,
     Datums,
@@ -253,6 +255,7 @@ impl Page {
             Self::Mate => "mate",
             Self::Mirror => "mirror",
             Self::Split => "split",
+            Self::SplitFace => "split-face",
             Self::Scale => "scale",
             Self::Patterns => "patterns",
             Self::Datums => "datums",
@@ -332,6 +335,7 @@ impl Page {
             Self::Mate => include_str!("../guide/mate.md"),
             Self::Mirror => include_str!("../guide/mirror.md"),
             Self::Split => include_str!("../guide/split.md"),
+            Self::SplitFace => include_str!("../guide/split-face.md"),
             Self::Scale => include_str!("../guide/scale.md"),
             Self::Patterns => include_str!("../guide/patterns.md"),
             Self::Datums => include_str!("../guide/datums.md"),
@@ -405,6 +409,7 @@ impl Page {
             | Self::Mate
             | Self::Mirror
             | Self::Split
+            | Self::SplitFace
             | Self::Scale
             | Self::Patterns
             | Self::Datums
@@ -467,6 +472,7 @@ impl Page {
             FeatureKind::Mate(_) => Self::Mate,
             FeatureKind::Mirror(_) => Self::Mirror,
             FeatureKind::Split(_) => Self::Split,
+            FeatureKind::SplitFace(_) => Self::SplitFace,
             FeatureKind::Scale(_) => Self::Scale,
             FeatureKind::Hole(_) => Self::Hole,
             FeatureKind::Pattern(_) => Self::Patterns,

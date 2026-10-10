@@ -365,11 +365,11 @@ impl Pickable {
                     || "Face".to_owned(),
                     |solid| bodies::describe_face(document, solid, face),
                 );
-                let moving = document
-                    .feature(feature)
-                    .is_some_and(|owner| owner.kind.offset_face().is_some());
-                if moving {
+                let kind = document.feature(feature).map(|owner| &owner.kind);
+                if kind.is_some_and(|kind| kind.offset_face().is_some()) {
                     format!("{described}: click to move it with {owner} or leave it out")
+                } else if kind.is_some_and(|kind| kind.split_face().is_some()) {
+                    format!("{described}: click to split it with {owner} or leave it out")
                 } else {
                     format!("{described}: click to open it in {owner} or close it again")
                 }

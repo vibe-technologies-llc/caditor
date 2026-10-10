@@ -133,6 +133,7 @@ pub enum Command {
     Chamfer,
     Shell,
     OffsetFace,
+    SplitFace,
     Combine,
     Move,
     CopyBody,
@@ -642,6 +643,7 @@ plain_commands! {
     Chamfer,
     Shell,
     OffsetFace,
+    SplitFace,
     Combine,
     Move,
     CopyBody,
@@ -888,6 +890,7 @@ impl Command {
             Self::Chamfer => "model.chamfer",
             Self::Shell => "model.shell",
             Self::OffsetFace => "model.offset_face",
+            Self::SplitFace => "model.split_face",
             Self::Combine => "model.combine",
             Self::Move => "model.move",
             Self::CopyBody => "model.copy_body",
@@ -1125,6 +1128,7 @@ impl Command {
             Self::Chamfer => "Chamfer",
             Self::Shell => "Shell",
             Self::OffsetFace => "Offset face",
+            Self::SplitFace => "Split face",
             Self::Combine => "Combine",
             Self::Move => "Move body",
             Self::CopyBody => "Copy body",
@@ -1439,6 +1443,7 @@ impl Command {
             | Self::Chamfer
             | Self::Shell
             | Self::OffsetFace
+            | Self::SplitFace
             | Self::Combine
             | Self::Move
             | Self::CopyBody
@@ -1667,6 +1672,7 @@ impl Command {
             Self::Chamfer => vec![alt(Key::C)],
             Self::Shell => vec![alt(Key::S)],
             Self::OffsetFace => vec![alt(Key::Q)],
+            Self::SplitFace => vec![alt_shift(Key::K)],
             Self::Combine => vec![alt(Key::J)],
             Self::Move => vec![alt(Key::M)],
             Self::CopyBody => vec![alt_shift(Key::C)],

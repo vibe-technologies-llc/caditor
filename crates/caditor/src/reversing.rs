@@ -88,6 +88,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
         | FeatureKind::Blend(_)
         | FeatureKind::Shell(_)
         | FeatureKind::OffsetFace(_)
+        | FeatureKind::SplitFace(_)
         | FeatureKind::Combine(_)
         | FeatureKind::Move(_)
         | FeatureKind::Mirror(_)

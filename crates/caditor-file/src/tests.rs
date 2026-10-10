@@ -3370,6 +3370,77 @@ fn an_unreadable_opened_face_is_left_closed_and_reported() {
     assert!(restored.kind.shell().unwrap().open.is_empty());
 }
 
+fn split_face_model(
+    along: impl FnOnce(&Document, FeatureId) -> caditor_document::SplitAlong,
+) -> (Document, FeatureId) {
+    use caditor_document::SplitFace;
+    use caditor_kernel::{FaceName, FaceOrigin, FaceReference};
+    let (mut document, base, _) = solid_model();
+    let along = along(&document, base);
+    let top = FaceReference::new(
+        FaceName::from_digest(0xbeef),
+        Some(FaceOrigin::EndCap { feature: 1 }),
+        [FaceName::from_digest(2)],
+    );
+    let mut transaction = document.transaction("Split face");
+    let split = transaction.add_feature(
+        "Split face 1",
+        FeatureKind::SplitFace(SplitFace {
+            body: base,
+            faces: vec![top],
+            along,
+        }),
+    );
+    document.apply(transaction.finish()).unwrap();
+    (document, split)
+}
+
+#[test]
+fn split_faces_are_saved_and_loaded_as_a_record_of_their_own() {
+    use caditor_document::{PlaneReference, PrincipalPlane, SplitAlong};
+    let (document, split) =
+        split_face_model(|_, _| SplitAlong::Plane(PlaneReference::Principal(PrincipalPlane::Yz)));
+    let text = encode(&document).unwrap();
+    assert!(text.contains("\"split_face\":{\"along\":{\"plane\":"));
+    let loaded = decode_text(&text);
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let (document, _) = split_face_model(|_, base| SplitAlong::Body(base));
+    let loaded = decode_text(&encode(&document).unwrap());
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+
+    let kind = document.feature(split).unwrap().kind.clone();
+    let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: split, kind });
+    let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+    let record = through_binary(&text);
+    assert_eq!(format::restore_transaction(record), Some(transaction));
+}
+
+#[test]
+fn an_unreadable_split_face_is_left_whole_and_reported() {
+    use caditor_document::SplitAlong;
+    let (document, split) = split_face_model(|document, _| {
+        let outline = document
+            .features()
+            .find(|feature| feature.name == "Outline")
+            .unwrap();
+        SplitAlong::Sketch(outline.id())
+    });
+    let text =
+        encode(&document)
+            .unwrap()
+            .replacen("0000000000000000000000000000beef", "not a digest", 1);
+    let loaded = decode_text(&text);
+    assert_eq!(
+        loaded.issues,
+        ["Some faces split by “Split face 1” could not be read and were left whole."]
+    );
+    let restored = loaded.document.feature(split).unwrap();
+    assert!(restored.kind.split_face().unwrap().faces.is_empty());
+}
+
 fn offset_model() -> (Document, FeatureId) {
     use caditor_document::OffsetFace;
     use caditor_kernel::{FaceName, FaceOrigin, FaceReference};

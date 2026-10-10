@@ -63,7 +63,7 @@ use crate::{
     sketch_placement::{self, DatumTarget, FaceChoice},
     sketch_status, sketch_toolbar, sketch_tools,
     snap::{Hold, Pointer, Screen},
-    snapshot, solid_tools, toggles,
+    snapshot, solid_tools, split_face_tools, toggles,
     trimming::{self, Trimming},
     typed_point::{self, TypedPoint},
     upload_badge,
@@ -109,6 +109,7 @@ const INTERSECT_PROMPT: &str = "Click a face to draw where the sketch cuts it, S
      whole body, or click a datum plane";
 const CHOOSE_FACES_PROMPT: &str = "Click flat faces to open them or close them again";
 const CHOOSE_MOVED_FACES_PROMPT: &str = "Click faces to move them or leave them out again";
+const CHOOSE_SPLIT_FACES_PROMPT: &str = "Click faces to split them or leave them out again";
 const CHOOSE_BODIES_PROMPT: &str = "Choose the operation and the two bodies in the feature's panel";
 const CHOOSE_MOVE_PROMPT: &str =
     "Drag an arrow or a square, or enter the turns and distances in the feature's panel";
@@ -4227,6 +4228,7 @@ impl ViewportState {
                 Some(FeatureKind::Blend(_)) => CHOOSE_EDGES_PROMPT,
                 Some(FeatureKind::Shell(_)) => CHOOSE_FACES_PROMPT,
                 Some(FeatureKind::OffsetFace(_)) => CHOOSE_MOVED_FACES_PROMPT,
+                Some(FeatureKind::SplitFace(_)) => CHOOSE_SPLIT_FACES_PROMPT,
                 Some(FeatureKind::Combine(_)) => CHOOSE_BODIES_PROMPT,
                 Some(FeatureKind::Move(_)) => CHOOSE_MOVE_PROMPT,
                 Some(FeatureKind::Scale(_)) => CHOOSE_SCALE_PROMPT,
@@ -4730,14 +4732,15 @@ fn pick_action(
             Some(blend_tools::toggle_edge(model, feature, edge))
         }
         Some(Pickable::ShellFace { feature, face }) => {
-            let offsetting = model
-                .document()
-                .feature(feature)
-                .is_some_and(|owner| owner.kind.offset_face().is_some());
-            Some(if offsetting {
-                offset_face_tools::toggle_face(model, feature, face)
-            } else {
-                shell_tools::toggle_face(model, feature, face)
+            let kind = model.document().feature(feature).map(|owner| &owner.kind);
+            Some(match kind {
+                Some(FeatureKind::OffsetFace(_)) => {
+                    offset_face_tools::toggle_face(model, feature, face)
+                }
+                Some(FeatureKind::SplitFace(_)) => {
+                    split_face_tools::toggle_face(model, feature, face)
+                }
+                _ => shell_tools::toggle_face(model, feature, face),
             })
         }
         _ => None,

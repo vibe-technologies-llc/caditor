@@ -189,6 +189,20 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visitor.face(offset.body, face, &what);
             }
         }
+        FeatureKind::SplitFace(split) => {
+            let count = split.faces.len();
+            for (index, face) in split.faces.iter_mut().enumerate() {
+                let what = if count == 1 {
+                    "its split face".to_owned()
+                } else {
+                    format!("split face {} of {count}", index + 1)
+                };
+                visitor.face(split.body, face, &what);
+            }
+            if let Some(plane) = split.along.plane_mut() {
+                visit_plane(plane, "the face it splits along", visitor);
+            }
+        }
         FeatureKind::Thread(thread) => {
             visitor.face(thread.body, &mut thread.face, "its threaded face");
         }

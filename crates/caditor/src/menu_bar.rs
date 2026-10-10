@@ -723,6 +723,7 @@ impl Menus<'_> {
                     Command::Chamfer,
                     Command::Shell,
                     Command::OffsetFace,
+                    Command::SplitFace,
                     Command::Combine,
                 ],
             );

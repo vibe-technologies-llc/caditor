@@ -580,6 +580,7 @@ impl Rescaler {
             | FeatureKind::Combine(_)
             | FeatureKind::Mirror(_)
             | FeatureKind::Split(_)
+            | FeatureKind::SplitFace(_)
             | FeatureKind::Remove(_) => {}
         }
         Ok(if kind == feature.kind {
@@ -813,6 +814,12 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
         },
         FeatureKind::Mirror(mirror) => plane_anchor(&mirror.plane).into_iter().collect(),
         FeatureKind::Split(split) => split
+            .along
+            .plane()
+            .and_then(plane_anchor)
+            .into_iter()
+            .collect(),
+        FeatureKind::SplitFace(split) => split
             .along
             .plane()
             .and_then(plane_anchor)

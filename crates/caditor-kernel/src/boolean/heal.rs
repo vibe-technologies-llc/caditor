@@ -20,9 +20,9 @@ use crate::{
 const PARAMETER_MATCH: f64 = 1e-9;
 const PERIOD_SLACK: f64 = 1e-9;
 
-type Uses = BTreeMap<usize, Vec<(usize, Sense)>>;
+pub(super) type Uses = BTreeMap<usize, Vec<(usize, Sense)>>;
 
-fn uses(faces: &[KeptFace]) -> Uses {
+pub(super) fn uses(faces: &[KeptFace]) -> Uses {
     let mut uses: Uses = BTreeMap::new();
     for (index, face) in faces.iter().enumerate() {
         for coedge in face

@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use caditor_geometry::{Aabb2, Plane, Point2, Vector2};
 use caditor_kernel::{
     BooleanError, BooleanOperation, LINEAR_RESOLUTION, LinearExtent, Profile, ProfileCurve,
-    ProfileError, ProfileShape, Solid, SweepError, boolean, extrude,
+    ProfileError, ProfileShape, Selection, Solid, SweepError, boolean, extrude,
 };
 use caditor_sketch::Sketch;
 
@@ -710,4 +710,24 @@ pub(crate) fn swept_half_space(
     }
     let extent = LinearExtent::new(low - margin, high + margin).map_err(SweptError::Sweep)?;
     extrude(&plane, profile.regions(), extent, feature).map_err(SweptError::Sweep)
+}
+
+pub(crate) fn swept_outlines(
+    solid: &Solid,
+    sketch: &Sketch,
+    feature: u64,
+) -> Result<Solid, SweptError> {
+    let plane = sketch.plane();
+    let Heights {
+        low, high, margin, ..
+    } = heights(solid, &plane).ok_or(SweptError::NoExtent)?;
+    let curves = profile_curves(sketch);
+    if curves.is_empty() {
+        return Err(SweptError::NoCurves);
+    }
+    let regions = Profile::new(&curves)
+        .and_then(|profile| profile.select(&Selection::EvenDepth))
+        .map_err(SweptError::Profile)?;
+    let extent = LinearExtent::new(low - margin, high + margin).map_err(SweptError::Sweep)?;
+    extrude(&plane, &regions, extent, feature).map_err(SweptError::Sweep)
 }

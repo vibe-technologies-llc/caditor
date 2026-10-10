@@ -11541,6 +11541,85 @@ fn offset_face_moves_the_selected_face_and_follows_a_typed_distance_and_clicked_
     assert_eq!(harness.workspace.editing.solid(), None);
 }
 
+fn split_face_of(harness: &Harness, feature: FeatureId) -> &caditor_document::SplitFace {
+    harness
+        .document()
+        .feature(feature)
+        .and_then(|feature| feature.kind.split_face())
+        .unwrap()
+}
+
+fn face_count(harness: &Harness, body: FeatureId) -> usize {
+    harness
+        .model
+        .evaluation()
+        .body_result(body)
+        .and_then(|result| result.solid())
+        .map_or(0, |solid| solid.solid.faces().count())
+}
+
+#[test]
+fn split_face_divides_the_selected_face_along_a_sketch_curve_and_takes_clicked_faces() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let mut line = Sketch::new(Plane::XY);
+    let entity = line.add_line(Point2::new(20.0, -10.0), Point2::new(20.0, 50.0));
+    let part_line = harness.add_sketch(line);
+
+    harness.select([
+        top,
+        Pickable::SketchEntity {
+            feature: part_line,
+            entity,
+        },
+    ]);
+    harness.use_tool_with(Key::K, Modifiers::ALT | Modifiers::SHIFT);
+    harness.settle();
+    let split = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the split face is open");
+    assert_eq!(harness.model.undo_label(), Some("Create Split face 1"));
+    assert_eq!(
+        split_face_of(&harness, split).along,
+        caditor_document::SplitAlong::Sketch(part_line)
+    );
+    assert_eq!(harness.model.evaluation().failed_count(), 0);
+    assert_eq!(face_count(&harness, plate), 7);
+    assert!(volume_about(&harness, plate, 40.0 * 40.0 * 10.0));
+    assert!(harness.shows("Click faces to split them or leave them out again"));
+    assert!(harness.shows("Faces to split"));
+    assert!(harness.shows("Split along"));
+
+    let bottom = pickable_described(
+        &mut harness,
+        "Extrude 1 start face: click to split it with Split face 1 or leave it out",
+    );
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), bottom);
+    harness.settle();
+    assert_eq!(split_face_of(&harness, split).faces.len(), 2);
+    assert_eq!(
+        harness.model.undo_label(),
+        Some("Split a face with Split face 1")
+    );
+    assert_eq!(face_count(&harness, plate), 8);
+
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), bottom);
+    harness.settle();
+    assert_eq!(split_face_of(&harness, split).faces.len(), 1);
+    assert_eq!(face_count(&harness, plate), 7);
+
+    for _ in 0..2 {
+        harness.key(Key::Escape, Modifiers::NONE);
+        harness.frame();
+        harness.frame();
+    }
+    assert_eq!(harness.workspace.editing.solid(), None);
+}
+
 #[test]
 fn the_offset_face_command_needs_faces_of_a_body_and_takes_every_selected_one() {
     let mut harness = Harness::new();

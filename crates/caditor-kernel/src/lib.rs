@@ -33,7 +33,10 @@ mod topology;
 
 pub use crate::{
     blend::{BlendError, BlendShape, blend, blend_chain, tangent_chain, tangent_faces},
-    boolean::{BooleanError, BooleanOperation, BooleanSite, Interference, boolean, interference},
+    boolean::{
+        BooleanError, BooleanOperation, BooleanSite, FaceSplitError, Interference, boolean,
+        interference, split_faces,
+    },
     bspline::{BSpline, MAX_SPLINE_DEGREE},
     build::{
         AngularExtent, Axis2, Heights, LinearBound, LinearExtent, MAX_TAPER_DEGREES, NextFace,
@@ -70,7 +73,7 @@ pub use crate::{
     },
     naming::{
         EdgeName, EdgeNaming, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference, Made,
-        ReferenceError, VertexName, vertex_names,
+        ReferenceError, SplitPiece, VertexName, vertex_names,
     },
     pattern::{PatternCopy, PatternError, pattern, pattern_copies},
     profile::{

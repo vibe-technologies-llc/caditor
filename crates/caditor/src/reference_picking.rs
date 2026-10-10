@@ -11,7 +11,7 @@ use crate::{
     pattern_tools::{self, Reference},
     primitive_tools, scale_tools,
     selection::{Pickable, Selection},
-    solid_panel, split_tools, thread_tools,
+    solid_panel, split_face_tools, split_tools, thread_tools,
 };
 
 pub const STOP_HINT: &str = "Esc: stop choosing";
@@ -257,6 +257,9 @@ pub fn change(
         }
         (Slot::SplitPlane, FeatureKind::Split(split)) => {
             split_tools::along_change(model, selection, feature, split)
+        }
+        (Slot::SplitPlane, FeatureKind::SplitFace(split)) => {
+            split_face_tools::along_change(model, selection, feature, split)
         }
         (Slot::PatternDirection, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::First)

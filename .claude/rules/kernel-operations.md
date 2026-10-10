@@ -147,6 +147,25 @@ paths:
   surface); two edges meeting between the same faces, not at a pole, are joined when they are
   pieces of one curve. Names: `kernel-naming.md`.
 
+## Split faces (`boolean/split_faces.rs`)
+
+- `split_faces(solid, faces, tool, feature)` divides the chosen faces where the tool solid's
+  surface crosses them and leaves the shape alone: valid or a `FaceSplitError` (`NoFaces`,
+  `Undivided` when no chosen face comes out in more than one piece, `Boolean` for the pipeline's
+  own failures, `Cancelled`). It is the boolean pipeline restricted (`Input::imprinting`): only the
+  chosen faces of the first operand are intersected with the tool (`Input::imprints_on`), only
+  edges bounding a chosen face are split (`Input::splits_edge`), only the first operand is traced
+  (`Input::traces`), every fragment of it is kept as it is, the tool's are dropped, and nothing is
+  healed (merging would join the pieces again), only `check_closed` before assembly.
+- Each piece of a chosen face is classified against the tool like a boolean fragment and named
+  `FaceName::split(feature, original, SplitPiece)`: `Inside` (or lying on the tool) or `Outside`,
+  keeping the original's `FaceOrigin`. Every edge used by a chosen face is renamed from its faces
+  (`between`, or `seam` of a face using it twice; `assemble` takes the per-piece names), the
+  `Plan` disambiguating repeats, so a later feature holds a piece by name.
+- The document builds the tool: a plane's half-space block, an open sketch chain's swept half
+  space, closed sketch outlines swept through the body (`split::swept_outlines`) or another body
+  as it stands (`document.md`).
+
 ## Interference (`boolean/interference.rs`)
 
 - `interference(first, second)` is `Apart`, `Touching(point)` or `Overlapping(solid)`, the

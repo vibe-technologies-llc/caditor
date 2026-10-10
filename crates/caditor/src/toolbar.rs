@@ -18,7 +18,7 @@ use crate::{
     shell_tools,
     sketch_placement::SketchTarget,
     solid_tools::{self, Sweep},
-    split_tools, thread_tools,
+    split_face_tools, split_tools, thread_tools,
     viewport::CHOOSE_PLANE_PROMPT,
     widgets::ToolButton,
 };
@@ -151,6 +151,7 @@ fn group_buttons(
             blend_buttons(ui, model, context, commands, actions);
             shell_button(ui, model, context, commands, actions);
             offset_face_offer(model, context, commands, actions);
+            split_face_offer(model, context, commands, actions);
             combine_button(ui, model, context, commands, actions);
             move_button(ui, model, context, commands, actions);
             mirror_button(ui, model, context, commands, actions);
@@ -558,6 +559,24 @@ fn offset_face_offer(
             model.evaluation(),
             source,
             model.length_unit(),
+        ));
+    }
+}
+
+fn split_face_offer(
+    model: &Model,
+    context: &ToolbarContext<'_>,
+    commands: &mut CommandFrame<'_>,
+    actions: &mut Vec<Action>,
+) {
+    let source = &context.offers.split_face;
+    if commands.invoke(Command::SplitFace, source)
+        && let Ok(source) = source
+    {
+        actions.extend(split_face_tools::create_actions(
+            model.document(),
+            model.evaluation(),
+            source,
         ));
     }
 }

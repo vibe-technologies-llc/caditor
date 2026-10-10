@@ -20,11 +20,27 @@ const SHELL_FACE: u8 = 0x06;
 const IMPORTED_FACE: u8 = 0x07;
 const PATTERN_FACE: u8 = 0x08;
 const SIDE_BEHIND_FACE: u8 = 0x09;
+const SPLIT_FACE: u8 = 0x0a;
 const EDGE_BETWEEN: u8 = 0x10;
 const EDGE_BETWEEN_AT: u8 = 0x11;
 const SEAM_EDGE: u8 = 0x12;
 const EDGE_OCCURRENCE: u8 = 0x13;
 const VERTEX_OF_FACES: u8 = 0x20;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SplitPiece {
+    Inside,
+    Outside,
+}
+
+impl SplitPiece {
+    fn tag(self) -> u8 {
+        match self {
+            Self::Inside => 1,
+            Self::Outside => 2,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct FaceName(u128);
@@ -101,6 +117,14 @@ impl FaceName {
             digest.u32(step);
         }
         digest.u128(original.0);
+        Self(digest.finish())
+    }
+
+    pub fn split(feature: u64, original: FaceName, piece: SplitPiece) -> Self {
+        let mut digest = Digest::new(SPLIT_FACE);
+        digest.u64(feature);
+        digest.u128(original.0);
+        digest.byte(piece.tag());
         Self(digest.finish())
     }
 

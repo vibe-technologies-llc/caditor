@@ -422,6 +422,14 @@ impl FeatureKind {
                     SplitAlong::Plane(_) => {}
                 }
             }
+            Self::SplitFace(split) => {
+                split.body = rename(split.body);
+                match &mut split.along {
+                    SplitAlong::Body(body) => *body = rename(*body),
+                    SplitAlong::Sketch(sketch) => *sketch = rename(*sketch),
+                    SplitAlong::Plane(_) => {}
+                }
+            }
             Self::Scale(scale) => {
                 scale.body = rename(scale.body);
                 scale.frame = scale.frame.map(rename);

@@ -9,7 +9,7 @@ use caditor_document::{
     SolidResult, body_parts, datum_outline, displayed_axis, displayed_frame, placed_threads,
 };
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, RigidTransform};
-use caditor_kernel::{RegionKey, RegionMesh, RegionReference, resolve_regions};
+use caditor_kernel::{EdgeName, RegionKey, RegionMesh, RegionReference, resolve_regions};
 use caditor_render::{
     Batch, Color, FaceStyle, Fill, Grid, Layer, Line, Marker, MeshInstance, PickHit, PickId,
     PickResult, Reflection, Scene, ShadedMesh, Silhouette, Stroke,
@@ -395,10 +395,24 @@ impl OpenView {
         };
         match open.choice {
             OpenChoice::Nothing => Self::Ghost,
+            OpenChoice::Faces {
+                choice: FaceChoice::Splitting,
+                ..
+            } => Self::Before,
             OpenChoice::Edges { .. } | OpenChoice::Faces { .. } if computed => Self::Result,
             OpenChoice::Edges { .. } | OpenChoice::Faces { .. } => Self::Before,
         }
     }
+}
+
+fn splits_faces(open: &BodyBefore) -> bool {
+    matches!(
+        open.choice,
+        OpenChoice::Faces {
+            choice: FaceChoice::Splitting,
+            ..
+        }
+    )
 }
 
 fn cutting_feature(evaluation: &Evaluation, context: Context) -> Option<FeatureId> {
@@ -576,12 +590,17 @@ pub fn build(
     };
     let open_view = open.map(|open| (open, OpenView::of(evaluation, bodies, open)));
     let moved = bodies.moved();
+    let mut split_preview = None;
     for (body, mesh) in bodies.iter() {
         if !visibility::is_shown(document, body) {
             continue;
         }
         match open_view {
-            Some((open, OpenView::Before)) if open.body == body => continue,
+            Some((open, OpenView::Before)) if open.body == body => {
+                split_preview =
+                    splits_faces(open).then(|| bodies.draft().map_or(mesh, |draft| &draft.mesh));
+                continue;
+            }
             Some((open, OpenView::Result)) if open.body == body => {
                 let shown = bodies.draft().map_or(mesh, |draft| &draft.mesh);
                 builder.open_result(document, evaluation, open, shown);
@@ -640,7 +659,12 @@ pub fn build(
         builder.threads(document, evaluation, context.solid, open_draft);
     }
     match open_view {
-        Some((open, OpenView::Before)) => builder.open_before(document, evaluation, open, true),
+        Some((open, OpenView::Before)) => {
+            builder.open_before(document, evaluation, open, true);
+            if let Some(result) = split_preview {
+                builder.split_edges(open, result);
+            }
+        }
         Some((open, OpenView::Ghost)) => builder.ghost(document, evaluation, open),
         Some((_, OpenView::Result)) | None => {}
     }
@@ -1438,7 +1462,7 @@ impl Builder<'_> {
         let faces = match &open.choice {
             OpenChoice::Faces {
                 opened,
-                choice: FaceChoice::Moving { .. },
+                choice: FaceChoice::Moving { .. } | FaceChoice::Splitting,
                 ..
             } => self.choosable_faces(open.feature, &mesh.faces, opened, color, |_| true),
             OpenChoice::Faces {
@@ -1494,6 +1518,29 @@ impl Builder<'_> {
             self.opened_faces(open, opened);
         }
         self.open_before(document, evaluation, open, false);
+    }
+
+    fn split_edges(&mut self, open: &BodyBefore, result: &BodyMesh) {
+        let before: BTreeSet<EdgeName> = open.before.edges.iter().map(|edge| edge.name).collect();
+        for edge in result
+            .edges
+            .iter()
+            .filter(|edge| !before.contains(&edge.name))
+        {
+            let segments = edge.points.windows(2).filter_map(|pair| match pair {
+                [start, end] => Some(Line {
+                    start: *start,
+                    end: *end,
+                    color: self.palette.lines.selected,
+                    width: self.palette.body_edge_width + CHOSEN_EDGE_EXTRA_WIDTH,
+                    layer: Layer::Model,
+                    pick: None,
+                    stroke: Stroke::Solid,
+                }),
+                _ => None,
+            });
+            self.scene.lines.extend(segments);
+        }
     }
 
     fn opened_faces(&mut self, open: &BodyBefore, opened: &BTreeSet<FaceKey>) {

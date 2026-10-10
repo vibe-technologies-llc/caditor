@@ -670,6 +670,22 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `Evaluation::body_result` and `body_seen_by` find a body inside its state's result
   (`body_part`), so later features, meshing, stale bodies and the app see two ordinary bodies.
 
+### Split face (`split_face.rs`)
+
+- `SplitFace { body, faces, along }` divides the chosen faces of its body (`FaceReference`s
+  resolved in the body's state before it like an offset face's, pieces of one face accepted, a
+  lost or tied one failing it) along a `SplitAlong` (as a split's), without changing the shape
+  (kernel `split_faces`): a plane's half-space block (`split::half_space_solid`, the side its
+  normal faces being `Inside`), a sketch of one open chain carried on past its ends
+  (`swept_half_space`, the left side inside), a sketch of closed outlines extruded through the
+  body (`swept_outlines`, the outlines inside), or another body as it stands (inside it). It
+  modifies its body (`modifies_body`, state before kept for choosing); its plane's datum and face
+  body, the tool body and the sketch count as used like a split's, and healing visits its faces
+  and its plane.
+- A tool crossing none of the chosen faces fails it in words naming the plane, curve or body;
+  splitting along its own body, a sketch's problems and kernel failures (through `trouble.rs`)
+  fail it alone.
+
 ### Remove (`removal.rs`)
 
 - `Remove { body }` takes a body out of the model from its place on: its result passes the body's

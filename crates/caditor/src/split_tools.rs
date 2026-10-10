@@ -100,7 +100,7 @@ fn chosen_sketch(
     }
 }
 
-fn chosen_along(
+pub fn chosen_along(
     model: &Model,
     selection: &Selection,
     index: usize,
