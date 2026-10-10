@@ -800,7 +800,12 @@ impl Menus<'_> {
             });
             self.items(
                 ui,
-                [Command::ReverseArc, Command::MoreSides, Command::FewerSides],
+                [
+                    Command::ChainArc,
+                    Command::ReverseArc,
+                    Command::MoreSides,
+                    Command::FewerSides,
+                ],
             );
             self.item(ui, Command::TypeValue);
             self.choice(ui, Command::ToggleTypedDimensions);

@@ -298,7 +298,8 @@ paths:
   sketch tools that take the selection under Modify (Offset, Mirror, both patterns, Sketch
   fillet and chamfer, Tangent circle), move, rotate or scale, cut, copy, paste, select, Smart
   dimension, Finish sketch), or a shape being
-  drawn (Take back the last point, Reverse the arc, Finish the shape, Cancel the shape, Type an
+  drawn (Take back the last point, Next segment: tangent arc or line, Reverse the arc, Finish
+  the shape, Cancel the shape, Type an
   exact value; `Command::TakeBackPoint`, `FinishShape`, `CancelShape`, as Backspace, Enter and
   Escape do mid-shape), with the open feature's Reverse, Cancel and Finish editing on top. Every
   entry is a `Command` drawn by `menu_bar::MenuEntries` from this frame's offers and keymap, as

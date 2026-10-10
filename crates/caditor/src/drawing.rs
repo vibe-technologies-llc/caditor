@@ -37,6 +37,16 @@ const MIN_CLOSED_SPLINE_POINTS: usize = 3;
 const BACK_TO_SELECT: &str = "Esc: back to Select";
 pub const LINE_CHAIN_PROMPT: &str = "Click to end the line, Enter or Escape to stop";
 pub const TANGENT_ARC_CHAIN_PROMPT: &str = "Click where the arc ends, Enter or Escape to stop";
+pub const CHAIN_ARC_PROMPT: &str = "Click where the arc ends; lines go on after it";
+pub const DRAGGED_ARC_PROMPT: &str =
+    "Release where the arc ends, or back on the last point for no arc";
+const CHAIN_KEYS: &str = "Click the start to close, or the last point again to stop";
+const LINE_CHAIN_KEYS: &str = "Drag from the last point: a tangent arc   Click the start to \
+                               close, or the last point again to stop";
+pub const NOT_DRAWING_LINES: &str =
+    "Only a chain of lines goes on as a tangent arc; choose the Line tool first";
+pub const NOTHING_TO_ARC_FROM: &str =
+    "Draw a line first: the next segment then leaves its end as a tangent arc";
 const CANCEL_CONIC: &str = "Esc: cancel the conic";
 const NOT_A_CONIC: &str = "Only a conic takes a rho; choose the Conic tool first";
 const RHO_OUT_OF_RANGE: &str = "Rho must lie between 0.01 and 0.99: below 0.5 the conic is part \
@@ -374,6 +384,12 @@ fn carries_points(from: Shape, to: Shape, placed: usize) -> bool {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Arcing {
+    Toggled,
+    Dragged,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Tangent {
     curve: EntityId,
@@ -691,6 +707,7 @@ pub struct Drawing {
     hover: Option<Placement>,
     sweep: Option<Sweep>,
     tangent: Option<Tangent>,
+    arcing: Option<Arcing>,
     chain: Vec<ChainStep>,
     chain_start: Vec<EntityId>,
     sides: Sides,
@@ -790,6 +807,73 @@ impl Drawing {
 
     pub fn mode(&self) -> Option<ShapeMode> {
         self.context.and_then(|(_, shape)| shape.mode())
+    }
+
+    fn current(&self) -> Option<(FeatureId, Shape)> {
+        self.context.map(|(feature, shape)| match shape {
+            Shape::Line if self.arcing.is_some() => (feature, Shape::TangentArc),
+            shape => (feature, shape),
+        })
+    }
+
+    pub fn arcs_next(&self) -> bool {
+        self.arcing.is_some()
+    }
+
+    pub fn chain_arc(&self) -> Result<(), &'static str> {
+        if !matches!(self.context, Some((_, Shape::Line))) {
+            return Err(NOT_DRAWING_LINES);
+        }
+        match self.placed.as_slice() {
+            _ if self.arcing.is_some() => Ok(()),
+            [start] if point_target(start.snap).is_some() => Ok(()),
+            _ => Err(NOTHING_TO_ARC_FROM),
+        }
+    }
+
+    pub fn toggle_chain_arc(&mut self, sketch: Option<&Sketch>) -> Result<(), &'static str> {
+        self.chain_arc()?;
+        if self.arcing.is_some() {
+            self.line_next();
+            return Ok(());
+        }
+        if self.begin_arc(sketch, Arcing::Toggled) {
+            Ok(())
+        } else {
+            Err(NOTHING_TO_ARC_FROM)
+        }
+    }
+
+    pub fn arc_from_press(&mut self, sketch: Option<&Sketch>) -> bool {
+        let on_last_point = self
+            .hover
+            .is_some_and(|hover| matches!(hover.snap, Snap::Target(Target::Pending(_))));
+        on_last_point
+            && self.arcing.is_none()
+            && self.chain_arc().is_ok()
+            && self.begin_arc(sketch, Arcing::Dragged)
+    }
+
+    fn begin_arc(&mut self, sketch: Option<&Sketch>, arcing: Arcing) -> bool {
+        let tangent = sketch
+            .zip(
+                self.placed
+                    .first()
+                    .and_then(|start| point_target(start.snap)),
+            )
+            .and_then(|(sketch, point)| continuing(sketch, point));
+        if tangent.is_some() {
+            self.tangent = tangent;
+            self.arcing = Some(arcing);
+            self.heading = None;
+            self.typed_hover = None;
+        }
+        tangent.is_some()
+    }
+
+    fn line_next(&mut self) {
+        self.arcing = None;
+        self.tangent = None;
     }
 
     pub fn snap_entities(&self) -> Vec<EntityId> {
@@ -930,6 +1014,7 @@ impl Drawing {
             if alive {
                 self.placed = vec![step.start];
                 self.tangent = tangent;
+                self.arcing = None;
                 self.sweep = None;
                 if self.chain.is_empty() {
                     self.chain_start.clear();
@@ -1013,7 +1098,7 @@ impl Drawing {
 
     pub fn hover(&mut self, sketch: &Sketch, screen: &impl Screen, pointer: Option<Pointer>) {
         self.end_typed_preview();
-        let Some((_, shape)) = self.context else {
+        let Some((_, shape)) = self.current() else {
             self.hover = None;
             return;
         };
@@ -1070,7 +1155,7 @@ impl Drawing {
     }
 
     fn shape_readout(&self, unit: Units) -> Option<String> {
-        let (_, shape) = self.context?;
+        let (_, shape) = self.current()?;
         let hover = self.hover?.position;
         let length = |millimetres: f64| unit.readout_text(millimetres);
         let leg = |from: Point2| {
@@ -1330,7 +1415,7 @@ impl Drawing {
     }
 
     pub fn type_point(&mut self, sketch: &Sketch, position: Point2) {
-        let Some((_, shape)) = self.context else {
+        let Some((_, shape)) = self.current() else {
             return;
         };
         let same = |candidate: Point2| candidate.distance(position) <= TYPED_TOLERANCE;
@@ -1380,7 +1465,7 @@ impl Drawing {
     }
 
     pub fn type_on_curve(&mut self, sketch: &Sketch, curve: EntityId) -> Result<(), &'static str> {
-        let Some((_, shape)) = self.context else {
+        let Some((_, shape)) = self.current() else {
             return Err(ONLY_AT_POINTS);
         };
         if self.accept(shape) != Accept::Anything {
@@ -1544,6 +1629,7 @@ impl Drawing {
         self.typed_hover = None;
         self.sweep = None;
         self.tangent = None;
+        self.arcing = None;
         self.scrub = None;
         self.chain.clear();
         self.chain_start.clear();
@@ -1567,6 +1653,7 @@ impl Drawing {
         }
         if self.placed.is_empty() {
             self.tangent = None;
+            self.arcing = None;
             self.chain.clear();
             self.chain_start.clear();
         }
@@ -1579,13 +1666,23 @@ impl Drawing {
         if clicked.is_ok() {
             self.heading = None;
         }
+        let arc_ended = matches!(clicked, Ok(Some(_))) || self.arcing == Some(Arcing::Dragged);
+        if self.arcing.is_some() && arc_ended {
+            self.line_next();
+        }
         clicked
     }
 
     fn placed_by_click(&mut self, model: &Model) -> Result<Option<Transaction>, Refusal> {
-        let (Some((feature, shape)), Some(placement)) = (self.context, self.hover) else {
+        let (Some((feature, shape)), Some(placement)) = (self.current(), self.hover) else {
             return Ok(None);
         };
+        if let Snap::Target(Target::Pending(_)) = placement.snap
+            && self.arcing == Some(Arcing::Dragged)
+        {
+            self.line_next();
+            return Ok(None);
+        }
         if let Snap::Target(Target::Pending(index)) = placement.snap {
             return Ok(match shape {
                 Shape::Spline(_) => self.finish_spline(model, self.closes_at(index)),
@@ -2053,7 +2150,7 @@ impl Drawing {
     }
 
     pub fn preview(&self, faceting: Faceting) -> Preview {
-        let Some((_, shape)) = self.context else {
+        let Some((_, shape)) = self.current() else {
             return Preview::default();
         };
         let hover = self.hover.map(|hover| hover.position);
@@ -2297,7 +2394,7 @@ impl Drawing {
     }
 
     pub fn snap_label(&self, sketch: &Sketch) -> Option<String> {
-        let (_, shape) = self.context?;
+        let (_, shape) = self.current()?;
         let hover = self.hover?;
         let snap = hover.snap;
         let label = match (snap.target(), snap.direction()) {
@@ -2344,7 +2441,7 @@ impl Drawing {
     }
 
     pub fn prompt(&self) -> Option<Prompt> {
-        let (_, shape) = self.context?;
+        let (_, shape) = self.current()?;
         if let Some(heading) = self.active_heading() {
             return Some(if heading.holds_length() {
                 Prompt {
@@ -2373,10 +2470,7 @@ impl Drawing {
         match (shape, self.placed.len()) {
             (Shape::Point, _) => prompt("Click to place a point", BACK_TO_SELECT),
             (Shape::Line, 0) => prompt("Click the start of the line", BACK_TO_SELECT),
-            (Shape::Line, _) => prompt(
-                LINE_CHAIN_PROMPT,
-                "Click the start to close, or the last point again to stop",
-            ),
+            (Shape::Line, _) => prompt(LINE_CHAIN_PROMPT, LINE_CHAIN_KEYS),
             (Shape::Rectangle(RectangleMode::Corners), 0) => {
                 prompt("Click the rectangle's first corner", BACK_TO_SELECT)
             }
@@ -2437,10 +2531,11 @@ impl Drawing {
                 "Click the end of a line, arc or spline to continue from",
                 BACK_TO_SELECT,
             ),
-            (Shape::TangentArc, _) => prompt(
-                TANGENT_ARC_CHAIN_PROMPT,
-                "Click the start to close, or the last point again to stop",
-            ),
+            (Shape::TangentArc, _) => match self.arcing {
+                Some(Arcing::Dragged) => prompt(DRAGGED_ARC_PROMPT, CHAIN_KEYS),
+                Some(Arcing::Toggled) => prompt(CHAIN_ARC_PROMPT, CHAIN_KEYS),
+                None => prompt(TANGENT_ARC_CHAIN_PROMPT, CHAIN_KEYS),
+            },
             (Shape::Slot(SlotMode::Ends), 0) => {
                 prompt("Click the centre of the slot's first end", BACK_TO_SELECT)
             }

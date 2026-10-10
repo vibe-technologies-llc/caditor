@@ -92,6 +92,7 @@ pub enum Command {
     NewSketch,
     FinishSketch,
     ReverseArc,
+    ChainArc,
     TakeBackPoint,
     FinishShape,
     CancelShape,
@@ -732,6 +733,7 @@ plain_commands! {
     Configurations,
     FinishSketch,
     ReverseArc,
+    ChainArc,
     TakeBackPoint,
     FinishShape,
     CancelShape,
@@ -872,6 +874,7 @@ impl Command {
             Self::NewSketch => "model.new_sketch",
             Self::FinishSketch => "sketch.finish",
             Self::ReverseArc => "sketch.reverse_arc",
+            Self::ChainArc => "sketch.chain_arc",
             Self::TakeBackPoint => "sketch.take_back_point",
             Self::FinishShape => "sketch.finish_shape",
             Self::CancelShape => "sketch.cancel_shape",
@@ -1161,6 +1164,7 @@ impl Command {
             Self::NewSketch => "New sketch",
             Self::FinishSketch => "Finish sketch",
             Self::ReverseArc => "Reverse the arc",
+            Self::ChainArc => "Next segment: tangent arc or line",
             Self::TakeBackPoint => "Take back the last point",
             Self::FinishShape => "Finish the shape",
             Self::CancelShape => "Cancel the shape",
@@ -1430,6 +1434,7 @@ impl Command {
             Self::ContextMenu => &["right click", "shortcut menu", "popup"],
             Self::TakeBackPoint => &["backspace", "undo point"],
             Self::FinishShape => &["stop", "end", "done"],
+            Self::ChainArc => &["arc", "tangent", "segment", "chain"],
             _ => &[],
         }
     }
@@ -1635,6 +1640,7 @@ impl Command {
             | Self::ReloadImport => Category::Model,
             Self::FinishSketch
             | Self::ReverseArc
+            | Self::ChainArc
             | Self::TakeBackPoint
             | Self::FinishShape
             | Self::CancelShape
@@ -1673,6 +1679,7 @@ impl Command {
         match self {
             Self::FinishSketch
             | Self::ReverseArc
+            | Self::ChainArc
             | Self::TakeBackPoint
             | Self::FinishShape
             | Self::CancelShape
@@ -1842,6 +1849,7 @@ impl Command {
             | Self::ScaleGeometry
             | Self::ToggleTypedDimensions
             | Self::TypeValue
+            | Self::ChainArc
             | Self::TakeBackPoint
             | Self::FinishShape
             | Self::CancelShape

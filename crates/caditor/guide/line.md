@@ -12,8 +12,10 @@ While drawing, the line snaps to horizontal, vertical, parallel and perpendicula
 nearby geometry; a label names the snap and the length and angle show beside the pointer. Hold
 Ctrl to place a point exactly where the pointer is.
 
-Switch to {command:sketch.tangent_arc} mid-chain to carry on with an arc that leaves the last line
-smoothly; switching back to Line carries on from the arc's end. See [arcs](arcs).
+To round a turn, press on the chain's last point and drag: a tangent arc leaves the last line on
+the side the pointer is on, the release places its end and lines carry on from there; releasing
+back on the last point draws none. {command:sketch.chain_arc}, or the Tangent arc key mid-chain,
+makes the next segment a tangent arc and back. See [arcs](arcs).
 
 Type `40 < 30` for a line 40 long at 30 degrees, or `@40, 0` for one 40 to the right. See
 [sketches](sketches) for typed points and [snapping](snapping).

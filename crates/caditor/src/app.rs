@@ -646,6 +646,7 @@ pub fn show(
         isocurves.toggle();
     }
     section_commands(model, viewport, section, &mut commands);
+    viewport.arc_on_tangent_arc_key(editing, &mut commands);
     sketch_toolbar::show(
         ui,
         model,

@@ -168,7 +168,8 @@ paths:
 - A press that drags or is held too long to be a click still places a point where it is released,
   since egui reports it as a drag (`ViewportState::click`). When nothing of the shape is placed
   yet and the release is at least `DRAG_DRAWS_FROM_PRESS` from the press, the press position is
-  placed first (`place_press_point`), so one press-drag-release draws a line, rectangle or circle.
+  placed first (`place_press_point`), so one press-drag-release draws a line, rectangle or circle;
+  in a line chain a drag from its last point draws a tangent arc instead (below).
 - What is being drawn shows its size so far below the snap label (`Drawing::readout`): a line, a
   rectangle, a circle, a polygon (radius, or side, and its sides), an arc (radius, and the sweep once
   its end is chosen), a tangent arc (radius and sweep), a three-point arc or circle (radius), a
@@ -222,6 +223,24 @@ paths:
   Switching between the Line and Tangent arc tools with a segment started (`Drawing::sync`) keeps
   the chain and its anchors: the arc leaves along the line just drawn, and the lines go on from the
   arc's end. Stepping back onto a line step while arcing finds its tangent again from the sketch.
+- The Line tool turns its next segment into a tangent arc without a tool change (`Drawing::arcing`,
+  `Arcing`; `Drawing::current` then draws, previews, labels and prompts as `Shape::TangentArc`
+  from the chain's last point, with the same `Tangent` and `Coincident`), and the chain carries on
+  with lines after that one arc, as Fusion's line tool does. A press on the last point dragged
+  away is `Arcing::Dragged` (`ViewportState::arc_from_press` hovers the press position again at
+  the drag's start, as `place_press_point` does, and `Drawing::arc_from_press` takes it when the
+  hover is the pending last point and the point ends a line, arc or spline): the release places
+  the arc's end, and a release back on the last point draws no arc and keeps the chain. The arc
+  bends to the side of the line the pointer is on (`shapes::tangent_from`), so dragging back
+  across the line's direction switches it to the other side. From the keyboard, Next segment:
+  tangent arc or line (`Command::ChainArc`, palette, Sketch menu and the view's context menu, no
+  key of its own) toggles `Arcing::Toggled`, and the Tangent arc command (T) while the Line tool
+  has a point placed runs it instead of switching tools (`ViewportState::arc_on_tangent_arc_key`,
+  before the sketch bar takes the command); the ribbon's Tangent arc button still switches tools.
+  The prompt's keys name it ("T: a tangent arc next", "T: a line instead") while it applies
+  (`Drawing::chain_arc`: the Line tool with its last point on a point; refused with
+  `NOTHING_TO_ARC_FROM` when no line, arc or spline ends there). A drawn arc, a dragged arc's
+  release, taking back or stepping back go back to lines.
 - What a placed point may snap to is `Drawing::accept` (points only where a curve would add no
   constraint); width points of slots and three-point rectangles never snap. Per-shape constraints
   and degrees of freedom are in `shapes.rs` and its tests, not here.

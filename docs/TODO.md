@@ -149,12 +149,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Smart dimension and the constraint tools would take a body edge or corner the same way. The body
   vertices and edges then need projecting to the screen on the UI thread within the bounds the
   sketch's own snapping keeps to (Interface performance).
-- [medium · medium] The Line tool cannot turn into an arc mid-chain: carrying on with a tangent arc
-  means the Tangent arc key, then the Line key again. A press on the chain's last point dragged
-  away (`drawing.rs`; a press-drag now places the press only for a first point,
-  `viewport::DRAG_DRAWS_FROM_PRESS`) could draw a tangent arc from it, the release placing its end and the
-  chain carrying on with lines afterwards, as Fusion's line tool does; the chain's anchors
-  (`ChainStep`) already let the two tools share one chain.
 - [medium · medium] Sketch fillet and chamfer take only two curves ending at one point
   (`Sketch::corner_between` is `NotJoined` otherwise): two lines that cross, or stop short of each
   other, cannot be rounded in one step, as other sketchers do by trimming or extending both to the

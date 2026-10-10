@@ -556,6 +556,7 @@ fn constraints(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
 
 fn shape(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
     entries.item(ui, Command::TakeBackPoint);
+    entries.offered(ui, Command::ChainArc, &Command::ChainArc.title());
     entries.offered(ui, Command::ReverseArc, &Command::ReverseArc.title());
     entries.offered(ui, Command::FinishShape, &Command::FinishShape.title());
     entries.item(ui, Command::CancelShape);

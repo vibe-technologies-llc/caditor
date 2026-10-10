@@ -899,6 +899,18 @@ impl ViewportState {
         self.drawing.refuses_mode(mode)
     }
 
+    pub fn arc_on_tangent_arc_key(&self, editing: &SketchEditing, commands: &mut CommandFrame) {
+        let drawing_lines = editing
+            .active()
+            .is_some_and(|active| active.tool == Tool::Line);
+        if drawing_lines
+            && self.drawing.in_progress()
+            && commands.take(Command::SketchTool(Tool::TangentArc))
+        {
+            commands.trigger(Command::ChainArc);
+        }
+    }
+
     pub fn is_animating(&self) -> bool {
         self.camera.is_animating()
     }
@@ -1651,10 +1663,11 @@ impl ViewportState {
                     || input.pointer.middle_down()
             });
             let press = self.press.take().filter(|_| !navigating);
+            let arcing = press.is_some_and(|press| self.arc_from_press(model, editing, press));
             self.draw_press = press
                 .filter(|_| {
                     editing.active().is_some_and(|active| active.tool.draws())
-                        && !self.drawing.in_progress()
+                        && (arcing || !self.drawing.in_progress())
                 })
                 .map(|press| press.cursor);
             self.primary = press.and_then(|press| self.begin_primary(press, model, editing));
@@ -2254,6 +2267,28 @@ impl ViewportState {
         self.track_drawing(model, editing);
     }
 
+    fn arc_from_press(&mut self, model: &Model, editing: &SketchEditing, press: Press) -> bool {
+        let drawing_lines = editing
+            .active()
+            .is_some_and(|active| active.tool == Tool::Line);
+        let Some(feature) = editing.feature().filter(|_| drawing_lines) else {
+            return false;
+        };
+        if !self.drawing.in_progress() {
+            return false;
+        }
+        let (cursor, sketch_cursor) = (self.cursor, self.sketch_cursor);
+        self.cursor = Some(press.cursor);
+        self.sketch_cursor = self.on_sketch(model, feature, press.cursor);
+        self.track_drawing(model, editing);
+        let sketch = edited_sketch(model, editing);
+        let arcing = self.drawing.arc_from_press(sketch.as_deref());
+        self.cursor = cursor;
+        self.sketch_cursor = sketch_cursor;
+        self.track_drawing(model, editing);
+        arcing
+    }
+
     fn hover_is_current(&self) -> bool {
         let current = self.cursor.zip(self.view());
         self.hover_source
@@ -2661,6 +2696,16 @@ impl ViewportState {
             let reversible = self.drawing.reversible();
             if commands.invoke(Command::ReverseArc, &reversible) {
                 self.drawing.reverse_arc();
+            }
+            let chain_arc = self.drawing.chain_arc();
+            if commands.invoke(Command::ChainArc, &chain_arc) && chain_arc.is_ok() {
+                let sketch = edited_sketch(model, editing);
+                if let Err(reason) = self.drawing.toggle_chain_arc(sketch.as_deref()) {
+                    actions.push(Action::Inform(Notice::warning(format!(
+                        "{}: {reason}",
+                        Command::ChainArc.title()
+                    ))));
+                }
             }
             self.shape_commands(model, commands, actions);
             let sides = [
@@ -4476,6 +4521,19 @@ impl ViewportState {
                     } else {
                         String::new()
                     };
+                    let chain_arc = key_hints
+                        .chain_arc
+                        .as_ref()
+                        .filter(|_| self.drawing.chain_arc().is_ok())
+                        .map(|keys| {
+                            let next = if self.drawing.arcs_next() {
+                                "a line instead"
+                            } else {
+                                "a tangent arc next"
+                            };
+                            format!("{keys}: {next}   ")
+                        })
+                        .unwrap_or_default();
                     let placement = if self.snapping {
                         FREE_PLACEMENT_HINT
                     } else {
@@ -4491,7 +4549,7 @@ impl ViewportState {
                     (
                         prompt.text,
                         format!(
-                            "{mode}{reverse}{sides}{}{take_back}   {placement}   {HELD_SNAP_HINT}   {TYPE_POINT_HINT}{typed_sides}",
+                            "{mode}{chain_arc}{reverse}{sides}{}{take_back}   {placement}   {HELD_SNAP_HINT}   {TYPE_POINT_HINT}{typed_sides}",
                             prompt.keys
                         ),
                     )
@@ -4990,6 +5048,7 @@ struct KeyHints {
     home: String,
     views: Vec<(StandardView, String)>,
     reverse: Option<String>,
+    chain_arc: Option<String>,
     sides: Option<String>,
     targets: String,
     whole_body: String,
@@ -5045,6 +5104,9 @@ impl KeyHints {
             reverse: commands
                 .keys(Command::ReverseArc)
                 .map(|keys| format!("{keys}: the other way round")),
+            chain_arc: commands
+                .keys(Command::ChainArc)
+                .or_else(|| commands.keys(Command::SketchTool(Tool::TangentArc))),
             sides: commands
                 .keys(Command::MoreSides)
                 .zip(commands.keys(Command::FewerSides))
