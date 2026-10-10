@@ -38,11 +38,11 @@ const BEHIND_FACES_DEPTH_BIAS: wgpu::DepthBiasState = wgpu::DepthBiasState {
     slope_scale: -4.0,
     clamp: 0.0,
 };
-const LINE_BYTES: usize = 60;
+const LINE_BYTES: usize = 48;
 const LINE_STRIDE: u64 = LINE_BYTES as u64;
-const MARKER_BYTES: usize = 44;
+const MARKER_BYTES: usize = 32;
 const MARKER_STRIDE: u64 = MARKER_BYTES as u64;
-const FILL_VERTEX_BYTES: usize = 40;
+const FILL_VERTEX_BYTES: usize = 28;
 const FILL_VERTEX_STRIDE: u64 = FILL_VERTEX_BYTES as u64;
 const VIEW_UNIFORM_SIZE: u64 = 400;
 const HATCH_SPACING_POINTS: f64 = 8.0;
@@ -495,7 +495,6 @@ struct GpuBatch {
     lines: GrowableBuffer,
     markers: GrowableBuffer,
     fills: GrowableBuffer,
-    pick_fills: GrowableBuffer,
     line_count: u32,
     shown_lines: u32,
     hidden_line_count: u32,
@@ -515,7 +514,6 @@ impl GpuBatch {
             lines: GrowableBuffer::new(device, "lines", wgpu::BufferUsages::VERTEX),
             markers: GrowableBuffer::new(device, "markers", wgpu::BufferUsages::VERTEX),
             fills: GrowableBuffer::new(device, "fills", wgpu::BufferUsages::VERTEX),
-            pick_fills: GrowableBuffer::new(device, "pick fills", wgpu::BufferUsages::VERTEX),
             line_count: 0,
             shown_lines: 0,
             hidden_line_count: 0,
@@ -576,24 +574,26 @@ impl GpuBatch {
         ));
         self.shown_markers = count(shown_markers).min(self.marker_count);
 
-        let mut written = 0u32;
-        let mut spans = Vec::with_capacity(batch.fills.len());
-        for fill in &batch.fills {
-            let start = written;
-            written = written.saturating_add(fill_vertex_count(fill));
-            spans.push(FillSpan {
-                slot,
-                vertices: start..written,
-                centroid: fill.centroid(),
-                in_front: fill.layer.draws_in_front(),
-                behind_faces: fill.layer == Layer::Reference,
-            });
-        }
-        self.fill_vertices = count(self.fills.upload(
-            device,
-            queue,
-            fill_records(&batch.fills, anchor),
-        ));
+        let (groups, spans) = grouped_fill_spans(&batch.fills, slot);
+        self.fill_vertices = count(
+            self.fills.upload(
+                device,
+                queue,
+                Records {
+                    count: groups.total(),
+                    per_primitive: 3,
+                    records: FillGroup::ORDER
+                        .into_iter()
+                        .flat_map(|group| {
+                            batch
+                                .fills
+                                .iter()
+                                .filter(move |fill| FillGroup::of(fill) == group)
+                        })
+                        .flat_map(|fill| fill_vertices(fill, anchor)),
+                },
+            ),
+        );
         let uploaded = self.fill_vertices;
         self.fill_spans = spans
             .into_iter()
@@ -603,45 +603,13 @@ impl GpuBatch {
             })
             .filter(|span| !span.vertices.is_empty())
             .collect();
+        self.reference_pick_vertices = groups.reference_picked.min(uploaded);
+        self.nearer_pick_vertices = groups
+            .nearer_picked
+            .min(uploaded.saturating_sub(self.reference_pick_vertices));
 
-        self.upload_pick_fills(device, queue, &batch.fills, anchor);
         self.shown = Some(Arc::clone(batch));
         self.anchor = anchor;
-    }
-
-    fn upload_pick_fills(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        fills: &[Fill],
-        anchor: Point3,
-    ) {
-        let reference = |fill: &&Fill| fill.pick.is_some() && fill.layer == Layer::Reference;
-        let nearer = |fill: &&Fill| fill.pick.is_some() && fill.layer != Layer::Reference;
-        let vertices = |chosen: fn(&&Fill) -> bool| {
-            fills.iter().filter(chosen).fold(0u32, |written, fill| {
-                written.saturating_add(fill_vertex_count(fill))
-            })
-        };
-        let reference_written = vertices(reference);
-        let nearer_written = vertices(nearer);
-        let ordered = fills
-            .iter()
-            .filter(reference)
-            .chain(fills.iter().filter(nearer));
-
-        let uploaded = count(self.pick_fills.upload(
-            device,
-            queue,
-            Records {
-                count: u64::from(reference_written) + u64::from(nearer_written),
-                per_primitive: 3,
-                records: ordered.flat_map(|fill| fill_vertices(fill, anchor)),
-            },
-        ));
-        self.reference_pick_vertices = reference_written.min(uploaded);
-        self.nearer_pick_vertices =
-            nearer_written.min(uploaded.saturating_sub(self.reference_pick_vertices));
     }
 
     fn draw_lines(
@@ -702,7 +670,7 @@ impl GpuBatch {
         pass.set_pipeline(pipeline);
         pass.set_vertex_buffer(
             0,
-            self.pick_fills
+            self.fills
                 .slice(u64::from(vertices.end) * FILL_VERTEX_STRIDE),
         );
         pass.draw(vertices, 0..1);
@@ -718,6 +686,91 @@ impl GpuBatch {
                 .reference_pick_vertices
                 .saturating_add(self.nearer_pick_vertices)
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FillGroup {
+    ReferencePicked,
+    NearerPicked,
+    Unpicked,
+}
+
+impl FillGroup {
+    const ORDER: [Self; 3] = [Self::ReferencePicked, Self::NearerPicked, Self::Unpicked];
+
+    fn of(fill: &Fill) -> Self {
+        match (fill.pick, fill.layer) {
+            (None, _) => Self::Unpicked,
+            (Some(_), Layer::Reference) => Self::ReferencePicked,
+            (Some(_), _) => Self::NearerPicked,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct FillGroups {
+    reference_picked: u32,
+    nearer_picked: u32,
+    unpicked: u32,
+}
+
+impl FillGroups {
+    fn of(fills: &[Fill]) -> Self {
+        let mut groups = Self::default();
+        for fill in fills {
+            let vertices = groups.vertices_mut(FillGroup::of(fill));
+            *vertices = vertices.saturating_add(fill_vertex_count(fill));
+        }
+        groups
+    }
+
+    fn vertices_mut(&mut self, group: FillGroup) -> &mut u32 {
+        match group {
+            FillGroup::ReferencePicked => &mut self.reference_picked,
+            FillGroup::NearerPicked => &mut self.nearer_picked,
+            FillGroup::Unpicked => &mut self.unpicked,
+        }
+    }
+
+    fn starts(self) -> Self {
+        let nearer_picked = self.reference_picked;
+        Self {
+            reference_picked: 0,
+            nearer_picked,
+            unpicked: nearer_picked.saturating_add(self.nearer_picked),
+        }
+    }
+
+    fn take(&mut self, group: FillGroup, vertices: u32) -> u32 {
+        let next = self.vertices_mut(group);
+        let start = *next;
+        *next = start.saturating_add(vertices);
+        start
+    }
+
+    fn total(self) -> u64 {
+        u64::from(self.reference_picked) + u64::from(self.nearer_picked) + u64::from(self.unpicked)
+    }
+}
+
+fn grouped_fill_spans(fills: &[Fill], slot: usize) -> (FillGroups, Vec<FillSpan>) {
+    let groups = FillGroups::of(fills);
+    let mut next = groups.starts();
+    let spans = fills
+        .iter()
+        .map(|fill| {
+            let vertices = fill_vertex_count(fill);
+            let start = next.take(FillGroup::of(fill), vertices);
+            FillSpan {
+                slot,
+                vertices: start..start.saturating_add(vertices),
+                centroid: fill.centroid(),
+                in_front: fill.layer.draws_in_front(),
+                behind_faces: fill.layer == Layer::Reference,
+            }
+        })
+        .collect();
+    (groups, spans)
 }
 
 struct OrderedLines<'a> {
@@ -1723,11 +1776,11 @@ impl Pipelines {
             &[Some(layouts.view), Some(layouts.silhouette)],
         );
 
-        let line_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x4, 3 => Float32, 4 => Uint32, 5 => Float32, 6 => Float32, 7 => Uint32];
-        let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32, 3 => Uint32, 4 => Float32, 5 => Uint32];
-        let fill_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Uint32, 3 => Float32, 4 => Uint32];
-        let mesh_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32];
-        let silhouette_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Snorm16x4, 4 => Snorm16x4, 5 => Snorm16x4];
+        let line_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Unorm8x4, 3 => Float32, 4 => Uint32, 5 => Float32, 6 => Float32, 7 => Uint32];
+        let marker_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Float32, 3 => Uint32, 4 => Float32, 5 => Uint32];
+        let fill_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4, 2 => Uint32, 3 => Float32, 4 => Uint32];
+        let mesh_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Snorm16x2, 2 => Uint32];
+        let silhouette_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Snorm16x2, 4 => Snorm16x2, 5 => Snorm16x2];
         let lines = [Some(wgpu::VertexBufferLayout {
             array_stride: LINE_STRIDE,
             step_mode: wgpu::VertexStepMode::Instance,
@@ -2056,7 +2109,7 @@ fn line_record(line: &Line, anchor: Point3) -> [u8; LINE_BYTES] {
         record
             .vec3(relative_to_eye(line.start, anchor))
             .vec3(relative_to_eye(line.end, anchor))
-            .floats(&line.color.to_array())
+            .unorm8x4(line.color.to_array())
             .f32(line.width)
             .u32(PickId::raw(line.pick))
             .f32(line.layer.depth_bias(Primitive::Line))
@@ -2069,7 +2122,7 @@ fn marker_record(marker: &Marker, anchor: Point3) -> [u8; MARKER_BYTES] {
     gpu::record(|record| {
         record
             .vec3(relative_to_eye(marker.position, anchor))
-            .floats(&marker.color.to_array())
+            .unorm8x4(marker.color.to_array())
             .f32(marker.diameter)
             .u32(PickId::raw(marker.pick))
             .f32(marker.layer.depth_bias(Primitive::Marker))
@@ -2091,28 +2144,12 @@ fn fill_vertices(
         gpu::record(|record| {
             record
                 .vec3(relative_to_eye(*corner, anchor))
-                .floats(&fill.color.to_array())
+                .unorm8x4(fill.color.to_array())
                 .u32(PickId::raw(fill.pick))
                 .f32(depth_bias)
                 .u32(flags);
         })
     })
-}
-
-fn fill_records(
-    fills: &[Fill],
-    anchor: Point3,
-) -> Records<impl Iterator<Item = [u8; FILL_VERTEX_BYTES]> + '_> {
-    Records {
-        count: fills
-            .iter()
-            .map(|fill| u64::from(fill_vertex_count(fill)))
-            .sum(),
-        per_primitive: 3,
-        records: fills
-            .iter()
-            .flat_map(move |fill| fill_vertices(fill, anchor)),
-    }
 }
 
 fn reanchor_reach(view: &View) -> f64 {
@@ -2340,6 +2377,42 @@ mod tests {
         let separation = relative_to_eye(b, eye) - relative_to_eye(a, eye);
         assert!((separation.x - 1e-3).abs() < 1e-6);
         assert_eq!(a.as_vec3(), b.as_vec3());
+    }
+
+    #[test]
+    fn fills_are_laid_out_reference_picks_then_nearer_picks_then_the_rest_in_batch_order() {
+        let fill = |triangles: usize, layer: Layer, pick: Option<usize>| Fill {
+            triangles: vec![[Point3::ZERO, Point3::X, Point3::Y]; triangles],
+            color: Color::from_rgb8(1, 2, 3),
+            layer,
+            pick: pick.and_then(PickId::from_index),
+        };
+        let fills = [
+            fill(1, Layer::Model, None),
+            fill(2, Layer::Reference, Some(0)),
+            fill(1, Layer::Front, Some(1)),
+            fill(1, Layer::Reference, Some(2)),
+            fill(2, Layer::Reference, None),
+        ];
+
+        let (groups, spans) = grouped_fill_spans(&fills, 4);
+
+        assert_eq!(
+            groups,
+            FillGroups {
+                reference_picked: 9,
+                nearer_picked: 3,
+                unpicked: 9,
+            }
+        );
+        assert_eq!(
+            spans
+                .iter()
+                .map(|span| span.vertices.clone())
+                .collect::<Vec<_>>(),
+            vec![12..15, 0..6, 9..12, 6..9, 15..21]
+        );
+        assert!(spans.iter().all(|span| span.slot == 4));
     }
 
     #[test]

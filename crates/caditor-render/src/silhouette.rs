@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use caditor_geometry::{Point3, RigidTransform};
-use glam::Vec3;
 
 use crate::{
     by_mesh::{ByMesh, DrawnOrder, OfMesh},
@@ -11,13 +10,10 @@ use crate::{
     scene::{Color, Layer, Primitive},
 };
 
-const SILHOUETTE_BYTES: usize = 60;
+const SILHOUETTE_BYTES: usize = 48;
 pub const SILHOUETTE_STRIDE: u64 = SILHOUETTE_BYTES as u64;
 const SILHOUETTE_BINDING: u32 = 3;
 const SILHOUETTE_UNIFORM_BYTES: u64 = 80;
-const SNORM16_SCALE: f32 = i16::MAX as f32;
-const POSITIONS_BYTES: usize = 36;
-const NORMAL_BYTES: usize = 8;
 
 #[derive(Debug, Clone)]
 pub struct Silhouette {
@@ -158,32 +154,14 @@ impl SilhouetteUpload {
 }
 
 fn packed_triangle(corners: &[Corner; 3]) -> [u8; SILHOUETTE_BYTES] {
-    let mut packed = [0u8; SILHOUETTE_BYTES];
-    let (positions, normals) = packed.split_at_mut(POSITIONS_BYTES);
-    let position_floats = corners.iter().flat_map(|corner| corner.position.to_array());
-    for (slot, value) in positions
-        .as_chunks_mut::<4>()
-        .0
-        .iter_mut()
-        .zip(position_floats)
-    {
-        *slot = value.to_le_bytes();
-    }
-    for (slot, corner) in normals
-        .as_chunks_mut::<NORMAL_BYTES>()
-        .0
-        .iter_mut()
-        .zip(corners)
-    {
-        *slot = snorm16(corner.normal);
-    }
-    packed
-}
-
-fn snorm16(normal: Vec3) -> [u8; NORMAL_BYTES] {
-    let snorm = |value: f32| (value.clamp(-1.0, 1.0) * SNORM16_SCALE) as i16;
-    let [[x0, x1], [y0, y1], [z0, z1]] = normal.to_array().map(|value| snorm(value).to_le_bytes());
-    [x0, x1, y0, y1, z0, z1, 0, 0]
+    gpu::record(|record| {
+        for corner in corners {
+            record.vec3(corner.position);
+        }
+        for corner in corners {
+            record.octahedral(corner.normal);
+        }
+    })
 }
 
 struct GpuSilhouette {
@@ -533,6 +511,7 @@ impl SilhouetteCache {
 #[cfg(test)]
 mod tests {
     use caditor_geometry::Vector3;
+    use glam::Vec3;
 
     use super::*;
     use crate::mesh::{MeshFace, MeshPoint};
@@ -567,7 +546,7 @@ mod tests {
     }
 
     #[test]
-    fn triangles_pack_three_positions_then_three_signed_sixteen_bit_normals() {
+    fn triangles_pack_three_positions_then_three_octahedral_normals() {
         let corner = |x: f32, normal: Vec3| Corner {
             position: Vec3::new(x, 0.0, 0.0),
             normal,
@@ -581,7 +560,8 @@ mod tests {
 
         assert_eq!(bytes[..4], 1.0f32.to_le_bytes());
         assert_eq!(bytes[24..28], 3.0f32.to_le_bytes());
-        assert_eq!(bytes[36..44], [0xff, 0x7f, 0x01, 0x80, 0xff, 0x3f, 0, 0]);
-        assert_eq!(bytes[44..52], [0, 0, 0, 0, 0xff, 0x7f, 0, 0]);
+        assert_eq!(bytes[36..40], [0x33, 0x33, 0xcd, 0xcc]);
+        assert_eq!(bytes[40..44], [0, 0, 0, 0]);
+        assert_eq!(bytes[44..48], [0xff, 0x7f, 0, 0]);
     }
 }

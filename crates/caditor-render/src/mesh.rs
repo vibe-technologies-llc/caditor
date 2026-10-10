@@ -12,7 +12,7 @@ use crate::{
     viewport::relative_to_eye,
 };
 
-const MESH_VERTEX_BYTES: usize = 28;
+const MESH_VERTEX_BYTES: usize = 20;
 pub const MESH_VERTEX_STRIDE: u64 = MESH_VERTEX_BYTES as u64;
 const INDEX_BYTES: u64 = 4;
 const STYLE_BINDING: u32 = 1;
@@ -550,7 +550,7 @@ impl PartSource {
             gpu::record(|record| {
                 record
                     .vec3(vertex.position)
-                    .vec3(vertex.normal)
+                    .octahedral(vertex.normal)
                     .u32(vertex.face);
             })
         })
@@ -1596,7 +1596,7 @@ mod tests {
 
     #[test]
     fn an_upload_budget_grants_whole_elements_until_it_is_spent() {
-        let mut budget = UploadBudget::of(100);
+        let mut budget = UploadBudget::of(76);
         let mut unlimited = UploadBudget::UNLIMITED;
 
         assert_eq!(budget.grant(10, MESH_VERTEX_STRIDE), 3);

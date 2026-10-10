@@ -388,8 +388,20 @@ fn vs_fill(fill: FillVertex) -> Varyings {
 
 struct MeshVertex {
     @location(0) position: vec3<f32>,
-    @location(1) normal: vec3<f32>,
+    @location(1) normal: vec2<f32>,
     @location(2) face: u32,
+}
+
+const ABSENT_NORMAL_SUM: f32 = -1.9998;
+
+fn unfolded(normal: vec2<f32>) -> vec3<f32> {
+    if normal.x + normal.y < ABSENT_NORMAL_SUM {
+        return vec3<f32>(0.0);
+    }
+    let z = 1.0 - abs(normal.x) - abs(normal.y);
+    let side = select(vec2<f32>(-1.0), vec2<f32>(1.0), normal >= vec2<f32>(0.0));
+    let xy = select(normal, (1.0 - abs(normal.yx)) * side, z < 0.0);
+    return normalize(vec3<f32>(xy, z));
 }
 
 fn unpack_color(packed: u32) -> vec4<f32> {
@@ -414,7 +426,7 @@ fn vs_mesh(vertex: MeshVertex) -> Varyings {
     out.pick = style.y;
     out.depth = view_depth(relative);
     out.relative = relative;
-    out.normal = turned(vertex.normal);
+    out.normal = turned(unfolded(vertex.normal));
     out.sectioned = SECTIONED | select(0u, CAPPABLE, mesh.faces_columns.z != 0u);
     return out;
 }
@@ -433,9 +445,9 @@ struct SilhouetteTriangle {
     @location(0) first: vec3<f32>,
     @location(1) second: vec3<f32>,
     @location(2) third: vec3<f32>,
-    @location(3) first_normal: vec4<f32>,
-    @location(4) second_normal: vec4<f32>,
-    @location(5) third_normal: vec4<f32>,
+    @location(3) first_normal: vec2<f32>,
+    @location(4) second_normal: vec2<f32>,
+    @location(5) third_normal: vec2<f32>,
 }
 
 fn silhouette_turned(vector: vec3<f32>) -> vec3<f32> {
@@ -446,8 +458,8 @@ fn silhouette_placed(position: vec3<f32>) -> vec3<f32> {
     return silhouette_turned(position) + from_anchor(silhouette.offset_width.xyz);
 }
 
-fn facing(position: vec3<f32>, normal: vec4<f32>) -> f32 {
-    return dot(silhouette_turned(normal.xyz), toward_eye(position));
+fn facing(position: vec3<f32>, normal: vec2<f32>) -> f32 {
+    return dot(silhouette_turned(unfolded(normal)), toward_eye(position));
 }
 
 fn crossing(head: vec3<f32>, tail: vec3<f32>, head_facing: f32, tail_facing: f32) -> vec3<f32> {
