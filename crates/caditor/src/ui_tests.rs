@@ -3626,6 +3626,38 @@ fn a_newly_opened_model_starts_with_nothing_selected_or_left_out_of_export() {
 }
 
 #[test]
+fn a_newly_opened_model_forgets_the_coordinate_system_and_the_pull_the_last_one_chose() {
+    let mut harness = Harness::new();
+    let base = harness.document().features().next().unwrap().id();
+    let line = harness
+        .sketch(base)
+        .entities()
+        .find_map(|(id, entity)| matches!(entity, Entity::Line { .. }).then_some(id))
+        .unwrap();
+    let session = harness.model.session();
+
+    harness.workspace.measure.relative_to = Some(base);
+    harness.workspace.analysis.pull = crate::analysis::Pull::Picked(Pickable::SketchEntity {
+        feature: base,
+        entity: line,
+    });
+    harness.command(FileCommand::OpenSample(crate::samples::Sample::Plate));
+    if harness.shows("Continue without saving") {
+        harness.click("Continue without saving");
+    }
+    harness.wait_until("the sample opens", |harness| {
+        harness.model.session() != session
+    });
+    harness.settle();
+
+    assert_eq!(harness.workspace.measure.relative_to, None);
+    assert_eq!(
+        harness.workspace.analysis.pull,
+        crate::analysis::Pull::Axis(crate::selection::Axis::Z)
+    );
+}
+
+#[test]
 fn clicking_a_constraint_in_the_tree_edits_its_sketch_and_selects_it() {
     let mut harness = Harness::new();
     let base = harness.document().features().next().unwrap().id();

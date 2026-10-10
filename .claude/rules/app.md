@@ -298,8 +298,8 @@ paths:
   mass as a plain number of grams to the milligram, with its name field focused for renaming and
   a notice saying so.
 - Relative to (shown once the model holds a coordinate system, `MeasureTool::relative_to`, World
-  by default, kept for the session) reads every position and direction and the Along X, Y and Z
-  offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse); distances,
+  by default, forgotten when another model opens) reads every position and direction and the
+  Along X, Y and Z offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse); distances,
   angles and the line in the view stay world geometry. A chosen system that is gone or has no
   result is read as the world with a warning callout saying so (`measure_panel::relative`).
 - The closest points are drawn on the front layer (`scene::add_measurement`) with a distance
@@ -397,8 +397,8 @@ paths:
   between `Band::TooLittleDraft`, which holds the parting line. The pull is an axis or a direction
   given by an axis, straight edge, sketch line, flat face (its outward normal) or round face
   (its axis) chosen with Use selected (`AnalysisCommand::UseSelected`, `Pull::Picked` is resolved
-  again each frame through `measure::direction_of`, so it follows edits) or the X, Y and Z buttons;
-  `AnalysisCommand::Reverse` flips it. The limit is an angle expression of named parameters
+  again each frame through `measure::direction_of`, so it follows edits, and is dropped back to Z
+  when another model opens) or the X, Y and Z buttons; `AnalysisCommand::Reverse` flips it. The limit is an angle expression of named parameters
   (3° at first, 0° to 90°).
 - Reach judges undercuts for a three-axis machine: the tool comes from the direction (`Kind::Reach`
   shares the pull, Use selected and Reverse with Draft, captioned Reach from), and per triangle a

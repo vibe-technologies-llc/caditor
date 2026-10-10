@@ -873,6 +873,12 @@ impl Default for AnalysisTool {
 }
 
 impl AnalysisTool {
+    pub fn forget(&mut self) {
+        if matches!(self.pull, Pull::Picked(_)) {
+            self.pull = Self::default().pull;
+        }
+    }
+
     pub fn toggle(&mut self, kind: Kind) {
         if self.open && self.kind == kind {
             self.open = false;

@@ -1232,6 +1232,11 @@ impl MeasureTool {
             self.measurements.forget();
         }
     }
+
+    pub fn forget(&mut self) {
+        self.measurements.forget();
+        self.relative_to = None;
+    }
 }
 
 #[cfg(test)]

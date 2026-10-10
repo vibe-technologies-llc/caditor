@@ -304,7 +304,9 @@ impl Workspace {
             self.selection_sets = None;
             self.configurations = None;
             self.scale_model = None;
-            self.interference.interference.forget();
+            self.measure.forget();
+            self.interference.forget();
+            self.analysis.forget();
             self.comb.forget();
             self.isocurves.forget();
             self.tidying.close();

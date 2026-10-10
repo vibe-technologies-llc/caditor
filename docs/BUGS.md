@@ -131,11 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] A new model keeps two ids from the last one: `Workspace::sync` resets every
-  panel holding ids but `MeasureTool::relative_to` and the analysis's `Pull::Picked`, which then
-  resolve against the new document's features of the same id (a coordinate system the user never
-  chose, or a warning naming an unrelated feature). Clear both in the new-session branch, as the
-  comb's and section's `forget` are, with a test like theirs.
 - [medium · easy] A sketch drag or a constraint trial lands after an undo: a drag still solving at
   release keeps `finishing` and `poll` hands the solution to `commit_drag` with no revision
   check, and a trial's verdict up to `PATIENCE` later applies the transaction it was built with,

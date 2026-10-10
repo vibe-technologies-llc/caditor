@@ -548,8 +548,12 @@ impl InterferenceTool {
     pub fn toggle(&mut self) {
         self.open = !self.open;
         if !self.open {
-            self.interference.forget();
-            self.report = None;
+            self.forget();
         }
+    }
+
+    pub fn forget(&mut self) {
+        self.interference.forget();
+        self.report = None;
     }
 }
