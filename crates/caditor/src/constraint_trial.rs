@@ -28,6 +28,7 @@ pub struct ConstraintTrial {
 pub enum Verdict {
     Apply(Transaction),
     Refuse(String),
+    Outdated { label: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +41,7 @@ enum Outcome {
 struct Running {
     transaction: Transaction,
     label: String,
+    revision: u64,
     started: Instant,
     cancelled: Arc<AtomicBool>,
     outcome: Receiver<Outcome>,
@@ -48,6 +50,8 @@ struct Running {
 #[derive(Default)]
 pub struct Trials {
     running: Option<Running>,
+    #[cfg(test)]
+    held: bool,
 }
 
 impl Trials {
@@ -59,6 +63,7 @@ impl Trials {
         &mut self,
         trial: ConstraintTrial,
         document: &Document,
+        revision: u64,
         wake: Waker,
     ) -> Option<Verdict> {
         if let Some(running) = &self.running {
@@ -101,6 +106,7 @@ impl Trials {
         }
         self.running = Some(Running {
             label: transaction.label().to_owned(),
+            revision,
             transaction,
             started,
             cancelled,
@@ -109,7 +115,11 @@ impl Trials {
         None
     }
 
-    pub fn poll(&mut self) -> Option<Verdict> {
+    pub fn poll(&mut self, revision: u64) -> Option<Verdict> {
+        #[cfg(test)]
+        if self.held {
+            return None;
+        }
         let running = self.running.as_ref()?;
         let outcome = match running.outcome.try_recv() {
             Ok(outcome) => outcome,
@@ -117,22 +127,35 @@ impl Trials {
             Err(TryRecvError::Empty) if running.started.elapsed() >= PATIENCE => Outcome::Unknown,
             Err(TryRecvError::Empty) => return None,
         };
-        self.finish(outcome)
+        self.finish(outcome, revision)
     }
 
     #[cfg(test)]
-    pub fn wait(&mut self) -> Option<Verdict> {
+    pub fn hold(&mut self, held: bool) {
+        self.held = held;
+    }
+
+    #[cfg(test)]
+    pub fn wait(&mut self, revision: u64) -> Option<Verdict> {
+        if self.held {
+            return None;
+        }
         let running = self.running.as_ref()?;
         let outcome = running
             .outcome
             .recv_timeout(PATIENCE)
             .unwrap_or(Outcome::Unknown);
-        self.finish(outcome)
+        self.finish(outcome, revision)
     }
 
-    fn finish(&mut self, outcome: Outcome) -> Option<Verdict> {
+    fn finish(&mut self, outcome: Outcome, revision: u64) -> Option<Verdict> {
         let running = self.running.take()?;
         running.cancelled.store(true, Ordering::Relaxed);
+        if running.revision != revision {
+            return Some(Verdict::Outdated {
+                label: running.label,
+            });
+        }
         Some(match outcome {
             Outcome::Holds | Outcome::Unknown => Verdict::Apply(running.transaction),
             Outcome::Conflicts(reason) => Verdict::Refuse(reason),

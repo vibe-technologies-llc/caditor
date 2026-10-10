@@ -117,6 +117,7 @@ mod sketch_regions;
 mod sketch_symmetry;
 mod sketch_tangent_circles;
 mod sketch_tidying;
+mod stale_sketch_results;
 mod svg_import;
 mod templates;
 mod themes;

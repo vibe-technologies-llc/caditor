@@ -131,11 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] A sketch drag or a constraint trial lands after an undo: a drag still solving at
-  release keeps `finishing` and `poll` hands the solution to `commit_drag` with no revision
-  check, and a trial's verdict up to `PATIENCE` later applies the transaction it was built with,
-  so Ctrl+Z pressed in that window is overwritten on top and its redo dropped. Carry the revision
-  in `Finished` and in `Trials::Running` and drop a stale result with a notice.
 - [low · easy] A parameter import that left rows out still shows the success notice: Apply always
   posts `Notice::success`, so a partial import reads as complete beside the refused rows' text.
   Use a warning whenever a row was refused.

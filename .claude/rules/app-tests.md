@@ -46,7 +46,9 @@ paths:
   anything reading the settled sketch (`Model::settled_sketch`) sees none while it recomputes.
 - A constraint trial (`app-sketching.md`) is waited for at the end of each harness frame
   (`Model::finish_checking_constraints`), so a constraint button's result is in the document by
-  the next check as if applied at once.
+  the next check as if applied at once. `Model::hold_sketch_results` holds back both a trial's
+  verdict and the drag worker's solutions (`ui_tests/stale_sketch_results.rs`), so a test can
+  release a drag still solving or leave a trial pending across another change.
 - The version preview's picture is answered like the 3MF thumbnail: `Harness::render_preview`
   hands `Files::preview_rendered` solid rows of `PICTURE_SIZE`, so a test waits for
   `Preview::is_drawn` without a GPU.

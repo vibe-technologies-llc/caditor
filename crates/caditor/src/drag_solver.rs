@@ -47,6 +47,7 @@ pub struct BodyJoin {
 pub struct Finished {
     pub feature: FeatureId,
     pub label: String,
+    pub revision: u64,
     pub sketch: Option<Arc<Sketch>>,
     pub join: Option<Join>,
 }
@@ -226,6 +227,8 @@ pub struct SketchDragging {
     worker: Option<Worker>,
     next_drag: u64,
     active: Option<Active>,
+    #[cfg(test)]
+    results_held: bool,
 }
 
 pub struct Start<'a> {
@@ -239,6 +242,11 @@ impl SketchDragging {
     #[cfg(test)]
     pub fn is_dragging(&self) -> bool {
         self.active.is_some()
+    }
+
+    #[cfg(test)]
+    pub fn hold_results(&mut self, held: bool) {
+        self.results_held = held;
     }
 
     pub fn perform(&mut self, command: DragCommand, start: &Start<'_>) -> Polled {
@@ -281,6 +289,10 @@ impl SketchDragging {
 
     pub fn poll(&mut self) -> Polled {
         let mut polled = Polled::default();
+        #[cfg(test)]
+        if self.results_held {
+            return polled;
+        }
         let Some(worker) = &self.worker else {
             return polled;
         };
@@ -391,6 +403,7 @@ impl Active {
         Finished {
             feature: self.feature,
             label: self.label,
+            revision: self.revision,
             sketch: self.latest,
             join: self.join,
         }

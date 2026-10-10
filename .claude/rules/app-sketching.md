@@ -88,7 +88,10 @@ paths:
   contradicts.
 - Release commits one `settle_sketch` transaction and the dragged shape stays until an evaluation
   of that revision reaches the sketch, so it never jumps back. Escape, another edit or document,
-  or a drag begun on an older revision drops it.
+  or a drag begun on an older revision drops it. A drag still solving at release carries its
+  revision in `Finished`, and `Model::commit_drag` drops a solution arriving after the revision
+  moved on (an undo pressed meanwhile) with a notice saying it was not applied, so the undo and
+  its redo stand.
 - When the worker cannot solve its newest frame (`Polled::blocked`, `Model::drag_blocked`), the
   viewport says `DRAG_BLOCKED` beside the pointer as a polite live region and the geometry stays
   where the last good frame put it. In a sketch whose constraints conflict it says `DRAG_CONFLICT`
@@ -671,7 +674,9 @@ paths:
   refused in a notice naming the constraints it conflicts with when the solve finds a conflict.
   A trial past `PATIENCE` (or any other failure) applies it as before, so a slow sketch is never
   held up and a conflict found later is reported afterwards as usual; a second constraint while one
-  is checked is refused saying so. Dimensions start at the measured value and are applied at once.
+  is checked is refused saying so. The trial keeps the revision it started on (`Running`), and a
+  verdict reaching a later revision is `Verdict::Outdated`: nothing is applied and a notice says
+  so, so an undo pressed while it is checked stands with its redo. Dimensions start at the measured value and are applied at once.
 - The candidates of every tool are kept in `PanelState::constraint_offers` and worked out again
   only when the selection, the revision, the evaluation, the displayed sketches or the units
   change (`sketch_toolbar::ConstraintOffers`).

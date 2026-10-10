@@ -1021,9 +1021,18 @@ impl Model {
         let Finished {
             feature,
             label,
+            revision,
             sketch,
             join,
         } = finished;
+        if revision != self.revision() {
+            self.display.sketches.stop_showing_dragged();
+            self.set_notice(Notice::warning(format!(
+                "{label} was not applied, because the model changed while it was being solved; \
+                 drag again."
+            )));
+            return;
+        }
         let Some(sketch) = sketch else {
             self.display.sketches.stop_showing_dragged();
             let reason = match self.sketch_conflict(feature) {
@@ -1091,7 +1100,10 @@ impl Model {
             return;
         }
         let wake = (self.services.make_waker)();
-        let verdict = self.trials.start(trial, self.editor.document(), wake);
+        let revision = self.revision();
+        let verdict = self
+            .trials
+            .start(trial, self.editor.document(), revision, wake);
         self.judged(verdict);
     }
 
@@ -1099,6 +1111,10 @@ impl Model {
         match verdict {
             Some(Verdict::Apply(transaction)) => self.perform(Action::Apply(transaction)),
             Some(Verdict::Refuse(reason)) => self.set_notice(Notice::warning(reason)),
+            Some(Verdict::Outdated { label }) => self.set_notice(Notice::warning(format!(
+                "“{label}” was not applied, because the model changed while it was being \
+                 checked; add it again."
+            ))),
             None => return false,
         }
         true
@@ -1109,13 +1125,19 @@ impl Model {
     }
 
     #[cfg(test)]
+    pub fn hold_sketch_results(&mut self, held: bool) {
+        self.display.dragging.hold_results(held);
+        self.trials.hold(held);
+    }
+
+    #[cfg(test)]
     pub fn finish_checking_constraints(&mut self) {
-        let verdict = self.trials.wait();
+        let verdict = self.trials.wait(self.revision());
         self.judged(verdict);
     }
 
     fn poll_recompute(&mut self) -> bool {
-        let verdict = self.trials.poll();
+        let verdict = self.trials.poll(self.revision());
         let judged = self.judged(verdict);
         let polled = self.display.dragging.poll();
         let stored = judged
