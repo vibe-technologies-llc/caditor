@@ -8,6 +8,11 @@ Usage: packaging/check-install.sh ARCHIVE
 Extracts a release archive built by packaging/build-release.sh, installs it
 with its install.sh into a temporary prefix, checks every packaged file, the
 menu entry and the program, then uninstalls it and checks nothing is left.
+
+The installed program is also checked against docs/RELEASING.md (check-binary.sh: the
+libraries it links and its highest glibc symbol) and, when Xvfb is installed, started to
+a first frame, killed with an edit journalled and started again to recover it
+(check-run.sh). CADITOR_REQUIRE_DISPLAY=1 makes a missing Xvfb a failure, as CI sets it.
 EOF
 }
 
@@ -27,6 +32,7 @@ case "$1" in
         ;;
 esac
 
+here=$(cd "$(dirname "$0")" && pwd)
 archive=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 [ -f "$archive" ] || fail "$archive does not exist"
 command -v desktop-file-validate >/dev/null 2>&1 || fail "desktop-file-validate is needed"
@@ -46,6 +52,12 @@ prefix="$work/prefix & 100% sure"
     [ -f "$prefix/$file" ] || fail "$file was not installed"
 done
 "$prefix/bin/caditor" --version >/dev/null || fail "the installed program does not run"
+"$here/check-binary.sh" "$prefix/bin/caditor"
+if [ -n "${CADITOR_REQUIRE_DISPLAY:-}" ] || command -v Xvfb >/dev/null 2>&1; then
+    "$here/check-run.sh" "$prefix/bin/caditor"
+else
+    echo "check-install: Xvfb is not installed, so the program is not started to a first frame" >&2
+fi
 
 entry="$prefix/share/applications/caditor.desktop"
 desktop-file-validate "$entry"

@@ -114,7 +114,16 @@ paths:
   journal before exit; on Windows a console close handler, plus `crash::flush_when_the_session_ends`
   once the window exists (`windows.md`). `tests/crash_flush.rs` re-runs its binary as a child that
   panics, raises SIGTERM (Unix only) or is killed, and checks a recovery scan restores every
-  change.
+  change; it runs a real storage worker, not the app, so the app itself is killed by
+  `packaging/check-run.sh` (`ci.md`).
+- `startup_check.rs` is the app's hook for that script. Every run logs "the first frame was drawn"
+  once the first frame is through (after `FrameFailures::drawn`), and `Files::offer` logs "recovery
+  offered for <journal> with N recoverable changes" for each journal the startup scan finds. With
+  `CADITOR_STARTUP_CHECK` set to anything non-empty, the first frame not blocked by a dialog or an
+  opening also applies one transaction (a parameter named `startup_check`), flushes the journal
+  (`Model::flush_journal`) and logs "startup check: an edit is in the recovery journal", so a
+  harness can kill the process knowing a recoverable change is on disk. The variable has no
+  command-line form and is not documented to users.
 - A panic while handling a window or user event (a frame, closing, a dropped file, an
   accessibility event) is caught in `App::contained` after the hook flushed the journal. The window
   gets a fresh egui context, `after_failed_frame` drops transient state (selection, tools, sketch

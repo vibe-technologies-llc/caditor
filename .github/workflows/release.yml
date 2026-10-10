@@ -56,8 +56,16 @@ jobs:
       - name: Build the release archive
         run: packaging/build-release.sh
 
-      - name: Install and uninstall the archive
+      - name: Install a virtual display and software graphics drivers
+        run: .github/linux-display.sh install
+
+      - name: Install and uninstall the archive, and start and kill it under the display
+        env:
+          CADITOR_REQUIRE_DISPLAY: "1"
         run: packaging/check-install.sh target/dist/caditor-*-linux-x86_64.tar.zst
+
+      - name: Remove the display and graphics libraries again, so the .deb brings its own
+        run: .github/linux-display.sh remove
 
       - name: Build the .deb, .rpm and AppImage from the archive
         run: packaging/build-packages.sh target/dist/caditor-*-linux-x86_64.tar.zst

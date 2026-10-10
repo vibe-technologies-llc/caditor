@@ -450,11 +450,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Checks and CI
 
-- [medium · medium] `tests/crash_flush.rs` runs the crash protection with a real storage worker in a
-  child process, not the app itself. `check-install.sh` only runs `--version`; start the packaged
-  binary to a first frame under Xvfb and lavapipe, kill it there and recover its journal, check its
-  linked libraries and highest glibc symbol against `docs/RELEASING.md`, and run the offscreen tests
-  once more on the GL backend that `packaging/INSTALL.md` promises.
+- [low · medium] Two offscreen render tests are skipped on the OpenGL backend in CI
+  (`a_viewport_away_from_the_corner_draws_and_picks_inside_its_rect_only` and
+  `an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again`): on GL (llvmpipe) the
+  surface outside the viewport's rect reads transparent black instead of `BACKGROUND`, so the kept
+  view seems resolved only within the scissor set for the rect. It cannot show in the app, where
+  panels cover that area, but it is unexplained; find the cause, fix the pass or the tests, and
+  drop the `--skip`s. The start check (`packaging/check-run.sh`) runs the packaged program on
+  Vulkan only, never with `WGPU_BACKEND=gl`, and recovers an untitled document, not an opened
+  model's adjacent journal, and stops at the recovery offer without pressing Restore.
 - [low · medium] Slow tests to keep an eye on: about a third of the UI tests (75 of 219) take over a
   second each in a debug build, and the UI suite takes about 3.5 minutes on one thread.
 

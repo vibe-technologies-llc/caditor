@@ -157,6 +157,7 @@ mod split_face_panel;
 mod split_face_tools;
 mod split_panel;
 mod split_tools;
+mod startup_check;
 mod status_bar;
 mod tangent_circling;
 mod thread_panel;
