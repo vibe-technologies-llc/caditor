@@ -691,7 +691,7 @@ fn bodies_are_meshed_at_the_recompute_mesh_quality_and_a_new_quality_meshes_them
     ));
     assert_eq!(
         coarse_mesh,
-        &solid.tessellate(&solid.default_tolerance()).unwrap()
+        &solid.display_mesh(&MeshQuality::COARSE).unwrap()
     );
     assert!(smooth_mesh.triangles().len() > coarse_mesh.triangles().len());
 

@@ -112,6 +112,10 @@ impl MeshQuality {
         }
     }
 
+    pub fn display_tolerance(&self, extent: f64) -> SamplingTolerance {
+        self.tolerance(nearest_power_of_two(extent))
+    }
+
     pub fn tolerance(&self, extent: f64) -> SamplingTolerance {
         let chord = if extent.is_finite() && extent > 0.0 {
             extent * self.chord_fraction
@@ -125,6 +129,14 @@ impl MeshQuality {
     }
 }
 
+fn nearest_power_of_two(extent: f64) -> f64 {
+    if extent.is_finite() && extent > 0.0 {
+        extent.log2().round().exp2()
+    } else {
+        extent
+    }
+}
+
 impl Default for MeshQuality {
     fn default() -> Self {
         Self::SMOOTH
@@ -133,6 +145,8 @@ impl Default for MeshQuality {
 
 #[cfg(test)]
 mod tests {
+    use std::f64::consts::{FRAC_1_SQRT_2, SQRT_2};
+
     use super::*;
 
     #[test]
@@ -175,6 +189,27 @@ mod tests {
         assert_eq!(clamped.angle(), MAX_ANGLE_TOLERANCE);
         assert_eq!(clamped.tolerance(1e-9).chord(), MIN_CHORD_TOLERANCE);
         assert_eq!(clamped.tolerance(f64::NAN).chord(), 1.0);
+    }
+
+    #[test]
+    fn display_tolerances_step_the_extent_to_the_nearest_power_of_two() {
+        let smooth = MeshQuality::SMOOTH;
+        let stepped = |extent: f64| smooth.display_tolerance(extent);
+
+        assert_eq!(stepped(57.4), smooth.tolerance(64.0));
+        assert_eq!(stepped(57.4), stepped(70.0));
+        assert_eq!(stepped(100.0), smooth.tolerance(128.0));
+        assert_eq!(stepped(90.0), smooth.tolerance(64.0));
+        assert_eq!(stepped(0.75), smooth.tolerance(1.0));
+        assert_eq!(stepped(f64::NAN), smooth.tolerance(f64::NAN));
+        assert_eq!(stepped(0.0).chord(), 1.0);
+        for extent in [0.01, 0.7, 3.0, 57.4, 181.0, 5000.0] {
+            let ratio = stepped(extent).chord() / smooth.tolerance(extent).chord();
+            assert!(
+                (FRAC_1_SQRT_2..=SQRT_2).contains(&ratio),
+                "{extent}: {ratio}"
+            );
+        }
     }
 
     #[test]

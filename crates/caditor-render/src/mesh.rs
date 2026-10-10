@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, ops::Range, sync::Arc};
+use std::{collections::BTreeMap, fmt, ops::Range, sync::Arc};
 
 use ahash::AHashMap;
 use caditor_geometry::{Aabb, Point3, RigidTransform, Vector3};
@@ -45,14 +45,99 @@ struct GpuVertex {
     face: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl GpuVertex {
+    fn of(point: &MeshPoint, origin: Point3, face: u32) -> Self {
+        Self {
+            position: relative_to_eye(point.position, origin),
+            normal: point.normal.normalize_or_zero().as_vec3(),
+            face,
+        }
+    }
+}
+
+pub trait MeshSource: Send + Sync {
+    fn triangles(&self) -> &[[u32; 3]];
+    fn point_count(&self) -> usize;
+    fn point(&self, index: u32) -> Option<MeshPoint>;
+}
+
+#[derive(Clone)]
+enum Storage {
+    Owned {
+        vertices: Vec<GpuVertex>,
+        indices: Vec<u32>,
+    },
+    Shared {
+        source: Arc<dyn MeshSource>,
+        face_ends: Vec<u32>,
+    },
+}
+
+impl fmt::Debug for Storage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let kind = match self {
+            Self::Owned { .. } => "Owned",
+            Self::Shared { .. } => "Shared",
+        };
+        formatter
+            .debug_struct(kind)
+            .field("vertices", &self.vertex_count())
+            .field("indices", &self.indices().len())
+            .finish()
+    }
+}
+
+impl Storage {
+    fn vertex_count(&self) -> usize {
+        match self {
+            Self::Owned { vertices, .. } => vertices.len(),
+            Self::Shared { source, .. } => source.point_count(),
+        }
+    }
+
+    fn indices(&self) -> &[u32] {
+        match self {
+            Self::Owned { indices, .. } => indices,
+            Self::Shared { source, .. } => source.triangles().as_flattened(),
+        }
+    }
+
+    fn vertex(&self, index: u32, origin: Point3) -> Option<GpuVertex> {
+        match self {
+            Self::Owned { vertices, .. } => vertices.get(index as usize).copied(),
+            Self::Shared { source, face_ends } => {
+                let face = face_ends.partition_point(|end| *end <= index);
+                let face = u32::try_from(face).ok()?;
+                Some(GpuVertex::of(&source.point(index)?, origin, face))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ShadedMesh {
     origin: Point3,
     bounds: Option<Aabb>,
-    vertices: Vec<GpuVertex>,
-    indices: Vec<u32>,
+    storage: Storage,
     face_count: usize,
     curved: usize,
+}
+
+impl PartialEq for ShadedMesh {
+    fn eq(&self, other: &Self) -> bool {
+        let same_vertices = || {
+            (0..self.vertex_count()).all(|index| {
+                u32::try_from(index).is_ok_and(|index| self.vertex(index) == other.vertex(index))
+            })
+        };
+        self.origin == other.origin
+            && self.bounds == other.bounds
+            && self.face_count == other.face_count
+            && self.curved == other.curved
+            && self.vertex_count() == other.vertex_count()
+            && self.indices() == other.indices()
+            && same_vertices()
+    }
 }
 
 impl ShadedMesh {
@@ -72,26 +157,71 @@ impl ShadedMesh {
                 break;
             };
             let count = face.points.len();
-            vertices.extend(face.points.iter().map(|point| GpuVertex {
-                position: relative_to_eye(point.position, origin),
-                normal: point.normal.normalize_or_zero().as_vec3(),
-                face: face_index,
-            }));
+            vertices.extend(
+                face.points
+                    .iter()
+                    .map(|point| GpuVertex::of(point, origin, face_index)),
+            );
             for triangle in &face.triangles {
                 if triangle.iter().all(|corner| (*corner as usize) < count) {
                     indices.extend(triangle.map(|corner| first + corner));
                 }
             }
         }
-        let curved = curved_in(&vertices, &indices, 0).count();
-        Self {
+        Self::counted(
             origin,
             bounds,
-            vertices,
-            indices,
-            face_count: faces.len(),
-            curved,
-        }
+            Storage::Owned { vertices, indices },
+            faces.len(),
+        )
+    }
+
+    pub fn shared(
+        source: Arc<dyn MeshSource>,
+        face_triangle_ends: impl IntoIterator<Item = usize>,
+    ) -> Option<Self> {
+        let face_ends = face_vertex_ends(source.as_ref(), face_triangle_ends)?;
+        let bounds = Aabb::from_points(
+            (0..source.point_count())
+                .filter_map(|index| source.point(u32::try_from(index).ok()?))
+                .map(|point| point.position),
+        );
+        let origin = bounds.map_or(Point3::ZERO, |bounds| bounds.center());
+        let face_count = face_ends.len();
+        Some(Self::counted(
+            origin,
+            bounds,
+            Storage::Shared { source, face_ends },
+            face_count,
+        ))
+    }
+
+    fn counted(origin: Point3, bounds: Option<Aabb>, storage: Storage, face_count: usize) -> Self {
+        let mut mesh = Self {
+            origin,
+            bounds,
+            storage,
+            face_count,
+            curved: 0,
+        };
+        mesh.curved = mesh.curved_triangles(0).count();
+        mesh
+    }
+
+    fn vertex_count(&self) -> usize {
+        self.storage.vertex_count()
+    }
+
+    fn indices(&self) -> &[u32] {
+        self.storage.indices()
+    }
+
+    fn vertex(&self, index: u32) -> Option<GpuVertex> {
+        self.storage.vertex(index, self.origin)
+    }
+
+    fn vertices_in(&self, range: Range<usize>) -> impl Iterator<Item = GpuVertex> + '_ {
+        range.filter_map(|index| self.vertex(u32::try_from(index).ok()?))
     }
 
     pub fn face_count(&self) -> usize {
@@ -103,11 +233,11 @@ impl ShadedMesh {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.indices.is_empty()
+        self.indices().is_empty()
     }
 
     pub fn triangle_count(&self) -> usize {
-        self.indices.len() / 3
+        self.indices().len() / 3
     }
 
     pub fn origin(&self) -> Point3 {
@@ -115,15 +245,14 @@ impl ShadedMesh {
     }
 
     pub fn face_triangles(&self) -> impl Iterator<Item = (usize, [Point3; 3])> + '_ {
-        self.indices
+        self.indices()
             .as_chunks::<3>()
             .0
             .iter()
             .filter_map(|corners| {
-                let vertex = |index: u32| self.vertices.get(index as usize);
-                let [first, second, third] = corners.map(vertex);
+                let [first, second, third] = corners.map(|index| self.vertex(index));
                 let (first, second, third) = (first?, second?, third?);
-                let world = |corner: &GpuVertex| self.origin + corner.position.as_dvec3();
+                let world = |corner: GpuVertex| self.origin + corner.position.as_dvec3();
                 Some((
                     first.face as usize,
                     [world(first), world(second), world(third)],
@@ -135,7 +264,21 @@ impl ShadedMesh {
         &self,
         from: usize,
     ) -> impl Iterator<Item = (usize, [Corner; 3])> + '_ {
-        curved_in(&self.vertices, &self.indices, from)
+        self.indices()
+            .as_chunks::<3>()
+            .0
+            .get(from..)
+            .unwrap_or_default()
+            .iter()
+            .enumerate()
+            .filter_map(move |(offset, corners)| {
+                let [first, second, third] = corners.map(|index| self.vertex(index));
+                let corners = [first?, second?, third?].map(|vertex| Corner {
+                    position: vertex.position,
+                    normal: vertex.normal,
+                });
+                is_curved(&corners).then_some((from + offset, corners))
+            })
     }
 
     pub(crate) fn curved_triangle_count(&self) -> usize {
@@ -148,10 +291,8 @@ impl ShadedMesh {
         let mut vertices: Vec<GpuVertex> = Vec::new();
         let mut vertex_of: BTreeMap<(u32, u32), u32> = BTreeMap::new();
         let mut indices: Vec<u32> = Vec::new();
-        for triangle in self.indices.as_chunks::<3>().0 {
-            let [Some(a), Some(b), Some(c)] =
-                triangle.map(|index| self.vertices.get(index as usize))
-            else {
+        for triangle in self.indices().as_chunks::<3>().0 {
+            let [Some(a), Some(b), Some(c)] = triangle.map(|index| self.vertex(index)) else {
                 continue;
             };
             let class = classify([a, b, c].map(|vertex| Corner {
@@ -177,10 +318,7 @@ impl ShadedMesh {
             if let Some(entry) = pieces.get_mut(piece as usize) {
                 entry.area += triangle_area(a.position, b.position, c.position);
             }
-            for index in triangle {
-                let Some(original) = self.vertices.get(*index as usize) else {
-                    continue;
-                };
+            for (index, original) in triangle.iter().zip([a, b, c]) {
                 let placed = match vertex_of.get(&(*index, piece)) {
                     Some(placed) => *placed,
                     None => {
@@ -189,7 +327,7 @@ impl ShadedMesh {
                         };
                         vertices.push(GpuVertex {
                             face: piece,
-                            ..*original
+                            ..original
                         });
                         vertex_of.insert((*index, piece), next);
                         next
@@ -202,8 +340,7 @@ impl ShadedMesh {
             mesh: Self {
                 origin: self.origin,
                 bounds: self.bounds,
-                vertices,
-                indices,
+                storage: Storage::Owned { vertices, indices },
                 face_count: pieces.len(),
                 curved: self.curved,
             },
@@ -212,26 +349,28 @@ impl ShadedMesh {
     }
 }
 
-fn curved_in<'a>(
-    vertices: &'a [GpuVertex],
-    indices: &'a [u32],
-    from: usize,
-) -> impl Iterator<Item = (usize, [Corner; 3])> + 'a {
-    indices
-        .as_chunks::<3>()
-        .0
-        .get(from..)
-        .unwrap_or_default()
-        .iter()
-        .enumerate()
-        .filter_map(move |(offset, corners)| {
-            let [first, second, third] = corners.map(|index| vertices.get(index as usize));
-            let corners = [first?, second?, third?].map(|vertex| Corner {
-                position: vertex.position,
-                normal: vertex.normal,
-            });
-            is_curved(&corners).then_some((from + offset, corners))
-        })
+fn face_vertex_ends(
+    source: &dyn MeshSource,
+    face_triangle_ends: impl IntoIterator<Item = usize>,
+) -> Option<Vec<u32>> {
+    let triangles = source.triangles();
+    let mut face_ends = Vec::new();
+    let mut first_triangle = 0;
+    let mut first_vertex = 0u32;
+    for end in face_triangle_ends {
+        let mut next = first_vertex;
+        for corner in triangles.get(first_triangle..end)?.iter().flatten() {
+            if *corner < first_vertex {
+                return None;
+            }
+            next = next.max(corner.checked_add(1)?);
+        }
+        face_ends.push(next);
+        first_triangle = end;
+        first_vertex = next;
+    }
+    let whole = first_triangle == triangles.len() && first_vertex as usize == source.point_count();
+    whole.then_some(face_ends)
 }
 
 fn is_curved([first, second, third]: &[Corner; 3]) -> bool {
@@ -299,16 +438,16 @@ impl MeshPart {
 fn split_into_parts(mesh: &ShadedMesh, limit: u64) -> Option<Vec<MeshPart>> {
     let max_vertices = usize::try_from(limit / MESH_VERTEX_STRIDE).unwrap_or(usize::MAX);
     let max_indices = usize::try_from(limit / INDEX_BYTES / 3 * 3).unwrap_or(usize::MAX);
-    if mesh.vertices.len() <= max_vertices && mesh.indices.len() <= max_indices {
+    if mesh.vertex_count() <= max_vertices && mesh.indices().len() <= max_indices {
         return None;
     }
-    let mut local = vec![u32::MAX; mesh.vertices.len()];
+    let mut local = vec![u32::MAX; mesh.vertex_count()];
     let mut parts = Vec::new();
     let mut part = MeshPart::default();
     if !part.has_room(max_vertices, max_indices) {
         return Some(parts);
     }
-    for triangle in mesh.indices.as_chunks::<3>().0 {
+    for triangle in mesh.indices().as_chunks::<3>().0 {
         if triangle
             .iter()
             .any(|vertex| local.get(*vertex as usize).is_none())
@@ -372,14 +511,14 @@ enum PartSource {
 impl PartSource {
     fn vertex_count(&self, mesh: &ShadedMesh) -> usize {
         match self {
-            Self::Whole => mesh.vertices.len(),
+            Self::Whole => mesh.vertex_count(),
             Self::Split(part) => part.vertices.len(),
         }
     }
 
     fn indices<'a>(&'a self, mesh: &'a ShadedMesh) -> &'a [u32] {
         match self {
-            Self::Whole => &mesh.indices,
+            Self::Whole => mesh.indices(),
             Self::Split(part) => &part.indices,
         }
     }
@@ -389,14 +528,12 @@ impl PartSource {
         mesh: &'a ShadedMesh,
         range: Range<usize>,
     ) -> impl Iterator<Item = [u8; MESH_VERTEX_BYTES]> + 'a {
-        let (whole, split): (&[GpuVertex], &[u32]) = match self {
-            Self::Whole => (mesh.vertices.get(range).unwrap_or_default(), &[]),
-            Self::Split(part) => (&[], part.vertices.get(range).unwrap_or_default()),
+        let (whole, split) = match self {
+            Self::Whole => (range, &[][..]),
+            Self::Split(part) => (0..0, part.vertices.get(range).unwrap_or_default()),
         };
-        let picked = split
-            .iter()
-            .filter_map(|vertex| mesh.vertices.get(*vertex as usize));
-        whole.iter().chain(picked).map(|vertex| {
+        let picked = split.iter().filter_map(|vertex| mesh.vertex(*vertex));
+        mesh.vertices_in(whole).chain(picked).map(|vertex| {
             gpu::record(|record| {
                 record
                     .vec3(vertex.position)
@@ -499,7 +636,7 @@ impl MeshUpload {
             Some(parts) => {
                 log::warn!(
                     "a mesh of {} vertices is drawn in {} parts, since the graphics device holds at most {buffer_limit} bytes in a buffer",
-                    mesh.vertices.len(),
+                    mesh.vertex_count(),
                     parts.len()
                 );
                 parts.into_iter().map(PartSource::Split).collect()
@@ -646,7 +783,7 @@ impl MeshPool {
         if let Some(error) = error {
             log::warn!(
                 "the graphics device refused a mesh of {} vertices, so it is not drawn: {error}",
-                mesh.vertices.len()
+                mesh.vertex_count()
             );
             return Parts::NewlyRefused;
         }
@@ -1157,7 +1294,7 @@ impl MeshCache {
                 Some(error) => {
                     log::warn!(
                         "the graphics device refused the styles of a mesh of {} vertices, so it is not drawn: {error}",
-                        instance.mesh.vertices.len()
+                        instance.mesh.vertex_count()
                     );
                     self.rejected.push(Arc::clone(&instance.mesh));
                     newly_rejected += 1;
@@ -1252,13 +1389,77 @@ mod tests {
         ]);
 
         assert_eq!(mesh.face_count(), 2);
-        assert_eq!(mesh.indices, vec![0, 1, 2, 5, 4, 3]);
+        assert_eq!(mesh.indices(), [0, 1, 2, 5, 4, 3]);
         assert_eq!(mesh.origin, Point3::new(5.0, 5.0, 2.0));
-        assert_eq!(mesh.vertices[4].position, Vec3::new(5.0, -5.0, 2.0));
-        assert_eq!(mesh.vertices[4].face, 1);
-        assert_eq!(mesh.vertices[4].normal, Vec3::Z);
+        assert_eq!(mesh.vertex(4).unwrap().position, Vec3::new(5.0, -5.0, 2.0));
+        assert_eq!(mesh.vertex(4).unwrap().face, 1);
+        assert_eq!(mesh.vertex(4).unwrap().normal, Vec3::Z);
         assert!(!mesh.is_empty());
         assert!(ShadedMesh::new([]).is_empty());
+    }
+
+    struct Listed {
+        points: Vec<MeshPoint>,
+        triangles: Vec<[u32; 3]>,
+    }
+
+    impl MeshSource for Listed {
+        fn triangles(&self) -> &[[u32; 3]] {
+            &self.triangles
+        }
+
+        fn point_count(&self) -> usize {
+            self.points.len()
+        }
+
+        fn point(&self, index: u32) -> Option<MeshPoint> {
+            self.points.get(index as usize).copied()
+        }
+    }
+
+    #[test]
+    fn a_shared_mesh_reads_its_faces_from_the_source_as_a_copied_one_holds_them() {
+        let lower = [point(0.0, 0.0, 0.0), point(10.0, 0.0, 0.0)];
+        let upper = [point(0.0, 10.0, 4.0), point(10.0, 10.0, 4.0)];
+        let bent = MeshPoint {
+            position: Point3::new(5.0, 5.0, 2.0),
+            normal: Vector3::X,
+        };
+        let points: Vec<MeshPoint> = lower.into_iter().chain([bent]).chain(upper).collect();
+        let source = |triangles: Vec<[u32; 3]>| {
+            Arc::new(Listed {
+                points: points.clone(),
+                triangles,
+            })
+        };
+        let copied = ShadedMesh::new([
+            MeshFace {
+                points: vec![lower[0], lower[1], bent],
+                triangles: vec![[0, 1, 2]],
+            },
+            MeshFace {
+                points: upper.to_vec(),
+                triangles: vec![[1, 0, 1]],
+            },
+        ]);
+
+        let shared = ShadedMesh::shared(source(vec![[0, 1, 2], [4, 3, 4]]), [1, 2]);
+        let crossing = ShadedMesh::shared(source(vec![[0, 1, 3], [4, 3, 2]]), [1, 2]);
+        let short = ShadedMesh::shared(source(vec![[0, 1, 2], [4, 3, 4]]), [1]);
+        let unused = ShadedMesh::shared(source(vec![[0, 1, 2], [3, 3, 3]]), [1, 2]);
+
+        let shared = shared.unwrap();
+        assert_eq!(shared, copied);
+        assert_eq!(shared.face_count(), 2);
+        assert_eq!(shared.curved_triangle_count(), 1);
+        assert_eq!(
+            shared.face_triangles().collect::<Vec<_>>(),
+            copied.face_triangles().collect::<Vec<_>>()
+        );
+        assert_eq!(shared.vertex(4).unwrap().face, 1);
+        assert!(crossing.is_none());
+        assert!(short.is_none());
+        assert!(unused.is_none());
     }
 
     #[test]
@@ -1409,7 +1610,7 @@ mod tests {
             .flat_map(|part| {
                 part.indices.as_chunks::<3>().0.iter().map(|triangle| {
                     triangle
-                        .map(|local| mesh.vertices[part.vertices[local as usize] as usize].position)
+                        .map(|local| mesh.vertex(part.vertices[local as usize]).unwrap().position)
                 })
             })
             .collect()
@@ -1422,11 +1623,11 @@ mod tests {
 
         let parts = split_into_parts(&mesh, limit).unwrap();
         let expected: Vec<[Vec3; 3]> = mesh
-            .indices
+            .indices()
             .as_chunks::<3>()
             .0
             .iter()
-            .map(|triangle| triangle.map(|index| mesh.vertices[index as usize].position))
+            .map(|triangle| triangle.map(|index| mesh.vertex(index).unwrap().position))
             .collect();
 
         assert!(parts.len() >= 6, "{}", parts.len());

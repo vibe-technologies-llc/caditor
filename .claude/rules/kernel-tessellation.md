@@ -64,15 +64,19 @@ paths:
   (`faces_meshed_on_many_threads_make_the_mesh_of_one_thread`); the point budget is checked as each
   is placed, against the positions placed before it.
 - A vertex is made only for a triangle that is kept, in the order triangles are emitted, so each
-  face's vertices and interior positions are contiguous in the mesh and in order of first use.
+  face's vertices and interior positions are contiguous in the mesh and in order of first use. The
+  app's `ShadedMesh` relies on it to read a body's mesh in place (`render.md`).
 - `Solid::display_mesh_reusing(quality, earlier)` returns a `DisplayMesh`: the mesh and, per face,
   a key (`reuse.rs`) of everything triangulating it reads: surface, sense, tolerance, pole
   density, and its boundary loops in uv with their position labels. A face whose name has a key
   in the earlier mesh equal in all of that (uv to the bit, labels equal in the same pattern) reads
   its patch back from the earlier mesh, labels mapped, instead of being triangulated, and the mesh
-  is the one meshing afresh gives. The tolerance follows the solid's extent, so a change to the
-  body's box meshes every face again. `display_mesh_costs` (ignored, release) times both: on 16
-  threads a 119-face plate takes 18 ms against 69 ms on one, and 6 ms when one face is added.
+  is the one meshing afresh gives. The display tolerance follows the solid's extent rounded to the
+  nearest power of two (`MeshQuality::display_tolerance`, within a factor √2 of the quality's
+  chord), so an edit that changes the body's box a little (a longer extrusion) keeps the tolerance
+  and every face it left alone (`a_lengthened_extrusion_reuses_the_mesh_of_the_faces_it_left_alone`);
+  one crossing a step meshes every face again. `display_mesh_costs` (ignored, release) times both:
+  on 16 threads a 119-face plate takes 18 ms against 69 ms on one, and 6 ms when one face is added.
 
 ## Quality
 
@@ -81,10 +85,10 @@ paths:
   `SamplingTolerance::for_extent` (validation, profiles, tests); `SMOOTH` is the default display
   quality. The angle bounds segments per turn whatever the radius; the relative chord takes over on
   radii large against the solid.
-- `Solid::display_mesh(quality)` meshes within `DISPLAY_POINTS`. Any failure but cancellation (over
-  the budget, a boundary still crossing after the retries) meshes again at the quality made at
-  least as coarse as `COARSE` (`MeshQuality::at_least`) within `MAX_POINTS`: a body is shown
-  coarser rather than not at all.
+- `Solid::display_mesh(quality)` meshes within `DISPLAY_POINTS` at the stepped display tolerance.
+  Any failure but cancellation (over the budget, a boundary still crossing after the retries)
+  meshes again at the quality made at least as coarse as `COARSE` (`MeshQuality::at_least`) within
+  `MAX_POINTS`: a body is shown coarser rather than not at all.
 - Export does not use it: it has its own `MeshResolution` (`file-import-export.md`).
 
 ## `Mesh`

@@ -85,12 +85,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   Shells whose volume and placement could be known without meshing, and lumps of a many-lump body
   that the tool does not reach (a union touching one of 300 separated blocks takes 18 ms), are not
   carried yet.
-- [medium · medium] Each display mesh is held twice on the CPU: the kernel `Mesh` (f64, with a
-  32-byte vertex) and the app's `ShadedMesh`. A display mesh also reuses no face once the body's
-  box changes (a longer extrusion), since the display tolerance follows the solid's extent and is
-  part of every face's key (`tessellation/reuse.rs`); a tolerance stepped by extent would let such
-  edits keep the faces they leave alone. The largest face bounds a mesh's time on many threads
-  (the 14 ms top of a plate with 113 holes, against 18 ms for the whole body).
+- [medium · medium] The largest face bounds a display mesh's time on many threads (the 14 ms top
+  of a plate with 113 holes, against 18 ms for the whole body), since a face is triangulated on
+  one thread. The app's `BodyEdge` polylines also still copy the kernel mesh's edge positions.
 - [medium · medium] Every intermediate solid is a deep copy: a `Pcurve` is a `Vec` of samples and
   B-spline curves own their data, so carried coedges clone their pcurves (`build/plan.rs`
   `PlanPcurve::Settled`, `boolean/faces.rs`), and the result history holds each feature's body in
