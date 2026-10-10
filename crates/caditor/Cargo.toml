@@ -37,6 +37,7 @@ wgpu.workspace = true
 winit.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+caditor-wayland.workspace = true
 signal-hook.workspace = true
 zbus.workspace = true
 

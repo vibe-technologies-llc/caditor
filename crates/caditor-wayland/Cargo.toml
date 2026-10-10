@@ -1,0 +1,27 @@
+[package]
+name = "caditor-wayland"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+disallowed_types = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+unwrap_used = "deny"
+
+[target.'cfg(unix)'.dependencies]
+log.workspace = true
+parking_lot.workspace = true
+raw-window-handle = { workspace = true, features = ["std"] }
+rustix = { workspace = true, features = ["event", "std", "system"] }
+thiserror.workspace = true
+wayland-client = { workspace = true, features = ["dlopen", "system"] }

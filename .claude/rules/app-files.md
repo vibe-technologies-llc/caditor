@@ -33,8 +33,8 @@ paths:
   through the XDG desktop portal over `zbus` (pure Rust, no `libdbus`) and falls back to `zenity`,
   `portal/windows.rs` through rfd, owned by the main window. On X11 the portal request names the
   main window as its parent (`x11:<id>`, `portal::own_dialogs` at startup) so the dialog stays
-  above it; on Wayland it passes none, since exporting an `xdg-foreign` handle needs the raw
-  Wayland connection, which only `unsafe` code could reach. A dialog that cannot be shown is a
+  above it; on Wayland it passes none, since that needs an `xdg-foreign` handle exported on winit's
+  connection, which `caditor-wayland` reaches (`wayland.md`) but does not export yet. A dialog that cannot be shown is a
   `DialogError` whose `notice` says what to install, never a silent Cancel.
 - While a native dialog is open (`Files::picking`, a ticket and its purpose) the window is blocked
   and the status bar says it is waiting, with Stop waiting (and Esc) abandoning the pick as a
@@ -77,8 +77,8 @@ paths:
   files are read at startup and each time the File menu opens; a missing one is drawn muted with
   "(not found)" and can still be opened. Opening a recent model that no longer exists forgets it
   and the notice says it was removed from the recent models.
-- Files dragged over the window (`drop_target.rs`, from egui's `hovered_files`, so only where the
-  platform reports them: X11 and Windows) outline the view and say in a card what dropping them
+- Files dragged over the window (`drop_target.rs`, from egui's `hovered_files`: winit reports them
+  on X11 and Windows, `file_drops.rs` on Wayland, `wayland.md`) outline the view and say in a card what dropping them
   does, mirroring `Files::dropped`: open one model, import drawings and STEP files (into the sketch
   being edited for a DXF or SVG drawing), or a warning naming why the drop would be refused.
   Hovered files are judged by extension only (`has_importable_extension`), never read on the UI

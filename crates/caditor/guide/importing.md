@@ -1,6 +1,8 @@
 # Importing
 
-{command:file.import} reads a drawing, a model or a mesh. You can also drop files onto the window.
+{command:file.import} reads a drawing, a model or a mesh. You can also drop files onto the window,
+from any file manager on Wayland, X11 or Windows: while they are over it, a card says what dropping
+them will do.
 
 ## Drawings: DXF and SVG
 

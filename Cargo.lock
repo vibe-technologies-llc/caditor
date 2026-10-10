@@ -612,6 +612,7 @@ dependencies = [
  "caditor-kernel",
  "caditor-render",
  "caditor-sketch",
+ "caditor-wayland",
  "caditor-windows",
  "dunce",
  "egui",
@@ -732,6 +733,18 @@ dependencies = [
  "caditor-kernel",
  "log",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "caditor-wayland"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "parking_lot",
+ "raw-window-handle",
+ "rustix 1.1.5",
+ "thiserror 2.0.21",
+ "wayland-client",
 ]
 
 [[package]]
