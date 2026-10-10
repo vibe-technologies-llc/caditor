@@ -162,15 +162,13 @@ impl Blend {
     }
 
     pub fn expressions(&self) -> impl Iterator<Item = &Expression> {
-        std::iter::once(&self.size).chain(self.chamfer_form().expression())
+        std::iter::once(&self.size).chain(self.form.expression())
     }
 
     pub fn expressions_mut(&mut self) -> Vec<&mut Expression> {
-        let form = match self.kind {
-            BlendKind::Fillet => None,
-            BlendKind::Chamfer => self.form.expression_mut(),
-        };
-        std::iter::once(&mut self.size).chain(form).collect()
+        std::iter::once(&mut self.size)
+            .chain(self.form.expression_mut())
+            .collect()
     }
 
     pub fn heap_size(&self) -> usize {

@@ -441,7 +441,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `flipped` swapping which face of each edge the first distance is measured on (the kernel's
   choice: the face more chosen edges share). A fillet ignores both but keeps them, so switching
   back restores the chamfer; the extra expression counts among the feature's expressions
-  (`Blend::expressions`, parameters, inlining) and a second distance scales with the model.
+  whatever the kind (`Blend::expressions`, `parameters`, `uses_parameter`, inlining, pasting), so
+  a parameter only a fillet's kept form reads cannot be deleted, while recompute evaluates only
+  what the kind needs (`chamfer_form`); a second distance scales with the model.
 - Besides its `edges`, a blend holds `groups` (`EdgeGroup`): a face (`FaceReference`, pieces of
   one split face accepted) or the whole body, each expanded on every recompute to the edges it
   has then (`GroupResolution::edges`: the face's boundary edges, or every edge of the body, seams

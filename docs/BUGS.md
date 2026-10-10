@@ -86,12 +86,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · easy] A fillet hides the chamfer form it keeps from parameter uses: `Blend::expressions`,
-  `expressions_mut`, `parameters` and `uses_parameter` go through `chamfer_form`, which is `Equal`
-  for a fillet, so a chamfer by two distances using `d2`, switched to a fillet, lets `d2` be
-  deleted (and inlining and pasting miss it), after which switching back fails as
-  `MissingParameter`; a pasted fillet keeps the source model's raw id. `document.md` says the extra
-  expression counts among the feature's; make the four read `form` whatever the kind.
 - [medium · medium] Configuration cells are not uses of a parameter: neither `used_parameters`
   nor `remove_parameter` reads them, and `inline_parameter` rewrites the live model only, so a
   parameter named only in an inactive configuration, or inlined out of the live model while a cell

@@ -1036,6 +1036,132 @@ fn a_chamfer_takes_two_distances_or_a_distance_and_an_angle() {
     assert!(error.remedy.contains("flip the chamfer"));
 }
 
+struct Kept {
+    model: Model,
+    second: caditor_expression::ParameterId,
+}
+
+fn fillet_keeping_a_second_distance() -> Kept {
+    let mut model = model();
+    let value = model.document.parse("2 mm").unwrap();
+    let mut transaction = model.document.transaction("Second distance");
+    let second = transaction.add_parameter("d2", value);
+    model.document.apply(transaction.finish()).unwrap();
+
+    let FeatureKind::Blend(mut definition) =
+        model.document.feature(model.fillet).unwrap().kind.clone()
+    else {
+        panic!("the fillet should be a blend");
+    };
+    definition.edges = Vec::new();
+    definition.groups = vec![EdgeGroup::Body];
+    definition.form = ChamferForm::TwoDistances {
+        second: Expression::Parameter(second),
+    };
+    model
+        .document
+        .apply(Transaction::single(
+            "Keep",
+            Edit::SetFeatureKind {
+                id: model.fillet,
+                kind: FeatureKind::Blend(definition),
+            },
+        ))
+        .unwrap();
+    Kept { model, second }
+}
+
+#[test]
+fn a_fillet_keeps_the_parameters_of_the_chamfer_form_it_hides() {
+    let Kept { mut model, second } = fillet_keeping_a_second_distance();
+    let definition = model.document.feature(model.fillet).unwrap();
+    assert_eq!(definition.kind.blend().unwrap().kind, BlendKind::Fillet);
+
+    assert!(definition.kind.uses_parameter(second));
+    assert!(definition.kind.parameters().contains(&second));
+    assert!(model.document.used_parameters().contains(&second));
+    assert!(feature_parameters(definition).contains(&second));
+
+    let removal = model.document.apply(Transaction::single(
+        "Delete",
+        Edit::RemoveParameter { id: second },
+    ));
+    assert!(
+        matches!(removal, Err(EditError::ParameterInUse { .. })),
+        "{removal:?}"
+    );
+
+    let evaluation = evaluate(&model.document, &mut model.engine);
+    assert_eq!(evaluation.failed_count(), 0);
+}
+
+#[test]
+fn inlining_a_parameter_rewrites_the_chamfer_form_a_fillet_keeps() {
+    let Kept { mut model, second } = fillet_keeping_a_second_distance();
+
+    let inlining = model.document.inline_parameter(second).unwrap();
+    model.document.apply(inlining).unwrap();
+
+    let definition = model.document.feature(model.fillet).unwrap();
+    let blend = definition.kind.blend().unwrap();
+    assert!(!definition.kind.uses_parameter(second));
+    assert!(model.document.parameter(second).is_none());
+    assert_eq!(blend.kind, BlendKind::Fillet);
+    let ChamferForm::TwoDistances { second: kept } = &blend.form else {
+        panic!("the form should be kept");
+    };
+    assert!(kept.parameters().is_empty());
+    assert_eq!(
+        evaluate(&model.document, &mut model.engine).failed_count(),
+        0
+    );
+}
+
+#[test]
+fn a_pasted_fillet_takes_the_parameters_of_the_chamfer_form_it_keeps() {
+    let Kept { model, second } = fillet_keeping_a_second_distance();
+    let sketch = model
+        .document
+        .feature(model.base)
+        .unwrap()
+        .kind
+        .dependencies();
+    let features: Vec<Feature> = sketch
+        .into_iter()
+        .chain([model.base, model.fillet])
+        .map(|id| model.document.feature(id).unwrap().clone())
+        .collect();
+    let values = ParameterValues::evaluate(&model.document);
+    let carried = CarriedParameters::of(
+        &model.document,
+        &values,
+        features.iter().flat_map(feature_parameters),
+    );
+
+    let mut target = Document::default();
+    let paste = target
+        .paste_features(&features, &carried, PasteOrigin::Elsewhere)
+        .unwrap();
+    assert!(paste.left_out.is_empty());
+    target.apply(paste.transaction).unwrap();
+    let pasted = target.feature(paste.pasted[2]).unwrap();
+    assert!(pasted.kind.parameters().is_empty());
+    assert!(!pasted.kind.uses_parameter(second));
+
+    let mut named = Document::default();
+    let value = named.parse("9 mm").unwrap();
+    let mut transaction = named.transaction("Own");
+    let own = transaction.add_parameter("d2", value);
+    named.apply(transaction.finish()).unwrap();
+    let paste = named
+        .paste_features(&features, &carried, PasteOrigin::Elsewhere)
+        .unwrap();
+    named.apply(paste.transaction).unwrap();
+    let pasted = named.feature(paste.pasted[2]).unwrap();
+    assert!(pasted.kind.uses_parameter(own));
+    assert!(!pasted.kind.uses_parameter(second));
+}
+
 #[test]
 #[ignore = "roadmap: a filleted edge split by a later sketch edit keeps only one piece"]
 fn a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded() {
