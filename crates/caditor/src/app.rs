@@ -1376,7 +1376,7 @@ impl ApplicationHandler<AppEvent> for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(session) = &mut self.session {
             let now = Instant::now();
-            session.check_pick(now);
+            session.check_pick_fallback(now);
             session.redraw_when_due(now);
         }
         let flow = self
@@ -1386,7 +1386,7 @@ impl ApplicationHandler<AppEvent> for App {
                 [
                     session.next_repaint,
                     session.layout_deadline(),
-                    session.pick_check,
+                    session.pick_fallback_at,
                 ]
                 .into_iter()
                 .flatten()
@@ -1618,7 +1618,7 @@ struct Session {
     layout_seen: Layout,
     layout_stored: Layout,
     layout_changed_at: Option<Instant>,
-    pick_check: Option<Instant>,
+    pick_fallback_at: Option<Instant>,
 }
 
 impl Session {
@@ -1668,7 +1668,7 @@ impl Session {
             layout_seen: layout,
             layout_stored: layout,
             layout_changed_at: None,
-            pick_check: None,
+            pick_fallback_at: None,
         })
     }
 
@@ -1718,15 +1718,15 @@ impl Session {
         self.next_repaint = Some(self.next_repaint.map_or(at, |scheduled| scheduled.min(at)));
     }
 
-    fn check_pick(&mut self, now: Instant) {
-        if self.pick_check.is_none_or(|at| at > now) {
+    fn check_pick_fallback(&mut self, now: Instant) {
+        if self.pick_fallback_at.is_none_or(|at| at > now) {
             return;
         }
         if self.renderer.is_pick_answered() {
-            self.pick_check = None;
+            self.pick_fallback_at = None;
             self.request_redraw();
         } else {
-            self.pick_check = now.checked_add(PICK_FALLBACK);
+            self.pick_fallback_at = now.checked_add(PICK_FALLBACK);
         }
     }
 
@@ -1944,7 +1944,7 @@ impl Session {
 
         let repaint_now = changed || repaint_after.is_some_and(|delay| delay.is_zero());
         let drawn = wait.is_none();
-        self.pick_check = (drawn && self.renderer.is_pick_pending())
+        self.pick_fallback_at = (drawn && self.renderer.is_pick_pending())
             .then(|| now.checked_add(PICK_FALLBACK))
             .flatten();
         self.next_repaint = None;
