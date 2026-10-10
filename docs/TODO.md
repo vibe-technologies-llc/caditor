@@ -414,9 +414,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Checks and CI
 
-- [low · medium] The start check (`packaging/check-run.sh`) runs the packaged program on Vulkan
-  only, never with `WGPU_BACKEND=gl`, and recovers an untitled document, not an opened model's
-  adjacent journal, and stops at the recovery offer without pressing Restore.
 - [low · medium] Slow tests to keep an eye on: with egui's font stack built optimised in the dev
   profile (`dependencies.md`) the 647 UI tests take about 200 s on one thread (0.3 s each on
   average), and 10 take over a second: `icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers`

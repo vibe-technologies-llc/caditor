@@ -38,10 +38,16 @@ paths:
   files and the menu entry it runs `check-binary.sh` (the program's `NEEDED` libraries are glibc
   and `libgcc_s` only, `ldd` resolves them all, and the highest `GLIBC_` symbol is at most 2.35,
   `CADITOR_MAX_GLIBC` to preview on a newer system) and `check-run.sh`: the installed program
-  starts under Xvfb on lavapipe (`VK_ICD_FILENAMES`, `WGPU_BACKEND=vulkan`) with a state directory
-  of its own and `CADITOR_STARTUP_CHECK=1`, logs its first frame and its journalled edit
-  (`app.md`), is killed with SIGKILL, leaves a journal, and a second start logs the recovery offer
-  with the change. Both scripts also run on their own: without `CADITOR_REQUIRE_DISPLAY`,
+  starts under Xvfb, first on lavapipe (`VK_ICD_FILENAMES`, `WGPU_BACKEND=vulkan`) and then on
+  llvmpipe (`WGPU_BACKEND=gl`, `LIBGL_ALWAYS_SOFTWARE=1`; a `WGPU_BACKEND` in the environment
+  limits it to that one), and on each runs two checks with a state directory of their own. With
+  `CADITOR_STARTUP_CHECK=1` it logs its first frame and its journalled edit (`app.md`), is killed
+  with SIGKILL and leaves a journal; started again with `CADITOR_STARTUP_CHECK=restore` it logs
+  the recovery offer and that the restored document holds the edit. The first check does this
+  with an untitled document (the journal under the state directory), the second first has the
+  program save a model (`CADITOR_STARTUP_CHECK=save:<path>`) and then opens it, checking that the
+  journal sits beside the model as `.model.caditor.journal` and that the restore lands in
+  `model.caditor`. Both scripts also run on their own: without `CADITOR_REQUIRE_DISPLAY`,
   `check-install.sh` skips the start when Xvfb is missing.
 - The `stress` job runs only nightly and on demand (`schedule`, `workflow_dispatch`): the ignored
   kernel and sketch stress tests and the large STEP import benchmark (`app-tests.md`) in release. `random_placements_of_every_fixture` asserts that every

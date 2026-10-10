@@ -968,6 +968,15 @@ impl Files {
         !self.recoverable.is_empty()
     }
 
+    pub fn first_recoverable(&self) -> Option<(PathBuf, usize)> {
+        self.recoverable.first().map(|candidate| {
+            (
+                candidate.recovered.journal.clone(),
+                candidate.recovered.changes(),
+            )
+        })
+    }
+
     fn showing_recovery(&self) -> bool {
         self.recovery_open && !self.recoverable.is_empty()
     }
