@@ -242,4 +242,4 @@ paths:
   `faceted_solids` makes, with a note per body; otherwise the exact refusal stands. Like a mesh
   import it skips `find_crossing`, since `faceted_solids` already leaves out self-folding shells.
 - Faceted bodies lose their curved faces (no fillets on them, no exact measures). Bending covers
-  only part of such files yet; the rest is the roadmap item in `docs/TODO.md`.
+  only part of such files yet; the rest is the bent-faces entry in `docs/BUGS.md`.

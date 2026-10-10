@@ -73,9 +73,12 @@ scripts; `docs/RELEASING.md` explains the choices and the steps.
 
 ## Roadmap
 
-`docs/TODO.md` holds the roadmap and open design decisions; check it before starting new work. It
-lists only what remains: the change that implements an item deletes it, and a resolved decision is
-removed once recorded in the rules file covering it.
+`docs/ROADMAP.md` is the index of what remains and how it is kept; the entries live beside it by
+kind: `FEATURES.md` (missing capability), `BUGS.md` (wrong results and refusals), `PERFORMANCE.md`,
+`PLATFORMS.md`, `CHECKS.md` and `DECISIONS.md` (open decisions). Check them before starting new
+work. They list only what remains: the change that implements an entry deletes it from its file,
+a new finding goes into the file of its kind, and a resolved decision is removed once recorded in
+the rules file covering it.
 
 ## Rules
 
