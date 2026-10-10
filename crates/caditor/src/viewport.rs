@@ -5329,9 +5329,20 @@ mod tests {
         model: &Model,
         feature: FeatureId,
     ) {
+        annotated_with(state, context, model, feature, Vec::new());
+    }
+
+    fn annotated_with(
+        state: &mut ViewportState,
+        context: &egui::Context,
+        model: &Model,
+        feature: FeatureId,
+        events: Vec<egui::Event>,
+    ) {
         let rect = state.rect.unwrap();
         let input = egui::RawInput {
             screen_rect: Some(rect),
+            events,
             ..egui::RawInput::default()
         };
         let editing = SketchEditing::editing(feature);
@@ -5402,7 +5413,7 @@ mod tests {
         let mut lines = Vec::new();
         for index in 0..400 {
             let at = Point2::new(f64::from(index % 20), f64::from(index / 20));
-            lines.push(sketch.add_line(at, at + Vector2::new(0.6, 0.2)));
+            lines.push(sketch.add_line(at, at + Vector2::new(4.0, 0.2)));
         }
         for [first, second] in lines.as_chunks::<2>().0 {
             sketch
@@ -5421,7 +5432,7 @@ mod tests {
                         from: start,
                         to: end,
                         value: caditor_expression::Expression::Measure(
-                            0.6,
+                            4.0,
                             caditor_expression::Unit::Millimetre,
                         ),
                     })
@@ -5495,6 +5506,86 @@ mod tests {
                 .any(|(anchor, _)| *anchor == left_out)
         );
         assert!(state.annotations.laid_out().contains(&unlabelled));
+    }
+
+    #[test]
+    fn dimensions_a_few_points_across_collapse_to_findable_markers_unless_zero_length_or_chosen() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let mut distance = |from: Point2, to: Point2| {
+            let length = from.distance(to);
+            let from = sketch.add_point(from);
+            let to = sketch.add_point(to);
+            sketch
+                .add_constraint(caditor_sketch::Constraint::Distance {
+                    from,
+                    to,
+                    value: caditor_expression::Expression::Measure(
+                        length,
+                        caditor_expression::Unit::Millimetre,
+                    ),
+                })
+                .unwrap()
+        };
+        let tiny = distance(Point2::ZERO, Point2::new(0.1, 0.0));
+        let long = distance(Point2::new(0.0, 10.0), Point2::new(20.0, 10.0));
+        let zero = distance(Point2::new(10.0, -10.0), Point2::new(10.0, -10.0));
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Sketch", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let mut model = model_of(document);
+        settle(&mut model);
+        let context = egui::Context::default();
+        let mut state = state_with_cursor();
+        state.camera = Camera::new(Viewpoint::facing(
+            &Plane::XY,
+            Point3::new(10.0, 0.0, 0.0),
+            100.0,
+        ));
+        let tiny_pickable = Pickable::SketchConstraint {
+            feature,
+            constraint: tiny,
+        };
+
+        annotated(&mut state, &context, &model, feature);
+        let collapsed = state.annotations.collapsed();
+        let laid_out = state.annotations.laid_out();
+
+        assert_eq!(
+            collapsed.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            vec![tiny]
+        );
+        assert!(laid_out.contains(&long) && laid_out.contains(&zero));
+        assert!(!laid_out.contains(&tiny));
+
+        let (_, centre) = collapsed[0];
+        let marker = state.rect.unwrap().min + vec2(centre.x as f32, centre.y as f32);
+        for _ in 0..3 {
+            annotated_with(
+                &mut state,
+                &context,
+                &model,
+                feature,
+                vec![egui::Event::PointerMoved(marker)],
+            );
+        }
+
+        assert_eq!(state.annotations.hovered(), Some(tiny_pickable));
+
+        state.selection.replace_with(tiny_pickable);
+        annotated(&mut state, &context, &model, feature);
+
+        assert!(state.annotations.laid_out().contains(&tiny));
+        assert!(state.annotations.collapsed().is_empty());
+
+        state.selection.replace_with(Pickable::SketchConstraint {
+            feature,
+            constraint: long,
+        });
+        state.keyboard_highlight = Some(tiny_pickable);
+        annotated(&mut state, &context, &model, feature);
+
+        assert!(state.annotations.laid_out().contains(&tiny));
     }
 }
 

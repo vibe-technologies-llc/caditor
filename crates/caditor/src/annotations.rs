@@ -68,6 +68,10 @@ pub const FRAME_WIDTH: f32 = 2.0;
 const FRAME_DASH: f32 = 4.0;
 const FRAME_DASH_GAP: f32 = 3.0;
 const POINTER_REACH: f32 = 64.0;
+const COLLAPSED_RADIUS: f32 = 2.0;
+const COLLAPSED_HIT_SIZE: f32 = 10.0;
+const COLLAPSED_SPACING: f64 = 8.0;
+const MAX_MEASURED_TEXTS: usize = 1 << 16;
 const EDIT_HINT: &str = "Double-click to change it, or drag its label to move it.";
 pub const MOVE_LABEL_TRANSACTION: &str = "Move dimension label";
 const NO_LABEL_TO_MOVE: &str = "Select one dimension alone to move its label";
@@ -85,6 +89,10 @@ enum Standing {
 }
 
 impl Standing {
+    fn collapsible(self) -> bool {
+        matches!(self, Self::Normal | Self::Inactive)
+    }
+
     fn frame(self) -> Option<Frame> {
         match self {
             Self::Conflicting => Some(Frame::Solid),
@@ -108,6 +116,13 @@ struct DimensionMark {
     text: String,
     standing: Standing,
     label: Option<Rect>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CollapsedMark {
+    constraint: ConstraintId,
+    center: Vector2,
+    standing: Standing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -215,14 +230,31 @@ struct TextsKey {
     units: Units,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct SizesKey {
+    pixels_per_point: f32,
+    fonts: usize,
+}
+
+impl SizesKey {
+    fn of(painter: &egui::Painter) -> Self {
+        Self {
+            pixels_per_point: painter.pixels_per_point(),
+            fonts: painter.fonts(|fonts| fonts.definitions().font_data.len()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct LabelTexts {
     key: Option<TextsKey>,
     texts: BTreeMap<ConstraintId, String>,
+    sizes_key: Option<SizesKey>,
+    sizes: BTreeMap<String, egui::Vec2>,
 }
 
 impl LabelTexts {
-    fn refresh(&mut self, model: &Model, feature: FeatureId) {
+    fn refresh(&mut self, painter: &egui::Painter, model: &Model, feature: FeatureId) {
         let key = TextsKey {
             feature,
             revision: model.revision(),
@@ -234,20 +266,37 @@ impl LabelTexts {
             self.key = Some(key);
             self.texts.clear();
         }
+        let sizes_key = SizesKey::of(painter);
+        if self.sizes_key != Some(sizes_key) || self.sizes.len() >= MAX_MEASURED_TEXTS {
+            self.sizes_key = Some(sizes_key);
+            self.sizes.clear();
+        }
     }
 
-    fn text(
+    fn label(
         &mut self,
+        painter: &egui::Painter,
         model: &Model,
         shown: &Sketch,
         id: ConstraintId,
         constraint: &Constraint,
         expression: &Expression,
-    ) -> String {
-        self.texts
+    ) -> (&str, egui::Vec2) {
+        let text = self
+            .texts
             .entry(id)
-            .or_insert_with(|| label_text(model, shown, id, constraint, expression))
-            .clone()
+            .or_insert_with(|| label_text(model, shown, id, constraint, expression));
+        let size = match self.sizes.get(text.as_str()) {
+            Some(size) => *size,
+            None => {
+                let size = painter
+                    .layout_no_wrap(text.clone(), canvas::body(), Color32::PLACEHOLDER)
+                    .size();
+                self.sizes.insert(text.clone(), size);
+                size
+            }
+        };
+        (text.as_str(), size)
     }
 }
 
@@ -408,6 +457,7 @@ impl ViewKey {
 struct Marks {
     key: ViewKey,
     dimensions: Vec<DimensionMark>,
+    collapsed: Vec<CollapsedMark>,
     glyphs: Vec<GlyphMark>,
     open_ends: Vec<Vector2>,
     beyond: Vec<[Vector2; 2]>,
@@ -439,6 +489,7 @@ impl Marks {
             );
         let mut labels = annotation_layout::obstacles();
         let mut dimensions = Vec::new();
+        let mut collapsed = Vec::new();
         for (dimension, thinning) in ordered {
             let id = dimension.constraint;
             let offset = match key.dragged {
@@ -449,38 +500,54 @@ impl Marks {
                 .frame
                 .zip(offset)
                 .map(|(frame, offset)| (frame, frame.place(offset)));
-            let wanted = thinning == Thinning::Never
-                || dimension
-                    .reach
-                    .is_none_or(|reach| reach.near_view(placed, dimension.lane, screen, view));
-            if !wanted {
+            let crowding = thinning == Thinning::WhenCrowded;
+            let on_screen = dimension
+                .reach
+                .filter(|_| crowding)
+                .and_then(|reach| reach.on_screen(placed, screen));
+            if let Some(on_screen) = on_screen {
+                if !on_screen.near_view(dimension.lane, view) {
+                    continue;
+                }
+                if on_screen.collapses() && dimension.standing.collapsible() {
+                    collapsed.push(CollapsedMark {
+                        constraint: id,
+                        center: on_screen.centre(),
+                        standing: dimension.standing,
+                    });
+                    continue;
+                }
+            }
+            let constraint = definition.constraint(id);
+            let expression = constraint.and_then(Constraint::dimension);
+            let (Some(constraint), Some(expression)) = (constraint, expression) else {
+                continue;
+            };
+            let (text, size) = texts.label(painter, model, shown, id, constraint, expression);
+            let editing = key.editing == Some(id);
+            if !editing
+                && let Some(on_screen) = on_screen
+                && annotation_layout::crowded(
+                    &labels,
+                    &on_screen
+                        .label_neighbourhood(dimension.lane, to_vector(canvas::chip_size(size))),
+                )
+            {
                 continue;
             }
-            let layout = annotation_layout::layout(
+            let Some(layout) = annotation_layout::layout(
                 &dimension.measured,
                 screen,
                 measures.centre,
                 dimension.lane,
                 placed.map(|(_, at)| at),
-            );
-            let constraint = definition.constraint(id);
-            let expression = constraint.and_then(Constraint::dimension);
-            let (Some(layout), Some(constraint), Some(expression)) =
-                (layout, constraint, expression)
-            else {
+            ) else {
                 continue;
             };
-            let text = texts.text(model, shown, id, constraint, expression);
-            let label = (key.editing != Some(id)).then(|| {
-                let galley =
-                    painter.layout_no_wrap(text.clone(), canvas::body(), Color32::PLACEHOLDER);
-                label_rect(key.rect, &layout, galley.size())
-            });
+            let label = (!editing).then(|| label_rect(key.rect, &layout, size));
             if let Some(rect) = label {
                 let taken = footprint(key.rect, rect);
-                if thinning == Thinning::WhenCrowded
-                    && annotation_layout::mostly_covered(&labels, &taken)
-                {
+                if crowding && annotation_layout::mostly_covered(&labels, &taken) {
                     continue;
                 }
                 labels.add(taken);
@@ -489,7 +556,7 @@ impl Marks {
                 constraint: id,
                 layout,
                 frame: dimension.frame,
-                text,
+                text: text.to_owned(),
                 standing: dimension.standing,
                 label,
             });
@@ -506,6 +573,12 @@ impl Marks {
             Vec::new()
         };
         let in_view = |at: &Vector2| at.x >= 0.0 && at.y >= 0.0 && at.x <= view.x && at.y <= view.y;
+        let mut spaced = BTreeSet::new();
+        collapsed.retain(|mark: &CollapsedMark| {
+            let cell = (mark.center / COLLAPSED_SPACING).floor();
+            in_view(&mark.center) && spaced.insert((cell.x as i64, cell.y as i64))
+        });
+        collapsed.sort_by_key(|mark| mark.constraint);
         let open_ends = merged(
             measures
                 .open_ends
@@ -524,6 +597,7 @@ impl Marks {
         Self {
             key,
             dimensions,
+            collapsed,
             glyphs,
             open_ends,
             beyond,
@@ -569,9 +643,15 @@ fn place_glyphs(
         );
     let mut glyphs = Vec::new();
     for (group, thinning) in ordered {
-        let Some(place) = annotation_layout::glyph_anchor(shown, group.anchor, &key.screen)
-            .and_then(|anchor| annotation_layout::within_view(anchor, view))
-        else {
+        let Some(anchor) = annotation_layout::glyph_anchor(shown, group.anchor, &key.screen) else {
+            continue;
+        };
+        let collapsible = thinning == Thinning::WhenCrowded
+            && group.items.iter().all(|item| item.standing.collapsible());
+        if collapsible && annotation_layout::collapses(anchor) {
+            continue;
+        }
+        let Some(place) = annotation_layout::within_view(anchor, view) else {
             continue;
         };
         let (stacked, hidden) = if group.items.len() > MAX_STACKED {
@@ -860,6 +940,15 @@ impl Annotations {
     }
 
     #[cfg(test)]
+    pub fn collapsed(&self) -> Vec<(ConstraintId, Vector2)> {
+        self.marks
+            .iter()
+            .flat_map(|marks| &marks.collapsed)
+            .map(|mark| (mark.constraint, mark.center))
+            .collect()
+    }
+
+    #[cfg(test)]
     pub fn glyph_centres(&self) -> Vec<(EntityId, Vector2)> {
         self.marks
             .iter()
@@ -935,7 +1024,7 @@ impl Annotations {
         let owner = model.document().feature(surface.feature)?;
         let definition = owner.kind.sketch()?;
         let shown = model.displayed_sketch(owner)?;
-        self.texts.refresh(model, surface.feature);
+        self.texts.refresh(painter, model, surface.feature);
         let sketch = SketchKey::of(model, surface.feature, dragged.map(|(id, _)| id));
         let measures = match self.measures.take() {
             Some(measures) if measures.key == sketch => measures,
@@ -1032,6 +1121,16 @@ impl Annotations {
                     }),
                 })
             })
+            .chain(marks.collapsed.iter().map(|mark| Placed {
+                pickable: pickable(mark.constraint),
+                hit: Rect::from_center_size(
+                    to_pos(surface.rect, mark.center),
+                    egui::Vec2::splat(COLLAPSED_HIT_SIZE),
+                ),
+                key: (mark.constraint, None),
+                hover: Hover::Dimension(mark.constraint),
+                label: None,
+            }))
             .chain(marks.glyphs.iter().map(|mark| Placed {
                 pickable: pickable(mark.constraint),
                 hit: Rect::from_center_size(
@@ -1086,6 +1185,13 @@ impl Annotations {
                 .then(|| standing.frame())
                 .flatten()
         };
+        for mark in &marks.collapsed {
+            painter.circle_filled(
+                to_pos(surface.rect, mark.center),
+                COLLAPSED_RADIUS,
+                color(mark.constraint, mark.standing),
+            );
+        }
         for (mark, label) in marks.dimensions.iter().zip(labels) {
             let tint = color(mark.constraint, mark.standing);
             let frame = framed(mark.standing).zip(label.as_ref().map(|(_, rect)| *rect));
@@ -1341,6 +1447,10 @@ fn to_pos(rect: Rect, point: Vector2) -> Pos2 {
 
 fn to_vec(vector: Vector2) -> egui::Vec2 {
     vec2(vector.x as f32, vector.y as f32)
+}
+
+fn to_vector(size: egui::Vec2) -> Vector2 {
+    Vector2::new(f64::from(size.x), f64::from(size.y))
 }
 
 fn footprint(surface: Rect, rect: Rect) -> Footprint {

@@ -28,6 +28,11 @@ Double-click its label to edit the value; drag the label to move it. Typing `nam
 the value as a [parameter](parameters) that other values can use. The sketch's card in the
 [feature tree](feature-tree) lists every dimension too.
 
+Zoomed far out, a dimension of something only a few pixels across shrinks to a small dot on it;
+hover the dot to read the dimension, click it to select it and show its label, or double-click it
+to edit the value. A dimension that measures nothing (two points in one place), a selected or
+highlighted one and one in conflict always keep their label.
+
 ## Reference dimensions
 
 A dimension added to geometry that is already fully held only shows the measured size, in
