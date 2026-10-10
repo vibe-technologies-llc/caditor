@@ -203,7 +203,14 @@ paths:
 - `SaveOptions::unless_changed_from` (the head digest the session loaded or last saved) makes a
   save refuse with `SaveError::ChangedOnDisk` when the file it replaces, being the one its
   versions are read from, now has another head, leaving it as it was. Replacing anyway makes the
-  outside head the newest version.
+  outside head the newest version. Since encoding can take seconds, a guarded save checks again
+  before making a backup and in the read-back just before the rename (`Previous::ensure_still_at`):
+  the file read must still be the target (`FileKey`, which catches a rename-replace that leaves the
+  read handle's stamp alone, on Windows too) with its `ChangeStamp` unchanged, and a target that
+  was absent must still be; a hard-linked backup changes the ctime, so the stamp of a file
+  untouched until then is taken again after it. `set_version_kept` makes the same read-back
+  check, guarded or not. What remains is the instant between that check and the rename, which no
+  portable rename can close.
 - A save refuses when the earlier versions in the file it replaces cannot be read, and when the
   file is read-only (since `rename` would replace it anyway); the notice offers Save As.
 - Before the rename, a model save reads the synced temporary back and checks that it parses

@@ -809,6 +809,74 @@ fn a_save_over_a_file_changed_since_it_was_opened_is_refused_unless_replacing() 
     assert_eq!(kept.document, sample());
 }
 
+fn replace_from_outside(path: &Path, contents: &[u8]) {
+    let synced = path.with_extension("synced");
+    fs::write(&synced, contents).unwrap();
+    fs::rename(&synced, path).unwrap();
+}
+
+#[test]
+fn a_save_refuses_a_file_another_program_replaced_or_rewrote_while_it_encoded() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let opened = save(&Document::default(), &path, false).unwrap().digest;
+    let renamed_over = save::encode(&sample()).unwrap();
+    let options = SaveOptions {
+        history_from: Some(&path),
+        unless_changed_from: Some(&opened),
+        ..SaveOptions::default()
+    };
+
+    let refused = save::save_interleaved(&Document::default(), &path, &options, || {
+        replace_from_outside(&path, &renamed_over)
+    });
+
+    assert_eq!(refused, Err(SaveError::ChangedOnDisk));
+    assert_eq!(fs::read(&path).unwrap(), renamed_over);
+    assert_eq!(files_in(dir.path()), ["model.caditor"]);
+
+    let current = load(&path).unwrap().digest.unwrap();
+    let rewritten = save::encode(&Document::default()).unwrap();
+    let options = SaveOptions {
+        unless_changed_from: Some(&current),
+        ..options
+    };
+
+    let refused = save::save_interleaved(&sample(), &path, &options, || {
+        fs::write(&path, &rewritten).unwrap()
+    });
+
+    assert_eq!(refused, Err(SaveError::ChangedOnDisk));
+    assert_eq!(fs::read(&path).unwrap(), rewritten);
+    assert_eq!(files_in(dir.path()), ["model.caditor"]);
+
+    let current = load(&path).unwrap().digest.unwrap();
+    let options = SaveOptions {
+        keep_original: true,
+        unless_changed_from: Some(&current),
+        ..options
+    };
+
+    let refused = save::save_interleaved(&sample(), &path, &options, || {
+        replace_from_outside(&path, &renamed_over)
+    });
+
+    assert_eq!(refused, Err(SaveError::ChangedOnDisk));
+    assert_eq!(fs::read(&path).unwrap(), renamed_over);
+    assert_eq!(files_in(dir.path()), ["model.caditor"]);
+
+    let current = load(&path).unwrap().digest.unwrap();
+    let options = SaveOptions {
+        unless_changed_from: Some(&current),
+        ..options
+    };
+
+    let saved = save::save_interleaved(&Document::default(), &path, &options, || {}).unwrap();
+
+    assert_eq!(load(&path).unwrap().document, Document::default());
+    assert_eq!(fs::read(saved.backup.unwrap()).unwrap(), renamed_over);
+}
+
 #[test]
 fn the_storage_worker_reports_an_outside_change_and_replaces_it_when_asked() {
     let dir = TempDir::new().unwrap();
@@ -8341,6 +8409,22 @@ fn a_kept_version_is_stored_in_the_file_and_stays_through_later_saves() {
             .iter()
             .all(|version| !version.kept)
     );
+}
+
+#[test]
+fn keeping_a_version_refuses_a_file_another_program_replaced_while_it_was_rewritten() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    let head = saved_twice(&path);
+    let renamed_over = save::encode(&sample()).unwrap();
+
+    let refused = save::keep_version_interleaved(&path, 0, true, Some(&head), || {
+        replace_from_outside(&path, &renamed_over)
+    });
+
+    assert_eq!(refused, Err(KeepVersionError::ChangedOnDisk));
+    assert_eq!(fs::read(&path).unwrap(), renamed_over);
+    assert_eq!(files_in(dir.path()), ["model.caditor"]);
 }
 
 #[test]

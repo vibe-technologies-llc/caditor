@@ -7,14 +7,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Files and recovery
 
-- [high · easy] A save can replace an outside change without asking: `save_with` compares the
-  file's head with `unless_changed_from` only before encoding, and encoding (zstd at level 9,
-  thinning, recompressing versions) can take seconds on a large model; a sync client or another
-  program writing the file meanwhile is then renamed over, neither kept as a version nor reported
-  as `ChangedOnDisk`. `write_sharing` even notices (`changed_since_read`), logs and carries on.
-  Check again in the read-back closure, by `changed_since_read` and by the target's `FileKey`
-  against the file read (a rename-replace leaves the old handle's stamp unchanged, also on
-  Windows), and do the same in `set_version_kept`.
 - [high · medium] One damaged byte in a journal's snapshot withholds every change after it:
   `decode_journal` returns `DamagedJournal` when the `Snapshot` chunk fails its checksum, though
   the header and entries are intact, so `journal_for` sets the journal aside, the scan never

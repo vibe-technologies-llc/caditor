@@ -1,5 +1,4 @@
 use std::{
-    cell::Cell,
     ffi::{OsStr, OsString},
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -15,7 +14,7 @@ use caditor_document::Document;
 
 use crate::{
     binary::{self, EncodeError, Encoded, FileDigest, KeepError, Shared, value::ValueError},
-    os::{self, ChangeStamp},
+    os::{self, ChangeStamp, FileKey},
     paths::{MAX_NAME_BYTES, fitting},
     read::{ensure_regular, open_file, read_open},
     reason::{ReadFailure, WriteFailure},
@@ -124,6 +123,16 @@ pub fn set_version_kept(
     kept: bool,
     unless_changed_from: Option<&FileDigest>,
 ) -> Result<(), KeepVersionError> {
+    keep_version_interleaved(path, index, kept, unless_changed_from, || {})
+}
+
+pub(crate) fn keep_version_interleaved(
+    path: &Path,
+    index: usize,
+    kept: bool,
+    unless_changed_from: Option<&FileDigest>,
+    while_rewriting: impl FnOnce(),
+) -> Result<(), KeepVersionError> {
     let target = resolve_links(path).map_err(|error| KeepVersionError::writing(&error))?;
     ensure_replaceable(&target).map_err(|error| KeepVersionError::writing(&error))?;
     let previous = Previous::open(&target).map_err(|error| {
@@ -147,28 +156,37 @@ pub fn set_version_kept(
     }
     let rewritten = binary::with_version_kept(&previous.bytes, index, kept)
         .map_err(KeepVersionError::rewriting)?;
-    let changed_meanwhile = Cell::new(false);
-    let written = replace_checked(
+    while_rewriting();
+    replace_checked(
         &target,
         |file| file.write_all(&rewritten.bytes),
         |file| {
-            if previous.changed_since_read() {
-                changed_meanwhile.set(true);
-                return Err(io::Error::other(ChangedWhileKeeping));
-            }
-            check_reads_back(file, &rewritten.digest)
+            check_reads_back(file, &rewritten.digest)?;
+            previous.ensure_still_at(&target)
         },
-    );
-    match written {
-        Err(_) if changed_meanwhile.get() => Err(KeepVersionError::ChangedOnDisk),
-        Err(error) => Err(KeepVersionError::writing(&error)),
-        Ok(()) => Ok(()),
-    }
+    )
+    .map_err(|error| {
+        if changed_meanwhile(&error) {
+            KeepVersionError::ChangedOnDisk
+        } else {
+            KeepVersionError::writing(&error)
+        }
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("the file changed while its versions were being rewritten")]
-struct ChangedWhileKeeping;
+#[error("the file was changed by another program while it was being saved")]
+struct ChangedMeanwhile;
+
+fn changed_meanwhile(error: &io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<ChangedMeanwhile>())
+}
+
+fn outside_change() -> io::Error {
+    io::Error::other(ChangedMeanwhile)
+}
 
 pub fn encode(document: &Document) -> Result<Vec<u8>, SaveError> {
     binary::encode(document).map_err(|error| SaveError::encoding(&error))
@@ -207,15 +225,26 @@ pub fn save_with(
     path: &Path,
     options: &SaveOptions<'_>,
 ) -> Result<Saved, SaveError> {
+    save_interleaved(document, path, options, || {})
+}
+
+pub(crate) fn save_interleaved(
+    document: &Document,
+    path: &Path,
+    options: &SaveOptions<'_>,
+    while_encoding: impl FnOnce(),
+) -> Result<Saved, SaveError> {
     let target = resolve_links(path).map_err(|error| SaveError::writing(&error))?;
     ensure_replaceable(&target).map_err(|error| SaveError::writing(&error))?;
-    let previous = options
+    let mut previous = options
         .history_from
         .map(read_previous)
         .transpose()?
         .flatten();
-    if let (Some(expected), Some(previous)) = (options.unless_changed_from, &previous)
-        && reads_target(options, &target)
+    let guarded = options
+        .unless_changed_from
+        .filter(|_| reads_target(options, &target));
+    if let (Some(expected), Some(previous)) = (guarded, &previous)
         && binary::head_digest(&previous.bytes).as_ref() != Some(expected)
     {
         return Err(SaveError::ChangedOnDisk);
@@ -227,13 +256,31 @@ pub fn save_with(
         options.label,
     )
     .map_err(|error| SaveError::encoding(&error))?;
+    while_encoding();
+    let ensure_unchanged = |previous: Option<&Previous>| match guarded {
+        Some(_) => ensure_unchanged_since_read(previous, &target),
+        None => Ok(()),
+    };
     let damaged_in_place = encoded.previous_damaged && reads_target(options, &target);
     let backup = if (options.keep_original || damaged_in_place) && target.exists() {
-        Some(keep_backup(&target).map_err(|error| SaveError::writing(&error))?)
+        ensure_unchanged(previous.as_ref()).map_err(|_| SaveError::ChangedOnDisk)?;
+        let untouched = previous
+            .as_ref()
+            .is_some_and(|previous| !previous.changed_since_read());
+
+        let backup = keep_backup(&target).map_err(|error| SaveError::writing(&error))?;
+
+        if untouched && let Some(previous) = &mut previous {
+            previous.restamp();
+        }
+        Some(backup)
     } else {
         None
     };
-    let reads_back = |file: &File| check_reads_back(file, &encoded.digest);
+    let reads_back = |file: &File| {
+        check_reads_back(file, &encoded.digest)?;
+        ensure_unchanged(previous.as_ref())
+    };
     let written = match &previous {
         Some(previous) if !encoded.shared.is_empty() => replace_checked(
             &target,
@@ -242,7 +289,13 @@ pub fn save_with(
         ),
         _ => replace_checked(&target, |file| file.write_all(&encoded.bytes), reads_back),
     };
-    written.map_err(|error| SaveError::writing(&error))?;
+    written.map_err(|error| {
+        if changed_meanwhile(&error) {
+            SaveError::ChangedOnDisk
+        } else {
+            SaveError::writing(&error)
+        }
+    })?;
     Ok(Saved {
         backup,
         dropped_for_size: encoded.dropped_for_size,
@@ -277,20 +330,50 @@ struct Previous {
     file: File,
     bytes: Vec<u8>,
     stamp: ChangeStamp,
+    key: FileKey,
 }
 
 impl Previous {
     fn open(path: &Path) -> io::Result<Self> {
         let file = open_file(path)?;
         let stamp = ChangeStamp::of(&file.metadata()?);
+        let key = FileKey::of(&file)?;
         let bytes = read_open(&file)?;
-        Ok(Self { file, bytes, stamp })
+        Ok(Self {
+            file,
+            bytes,
+            stamp,
+            key,
+        })
     }
 
     fn changed_since_read(&self) -> bool {
         self.file
             .metadata()
             .map_or(true, |metadata| ChangeStamp::of(&metadata) != self.stamp)
+    }
+
+    fn restamp(&mut self) {
+        if let Ok(metadata) = self.file.metadata() {
+            self.stamp = ChangeStamp::of(&metadata);
+        }
+    }
+
+    fn ensure_still_at(&self, path: &Path) -> io::Result<()> {
+        let same_file = FileKey::of_link(path).is_ok_and(|key| key == self.key);
+        if same_file && !self.changed_since_read() {
+            Ok(())
+        } else {
+            Err(outside_change())
+        }
+    }
+}
+
+fn ensure_unchanged_since_read(previous: Option<&Previous>, target: &Path) -> io::Result<()> {
+    match previous {
+        Some(previous) => previous.ensure_still_at(target),
+        None if fs::symlink_metadata(target).is_ok() => Err(outside_change()),
+        None => Ok(()),
     }
 }
 
