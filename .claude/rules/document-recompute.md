@@ -50,7 +50,9 @@ paths:
   earlier entries in turn. Earlier entries (all but the latest of each feature) are held within
   `EARLIER_RESULTS_BUDGET`. An entry is measured as it stops being its feature's latest, by then
   meshed if it ever will be: `Solid::approximate_size` plus its mesh's `Mesh::approximate_size`
-  (an intermediate state, never meshed, counts its solid alone). The history keeps a running
+  (an intermediate state, never meshed, counts its solid alone). Kernel geometry shared between
+  solids (`kernel.md`) counts in full in each, so the measure overstates what successive states
+  of a body hold together. The history keeps a running
   total, so an insert looks at the earlier entries only when over budget; the least recently used
   go first, and the latest entry of a feature is never dropped for size.
 - A failed result is also recomputed when a name its message could hold changed (its own, those of

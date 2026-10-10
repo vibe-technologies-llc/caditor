@@ -114,6 +114,10 @@ impl Solid {
                 let Some(edge_map) = edge_maps.get(coedge.edge.index()) else {
                     continue;
                 };
+                let unmoved = *edge_map == Affine::IDENTITY && *face_map == UvMap::IDENTITY;
+                if unmoved && !mirrored {
+                    continue;
+                }
                 let Some(face) = mapped.faces.get(face_loop.face.index()) else {
                     continue;
                 };
