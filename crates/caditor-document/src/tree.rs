@@ -54,7 +54,8 @@ impl Document {
             .filter(|feature| doomed.contains(&feature.id()))
             .map(|feature| Edit::RemoveFeature { id: feature.id() });
         let transaction = Transaction::new(label, bar_moves.into_iter().chain(removals).collect());
-        self.releasing(transaction, self.owned_by(&doomed))
+        let released = self.releasing(transaction, self.owned_by(&doomed));
+        self.keeping_readings(released, &doomed)
     }
 
     pub fn suppression(

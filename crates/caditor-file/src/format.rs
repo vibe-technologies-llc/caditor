@@ -296,9 +296,12 @@ pub(crate) struct FaceOnRoundMateRecord {
 pub(crate) enum MeasuredQuantityRecord {
     Distance,
     Angle,
+    Along,
     Length,
     Radius,
     Area,
+    Sweep,
+    Perimeter,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6937,17 +6940,14 @@ fn measurement_record(measurement: &Measurement) -> MeasurementRecord {
             quantity: Between::Angle,
             ..
         } => MeasuredQuantityRecord::Angle,
-        Reading::Of {
-            quantity: Of::Length,
-            ..
-        } => MeasuredQuantityRecord::Length,
-        Reading::Of {
-            quantity: Of::Radius,
-            ..
-        } => MeasuredQuantityRecord::Radius,
-        Reading::Of {
-            quantity: Of::Area, ..
-        } => MeasuredQuantityRecord::Area,
+        Reading::Along { .. } => MeasuredQuantityRecord::Along,
+        Reading::Of { quantity, .. } => match quantity {
+            Of::Length => MeasuredQuantityRecord::Length,
+            Of::Radius => MeasuredQuantityRecord::Radius,
+            Of::Area => MeasuredQuantityRecord::Area,
+            Of::Sweep => MeasuredQuantityRecord::Sweep,
+            Of::Perimeter => MeasuredQuantityRecord::Perimeter,
+        },
     };
     MeasurementRecord {
         quantity,
@@ -7007,12 +7007,15 @@ fn restore_measurement(
     issues: &mut Vec<String>,
 ) -> Measurement {
     let wanted = match record.quantity {
+        MeasuredQuantityRecord::Along => 3,
         MeasuredQuantityRecord::Distance | MeasuredQuantityRecord::Angle => 2,
         MeasuredQuantityRecord::Length
         | MeasuredQuantityRecord::Radius
-        | MeasuredQuantityRecord::Area => 1,
+        | MeasuredQuantityRecord::Area
+        | MeasuredQuantityRecord::Sweep
+        | MeasuredQuantityRecord::Perimeter => 1,
     };
-    let mut items: Vec<MeasuredItem> = record
+    let items: Vec<MeasuredItem> = record
         .items
         .iter()
         .take(wanted)
@@ -7022,12 +7025,16 @@ fn restore_measurement(
         })
         .collect();
     if items.len() < wanted {
+        let instead = match record.quantity {
+            MeasuredQuantityRecord::Along => "from the origin or along the X axis",
+            _ => "from the origin",
+        };
         issues.push(format!(
-            "What “{feature}” measures could not be read in full, so it measures from the origin \
+            "What “{feature}” measures could not be read in full, so it measures {instead} \
              instead; measure again and keep the measurement."
         ));
-        items.resize(wanted, MeasuredItem::Point(PointReference::Origin));
     }
+    let along_x = || MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::X));
     let mut items = items.into_iter();
     let mut next = || {
         items
@@ -7045,8 +7052,26 @@ fn restore_measurement(
             first: next(),
             second: next(),
         },
+        MeasuredQuantityRecord::Along => {
+            let first = next();
+            let second = next();
+            let axis = items.next().unwrap_or_else(along_x);
+            Reading::Along {
+                first,
+                second,
+                axis,
+            }
+        }
         MeasuredQuantityRecord::Length => Reading::Of {
             quantity: Of::Length,
+            item: next(),
+        },
+        MeasuredQuantityRecord::Sweep => Reading::Of {
+            quantity: Of::Sweep,
+            item: next(),
+        },
+        MeasuredQuantityRecord::Perimeter => Reading::Of {
+            quantity: Of::Perimeter,
             item: next(),
         },
         MeasuredQuantityRecord::Radius => Reading::Of {

@@ -78,9 +78,19 @@ impl ParameterValues {
                 );
                 continue;
             }
-            let value = values
+            let mut value = values
                 .evaluate_expression(&parameter.expression)
                 .map_err(ParameterError::Evaluation);
+            if measured.reads_measurement(id) {
+                values.measured.insert(id);
+                if let (Err(_), Some(measurement)) =
+                    (&value, measured.measurements_read(id).first())
+                {
+                    value = Err(ParameterError::Unmeasured {
+                        measurement: feature_name(document, *measurement),
+                    });
+                }
+            }
             values.entries.insert(
                 id,
                 Entry {

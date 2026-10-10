@@ -1113,6 +1113,9 @@ impl Model {
                 }
                 self.evaluation = update.evaluation;
                 self.evaluation_generation += 1;
+                if update.revision == self.revision() {
+                    self.editor.follow_readings(&self.evaluation);
+                }
                 self.parameters.take_readings(&self.evaluation.parameters);
                 self.display.sketches.forget();
                 self.display

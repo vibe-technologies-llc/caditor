@@ -630,6 +630,7 @@ pub fn show(
     let mut close = false;
     let mut chosen = None;
     let mut relative_to = tool.relative_to;
+    let frame = tool.relative_to.filter(|_| relative.is_ok());
     PANEL.show(ui, room, |ui| {
         ui.add_space(SPACE_S);
         widgets::panel_header(ui, icons::MEASURE, TITLE, |ui| {
@@ -669,7 +670,7 @@ pub fn show(
                     if *freshness == Freshness::Stale {
                         ui.multiply_opacity(STALE_OPACITY);
                     }
-                    chosen = readings(ui, readout, cards);
+                    chosen = readings(ui, readout, cards, frame);
                 });
             }
             chosen = mass_section(ui, &masses).or(chosen.take());
@@ -772,7 +773,12 @@ fn parameter_stem(label: &str) -> String {
         .collect()
 }
 
-fn readings(ui: &mut Ui, readout: &Readout, cards: &[Card]) -> Option<RowChoice> {
+fn readings(
+    ui: &mut Ui,
+    readout: &Readout,
+    cards: &[Card],
+    frame: Option<FeatureId>,
+) -> Option<RowChoice> {
     if let Some(problem) = readout.problem {
         widgets::callout(ui, Tone::Warning, |ui| ui.label(problem));
         ui.add_space(SPACE_M);
@@ -791,7 +797,7 @@ fn readings(ui: &mut Ui, readout: &Readout, cards: &[Card]) -> Option<RowChoice>
             .iter()
             .map(|reading| RowOffer {
                 value: Some(reading.value),
-                kept: kept.zip(Keepable::of_row(reading.label, between)),
+                kept: kept.zip(Keepable::of_row(reading.label, between, frame)),
             })
             .collect();
         chosen = card_with_menus(ui, ("measured", index), card, &offers).or(chosen.take());

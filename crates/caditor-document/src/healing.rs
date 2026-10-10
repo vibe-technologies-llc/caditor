@@ -359,7 +359,8 @@ fn visit_measurement(measurement: &mut Measurement, visitor: &mut impl Reference
         let role = match (count, index) {
             (1, _) => "measured item",
             (_, 0) => "first measured item",
-            _ => "second measured item",
+            (_, 1) => "second measured item",
+            _ => "measuring axis",
         };
         match item {
             MeasuredItem::Point(point) => visit_point(point, role, visitor),

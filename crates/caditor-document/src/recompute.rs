@@ -1341,7 +1341,8 @@ impl Walk {
         mut parameters: ParameterValues,
         pending: BTreeSet<FeatureId>,
     ) -> Evaluation {
-        for (parameter, measurement) in Measured::of(document).pairs() {
+        let measured = Measured::of(document);
+        for (parameter, measurement) in measured.pairs() {
             let reading = self
                 .statuses
                 .get(&measurement)
@@ -1352,6 +1353,7 @@ impl Walk {
                 parameters.set_measured(parameter, Ok(reading.value));
             }
         }
+        measured.derive(&mut parameters);
         let mut shown: BTreeMap<FeatureId, FeatureId> = self
             .bodies
             .iter()

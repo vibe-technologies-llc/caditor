@@ -10,7 +10,8 @@ use std::{
 };
 
 use caditor_document::{
-    DatumResult, FeatureId, FeatureResult, MeasuredItem, displayed_frame, profile_curve,
+    DatumResult, FeatureId, FeatureResult, MeasuredItem, displayed_frame, face_perimeter,
+    profile_curve,
 };
 use caditor_geometry::{Plane, Point3, RigidTransform, Vector3};
 use caditor_kernel::{
@@ -782,6 +783,9 @@ fn readings_of(item: &Item, element: Element<'_>) -> Result<Vec<Reading>, Measur
                         ));
                     }
                 }
+            }
+            if let Some((length, accuracy)) = face_perimeter(solid, face) {
+                readings.push(Reading::with("Perimeter", Value::Length(length), accuracy));
             }
             match face_form(solid, face)? {
                 FaceForm::Cylinder { radius, .. } => readings.extend([

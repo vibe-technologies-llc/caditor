@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use crate::{
     document::Document,
     edit::{EditError, Transaction},
+    recompute::Evaluation,
 };
 
 pub const MAX_UNDO_STEPS: usize = 500;
@@ -230,6 +231,19 @@ impl Editor {
         self.document = applied;
         self.push_undo(inverse);
         Ok(true)
+    }
+
+    pub fn follow_readings(&mut self, evaluation: &Evaluation) -> bool {
+        let transaction = self.document.following_readings(evaluation);
+        if transaction.is_empty() {
+            return false;
+        }
+        let mut followed = self.document.clone();
+        if followed.apply(transaction).is_err() {
+            return false;
+        }
+        self.document = followed;
+        true
     }
 
     pub fn base(&self) -> Base {

@@ -100,7 +100,10 @@ pub use crate::{
         MAX_MATE_ANGLE_DEGREES, Mate, MatePair, PointMate, PointTarget, RoundFaceError, round_face,
     },
     mate_placement::Round,
-    measurement::{Between, MeasuredItem, Measurement, MeasurementResult, Of, Reading},
+    measurement::{
+        ALONG, Between, MeasuredItem, Measurement, MeasurementResult, Of, Reading, face_perimeter,
+        reading_literal,
+    },
     mirror::{MIRROR_IMAGE, Mirror},
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner, value_label},
     model_scale::{
