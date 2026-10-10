@@ -37,7 +37,10 @@ const WAYS_TO_DRAW: &str = "Ways to draw shapes";
 const SKETCH_ONLY: &str = "Only while a sketch is being edited";
 const NOT_HERE: &str = "Not available right now";
 const NOT_SAVED: &str = "Save the model to start keeping its versions";
-const MODEL_PATTERNS: [&[Command]; 1] = [&[Command::LinearPattern, Command::CircularPattern]];
+const MODEL_PATTERNS: [&[Command]; 2] = [
+    &[Command::LinearPattern, Command::CircularPattern],
+    &[Command::CurvePattern, Command::PointPattern],
+];
 const MODEL_PRIMITIVES: [&[Command]; 1] = [&[
     Command::NewBox,
     Command::NewCylinder,

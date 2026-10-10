@@ -19,7 +19,9 @@ paths:
 - Stored in files: the encoding, the tags and the pinned digests in `naming/tests.rs` never change.
   Later generators are new constructors with new tags.
 - A face is named by its feature and what made it. A pattern copy's index is its step along each
-  direction (row 0 for a circular pattern), so changing a count never renames the copies it keeps.
+  direction (row 0 for a circular or curve pattern), so changing a count never renames the copies
+  it keeps; a point pattern's is the sketch point's id plus one in two words, so its copies keep
+  their names as points come and go.
 - A tapered extrusion spanning its sketch plane has two side faces per piece: the one towards the
   extent's end is `side`, the other `side_behind`, so adding a taper keeps the end side's names.
 - An edge is `between` an unordered face pair. When several edges share that name, `between_at`

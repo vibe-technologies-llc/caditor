@@ -303,7 +303,7 @@ impl FeatureKind {
                 used.extend(solid.end_bodies());
             }
             Self::Datum(datum) => used.extend(datum.bodies()),
-            Self::Pattern(pattern) => used.extend(pattern.axis_bodies()),
+            Self::Pattern(pattern) => used.extend(pattern.bodies()),
             Self::Move(movement) => used.extend(movement.axis_body()),
             Self::Mate(mate) => used.extend(mate.bodies()),
             Self::Combine(combine) => used.extend(combine.tools()),
@@ -386,7 +386,7 @@ impl FeatureKind {
                 .collect(),
             Self::Solid(solid) => solid.frames(),
             Self::Datum(datum) => datum.frames(),
-            Self::Pattern(pattern) => pattern.axis_frames(),
+            Self::Pattern(pattern) => pattern.frames(),
             Self::Move(movement) => movement.frames(),
             Self::Mirror(mirror) => mirror.plane.frame().into_iter().collect(),
             Self::Split(split) => split
@@ -412,6 +412,7 @@ impl FeatureKind {
     pub fn points_used(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Datum(datum) => datum.point_datums(),
+            Self::Pattern(pattern) => pattern.point_datums(),
             Self::Sketch(_)
             | Self::Solid(_)
             | Self::Blend(_)
@@ -425,7 +426,6 @@ impl FeatureKind {
             | Self::Split(_)
             | Self::Scale(_)
             | Self::Hole(_)
-            | Self::Pattern(_)
             | Self::Import(_)
             | Self::Remove(_)
             | Self::Thread(_) => BTreeSet::new(),
@@ -440,7 +440,7 @@ impl FeatureKind {
                 sketches
             }
             Self::Solid(solid) => solid.axis_sketch().into_iter().collect(),
-            Self::Pattern(pattern) => pattern.axis_sketches(),
+            Self::Pattern(pattern) => pattern.sketches(),
             Self::Move(movement) => movement.axis_sketch().into_iter().collect(),
             Self::Mate(mate) => mate.sketches(),
             Self::Split(split) => split.along.sketch().into_iter().collect(),

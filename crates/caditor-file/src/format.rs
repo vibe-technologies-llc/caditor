@@ -3,20 +3,21 @@ use std::{cell::OnceCell, collections::BTreeMap, path::PathBuf, sync::Arc};
 use caditor_document::{
     AxisMate, AxisReference, AxisSide, AxisTurn, Blend, BlendKind, BodyAppearance, BodyOperation,
     BodyPlacement, ChamferForm, CircularPattern, Combine, CombineOperation, ConfigurationId,
-    CurveStation, Datum, DatumAxis, DatumFrame, DatumPlane, DatumPoint, Document, Edit, Extrude,
-    ExtrudeEnd, ExtrudeExtent, FaceAttachment, FaceColour, FaceMate, FaceTangent, Feature,
-    FeatureId, FeatureKind, HOME_VIEW_NAME, Hole, HoleBottom, HoleDepth, HoleFit, HoleShape,
-    HoleSizing, HoleStandard, HoleStep, HoleStyle, Import, LinearDirection, LinearSpacing,
-    MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS, MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES,
-    MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS, MIN_OPACITY_PERCENT, Mate, MatePair, MetricSize, Mirror,
-    ModelProperties, ModelProperty, Move, NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace,
-    Parameter, ParameterOwner, Pattern, PatternKind, PlaneReference, PlaneRotation, PlaneThrough,
-    PointBy, PointReference, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis,
-    PrincipalGeometry, PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve,
-    RevolveAxis, RevolveExtent, Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell,
-    SketchAttachment, SketchFeature, SolidFeature, SolidStart, Split, SplitAlong, TappedThread,
-    Thread, ThreadFamily, ThreadHand, ThreadLength, ThreadSide, ThreadSize, Transaction,
-    TurnCentre, Wall, group_name, material_name, view_name,
+    CopyOrientation, CurvePattern, CurveSpacing, CurveStation, Datum, DatumAxis, DatumFrame,
+    DatumPlane, DatumPoint, Document, Edit, Extrude, ExtrudeEnd, ExtrudeExtent, FaceAttachment,
+    FaceColour, FaceMate, FaceTangent, Feature, FeatureId, FeatureKind, HOME_VIEW_NAME, Hole,
+    HoleBottom, HoleDepth, HoleFit, HoleShape, HoleSizing, HoleStandard, HoleStep, HoleStyle,
+    Import, LinearDirection, LinearSpacing, MAX_BODY_NAME_CHARS, MAX_GROUP_NAME_CHARS,
+    MAX_MATERIAL_NAME_CHARS, MAX_PATTERN_INSTANCES, MAX_SAVED_VIEWS, MAX_VIEW_NAME_CHARS,
+    MIN_OPACITY_PERCENT, Mate, MatePair, MetricSize, Mirror, ModelProperties, ModelProperty, Move,
+    NamedView, OPAQUE_PERCENT, ORIGINAL_INSTANCE, OffsetFace, Parameter, ParameterOwner, Pattern,
+    PatternKind, PlaneReference, PlaneRotation, PlaneThrough, PointBy, PointReference,
+    PointsPattern, Primitive, PrimitiveAnchor, PrimitiveShape, PrincipalAxis, PrincipalGeometry,
+    PrincipalPlane, ProjectionSource, RegionChoice, Remove, Revolve, RevolveAxis, RevolveExtent,
+    Rgb, RollbackBar, SavedView, SavedViews, Scale, Shell, SketchAttachment, SketchFeature,
+    SolidFeature, SolidStart, Split, SplitAlong, TappedThread, Thread, ThreadFamily, ThreadHand,
+    ThreadLength, ThreadSide, ThreadSize, Transaction, TurnCentre, Wall, group_name, material_name,
+    view_name,
 };
 use caditor_expression::{BinaryOperator, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Point3, Rotation3, Vector2, Vector3};
@@ -244,6 +245,33 @@ pub(crate) enum FeatureKindRecord {
     SurfaceEnds(Box<SurfaceEndsRecord>),
     RevolveUpTo(Box<RevolveUpToRecord>),
     ExtrudeAlong(Box<ExtrudeAlongRecord>),
+    CurvePattern(Box<CurvePatternRecord>),
+    PointPattern(Box<PointPatternRecord>),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct CurvePatternRecord {
+    pub body: u64,
+    pub sketch: u64,
+    pub count: String,
+    pub spacing: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub distance: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub follow: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reversed: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<[u32; 2]>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct PointPatternRecord {
+    pub body: u64,
+    pub sketch: u64,
+    pub base: Lenient<PointReferenceRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<[u32; 2]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -552,7 +580,7 @@ pub(crate) struct RevolveOneSideRecord {
 
 pub(crate) const FEATURE_FIELDS: [&str; 3] = ["hidden", "appearance", "group"];
 
-pub(crate) const FEATURE_KINDS: [&str; 61] = [
+pub(crate) const FEATURE_KINDS: [&str; 63] = [
     "sketch",
     "extrude",
     "extrude_to",
@@ -614,6 +642,8 @@ pub(crate) const FEATURE_KINDS: [&str; 61] = [
     "surface_ends",
     "revolve_up_to",
     "extrude_along",
+    "curve_pattern",
+    "point_pattern",
 ];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2726,37 +2756,46 @@ fn hole_record(hole: &Hole) -> FeatureKindRecord {
 
 fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
     let body = pattern.body.raw();
-    let shape = match &pattern.kind {
-        PatternKind::Linear { first, second } => {
+    let skipped: Vec<[u32; 2]> = pattern.skipped.iter().copied().collect();
+    let record = match &pattern.kind {
+        PatternKind::Linear { first, second } => grid_pattern_record(
             PatternShapeRecord::Linear(Box::new(LinearPatternRecord {
                 body,
                 first: direction_record(first),
                 second: second.as_ref().map(direction_record),
-            }))
-        }
-        PatternKind::Circular(circular) => {
+            })),
+            skipped,
+        ),
+        PatternKind::Circular(circular) => grid_pattern_record(
             PatternShapeRecord::Circular(Box::new(CircularPatternRecord {
                 body,
                 axis: axis_record(&circular.axis),
                 count: circular.count.to_stored_text(),
                 angle: circular.angle.to_stored_text(),
                 reversed: circular.reversed,
+            })),
+            skipped,
+        ),
+        PatternKind::Curve(curve) => {
+            FeatureKindRecord::CurvePattern(Box::new(CurvePatternRecord {
+                body,
+                sketch: curve.sketch.raw(),
+                count: curve.count.to_stored_text(),
+                spacing: curve.spacing.to_stored_text(),
+                distance: curve.measured == CurveSpacing::Distance,
+                follow: curve.orientation == CopyOrientation::Following,
+                reversed: curve.reversed,
+                skipped,
             }))
         }
-    };
-    let skipped: Vec<[u32; 2]> = pattern.skipped.iter().copied().collect();
-    let total = match &shape {
-        PatternShapeRecord::Linear(linear) => std::iter::once(&linear.first)
-            .chain(&linear.second)
-            .any(|direction| direction.total),
-        PatternShapeRecord::Circular(_) => false,
-    };
-    let record = match (shape, skipped.is_empty() && !total) {
-        (PatternShapeRecord::Linear(linear), true) => FeatureKindRecord::LinearPattern(linear),
-        (PatternShapeRecord::Circular(circular), true) => {
-            FeatureKindRecord::CircularPattern(circular)
+        PatternKind::Points(points) => {
+            FeatureKindRecord::PointPattern(Box::new(PointPatternRecord {
+                body,
+                sketch: points.sketch.raw(),
+                base: Lenient::Read(point_record(&points.base)),
+                skipped,
+            }))
         }
-        (shape, false) => FeatureKindRecord::Pattern(Box::new(PatternRecord { shape, skipped })),
     };
     if pattern.repeated.is_empty() {
         return record;
@@ -2769,6 +2808,22 @@ fn pattern_record(pattern: &Pattern) -> FeatureKindRecord {
             .map(|feature| feature.raw())
             .collect(),
     }))
+}
+
+fn grid_pattern_record(shape: PatternShapeRecord, skipped: Vec<[u32; 2]>) -> FeatureKindRecord {
+    let total = match &shape {
+        PatternShapeRecord::Linear(linear) => std::iter::once(&linear.first)
+            .chain(&linear.second)
+            .any(|direction| direction.total),
+        PatternShapeRecord::Circular(_) => false,
+    };
+    match (shape, skipped.is_empty() && !total) {
+        (PatternShapeRecord::Linear(linear), true) => FeatureKindRecord::LinearPattern(linear),
+        (PatternShapeRecord::Circular(circular), true) => {
+            FeatureKindRecord::CircularPattern(circular)
+        }
+        (shape, false) => FeatureKindRecord::Pattern(Box::new(PatternRecord { shape, skipped })),
+    }
 }
 
 fn mirror_record(mirror: &Mirror) -> FeatureKindRecord {
@@ -4821,6 +4876,12 @@ fn restore_kind(
         FeatureKindRecord::Pattern(record) => {
             FeatureKind::from(restore_pattern(record, name, issues))
         }
+        FeatureKindRecord::CurvePattern(record) => {
+            FeatureKind::from(restore_curve_pattern(record, name, issues))
+        }
+        FeatureKindRecord::PointPattern(record) => {
+            FeatureKind::from(restore_point_pattern(record, name, issues))
+        }
         FeatureKindRecord::Plane(record) => {
             FeatureKind::Datum(Datum::Plane(restore_datum_plane(record, name, issues)))
         }
@@ -5568,6 +5629,73 @@ fn restore_pattern(record: &PatternRecord, feature: &str, issues: &mut Vec<Strin
             *instance != ORIGINAL_INSTANCE
                 && instance.iter().all(|step| *step < MAX_PATTERN_INSTANCES)
         })
+        .collect();
+    pattern
+}
+
+fn restore_curve_pattern(
+    record: &CurvePatternRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Pattern {
+    let mut pattern = Pattern::new(
+        FeatureId::from_raw(record.body),
+        PatternKind::Curve(CurvePattern {
+            sketch: FeatureId::from_raw(record.sketch),
+            count: restore_value(&record.count, "count", "1", feature, issues),
+            spacing: restore_value(&record.spacing, "spacing", "10 mm", feature, issues),
+            measured: if record.distance {
+                CurveSpacing::Distance
+            } else {
+                CurveSpacing::Spread
+            },
+            orientation: if record.follow {
+                CopyOrientation::Following
+            } else {
+                CopyOrientation::Kept
+            },
+            reversed: record.reversed,
+        }),
+    );
+    pattern.skipped = record
+        .skipped
+        .iter()
+        .copied()
+        .filter(|instance| {
+            *instance != ORIGINAL_INSTANCE
+                && instance.iter().all(|step| *step < MAX_PATTERN_INSTANCES)
+        })
+        .collect();
+    pattern
+}
+
+fn restore_point_pattern(
+    record: &PointPatternRecord,
+    feature: &str,
+    issues: &mut Vec<String>,
+) -> Pattern {
+    let base = match &record.base {
+        Lenient::Read(base) => restore_point(base),
+        Lenient::Unreadable(_) => None,
+    };
+    let base = base.unwrap_or_else(|| {
+        issues.push(format!(
+            "The base point of “{feature}” could not be read, so it is the origin."
+        ));
+        PointReference::Origin
+    });
+    let mut pattern = Pattern::new(
+        FeatureId::from_raw(record.body),
+        PatternKind::Points(PointsPattern {
+            sketch: FeatureId::from_raw(record.sketch),
+            base,
+        }),
+    );
+    pattern.skipped = record
+        .skipped
+        .iter()
+        .copied()
+        .filter(|instance| *instance != ORIGINAL_INSTANCE)
         .collect();
     pattern
 }

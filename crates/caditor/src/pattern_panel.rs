@@ -1,6 +1,7 @@
 use caditor_document::{
-    AxisReference, CircularPattern, Feature, FeatureId, Instance, LinearDirection, LinearSpacing,
-    ORIGINAL_INSTANCE, Pattern, PatternKind, Transaction, capitalized, describe_axis,
+    AxisReference, CircularPattern, CopyOrientation, CurvePattern, CurveSpacing, Feature,
+    FeatureId, Instance, LinearDirection, LinearSpacing, ORIGINAL_INSTANCE, Pattern, PatternKind,
+    PointReference, PointsPattern, Transaction, capitalized, describe_axis, describe_point,
     instance_name,
 };
 use caditor_expression::{BinaryOperator, Dimension, Expression};
@@ -13,13 +14,31 @@ use crate::{
     pattern_tools::{self, Reference, Shape},
     reference_picking::Slot,
     selection::Selection,
-    widgets,
+    sketch_pattern_tools, widgets,
 };
 
 pub const CIRCULAR_HINT: &str = "A total angle of 360° spaces the copies evenly; a smaller angle \
                                  runs from the body to the last copy.";
 
+pub const CURVE_HINT: &str = "The copies are carried along the curve from where it starts: each \
+                              moves as the start of the curve would to reach its place.";
+pub const POINTS_HINT: &str = "Each copy is moved from the base point to one lone point of the \
+                               sketch; a point on the base point is the original itself.";
+
 const COUNT: (Dimension, Rule) = (Dimension::NONE, Rule::Count);
+
+pub const CURVE: &str = "Curve";
+pub const POINTS: &str = "Points";
+pub const BASE_POINT: &str = "Base point";
+pub const SPACED: &str = "Spaced";
+pub const SPREAD_EVENLY: &str = "Evenly";
+pub const BY_DISTANCE: &str = "By distance";
+pub const ORIENTATION: &str = "Copies";
+pub const KEPT: &str = "Kept as they are";
+pub const FOLLOWING: &str = "Turned with the curve";
+pub const BRING_BACK: &str = "Bring the copies back";
+pub const USE_ORIGIN: &str = "Use the origin";
+const POINTS_LEFT_OUT_HINT: &str = "Click a copy in the view to leave it out of the pattern.";
 
 pub const INSTANCES: &str = "Instances";
 pub const REPEATS: &str = "Repeats";
@@ -120,6 +139,22 @@ fn shape_label(shape: Shape) -> &'static str {
     match shape {
         Shape::Linear => "Linear",
         Shape::Circular => "Circular",
+        Shape::Curve => CURVE,
+        Shape::Points => POINTS,
+    }
+}
+
+fn spacing_hover(measured: CurveSpacing) -> &'static str {
+    match measured {
+        CurveSpacing::Spread => "The copies share the whole length of the curve evenly",
+        CurveSpacing::Distance => "The copies stand the spacing apart, measured along the curve",
+    }
+}
+
+fn orientation_hover(orientation: CopyOrientation) -> &'static str {
+    match orientation {
+        CopyOrientation::Kept => "Every copy keeps the original's orientation",
+        CopyOrientation::Following => "Every copy turns as the curve turns from where it starts",
     }
 }
 
@@ -291,8 +326,9 @@ impl Panel<'_> {
                 label: shape_label(shape),
                 hover: shape.description(),
                 change: (shape != current).then(|| {
-                    let reshaped = pattern_tools::reshaped(self.model, self.pattern, shape);
-                    self.change(reshaped.kind)
+                    pattern_tools::reshaped(self.model, self.id(), self.pattern, shape)
+                        .map_err(str::to_owned)
+                        .and_then(|reshaped| self.change(reshaped.kind))
                 }),
             })
             .collect();
@@ -499,6 +535,209 @@ impl Panel<'_> {
         }
     }
 
+    fn sketch_row(&mut self, ui: &mut Ui, caption: &str, current: FeatureId, hover: &'static str) {
+        let shape = Shape::of(&self.pattern.kind);
+        let document = self.model.document();
+        widgets::caption(ui, caption);
+        let before = document.feature_index(self.id()).unwrap_or(0);
+        let id = Id::new(("pattern-sketch", self.id()));
+        ui.vertical(|ui| {
+            let shown = feature_fields::combo_text(
+                ui,
+                feature_fields::feature_name(document, current),
+                "Missing sketch",
+            );
+            let chosen = feature_fields::combo(ui, id, shown, || {
+                sketch_pattern_tools::listed(self.model, shape, before)
+                    .into_iter()
+                    .map(|sketch| Choice {
+                        label: feature_fields::feature_name(document, sketch)
+                            .unwrap_or_default()
+                            .to_owned(),
+                        selected: sketch == current,
+                        change: sketch_pattern_tools::with_sketch(self.pattern, sketch)
+                            .map_err(str::to_owned)
+                            .and_then(|pattern| {
+                                pattern_tools::change(self.model, self.id(), pattern)
+                            })
+                            .map(Action::Apply),
+                    })
+                    .collect()
+            });
+            self.actions.extend(chosen);
+            let (model, selection, feature, pattern) =
+                (self.model, self.selection, self.id(), self.pattern);
+            let picker = Picker {
+                feature,
+                slot: Slot::PatternPath,
+                selected: feature_fields::offered_change(
+                    ui.ctx(),
+                    model,
+                    selection,
+                    (feature, Slot::PatternPath),
+                    || sketch_pattern_tools::sketch_change(model, selection, feature, pattern),
+                ),
+                hover,
+            };
+            feature_fields::reference_picker(ui, model, picker, self.actions);
+        });
+        ui.end_row();
+    }
+
+    fn curve_rows(&mut self, ui: &mut Ui, curve: &CurvePattern) {
+        self.sketch_row(
+            ui,
+            CURVE,
+            curve.sketch,
+            "Follow the curves of the selected sketch",
+        );
+        self.expression(ui, "Count", "count", &curve.count, COUNT, |count| {
+            PatternKind::Curve(CurvePattern {
+                count,
+                ..curve.clone()
+            })
+        });
+        let segments = [
+            (CurveSpacing::Spread, SPREAD_EVENLY),
+            (CurveSpacing::Distance, BY_DISTANCE),
+        ]
+        .into_iter()
+        .map(|(measured, label)| Segment {
+            label,
+            hover: spacing_hover(measured),
+            change: (measured != curve.measured).then(|| {
+                self.change(PatternKind::Curve(CurvePattern {
+                    measured,
+                    ..curve.clone()
+                }))
+            }),
+        })
+        .collect();
+        let chosen = feature_fields::segmented_row(ui, SPACED, &self.feature.name, segments);
+        self.actions.extend(chosen);
+        if curve.measured == CurveSpacing::Distance {
+            self.expression(
+                ui,
+                "Spacing",
+                "spacing",
+                &curve.spacing,
+                (Dimension::LENGTH, Rule::AboveZeroOrReverse),
+                |spacing| {
+                    PatternKind::Curve(CurvePattern {
+                        spacing,
+                        ..curve.clone()
+                    })
+                },
+            );
+        }
+        let segments = [
+            (CopyOrientation::Kept, KEPT),
+            (CopyOrientation::Following, FOLLOWING),
+        ]
+        .into_iter()
+        .map(|(orientation, label)| Segment {
+            label,
+            hover: orientation_hover(orientation),
+            change: (orientation != curve.orientation).then(|| {
+                self.change(PatternKind::Curve(CurvePattern {
+                    orientation,
+                    ..curve.clone()
+                }))
+            }),
+        })
+        .collect();
+        let chosen = feature_fields::segmented_row(ui, ORIENTATION, &self.feature.name, segments);
+        self.actions.extend(chosen);
+        self.reverse_row(ui, REVERSE_DIRECTION, curve.reversed, |reversed| {
+            PatternKind::Curve(CurvePattern {
+                reversed,
+                ..curve.clone()
+            })
+        });
+    }
+
+    fn points_rows(&mut self, ui: &mut Ui, points: &PointsPattern) {
+        self.sketch_row(
+            ui,
+            POINTS,
+            points.sketch,
+            "Place the copies at the lone points of the selected sketch",
+        );
+        widgets::caption(ui, BASE_POINT);
+        let (model, selection, feature, pattern) =
+            (self.model, self.selection, self.id(), self.pattern);
+        ui.vertical(|ui| {
+            ui.label(capitalized(&describe_point(model.document(), &points.base)));
+            let picker = Picker {
+                feature,
+                slot: Slot::PatternBase,
+                selected: feature_fields::offered_change(
+                    ui.ctx(),
+                    model,
+                    selection,
+                    (feature, Slot::PatternBase),
+                    || sketch_pattern_tools::base_change(model, selection, feature, pattern),
+                ),
+                hover: "Move the copies from the selected corner, round edge, sphere, sketch \
+                        point or datum point",
+            };
+            feature_fields::reference_picker(ui, model, picker, self.actions);
+            if points.base != PointReference::Origin {
+                let button = widgets::small_button(ui, icons::ORIGIN, USE_ORIGIN);
+                if ui
+                    .add(button)
+                    .on_hover_text("Move the copies from the origin")
+                    .clicked()
+                {
+                    self.actions.push(feature_fields::applied(
+                        &self.feature.name,
+                        sketch_pattern_tools::with_base(
+                            model,
+                            feature,
+                            pattern,
+                            PointReference::Origin,
+                        ),
+                    ));
+                }
+            }
+        });
+        ui.end_row();
+        self.left_out_row(ui);
+    }
+
+    fn left_out_row(&mut self, ui: &mut Ui) {
+        widgets::caption(ui, INSTANCES);
+        let left_out = self.pattern.skipped.len();
+        let mut brought_back = false;
+        ui.vertical(|ui| {
+            let summary = match left_out {
+                0 => POINTS_LEFT_OUT_HINT.to_owned(),
+                1 => "1 copy is left out.".to_owned(),
+                count => format!("{count} copies are left out."),
+            };
+            ui.label(widgets::muted(summary, ui));
+            if left_out > 0 {
+                let button = widgets::small_button(ui, icons::ADD, BRING_BACK);
+                brought_back = ui
+                    .add(button)
+                    .on_hover_text("Make every copy left out again")
+                    .clicked();
+            }
+        });
+        ui.end_row();
+        if brought_back {
+            let change = pattern_tools::change(
+                self.model,
+                self.id(),
+                Pattern {
+                    skipped: Default::default(),
+                    ..self.pattern.clone()
+                },
+            );
+            self.apply(change);
+        }
+    }
+
     fn circular_rows(&mut self, ui: &mut Ui, circular: &CircularPattern) {
         self.reference_row(
             ui,
@@ -557,12 +796,20 @@ pub fn show(
         match &pattern.kind {
             PatternKind::Linear { first, second } => panel.linear_rows(ui, first, second.as_ref()),
             PatternKind::Circular(circular) => panel.circular_rows(ui, circular),
+            PatternKind::Curve(curve) => panel.curve_rows(ui, curve),
+            PatternKind::Points(points) => panel.points_rows(ui, points),
         }
         panel.instances_row(ui);
         panel.repeats_rows(ui);
         feature_fields::feature_row(ui, model.document(), "Body", pattern.body);
     });
-    if !pattern.kind.is_linear() {
-        feature_fields::info_callout(ui, CIRCULAR_HINT);
+    let hint = match pattern.kind {
+        PatternKind::Linear { .. } => None,
+        PatternKind::Circular(_) => Some(CIRCULAR_HINT),
+        PatternKind::Curve(_) => Some(CURVE_HINT),
+        PatternKind::Points(_) => Some(POINTS_HINT),
+    };
+    if let Some(hint) = hint {
+        feature_fields::info_callout(ui, hint);
     }
 }

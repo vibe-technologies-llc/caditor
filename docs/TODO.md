@@ -245,12 +245,12 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   optional guide rail, taper and twist; a loft takes two or more profiles or faces (a point may
   end it), open or closed back to the first, with optional rails or a centreline and tangent or
   curvature-continuous conditions at its ends.
-- [medium · hard] No pattern along a curve or driven by sketch points: a pattern repeats along one
-  or two axes (sketch lines included) or about one, never along a spline or arc (the copies kept
-  as they are or turned to follow the curve), nor at the points of a sketch, and it repeats
-  features or whole bodies but never chosen faces. Every copy is the original's tool placed again,
-  never recomputed where it lands (a copy of an extrusion up to next stops where the original
-  did, not on the face it meets), and one pattern cannot chain a shift, a turn and a mirror.
+- [medium · hard] Patterns stop short of what other modellers repeat: a curve pattern follows only
+  the curves of one sketch, never a chain of model edges (a 3D path, the copies then turning with
+  its tangent and normal), and a pattern repeats features or whole bodies but never chosen faces.
+  Every copy is the original's tool placed again, never recomputed where it lands (a copy of an
+  extrusion up to next stops where the original did, not on the face it meets), and one pattern
+  cannot chain a shift, a turn and a mirror.
 - [medium · hard] No split face: dividing a face along a sketch curve, a plane or another body,
   without cutting the body, so a part line, a stripe of another colour or a face to draft or delete
   in part can be had. It is a feature of its own, naming the faces it splits.

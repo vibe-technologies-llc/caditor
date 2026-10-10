@@ -329,6 +329,13 @@ paths:
   `skipped`, a list of `[step, step]`), since an older reader would make the wrong copies; any
   other pattern is still written as `linear_pattern` or `circular_pattern`. Loading drops skipped
   entries that no pattern can make (the original, a step past `MAX_PATTERN_INSTANCES`).
+- A pattern along a sketch's curve is a `curve_pattern` record (`body`, `sketch`, the stored
+  text of `count` and `spacing`, and `distance`, `follow`, `reversed` and `skipped` only when set)
+  and one at a sketch's points a `point_pattern` record (`body`, `sketch`, `base`, a point
+  reference, and `skipped`, whose entries are the point's id plus one in two words), kinds of
+  their own so an older reader reports them. An unreadable value loads as 1 or 10 mm and an
+  unreadable base as the origin, reported; skipped entries for the original are dropped, and for
+  a curve pattern those past `MAX_PATTERN_INSTANCES` too.
 - A pattern repeating features rather than its whole body is a `feature_pattern` record:
   `feature`, the pattern record it would be repeating the body, and `repeated`, the ids of the
   features it repeats in tree order, since an older reader would repeat the whole body; an inner

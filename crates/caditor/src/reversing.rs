@@ -7,6 +7,8 @@ use crate::field;
 
 pub const NOTHING_TO_REVERSE: &str = "Only an extrusion, revolve, hole, primitive, pattern, mate \
                                       or split has a direction to reverse";
+const POINTS_HAVE_NO_DIRECTION: &str =
+    "places its copies at the points of a sketch, so it has no direction to reverse";
 
 fn refusal(feature: &Feature, reason: &str) -> String {
     format!("{} {reason}", feature.name)
@@ -71,6 +73,10 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
             match &mut pattern.kind {
                 PatternKind::Linear { first, .. } => first.reversed = !first.reversed,
                 PatternKind::Circular(circular) => circular.reversed = !circular.reversed,
+                PatternKind::Curve(curve) => curve.reversed = !curve.reversed,
+                PatternKind::Points(_) => {
+                    return Err(refusal(feature, POINTS_HAVE_NO_DIRECTION));
+                }
             }
             Ok(FeatureKind::Pattern(pattern))
         }

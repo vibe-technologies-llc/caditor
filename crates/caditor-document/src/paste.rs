@@ -8,6 +8,7 @@ use crate::{
     document::{Document, Feature, FeatureId, FeatureKind},
     edit::{EditError, Transaction},
     inlining::expressions_mut,
+    pattern::PatternKind,
     projection::ProjectionSource,
     solid::{BodyOperation, SolidFeature},
     split::SplitAlong,
@@ -433,6 +434,11 @@ impl FeatureKind {
             Self::Pattern(pattern) => {
                 pattern.body = rename(pattern.body);
                 each(&mut pattern.repeated);
+                match &mut pattern.kind {
+                    PatternKind::Curve(curve) => curve.sketch = rename(curve.sketch),
+                    PatternKind::Points(points) => points.sketch = rename(points.sketch),
+                    PatternKind::Linear { .. } | PatternKind::Circular(_) => {}
+                }
             }
             Self::Remove(remove) => remove.body = rename(remove.body),
             Self::Thread(thread) => thread.body = rename(thread.body),

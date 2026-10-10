@@ -116,6 +116,8 @@ pub(crate) fn expressions_mut(kind: &mut FeatureKind) -> Vec<&mut Expression> {
                 .flat_map(|direction| [&mut direction.count, &mut direction.spacing])
                 .collect(),
             PatternKind::Circular(circular) => vec![&mut circular.count, &mut circular.angle],
+            PatternKind::Curve(curve) => vec![&mut curve.count, &mut curve.spacing],
+            PatternKind::Points(_) => Vec::new(),
         },
         FeatureKind::Datum(datum) => datum.expressions_mut(),
         FeatureKind::Import(import) => import.placement.expressions_mut().collect(),

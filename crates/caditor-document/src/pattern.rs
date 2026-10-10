@@ -1,15 +1,17 @@
 use std::collections::BTreeSet;
 
 use caditor_expression::{Dimension, Expression, ParameterId, format_number};
-use caditor_geometry::{Ray, RigidTransform, Vector3};
+use caditor_geometry::{Plane, Ray, RigidTransform, Vector2, Vector3};
 use caditor_kernel::{
-    BooleanError, BooleanOperation, MAX_SIZE, PatternCopy, PatternError, Solid, boolean, pattern,
-    pattern_copies,
+    BooleanError, BooleanOperation, LINEAR_RESOLUTION, MAX_SIZE, PatternCopy, PatternError, Solid,
+    boolean, pattern, pattern_copies,
 };
+use caditor_sketch::{EntityId, Sketch};
 
 use crate::{
-    datum::{AxisReference, Resolver},
+    datum::{AxisReference, PointReference, Resolver, feature_name},
     document::{Feature, FeatureId, FeatureKind},
+    pattern_path::{CurvePath, PathError, Station, curve_path},
     recompute::{CancelToken, Failure, FeatureError, FeatureResult, FixTarget, Inputs},
     solid::{BodyOperation, SolidResult},
     tolerance, trouble,
@@ -47,6 +49,36 @@ pub struct CircularPattern {
     pub reversed: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CurveSpacing {
+    #[default]
+    Spread,
+    Distance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CopyOrientation {
+    #[default]
+    Kept,
+    Following,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CurvePattern {
+    pub sketch: FeatureId,
+    pub count: Expression,
+    pub spacing: Expression,
+    pub measured: CurveSpacing,
+    pub orientation: CopyOrientation,
+    pub reversed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PointsPattern {
+    pub sketch: FeatureId,
+    pub base: PointReference,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PatternKind {
     Linear {
@@ -54,6 +86,8 @@ pub enum PatternKind {
         second: Option<LinearDirection>,
     },
     Circular(CircularPattern),
+    Curve(CurvePattern),
+    Points(PointsPattern),
 }
 
 pub type Instance = [u32; 2];
@@ -89,6 +123,8 @@ impl PatternKind {
             Self::Circular(circular) => {
                 circular.axis.heap_size() + circular.count.heap_size() + circular.angle.heap_size()
             }
+            Self::Curve(curve) => curve.count.heap_size() + curve.spacing.heap_size(),
+            Self::Points(points) => points.base.heap_size(),
         }
     }
 
@@ -96,11 +132,45 @@ impl PatternKind {
         match self {
             Self::Linear { .. } => "Linear pattern",
             Self::Circular(_) => "Circular pattern",
+            Self::Curve(_) => "Curve pattern",
+            Self::Points(_) => "Point pattern",
         }
     }
 
     pub fn is_linear(&self) -> bool {
         matches!(self, Self::Linear { .. })
+    }
+
+    pub fn sketch(&self) -> Option<FeatureId> {
+        match self {
+            Self::Curve(curve) => Some(curve.sketch),
+            Self::Points(points) => Some(points.sketch),
+            Self::Linear { .. } | Self::Circular(_) => None,
+        }
+    }
+
+    pub fn base(&self) -> Option<&PointReference> {
+        match self {
+            Self::Points(points) => Some(&points.base),
+            Self::Linear { .. } | Self::Circular(_) | Self::Curve(_) => None,
+        }
+    }
+}
+
+pub fn point_instance(point: EntityId) -> Option<Instance> {
+    let key = point.raw().checked_add(1)?;
+    Some([(key & u64::from(u32::MAX)) as u32, (key >> 32) as u32])
+}
+
+pub fn instance_point([low, high]: Instance) -> Option<EntityId> {
+    let key = u64::from(low) | (u64::from(high) << 32);
+    key.checked_sub(1).map(EntityId::from_raw)
+}
+
+pub fn point_copy_name(instance: Instance) -> String {
+    match (instance == ORIGINAL_INSTANCE, instance_point(instance)) {
+        (false, Some(point)) => format!("the copy at point {point}"),
+        _ => instance_name(instance),
     }
 }
 
@@ -161,6 +231,17 @@ impl Pattern {
                 Some([count(&first.count)?, across])
             }
             PatternKind::Circular(circular) => Some([count(&circular.count)?, 1]),
+            PatternKind::Curve(curve) => Some([count(&curve.count)?, 1]),
+            PatternKind::Points(_) => None,
+        }
+    }
+
+    pub fn instance_words(&self, instance: Instance) -> String {
+        match self.kind {
+            PatternKind::Points(_) => point_copy_name(instance),
+            PatternKind::Linear { .. } | PatternKind::Circular(_) | PatternKind::Curve(_) => {
+                instance_name(instance)
+            }
         }
     }
 
@@ -197,6 +278,8 @@ impl Pattern {
                 .flat_map(|direction| [&direction.count, &direction.spacing])
                 .collect(),
             PatternKind::Circular(circular) => vec![&circular.count, &circular.angle],
+            PatternKind::Curve(curve) => vec![&curve.count, &curve.spacing],
+            PatternKind::Points(_) => Vec::new(),
         }
     }
 
@@ -207,6 +290,7 @@ impl Pattern {
                 .map(|direction| &direction.axis)
                 .collect(),
             PatternKind::Circular(circular) => vec![&circular.axis],
+            PatternKind::Curve(_) | PatternKind::Points(_) => Vec::new(),
         }
     }
 
@@ -230,17 +314,27 @@ impl Pattern {
             .collect()
     }
 
-    pub fn axis_frames(&self) -> BTreeSet<FeatureId> {
-        self.axes()
+    pub fn point_datums(&self) -> BTreeSet<FeatureId> {
+        self.kind
+            .base()
+            .and_then(PointReference::datum)
             .into_iter()
-            .filter_map(AxisReference::frame)
             .collect()
     }
 
-    pub fn axis_bodies(&self) -> BTreeSet<FeatureId> {
+    pub fn frames(&self) -> BTreeSet<FeatureId> {
+        self.axes()
+            .into_iter()
+            .filter_map(AxisReference::frame)
+            .chain(self.kind.base().and_then(PointReference::frame))
+            .collect()
+    }
+
+    pub fn bodies(&self) -> BTreeSet<FeatureId> {
         self.axes()
             .into_iter()
             .filter_map(AxisReference::body)
+            .chain(self.kind.base().and_then(PointReference::body))
             .collect()
     }
 
@@ -248,13 +342,21 @@ impl Pattern {
         self.axes()
             .into_iter()
             .flat_map(AxisReference::origin_features)
+            .chain(
+                self.kind
+                    .base()
+                    .map(PointReference::origin_features)
+                    .unwrap_or_default(),
+            )
             .collect()
     }
 
-    pub fn axis_sketches(&self) -> BTreeSet<FeatureId> {
+    pub fn sketches(&self) -> BTreeSet<FeatureId> {
         self.axes()
             .into_iter()
             .filter_map(AxisReference::sketch)
+            .chain(self.kind.sketch())
+            .chain(self.kind.base().and_then(PointReference::sketch))
             .collect()
     }
 
@@ -262,8 +364,9 @@ impl Pattern {
         let mut used = BTreeSet::from([self.body]);
         used.extend(self.repeated.iter().copied());
         used.extend(self.axis_datums());
-        used.extend(self.axis_bodies());
-        used.extend(self.axis_sketches());
+        used.extend(self.point_datums());
+        used.extend(self.bodies());
+        used.extend(self.sketches());
         used
     }
 }
@@ -271,6 +374,12 @@ impl Pattern {
 struct Context<'a> {
     resolver: Resolver<'a>,
     subject: String,
+    at_points: bool,
+}
+
+struct Placed<'a> {
+    sketch: &'a Sketch,
+    name: String,
 }
 
 struct Steps {
@@ -435,6 +544,171 @@ impl Context<'_> {
             .collect()
     }
 
+    fn sketch(&self, sketch: FeatureId) -> Result<Placed<'_>, Failure> {
+        let inputs = self.resolver.inputs;
+        let name = feature_name(inputs.document, sketch);
+        match inputs
+            .features
+            .get(&sketch)
+            .and_then(|result| result.sketch())
+        {
+            Some(result) => Ok(Placed {
+                sketch: &result.geometry,
+                name,
+            }),
+            None => Err(self.resolver.error(
+                format!("It follows {name}, which has an error or is not a sketch."),
+                format!("Fix {name} first, or choose another sketch."),
+                sketch,
+            )),
+        }
+    }
+
+    fn path_failure(&self, placed: &Placed<'_>, sketch: FeatureId, error: &PathError) -> Failure {
+        let name = &placed.name;
+        let (reason, remedy) = match error {
+            PathError::NoCurves => (
+                format!("{name} has no curve for the copies to follow."),
+                format!("Draw a line, arc or spline in {name}, or choose another sketch."),
+            ),
+            PathError::NotOneChain => (
+                format!(
+                    "The curves of {name} do not join end to end into one chain, so it is \
+                     unclear which way the copies run."
+                ),
+                format!(
+                    "Join the curves of {name} end to end without branches, or make the others \
+                     construction geometry."
+                ),
+            ),
+            PathError::NoLength { entity } => (
+                format!(
+                    "{} in {name} has no length.",
+                    entity_label(placed.sketch, *entity)
+                ),
+                format!("Give it a length or delete it from {name}."),
+            ),
+            PathError::Curve(_) => (
+                format!("A curve of {name} could not be followed."),
+                format!("Redraw the curves of {name}."),
+            ),
+        };
+        self.resolver.error(reason, remedy, sketch)
+    }
+
+    fn curve(&self, curve: &CurvePattern) -> Result<Vec<PatternCopy>, Failure> {
+        let count = self.count(&curve.count, "count")?;
+        let placed = self.sketch(curve.sketch)?;
+        let path = curve_path(placed.sketch)
+            .map_err(|error| self.path_failure(&placed, curve.sketch, &error))?;
+        let step = self.curve_step(curve, count, &path)?;
+        let plane = placed.sketch.plane();
+        let start = path
+            .station(0.0, curve.reversed)
+            .ok_or_else(|| self.unplaceable())?;
+        (1..count)
+            .map(|index| {
+                let station = path
+                    .station(step * f64::from(index), curve.reversed)
+                    .ok_or_else(|| self.unplaceable())?;
+                self.copy(
+                    [index, 0],
+                    along_curve(&plane, start, station, curve.orientation),
+                )
+            })
+            .collect()
+    }
+
+    fn curve_step(
+        &self,
+        curve: &CurvePattern,
+        count: u32,
+        path: &CurvePath,
+    ) -> Result<f64, Failure> {
+        let length = path.length();
+        let steps = f64::from(count.saturating_sub(1));
+        let step = match curve.measured {
+            CurveSpacing::Spread if path.is_closed() => length / f64::from(count),
+            CurveSpacing::Spread if count > 1 => length / steps,
+            CurveSpacing::Spread => 0.0,
+            CurveSpacing::Distance => {
+                let spacing = self
+                    .resolver
+                    .value(&curve.spacing, "spacing", Dimension::LENGTH)?;
+                if spacing <= 0.0 {
+                    return Err(self.error(
+                        "The spacing must be more than zero.".to_owned(),
+                        "Enter a length above zero, and tick Reversed to go the other way.",
+                    ));
+                }
+                spacing
+            }
+        };
+        let reach = step * steps;
+        let past_end = if path.is_closed() {
+            reach >= length - LINEAR_RESOLUTION
+        } else {
+            reach > length + LINEAR_RESOLUTION
+        };
+        if past_end {
+            let length = format_number(length);
+            let reason = if path.is_closed() {
+                format!(
+                    "The copies would go all the way round the curve, which is {length} mm \
+                     long, and land on the original."
+                )
+            } else {
+                format!(
+                    "The copies would run past the end of the curve, which is {length} mm long."
+                )
+            };
+            return Err(self.error(
+                reason,
+                "Lower the count or the spacing, or spread the copies over the whole curve.",
+            ));
+        }
+        Ok(step)
+    }
+
+    fn unplaceable(&self) -> Failure {
+        self.error(
+            "A copy could not be placed on the curve.".to_owned(),
+            "Redraw the curve so it has a direction everywhere.",
+        )
+    }
+
+    fn points(&self, points: &PointsPattern) -> Result<Vec<PatternCopy>, Failure> {
+        let base = self.resolver.point(&points.base)?;
+        let placed = self.sketch(points.sketch)?;
+        let plane = placed.sketch.plane();
+        let ids = placed.sketch.free_points();
+        if ids.is_empty() {
+            let name = &placed.name;
+            return Err(self.resolver.error(
+                format!("{name} has no lone points to place copies at."),
+                format!(
+                    "Add points to {name} with the Point tool; the ends of curves do not count."
+                ),
+                points.sketch,
+            ));
+        }
+        let mut copies = Vec::with_capacity(ids.len());
+        for id in ids {
+            let (Some(point), Some(index)) = (placed.sketch.point(id), point_instance(id)) else {
+                continue;
+            };
+            let target = plane.to_world(point);
+            if target.distance(base) <= LINEAR_RESOLUTION {
+                continue;
+            }
+            copies.push(self.copy(index, RigidTransform::translation(target - base))?);
+        }
+        if copies.len() >= MAX_PATTERN_INSTANCES as usize {
+            return Err(self.too_many((copies.len() + 1) as f64));
+        }
+        Ok(copies)
+    }
+
     fn copy(
         &self,
         index: [u32; 2],
@@ -452,6 +726,15 @@ impl Context<'_> {
         })
     }
 
+    fn describe(&self, copies: &[[u32; 2]]) -> String {
+        let name = if self.at_points {
+            point_copy_name
+        } else {
+            instance_name
+        };
+        describe_copies(copies, name)
+    }
+
     fn failure(&self, error: &PatternError) -> Failure {
         let body = &self.subject;
         match error {
@@ -467,7 +750,7 @@ impl Context<'_> {
                 format!(
                     "{} of {body} meet only along an edge or at a corner, and could not be \
                      kept as separate shells.",
-                    describe_copies(copies)
+                    self.describe(copies)
                 ),
                 "Change the spacing or the angle so the copies overlap or stand apart.",
             ),
@@ -477,7 +760,7 @@ impl Context<'_> {
             } => self.error(
                 format!(
                     "{} of {body} touch where it cannot be told which side is inside.",
-                    describe_copies(copies)
+                    self.describe(copies)
                 ),
                 "Change the spacing or the angle slightly.",
             ),
@@ -486,7 +769,7 @@ impl Context<'_> {
                 self.error(
                     format!(
                         "{} of {body} could not be joined together.",
-                        describe_copies(copies)
+                        self.describe(copies)
                     ),
                     "Change the spacing or the angle slightly, or lower the count.",
                 )
@@ -603,6 +886,7 @@ impl Context<'_> {
                     inputs,
                 },
                 subject: seed.name.clone(),
+                at_points: self.at_points,
             };
             for tool in &seed.tools {
                 if cancel.is_cancelled() {
@@ -667,11 +951,39 @@ pub fn instance_name(instance: Instance) -> String {
     }
 }
 
-fn describe_copies(copies: &[[u32; 2]]) -> String {
+fn along_curve(
+    plane: &Plane,
+    start: Station,
+    station: Station,
+    orientation: CopyOrientation,
+) -> Option<RigidTransform> {
+    let from = plane.to_world(start.point);
+    let shift = RigidTransform::translation(plane.to_world(station.point) - from)?;
+    match orientation {
+        CopyOrientation::Kept => Some(shift),
+        CopyOrientation::Following => {
+            let turn = turn_between(plane, start.tangent, station.tangent);
+            let turned = RigidTransform::rotation_about(from, plane.normal(), turn)?;
+            Some(turned.then(&shift))
+        }
+    }
+}
+
+fn turn_between(plane: &Plane, from: Vector2, to: Vector2) -> f64 {
+    let world = |direction: Vector2| plane.x_axis() * direction.x + plane.y_axis() * direction.y;
+    let (from, to) = (world(from), world(to));
+    plane.normal().dot(from.cross(to)).atan2(from.dot(to))
+}
+
+fn entity_label(sketch: &Sketch, entity: u64) -> String {
+    sketch.entity_label(EntityId::from_raw(entity))
+}
+
+fn describe_copies(copies: &[[u32; 2]], name: fn(Instance) -> String) -> String {
     let named: Vec<String> = copies
         .iter()
         .take(MAX_NAMED_COPIES)
-        .map(|copy| instance_name(*copy))
+        .map(|copy| name(*copy))
         .collect();
     let more = copies.len().saturating_sub(MAX_NAMED_COPIES);
     let text = match more {
@@ -699,10 +1011,13 @@ pub(crate) fn evaluate(
     let context = Context {
         resolver: Resolver { feature, inputs },
         subject: format!("the body of {body_name}"),
+        at_points: matches!(definition.kind, PatternKind::Points(_)),
     };
     let mut copies = match &definition.kind {
         PatternKind::Linear { first, second } => context.linear(first, second.as_ref())?,
         PatternKind::Circular(circular) => context.circular(circular)?,
+        PatternKind::Curve(curve) => context.curve(curve)?,
+        PatternKind::Points(points) => context.points(points)?,
     };
     copies.retain(|copy| !definition.is_skipped(copy.index));
     let Some(solid) = inputs.body(definition.body) else {

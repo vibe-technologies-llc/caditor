@@ -547,14 +547,16 @@ impl Rescaler {
                     self.summary.cleared_standards.push(name.to_owned());
                 }
             }
-            FeatureKind::Pattern(pattern) => {
-                if let PatternKind::Linear { first, second } = &mut pattern.kind {
+            FeatureKind::Pattern(pattern) => match &mut pattern.kind {
+                PatternKind::Linear { first, second } => {
                     self.length(&mut first.spacing, name)?;
                     if let Some(second) = second {
                         self.length(&mut second.spacing, name)?;
                     }
                 }
-            }
+                PatternKind::Curve(curve) => self.length(&mut curve.spacing, name)?,
+                PatternKind::Circular(_) | PatternKind::Points(_) => {}
+            },
             FeatureKind::Datum(datum) => self.datum(datum, name)?,
             FeatureKind::Import(import) => {
                 let shift = match import.placement.frame {
@@ -820,7 +822,8 @@ fn anchors(kind: &FeatureKind) -> Vec<Anchor> {
             .collect(),
         FeatureKind::Pattern(pattern) => match &pattern.kind {
             PatternKind::Circular(circular) => axis_anchor(&circular.axis).into_iter().collect(),
-            PatternKind::Linear { .. } => Vec::new(),
+            PatternKind::Points(points) => point_anchor(&points.base).into_iter().collect(),
+            PatternKind::Linear { .. } | PatternKind::Curve(_) => Vec::new(),
         },
         FeatureKind::Datum(datum) => datum_anchors(datum),
         FeatureKind::Hole(hole) => hole

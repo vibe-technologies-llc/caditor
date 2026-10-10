@@ -200,6 +200,8 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 }
             }
             PatternKind::Circular(circular) => visit_axis(&mut circular.axis, "axis", visitor),
+            PatternKind::Points(points) => visit_point(&mut points.base, "base point", visitor),
+            PatternKind::Curve(_) => {}
         },
         FeatureKind::Datum(Datum::Plane(plane)) => {
             visit_plane(&mut plane.base, "the face it is based on", visitor);

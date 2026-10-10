@@ -29,6 +29,7 @@ mod parameter_import;
 mod parameter_list;
 mod paste;
 mod pattern;
+mod pattern_path;
 mod pieces;
 mod pool;
 mod presenting;
@@ -105,9 +106,12 @@ pub use crate::{
         PasteError, PasteOrigin, PasteRefusal, feature_parameters, literal,
     },
     pattern::{
-        CircularPattern, Instance, LinearDirection, LinearSpacing, MAX_PATTERN_INSTANCES,
-        ORIGINAL_INSTANCE, Pattern, PatternKind, instance_name, repeatable_on,
+        CircularPattern, CopyOrientation, CurvePattern, CurveSpacing, Instance, LinearDirection,
+        LinearSpacing, MAX_PATTERN_INSTANCES, ORIGINAL_INSTANCE, Pattern, PatternKind,
+        PointsPattern, instance_name, instance_point, point_copy_name, point_instance,
+        repeatable_on,
     },
+    pattern_path::{PathError, is_curve_path},
     pieces::{Resolution, Unresolved},
     primitive::{
         Cap, MAX_PRISM_SIDES, MIN_PRISM_SIDES, Primitive, PrimitiveAnchor, PrimitiveKind,
@@ -202,6 +206,8 @@ mod parameter_import_tests;
 mod parameter_tests;
 #[cfg(test)]
 mod paste_tests;
+#[cfg(test)]
+mod pattern_path_tests;
 #[cfg(test)]
 mod pattern_tests;
 #[cfg(test)]

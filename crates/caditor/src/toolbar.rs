@@ -707,11 +707,8 @@ fn pattern_buttons(
 ) {
     let document = model.document();
     let source = &context.offers.pattern;
-    for shape in Shape::ALL {
-        let command = match shape {
-            Shape::Linear => Command::LinearPattern,
-            Shape::Circular => Command::CircularPattern,
-        };
+    for shape in Shape::ON_RIBBON {
+        let command = shape.command();
         let invoked = commands.invoke(command, source);
         let help = match source {
             Ok(source) => {
@@ -727,10 +724,13 @@ fn pattern_buttons(
                     (Shape::Circular, Some(axis)) => {
                         format!("Repeat {subject} around {}", describe_axis(document, axis))
                     }
-                    (Shape::Circular, None) => format!(
+                    (Shape::Circular | Shape::Curve | Shape::Points, None) => format!(
                         "Repeat {subject} around the Z axis, or around an axis or round face you \
                          select first"
                     ),
+                    (Shape::Curve | Shape::Points, Some(axis)) => {
+                        format!("Repeat {subject} about {}", describe_axis(document, axis))
+                    }
                 };
                 Ok(commands.with_keys(command, &hover))
             }
@@ -741,6 +741,16 @@ fn pattern_buttons(
         };
         let response = tool(ui, command, shape.title(), &help);
         if (response.clicked() || invoked)
+            && let Ok(source) = source
+        {
+            actions.extend(pattern_tools::create_actions(model, shape, source));
+        }
+    }
+    for (shape, source) in [
+        (Shape::Curve, &context.offers.curve_pattern),
+        (Shape::Points, &context.offers.point_pattern),
+    ] {
+        if commands.invoke(shape.command(), source)
             && let Ok(source) = source
         {
             actions.extend(pattern_tools::create_actions(model, shape, source));

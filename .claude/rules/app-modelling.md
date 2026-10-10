@@ -31,6 +31,7 @@ paths:
   - "crates/caditor/src/datum_panel.rs"
   - "crates/caditor/src/pattern_tools.rs"
   - "crates/caditor/src/pattern_panel.rs"
+  - "crates/caditor/src/sketch_pattern_tools.rs"
   - "crates/caditor/src/feature_fields.rs"
   - "crates/caditor/src/reference_picking.rs"
   - "crates/caditor/src/visibility.rs"
@@ -626,6 +627,27 @@ paths:
   direction (rows for the second), checked when made; clicking one leaves it out or brings it back
   as one undoable change, the original disabled. A muted line under it counts what is left out.
   Switching between linear and circular clears the instances left out.
+- Curve pattern and Point pattern (`Command::CurvePattern`, `PointPattern`; Model › Patterns
+  and the palette, no default key and not on the ribbon, which they would widen past one row) take
+  the body as Linear and Circular do, except that a selection holding only sketch geometry leaves
+  the body to the last one standing, and a sketch (`sketch_pattern_tools::source`): the one whose
+  curves, points or regions are selected (several sketches, one made after the bar, or one that
+  does not fit are refused in words), else the last sketch above the bar that no later feature
+  uses and that fits (`guess`): its curves one chain (`is_curve_path`) for a curve pattern, at
+  least one lone point for a point pattern. A curve pattern starts with 4 copies spread evenly,
+  kept as they are; a point pattern moves its copies from the origin.
+- The Shape switch has all four kinds (Linear, Circular, Curve, Points). Switching to Curve or
+  Points keeps the pattern's sketch when it fits, else guesses one, else is refused saying what to
+  draw (`pattern_tools::reshaped`); a count carries over between Linear, Circular and Curve.
+- A curve pattern's panel has Curve (a combo of the sketches above it that fit,
+  `sketch_pattern_tools::listed`, above Use selected or Choose in the view, `Slot::PatternPath`),
+  Count, Spaced (Evenly, By distance with its Spacing field), Copies (Kept as they are, Turned
+  with the curve) and Reverse direction, then the Instances grid. A point pattern's has Points (the
+  same row for sketches with lone points), Base point (in words, Use selected or Choose in the view,
+  `Slot::PatternBase`, taking a point as a datum point does, and Use the origin while it is
+  another) and, as its copies are named by point rather than laid out in a grid, a line counting
+  the copies left out with Bring the copies back. Reverse the direction refuses a point pattern
+  in words.
 - While a pattern is open, a click on a face of one of its copies (`FaceOrigin::Copy` of this
   pattern, found through the shown body's result, `pattern_tools::clicked_copy`) leaves that copy
   out as the grid would, and hovering one says so; other clicks select as usual. A copy left out

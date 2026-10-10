@@ -4,6 +4,7 @@ use caditor_sketch::EntityId;
 use crate::{
     document::{Document, FeatureId},
     hole::Hole,
+    pattern::PatternKind,
     primitive::Cap,
 };
 
@@ -23,6 +24,14 @@ pub fn describe_origin(document: &Document, origin: Option<FaceOrigin>) -> Strin
     let pattern = copier.map_or("a deleted pattern", |feature| feature.name.as_str());
     if copier.is_some_and(|feature| feature.kind.mirror().is_some()) {
         return format!("{pattern} image of {}", lowercase_first(&original));
+    }
+    if let Some(at_points) = copier
+        .and_then(|feature| feature.kind.pattern())
+        .filter(|found| matches!(found.kind, PatternKind::Points(_)))
+    {
+        let copy = at_points.instance_words(copy.index);
+        let copy = copy.strip_prefix("the ").unwrap_or(&copy);
+        return format!("{pattern} {copy} of {}", lowercase_first(&original));
     }
     let steps = match copy.index {
         [step, 0] => step.to_string(),
