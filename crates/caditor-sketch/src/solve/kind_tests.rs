@@ -1179,7 +1179,8 @@ fn the_end_factor_gives_the_curvature_at_either_end_of_a_spline() {
     for count in 3..=points.len() {
         let used = &points[..count];
         let curve = crate::curve::BSpline::clamped(used.to_vec()).unwrap();
-        let factor = super::spline::end_factor(count);
+        let factor = super::spline::end_factor(curve.degree(), curve.knots(), true);
+        let far_factor = super::spline::end_factor(curve.degree(), curve.knots(), false);
         let curvature = |parameter: f64| {
             let [tangent, bend] = curve.derivatives(parameter);
             tangent.perp_dot(bend) / tangent.length().powi(3)
@@ -1187,10 +1188,35 @@ fn the_end_factor_gives_the_curvature_at_either_end_of_a_spline() {
 
         let start = signed_curvature(used[0], used[1], used[2], factor);
         let last = count - 1;
-        let end = signed_curvature(used[last], used[last - 1], used[last - 2], factor);
+        let end = signed_curvature(used[last], used[last - 1], used[last - 2], far_factor);
 
         assert!((start - curvature(0.0)).abs() < 1e-9, "{count}: {start}");
         assert!((end + curvature(1.0)).abs() < 1e-9, "{count}: {end}");
+
+        let chord = crate::curve::BSpline::interpolate_centripetal(used).unwrap();
+        let control = chord.control_points();
+        let chord_curvature = |parameter: f64| {
+            let [tangent, bend] = chord.derivatives(parameter);
+            tangent.perp_dot(bend) / tangent.length().powi(3)
+        };
+        let start = signed_curvature(
+            control[0],
+            control[1],
+            control[2],
+            super::spline::end_factor(chord.degree(), chord.knots(), true),
+        );
+        let end = signed_curvature(
+            control[last],
+            control[last - 1],
+            control[last - 2],
+            super::spline::end_factor(chord.degree(), chord.knots(), false),
+        );
+
+        assert!(
+            (start - chord_curvature(0.0)).abs() < 1e-9,
+            "{count}: {start}"
+        );
+        assert!((end + chord_curvature(1.0)).abs() < 1e-9, "{count}: {end}");
     }
 }
 

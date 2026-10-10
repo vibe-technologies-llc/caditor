@@ -4,8 +4,8 @@ use caditor_document::{Edit, FeatureId, Transaction, TransactionBuilder};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Point2, Vector2};
 use caditor_sketch::{
-    Constraint, ConstraintId, Entity, EntityId, EntityState, Reference, Relations, Sketch,
-    SketchSolution, SplineKind,
+    Constraint, ConstraintId, Entity, EntityId, EntityState, FitSpacing, Reference, Relations,
+    Sketch, SketchSolution, SplineKind,
 };
 
 use crate::{
@@ -2042,6 +2042,50 @@ pub const SPLIT_TITLE: &str = "Split curve";
 pub const NOTHING_TO_BREAK: &str =
     "Select the lines, arcs and elliptical arcs to break at their crossings";
 pub const BREAK_TITLE: &str = "Break curves";
+pub const NOTHING_TO_RESPACE: &str = "Select fit-point splines drawn before their curves followed \
+                                      the spacing of their points";
+pub const RESPACE_TITLE: &str = "Respace fit-point splines";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RespaceChange {
+    pub splines: Vec<EntityId>,
+}
+
+impl RespaceChange {
+    pub fn of(sketch: &Sketch, selected: &[EntityId]) -> Result<Self, String> {
+        let splines: Vec<EntityId> = selected
+            .iter()
+            .copied()
+            .filter(|id| {
+                !id.is_reference()
+                    && !sketch.is_projected(*id)
+                    && matches!(
+                        sketch.entity(*id).and_then(Entity::spline_kind),
+                        Some(SplineKind::Fit {
+                            spacing: FitSpacing::Even,
+                            ..
+                        })
+                    )
+            })
+            .collect();
+        if splines.is_empty() {
+            Err(NOTHING_TO_RESPACE.to_owned())
+        } else {
+            Ok(Self { splines })
+        }
+    }
+
+    pub fn transaction(&self, model: &Model, feature: FeatureId) -> Result<Transaction, String> {
+        crate::trimming::reshaped(model, feature, RESPACE_TITLE.to_owned(), |sketch| {
+            for spline in &self.splines {
+                sketch
+                    .respace_fit_spline(*spline)
+                    .map_err(|error| format!("{RESPACE_TITLE}: {error}."))?;
+            }
+            Ok(())
+        })
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SplitChange {

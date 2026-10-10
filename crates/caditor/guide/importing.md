@@ -10,7 +10,9 @@ A drawing becomes sketch geometry: in the sketch being edited, else in a new ske
 file. Before it is added, a dialog asks the unit to read it in (as the file says, by default), a
 scale, whether to centre it on the origin, the plane for a new sketch and, for a drawing of several
 layers, which layers to take. It shows the size the drawing will have. Dashed lines come in as
-construction geometry.
+construction geometry. A DXF spline given only by the points it passes through comes in as a
+[fit-point spline](spline) through those points, open or closed as the file says, so you can drag
+and constrain them.
 
 {command:sketch.toggle_first_dimension_scales} then sizes an outline traced from a picture with one
 dimension; see [dimensions](dimensions).

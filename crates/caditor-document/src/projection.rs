@@ -9,7 +9,9 @@ use caditor_kernel::{
     BooleanError, Curve, EdgeId, EdgeReference, ReferenceError, Solid, VertexId, VertexName,
     vertex_names,
 };
-use caditor_sketch::{ArcGeometry, BSpline, EllipseGeometry, Entity, EntityId, Sketch, SplineKind};
+use caditor_sketch::{
+    ArcGeometry, BSpline, EllipseGeometry, Entity, EntityId, FitSpacing, Sketch, SplineKind,
+};
 
 use crate::{
     attachment::SketchFeature,
@@ -135,8 +137,8 @@ pub enum Outline {
 enum SplineForm {
     Open,
     Closed,
-    Fit,
-    ClosedFit,
+    Fit(FitSpacing),
+    ClosedFit(FitSpacing),
     Conic,
 }
 
@@ -145,8 +147,14 @@ impl SplineForm {
         match kind {
             SplineKind::Control { closed: false } => Self::Open,
             SplineKind::Control { closed: true } => Self::Closed,
-            SplineKind::Fit { closed: false } => Self::Fit,
-            SplineKind::Fit { closed: true } => Self::ClosedFit,
+            SplineKind::Fit {
+                closed: false,
+                spacing,
+            } => Self::Fit(spacing),
+            SplineKind::Fit {
+                closed: true,
+                spacing,
+            } => Self::ClosedFit(spacing),
             SplineKind::Conic { .. } => Self::Conic,
         }
     }

@@ -160,6 +160,7 @@ pub fn command(command: Command) -> &'static str {
         Command::ToggleConstraintActive => phosphor::PROHIBIT,
         Command::SplitCurve => phosphor::GIT_COMMIT,
         Command::BreakCurves => phosphor::GIT_FORK,
+        Command::RespaceFitSplines => phosphor::BEZIER_CURVE,
         Command::RotateGeometry => phosphor::ARROW_ARC_LEFT,
         Command::ScaleGeometry => phosphor::RESIZE,
         Command::Construction => CONSTRUCTION,

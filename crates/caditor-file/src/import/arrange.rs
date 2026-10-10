@@ -238,8 +238,13 @@ impl DrawingCurve {
                 *start = change(*start);
                 *end = change(*end);
             }
-            Self::Spline { control_points } => {
-                for point in control_points {
+            Self::Spline {
+                control_points: points,
+            }
+            | Self::FitSpline {
+                fit_points: points, ..
+            } => {
+                for point in points {
                     *point = change(*point);
                 }
             }

@@ -1913,6 +1913,7 @@ fn several_faces_go_into_one_drawing_side_by_side() {
                     ]
                 }
                 crate::DrawingCurve::Spline { control_points } => control_points.clone(),
+                crate::DrawingCurve::FitSpline { fit_points, .. } => fit_points.clone(),
                 crate::DrawingCurve::Ellipse {
                     center,
                     major,

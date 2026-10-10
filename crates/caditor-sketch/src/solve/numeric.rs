@@ -683,6 +683,7 @@ impl Solver<'_> {
             .filter(|(_, (variable, delta))| {
                 let current = value(values, **variable);
                 self.system.parameter_variables.contains(variable)
+                    && !self.system.wrapping_parameters.contains(variable)
                     && ((current <= 0.0 && **delta < 0.0) || (current >= 1.0 && **delta > 0.0))
             })
             .map(|(column, _)| column)
@@ -714,7 +715,9 @@ impl Solver<'_> {
             for ((variable, delta), start) in component.variables.iter().zip(step).zip(&start) {
                 if let Some(slot) = values.get_mut(*variable) {
                     let moved = start + fraction * delta;
-                    *slot = if self.system.parameter_variables.contains(variable) {
+                    *slot = if self.system.wrapping_parameters.contains(variable) {
+                        moved.rem_euclid(1.0)
+                    } else if self.system.parameter_variables.contains(variable) {
                         moved.clamp(0.0, 1.0)
                     } else {
                         moved

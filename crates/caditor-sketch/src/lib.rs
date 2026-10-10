@@ -21,6 +21,7 @@ mod pattern;
 mod relation;
 mod sketch;
 mod solve;
+mod spacing;
 mod split;
 mod tangent_circle;
 mod trim;
@@ -33,7 +34,7 @@ pub use crate::{
     clip::{ClipError, SketchClip},
     constraint::{Constraint, DimensionError, MAX_LENGTH},
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting, conic_weight},
-    entity::{Entity, MAX_RHO, MIN_RHO, SplineKind},
+    entity::{Entity, FitSpacing, MAX_RHO, MIN_RHO, SplineKind},
     fillet::{Bevel, ChamferSize, Corner, FilletError, Rounding},
     fit::FittedSpline,
     gear::{

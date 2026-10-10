@@ -101,6 +101,11 @@ paths:
   in one transaction;
   anything else is refused with `NOTHING_TO_SPLIT` or the sketch's reason. A point placed on a
   curve first (the Point tool snaps onto it) gives a split anywhere.
+- Respace the selected fit-point splines by their points (`Command::RespaceFitSplines`, Sketch
+  menu, palette, no default key; `sketch_tools::RespaceChange`) turns the selected evenly spaced
+  fit-point splines (from files saved before centripetal spacing) into centripetal ones in one
+  transaction (`Sketch::respace_fit_spline` through `reshape_sketch`), keeping their points;
+  without such a spline selected it is unavailable with `NOTHING_TO_RESPACE`.
 - Break the selected curves at every crossing (`Command::BreakCurves`, Sketch menu, palette;
   `sketch_tools::BreakChange`) takes the selected lines, arcs and elliptical arcs and breaks each
   at every
@@ -235,8 +240,8 @@ paths:
   one Curve button (`app-look.md`), since an ellipse is a curve of its own, not a way to draw
   another.
 - Spline has four ways (`SplineMode`): by control points, through fit points (the curve passes
-  each placed point, which stays a point to constrain and dimension), and both closed, where
-  Enter closes the loop. Clicking the first point closes either open way too. The preview is the
+  each placed point, which stays a point to constrain and dimension, spaced centripetally,
+  `SplineKind::fit`), and both closed, where Enter closes the loop. Clicking the first point closes either open way too. The preview is the
   curve of that kind through the placed points and the pointer.
 - Blend curve keeps its two ways the same way: tangent (G1) and curvature-continuous (G2)
   (`ShapeMode::Blend`, `ShapeModes::blend`), listed with the shapes under Sketch › Ways to draw

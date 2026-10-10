@@ -3375,7 +3375,7 @@ mod tests {
         ];
         let mut sketch = Sketch::new(Plane::XY);
         sketch.add_spline(&corners);
-        sketch.add_spline_of(&corners, SplineKind::Fit { closed: false });
+        sketch.add_spline_of(&corners, SplineKind::fit(false));
         let mut document = Document::default();
         let mut transaction = document.transaction("Add sketch");
         let feature = transaction.add_feature("Splines", FeatureKind::from(sketch));

@@ -194,19 +194,32 @@ pub(crate) enum Role {
 pub const MIN_RHO: f64 = 0.01;
 pub const MAX_RHO: f64 = 0.99;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FitSpacing {
+    Even,
+    Centripetal,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SplineKind {
     Control { closed: bool },
-    Fit { closed: bool },
+    Fit { closed: bool, spacing: FitSpacing },
     Conic { rho: f64 },
 }
 
 impl SplineKind {
     pub const OPEN: Self = Self::Control { closed: false };
 
+    pub fn fit(closed: bool) -> Self {
+        Self::Fit {
+            closed,
+            spacing: FitSpacing::Centripetal,
+        }
+    }
+
     pub fn is_closed(self) -> bool {
         match self {
-            Self::Control { closed } | Self::Fit { closed } => closed,
+            Self::Control { closed } | Self::Fit { closed, .. } => closed,
             Self::Conic { .. } => false,
         }
     }
@@ -214,9 +227,22 @@ impl SplineKind {
     pub fn opened(self) -> Self {
         match self {
             Self::Control { .. } => Self::Control { closed: false },
-            Self::Fit { .. } => Self::Fit { closed: false },
+            Self::Fit { spacing, .. } => Self::Fit {
+                closed: false,
+                spacing,
+            },
             Self::Conic { .. } => self,
         }
+    }
+
+    pub fn is_centripetal(self) -> bool {
+        matches!(
+            self,
+            Self::Fit {
+                spacing: FitSpacing::Centripetal,
+                ..
+            }
+        )
     }
 
     pub fn same_form(self, other: Self) -> bool {
@@ -232,8 +258,10 @@ impl SplineKind {
 
     pub fn fewest_points(self) -> usize {
         match self {
-            Self::Control { closed: false } | Self::Fit { closed: false } => 2,
-            Self::Control { closed: true } | Self::Fit { closed: true } | Self::Conic { .. } => 3,
+            Self::Control { closed: false } | Self::Fit { closed: false, .. } => 2,
+            Self::Control { closed: true }
+            | Self::Fit { closed: true, .. }
+            | Self::Conic { .. } => 3,
         }
     }
 
@@ -241,8 +269,8 @@ impl SplineKind {
         match self {
             Self::Control { closed: false } => "Spline",
             Self::Control { closed: true } => "Closed spline",
-            Self::Fit { closed: false } => "Fit-point spline",
-            Self::Fit { closed: true } => "Closed fit-point spline",
+            Self::Fit { closed: false, .. } => "Fit-point spline",
+            Self::Fit { closed: true, .. } => "Closed fit-point spline",
             Self::Conic { .. } => "Conic",
         }
     }

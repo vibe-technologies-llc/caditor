@@ -419,9 +419,11 @@ paths:
   distance.
 - A spline entity record is `spline` (`control_points`) for an open control spline, as ever;
   the other kinds are records of their own, since an older reader would draw a different curve:
-  `closed_spline` (`control_points`), `fit_spline` and `closed_fit_spline` (`fit_points`) and
-  `conic` (`start`, `apex`, `end`, `rho`). Older readers report each as a kind from a newer
-  version and keep the points; a conic whose rho is out of range is refused like any bad entity.
+  `closed_spline` (`control_points`), `fit_spline` and `closed_fit_spline` (`fit_points`, evenly
+  spaced, as every fit-point spline was before spacing by the points), `centripetal_fit_spline`
+  and `closed_centripetal_fit_spline` (`fit_points`, `FitSpacing::Centripetal`, kinds of their
+  own since an older reader would draw the evenly spaced curve) and `conic` (`start`, `apex`,
+  `end`, `rho`). Older readers report each as a kind from a newer version and keep the points; a conic whose rho is out of range is refused like any bad entity.
   A conic's rho dimension is a `rho` constraint record (`conic`, `value`), an unreadable value
   falling back to the drawn rho as a plain number.
 - An ellipse is an `ellipse` entity record (`center`, `major`, `minor_radius`) and an elliptical

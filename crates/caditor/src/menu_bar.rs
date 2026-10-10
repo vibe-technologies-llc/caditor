@@ -793,6 +793,7 @@ impl Menus<'_> {
                 [
                     Command::SplitCurve,
                     Command::BreakCurves,
+                    Command::RespaceFitSplines,
                     Command::MoveGeometry,
                     Command::RotateGeometry,
                     Command::ScaleGeometry,

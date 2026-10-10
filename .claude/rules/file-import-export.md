@@ -41,7 +41,12 @@ paths:
 - Blocks and INSERTs nest with cycle and depth limits; a block's content is decoded once and shared
   by its instances.
 - SPLINE uses control points up to `MAX_SPLINE_DEGREE`, else fit points: with an end tangent the
-  cubic AutoCAD draws (`FitPoints::cubic`), otherwise `BSpline::through`.
+  cubic AutoCAD draws (`FitPoints::cubic`), otherwise a `DrawingCurve::FitSpline`, which
+  `drawing_transaction` makes a centripetal fit-point spline through the same points, closed when
+  the SPLINE's closed flag (70, bit 1) is set and three points remain once a repeated first point
+  is dropped (a closed one has no ends to join); a note counts them. Past `MAX_FIT_POINTS`, or
+  where no such spline can be drawn, the points are fitted with `BSpline::through` as before.
+  Hatch boundary splines given by fit points are read the same way, always open.
 - HATCH imports boundary paths only, never the fill (a note counts hatches); a path whose source
   objects are all drawn entities of the same space is left to them, so an associative hatch does
   not double its outline.
