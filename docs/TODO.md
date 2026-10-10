@@ -73,6 +73,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   spline intersected with a frustum leaves two tangent edges at one vertex, the end parting bisects
   them down to 1e-7, and the mesh then uses one edge twice in the same direction
   (`assert_watertight` fails on it).
+- [medium · medium] Shell gives a wrong solid without an error: a 10×14×10 bevelled box opened at
+  its top with walls 2.5 thick comes out at about 1000.5 in volume against the expected 1047.3,
+  before and after chains of edges were counted as sides; a kernel operation must give a valid
+  result or an error, never a bad solid.
 
 ## Kernel performance
 
