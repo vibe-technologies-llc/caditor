@@ -37,6 +37,8 @@ const LABEL_REACH: f64 = 200.0;
 const FULL_CELL_SHARE: f64 = 0.5;
 const MOST_GLYPH_COVER: f64 = 0.25;
 const MOST_LABEL_COVER: f64 = 0.5;
+const LABEL_SLACK: f64 = 4.0;
+const COLLAPSED_BELOW: f64 = 4.0;
 const POINT_GLYPH_QUADRANTS: [Vector2; 4] = [
     Vector2::ONE,
     Vector2::new(-1.0, 1.0),
@@ -148,13 +150,11 @@ impl Reach {
         }
     }
 
-    pub fn near_view(
+    pub fn on_screen(
         &self,
         placed: Option<(LabelFrame, Point2)>,
-        lane: usize,
         screen: &impl Screen,
-        view: Vector2,
-    ) -> bool {
+    ) -> Option<ScreenReach> {
         let reach = placed.map_or(*self, |(frame, at)| {
             let swing = Vector2::splat(frame.origin.distance(at));
             self.including(frame.origin - swing)
@@ -169,16 +169,49 @@ impl Reach {
         let mut low = Vector2::splat(f64::INFINITY);
         let mut high = Vector2::splat(f64::NEG_INFINITY);
         for corner in corners {
-            let Some(at) = screen.to_screen(corner) else {
-                return true;
-            };
+            let at = screen.to_screen(corner)?;
             low = low.min(at);
             high = high.max(at);
         }
+        Some(ScreenReach {
+            low,
+            high,
+            has_length: (self.high - self.low).max_element() > DEGENERATE,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScreenReach {
+    low: Vector2,
+    high: Vector2,
+    has_length: bool,
+}
+
+impl ScreenReach {
+    pub fn near_view(&self, lane: usize, view: Vector2) -> bool {
         let margin = Vector2::splat(
             DIMENSION_OFFSET + LANE_SPACING * lane as f64 + ANGLE_RADIUS + LABEL_REACH,
         );
-        low.cmple(view + margin).all() && high.cmpge(-margin).all()
+        self.low.cmple(view + margin).all() && self.high.cmpge(-margin).all()
+    }
+
+    pub fn collapses(&self) -> bool {
+        self.has_length && (self.high - self.low).max_element() < COLLAPSED_BELOW
+    }
+
+    pub fn centre(&self) -> Vector2 {
+        (self.low + self.high) / 2.0
+    }
+
+    pub fn label_neighbourhood(&self, lane: usize, chip: Vector2) -> Footprint {
+        let offset = (DIMENSION_OFFSET + LANE_SPACING * lane as f64)
+            .max(ANGLE_RADIUS)
+            .max(RADIUS_OVERSHOOT);
+        Footprint {
+            center: self.centre(),
+            half: (self.high - self.low) / 2.0 + Vector2::splat(offset + LABEL_SLACK) + chip,
+        }
     }
 }
 
@@ -957,6 +990,10 @@ pub fn mostly_covered(labels: &Obstacles, label: &Footprint) -> bool {
     labels.covers_more_than(label, MOST_LABEL_COVER)
 }
 
+pub fn crowded(labels: &Obstacles, neighbourhood: &Footprint) -> bool {
+    labels.cells_covered_over(neighbourhood, FULL_CELL_SHARE)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Thinning {
     Never,
@@ -1108,6 +1145,13 @@ fn placements(anchor: GlyphAnchor, count: usize) -> impl Iterator<Item = Placeme
         sides(true, 1, within).chain(sides(false, within + 1, within + GLYPH_STEPS_BEYOND))
     });
     quadrants.chain(shifted)
+}
+
+pub fn collapses(anchor: GlyphAnchor) -> bool {
+    match anchor {
+        GlyphAnchor::Segment(start, end) => start.distance(end) < COLLAPSED_BELOW,
+        GlyphAnchor::Point(_) | GlyphAnchor::Curve { .. } => false,
+    }
 }
 
 pub fn within_view(anchor: GlyphAnchor, size: Vector2) -> Option<GlyphAnchor> {
@@ -1609,6 +1653,87 @@ mod tests {
         });
 
         assert!(mostly_covered(&others, &label));
+    }
+
+    #[test]
+    fn marks_a_few_points_across_collapse_unless_they_measure_nothing() {
+        let on_screen = |a: Point2, b: Point2| {
+            let measured = Measured::Points(a, b);
+            Reach::of(&measured, label_frame(&measured))
+                .unwrap()
+                .on_screen(None, &Flat)
+                .unwrap()
+        };
+
+        let tiny = on_screen(Point2::ZERO, Point2::new(1.0, 0.5));
+        let wide = on_screen(Point2::ZERO, Point2::new(10.0, 0.0));
+        let nothing = on_screen(Point2::new(3.0, 3.0), Point2::new(3.0, 3.0));
+
+        assert!(tiny.collapses());
+        assert!(!wide.collapses());
+        assert!(!nothing.collapses());
+        assert!(collapses(GlyphAnchor::Segment(
+            Vector2::ZERO,
+            Vector2::new(3.0, 0.0)
+        )));
+        assert!(!collapses(GlyphAnchor::Segment(
+            Vector2::ZERO,
+            Vector2::new(10.0, 0.0)
+        )));
+        assert!(!collapses(GlyphAnchor::Point(Vector2::ZERO)));
+    }
+
+    #[test]
+    fn a_labels_neighbourhood_holds_the_label_wherever_its_dimension_puts_it() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let line = sketch.add_line(Point2::ZERO, Point2::new(40.0, 0.0));
+        let slanted = sketch.add_line(Point2::ZERO, Point2::new(20.0, 20.0));
+        let circle = sketch.add_circle(Point2::new(10.0, 10.0), 5.0);
+        let Some(&Entity::Line { start, end }) = sketch.entity(line) else {
+            panic!("expected a line");
+        };
+        let value = caditor_expression::Expression::Number(1.0);
+        let constraints = [
+            Constraint::Distance {
+                from: start,
+                to: end,
+                value: value.clone(),
+            },
+            Constraint::Radius {
+                entity: circle,
+                value: value.clone(),
+            },
+            Constraint::Angle {
+                from: line,
+                to: slanted,
+                reversed: false,
+                value,
+            },
+        ];
+        let chip = Vector2::new(70.0, 18.0);
+
+        for constraint in &constraints {
+            let measured = measured(&sketch, constraint).unwrap();
+            for lane in [0, 3] {
+                let near = Reach::of(&measured, label_frame(&measured))
+                    .unwrap()
+                    .on_screen(None, &Flat)
+                    .unwrap()
+                    .label_neighbourhood(lane, chip);
+                let layout =
+                    layout(&measured, &Flat, Some(Point2::new(20.0, -30.0)), lane, None).unwrap();
+                let side = layout.label_side;
+                let reach = side.x.abs() * chip.x / 2.0 + side.y.abs() * chip.y / 2.0 + 3.0;
+                let label = layout.label + side * reach;
+
+                assert!(
+                    ((label - near.center).abs() + chip / 2.0)
+                        .cmple(near.half)
+                        .all(),
+                    "{constraint:?} in lane {lane}"
+                );
+            }
+        }
     }
 
     #[test]

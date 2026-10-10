@@ -739,7 +739,9 @@ paths:
   at most `MOST_GLYPH_COVER` of its area, and a group whose unshifted places (both sides, or a
   point's four quadrants) lie in cells already `FULL_CELL_SHARE` covered is left out without
   trying any (`Thinning::WhenCrowded`), so a zoomed-out dense sketch shows as many glyphs as fit
-  and never walks crowded places. A group anchored on a selected entity of the sketch, or holding
+  and never walks crowded places. A thinned group anchored on a line under `COLLAPSED_BELOW`
+  points long on screen (`annotation_layout::collapses`) is left out unless one of its constraints
+  conflicts or is redundant. A group anchored on a selected entity of the sketch, or holding
   a selected or keyboard-highlighted constraint, is placed first and always (`Thinning::Never`,
   `ViewKey::kept` and `forced`), so what the user chose is still found. An entity's anchor is clipped to
   the view first (`within_view`; off-screen entities get no glyphs, a line is anchored at the middle
@@ -753,7 +755,8 @@ paths:
 - Labels show the expression in the document's naming, followed by its value when not a literal;
   conflicting and redundant constraints take the error and warning colours. Label texts are kept
   per sketch until the revision, evaluation, displayed sketches or units change
-  (`annotations::LabelTexts`), and a mark's description is formatted only for its hover
+  (`annotations::LabelTexts`), and their measured sizes by text across revisions until the pixel
+  density or the loaded fonts change (`SizesKey`, at most `MAX_MEASURED_TEXTS`), and a mark's description is formatted only for its hover
   (`annotations::Hover`), so a still frame formats and evaluates nothing.
 - Marks are worked out in two cached stages. `annotations::Measures` (what each dimension
   measures, its lane, label frame and `annotation_layout::Reach`, the glyph groups with their
@@ -766,14 +769,23 @@ paths:
   what is already laid out. Only a dimension whose reach (its measured geometry and label frame
   origin, and with a placed label the label and the square it swings an arc through) projects
   within `DIMENSION_OFFSET`, its lanes, `ANGLE_RADIUS` and `LABEL_REACH` of the view is laid out
-  (`Reach::near_view`; a corner that does not project counts as near), so obstacle avoidance
-  sees every label that can reach a shown glyph. Selected dimensions of the sketch, the
-  keyboard-highlighted one, the one dragged, the one edited inline and the one waiting for its
-  field are laid out first and wherever they are, so Move to and Focus::Dimension still reach an
-  off-screen label; any other label that labels laid out before it already cover by more than
-  `MOST_LABEL_COVER` of its area is left out with its dimension
-  (`annotation_layout::mostly_covered`), so a
-  pile of labels zoomed out thins to the readable ones. The ignored
+  (`Reach::on_screen`, `ScreenReach::near_view`; a corner that does not project counts as near),
+  so obstacle avoidance sees every label that can reach a shown glyph. Selected dimensions of the
+  sketch, the keyboard-highlighted one, the one dragged, the one edited inline and the one waiting
+  for its field are laid out first and wherever they are, so Move to and Focus::Dimension still
+  reach an off-screen label. Any other dimension is tested before it is laid out: one whose reach
+  spans under `COLLAPSED_BELOW` points on screen while measuring something in the sketch
+  (`ScreenReach::collapses`; a zero-length dimension never collapses) and that neither conflicts
+  nor is redundant becomes a collapsed mark, a `COLLAPSED_RADIUS` dot at the reach's centre, one
+  per `COLLAPSED_SPACING` cell, painted under the labels, hoverable, clickable to select (which
+  lays it out) and double-clickable to edit; one whose label neighbourhood (the reach grown by its
+  largest label offset and the label's cached size, `ScreenReach::label_neighbourhood`) lies in
+  cells labels laid out before it already cover by `FULL_CELL_SHARE` is left out without being
+  laid out (`annotation_layout::crowded`), as glyphs are; and a label they cover by more than
+  `MOST_LABEL_COVER` of its area once laid out is left out with its dimension
+  (`annotation_layout::mostly_covered`), so a pile of labels zoomed out thins to the readable ones
+  without laying most of them out. Drawing export (`caditor-file`'s `export/annotation.rs`)
+  places every dimension and shares none of this thinning or collapsing. The ignored
   `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times annotations idle and
   with the camera moving, zoomed out over `large_sketch` (5,000 dimensions, 3,000 glyph
   constraints) and zoomed in on a corner, and `sketch_card_costs_on_a_large_sketch`
