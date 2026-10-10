@@ -108,7 +108,8 @@ pub use crate::{
     offset_face::OffsetFace,
     origins::complete_origins,
     parameter_import::{
-        ImportOutcome, ImportRefusal, ImportRow, ImportedParameter, ParameterImport,
+        ExpressionReading, ImportOutcome, ImportRefusal, ImportRow, ImportedParameter,
+        ParameterImport,
     },
     paste::{
         Carried, CarriedParameter, CarriedParameters, CarryError, FeaturePaste, LeftOut,

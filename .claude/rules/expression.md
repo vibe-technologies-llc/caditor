@@ -30,6 +30,9 @@ paths:
   a power of a measure (`(10 mm)^2`, `ends_in_unit`), which reads alike in both grammars, so new
   files read the same in older versions and no format change was needed. Never print a power
   right after a unit.
+- `Expression::parse_by_name_stored_reading` resolves parameter names like typed text but keeps
+  the stored grammar (power of the measure, `in` and `ft`); parameter CSV files without a version
+  row use it (`file-import-export.md`).
 - Typed text accepts SI units only; `in` and `ft` stay readable in stored text (`parse_stored`).
 - `Naming::split` reads `name = expression` typed in a value field: a single `=` (not part of
   `==`, `<=`, `>=` or `!=`) after nothing but a name's characters. Anything else is an ordinary

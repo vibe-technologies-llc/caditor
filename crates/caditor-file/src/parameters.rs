@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use caditor_document::{Document, ImportedParameter, ParameterValues};
+use caditor_document::{Document, ExpressionReading, ImportedParameter, ParameterValues};
 
 use crate::{
     read::read_file,
@@ -12,6 +12,8 @@ pub const PARAMETERS_EXTENSION: &str = "csv";
 pub const MAX_PARAMETER_ROWS: usize = 10_000;
 pub const MAX_PARAMETERS_FILE: usize = 16 << 20;
 
+const VERSION_MARKER: &str = "caditor-parameters";
+const CURRENT_VERSION: u32 = 2;
 const NAME_COLUMN: &str = "name";
 const EXPRESSION_COLUMN: &str = "expression";
 const VALUE_COLUMN: &str = "value";
@@ -34,6 +36,10 @@ pub enum ParameterFileError {
     NoHeader,
     #[error("a quoted value starting on line {line} is never closed")]
     UnclosedQuote { line: usize },
+    #[error("it was written by a newer version of caditor (format {version})")]
+    NewerVersion { version: u32 },
+    #[error("its first row names a format version that is not a number")]
+    UnreadableVersion,
     #[error("it has more than {MAX_PARAMETER_ROWS} rows")]
     TooManyRows,
     #[error("caditor ran into an internal error while handling it")]
@@ -41,7 +47,13 @@ pub enum ParameterFileError {
 }
 
 pub fn parameters_csv(document: &Document, values: &ParameterValues) -> String {
-    let mut text = csv_row(&[NAME_COLUMN, EXPRESSION_COLUMN, VALUE_COLUMN, NOTE_COLUMN]);
+    let mut text = csv_row(&[VERSION_MARKER, &CURRENT_VERSION.to_string()]);
+    text.push_str(&csv_row(&[
+        NAME_COLUMN,
+        EXPRESSION_COLUMN,
+        VALUE_COLUMN,
+        NOTE_COLUMN,
+    ]));
     for parameter in document.parameters() {
         let expression = parameter
             .expression
@@ -78,7 +90,11 @@ pub fn parse_parameters(text: &str) -> Result<Vec<ImportedParameter>, ParameterF
     let text = text.trim_start_matches('\u{feff}');
     let delimiter = delimiter_of(text);
     let records = records(text, delimiter)?;
-    let mut records = records.into_iter();
+    let mut records = records.into_iter().peekable();
+    let reading = match records.next_if(|record| is_version_row(record)) {
+        Some(record) => reading_of_version(&record)?,
+        None => ExpressionReading::Stored,
+    };
     let header = records.next().ok_or(ParameterFileError::NoHeader)?;
     let column = |names: &[&str]| {
         header.iter().position(|cell| {
@@ -98,6 +114,7 @@ pub fn parse_parameters(text: &str) -> Result<Vec<ImportedParameter>, ParameterF
             name: cell(&record, name),
             expression: cell(&record, expression),
             note: note.map(|note| cell(&record, note)).unwrap_or_default(),
+            reading,
         })
         .collect();
     if rows.len() > MAX_PARAMETER_ROWS {
@@ -106,13 +123,42 @@ pub fn parse_parameters(text: &str) -> Result<Vec<ImportedParameter>, ParameterF
     Ok(rows)
 }
 
+fn is_version_row(record: &[String]) -> bool {
+    record
+        .first()
+        .is_some_and(|cell| cell.trim().eq_ignore_ascii_case(VERSION_MARKER))
+}
+
+fn reading_of_version(record: &[String]) -> Result<ExpressionReading, ParameterFileError> {
+    let version = record
+        .get(1)
+        .and_then(|cell| cell.trim().parse::<u32>().ok())
+        .ok_or(ParameterFileError::UnreadableVersion)?;
+    if version > CURRENT_VERSION {
+        return Err(ParameterFileError::NewerVersion { version });
+    }
+    Ok(ExpressionReading::Typed)
+}
+
 fn delimiter_of(text: &str) -> char {
-    let header = text.lines().next().unwrap_or_default();
+    let mut lines = text.lines();
+    let first = lines.next().unwrap_or_default();
+    let header = if starts_with_version_marker(first) {
+        lines.next().unwrap_or_default()
+    } else {
+        first
+    };
     DELIMITERS
         .into_iter()
         .max_by_key(|delimiter| header.matches(*delimiter).count())
         .filter(|delimiter| header.contains(*delimiter))
         .unwrap_or(',')
+}
+
+fn starts_with_version_marker(line: &str) -> bool {
+    line.trim_start_matches('"')
+        .get(..VERSION_MARKER.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(VERSION_MARKER))
 }
 
 fn records(text: &str, delimiter: char) -> Result<Vec<Vec<String>>, ParameterFileError> {
@@ -221,7 +267,9 @@ mod tests {
         let text = parameters_csv(&document, &values);
         let rows = parse_parameters(&text).unwrap();
 
-        assert!(text.starts_with("name,expression,value,note\r\nwidth,40 mm,40 mm,\r\n"));
+        assert!(text.starts_with(
+            "caditor-parameters,2\r\nname,expression,value,note\r\nwidth,40 mm,40 mm,\r\n"
+        ));
         assert!(text.contains("\"-15 deg\",\"-15°\""));
         assert_eq!(rows.len(), 3);
         assert_eq!(rows[1].name, "height");
@@ -262,6 +310,59 @@ mod tests {
         assert_eq!(
             parse_parameters(&many),
             Err(ParameterFileError::TooManyRows)
+        );
+    }
+
+    fn imported_value(rows: &[ImportedParameter], name: &str) -> String {
+        let mut target = Document::default();
+        let plan = target.plan_parameter_import("Import", rows, true).unwrap();
+        target.apply(plan.transaction.unwrap()).unwrap();
+        let values = ParameterValues::evaluate(&target);
+        let id = target.parameter_named(name).unwrap().id();
+        values.value(id).unwrap().to_string()
+    }
+
+    #[test]
+    fn a_versioned_file_reads_a_power_after_a_unit_as_typed() {
+        let rows = parse_parameters("caditor-parameters,2\r\nname,expression\r\narea,10 mm^2\r\n")
+            .unwrap();
+
+        assert_eq!(rows[0].reading, ExpressionReading::Typed);
+        assert_eq!(imported_value(&rows, "area"), "10 mm²");
+    }
+
+    #[test]
+    fn an_unversioned_file_reads_a_power_after_a_unit_as_older_versions_wrote_it() {
+        let rows = parse_parameters("name,expression\r\narea,10 mm^2\r\n").unwrap();
+
+        assert_eq!(rows[0].reading, ExpressionReading::Stored);
+        assert_eq!(imported_value(&rows, "area"), "100 mm²");
+    }
+
+    #[test]
+    fn the_version_row_survives_a_spreadsheet_resave_with_semicolons_and_padding() {
+        let resaved = "\u{feff}Caditor-Parameters;2;;\r\nName;Expression;Value;Note\r\nwidth;\"12,5 mm\";;\r\n";
+
+        let rows = parse_parameters(resaved).unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].reading, ExpressionReading::Typed);
+        assert_eq!(rows[0].expression, "12,5 mm");
+    }
+
+    #[test]
+    fn a_newer_or_unreadable_version_is_refused() {
+        assert_eq!(
+            parse_parameters("caditor-parameters,3\nname,expression\nx,1"),
+            Err(ParameterFileError::NewerVersion { version: 3 })
+        );
+        assert_eq!(
+            parse_parameters("caditor-parameters,two\nname,expression\nx,1"),
+            Err(ParameterFileError::UnreadableVersion)
+        );
+        assert_eq!(
+            parse_parameters("caditor-parameters\nname,expression\nx,1"),
+            Err(ParameterFileError::UnreadableVersion)
         );
     }
 }

@@ -38,6 +38,13 @@ impl Expression {
         parse::parse(text, resolve)
     }
 
+    pub fn parse_by_name_stored_reading(
+        text: &str,
+        resolve: &dyn Fn(&str) -> Option<ParameterId>,
+    ) -> Result<Self, ParseError> {
+        parse::parse_by_name_stored_reading(text, resolve)
+    }
+
     pub fn parse_stored(text: &str) -> Result<Self, ParseError> {
         parse::parse_stored(text)
     }
@@ -825,6 +832,18 @@ mod tests {
         assert_eq!(stored("2 deg^2"), Quantity::new(4.0, Dimension::new(0, 2)));
         assert_eq!(stored("2 mm^3"), Quantity::new(8.0, Dimension::VOLUME));
         assert_eq!(stored("10 mm²"), Quantity::new(10.0, Dimension::AREA));
+    }
+
+    #[test]
+    fn names_resolve_under_the_stored_reading_of_a_power_after_a_unit() {
+        let resolve = |name: &str| (name == "w").then(|| ParameterId::from_raw(0));
+        let expression = Expression::parse_by_name_stored_reading("w * 10 mm^2", &resolve).unwrap();
+
+        assert_eq!(expression.to_stored_text(), "$0 * (10 mm)^2");
+        assert_eq!(
+            Expression::parse_by_name_stored_reading("10 mm^2", &resolve).unwrap(),
+            Expression::parse_stored("10 mm^2").unwrap()
+        );
     }
 
     #[test]
