@@ -12,6 +12,7 @@ use crate::{
     datum_tools,
     editing::{self, EditingCommand},
     field,
+    last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     move_tools,
     selection::{Pickable, Selection},
@@ -267,13 +268,13 @@ fn direction(
     model: &Model,
     (body, repeated): (FeatureId, &[FeatureId]),
     axis: AxisReference,
-    count: f64,
+    count: Expression,
     unit: LengthUnit,
 ) -> LinearDirection {
     let spacing = default_spacing(model, body, repeated, &axis);
     LinearDirection {
         axis,
-        count: Expression::Number(count),
+        count,
         spacing: unit.default_length(spacing),
         measured: LinearSpacing::BetweenCopies,
         reversed: false,
@@ -292,14 +293,14 @@ fn kind_for(
                 model,
                 source,
                 axis,
-                DEFAULT_LINEAR_COUNT,
+                Starts::of(model).count(Remembered::LinearCount, DEFAULT_LINEAR_COUNT),
                 model.length_unit(),
             ),
             second: None,
         },
         Shape::Circular | Shape::Curve | Shape::Points => PatternKind::Circular(CircularPattern {
             axis,
-            count: Expression::Number(DEFAULT_CIRCULAR_COUNT),
+            count: Starts::of(model).count(Remembered::CircularCount, DEFAULT_CIRCULAR_COUNT),
             angle: solid_tools::degrees(FULL_TURN),
             reversed: false,
         }),
@@ -452,7 +453,7 @@ pub fn reshaped(
                 model,
                 (pattern.body, &pattern.repeated),
                 circular.axis.clone(),
-                DEFAULT_LINEAR_COUNT,
+                Expression::Number(DEFAULT_LINEAR_COUNT),
                 model.length_unit(),
             );
             first.count = circular.count.clone();
@@ -509,7 +510,7 @@ pub fn with_axis(
                     model,
                     (pattern.body, &pattern.repeated),
                     axis,
-                    DEFAULT_SECOND_COUNT,
+                    Expression::Number(DEFAULT_SECOND_COUNT),
                     model.length_unit(),
                 ),
             };

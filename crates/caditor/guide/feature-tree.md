@@ -13,7 +13,9 @@ or the whole feature when the tool that made it opened it, as ordinary undo step
 back. When something else in the model changed meanwhile, or Undo already went back past the
 opening, it says so and changes nothing. Double-clicking a face in the view opens the feature that
 made it, and {command:model.edit_feature} with no row chosen opens the feature of the one face,
-edge, datum or sketch curve selected.
+edge, datum or sketch curve selected. {command:model.edit_sketch} opens the sketch behind the
+feature chosen, the open feature or the face selected (the sketch whose profile made it), and says
+so when the face came from no sketch, a fillet's or a shell's for instance.
 
 The settings of a suppressed feature, or one below the rollback bar, are shown but cannot be
 changed; the card says why and offers Unsuppress or Roll forward to here.

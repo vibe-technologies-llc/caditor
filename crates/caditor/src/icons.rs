@@ -308,6 +308,7 @@ pub fn command(command: Command) -> &'static str {
         Command::RollbackUp => ROLLBACK_UP,
         Command::RollbackDown => ROLLBACK_DOWN,
         Command::EditFeature => EDIT,
+        Command::EditSketch => EDIT,
         Command::CloseFeature => DONE,
         Command::CancelFeature => CLOSE,
         Command::DetachSketch => phosphor::LINK_BREAK,

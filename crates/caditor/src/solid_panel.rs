@@ -19,7 +19,7 @@ use crate::{
         Segment, Shown,
     },
     feature_tree::count,
-    field, icons,
+    field, hole_panel, icons,
     model::{Action, Model},
     reference_picking::{self, Picking, Side, Slot},
     scene,
@@ -29,6 +29,7 @@ use crate::{
     widgets,
 };
 
+const EDIT_SKETCH_HOVER: &str = "Show and edit the sketch this sweeps, to change its profile";
 const FULL_TURN_DEGREES: f64 = 360.0;
 const WHOLE_PROFILE: &str = "Turn the whole profile, which must lie on one side of the axis";
 const ONE_SIDE_OF_AXIS: &str =
@@ -192,6 +193,7 @@ impl Panel<'_> {
         let model = self.model;
         ui.horizontal(|ui| {
             let name = feature_fields::feature_name(model.document(), current);
+            let name_exists = name.is_some();
             let text = feature_fields::combo_text(ui, name, MISSING_SKETCH);
             self.combo(ui, "sketch", text, |panel| {
                 let end = panel.document().feature_index(panel.id()).unwrap_or(0);
@@ -209,6 +211,13 @@ impl Panel<'_> {
                     })
                     .collect()
             });
+            if name_exists {
+                let button = widgets::icon_button(ui, icons::EDIT, hole_panel::EDIT_SKETCH);
+                if button.on_hover_text(EDIT_SKETCH_HOVER).clicked() {
+                    self.actions
+                        .push(Action::Editing(EditingCommand::Enter(current)));
+                }
+            }
         });
         ui.end_row();
     }

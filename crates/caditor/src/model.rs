@@ -27,6 +27,7 @@ use crate::{
     drag_solver::{self, DragCommand, Finished, Join, Polled},
     editing::EditingCommand,
     files::FileCommand,
+    last_values::LastValues,
     preferences::PreferencesCommand,
     scene,
     selection::SelectionFilter,
@@ -227,6 +228,7 @@ pub struct Model {
     length_unit: LengthUnit,
     angle_unit: AngleUnit,
     recent_colours: Vec<Rgb>,
+    last_values: LastValues,
     mesh_quality: MeshQuality,
     mesh_requested: Vec<Arc<FeatureResult>>,
     regions_requested: Option<Arc<FeatureResult>>,
@@ -267,6 +269,7 @@ impl Model {
             length_unit: LengthUnit::default(),
             angle_unit: AngleUnit::default(),
             recent_colours: Vec::new(),
+            last_values: LastValues::default(),
             mesh_quality: MeshQuality::default(),
             mesh_requested: Vec::new(),
             regions_requested: None,
@@ -312,6 +315,14 @@ impl Model {
     pub fn set_recent_colours(&mut self, colours: &[Rgb]) {
         self.recent_colours.clear();
         self.recent_colours.extend_from_slice(colours);
+    }
+
+    pub fn last_values(&self) -> &LastValues {
+        &self.last_values
+    }
+
+    pub fn set_last_values(&mut self, last: &LastValues) {
+        self.last_values.clone_from(last);
     }
 
     pub fn mesh_quality(&self) -> MeshQuality {

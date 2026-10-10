@@ -78,6 +78,7 @@ const MODEL_BODIES: [&[Command]; 2] = [
 const MODEL_FEATURES: [&[Command]; 4] = [
     &[
         Command::EditFeature,
+        Command::EditSketch,
         Command::CloseFeature,
         Command::CancelFeature,
         Command::RenameFeature,

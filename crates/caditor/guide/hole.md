@@ -14,6 +14,9 @@
   **Placed on** to put it somewhere else.
 - With a sketch selected or being edited, it drills at each of its loose points and circles.
 
+A new hole starts from the diameter and blind depth last used on one, kept between sessions
+(values naming a parameter the model lacks fall back to 6 mm and 10 mm).
+
 The panel sets:
 
 - **Size**: Custom, or a metric screw size with its **Fit** (close, normal, loose, or tapped with

@@ -217,6 +217,7 @@ fn model_item(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
         None => Command::EditFeature.title(),
     };
     entries.titled_item(ui, Command::EditFeature, &edit);
+    entries.offered(ui, Command::EditSketch, &Command::EditSketch.title());
     ui.separator();
     entries.titled_item(ui, Command::HideSelection, HIDE);
     entries.titled_item(ui, Command::HideOthers, HIDE_OTHERS);

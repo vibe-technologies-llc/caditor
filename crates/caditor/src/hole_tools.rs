@@ -13,6 +13,7 @@ use crate::{
     body_selection::face_boundary,
     editing::{self, EditingCommand, SketchEditing},
     hole_on_curve,
+    last_values::{Remembered, Starts},
     model::{Action, Model, Notice},
     reference_picking::{Picking, Slot},
     scene,
@@ -253,12 +254,12 @@ pub fn source(
     Ok(HoleSource { sketch, body })
 }
 
-pub fn new_hole(sketch: FeatureId, body: FeatureId, unit: LengthUnit) -> FeatureKind {
+pub fn new_hole(sketch: FeatureId, body: FeatureId, starts: &Starts) -> FeatureKind {
     FeatureKind::Hole(Hole {
         sketch,
         body,
-        diameter: unit.default_length(DEFAULT_DIAMETER),
-        depth: HoleDepth::Blind(default_depth(unit)),
+        diameter: starts.length(Remembered::HoleDiameter, DEFAULT_DIAMETER),
+        depth: HoleDepth::Blind(starts.length(Remembered::HoleDepth, DEFAULT_DEPTH)),
         style: HoleStyle::Plain,
         reversed: false,
         shape: HoleShape::Round,
@@ -291,7 +292,7 @@ pub fn create_on_face(
     });
     let feature = transaction.add_feature(
         name.clone(),
-        new_hole(placed, face.body, model.length_unit()),
+        new_hole(placed, face.body, &Starts::of(model)),
     );
     let told = format!(
         "{name} is drilled in the middle of the face, as far from its edges as it can be. Type \
@@ -403,11 +404,11 @@ fn clearance(boundary: &[[Point2; 2]], point: Point2) -> f64 {
 pub fn create(
     document: &Document,
     source: HoleSource,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> (Transaction, FeatureId) {
     let name = editing::next_feature_name(document, TITLE);
     let mut transaction = document.transaction(format!("Create {name}"));
-    let feature = transaction.add_feature(name, new_hole(source.sketch, source.body, unit));
+    let feature = transaction.add_feature(name, new_hole(source.sketch, source.body, starts));
     if visibility::is_shown(document, source.sketch) {
         transaction.edit(Edit::SetFeatureHidden {
             id: source.sketch,
@@ -420,7 +421,7 @@ pub fn create(
 pub fn create_actions(model: &Model, start: HoleStart) -> Vec<Action> {
     match start {
         HoleStart::Sketch(source) => {
-            let (transaction, feature) = create(model.document(), source, model.length_unit());
+            let (transaction, feature) = create(model.document(), source, &Starts::of(model));
             vec![
                 Action::Apply(transaction),
                 Action::Editing(EditingCommand::OpenSolid(feature)),

@@ -10,12 +10,36 @@ use caditor_kernel::{EdgeId, EdgeName, EdgeNaming, EdgeReference, Solid, blend_c
 use crate::{
     bodies, body_selection,
     editing::{self, EditingCommand},
+    last_values::{self, Remembered, Starts},
     model::{Action, Model, Notice},
     selection::{Pickable, Selection},
-    units::LengthUnit,
 };
 
 pub const DEFAULT_SIZE: f64 = 1.0;
+fn size_slot(kind: BlendKind) -> Remembered {
+    match kind {
+        BlendKind::Fillet => Remembered::FilletSize,
+        BlendKind::Chamfer => Remembered::ChamferSize,
+    }
+}
+
+fn starting_form(kind: BlendKind, starts: &Starts) -> ChamferForm {
+    if kind != BlendKind::Chamfer {
+        return ChamferForm::Equal;
+    }
+    match starts.form(Remembered::ChamferForm) {
+        Some(last_values::FORM_TWO_DISTANCES) => ChamferForm::TwoDistances {
+            second: starts.length(Remembered::ChamferSecond, DEFAULT_SIZE),
+        },
+        Some(last_values::FORM_DISTANCE_ANGLE) => ChamferForm::DistanceAngle {
+            angle: starts
+                .remembered(Remembered::ChamferAngle)
+                .unwrap_or_else(|| Expression::measure(DEFAULT_ANGLE_DEGREES, Unit::Degree)),
+        },
+        Some(_) | None => ChamferForm::Equal,
+    }
+}
+
 const NO_SHAPE: &str = "The body has no shape yet; recompute the model, then try again";
 
 pub const KINDS: [BlendKind; 2] = [BlendKind::Fillet, BlendKind::Chamfer];
@@ -57,7 +81,7 @@ pub fn create(
     evaluation: &Evaluation,
     kind: BlendKind,
     source: &EdgeSource,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> Result<(Transaction, FeatureId), &'static str> {
     let shown = bodies::shown(evaluation, source.body).ok_or(NO_SHAPE)?;
     let naming = EdgeNaming::new(&shown.solid);
@@ -83,8 +107,8 @@ pub fn create(
             kind,
             body: source.body,
             edges,
-            size: unit.default_length(DEFAULT_SIZE),
-            form: ChamferForm::Equal,
+            size: starts.length(size_slot(kind), DEFAULT_SIZE),
+            form: starting_form(kind, starts),
             flipped: false,
         }),
     );
@@ -96,9 +120,9 @@ pub fn create_actions(
     evaluation: &Evaluation,
     kind: BlendKind,
     source: &EdgeSource,
-    unit: LengthUnit,
+    starts: &Starts,
 ) -> Vec<Action> {
-    match create(document, evaluation, kind, source, unit) {
+    match create(document, evaluation, kind, source, starts) {
         Ok((transaction, feature)) => {
             let told = body_selection::left_out_words(&source.left_out).map(|words| {
                 Action::Inform(Notice::warning(format!(
@@ -356,7 +380,7 @@ mod tests {
     use caditor_document::{CancelToken, ModelEvaluator, Recompute};
 
     use super::*;
-    use crate::samples::Sample;
+    use crate::{samples::Sample, units::LengthUnit};
 
     #[test]
     fn a_fillet_is_refused_when_any_selected_edge_is_gone() {
@@ -382,7 +406,7 @@ mod tests {
                     edges,
                     left_out: Vec::new(),
                 },
-                LengthUnit::Millimetre,
+                &Starts::defaults(LengthUnit::Millimetre),
             )
             .map(|_| ())
         };

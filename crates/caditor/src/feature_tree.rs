@@ -2104,6 +2104,34 @@ fn edit_change(
         .ok_or_else(|| format!("{name} is an imported body and has no settings to edit"))
 }
 
+fn sketch_of(feature: &Feature) -> Option<FeatureId> {
+    if feature.kind.sketch().is_some() {
+        return Some(feature.id());
+    }
+    if let Some(solid) = feature.kind.solid() {
+        return Some(solid.sketch());
+    }
+    feature.kind.hole().map(|hole| hole.sketch)
+}
+
+fn sketch_change(
+    document: &Document,
+    editing: &SketchEditing,
+    feature: &Feature,
+) -> Result<EditingCommand, String> {
+    let name = &feature.name;
+    let sketch = sketch_of(feature)
+        .ok_or_else(|| format!("{name} is not made from a sketch, so there is none to edit"))?;
+    let owner = document
+        .feature(sketch)
+        .ok_or_else(|| format!("The sketch of {name} is no longer in the model"))?;
+    if editing.feature() == Some(sketch) {
+        return Err(format!("{} is already being edited", owner.name));
+    }
+    editable(document, owner)?;
+    Ok(EditingCommand::Enter(sketch))
+}
+
 fn detach_change(model: &Model, feature: &Feature) -> Result<Transaction, String> {
     let name = &feature.name;
     if feature.kind.sketch().is_none() {
@@ -2400,6 +2428,11 @@ fn feature_commands(
     let current = chosen.current;
     if let Some(command) = invoke_on(commands, Command::EditFeature, chosen.to_edit, |feature| {
         edit_change(model.document(), editing, feature)
+    }) {
+        actions.push(Action::Editing(command));
+    }
+    if let Some(command) = invoke_on(commands, Command::EditSketch, chosen.to_edit, |feature| {
+        sketch_change(model.document(), editing, feature)
     }) {
         actions.push(Action::Editing(command));
     }

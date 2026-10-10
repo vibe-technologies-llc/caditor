@@ -45,6 +45,7 @@ use crate::{
     interference_panel::{self, InterferenceContext},
     isocurve_panel,
     isocurves::IsocurveTool,
+    last_values,
     layout::{
         self, LogicalSize, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, MonitorArea, PanelLayout, Position,
         WindowPlacement,
@@ -415,6 +416,16 @@ impl Workspace {
                 }
             }
             PreferencesCommand::Preview(change) => self.preview_preference(change, model),
+            PreferencesCommand::RememberLast(values) => {
+                let mut changed = false;
+                for (slot, text) in values {
+                    changed |= self.preferences.last_values.keep(slot, text);
+                }
+                if changed {
+                    model.set_last_values(&self.preferences.last_values);
+                    files.store_settings(self.preferences.settings());
+                }
+            }
             PreferencesCommand::RememberRecent(recent) => {
                 self.preferences.palette_recent = recent;
                 files.store_settings(self.preferences.settings());
@@ -427,6 +438,7 @@ pub fn apply_preferences(model: &mut Model, preferences: &Preferences) {
     model.set_length_unit(preferences.unit);
     model.set_angle_unit(preferences.angle);
     model.set_recent_colours(&preferences.recent_colours);
+    model.set_last_values(&preferences.last_values);
     model.set_mesh_quality(preferences.graphics.curves.mesh_quality());
 }
 
@@ -1354,6 +1366,18 @@ pub fn perform(
             Action::Editing(command) => workspace.editing.perform_after(command, model, since),
             Action::Preferences(command) => workspace.preferences_command(command, model, files),
             Action::Filter(filter) => workspace.viewport.set_filter(filter),
+            Action::Apply(transaction) => {
+                let changes = last_values::changes(model.document(), &transaction);
+                model.perform(Action::Apply(transaction));
+                let values = last_values::texts(model.document(), changes);
+                if !values.is_empty() {
+                    workspace.preferences_command(
+                        PreferencesCommand::RememberLast(values),
+                        model,
+                        files,
+                    );
+                }
+            }
             other => model.perform(other),
         }
     }
