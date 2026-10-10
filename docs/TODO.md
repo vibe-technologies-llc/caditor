@@ -481,12 +481,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   `field::dimension_transaction` or the feature's `SetFeatureKind`, as SolidWorks shows a
   feature's dimensions on double-click. Which dimensions show for a hidden sketch or a sketch
   several features use needs a rule.
-- [medium · easy] No Repeat the last command: filleting several sets of edges, adding a run of
-  datum planes or drilling holes on several faces reaches for the same button each time. A command
-  (palette, the view's context menu as "Repeat <title>", the Edit menu) running again the last
-  modelling or sketch command triggered, kept in the `Workspace` beside `deferred_commands` and
-  offered with that command's own availability, so it takes the new selection as the command
-  would.
 - [medium · easy] The view's context menu on a face, edge or body (`view_menu::model_item`) offers
   editing, hiding, looking, fitting, measuring and selecting, but none of the tools that would take
   the selection: Fillet and Chamfer on edges; New sketch, Extrude, Hole, Offset face, Shell and
@@ -514,16 +508,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   found again in the copy's recomputed result (by matching it in the original's) before the paste
   is applied. Pasted features also take no group, and a copy from another model keeps none of its
   references outside the copied set.
-- [low · easy] Numeric fields do not step: Up and Down in a `field::commit_field` holding a plain
-  number could add or take away one unit of its last digit (Shift for ten), previewed through
-  `Action::Preview` as typing is, so a size is tried without retyping it; an expression or a named
-  value would be left alone.
-- [low · easy] Selection growers still missing beside those in `body_selection.rs`: Invert the
-  selection (every face, edge or vertex of the shown bodies, of the kind selected, not selected
-  now), Select the faces of the feature that made this face (every face whose `FaceOrigin` names
-  that feature, to offset or colour a boss as a whole) and Select the loop of the selected edge
-  (with the edge and one of its faces selected, that face's loop holding it, as Fusion's
-  double-click on an edge selects a loop).
 - [low · medium] The status bar reads the size of one selected item (`Offers::size`) but nothing for
   two: the distance between two points, edges or faces, or the angle between two flat faces or
   straight edges, still needs Measure open. While two items are selected and Measure is closed,

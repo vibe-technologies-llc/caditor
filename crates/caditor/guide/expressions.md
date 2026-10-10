@@ -47,6 +47,11 @@ text, so what you type replaces the value. In an open feature's panel the model 
 as you type, before you press Enter; when the feature cannot be made with it, the reason shows
 under the field.
 
+Up and Down in a value field holding a plain number, with or without a length or angle unit, add or
+take away one unit of its last digit, and Shift with them ten: from 25.4 mm to 25.5 mm, from 12 to
+13. An open feature previews each step like typing. A field holding an expression or a name is left
+alone and says so; press Enter to keep the stepped value.
+
 ## Mistakes
 
 An expression that does not read, mixes lengths with angles, divides by zero or uses an unknown

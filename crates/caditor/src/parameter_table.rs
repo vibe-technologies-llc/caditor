@@ -400,7 +400,7 @@ fn row(
         (Some(_), Some(Ok(value))) => model.units().show(*value),
         _ => document.expression_text(&parameter.expression),
     };
-    let expression = field::commit_field(
+    let expression = field::value_field(
         ui,
         value_focus.field_id(),
         &expression_text,

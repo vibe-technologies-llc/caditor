@@ -88,6 +88,7 @@ pub enum Command {
     Undo,
     UndoHistory,
     Redo,
+    RepeatLast,
     NewSketch,
     FinishSketch,
     ReverseArc,
@@ -182,6 +183,9 @@ pub enum Command {
     SelectHole,
     SelectBody,
     SelectFaceEdges,
+    SelectInverse,
+    SelectFeatureFaces,
+    SelectLoop,
     SaveSelectionSet,
     SelectionSets,
     ToggleVisibility,
@@ -283,6 +287,55 @@ pub enum Command {
 }
 
 impl Command {
+    pub fn is_repeatable(self) -> bool {
+        matches!(
+            self,
+            Self::NewSketch
+                | Self::Extrude
+                | Self::Revolve
+                | Self::Hole
+                | Self::NewBox
+                | Self::NewCylinder
+                | Self::NewSphere
+                | Self::NewTorus
+                | Self::Thread
+                | Self::NewCone
+                | Self::NewWedge
+                | Self::NewPrism
+                | Self::Fillet
+                | Self::Chamfer
+                | Self::Shell
+                | Self::OffsetFace
+                | Self::SplitFace
+                | Self::Combine
+                | Self::Move
+                | Self::CopyBody
+                | Self::Mirror
+                | Self::Split
+                | Self::Mate
+                | Self::MateAngle
+                | Self::MirrorFaces
+                | Self::Scale
+                | Self::LinearPattern
+                | Self::CircularPattern
+                | Self::CurvePattern
+                | Self::PointPattern
+                | Self::DatumPlane
+                | Self::DatumAxis
+                | Self::DatumPoint
+                | Self::CoordinateSystem
+                | Self::Construction
+                | Self::SplitCurve
+                | Self::BreakCurves
+                | Self::RotateGeometry
+                | Self::ScaleGeometry
+                | Self::MoveGeometry
+                | Self::IntersectBody
+                | Self::SketchTool(_)
+                | Self::Constraint(_)
+        )
+    }
+
     pub fn repeats(self) -> bool {
         matches!(
             self,
@@ -583,6 +636,7 @@ plain_commands! {
     Undo,
     UndoHistory,
     Redo,
+    RepeatLast,
     FitView,
     PreviousView,
     ToggleProjection,
@@ -619,6 +673,9 @@ plain_commands! {
     SelectHole,
     SelectBody,
     SelectFaceEdges,
+    SelectInverse,
+    SelectFeatureFaces,
+    SelectLoop,
     SaveSelectionSet,
     SelectionSets,
     ToggleVisibility,
@@ -807,6 +864,7 @@ impl Command {
             Self::Undo => "edit.undo",
             Self::UndoHistory => "edit.undo_history",
             Self::Redo => "edit.redo",
+            Self::RepeatLast => "edit.repeat",
             Self::NewSketch => "model.new_sketch",
             Self::FinishSketch => "sketch.finish",
             Self::ReverseArc => "sketch.reverse_arc",
@@ -960,6 +1018,9 @@ impl Command {
             Self::SaveSelectionSet => "select.save_set",
             Self::SelectionSets => "select.sets",
             Self::SelectFaceEdges => "select.face_edges",
+            Self::SelectInverse => "select.inverse",
+            Self::SelectFeatureFaces => "select.feature_faces",
+            Self::SelectLoop => "select.loop",
             Self::ToggleVisibility => "view.toggle_visibility",
             Self::ShowAll => "view.show_all",
             Self::TogglePrincipal => "view.toggle_principal",
@@ -1090,6 +1151,7 @@ impl Command {
             Self::Undo => "Undo",
             Self::UndoHistory => "Undo history…",
             Self::Redo => "Redo",
+            Self::RepeatLast => "Repeat the last command",
             Self::NewSketch => "New sketch",
             Self::FinishSketch => "Finish sketch",
             Self::ReverseArc => "Reverse the arc",
@@ -1203,6 +1265,9 @@ impl Command {
             Self::SaveSelectionSet => "Save the selection as a set",
             Self::SelectionSets => "Selection sets…",
             Self::SelectFaceEdges => "Select the edges around the selected faces",
+            Self::SelectInverse => "Invert the selection",
+            Self::SelectFeatureFaces => "Select the faces of the same feature",
+            Self::SelectLoop => "Select the loop of the selected edge",
             Self::ToggleVisibility => "Hide or show feature",
             Self::ShowAll => "Show everything",
             Self::TogglePrincipal => "Hide or show principal planes, axes and origin",
@@ -1315,6 +1380,10 @@ impl Command {
             Self::View(StandardView::Isometric) => &["home", "default view"],
             Self::Undo => &["revert", "take back"],
             Self::Redo => &["again"],
+            Self::RepeatLast => &["again", "do it again", "same"],
+            Self::SelectInverse => &["invert", "reverse selection", "opposite", "swap"],
+            Self::SelectFeatureFaces => &["boss", "feature faces", "same feature"],
+            Self::SelectLoop => &["edge loop", "ring", "boundary loop"],
             Self::UndoHistory => &["history", "steps"],
             Self::HideSelection | Self::HideOthers | Self::ToggleVisibility => {
                 &["visibility", "show", "hide"]
@@ -1397,6 +1466,7 @@ impl Command {
             | Self::Undo
             | Self::UndoHistory
             | Self::Redo
+            | Self::RepeatLast
             | Self::DeleteSelection
             | Self::SelectAllShapes
             | Self::SelectTangentEdges
@@ -1404,6 +1474,9 @@ impl Command {
             | Self::SelectHole
             | Self::SelectBody
             | Self::SelectFaceEdges
+            | Self::SelectInverse
+            | Self::SelectFeatureFaces
+            | Self::SelectLoop
             | Self::SaveSelectionSet
             | Self::SelectionSets
             | Self::DismissNotice => Category::Edit,
@@ -1646,6 +1719,7 @@ impl Command {
             Self::Quit => vec![command(Key::Q)],
             Self::Undo => vec![command(Key::Z)],
             Self::Redo => vec![command_shift(Key::Z), command(Key::Y)],
+            Self::RepeatLast => vec![plain(Key::F4)],
             Self::FitView => vec![plain(Key::F)],
             Self::PreviousView => vec![alt(Key::ArrowLeft)],
             Self::Measure => vec![plain(Key::I)],
@@ -1669,6 +1743,9 @@ impl Command {
             Self::SelectTangentEdges => vec![alt(Key::T)],
             Self::SelectTangentFaces => vec![alt_shift(Key::T)],
             Self::SelectFaceEdges => vec![alt_shift(Key::E)],
+            Self::SelectInverse => vec![command_shift(Key::I)],
+            Self::SelectFeatureFaces => vec![alt_shift(Key::F)],
+            Self::SelectLoop => vec![alt_shift(Key::G)],
             Self::ShowAll => vec![KeyboardShortcut::new(Modifiers::ALT, Key::H)],
             Self::SketchTool(tool) => tool_shortcut(tool).into_iter().collect(),
             Self::Constraint(tool) => vec![KeyboardShortcut::new(
@@ -1860,6 +1937,7 @@ impl Command {
     pub fn title_with(self, detail: &str) -> String {
         match self {
             Self::ExportAgain => format!("Export again to {detail}"),
+            Self::RepeatLast => format!("Repeat {detail}"),
             _ => format!("{}: {detail}", self.title()),
         }
     }
@@ -2373,6 +2451,7 @@ pub struct CommandFrame<'a> {
     offers: Vec<Offer>,
     offered: BTreeSet<Command>,
     refused: Vec<(Command, String)>,
+    ran: Vec<Command>,
     clipboard: Clipboard,
     paste_asked: Option<Command>,
     copied: Option<String>,
@@ -2387,6 +2466,7 @@ impl<'a> CommandFrame<'a> {
             offers: Vec::new(),
             offered: BTreeSet::new(),
             refused: Vec::new(),
+            ran: Vec::new(),
             clipboard: Clipboard::Unread,
             paste_asked: None,
             copied: None,
@@ -2457,6 +2537,9 @@ impl<'a> CommandFrame<'a> {
             self.offers.retain(|offer| offer.command != command);
         }
         let ready = availability.is_ok();
+        if triggered && ready {
+            self.ran.push(command);
+        }
         self.offers.push(Offer {
             command,
             availability,
@@ -2490,6 +2573,10 @@ impl<'a> CommandFrame<'a> {
 
     pub fn offers(&self) -> &[Offer] {
         &self.offers
+    }
+
+    pub fn ran(&self) -> &[Command] {
+        &self.ran
     }
 
     pub fn finish(self) -> (Vec<Offer>, Vec<(Command, String)>) {

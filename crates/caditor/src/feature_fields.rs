@@ -174,7 +174,7 @@ pub fn expression_row_drafting(
     let validate = |text: &str| named.transaction(text, parse, &change);
     let (committed, error, draft) = ui
         .horizontal_wrapped(|ui| {
-            let field = field::commit_field(
+            let field = field::value_field(
                 ui,
                 quantity.id,
                 &field::value_text(document, &owner, quantity.expression),

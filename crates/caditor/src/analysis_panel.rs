@@ -91,7 +91,7 @@ fn limit_row(
     let document = model.document();
     let parameters = model.parameters();
     let units = model.units();
-    let field = field::commit_field(
+    let field = field::value_field(
         ui,
         Id::new(("analysis-limit", id)),
         &document.expression_text(expression),

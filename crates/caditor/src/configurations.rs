@@ -342,7 +342,7 @@ fn cell(
                 .and_then(Setting::expression)
                 .map(|expression| document.expression_text(expression))
                 .unwrap_or_default();
-            let response = field::commit_field(
+            let response = field::value_field(
                 ui,
                 cell_id(row.id, value),
                 &stored,

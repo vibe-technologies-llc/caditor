@@ -1407,7 +1407,7 @@ impl Annotations {
                 egui::Frame::popup(ui.style())
                     .inner_margin(FIELD_MARGIN)
                     .show(ui, |ui| {
-                        let field = field::commit_field(
+                        let field = field::value_field(
                             ui,
                             id,
                             &stored,

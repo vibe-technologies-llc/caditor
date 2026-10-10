@@ -67,6 +67,7 @@ use crate::{
         PreferencesView, Restored, TitleBar,
     },
     reference_picking,
+    repeating::{Repeat, Repetition},
     saved_views::{self, ViewsDraft},
     scale_model::{self, ScaleDraft},
     scene_palette::{Canvas, Contrast},
@@ -187,6 +188,7 @@ pub struct Workspace {
     applied_title_bar: Option<TitleBar>,
     keyboard_was_taken: bool,
     deferred_commands: Vec<Command>,
+    repetition: Repetition,
     awaiting_paste: Option<Command>,
     copied: Option<String>,
     session: u64,
@@ -244,6 +246,7 @@ impl Workspace {
             applied_title_bar: None,
             keyboard_was_taken: false,
             deferred_commands: Vec::new(),
+            repetition: Repetition::default(),
             awaiting_paste: None,
             copied: None,
             session: 0,
@@ -541,6 +544,7 @@ pub fn show(
         defender_asked,
         keyboard_was_taken,
         deferred_commands,
+        repetition,
         awaiting_paste,
         copied,
         ..
@@ -904,7 +908,14 @@ pub fn show(
         ui.ctx().request_repaint();
         *awaiting_paste = Some(command);
     }
-    let (offers, refused) = commands.finish();
+    let asked_to_repeat = commands.take(Command::RepeatLast);
+    let ran = commands.ran().to_vec();
+    let (mut offers, mut refused) = commands.finish();
+    match repetition.settle(asked_to_repeat, &ran, &mut offers) {
+        Some(Repeat::Again(command)) => deferred_commands.push(command),
+        Some(Repeat::Refused(reason)) => refused.push((Command::RepeatLast, reason)),
+        None => {}
+    }
     let menu_toggles = ToggleStates::of(viewport, section.open);
     let entries = MenuEntries::new(&offers, menu_toggles, &preferences.keymap);
     deferred_commands.extend(viewport.show_menu(ui.ctx(), model, editing, entries, blocked));
