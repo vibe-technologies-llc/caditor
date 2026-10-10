@@ -18,6 +18,14 @@ pub trait Screen {
     fn to_sketch(&self, _point: Vector2) -> Option<Point2> {
         None
     }
+
+    fn is_shown(&self, _point: Point2) -> bool {
+        true
+    }
+
+    fn kept(&self, from: Point2, to: Point2) -> Option<(Point2, Point2)> {
+        Some((from, to))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

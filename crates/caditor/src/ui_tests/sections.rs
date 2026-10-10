@@ -1,7 +1,15 @@
-use caditor_geometry::Vector3;
+use caditor_document::FeatureId;
+use caditor_geometry::{Plane, Point2, Vector3};
+use caditor_sketch::Sketch;
 
-use super::{CAMERA_SETTLE, Harness, edit_base_sketch, extruded_plate, run_from_palette};
-use crate::section_panel;
+use super::{
+    CAMERA_SETTLE, Harness, drag_screen, edit_base_sketch, extruded_plate, plate_on_screen,
+    rectangle, run_from_palette,
+};
+use crate::{
+    section_panel,
+    selection::{Pickable, SelectionFilter},
+};
 
 fn shown_normals(harness: &mut Harness) -> Vec<Vector3> {
     harness
@@ -97,4 +105,44 @@ fn slicing_while_sketching_cuts_the_bodies_in_front_of_the_sketch_plane_only_whi
 
     assert!(harness.built().scene.section.is_empty());
     assert!(harness.workspace.viewport.sketch_slice());
+}
+
+fn selected_curves(harness: &Harness, sketch: FeatureId) -> usize {
+    harness
+        .workspace
+        .viewport
+        .selection()
+        .iter()
+        .filter(|pickable| matches!(pickable, Pickable::SketchEntity { feature, .. } if *feature == sketch))
+        .count()
+}
+
+#[test]
+fn a_box_over_sketch_curves_leaves_out_what_a_section_plane_cuts_away() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    let plate = harness.add_sketch(sketch);
+    harness.select([]);
+    run_from_palette(&mut harness, "fit view");
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.frame();
+    let (low, high) = plate_on_screen(&harness);
+    let margin = egui::vec2(12.0, 12.0);
+    harness
+        .workspace
+        .viewport
+        .set_filter(SelectionFilter::SketchGeometry);
+
+    drag_screen(&mut harness, low - margin, high + margin);
+    let whole = selected_curves(&harness, plate);
+
+    run(&mut harness, "show or hide the section view");
+    let (low, high) = plate_on_screen(&harness);
+    drag_screen(&mut harness, low - margin, high + margin);
+    let cut = selected_curves(&harness, plate);
+
+    assert_eq!(whole, 4);
+    assert_eq!(cut, 3);
 }

@@ -34,7 +34,7 @@ pub use crate::{
     scene::{
         Batch, Color, CutFace, Fill, Grid, Layer, Line, MAX_SECTION_PLANES, Marker, PickHit,
         PickId, PickResult, Reflection, Scene, SectionPlane, Stroke, ViewportRect, is_cut_away,
-        section_slack,
+        kept_span, section_slack,
     },
     settings::{AdapterPreference, GraphicsInfo, GraphicsSettings, Msaa, Shading},
     silhouette::Silhouette,

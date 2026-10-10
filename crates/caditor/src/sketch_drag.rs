@@ -671,6 +671,24 @@ fn segments_cross(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> bool {
     first * second <= 0.0 && third * fourth <= 0.0
 }
 
+fn kept_pieces(outline: &[Point2], screen: &impl Screen) -> Option<Vec<(Vector2, Vector2)>> {
+    let segments: Vec<(Point2, Point2)> = match outline {
+        [only] => vec![(*only, *only)],
+        _ => outline
+            .windows(2)
+            .filter_map(|pair| match pair {
+                [from, to] => Some((*from, *to)),
+                _ => None,
+            })
+            .collect(),
+    };
+    segments
+        .into_iter()
+        .filter_map(|(from, to)| screen.kept(from, to))
+        .map(|(from, to)| Some((screen.to_screen(from)?, screen.to_screen(to)?)))
+        .collect()
+}
+
 pub fn within(
     sketch: &Sketch,
     screen: &impl Screen,
@@ -682,24 +700,23 @@ pub fn within(
         .entities()
         .filter(|(id, _)| !id.is_reference())
         .filter(|(id, entity)| match entity {
-            Entity::Point(position) => screen
-                .to_screen(*position)
-                .is_some_and(|point| area.contains(point)),
+            Entity::Point(position) => {
+                screen.is_shown(*position)
+                    && screen
+                        .to_screen(*position)
+                        .is_some_and(|point| area.contains(point))
+            }
             _ => {
-                let outline: Option<Vec<Vector2>> = sketch
-                    .faceted(*id, faceting)
-                    .map(|points| {
-                        points
-                            .into_iter()
-                            .map(|point| screen.to_screen(point))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                outline.is_some_and(|outline| match mode {
-                    BoxMode::Window => outline.iter().all(|point| area.contains(*point)),
-                    BoxMode::Crossing => outline
-                        .windows(2)
-                        .any(|pair| matches!(pair, [from, to] if area.crosses(*from, *to))),
+                let outline = sketch.faceted(*id, faceting).unwrap_or_default();
+                let pieces = kept_pieces(&outline, screen);
+                pieces.is_some_and(|pieces| match mode {
+                    BoxMode::Window => {
+                        !pieces.is_empty()
+                            && pieces
+                                .iter()
+                                .all(|(from, to)| area.contains(*from) && area.contains(*to))
+                    }
+                    BoxMode::Crossing => pieces.iter().any(|(from, to)| area.crosses(*from, *to)),
                 })
             }
         })

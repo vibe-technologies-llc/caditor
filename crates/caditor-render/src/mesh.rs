@@ -53,6 +53,7 @@ pub struct ShadedMesh {
     indices: Vec<u32>,
     face_count: usize,
     curved: usize,
+    closed: bool,
 }
 
 impl ShadedMesh {
@@ -91,7 +92,17 @@ impl ShadedMesh {
             indices,
             face_count: faces.len(),
             curved,
+            closed: true,
         }
+    }
+
+    pub fn with_closed(mut self, closed: bool) -> Self {
+        self.closed = closed;
+        self
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed
     }
 
     pub fn face_count(&self) -> usize {
@@ -206,6 +217,7 @@ impl ShadedMesh {
                 indices,
                 face_count: pieces.len(),
                 curved: self.curved,
+                closed: self.closed,
             },
             pieces,
         }
@@ -880,7 +892,7 @@ impl GpuMesh {
             .vec4(placed.offset, 0.0)
             .u32(self.layout.faces)
             .u32(self.layout.columns)
-            .u32(0)
+            .u32(u32::from(self.mesh.closed))
             .u32(0)
             .vec4(turn_x, 0.0)
             .vec4(turn_y, 0.0)
