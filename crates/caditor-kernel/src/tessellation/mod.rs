@@ -306,11 +306,17 @@ pub(crate) fn tessellate_for_display(
 ) -> Result<DisplayMesh, TessellationError> {
     let fallback = quality.at_least(&MeshQuality::COARSE);
     let threads = parallel::available_threads();
-    match mesh_faces(solid, &quality.tolerance(extent), limit, keys, threads) {
+    match mesh_faces(
+        solid,
+        &quality.display_tolerance(extent),
+        limit,
+        keys,
+        threads,
+    ) {
         Err(error) if !matches!(error, TessellationError::Cancelled(_)) && fallback != *quality => {
             mesh_faces(
                 solid,
-                &fallback.tolerance(extent),
+                &fallback.display_tolerance(extent),
                 MAX_POINTS,
                 keys,
                 threads,

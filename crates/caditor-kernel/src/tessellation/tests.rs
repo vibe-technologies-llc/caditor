@@ -610,7 +610,9 @@ fn a_display_mesh_over_its_budget_falls_back_to_the_coarse_quality() {
     let ball = fixtures::sphere(5.0);
     let extent = ball.bounding_box().unwrap().diagonal();
     let smooth = ball.display_mesh(&MeshQuality::SMOOTH).unwrap();
-    let coarse = ball.tessellate(&ball.default_tolerance()).unwrap();
+    let coarse = ball
+        .tessellate(&MeshQuality::COARSE.display_tolerance(extent))
+        .unwrap();
     let limit = smooth.positions().len() / 2;
 
     assert!(smooth.positions().len() > coarse.positions().len());
@@ -878,6 +880,26 @@ fn a_changed_body_reuses_the_mesh_of_every_face_it_kept() {
         coarser.mesh(),
         &plate.display_mesh(&MeshQuality::COARSE).unwrap()
     );
+}
+
+#[test]
+fn a_lengthened_extrusion_reuses_the_mesh_of_the_faces_it_left_alone() {
+    let block = fixtures::holed_block(40.0, 10.0, 5.0);
+    let longer = fixtures::holed_block(40.0, 11.0, 5.0);
+    let quality = MeshQuality::SMOOTH;
+
+    let earlier = block.display_mesh_reusing(&quality, None).unwrap();
+    let reusing = longer
+        .display_mesh_reusing(&quality, Some(&earlier))
+        .unwrap();
+
+    assert_ne!(block.bounding_box(), longer.bounding_box());
+    assert_ne!(
+        block.tolerance_for(&quality),
+        longer.tolerance_for(&quality)
+    );
+    assert_eq!(reusing.reused_faces(), 1);
+    assert_eq!(reusing.mesh(), &longer.display_mesh(&quality).unwrap());
 }
 
 #[test]

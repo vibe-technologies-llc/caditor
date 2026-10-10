@@ -157,8 +157,12 @@ paths:
   or shell and the open cut's tools, `Model::mesh_before`) into a `ShadedMesh` with edge polylines
   on a pool of its own (`Pool`: threads started as queued work outgrows the idle ones, up to the
   available parallelism less one, conversions taken before mass properties), once per result
-  keyed by its `Arc`'s address. A panic leaves that body meshless; without a worker it runs on the
-  UI thread. Arrivals are held and shown together: the first at once, then all that arrived
+  keyed by its `Arc`'s address. The `ShadedMesh` shares the kernel mesh rather than copying it:
+  a `DisplayedMesh` holding the result's `Arc` is its `MeshSource` (`render.md`), which the
+  document keeps anyway for the next recompute's face reuse, Measure, box selection and the mass
+  fallback; only a mesh not laid out face by face would be copied
+  (`a_body_mesh_reads_the_kernel_mesh_rather_than_holding_a_copy_of_it`). A panic leaves that
+  body meshless; without a worker it runs on the UI thread. Arrivals are held and shown together: the first at once, then all that arrived
   whenever `SHOWN_TOGETHER_FOR` has passed since the last showing or nothing is left to convert,
   so a large import is drawn in a few batches and the base scene is rebuilt a few times rather
   than once per body. `BodyMeshes` takes each batch, keeping the previous mesh until then, so the

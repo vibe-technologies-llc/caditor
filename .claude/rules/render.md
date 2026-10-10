@@ -102,6 +102,13 @@ paths:
 - A mesh whose placed bounds lie wholly beyond one side of the clip volume is not drawn
   (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), tested against
   the window in the main pass, the pick window in the pick pass and each tile in image export.
+- A `ShadedMesh` either owns its vertices (`ShadedMesh::new` from `MeshFace`s: 28 bytes a vertex
+  and 12 a triangle) or reads them from a `MeshSource` it shares (`ShadedMesh::shared`): the
+  source's triangles are its indices, and each vertex is converted (position relative to the
+  centre, normal, face) when uploaded or read, its face found among the per-face vertex ends, so a
+  body's display mesh is held once on the CPU, by the kernel (`app.md`). `shared` takes each face's
+  end in the triangles and refuses (`None`) a source whose faces do not each use their own
+  contiguous run of vertices in face order, covering every vertex; the caller then copies.
 - `ShadedMesh::divide` makes another mesh in which every face is split into one face per class a
   caller's classifier gives each triangle (from its corners' positions and normals), with the
   source face and the area of every piece; analysis colouring uses it, since styles are per face.

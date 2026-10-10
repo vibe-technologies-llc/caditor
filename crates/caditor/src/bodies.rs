@@ -19,10 +19,10 @@ use caditor_document::{
 pub use caditor_document::{describe_origin, origin_feature};
 use caditor_geometry::{Aabb, Point3, RigidTransform};
 use caditor_kernel::{
-    EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference, MassProperties,
-    Mesh, Solid, SolidMass, Surface, VertexId, VertexName, extent, mass_properties,
+    EdgeId, EdgeName, EdgeReference, FaceId, FaceName, FaceOrigin, FaceReference, FaceTriangles,
+    MassProperties, Mesh, Solid, SolidMass, Surface, VertexId, VertexName, extent, mass_properties,
 };
-use caditor_render::{MeshFace, MeshPoint, ShadedMesh};
+use caditor_render::{MeshFace, MeshPoint, MeshSource, ShadedMesh};
 use parking_lot::{Condvar, Mutex};
 
 use crate::{
@@ -296,34 +296,32 @@ impl BodyMesh {
     ) -> Self {
         let solid = &body.solid;
         let keys: BTreeMap<FaceId, FaceKey> = face_keys(solid).into_iter().collect();
-        let mut faces = Vec::new();
-        let mut shaded = Vec::new();
-        for face in mesh.faces() {
-            let Some(key) = keys.get(&face.face).copied() else {
-                continue;
-            };
-            let mut corners: BTreeMap<u32, u32> = BTreeMap::new();
-            let mut drawn = MeshFace::default();
-            for triangle in mesh
-                .triangles()
-                .get(face.triangles.clone())
-                .unwrap_or_default()
-            {
-                let [a, b, c] =
-                    triangle.map(|vertex| local_corner(mesh, vertex, &mut corners, &mut drawn));
-                if let (Some(a), Some(b), Some(c)) = (a, b, c) {
-                    drawn.triangles.push([a, b, c]);
-                }
-            }
-            faces.push(BodyFace {
-                key,
-                flat: solid
-                    .face(face.face)
-                    .is_some_and(|face| matches!(face.surface(), Surface::Plane(_))),
-                bounds: Aabb::from_points(drawn.points.iter().map(|point| point.position)),
-            });
-            shaded.push(drawn);
-        }
+        let shown: Vec<&FaceTriangles> = mesh
+            .faces()
+            .iter()
+            .filter(|face| keys.contains_key(&face.face))
+            .collect();
+        let faces = shown
+            .iter()
+            .filter_map(|face| {
+                Some(BodyFace {
+                    key: *keys.get(&face.face)?,
+                    flat: solid
+                        .face(face.face)
+                        .is_some_and(|face| matches!(face.surface(), Surface::Plane(_))),
+                    bounds: face_bounds(mesh, face),
+                })
+            })
+            .collect();
+        let shared = (shown.len() == mesh.faces().len())
+            .then(|| {
+                ShadedMesh::shared(
+                    Arc::new(DisplayedMesh(Arc::clone(source))),
+                    shown.iter().map(|face| face.triangles.end),
+                )
+            })
+            .flatten();
+        let shaded = shared.unwrap_or_else(|| copied_mesh(mesh, &shown));
         let edges = mesh
             .edges()
             .iter()
@@ -350,7 +348,7 @@ impl BodyMesh {
             .collect();
         Self {
             source: Arc::clone(source),
-            mesh: Arc::new(ShadedMesh::new(shaded)),
+            mesh: Arc::new(shaded),
             faces,
             edges,
             vertices,
@@ -399,6 +397,68 @@ impl BodyMesh {
             .find(|edge| edge.name == name)
             .map(|edge| edge.points.as_slice())
     }
+}
+
+struct DisplayedMesh(Arc<FeatureResult>);
+
+impl DisplayedMesh {
+    fn mesh(&self) -> Option<&Mesh> {
+        self.0.solid()?.mesh()
+    }
+}
+
+impl MeshSource for DisplayedMesh {
+    fn triangles(&self) -> &[[u32; 3]] {
+        self.mesh().map_or(&[], Mesh::triangles)
+    }
+
+    fn point_count(&self) -> usize {
+        self.mesh().map_or(0, |mesh| mesh.vertices().len())
+    }
+
+    fn point(&self, index: u32) -> Option<MeshPoint> {
+        let mesh = self.mesh()?;
+        let vertex = mesh.vertices().get(index as usize)?;
+        Some(MeshPoint {
+            position: mesh.position(vertex.position)?,
+            normal: vertex.normal,
+        })
+    }
+}
+
+fn face_corners<'a>(mesh: &'a Mesh, face: &FaceTriangles) -> impl Iterator<Item = u32> + 'a {
+    mesh.triangles()
+        .get(face.triangles.clone())
+        .unwrap_or_default()
+        .iter()
+        .flatten()
+        .copied()
+}
+
+fn face_bounds(mesh: &Mesh, face: &FaceTriangles) -> Option<Aabb> {
+    Aabb::from_points(face_corners(mesh, face).filter_map(|corner| {
+        let vertex = mesh.vertices().get(corner as usize)?;
+        mesh.position(vertex.position)
+    }))
+}
+
+fn copied_mesh(mesh: &Mesh, faces: &[&FaceTriangles]) -> ShadedMesh {
+    ShadedMesh::new(faces.iter().map(|face| {
+        let mut corners: BTreeMap<u32, u32> = BTreeMap::new();
+        let mut drawn = MeshFace::default();
+        for triangle in mesh
+            .triangles()
+            .get(face.triangles.clone())
+            .unwrap_or_default()
+        {
+            let [a, b, c] =
+                triangle.map(|vertex| local_corner(mesh, vertex, &mut corners, &mut drawn));
+            if let (Some(a), Some(b), Some(c)) = (a, b, c) {
+                drawn.triangles.push([a, b, c]);
+            }
+        }
+        drawn
+    }))
 }
 
 fn local_corner(
@@ -1140,6 +1200,28 @@ mod tests {
         assert_eq!(shown.edges, direct.edges);
         assert_eq!(shown.mesh.face_count(), direct.mesh.face_count());
         assert_eq!(shown.bounds(), direct.bounds());
+    }
+
+    #[test]
+    fn a_body_mesh_reads_the_kernel_mesh_rather_than_holding_a_copy_of_it() {
+        for sample in Sample::ALL {
+            let document = sample.document().unwrap();
+            let evaluation = evaluate(&mut Recompute::default(), &document);
+            let (_, source) = only_body(&evaluation);
+            let mesh = source.solid().unwrap().mesh().unwrap();
+            let faces: Vec<&FaceTriangles> = mesh.faces().iter().collect();
+
+            let shared = ShadedMesh::shared(
+                Arc::new(DisplayedMesh(Arc::clone(&source))),
+                faces.iter().map(|face| face.triangles.end),
+            );
+            let shown = BodyMesh::of(&source, Weak::new()).unwrap();
+
+            let shared = shared.unwrap_or_else(|| panic!("{sample:?} is not laid out by face"));
+            assert_eq!(shared, copied_mesh(mesh, &faces), "{sample:?}");
+            assert_eq!(*shown.mesh, shared, "{sample:?}");
+            assert_eq!(shown.faces.len(), faces.len());
+        }
     }
 
     #[test]
