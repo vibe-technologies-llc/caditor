@@ -37,6 +37,9 @@ pub const ARC_WAYS_LABEL: &str = "Ways to draw an arc";
 pub const ARC_TOOLS: [Tool; 3] = [Tool::Arc, Tool::ThreePointArc, Tool::TangentArc];
 pub const CURVE_LABEL: &str = "Curve";
 pub const CURVE_WAYS_LABEL: &str = "Ways to draw a curve";
+pub const POLYGON_LABEL: &str = "Polygon";
+pub const POLYGON_WAYS_LABEL: &str = "Ways to draw a polygon";
+pub const POLYGON_TOOLS: [Tool; 2] = [Tool::Polygon, Tool::Gear];
 pub const CURVE_TOOLS: [Tool; 4] = [
     Tool::Spline,
     Tool::Ellipse,
@@ -61,7 +64,13 @@ const CURVE_GROUP: ToolGroup = ToolGroup {
     ways: CURVE_WAYS_LABEL,
     id: "sketch-bar-curve",
 };
-const TOOL_GROUPS: [ToolGroup; 2] = [ARC_GROUP, CURVE_GROUP];
+const POLYGON_GROUP: ToolGroup = ToolGroup {
+    tools: &POLYGON_TOOLS,
+    label: POLYGON_LABEL,
+    ways: POLYGON_WAYS_LABEL,
+    id: "sketch-bar-polygon",
+};
+const TOOL_GROUPS: [ToolGroup; 3] = [ARC_GROUP, POLYGON_GROUP, CURVE_GROUP];
 
 struct ToolGroup {
     tools: &'static [Tool],

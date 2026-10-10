@@ -8,6 +8,7 @@ use crate::{
     editing::{ActiveSketch, Tool},
     field::{self, Expected},
     filleting::{CornerCut, Filleting},
+    gearing::{GearSettings, Gearing},
     mirroring::Mirroring,
     model::Model,
     offsetting::{self, Offsetting},
@@ -122,6 +123,7 @@ enum State {
     Fillet(Box<Filleting>),
     Tangent(Box<TangentCircling>),
     Blend(Box<BlendCurving>),
+    Gear(Box<Gearing>),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -152,9 +154,14 @@ pub struct Modifying {
     context: Option<(FeatureId, Tool)>,
     state: State,
     last: LastSizes,
+    gear: GearSettings,
 }
 
 impl Modifying {
+    pub fn gear_settings(&mut self) -> &mut GearSettings {
+        &mut self.gear
+    }
+
     pub fn is_active(&self) -> bool {
         self.context.is_some()
     }
@@ -167,6 +174,7 @@ impl Modifying {
             | State::Fillet(_)
             | State::Tangent(_)
             | State::Blend(_)
+            | State::Gear(_)
             | State::Idle => false,
         }
     }
@@ -179,6 +187,7 @@ impl Modifying {
             | State::Fillet(_)
             | State::Tangent(_)
             | State::Blend(_)
+            | State::Gear(_)
             | State::Idle => false,
         }
     }
@@ -191,6 +200,7 @@ impl Modifying {
             | State::Pattern(_)
             | State::Tangent(_)
             | State::Blend(_)
+            | State::Gear(_)
             | State::Idle => None,
         }
     }
@@ -229,6 +239,10 @@ impl Modifying {
                     BlendCurving::starting(sketch, selected, modes.blend()),
                 )),
                 (Some((_, Tool::BlendCurve)), None) => State::Blend(Box::default()),
+                (Some((_, Tool::Gear)), Some(sketch)) => {
+                    State::Gear(Box::new(Gearing::starting(sketch, selected)))
+                }
+                (Some((_, Tool::Gear)), None) => State::Gear(Box::default()),
                 (Some((_, Tool::Fillet)), Some(sketch)) => State::Fillet(Box::new(
                     Filleting::starting(sketch, selected, CornerCut::Round, round),
                 )),
@@ -254,6 +268,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.sync(sketch),
             State::Tangent(tangent) => tangent.sync(sketch),
             State::Blend(blend) => blend.sync(sketch, modes.blend()),
+            State::Gear(gearing) => gearing.sync(sketch),
             State::Idle => {}
         }
     }
@@ -272,6 +287,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.hover(sketch, screen, pointer),
             State::Tangent(tangent) => tangent.hover(sketch, screen, pointer),
             State::Blend(blend) => blend.hover(sketch, screen, pointer),
+            State::Gear(gearing) => gearing.hover(sketch, screen, pointer, self.gear.gear()),
             State::Idle => {}
         }
     }
@@ -284,6 +300,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.leave(),
             State::Tangent(tangent) => tangent.leave(),
             State::Blend(blend) => blend.leave(),
+            State::Gear(gearing) => gearing.leave(),
             State::Idle => {}
         }
     }
@@ -296,6 +313,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.preview(faceting),
             State::Tangent(tangent) => tangent.preview(faceting),
             State::Blend(blend) => blend.preview(faceting),
+            State::Gear(gearing) => gearing.preview(faceting),
             State::Idle => Preview::default(),
         }
     }
@@ -308,6 +326,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.highlighted_entities(),
             State::Tangent(tangent) => tangent.highlighted_entities(),
             State::Blend(blend) => blend.highlighted_entities(),
+            State::Gear(gearing) => gearing.highlighted_entities(),
             State::Idle => Vec::new(),
         }
     }
@@ -320,6 +339,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.label(sketch, unit),
             State::Tangent(tangent) => tangent.label(sketch, unit),
             State::Blend(blend) => blend.label(sketch),
+            State::Gear(gearing) => gearing.label(sketch, unit, self.gear.gear()),
             State::Idle => None,
         }
     }
@@ -332,6 +352,7 @@ impl Modifying {
             State::Fillet(filleting) => Some(filleting.prompt()),
             State::Tangent(tangent) => Some(tangent.prompt()),
             State::Blend(blend) => Some(blend.prompt()),
+            State::Gear(gearing) => Some(gearing.prompt()),
             State::Idle => None,
         }
     }
@@ -346,7 +367,7 @@ impl Modifying {
             State::Fillet(filleting) => Some(filleting.field()),
             State::Pattern(patterning) => Some(patterning.field()),
             State::Tangent(tangent) => Some(tangent.field()),
-            State::Mirror(_) | State::Blend(_) | State::Idle => None,
+            State::Mirror(_) | State::Blend(_) | State::Gear(_) | State::Idle => None,
         }
     }
 
@@ -358,6 +379,7 @@ impl Modifying {
             | State::Pattern(_)
             | State::Tangent(_)
             | State::Blend(_)
+            | State::Gear(_)
             | State::Idle => {}
         }
     }
@@ -367,7 +389,11 @@ impl Modifying {
             State::Pattern(patterning) => patterning.show_text(model, text),
             State::Fillet(filleting) => filleting.show_text(model, text),
             State::Tangent(tangent) => tangent.show_text(model, text),
-            State::Offset(_) | State::Mirror(_) | State::Blend(_) | State::Idle => {
+            State::Offset(_)
+            | State::Mirror(_)
+            | State::Blend(_)
+            | State::Gear(_)
+            | State::Idle => {
                 let shown = text
                     .and_then(|text| Value::typed(model, text).ok())
                     .map(|value| value.millimetres);
@@ -390,7 +416,11 @@ impl Modifying {
                 Some((feature, _)) => tangent.enter_text(model, feature, text),
                 None => Ok(Outcome::Nothing),
             },
-            State::Offset(_) | State::Mirror(_) | State::Blend(_) | State::Idle => {
+            State::Offset(_)
+            | State::Mirror(_)
+            | State::Blend(_)
+            | State::Gear(_)
+            | State::Idle => {
                 Value::typed(model, text).and_then(|value| self.enter_value(model, value))
             }
         }
@@ -407,6 +437,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.click(model, feature),
             State::Tangent(tangent) => tangent.click(model, feature),
             State::Blend(blend) => blend.click(model, feature),
+            State::Gear(gearing) => gearing.click(model, feature, self.gear.gear()),
             State::Idle => Outcome::Nothing,
         }
     }
@@ -419,6 +450,7 @@ impl Modifying {
             | State::Pattern(_)
             | State::Tangent(_)
             | State::Blend(_)
+            | State::Gear(_)
             | State::Idle => false,
         }
     }
@@ -434,6 +466,7 @@ impl Modifying {
             | State::Pattern(_)
             | State::Tangent(_)
             | State::Blend(_)
+            | State::Gear(_)
             | State::Idle => Ok(Outcome::Nothing),
         }
     }
@@ -449,6 +482,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.activate(model, feature),
             State::Tangent(tangent) => tangent.activate(model, feature),
             State::Blend(blend) => blend.activate(model, feature),
+            State::Gear(gearing) => gearing.finish(model, feature, self.gear.gear()),
             State::Idle => Outcome::Nothing,
         }
     }
@@ -457,7 +491,7 @@ impl Modifying {
         match &self.state {
             State::Pattern(patterning) => patterning.steps_targets(),
             State::Mirror(mirroring) => !mirroring.gathers(),
-            State::Fillet(_) | State::Tangent(_) | State::Blend(_) => true,
+            State::Fillet(_) | State::Tangent(_) | State::Blend(_) | State::Gear(_) => true,
             State::Offset(_) | State::Idle => false,
         }
     }
@@ -469,6 +503,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.steppable(sketch),
             State::Tangent(tangent) => tangent.steppable(),
             State::Blend(blend) => blend.steppable(sketch),
+            State::Gear(gearing) => gearing.steppable(),
             State::Offset(_) | State::Idle => Ok(()),
         }
     }
@@ -480,6 +515,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.step(sketch, step),
             State::Tangent(tangent) => tangent.step(sketch, step),
             State::Blend(blend) => blend.step(sketch, step),
+            State::Gear(gearing) => gearing.step(sketch, step),
             State::Offset(_) | State::Idle => {}
         }
     }
@@ -491,6 +527,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.highlight_needed(),
             State::Tangent(tangent) => tangent.highlight_needed(),
             State::Blend(blend) => blend.highlight_needed(),
+            State::Gear(gearing) => gearing.highlight_needed(),
             State::Offset(_) | State::Idle => Ok(()),
         }
     }
@@ -505,6 +542,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.activate(model, feature),
             State::Tangent(tangent) => tangent.activate(model, feature),
             State::Blend(blend) => blend.activate(model, feature),
+            State::Gear(gearing) => gearing.activate(model, feature, self.gear.gear()),
             State::Offset(_) | State::Idle => Outcome::Nothing,
         }
     }
@@ -516,6 +554,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.clear_highlight(),
             State::Tangent(tangent) => tangent.clear_highlight(),
             State::Blend(blend) => blend.clear_highlight(),
+            State::Gear(gearing) => gearing.clear_highlight(),
             State::Offset(_) | State::Idle => {}
         }
     }
@@ -527,6 +566,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.can_back_out(),
             State::Tangent(tangent) => tangent.can_back_out(),
             State::Blend(blend) => blend.can_back_out(),
+            State::Gear(gearing) => gearing.can_back_out(),
             State::Offset(_) | State::Idle => false,
         }
     }
@@ -538,6 +578,7 @@ impl Modifying {
             State::Fillet(filleting) => filleting.back_out(),
             State::Tangent(tangent) => tangent.back_out(),
             State::Blend(blend) => blend.back_out(),
+            State::Gear(gearing) => gearing.back_out(),
             State::Offset(_) | State::Idle => {}
         }
     }

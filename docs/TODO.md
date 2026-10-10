@@ -146,15 +146,15 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   constraints on the point rather than as positions so the solver and dimensions keep reading
   them; the degree cannot be chosen; and no point can be inserted or removed while keeping the
   shape.
-- [medium · hard] No spur gears: a gear tool in the sketch should draw the outline of an involute
-  spur gear from its module (or diametral pitch), tooth count, pressure angle, and optionally
-  profile shift, root fillet and bore, as one closed profile ready to extrude. Teeth are involute
-  flanks, so it needs either a spline fitted within tolerance per flank or an involute curve in the
-  sketch and the kernel's 2D profile curves, and the profile must stay parametric: module, teeth
-  and pressure angle are named parameters taking expressions, the pitch, base, root and tip
-  circles are shown as construction geometry, and a pair of gears at a centre distance follows from
-  the same parameters. Refuse in words a tooth count that undercuts at the chosen shift. A
-  sprocket for roller chain (ISO 606 pitch and roller diameter, tooth count) belongs in the same
+- [medium · hard] A spur gear (`sketch.md`, Spur gears) is drawn once: its curves are free sketch
+  geometry, not tied to the values in the Spur gear panel (expressions using parameters are read
+  when it is drawn), so changing the module, teeth or pressure angle, or a parameter they use,
+  means deleting it and drawing it again, and nothing holds its shape when one of its points is
+  dragged. Keeping it parametric needs a gear stored in the sketch (its expressions and the curves
+  it made, saved in the file) that recompute draws again from the evaluated values, holding its
+  curves fixed like projected geometry; the teeth changing the number of curves is the hard part.
+  A pair of meshing gears at a centre distance following from the same parameters is missing, and
+  so is a sprocket for roller chain (ISO 606 pitch and roller diameter, tooth count) in the same
   tool.
 - [medium · hard] The centre of an outline of odd sides and a slanted track place a point without
   a constraint keeping it there, as the sketch has no centroid or point-on-a-direction constraint;

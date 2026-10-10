@@ -53,7 +53,8 @@ What you type is kept as dimensions, unless {command:sketch.toggle_typed_dimensi
 ## Drawing tools
 
 - Shapes: [Point](point), [Line](line), [Rectangle](rectangle), [Circle](circle), [Arcs](arcs),
-  [Slot](slot), [Polygon](polygon), [Spline](spline) and [Ellipse](ellipses).
+  [Slot](slot), [Polygon](polygon), [Spline](spline), [Ellipse](ellipses) and
+  [Spur gear](gear).
 - Changing curves: [Trim and extend](trim-and-extend), [Offset](offset),
   [Mirror](sketch-mirror), [Patterns](sketch-patterns), [Sketch fillet](sketch-fillet) and
   [Blend curve](blend-curve).

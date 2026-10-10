@@ -33,7 +33,9 @@ use crate::{
     drawing::{Drawing, Ended, Preview},
     editing::{self, EditingCommand, SketchEditing, Tool},
     faceting::FacetLevel,
-    feature_tree, hole_tools,
+    feature_tree,
+    gearing::GearSettings,
+    hole_tools,
     interference_panel::{Mark, MarkKind},
     isocurves::IsocurveDrawing,
     manipulator::{Manipulating, Manipulator},
@@ -468,6 +470,10 @@ pub fn initial_viewpoint() -> Viewpoint {
 }
 
 impl ViewportState {
+    pub fn gear_settings(&mut self) -> &mut GearSettings {
+        self.modifying.gear_settings()
+    }
+
     pub fn new() -> Self {
         Self {
             camera: Camera::new(initial_viewpoint()),
@@ -1878,6 +1884,7 @@ impl ViewportState {
             | Tool::RectangularPattern
             | Tool::CircularPattern
             | Tool::TangentCircle
+            | Tool::Gear
             | Tool::Project
             | Tool::Intersect
             | Tool::Dimension

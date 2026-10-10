@@ -41,6 +41,7 @@ pub enum Page {
     SketchMirror,
     SketchPatterns,
     TangentCircle,
+    Gear,
     SketchFillet,
     ProjectAndIntersect,
     BlendCurve,
@@ -114,6 +115,7 @@ all_variants!(
     SketchMirror,
     SketchPatterns,
     TangentCircle,
+    Gear,
     SketchFillet,
     ProjectAndIntersect,
     BlendCurve,
@@ -233,6 +235,7 @@ impl Page {
             Self::SketchMirror => "sketch-mirror",
             Self::SketchPatterns => "sketch-patterns",
             Self::TangentCircle => "tangent-circle",
+            Self::Gear => "gear",
             Self::SketchFillet => "sketch-fillet",
             Self::ProjectAndIntersect => "project-and-intersect",
             Self::BlendCurve => "blend-curve",
@@ -312,6 +315,7 @@ impl Page {
             Self::SketchMirror => include_str!("../guide/sketch-mirror.md"),
             Self::SketchPatterns => include_str!("../guide/sketch-patterns.md"),
             Self::TangentCircle => include_str!("../guide/tangent-circle.md"),
+            Self::Gear => include_str!("../guide/gear.md"),
             Self::SketchFillet => include_str!("../guide/sketch-fillet.md"),
             Self::ProjectAndIntersect => include_str!("../guide/project-and-intersect.md"),
             Self::BlendCurve => include_str!("../guide/blend-curve.md"),
@@ -387,6 +391,7 @@ impl Page {
             | Self::SketchMirror
             | Self::SketchPatterns
             | Self::TangentCircle
+            | Self::Gear
             | Self::SketchFillet
             | Self::ProjectAndIntersect
             | Self::BlendCurve => Chapter::SketchTools,
@@ -446,6 +451,7 @@ impl Page {
             Tool::Mirror => Self::SketchMirror,
             Tool::RectangularPattern | Tool::CircularPattern => Self::SketchPatterns,
             Tool::TangentCircle => Self::TangentCircle,
+            Tool::Gear => Self::Gear,
             Tool::Fillet | Tool::Chamfer => Self::SketchFillet,
             Tool::Project | Tool::Intersect => Self::ProjectAndIntersect,
             Tool::Dimension => Self::Dimensions,

@@ -25,7 +25,7 @@ use crate::{
     commands::Command,
     datum_tools,
     drawing_export::{DrawingCommand, DrawingSource, Layout},
-    editing::EditingCommand,
+    editing::{EditingCommand, Tool},
     export::ExportCommand,
     files::FileCommand,
     history::HistoryCommand,
@@ -647,6 +647,11 @@ fn canvas_scenes(model: &mut Harness, gpu: &Gpu, out: &Path, look: Look) {
         model.frame();
         model.key(Key::Escape, Modifiers::NONE);
         model.frame();
+        model.perform(Action::Editing(EditingCommand::SetTool(Tool::Gear)));
+        model.events.push(Event::PointerMoved(viewport.center()));
+        model.frame();
+        model.frame();
+        shoot(model, gpu, out, "gear", look);
         model.perform(Action::Editing(EditingCommand::Finish));
         model.settle();
     }

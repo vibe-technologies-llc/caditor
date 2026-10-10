@@ -26,6 +26,8 @@ paths:
   - "crates/caditor/src/blend_curving.rs"
   - "crates/caditor/src/tidying.rs"
   - "crates/caditor/src/tidy_panel.rs"
+  - "crates/caditor/src/gearing.rs"
+  - "crates/caditor/src/gear_panel.rs"
 ---
 
 # Sketch editing in the app
@@ -354,6 +356,22 @@ paths:
   excircle. With two chosen the typed-point field ("Radius", opens on a digit or `=`) draws the circle
   of that radius nearest the pointer instead, previewed while the text parses and kept as typed
   with parameters. Each draw is one undoable "Draw tangent circle" transaction.
+- Spur gear (`Tool::Gear`, `gearing.rs`; the Polygon button's corner menu, the Sketch menu among
+  the drawing tools and the palette, no default key) draws an involute gear outline (`sketch.md`,
+  Spur gears). While it is active the Spur gear panel (`gear_panel.rs`, a right-hand panel
+  sharing the side panels' room, closing back to Select) holds Module, Teeth, Pressure angle,
+  Profile shift, Root fillet and Bore as text fields read each frame like any value
+  (`patterning::quantity`: units and expressions with parameters; teeth a whole number, bore
+  empty for none), kept in `Modifying` (`GearSettings`, from 2 mm, 20 teeth, 20°, no shift,
+  0.75 mm and no bore) while caditor runs, across tools and sketches. Under them it lists the
+  pitch, tip, root and base diameters, or the gear's refusal in an error callout; a field that
+  does not read says so under itself. The pointer previews the gear centred on the point under
+  it (the origin included) or where it is, the outline as curves, its four circles as dashed
+  guides and the words saying its teeth, module and tip diameter, or why not; a click draws it
+  there. Enter in the view, or the panel's primary button ("Draw at Point 7", "Draw at the
+  origin"), draws it at the one selected point, else the origin; the highlight commands step
+  through the points and the origin and Space or Enter draws on the highlighted one. Each is one
+  undoable "Draw spur gear" transaction, refused in a notice naming the tool otherwise.
 - Blend curve (`Tool::BlendCurve`, `blend_curving.rs`; Alt+Shift+B, Sketch menu, palette and
   Offset's corner menu, `sketch_toolbar::OFF_RIBBON`) joins two curve ends with a spline (`sketch.md`, Blend
   curves). It takes the end of a line, arc or spline (projected ones included) nearest the

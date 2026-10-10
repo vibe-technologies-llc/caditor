@@ -1414,7 +1414,7 @@ impl Sketch {
         }
     }
 
-    fn insert(&mut self, entity: Entity) -> EntityId {
+    pub(crate) fn insert(&mut self, entity: Entity) -> EntityId {
         let id = EntityId::from_raw(self.allocate());
         self.count_uses(&entity.points(), true);
         self.entities.insert(id, entity);

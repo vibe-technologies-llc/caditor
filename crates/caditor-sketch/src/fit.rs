@@ -177,7 +177,7 @@ fn fit_with(
     Some(FittedSpline { spline, deviation })
 }
 
-fn least_squares(
+pub(crate) fn least_squares(
     template: &BSpline,
     samples: &[Point2],
     parameters: &[f64],
