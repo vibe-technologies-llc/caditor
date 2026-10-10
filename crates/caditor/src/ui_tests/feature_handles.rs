@@ -379,6 +379,39 @@ fn hovering_an_arrow_and_typing_a_value_sets_it_and_previews_it_first() {
 }
 
 #[test]
+fn a_dragged_extrusion_keeps_its_last_preview_drawn_while_the_next_one_computes() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(40.0, 40.0));
+    harness.add_sketch(sketch);
+    harness.select([]);
+    harness.click_tool("Extrude");
+    harness.settle();
+    let extrude = open_feature(&harness);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let only = Handle::Reach(Reach::Only);
+    let from = grip(&mut harness, only, 0.0);
+    let pulled = grip(&mut harness, only, 5.0);
+    let further = grip(&mut harness, only, 10.0);
+
+    hold_at(&mut harness, from, pulled);
+    harness.wait_until("the first preview is drawn", |harness| {
+        harness.model.draft_body_result().is_some()
+    });
+    let first = harness.model.draft_kind(extrude).cloned();
+    harness.events.push(Event::PointerMoved(further));
+    harness.frame();
+
+    assert_ne!(harness.model.draft_kind(extrude).cloned(), first);
+    assert!(harness.model.draft_body_result().is_some());
+
+    release_at(&mut harness, further);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Extrude 1"));
+}
+
+#[test]
 fn an_extrusion_arrow_dropped_on_a_corner_of_another_body_stops_level_with_it() {
     let mut harness = Harness::new();
     extruded_plate(&mut harness);

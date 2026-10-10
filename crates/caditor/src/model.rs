@@ -416,6 +416,11 @@ impl Model {
         let shown = self.shown_placement(feature);
         let mut parameters = ParameterValues::evaluate(&document);
         parameters.take_readings(&self.evaluation.parameters);
+        let replaced = self
+            .draft
+            .take()
+            .filter(|draft| draft.feature == feature && draft.revision == revision)
+            .and_then(|draft| draft.evaluation);
         self.draft = Some(DraftPreview {
             feature,
             kind,
@@ -423,7 +428,7 @@ impl Model {
             transaction,
             revision,
             serial: self.drafts,
-            evaluation: None,
+            evaluation: replaced,
             shown,
             held: false,
         });

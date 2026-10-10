@@ -77,7 +77,10 @@ paths:
   reach arrows and a move's preview too. Any other feature's copy is computed as a
   draft (`document-recompute.md`) and the draft's state of the body the feature makes or changes
   (`Feature::body`, `Model::draft_body_result`) is drawn in that body's place once meshed
-  (`BodyMeshes::draft`, `OpenDraft`), a body made by the feature itself included; a removal's
+  (`BodyMeshes::draft`, `OpenDraft`), a body made by the feature itself included. A draft
+  replacing one of the same feature and revision keeps the evaluation it replaces until its own
+  arrives (`Model::preview`), so a handle drag or typing never falls back to
+  the committed body between steps; a removal's
   tools are the draft's (`Model::draft_cuts`). A feature that makes no body is drawn from the
   draft's evaluation once it computed (`Model::draft_evaluation_of`, handed to the scene as
   `Sources::draft` with `Revisions::draft`, `Model::draft_generation`, in its key): the open datum
