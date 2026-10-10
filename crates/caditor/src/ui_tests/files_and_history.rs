@@ -1,6 +1,6 @@
 use std::{borrow::Cow, fs, path::Path};
 
-use caditor_document::Transaction;
+use caditor_document::{Edit, Transaction};
 use egui::{Event, Id, Key, Modifiers, PanelState, PointerButton, Pos2};
 use tempfile::TempDir;
 
@@ -10,10 +10,12 @@ use crate::{
     commands::{Command, RecentSlot},
     export::ExportCommand,
     files::{FileCommand, GuardChoice},
+    history::HistoryCommand,
     layout::PanelLayout,
     model::{Action, NEVER_SAVED, NO_CHANGES_SINCE_SAVED},
     preferences::Preferences,
-    undo_history,
+    samples::Sample,
+    undo_history, version_preview,
 };
 
 fn notice_starts(harness: &Harness, text: &str) -> bool {
@@ -390,4 +392,80 @@ fn right_hand_panels_open_as_wide_as_one_was_last_made() {
         .size()
         .x;
     assert!((guide - widened.round()).abs() <= 1.0, "{guide}");
+}
+
+fn set_width(harness: &mut Harness, width: &str) {
+    let document = harness.document();
+    let id = document.parameter_named("width").unwrap().id();
+    let expression = document.parse(width).unwrap();
+    harness.perform(Action::Apply(Transaction::single(
+        "Width",
+        Edit::SetParameterExpression { id, expression },
+    )));
+    harness.frame();
+    harness.frame();
+}
+
+#[test]
+fn a_kept_version_is_previewed_in_the_background_without_touching_the_model() {
+    let dir = TempDir::new().unwrap();
+    let plate = Sample::Plate.document().unwrap();
+    let mut harness = Harness::starting(Some(dir.path()), plate, Workspace::new());
+    let path = dir.path().join("plate.caditor");
+    harness.answer_dialog(Some(path));
+    harness.command(FileCommand::SaveAs);
+    harness.wait_until("the model is saved", |harness| {
+        harness.model.path().is_some() && !harness.model.is_saving()
+    });
+    harness.edit_width("45 mm");
+    harness.command(FileCommand::Save);
+    harness.wait_until("the change is saved", |harness| !harness.model.is_dirty());
+    harness.edit_width("47 mm");
+    let revision = harness.model.revision();
+    let undo_label = harness.model.undo_label().map(str::to_owned);
+    let features = harness.document().features().len();
+
+    harness.command(FileCommand::History(HistoryCommand::Show));
+    harness.wait_until("the versions are listed", |harness| {
+        harness.shows(version_preview::SHOW)
+    });
+    harness.click(version_preview::SHOW);
+    harness.wait_until("the preview is drawn", |harness| {
+        harness
+            .files
+            .version_preview()
+            .is_some_and(version_preview::Preview::is_drawn)
+    });
+
+    assert!(harness.shows_containing("Preview of the version saved"));
+    assert!(harness.shows(&format!("{features} features · 1 body")));
+    assert!(harness.shows("Compared with the model now:"));
+    assert!(harness.shows("Parameters changed since: width"));
+    assert!(harness.shows(version_preview::HIDE));
+    let preview = harness.files.version_preview().unwrap();
+    assert_eq!(preview.summary().unwrap().features, features);
+    assert_eq!(preview.changes().unwrap().parameters, ["width"]);
+    assert_eq!(harness.model.revision(), revision);
+    assert_eq!(harness.model.undo_label().map(str::to_owned), undo_label);
+    assert_eq!(harness.expression_text("width"), "47 mm");
+
+    set_width(&mut harness, "50 mm");
+    assert!(harness.shows(version_preview::SAME_AS_NOW));
+    set_width(&mut harness, "47 mm");
+    assert!(harness.shows("Parameters changed since: width"));
+
+    harness.click(version_preview::HIDE);
+    assert!(harness.files.version_preview().is_none());
+    assert!(!harness.shows("Parameters changed since: width"));
+
+    harness.click(version_preview::SHOW);
+    harness.wait_until("the preview is ready again", |harness| {
+        harness.shows("Restore this version")
+    });
+    harness.click("Restore this version");
+    harness.wait_until("the version is restored", |harness| {
+        notice_starts(harness, "Restored the version saved")
+    });
+    assert_eq!(harness.expression_text("width"), "50 mm");
+    assert!(harness.files.version_preview().is_none());
 }

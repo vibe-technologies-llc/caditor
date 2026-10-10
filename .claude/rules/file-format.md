@@ -454,7 +454,8 @@ paths:
   unmodified and the next save writes the origins. A journal snapshot is not completed.
 - `load_cancellable` is `load` under a `CancelToken`, checked after reading the file, between
   records (`binary::decode_cancellable`) and during origin completion; a cancelled load is
-  `LoadError::Cancelled`, never a partial model.
+  `LoadError::Cancelled`, never a partial model. `load_version_cancellable` does the same for a
+  version (checked after reading, after rebuilding it and during origin completion).
 - Near-linear on hostile files: names indexed; duplicate IDs and cycles (`DependencyGraph`) found
   before applying; each kind of record applied as one transaction, halved only where it fails; at
   most `MAX_RECORDS` parameters and features loaded, the rest reported.

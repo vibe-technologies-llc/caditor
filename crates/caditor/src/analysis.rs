@@ -1114,7 +1114,7 @@ mod tests {
             &CancelToken::never(),
             &|_, _| {},
         );
-        let meshes: BodyMeshes = snapshot::meshed(&evaluation).unwrap();
+        let meshes: BodyMeshes = snapshot::meshed(&evaluation, &CancelToken::never()).unwrap();
         meshes
             .iter()
             .map(|(_, mesh)| Arc::clone(&mesh.mesh))

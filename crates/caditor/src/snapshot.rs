@@ -3,8 +3,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Result, bail};
-use caditor_document::{Document, Evaluation};
+use anyhow::Result;
+use caditor_document::{CancelToken, Document, Evaluation};
 use caditor_render::{Scene, SurfaceSize, View};
 
 use crate::{
@@ -33,8 +33,30 @@ pub struct Snapshot {
     pub pixels_per_point: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum Unmeshed {
+    #[error("the bodies were not meshed within {} seconds", MESHING_TIMEOUT.as_secs())]
+    TimedOut,
+    #[error("meshing the bodies was cancelled")]
+    Cancelled,
+}
+
 pub fn take(document: &Document, evaluation: &Evaluation, size: SurfaceSize) -> Result<Snapshot> {
-    let meshes = meshed(evaluation)?;
+    Ok(take_unless(
+        document,
+        evaluation,
+        size,
+        &CancelToken::never(),
+    )?)
+}
+
+pub fn take_unless(
+    document: &Document,
+    evaluation: &Evaluation,
+    size: SurfaceSize,
+    cancel: &CancelToken,
+) -> Result<Snapshot, Unmeshed> {
+    let meshes = meshed(evaluation, cancel)?;
     Ok(of_bodies(document, evaluation, &meshes, size))
 }
 
@@ -92,7 +114,7 @@ fn build(sources: &Sources<'_>, level: FacetLevel) -> scene::BuiltScene {
     built
 }
 
-pub fn meshed(evaluation: &Evaluation) -> Result<BodyMeshes> {
+pub fn meshed(evaluation: &Evaluation, cancel: &CancelToken) -> Result<BodyMeshes, Unmeshed> {
     let mut meshing = BodyMeshing::default();
     for (body, _) in evaluation.bodies() {
         if let Some(result) = evaluation.body_result(body) {
@@ -101,11 +123,11 @@ pub fn meshed(evaluation: &Evaluation) -> Result<BodyMeshes> {
     }
     let deadline = Instant::now() + MESHING_TIMEOUT;
     while meshing.is_pending() {
+        if cancel.is_cancelled() {
+            return Err(Unmeshed::Cancelled);
+        }
         if Instant::now() >= deadline {
-            bail!(
-                "the bodies were not meshed within {} seconds",
-                MESHING_TIMEOUT.as_secs()
-            );
+            return Err(Unmeshed::TimedOut);
         }
         meshing.poll();
         thread::sleep(MESHING_POLL);
