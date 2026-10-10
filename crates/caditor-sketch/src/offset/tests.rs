@@ -704,3 +704,14 @@ fn a_rounded_rectangle_offset_inwards_keeps_every_corner_concentric() {
     assert_eq!(solved.solution.degrees_of_freedom(), freedom);
     assert_eq!(count_of(&sketch, "Distance"), 1);
 }
+
+#[test]
+fn an_ellipse_is_refused_saying_its_offset_would_be_no_ellipse() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::ZERO, Point2::new(10.0, 0.0), 4.0);
+
+    let refused = sketch.offset_chain(&[ellipse]).unwrap_err();
+
+    assert!(matches!(refused, OffsetError::EllipseNotOffsettable { .. }));
+    assert!(refused.to_string().contains("no ellipse"), "{refused}");
+}

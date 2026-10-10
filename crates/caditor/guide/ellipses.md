@@ -10,13 +10,22 @@ pointer sweeps; {command:sketch.reverse_arc} sends it the other way.
 Both share the Curve button with the spline. They have no key of their own; use the button, the
 Sketch menu or {command:palette}.
 
-A [Smart dimension](dimensions) on an ellipse adds its major and minor radii. Horizontal and
-Vertical level its major axis. Equal gives ellipses the same radii, Midpoint puts a point at the
-middle of an elliptical arc, and Tangent makes a line touch an ellipse, or a circle or arc touch it
-where the two share a point. Drawing snaps to the far end of the major axis, the ends of the minor
-axis and the middle of an elliptical arc.
+A [Smart dimension](dimensions) on an ellipse adds its major and minor radii, and with a point,
+line, circle or arc the distance between them. Horizontal and Vertical level its major axis.
+Equal gives ellipses the same radii, Midpoint puts a point at the middle of an elliptical arc,
+and Tangent makes a line, circle or arc touch an ellipse, at the point they share or anywhere
+along it. Drawing snaps to the far end of the major axis, the ends of the minor axis, which a
+point keeps however the ellipse turns, and the middle of an elliptical arc.
 
-[Trim](trim-and-extend) opens an ellipse into an elliptical arc and shortens or splits an
-elliptical arc; [splitting and breaking](sketch-editing) work on elliptical arcs, and
-[Mirror](sketch-mirror) and the [patterns](sketch-patterns) copy ellipses with their radii held.
-Ellipses cannot yet be extended, offset or rounded by a sketch fillet.
+[Trim and extend](trim-and-extend) open an ellipse into an elliptical arc, shorten or split an
+elliptical arc and carry its ends round the ellipse to the next curve;
+[splitting and breaking](sketch-editing) work on elliptical arcs, a
+[sketch fillet or chamfer](sketch-fillet) rounds or cuts a corner where an elliptical arc meets
+a line, arc or another elliptical arc, and [Mirror](sketch-mirror) and the
+[patterns](sketch-patterns) copy ellipses with their radii held.
+[Projecting](project-and-intersect) an ellipse onto a sketch facing the same way, or the opposite
+way, brings it in as an ellipse; seen at an angle it comes in as a spline.
+
+Ellipses cannot be offset: the curve at one distance from an ellipse is no ellipse, so nothing
+would keep the copy at that distance. A tangent or distance between an ellipse and a spline or
+another ellipse is not offered.

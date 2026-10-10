@@ -35,11 +35,11 @@ pub enum TrimError {
 pub enum ExtendError {
     #[error("the curve to extend no longer exists")]
     NoSuchCurve(EntityId),
-    #[error("{label} is not a line or an arc, so it has no end to extend")]
+    #[error("{label} is not a line, an arc or an elliptical arc, so it has no end to extend")]
     NotACurve { entity: EntityId, label: String },
     #[error("{label} is closed, so it has no end to extend")]
     Closed { entity: EntityId, label: String },
-    #[error("{label} cannot be extended; only lines and arcs can")]
+    #[error("{label} cannot be extended; only lines, arcs and elliptical arcs can")]
     NotExtendable { entity: EntityId, label: String },
     #[error("{label} has no length to extend")]
     NoLength { entity: EntityId, label: String },
@@ -133,6 +133,7 @@ pub struct Extension {
 enum Reach {
     Straight,
     Around(ArcGeometry),
+    AroundEllipse(EllipseGeometry),
 }
 
 impl Extension {
@@ -140,8 +141,15 @@ impl Extension {
         match self.reach {
             Reach::Straight => vec![self.from, self.to],
             Reach::Around(arc) => arc.faceted(faceting),
+            Reach::AroundEllipse(ellipse) => ellipse.faceted(faceting),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Around {
+    Circle(ArcGeometry, bool),
+    Ellipse(EllipseGeometry, bool),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -649,7 +657,7 @@ impl Sketch {
                     label: label(),
                 });
             }
-            Entity::Spline { .. } | Entity::EllipticalArc { .. } => {
+            Entity::Spline { .. } => {
                 return Err(ExtendError::NotExtendable {
                     entity: curve,
                     label: label(),
@@ -681,13 +689,39 @@ impl Sketch {
                 } else {
                     (start, arc.point_at(arc.start_angle))
                 };
-                (moving, from, Vector2::ZERO, Some((arc, at_end)))
+                (
+                    moving,
+                    from,
+                    Vector2::ZERO,
+                    Some(Around::Circle(arc, at_end)),
+                )
+            }
+            Entity::EllipticalArc { start, end, .. } => {
+                let ellipse = self.ellipse(curve).ok_or_else(no_length)?;
+                if !Course::Ellipse(ellipse).has_length() {
+                    return Err(no_length());
+                }
+                let at_end = Course::Ellipse(ellipse).parameter(near) > ellipse.sweep / 2.0;
+                let (moving, from) = if at_end {
+                    (end, ellipse.point_at(ellipse.end()))
+                } else {
+                    (start, ellipse.point_at(ellipse.start))
+                };
+                (
+                    moving,
+                    from,
+                    Vector2::ZERO,
+                    Some(Around::Ellipse(ellipse, at_end)),
+                )
             }
         };
         self.check_free_end(curve, end)?;
         let reached = match reach {
             None => self.reach_straight(curve, from, direction),
-            Some((arc, at_end)) => self.reach_around(curve, arc, at_end),
+            Some(Around::Circle(arc, at_end)) => self.reach_around(curve, arc, at_end),
+            Some(Around::Ellipse(ellipse, at_end)) => {
+                self.reach_around_ellipse(curve, ellipse, at_end)
+            }
         };
         let (to, target, reach) = reached.ok_or_else(|| ExtendError::NothingToReach {
             entity: curve,
@@ -1415,6 +1449,52 @@ impl Sketch {
                     ..arc
                 };
                 (arc.point_at(angle), target, Reach::Around(reached))
+            })
+    }
+
+    fn reach_around_ellipse(
+        &self,
+        curve: EntityId,
+        ellipse: EllipseGeometry,
+        at_end: bool,
+    ) -> Option<(Point2, EntityId, Reach)> {
+        let course = Course::Ellipse(ellipse);
+        let room = TAU - ellipse.sweep;
+        self.cutters(curve)
+            .flat_map(|(target, cutter)| {
+                let tolerance = TOLERANCE * course.extent().max(cutter.extent());
+                cutter
+                    .ellipse_cut_positions(&ellipse, tolerance)
+                    .into_iter()
+                    .map(move |point| (point, target, course.slack(tolerance)))
+            })
+            .filter_map(|(point, target, slack)| {
+                let angle = ellipse.parameter_of(point);
+                let turn = if at_end {
+                    (angle - ellipse.end()).rem_euclid(TAU)
+                } else {
+                    (ellipse.start - angle).rem_euclid(TAU)
+                };
+                (turn > slack && turn < room - slack).then_some((turn, target))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(turn, target)| {
+                let start = if at_end {
+                    ellipse.end()
+                } else {
+                    ellipse.start - turn
+                };
+                let reached = EllipseGeometry {
+                    start,
+                    sweep: turn,
+                    ..ellipse
+                };
+                let angle = if at_end { start + turn } else { start };
+                (
+                    ellipse.point_at(angle),
+                    target,
+                    Reach::AroundEllipse(reached),
+                )
             })
     }
 

@@ -5,7 +5,7 @@ use caditor_geometry::{Point2, Vector2};
 
 use crate::{
     constraint::Constraint,
-    curve::{ArcGeometry, Faceting, direction_angle},
+    curve::{ArcGeometry, EllipseGeometry, Faceting, direction_angle},
     entity::Entity,
     id::EntityId,
     intersect::{self, Carrier, Shape},
@@ -17,10 +17,12 @@ use crate::{
 const TOLERANCE: f64 = 1e-7;
 const SMOOTH_ANGLE: f64 = 1e-6;
 const ANGLE_TOLERANCE: f64 = 1e-6;
+const ELLIPSE_SAMPLES: usize = 256;
+const BISECTIONS: usize = 60;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum FilletError {
-    #[error("{label} is not where two lines or arcs meet")]
+    #[error("{label} is not where two lines, arcs or elliptical arcs meet")]
     NotACorner { point: EntityId, label: String },
     #[error("only {curve} ends at {label}, so there is no corner to round")]
     OneCurve {
@@ -36,7 +38,7 @@ pub enum FilletError {
     },
     #[error("{first} and {second} do not meet at their ends")]
     NotJoined { first: String, second: String },
-    #[error("{label} cannot be filleted; only lines and arcs can")]
+    #[error("{label} cannot be filleted; only lines, arcs and elliptical arcs can")]
     NotLineOrArc { entity: EntityId, label: String },
     #[error("{first} and {second} meet without a corner to round")]
     NoCorner { first: String, second: String },
@@ -113,6 +115,51 @@ enum Leg {
         arc: ArcGeometry,
         corner_at_start: bool,
     },
+    Ellipse {
+        ellipse: EllipseGeometry,
+        corner_at_start: bool,
+    },
+}
+
+fn whole(ellipse: &EllipseGeometry) -> EllipseGeometry {
+    EllipseGeometry {
+        start: 0.0,
+        sweep: TAU,
+        ..*ellipse
+    }
+}
+
+fn along_ellipse(ellipse: &EllipseGeometry, corner_at_start: bool, turned: f64) -> f64 {
+    if corner_at_start {
+        ellipse.start + turned
+    } else {
+        ellipse.end() - turned
+    }
+}
+
+fn first_root(span: f64, level: impl Fn(f64) -> f64) -> Option<f64> {
+    let step = span / ELLIPSE_SAMPLES as f64;
+    let mut low = 0.0;
+    let mut at_low = level(low);
+    for index in 1..=ELLIPSE_SAMPLES {
+        let high = step * index as f64;
+        let at_high = level(high);
+        if at_low * at_high < 0.0 {
+            let (mut low, mut high, mut at_low) = (low, high, at_low);
+            for _ in 0..BISECTIONS {
+                let middle = 0.5 * (low + high);
+                let at_middle = level(middle);
+                if at_middle * at_low <= 0.0 {
+                    high = middle;
+                } else {
+                    (low, at_low) = (middle, at_middle);
+                }
+            }
+            return Some(0.5 * (low + high));
+        }
+        (low, at_low) = (high, at_high);
+    }
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -141,6 +188,51 @@ impl Side {
                     radius: offset,
                 })
             }
+            Leg::Ellipse { .. } => None,
+        }
+    }
+
+    fn inward(&self, corner: Point2, inside: Vector2, at: Point2) -> Vector2 {
+        match self.leg {
+            Leg::Line { .. } => inside,
+            Leg::Arc { arc, .. } => {
+                let outward = (at - arc.center).try_normalize().unwrap_or(Vector2::X);
+                if inside.dot(arc.center - corner) > 0.0 {
+                    -outward
+                } else {
+                    outward
+                }
+            }
+            Leg::Ellipse { ellipse, .. } => {
+                let normal = |point: Point2| {
+                    ellipse
+                        .tangent_at(ellipse.parameter_of(point))
+                        .try_normalize()
+                        .unwrap_or(Vector2::X)
+                        .perp()
+                };
+                if normal(corner).dot(inside) < 0.0 {
+                    -normal(at)
+                } else {
+                    normal(at)
+                }
+            }
+        }
+    }
+
+    fn level(&self, corner: Point2, inside: Vector2, point: Point2) -> f64 {
+        let on = self.touch(corner, point);
+        (point - on).dot(self.inward(corner, inside, on))
+    }
+
+    fn ray_crossings(&self, corner: Point2, ray: Carrier, tolerance: f64) -> Vec<Point2> {
+        match self.leg {
+            Leg::Ellipse { ellipse, .. } => {
+                intersect::crossings(ray, &Shape::Ellipse(whole(&ellipse)), tolerance)
+            }
+            Leg::Line { .. } | Leg::Arc { .. } => {
+                centers(ray, self.carrier_through(corner), tolerance)
+            }
         }
     }
 
@@ -151,6 +243,7 @@ impl Side {
                 arc.center
                     + (center - arc.center).try_normalize().unwrap_or(Vector2::X) * arc.radius
             }
+            Leg::Ellipse { ellipse, .. } => whole(&ellipse).closest_point(center),
         }
     }
 
@@ -170,6 +263,18 @@ impl Side {
                 let along = if corner_at_start { turn } else { -turn };
                 Some(arc.point_at(from + along))
             }
+            Leg::Ellipse {
+                ellipse,
+                corner_at_start,
+            } => {
+                let at = |turned: f64| {
+                    ellipse.point_at(along_ellipse(&ellipse, corner_at_start, turned))
+                };
+                let turned = first_root(ellipse.sweep, |turned| {
+                    at(turned).distance(corner) - distance
+                })?;
+                Some(at(turned))
+            }
         }
     }
 
@@ -187,6 +292,16 @@ impl Side {
                     radial.perp()
                 }
             }
+            Leg::Ellipse {
+                ellipse,
+                corner_at_start,
+            } => {
+                let tangent = ellipse
+                    .tangent_at(ellipse.parameter_of(at))
+                    .try_normalize()
+                    .unwrap_or(Vector2::X);
+                if corner_at_start { -tangent } else { tangent }
+            }
         }
     }
 
@@ -199,6 +314,10 @@ impl Side {
             Leg::Arc { arc, .. } => Carrier::Circle {
                 center: arc.center,
                 radius: arc.radius,
+            },
+            Leg::Ellipse { .. } => Carrier::Line {
+                through: corner,
+                direction: self.leaving,
             },
         }
     }
@@ -226,6 +345,20 @@ impl Side {
                     0.0
                 };
                 turned > slack && turned < arc.sweep - slack
+            }
+            Leg::Ellipse {
+                ellipse,
+                corner_at_start,
+            } => {
+                let at = ellipse.parameter_of(touch);
+                let turned = if corner_at_start {
+                    (at - ellipse.start).rem_euclid(TAU)
+                } else {
+                    (ellipse.end() - at).rem_euclid(TAU)
+                };
+                let reach = ellipse.major_radius().max(ellipse.minor_radius);
+                let slack = if reach > 0.0 { tolerance / reach } else { 0.0 };
+                turned > slack && turned < ellipse.sweep - slack
             }
         }
     }
@@ -356,7 +489,7 @@ impl Sketch {
         for curve in [first, second] {
             if !matches!(
                 self.entity(curve),
-                Some(Entity::Line { .. } | Entity::Arc { .. })
+                Some(Entity::Line { .. } | Entity::Arc { .. } | Entity::EllipticalArc { .. })
             ) {
                 return Err(FilletError::NotLineOrArc {
                     entity: curve,
@@ -399,17 +532,29 @@ impl Sketch {
             first: self.entity_label(first.curve),
             second: self.entity_label(second.curve),
         };
-        let first_carrier = first
-            .carrier_toward(at, first_inside, radius)
-            .ok_or_else(|| too_large(&first))?;
-        let second_carrier = second
-            .carrier_toward(at, second_inside, radius)
-            .ok_or_else(|| too_large(&second))?;
         let tolerance = TOLERANCE * at.abs().max_element().max(radius).max(1.0);
-        let center = centers(first_carrier, second_carrier, tolerance)
-            .into_iter()
-            .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))
-            .ok_or_else(no_fit)?;
+        let center = match (first.leg, second.leg) {
+            (Leg::Ellipse { .. }, _) => {
+                rolled_center((&first, first_inside), (&second, second_inside), at, radius)
+                    .ok_or_else(|| too_large(&first))?
+            }
+            (_, Leg::Ellipse { .. }) => {
+                rolled_center((&second, second_inside), (&first, first_inside), at, radius)
+                    .ok_or_else(|| too_large(&second))?
+            }
+            _ => {
+                let first_carrier = first
+                    .carrier_toward(at, first_inside, radius)
+                    .ok_or_else(|| too_large(&first))?;
+                let second_carrier = second
+                    .carrier_toward(at, second_inside, radius)
+                    .ok_or_else(|| too_large(&second))?;
+                centers(first_carrier, second_carrier, tolerance)
+                    .into_iter()
+                    .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))
+                    .ok_or_else(no_fit)?
+            }
+        };
         let touches = [first.touch(at, center), second.touch(at, center)];
         for (side, touch) in [first, second].iter().zip(touches) {
             if !side.reaches(at, touch, tolerance) {
@@ -521,7 +666,8 @@ impl Sketch {
             through: first_touch,
             direction,
         };
-        let second_touch = centers(ray, second.carrier_through(at), tolerance)
+        let second_touch = second
+            .ray_crossings(at, ray, tolerance)
             .into_iter()
             .filter(|found| (*found - first_touch).dot(direction) > tolerance)
             .min_by(|a, b| a.distance(first_touch).total_cmp(&b.distance(first_touch)))
@@ -656,11 +802,27 @@ impl Sketch {
                         leaving,
                     })
                 }
+                Entity::EllipticalArc { start, .. } => {
+                    let ellipse = self.ellipse(curve).ok_or_else(not_line_or_arc)?;
+                    let corner_at_start = *start == end;
+                    let tangent = if corner_at_start {
+                        ellipse.tangent_at(ellipse.start)
+                    } else {
+                        -ellipse.tangent_at(ellipse.end())
+                    };
+                    Ok(Side {
+                        curve,
+                        leg: Leg::Ellipse {
+                            ellipse,
+                            corner_at_start,
+                        },
+                        leaving: tangent.try_normalize().ok_or_else(not_line_or_arc)?,
+                    })
+                }
                 Entity::Point(_)
                 | Entity::Circle { .. }
                 | Entity::Spline { .. }
-                | Entity::Ellipse { .. }
-                | Entity::EllipticalArc { .. } => Err(not_line_or_arc()),
+                | Entity::Ellipse { .. } => Err(not_line_or_arc()),
             }
         };
         let first = side(corner.curves[0], corner.ends[0])?;
@@ -803,6 +965,32 @@ impl Sketch {
                     start,
                     end: moved,
                 },
+                Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end: last,
+                } if start == end => Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start: moved,
+                    end: last,
+                },
+                Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    ..
+                } => Entity::EllipticalArc {
+                    center,
+                    major,
+                    minor_radius,
+                    start,
+                    end: moved,
+                },
                 other => other,
             };
             self.restructure(*curve, reshaped, &[], |constraint| {
@@ -881,6 +1069,29 @@ impl Sketch {
         }
         Ok(())
     }
+}
+
+fn rolled_center(
+    (rolling, rolling_inside): (&Side, Vector2),
+    (other, other_inside): (&Side, Vector2),
+    corner: Point2,
+    radius: f64,
+) -> Option<Point2> {
+    let Leg::Ellipse {
+        ellipse,
+        corner_at_start,
+    } = rolling.leg
+    else {
+        return None;
+    };
+    let center_at = |turned: f64| {
+        let on = ellipse.point_at(along_ellipse(&ellipse, corner_at_start, turned));
+        on + rolling.inward(corner, rolling_inside, on) * radius
+    };
+    let turned = first_root(ellipse.sweep, |turned| {
+        other.level(corner, other_inside, center_at(turned)) - radius
+    })?;
+    Some(center_at(turned))
 }
 
 fn tolerance_at(position: Point2) -> f64 {

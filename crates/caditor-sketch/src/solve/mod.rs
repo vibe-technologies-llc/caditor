@@ -1,6 +1,7 @@
 mod diagnosis;
 #[cfg(test)]
 mod diagnosis_tests;
+mod ellipse;
 #[cfg(test)]
 mod ellipse_tests;
 mod equation;
@@ -28,11 +29,12 @@ use std::{
 use caditor_expression::{EvalError, ParameterId, Quantity};
 use caditor_geometry::Point2;
 
-pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
 pub(crate) use crate::solve::{
+    ellipse::ellipse_gap,
     spline::{joined_at_end, joined_ends, not_joined, spline_gap, straight_spline},
-    system::{arc_joint, share_a_point},
+    system::arc_joint,
 };
+pub use crate::solve::{memo::SolveMemo, numeric::Redundancy};
 use crate::{
     entity::{Entity, SplineKind},
     id::{ConstraintId, EntityId},

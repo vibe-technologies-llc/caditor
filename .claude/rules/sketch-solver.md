@@ -121,15 +121,33 @@ paths:
   elliptical arc seven: its start and end are held on it by two implicit `Form::OnEllipse`.
 - `Form::OnEllipse` is `b/2 (x²/a² + y²/b² − 1)` in the ellipse's frame, a length that is the
   distance for a circle. `Form::EllipseTangent` holds the signed distance from the centre to the
-  line at `sqrt(a²(n·u)² + b²(n·v)²)` on the side the centre started; when the line and ellipse
-  share a point it is `Form::EllipseTouch`, the line along the ellipse's tangent there, for the
-  same reason a joined circle tangency is a right angle. `MajorRadius` is a `PointDistance` and
-  `MinorRadius` a `Radius` on the minor radius.
+  line at `sqrt(a²(n·u)² + b²(n·v)²)` (the ellipse's reach toward the line) plus its `value` on
+  the side the centre started, so a `Distance` from a line to an ellipse is the same form with
+  the gap as value (`System::ellipse_line_gap`) and needs no parameter; when the line and ellipse
+  share a point a tangency is `Form::EllipseTouch`, the line along the ellipse's tangent there,
+  for the same reason a joined circle tangency is a right angle. `MajorRadius` is a
+  `PointDistance` and `MinorRadius` a `Radius` on the minor radius.
 - A circle or arc tangent to an ellipse at a shared point is `Form::EllipseTouchCircle`: the same
   touch with the circle's radius there turned a right angle as the tangent, so the radius runs
-  along the ellipse's normal, one equation for either side. Without a shared point there is no
-  form (it would need a parameter along the ellipse, as splines have), so the constraint is
-  refused and a solve that lost its joint fails as `NotJoined`.
+  along the ellipse's normal, one equation for either side.
+- Elsewhere an ellipse gets a parameter of its own, as a spline does (`solve/ellipse.rs`,
+  `System::ellipse_parameter_start`): a circle or arc tangent to it sharing no point, a point at a
+  distance from it and a circle or arc at a distance from it. The parameter is the ellipse's angle
+  over a full turn, always wrapping (`System::wrapping_parameters`), on the whole ellipse as a
+  point on an arc lies on its whole circle; the forms evaluate the ellipse there through
+  `EllipseHandle::at` (point, tangent and second derivative by the parameter, gradients through
+  `push_point` and `push_tangent` into the centre, axis point and minor radius). A point's
+  distance is `Form::EllipseFoot` (square to the ellipse there) and `Form::EllipseDistance` (the
+  signed distance along its normal on the side the point started), even at zero; a circle's is
+  `Form::EllipseOnCircle` (the point there at the radius plus the value from the centre, the side
+  taken from the start, side 1 and value 0 for a tangency) and `Form::EllipseAcrossRadius` (the
+  ellipse square to the radius there). A point's parameter starts at its closest point
+  (`EllipseGeometry::closest_parameter`), a circle's at the stationary point of the distance from
+  its centre whose gap to the circle is smallest (`touching_parameter`, sign changes of the slope
+  over `STATIONARY_SAMPLES`, bisected), so geometry that already holds does not move.
+- `OnMinorAxis { point, ellipse }` is `Form::OnMinorAxis`: the point's offset from the centre
+  along the major axis is zero, so with a `Coincident` on the ellipse it holds the point at a
+  minor axis end however the axis is turned.
 - `Equal` between ellipses is `EqualLength` of the centre-to-axis spans and `EqualRadius` of the
   minor radii (`EllipseHandle::minor_circle`), only the latter when both handles share the centre
   and axis point, so a split elliptical arc's pieces get no zero row.

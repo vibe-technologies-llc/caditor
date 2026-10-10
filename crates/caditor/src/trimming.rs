@@ -15,9 +15,9 @@ use crate::{
 
 const CARRIER_TOLERANCE: f64 = 1e-7;
 const NOTHING_TO_TRIM: &str = "The sketch has no line, circle or arc to trim";
-const NOTHING_TO_EXTEND: &str = "The sketch has no line or arc to extend";
+const NOTHING_TO_EXTEND: &str = "The sketch has no line, arc or elliptical arc to extend";
 pub const TRIM_PROMPT: &str = "Click a piece of a curve to trim it away, or drag across pieces";
-pub const EXTEND_PROMPT: &str = "Click near the end of a line or arc to extend it";
+pub const EXTEND_PROMPT: &str = "Click near the end of a line, arc or elliptical arc to extend it";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
@@ -150,10 +150,8 @@ impl Trimming {
             return Err(NOTHING_TO_TRIM);
         };
         let offered = sketch.entities().any(|(_, entity)| match entity {
-            Entity::Line { .. } | Entity::Arc { .. } => true,
-            Entity::Circle { .. } | Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
-                tool == Tool::Trim
-            }
+            Entity::Line { .. } | Entity::Arc { .. } | Entity::EllipticalArc { .. } => true,
+            Entity::Circle { .. } | Entity::Ellipse { .. } => tool == Tool::Trim,
             Entity::Point(_) | Entity::Spline { .. } => false,
         });
         match (offered, tool) {
@@ -375,14 +373,22 @@ fn targets(sketch: &Sketch, tool: Tool) -> Vec<Aim> {
             .filter(|(_, entity)| {
                 matches!(
                     entity,
-                    Entity::Line { .. } | Entity::Circle { .. } | Entity::Arc { .. }
+                    Entity::Line { .. }
+                        | Entity::Circle { .. }
+                        | Entity::Arc { .. }
+                        | Entity::EllipticalArc { .. }
                 )
             })
             .flat_map(|(curve, entity)| {
+                let centres = match entity {
+                    Entity::Arc { .. } => 1,
+                    Entity::EllipticalArc { .. } => 2,
+                    _ => 0,
+                };
                 entity
                     .points()
                     .into_iter()
-                    .skip(usize::from(matches!(entity, Entity::Arc { .. })))
+                    .skip(centres)
                     .filter_map(move |end| Some((curve, sketch.point(end)?)))
             })
             .map(|(curve, near)| Aim::of(sketch, tool, curve, near))

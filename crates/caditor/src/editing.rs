@@ -118,7 +118,8 @@ impl Tool {
                  it, or drag across several pieces"
             }
             Self::Extend => {
-                "Click near the end of a line or arc to lengthen it to the next curve in its way"
+                "Click near the end of a line, arc or elliptical arc to lengthen it to the next \
+                 curve in its way"
             }
             Self::Offset => {
                 "Copy the selected chain of lines, arcs or circles at a distance to one side, kept \
@@ -145,11 +146,12 @@ impl Tool {
                  angle, with its pitch, base, root and tip circles, ready to extrude"
             }
             Self::Fillet => {
-                "Round the corner where two lines or arcs meet with an arc tangent to both"
+                "Round the corner where two lines, arcs or elliptical arcs meet with an arc tangent \
+                 to both"
             }
             Self::Chamfer => {
-                "Cut the corner where two lines or arcs meet with a line the same distance from \
-                 it on both"
+                "Cut the corner where two lines, arcs or elliptical arcs meet with a line the same \
+                 distance from it on both"
             }
             Self::Project => {
                 "Click an edge, corner or face of a body, or a curve of another sketch, to bring \

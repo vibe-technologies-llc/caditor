@@ -15,7 +15,7 @@ A disabled button says on hover what to select.
 - **Parallel** and **Perpendicular** relate lines; a line perpendicular to a circle runs through
   its centre.
 - **Tangent** makes a line and a curve, or two curves, touch smoothly; a circle or arc touches an
-  ellipse where the two share a point.
+  ellipse where the two share a point, or anywhere along it when they share none.
 - **Curvature** makes a spline run on from the curve at its end with no kink in its bending.
 - **Equal** gives lines the same length, circles and arcs the same radius, or ellipses the same
   radii.

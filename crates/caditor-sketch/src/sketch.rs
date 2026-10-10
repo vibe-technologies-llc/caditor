@@ -11,7 +11,7 @@ use crate::{
     curve::{ArcGeometry, BSpline, EllipseGeometry, Faceting},
     entity::{Entity, FitSpacing, Role, SplineKind},
     id::{ConstraintId, EntityId, FIRST_UNSTORABLE_ID, Reference},
-    solve::{arc_joint, joined_at_end, not_joined, share_a_point, spline_gap, straight_spline},
+    solve::{arc_joint, ellipse_gap, joined_at_end, not_joined, spline_gap, straight_spline},
 };
 
 pub(crate) fn spline_through(positions: &[Point2], kind: SplineKind) -> Option<BSpline> {
@@ -408,7 +408,11 @@ impl Sketch {
             | Constraint::Equal(a, b)
             | Constraint::Concentric(a, b)
             | Constraint::Collinear(a, b) => format!("{kind} {} and {}", label(a), label(b)),
-            Constraint::Midpoint { point, curve } => {
+            Constraint::Midpoint { point, curve }
+            | Constraint::OnMinorAxis {
+                point,
+                ellipse: curve,
+            } => {
                 format!("{kind} of {} at {}", label(curve), label(point))
             }
             Constraint::AxisDiameter { point, axis, .. } => {
@@ -495,6 +499,7 @@ impl Sketch {
             | Constraint::Concentric(..)
             | Constraint::Collinear(..)
             | Constraint::Symmetric { .. }
+            | Constraint::OnMinorAxis { .. }
             | Constraint::Fix { .. } => return None,
         };
         value.is_finite().then_some(value)
@@ -514,6 +519,14 @@ impl Sketch {
             (Role::Line | Role::Circular, Role::Spline) => {
                 let (on_spline, on_other) = self.spline_gap(to, from)?;
                 Some(on_spline.distance(on_other))
+            }
+            (Role::Elliptic, Role::Point | Role::Line | Role::Circular) => {
+                let (on_ellipse, on_other) = self.ellipse_gap(from, to)?;
+                Some(on_ellipse.distance(on_other))
+            }
+            (Role::Point | Role::Line | Role::Circular, Role::Elliptic) => {
+                let (on_ellipse, on_other) = self.ellipse_gap(to, from)?;
+                Some(on_ellipse.distance(on_other))
             }
             (Role::Point, Role::Circular) => self.distance_to_circle(self.point(from)?, to),
             (Role::Circular, Role::Point) => self.distance_to_circle(self.point(to)?, from),
@@ -582,6 +595,17 @@ impl Sketch {
 
     pub fn spline_gap(&self, spline: EntityId, other: EntityId) -> Option<(Point2, Point2)> {
         spline_gap(self, spline, other)
+    }
+
+    pub fn ellipse_gap(&self, ellipse: EntityId, other: EntityId) -> Option<(Point2, Point2)> {
+        ellipse_gap(self, ellipse, other)
+    }
+
+    pub fn closest_on_ellipse(&self, ellipse: EntityId, to: Point2) -> Option<Point2> {
+        let drawn = self.ellipse(ellipse)?;
+        let whole =
+            EllipseGeometry::full(drawn.center, drawn.center + drawn.major, drawn.minor_radius);
+        Some(whole.closest_point(to))
     }
 
     fn distance_to_spline(&self, point: Point2, spline: EntityId) -> Option<f64> {
@@ -927,13 +951,8 @@ impl Sketch {
                 let second = self.expect(b, &kinds, needed)?;
                 match (first, second) {
                     (Role::Line, Role::Line) => Err(self.not_applicable(constraint, a, b)),
-                    (Role::Elliptic, Role::Line) | (Role::Line, Role::Elliptic) => {
-                        self.check_not_only_reference(&entities)
-                    }
-                    (Role::Elliptic, Role::Circular) | (Role::Circular, Role::Elliptic) => {
-                        if !share_a_point(self, a, b) {
-                            return Err(not_joined(self, constraint, a, b));
-                        }
+                    (Role::Elliptic, Role::Line | Role::Circular)
+                    | (Role::Line | Role::Circular, Role::Elliptic) => {
                         self.check_not_only_reference(&entities)
                     }
                     (Role::Elliptic, _) | (_, Role::Elliptic) => {
@@ -996,6 +1015,16 @@ impl Sketch {
                 self.check_not_own_point(point, curve)
             }
             Constraint::Concentric(a, b) => self.check_concentric(constraint, a, b),
+            Constraint::OnMinorAxis { point, ellipse } => {
+                self.expect(point, &[Role::Point], "a point")?;
+                self.expect(
+                    ellipse,
+                    &[Role::Elliptic],
+                    "an ellipse or an elliptical arc",
+                )?;
+                self.check_not_only_reference(&entities)?;
+                self.check_not_own_point(point, ellipse)
+            }
             Constraint::Symmetric {
                 first,
                 second,
@@ -1030,8 +1059,18 @@ impl Sketch {
                     self.check_not_own_point(to, from)
                 }
                 (Some(Role::Spline), Some(Role::Line | Role::Circular))
-                | (Some(Role::Line | Role::Circular), Some(Role::Spline)) => {
+                | (Some(Role::Line | Role::Circular), Some(Role::Spline))
+                | (Some(Role::Elliptic), Some(Role::Line | Role::Circular))
+                | (Some(Role::Line | Role::Circular), Some(Role::Elliptic)) => {
                     self.check_not_only_reference(&entities)
+                }
+                (Some(Role::Point), Some(Role::Elliptic)) => {
+                    self.check_not_only_reference(&entities)?;
+                    self.check_not_own_point(from, to)
+                }
+                (Some(Role::Elliptic), Some(Role::Point)) => {
+                    self.check_not_only_reference(&entities)?;
+                    self.check_not_own_point(to, from)
                 }
                 _ => self.check_point_on_curve(constraint, from, to),
             },

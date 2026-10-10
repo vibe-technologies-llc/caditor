@@ -868,8 +868,10 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   parallel plane (turned to stay counter-clockwise), a point, or otherwise a spline through
   `PROJECTED_SPLINE_POINTS` samples; another sketch's spline maps its points and keeps its kind,
   exact except for a centripetal fit spline on a plane not parallel to its own, which passes the
-  projected fit points but spaces them as they lie in the new plane, and its ellipse or
-  elliptical arc is always that spline through samples. The
+  projected fit points but spaces them as they lie in the new plane; an ellipse or elliptical arc,
+  of another sketch or a body's elliptical edge, lying in a parallel plane projects as an ellipse
+  or elliptical arc (an arc's ends swapped when the planes face opposite ways, like a circle's),
+  and otherwise as that spline through samples. The
   entity keeps the kind and point count it was made with, so a source that now projects to another
   kind, is missing, was split ambiguously (pieces of one line merge) or is unavailable fails the
   sketch alone, naming the entity and the source. Source bodies count in `bodies_used`, source

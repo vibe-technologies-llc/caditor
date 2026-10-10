@@ -350,3 +350,110 @@ fn a_circle_seen_at_an_angle_is_projected_as_a_spline_through_its_outline() {
         );
     }
 }
+
+#[test]
+fn an_ellipse_and_an_elliptical_arc_project_onto_a_parallel_plane_as_themselves() {
+    let mut document = Document::default();
+    let mut source = Sketch::new(Plane::XY);
+    let ellipse = source.add_ellipse(Point2::new(3.0, 2.0), Point2::new(9.0, 2.0), 2.0);
+    let arc = source.add_elliptical_arc(
+        Point2::new(-10.0, 0.0),
+        Point2::new(-10.0, 5.0),
+        3.0,
+        Point2::new(-10.0, 5.0),
+        Point2::new(-13.0, 0.0),
+    );
+    let mut transaction = document.transaction("Sketches");
+    let below = transaction.add_feature("Oval", FeatureKind::from(source.clone()));
+    let flipped = Plane::from_frame(Point3::new(0.0, 0.0, 7.0), -Vector3::Z, Vector3::X).unwrap();
+    let above = transaction.add_feature("Lid", FeatureKind::from(Sketch::new(flipped)));
+    let [projected_ellipse, projected_arc] = [ellipse, arc].map(|entity| {
+        transaction.add_projection(
+            above,
+            ProjectionSource::SketchEntity {
+                sketch: below,
+                entity,
+            },
+            &sketch_outline(&source, entity, &flipped).unwrap(),
+        )
+    });
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+
+    let lid = solved(&evaluate(&document, &mut engine), above);
+
+    let whole = lid.ellipse(projected_ellipse).unwrap();
+    assert!(matches!(
+        lid.entity(projected_ellipse),
+        Some(Entity::Ellipse { .. })
+    ));
+    assert!(whole.center.distance(Point2::new(3.0, -2.0)) < EXACT);
+    assert!((whole.major_radius() - 6.0).abs() < EXACT);
+    assert!((whole.minor_radius - 2.0).abs() < EXACT);
+    let part = lid.ellipse(projected_arc).unwrap();
+    let drawn = source.ellipse(arc).unwrap();
+    assert!((part.sweep - drawn.sweep).abs() < 1e-9);
+    let middle = part.point_at(part.start + part.sweep / 2.0);
+    let expected = drawn.point_at(drawn.start + drawn.sweep / 2.0);
+    assert!(middle.distance(Point2::new(expected.x, -expected.y)) < 1e-9);
+}
+
+#[test]
+fn an_ellipse_seen_at_an_angle_is_still_projected_as_a_spline() {
+    let mut source = Sketch::new(Plane::XY);
+    let ellipse = source.add_ellipse(Point2::ZERO, Point2::new(6.0, 0.0), 2.0);
+    let tilted = Plane::from_frame(Point3::ZERO, Vector3::new(0.0, -1.0, 1.0), Vector3::X).unwrap();
+
+    let outline = sketch_outline(&source, ellipse, &tilted).unwrap();
+
+    assert!(matches!(outline, Outline::Spline { .. }), "{outline:?}");
+}
+
+#[test]
+fn an_elliptical_edge_of_a_body_projects_onto_a_parallel_plane_as_an_ellipse() {
+    let mut document = Document::default();
+    let mut oval = Sketch::new(Plane::XY);
+    oval.add_ellipse(Point2::new(2.0, 1.0), Point2::new(8.0, 1.0), 3.0);
+    let mut transaction = document.transaction("Base");
+    let outline = transaction.add_feature("Oval", FeatureKind::from(oval));
+    let base = transaction.add_feature(
+        "Base",
+        FeatureKind::Solid(SolidFeature::Extrude(Extrude {
+            sketch: outline,
+            regions: RegionChoice::All,
+            extent: ExtrudeExtent::one_side(transaction.parse("5 mm").unwrap(), false),
+            operation: BodyOperation::NewBody,
+            start: None,
+            other_bodies: Vec::new(),
+            taper: None,
+            wall: None,
+            direction: None,
+        })),
+    );
+    document.apply(transaction.finish()).unwrap();
+    let mut engine = Recompute::default();
+    let solid = evaluate(&document, &mut engine).body(base).unwrap().clone();
+    let above = Plane::from_frame(Point3::new(0.0, 0.0, 9.0), Vector3::Z, Vector3::X).unwrap();
+    let top = solid
+        .edges()
+        .find(|(_, edge)| {
+            matches!(edge.curve(), caditor_kernel::Curve::Ellipse(_))
+                && (edge.curve().point(edge.interval().start()).z - 5.0).abs() < EXACT
+        })
+        .map(|(id, _)| id)
+        .unwrap();
+
+    let outline = edge_outline(&solid, top, &above).unwrap();
+
+    let Outline::Ellipse {
+        center,
+        major,
+        minor_radius,
+    } = outline
+    else {
+        panic!("expected an ellipse, found {outline:?}");
+    };
+    assert!(center.distance(Point2::new(2.0, 1.0)) < 1e-9);
+    assert!((center.distance(major) - 6.0).abs() < 1e-9);
+    assert!((minor_radius - 3.0).abs() < 1e-9);
+}

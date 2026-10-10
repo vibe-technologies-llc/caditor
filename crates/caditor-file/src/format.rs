@@ -1610,9 +1610,13 @@ pub(crate) enum ConstraintKindRecord {
         conic: u64,
         value: String,
     },
+    OnMinorAxis {
+        point: u64,
+        ellipse: u64,
+    },
 }
 
-const CONSTRAINT_KINDS: [&str; 26] = [
+const CONSTRAINT_KINDS: [&str; 27] = [
     "coincident",
     "horizontal",
     "vertical",
@@ -1639,6 +1643,7 @@ const CONSTRAINT_KINDS: [&str; 26] = [
     "major_radius",
     "minor_radius",
     "rho",
+    "on_minor_axis",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -3911,6 +3916,10 @@ fn constraint_kind_record(constraint: &Constraint) -> ConstraintKindRecord {
         Constraint::Rho { conic, value } => ConstraintKindRecord::Rho {
             conic: conic.raw(),
             value: value.to_stored_text(),
+        },
+        Constraint::OnMinorAxis { point, ellipse } => ConstraintKindRecord::OnMinorAxis {
+            point: point.raw(),
+            ellipse: ellipse.raw(),
         },
     }
 }
@@ -7473,6 +7482,10 @@ fn constraint_from_record(
             let value = value(text, DrawnValue::Rho(conic))?;
             Constraint::Rho { conic, value }
         }
+        ConstraintKindRecord::OnMinorAxis { point, ellipse } => Constraint::OnMinorAxis {
+            point: entity(*point),
+            ellipse: entity(*ellipse),
+        },
     })
 }
 

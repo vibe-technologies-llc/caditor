@@ -19,8 +19,9 @@ pub const AXIS_KEYS: &str = "Enter: the distance   Esc: start again";
 const SPLINE_REFUSED: &str = "A spline takes only a distance from a point, line, circle or arc; dimension the points \
      or lines that shape it otherwise";
 const NOT_IN_SKETCH: &str = "That is not part of the sketch being edited";
-const ELLIPSE_REFUSED: &str = "An ellipse takes only its major and minor radii; pick it alone and \
-                               press Enter, or dimension its centre and axis points";
+const ELLIPSE_REFUSED: &str = "An ellipse takes its major and minor radii alone, or a distance from \
+                               a point, line, circle or arc; dimension its centre and axis points \
+                               otherwise";
 const PARALLEL_TOLERANCE: f64 = 1e-9;
 const LEVEL_TOLERANCE: f64 = 1e-9;
 
@@ -64,6 +65,14 @@ pub fn fitting(sketch: &Sketch, picks: &[EntityId]) -> Fit {
     };
     match kinds.as_slice() {
         [Kind::Ellipse] => return Fit::Ready(ConstraintTool::Radius),
+        [
+            Kind::Point | Kind::Line | Kind::Circle | Kind::Arc,
+            Kind::Ellipse,
+        ]
+        | [
+            Kind::Ellipse,
+            Kind::Point | Kind::Line | Kind::Circle | Kind::Arc,
+        ] => return Fit::Ready(ConstraintTool::Distance),
         _ if kinds.contains(&Kind::Ellipse) => return Fit::Refused(ELLIPSE_REFUSED),
         [Kind::Spline]
             if picks

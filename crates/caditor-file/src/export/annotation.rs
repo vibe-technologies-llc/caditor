@@ -522,6 +522,9 @@ fn foot_on_line((origin, direction): (Point2, Vector2), point: Point2) -> Point2
 }
 
 fn nearest_on(sketch: &Sketch, curve: EntityId, point: Point2) -> Option<Point2> {
+    if sketch.is_elliptic(curve) {
+        return sketch.closest_on_ellipse(curve, point);
+    }
     if let Some(line) = line_of(sketch, curve) {
         return Some(foot_on_line(line, point));
     }
@@ -557,6 +560,12 @@ fn curve_witnesses(
         (Some(_), _) => return sketch.spline_gap(from, to),
         (None, Some(_)) => return sketch.spline_gap(to, from),
         (None, None) => {}
+    }
+    if sketch.is_elliptic(from) {
+        return sketch.ellipse_gap(from, to);
+    }
+    if sketch.is_elliptic(to) {
+        return sketch.ellipse_gap(to, from);
     }
     match (sketch.circle(from), sketch.circle(to)) {
         (None, None) => {

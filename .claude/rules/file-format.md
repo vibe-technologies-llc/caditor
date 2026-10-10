@@ -441,8 +441,9 @@ paths:
 - An ellipse is an `ellipse` entity record (`center`, `major`, `minor_radius`) and an elliptical
   arc an `elliptical_arc` one (the same plus `start` and `end`); their radii are `major_radius` and
   `minor_radius` constraint records (`ellipse`, `value`), an unreadable value falling back to the
-  drawn radius. Older readers report each as a kind from a newer version and keep the points.
-  Naming an unknown kind skips the record's flags (`id`, `name`, `construction`, `inactive`,
+  drawn radius. A point held on an ellipse's minor axis is an `on_minor_axis` constraint record
+  (`point`, `ellipse`). Older readers report each as a kind from a newer version and keep the
+  points. Naming an unknown kind skips the record's flags (`id`, `name`, `construction`, `inactive`,
   `label`), so a construction ellipse is named by its kind.
 - A sketch's constraint record carries `inactive: true` only for a disabled constraint (absent
   means active, so older files read unchanged); the journal's `add_sketch_constraint` carries the

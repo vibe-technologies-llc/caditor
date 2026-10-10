@@ -1,4 +1,4 @@
-use std::f64::consts::FRAC_PI_4;
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_4};
 
 use caditor_expression::{EvalError, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Plane, Point2, Vector2};
@@ -272,6 +272,7 @@ fn ellipse_constraints_refuse_what_does_not_fit() {
     let mut sketch = Sketch::new(Plane::XY);
     let ellipse = sketch.add_ellipse(Point2::ZERO, Point2::new(10.0, 0.0), 4.0);
     let circle = sketch.add_circle(Point2::new(20.0, 0.0), 2.0);
+    let other = sketch.add_ellipse(Point2::new(30.0, 0.0), Point2::new(35.0, 0.0), 2.0);
     let (center, major) = axis_points(&sketch, ellipse);
 
     for refused in [
@@ -283,7 +284,17 @@ fn ellipse_constraints_refuse_what_does_not_fit() {
             ellipse: circle,
             value: mm(3.0),
         },
-        Constraint::Tangent(circle, ellipse),
+        Constraint::Tangent(other, ellipse),
+        Constraint::Distance {
+            from: center,
+            to: ellipse,
+            value: mm(1.0),
+        },
+        Constraint::Distance {
+            from: other,
+            to: ellipse,
+            value: mm(1.0),
+        },
         Constraint::Equal(ellipse, circle),
         Constraint::Coincident(center, ellipse),
         Constraint::Midpoint {
@@ -493,14 +504,165 @@ fn an_arc_sharing_a_point_with_an_ellipse_and_tangent_runs_along_it_there() {
     assert_eq!(solved.solution.degrees_of_freedom(), free - 1);
 }
 
+fn gap_to(shape: &EllipseGeometry, point: Point2) -> f64 {
+    let full = EllipseGeometry::full(shape.center, shape.center + shape.major, shape.minor_radius);
+    full.closest_point(point).distance(point)
+}
+
 #[test]
-fn a_circle_takes_a_tangent_to_an_ellipse_only_where_they_share_a_point() {
+fn a_circle_apart_from_an_ellipse_touches_it_at_a_parameter_along_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = pinned_ellipse(&mut sketch);
+    let circle = sketch.add_circle(Point2::new(16.0, 3.0), 2.0);
+    let Some(&Entity::Circle { center, .. }) = sketch.entity(circle) else {
+        panic!("expected a circle");
+    };
+    fix(&mut sketch, center);
+    add(&mut sketch, Constraint::Tangent(circle, ellipse));
+
+    let solved = solve(&sketch).unwrap();
+    let shape = solved.geometry.ellipse(ellipse).unwrap();
+    let (middle, radius) = solved.geometry.circle(circle).unwrap();
+
+    assert_close(radius, gap_to(&shape, middle));
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn a_circle_inside_an_ellipse_touches_it_from_within() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = pinned_ellipse(&mut sketch);
+    let circle = sketch.add_circle(Point2::new(3.0, 0.5), 1.0);
+    let Some(&Entity::Circle { center, .. }) = sketch.entity(circle) else {
+        panic!("expected a circle");
+    };
+    fix(&mut sketch, center);
+    add(&mut sketch, Constraint::Tangent(ellipse, circle));
+
+    let solved = solve(&sketch).unwrap();
+    let shape = solved.geometry.ellipse(ellipse).unwrap();
+    let (middle, radius) = solved.geometry.circle(circle).unwrap();
+
+    assert_close(radius, gap_to(&shape, middle));
+    assert!(level(&shape, middle) < 0.0);
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn a_point_keeps_its_distance_from_an_ellipse_square_to_it() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = pinned_ellipse(&mut sketch);
+    let point = sketch.add_point(Point2::new(12.0, 5.0));
+    let distance = add(
+        &mut sketch,
+        Constraint::Distance {
+            from: point,
+            to: ellipse,
+            value: mm(2.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+    let shape = solved.geometry.ellipse(ellipse).unwrap();
+    let at = solved.geometry.point(point).unwrap();
+
+    assert_close(gap_to(&shape, at), 2.0);
+    assert!(level(&shape, at) > 0.0);
+    assert_close(
+        solved
+            .geometry
+            .measured(solved.geometry.constraint(distance).unwrap())
+            .unwrap(),
+        2.0,
+    );
+    assert_eq!(solved.solution.degrees_of_freedom(), 1);
+}
+
+#[test]
+fn a_line_keeps_its_gap_from_an_ellipse_on_the_side_it_was_drawn() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = pinned_ellipse(&mut sketch);
+    let line = sketch.add_line(Point2::new(-5.0, -6.0), Point2::new(5.0, -5.0));
+    add(&mut sketch, Constraint::Horizontal(line));
+    let distance = add(
+        &mut sketch,
+        Constraint::Distance {
+            from: ellipse,
+            to: line,
+            value: mm(3.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+    let (start, end) = solved.geometry.line_endpoints(line).unwrap();
+
+    assert_close(start.y, -7.0);
+    assert_close(end.y, -7.0);
+    assert_close(
+        solved
+            .geometry
+            .measured(solved.geometry.constraint(distance).unwrap())
+            .unwrap(),
+        3.0,
+    );
+}
+
+#[test]
+fn a_circle_keeps_its_gap_from_an_ellipse() {
     let mut sketch = Sketch::new(Plane::XY);
     let ellipse = pinned_ellipse(&mut sketch);
     let circle = sketch.add_circle(Point2::new(20.0, 0.0), 3.0);
+    let Some(&Entity::Circle { center, .. }) = sketch.entity(circle) else {
+        panic!("expected a circle");
+    };
+    fix(&mut sketch, center);
+    add(
+        &mut sketch,
+        Constraint::Distance {
+            from: circle,
+            to: ellipse,
+            value: mm(4.0),
+        },
+    );
 
-    assert!(matches!(
-        sketch.check_constraint(&Constraint::Tangent(circle, ellipse)),
-        Err(SketchError::NotJoined { .. })
-    ));
+    let solved = solve(&sketch).unwrap();
+
+    assert_close(solved.geometry.circle(circle).unwrap().1, 6.0);
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+}
+
+#[test]
+fn a_point_on_a_slanted_ellipse_and_its_minor_axis_stays_at_the_minor_axis_end() {
+    let mut sketch = Sketch::new(Plane::XY);
+    let ellipse = sketch.add_ellipse(Point2::new(5.0, 5.0), Point2::new(13.0, 11.0), 4.0);
+    let (center, major) = axis_points(&sketch, ellipse);
+    fix(&mut sketch, center);
+    fix(&mut sketch, major);
+    let point = sketch.add_point(Point2::new(1.0, 9.0));
+    add(&mut sketch, Constraint::Coincident(point, ellipse));
+    add(&mut sketch, Constraint::OnMinorAxis { point, ellipse });
+    add(
+        &mut sketch,
+        Constraint::MinorRadius {
+            ellipse,
+            value: mm(3.0),
+        },
+    );
+
+    let solved = solve(&sketch).unwrap();
+    let shape = solved.geometry.ellipse(ellipse).unwrap();
+    let at = solved.geometry.point(point).unwrap();
+
+    assert!(at.distance(shape.point_at(FRAC_PI_2)) < EXACT);
+    assert!(solved.solution.redundancies().is_empty());
+    assert_eq!(solved.solution.degrees_of_freedom(), 0);
+    assert!(
+        sketch
+            .check_constraint(&Constraint::OnMinorAxis {
+                point: center,
+                ellipse,
+            })
+            .is_err()
+    );
 }
