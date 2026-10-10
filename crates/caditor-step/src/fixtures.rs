@@ -57,6 +57,25 @@ pub fn hollow_ring() -> Solid {
     revolve(&Plane::XZ, &regions, axis, AngularExtent::full(), 1).unwrap()
 }
 
+pub fn spindle_rimmed() -> Solid {
+    let curves = vec![
+        ProfileCurve::line(1, Point2::new(0.0, 0.0), Point2::new(2.0, 0.0)),
+        ProfileCurve::arc(
+            2,
+            Point2::new(2.0, 3.0),
+            Point2::new(2.0, 0.0),
+            Point2::new(5.0, 3.0),
+        ),
+        ProfileCurve::line(3, Point2::new(5.0, 3.0), Point2::new(5.0, 6.0)),
+        ProfileCurve::line(4, Point2::new(5.0, 6.0), Point2::new(0.0, 6.0)),
+        ProfileCurve::line(5, Point2::new(0.0, 6.0), Point2::new(0.0, 0.0)),
+    ];
+    let profile = Profile::new(&curves).unwrap();
+    let regions = profile.select(&Selection::EvenDepth).unwrap();
+    let axis = Axis2::new(Point2::ZERO, Vector2::Y).unwrap();
+    revolve(&Plane::XZ, &regions, axis, AngularExtent::full(), 1).unwrap()
+}
+
 pub fn crossed_cylinders() -> Solid {
     let plane = Plane::from_frame(Point3::new(0.0, 0.0, -20.0), Vector3::Z, Vector3::X).unwrap();
     let upright = swept(plane, &[ProfileCurve::circle(1, Point2::ZERO, 8.0)], 40.0);

@@ -94,6 +94,11 @@ paths:
 - u is the angle around the frame normal on rotational surfaces; v: cone slant distance from its
   reference circle, sphere latitude, torus tube angle, revolution profile parameter; an extrusion
   is (profile parameter, distance). du × dv points outward on every elementary surface.
+- A `Torus` takes any positive radii: a tube wider than its ring radius is a spindle torus, whose
+  points past the axis (ring radius plus tube term negative) are the self-crossing lemon. Faces on
+  one stay on the outer side, clear of the axis, where the parametrization, normal and projection
+  are those of a ring torus; `revolve` makes one only for an arc that stays clear of its axis, and
+  the coaxial intersection skips the meridian points past the axis.
 - A `Revolution`'s profile must lie in a plane through its axis, else
   `GeometryError::ProfileOutsideMeridian` (`project_seed` relies on it; STEP import refuses a skew
   `SURFACE_OF_REVOLUTION` with it).

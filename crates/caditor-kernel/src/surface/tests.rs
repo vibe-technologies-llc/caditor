@@ -470,10 +470,7 @@ fn constructors_reject_degenerate_surfaces() {
     ));
     assert!(Cylinder::new(Plane::XY, MAX_SIZE).is_ok());
     assert!(Cylinder::new(Plane::XY, LINEAR_RESOLUTION).is_ok());
-    assert!(matches!(
-        Torus::new(Plane::XY, 1.0, 1.0),
-        Err(GeometryError::SelfIntersectingTorus { .. })
-    ));
+    assert!(Torus::new(Plane::XY, 2.0, 3.0).is_ok());
     assert!(matches!(
         Sphere::new(Plane::XY, f64::NAN),
         Err(GeometryError::NonFinite)

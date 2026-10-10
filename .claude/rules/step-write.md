@@ -54,7 +54,8 @@ paths:
   meshed); unsortable shells are `WriteError::Shells`, a non-finite value or unsupported geometry
   `WriteError::Geometry`.
 - Every kernel surface and curve has an exact STEP form; the non-obvious ones: cones with a
-  negative half angle on a flipped axis, rational B-splines as the complex entity, intersection
+  negative half angle on a flipped axis, a spindle or horn torus as `DEGENERATE_TOROIDAL_SURFACE`
+  selecting the outer part (`.T.`), since `TOROIDAL_SURFACE` must not cross itself, rational B-splines as the complex entity, intersection
   curves as the cubic B-spline of their Hermite segments over the edge, each segment halved (at
   most `MAX_WRITTEN_SPLITS` times, new nodes at `refined_point`) until the cubic stays within
   `WRITTEN_DEVIATION`, a quarter of the resolution, of the refined curve at its quarter points:

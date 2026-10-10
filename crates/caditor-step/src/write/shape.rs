@@ -297,8 +297,14 @@ impl<'a> Shapes<'a> {
                 let frame = frame_placement(self.data, torus.frame());
                 let major = self.data.real(torus.major_radius());
                 let minor = self.data.real(torus.minor_radius());
-                self.data
-                    .add(format!("TOROIDAL_SURFACE('',{frame},{major},{minor})"))
+                if torus.minor_radius() < torus.major_radius() {
+                    self.data
+                        .add(format!("TOROIDAL_SURFACE('',{frame},{major},{minor})"))
+                } else {
+                    self.data.add(format!(
+                        "DEGENERATE_TOROIDAL_SURFACE('',{frame},{major},{minor},.T.)"
+                    ))
+                }
             }
             Surface::Extrusion(extrusion) => {
                 let profile = self.curve(extrusion.profile(), None, None)?;
