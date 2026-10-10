@@ -41,6 +41,7 @@ const BEHIND: u32 = 0u;
 const IN_FRONT: u32 = 1u;
 const SECTIONED: u32 = 2u;
 const CAPPABLE: u32 = 4u;
+const SOLID_WHERE_SEEN: u32 = 8u;
 const MAX_SECTION_PLANES: u32 = 6u;
 const FACE_SLOPE_BIAS: f32 = 2.0;
 const CAP_DEPTH_BIAS: f32 = 1.0002;
@@ -307,6 +308,15 @@ fn stroke_coverage(in: Varyings) -> f32 {
 
 @vertex
 fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
+    return line_varyings(vertex, line, line.along >= 0.0 && (line.flags & SOLID_WHERE_SEEN) == 0u);
+}
+
+@vertex
+fn vs_hidden_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
+    return line_varyings(vertex, line, line.along >= 0.0);
+}
+
+fn line_varyings(vertex: u32, line: LineInstance, dashed: bool) -> Varyings {
     let line_start = from_anchor(line.start);
     let line_end = from_anchor(line.end);
     if is_before_near(line_start, line_end) {
@@ -319,7 +329,7 @@ fn vs_line(@builtin(vertex_index) vertex: u32, line: LineInstance) -> Varyings {
     out.color = line.color;
     out.pick = line.pick;
     out.sectioned = line.flags & SECTIONED;
-    if line.along >= 0.0 {
+    if dashed {
         let corner = quad_corner(vertex);
         let at_end = corner.x > 0.0;
         let clipped_length = distance(segment.start, segment.end);

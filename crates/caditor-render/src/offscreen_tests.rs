@@ -864,12 +864,27 @@ fn faces_that_cannot_be_picked_still_hide_what_is_behind_them_from_picking() {
     assert_eq!(beside.pick.hits[0].id, PickId::from_index(0).unwrap());
 }
 
+fn is_line_red([red, green, blue, _]: [u8; 4]) -> bool {
+    red > 200 && green < 80 && blue < 80
+}
+
+fn red_along(rendered: &Rendered, from: DVec2, to: DVec2) -> (usize, usize) {
+    let steps = from.distance(to).ceil() as usize;
+    let red = (0..=steps)
+        .filter(|step| {
+            let at = from.lerp(to, *step as f64 / steps as f64).round();
+            is_line_red(pixel(rendered, at))
+        })
+        .count();
+    (red, steps + 1 - red)
+}
+
 #[test]
-fn a_hidden_layer_line_shows_only_where_a_face_covers_it_and_is_never_picked() {
+fn a_line_dashed_where_hidden_also_draws_dashed_where_a_face_covers_it_and_picks_only_where_seen() {
     let Some((device, queue)) = gpu() else {
         return;
     };
-    let scene = Scene {
+    let scene_with = |seen_dashed: bool| Scene {
         meshes: vec![MeshInstance {
             mesh: Arc::new(box_mesh(20.0)),
             faces: vec![
@@ -887,32 +902,43 @@ fn a_hidden_layer_line_shows_only_where_a_face_covers_it_and_is_never_picked() {
                 end: Point3::new(50.0, 0.0, 0.0),
                 color: LINE_COLOR,
                 width: 3.0,
-                layer: Layer::Hidden,
-                pick: None,
-                stroke: Stroke::Solid,
+                layer: Layer::Model,
+                pick: PickId::from_index(0),
+                stroke: Stroke::DashedWhereHidden {
+                    along: 0.0,
+                    seen_dashed,
+                },
             }],
             ..Batch::default()
         })],
         ..Scene::default()
     };
+    let solid = scene_with(false);
+    let dashed = scene_with(true);
     let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
     let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
     let under_face = view.project(Point3::new(5.0, 0.0, 20.0)).unwrap();
     let in_the_open = view.project(Point3::new(40.0, 0.0, 0.0)).unwrap();
-
-    let covered = render(&device, &queue, &view, &scene, under_face);
-    let open = render(&device, &queue, &view, &scene, in_the_open);
-
-    let [red, green, blue, _] = pixel(&covered, under_face);
-    assert!(
-        red > 200 && green < 80 && blue < 80,
-        "covered pixel was {red} {green} {blue}"
+    let covered_span = (
+        view.project(Point3::new(-15.0, 0.0, 0.0)).unwrap(),
+        view.project(Point3::new(15.0, 0.0, 0.0)).unwrap(),
     );
-    let [red, green, blue, _] = pixel(&open, in_the_open);
-    assert!(
-        !(red > 200 && green < 80 && blue < 80),
-        "open pixel was {red} {green} {blue}"
+    let open_span = (
+        view.project(Point3::new(25.0, 0.0, 0.0)).unwrap(),
+        view.project(Point3::new(35.0, 0.0, 0.0)).unwrap(),
     );
+
+    let covered = render(&device, &queue, &view, &solid, under_face);
+    let open = render(&device, &queue, &view, &solid, in_the_open);
+    let open_dashed = render(&device, &queue, &view, &dashed, in_the_open);
+
+    let (covered_red, covered_gaps) = red_along(&covered, covered_span.0, covered_span.1);
+    assert!(
+        covered_red > 0 && covered_gaps > 0,
+        "covered {covered_red} red and {covered_gaps} gaps"
+    );
+    assert_eq!(red_along(&open, open_span.0, open_span.1).1, 0);
+    assert!(red_along(&open_dashed, open_span.0, open_span.1).1 > 0);
     assert!(
         covered
             .pick
@@ -920,6 +946,58 @@ fn a_hidden_layer_line_shows_only_where_a_face_covers_it_and_is_never_picked() {
             .iter()
             .all(|hit| hit.id == PickId::from_index(1).unwrap())
     );
+    assert_eq!(open.pick.hits[0].id, PickId::from_index(0).unwrap());
+}
+
+#[test]
+fn batches_outside_the_view_are_culled_but_a_mark_reaching_into_the_pick_window_still_picks() {
+    let Some((device, queue)) = gpu() else {
+        return;
+    };
+    let viewpoint = Viewpoint::looking_from(Vector3::Z, Point3::ZERO, 150.0).unwrap();
+    let view = View::new(viewpoint, f64::from(SIZE), f64::from(SIZE));
+    let cursor = DVec2::new(100.0, 100.0);
+    let diameter = 40.0;
+    let beside = view
+        .unproject(
+            cursor + DVec2::new(crate::picking::PICK_RADIUS_POINTS + diameter * 0.25, 0.0),
+            150.0,
+        )
+        .unwrap();
+    let far_off = view.unproject(DVec2::new(-400.0, 100.0), 150.0).unwrap();
+    let marker = |position: Point3, pick: usize| Marker {
+        position,
+        color: LINE_COLOR,
+        diameter: diameter as f32,
+        layer: Layer::Model,
+        pick: PickId::from_index(pick),
+    };
+    let scene = Scene {
+        batches: vec![
+            Arc::new(Batch {
+                markers: vec![marker(far_off, 1)],
+                ..Batch::default()
+            }),
+            Arc::new(Batch {
+                markers: vec![marker(beside, 0)],
+                ..Batch::default()
+            }),
+        ],
+        ..Scene::default()
+    };
+
+    let rendered = render(&device, &queue, &view, &scene, cursor);
+
+    assert_eq!(
+        rendered
+            .pick
+            .hits
+            .iter()
+            .map(|hit| hit.id)
+            .collect::<Vec<_>>(),
+        vec![PickId::from_index(0).unwrap()]
+    );
+    assert!(is_line_red(pixel(&rendered, cursor)));
 }
 
 #[test]

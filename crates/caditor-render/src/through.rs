@@ -39,7 +39,7 @@ impl Rank {
     fn of_fill(layer: Layer) -> Self {
         match layer {
             Layer::Reference => Self::BehindEverything,
-            Layer::Model | Layer::Hidden | Layer::Front => Self::of(layer),
+            Layer::Model | Layer::Front => Self::of(layer),
         }
     }
 }
@@ -92,20 +92,17 @@ impl Scene {
         {
             probe.mesh(instance);
         }
-        for line in self.lines().filter(|line| line.layer != Layer::Hidden) {
+        for line in self.lines() {
             if let Some(id) = line.pick {
                 probe.segment(id, [line.start, line.end], line.width, line.layer);
             }
         }
-        for marker in self
-            .markers()
-            .filter(|marker| marker.layer != Layer::Hidden)
-        {
+        for marker in self.markers() {
             if let Some(id) = marker.pick {
                 probe.point(id, marker.position, marker.diameter, marker.layer);
             }
         }
-        for fill in self.fills().filter(|fill| fill.layer != Layer::Hidden) {
+        for fill in self.fills() {
             if let Some(id) = fill.pick {
                 for triangle in &fill.triangles {
                     probe.triangle(

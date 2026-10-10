@@ -1,5 +1,5 @@
 use caditor_geometry::{Aabb, Point3, RigidTransform};
-use glam::{DMat4, DVec4};
+use glam::{DMat4, DVec2, DVec4};
 
 use crate::camera::View;
 
@@ -7,11 +7,13 @@ use crate::camera::View;
 pub struct ClipWindow {
     eye: Point3,
     clip: DMat4,
+    ndc_per_point: DVec2,
 }
 
 impl ClipWindow {
-    pub fn new(view: &View, transform: [f32; 4]) -> Self {
+    pub fn new(view: &View, transform: [f32; 4], pixels_per_point: f32) -> Self {
         let [scale_x, scale_y, offset_x, offset_y] = transform.map(f64::from);
+        let ndc_per_pixel = DVec2::new(scale_x, scale_y) * 2.0 / view.size().max(DVec2::ONE);
         let window = DMat4::from_cols(
             DVec4::new(scale_x, 0.0, 0.0, 0.0),
             DVec4::new(0.0, scale_y, 0.0, 0.0),
@@ -21,7 +23,19 @@ impl ClipWindow {
         Self {
             eye: view.eye(),
             clip: window * view.rotation_projection(),
+            ndc_per_point: (ndc_per_pixel * f64::from(pixels_per_point)).abs(),
         }
+    }
+
+    pub fn sees_reaching(&self, corners: &[Point3; 8], reach_points: f64) -> bool {
+        let reach = DVec2::ONE + self.ndc_per_point * reach_points.max(0.0);
+        let clipped = corners.map(|corner| self.clip * (corner - self.eye).extend(1.0));
+        let all = |outside: &dyn Fn(DVec4) -> bool| clipped.iter().all(|point| outside(*point));
+        let beyond_a_side = all(&|point| point.x > point.w * reach.x)
+            || all(&|point| point.x < -point.w * reach.x)
+            || all(&|point| point.y > point.w * reach.y)
+            || all(&|point| point.y < -point.w * reach.y);
+        !beyond_a_side
     }
 
     pub fn sees(&self, corners: &[Point3; 8]) -> bool {
@@ -73,7 +87,7 @@ mod tests {
 
     #[test]
     fn a_box_in_view_is_seen_and_one_beside_or_behind_the_eye_is_not() {
-        let window = ClipWindow::new(&view_down_z(), WHOLE);
+        let window = ClipWindow::new(&view_down_z(), WHOLE, 1.0);
 
         assert!(window.sees(&cube_at(Point3::ZERO)));
         assert!(window.sees(&cube_at(Point3::new(20.0, 0.0, 0.0))));
@@ -84,7 +98,7 @@ mod tests {
 
     #[test]
     fn a_box_straddling_the_edge_or_the_eye_is_seen() {
-        let window = ClipWindow::new(&view_down_z(), WHOLE);
+        let window = ClipWindow::new(&view_down_z(), WHOLE, 1.0);
         let long = Aabb::from_points([
             Point3::new(-1000.0, -1.0, -1.0),
             Point3::new(1000.0, 1.0, 1.0),
@@ -100,7 +114,7 @@ mod tests {
 
     #[test]
     fn a_placement_moves_the_box_before_the_test() {
-        let window = ClipWindow::new(&view_down_z(), WHOLE);
+        let window = ClipWindow::new(&view_down_z(), WHOLE, 1.0);
         let far = Aabb::from_points([Point3::new(499.0, -1.0, -1.0), Point3::new(501.0, 1.0, 1.0)])
             .unwrap();
         let back = RigidTransform::translation(Vector3::new(-500.0, 0.0, 0.0)).unwrap();
@@ -124,7 +138,7 @@ mod tests {
                 height: 600,
             },
         );
-        let window = ClipWindow::new(&view, left_quarter);
+        let window = ClipWindow::new(&view, left_quarter, 1.0);
         let left = view.unproject(DVec2::new(100.0, 300.0), 100.0).unwrap();
         let right = view.unproject(DVec2::new(700.0, 300.0), 100.0).unwrap();
 

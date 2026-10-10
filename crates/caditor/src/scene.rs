@@ -1291,24 +1291,13 @@ impl Builder<'_> {
             let drawn = EdgeStroke {
                 color,
                 width,
-                layer: Layer::Model,
                 pick,
                 dashed,
+                dashed_where_hidden: shows_hidden_edges,
             };
             self.scene
                 .lines
                 .extend(edge_lines(&edge.points, &placed, drawn));
-            if shows_hidden_edges && color.alpha > 0.0 {
-                let hidden = EdgeStroke {
-                    layer: Layer::Hidden,
-                    pick: None,
-                    dashed: true,
-                    ..drawn
-                };
-                self.scene
-                    .lines
-                    .extend(edge_lines(&edge.points, &placed, hidden));
-            }
         }
         if color.is_none() && !pickable_edges {
             return;
@@ -1922,18 +1911,16 @@ impl Builder<'_> {
                 .chain(std::iter::once((circle(end), true)))
                 .chain(sides.into_iter().map(|side| (side, true)));
             for (points, dashed) in drawn {
-                for layer in [Layer::Model, Layer::Hidden] {
-                    let stroke = EdgeStroke {
-                        color,
-                        width,
-                        layer,
-                        pick: None,
-                        dashed: dashed || layer == Layer::Hidden,
-                    };
-                    self.scene
-                        .lines
-                        .extend(edge_lines(&points, &|point| point, stroke));
-                }
+                let stroke = EdgeStroke {
+                    color,
+                    width,
+                    pick: None,
+                    dashed,
+                    dashed_where_hidden: true,
+                };
+                self.scene
+                    .lines
+                    .extend(edge_lines(&points, &|point| point, stroke));
             }
         }
     }
@@ -2094,9 +2081,9 @@ struct CurveStyle {
 struct EdgeStroke {
     color: Color,
     width: f32,
-    layer: Layer,
     pick: Option<PickId>,
     dashed: bool,
+    dashed_where_hidden: bool,
 }
 
 fn edge_lines<'a>(
@@ -2107,12 +2094,15 @@ fn edge_lines<'a>(
     let mut along = 0.0;
     points.windows(2).filter_map(move |pair| match pair {
         [start, end] => {
-            let line_stroke = if stroke.dashed {
-                Stroke::Dashed {
+            let line_stroke = match (stroke.dashed_where_hidden, stroke.dashed) {
+                (true, seen_dashed) => Stroke::DashedWhereHidden {
                     along: along as f32,
-                }
-            } else {
-                Stroke::Solid
+                    seen_dashed,
+                },
+                (false, true) => Stroke::Dashed {
+                    along: along as f32,
+                },
+                (false, false) => Stroke::Solid,
             };
             along += start.distance(*end);
             Some(Line {
@@ -2120,7 +2110,7 @@ fn edge_lines<'a>(
                 end: placed(*end),
                 color: stroke.color,
                 width: stroke.width,
-                layer: stroke.layer,
+                layer: Layer::Model,
                 pick: stroke.pick,
                 stroke: line_stroke,
             })

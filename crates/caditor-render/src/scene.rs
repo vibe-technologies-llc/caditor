@@ -63,7 +63,6 @@ impl Color {
 pub enum Layer {
     Reference,
     Model,
-    Hidden,
     Front,
 }
 
@@ -80,11 +79,11 @@ impl Layer {
         match (self, primitive) {
             (Self::Reference, Primitive::Fill) => BEHIND_FACES,
             (Self::Front, Primitive::Fill) => 1.0,
-            (Self::Model | Self::Hidden, Primitive::Fill) => 1.00002,
+            (Self::Model, Primitive::Fill) => 1.00002,
             (Self::Reference, Primitive::Line) => 1.00001,
             (Self::Reference, Primitive::Marker) => 1.00002,
-            (Self::Model | Self::Hidden, Primitive::Line) => 1.00003,
-            (Self::Model | Self::Hidden, Primitive::Marker) => 1.00004,
+            (Self::Model, Primitive::Line) => 1.00003,
+            (Self::Model, Primitive::Marker) => 1.00004,
             (Self::Front, Primitive::Line) => 1.002,
             (Self::Front, Primitive::Marker) => 1.004,
         }
@@ -95,7 +94,7 @@ impl Layer {
     }
 
     pub fn is_sectioned(self) -> bool {
-        matches!(self, Self::Model | Self::Hidden)
+        self == Self::Model
     }
 
     pub(crate) fn flags(self) -> u32 {
@@ -104,6 +103,7 @@ impl Layer {
 }
 
 const SECTIONED: u32 = 2;
+const SOLID_WHERE_SEEN: u32 = 8;
 pub const MAX_SECTION_PLANES: usize = 6;
 const SECTION_SLACK_PER_DISTANCE: f64 = 1e-5;
 
@@ -172,13 +172,38 @@ pub struct Line {
 pub enum Stroke {
     Solid,
     Dashed { along: f32 },
+    DashedWhereHidden { along: f32, seen_dashed: bool },
 }
 
 impl Stroke {
     pub(crate) fn along(self) -> f32 {
         match self {
             Self::Solid => SOLID,
-            Self::Dashed { along } => along.max(0.0),
+            Self::Dashed { along } | Self::DashedWhereHidden { along, .. } => along.max(0.0),
+        }
+    }
+
+    pub fn dashes_where_hidden(self) -> bool {
+        matches!(self, Self::DashedWhereHidden { .. })
+    }
+
+    pub fn is_dashed_where_seen(self) -> bool {
+        matches!(
+            self,
+            Self::Dashed { .. }
+                | Self::DashedWhereHidden {
+                    seen_dashed: true,
+                    ..
+                }
+        )
+    }
+
+    pub(crate) fn flags(self) -> u32 {
+        match self {
+            Self::DashedWhereHidden {
+                seen_dashed: false, ..
+            } => SOLID_WHERE_SEEN,
+            Self::Solid | Self::Dashed { .. } | Self::DashedWhereHidden { .. } => 0,
         }
     }
 }

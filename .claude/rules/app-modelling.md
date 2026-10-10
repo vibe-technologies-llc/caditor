@@ -477,8 +477,8 @@ paths:
   while it fits the new face (else the standard's nearest) and the class while the side offers it.
 - Threads are drawn on shown bodies (`scene::Builder::threads`, from `placed_threads`), outside
   sketch editing: the thread's circle (the major diameter for a bore, the minor for a shaft) solid
-  at its start, the same circle dashed at its end and four dashed lines along it, each also drawn
-  on `Layer::Hidden` so the parts inside the material show dashed through it, in
+  at its start, the same circle dashed at its end and four dashed lines along it, each stroked
+  `Stroke::DashedWhereHidden` so the parts inside the material show dashed through it, in
   `ScenePalette::thread` (held to 3:1 on a body in high contrast), the open thread in the selected
   colour and wider. A hidden thread is drawn only while open. A tapped hole's threads are drawn
   the same way, and the Hole panel says so.

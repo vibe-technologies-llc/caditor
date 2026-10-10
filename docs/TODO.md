@@ -316,8 +316,9 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   million for the VZ330 assembly before edges were sampled sparingly, 0.25 to 0.4 s a rebuild on
   the UI thread in release, and the renderer uploads the whole batch again unbudgeted). Drawing a
   still frame of the VZ330 then took about 190 ms on the GPU (RX 9070 XT, 1920×1080, 4x): 100 ms of
-  edge lines, 28 ms of meshes, 20 ms of silhouettes; time it again, and consider culling batches by
-  bounds and a coarser mesh for bodies small on screen. Each body's edges and vertices could be a
+  edge lines, 28 ms of meshes, 20 ms of silhouettes; time it again, and consider a coarser mesh for
+  bodies small on screen (batches are culled by their bounds, which only pays once bodies are
+  batches of their own). Each body's edges and vertices could be a
   batch of its own, cached while its `BodyMesh`, style and highlight are unchanged, with pick ids
   that do not shift when other bodies come and go; hovering over a large model rebuilds the same
   way. Reading is now bound by single parts: the VZ330's lead screw (406 faces, helical splines of
@@ -376,10 +377,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Interface performance
 
-- [low · medium] The hidden-edges style pushes a second copy of every shown edge (the app's
-  `scene.rs` adds each again on `Layer::Hidden`), where the `hidden_lines` pass could draw the
-  model's own line records dashed; and batches are never culled by their bounds, the pick pass
-  included.
 - [low · medium] Annotations are laid out only near the view and kept until the view or sketch
   changes (`annotations::Marks`), but a camera move zoomed out over a dense sketch still places
   every glyph in view against crowded `Obstacles`: about 350 ms a frame for the `large_sketch`

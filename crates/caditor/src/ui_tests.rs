@@ -8678,7 +8678,7 @@ fn a_display_style_hides_the_faces_or_the_edges_but_keeps_what_is_left_pickable(
 }
 
 #[test]
-fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces() {
+fn shaded_with_hidden_edges_dashed_draws_each_edge_dashed_behind_the_faces_without_a_copy() {
     let mut harness = Harness::new();
     extruded_plate(&mut harness);
     harness.select([]);
@@ -8686,13 +8686,12 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces
         harness
             .built()
             .scene
-            .batches
-            .iter()
-            .flat_map(|batch| batch.lines.iter())
-            .filter(|line| line.layer == caditor_render::Layer::Hidden)
+            .lines()
+            .filter(|line| line.stroke.dashes_where_hidden())
             .cloned()
             .collect::<Vec<_>>()
     };
+    let line_count = |harness: &mut Harness| harness.built().scene.lines().count();
     let silhouettes_dashed_where_hidden = |harness: &mut Harness| {
         harness
             .built()
@@ -8703,12 +8702,14 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces
             .collect::<Vec<_>>()
     };
     let before = hidden_lines(&mut harness).len();
+    let lines_before = line_count(&mut harness);
     let silhouettes_before = silhouettes_dashed_where_hidden(&mut harness);
 
     run_from_palette(&mut harness, "shaded with hidden edges dashed");
     harness.frame();
     let style = harness.workspace.viewport.style();
     let lines = hidden_lines(&mut harness);
+    let lines_shown = line_count(&mut harness);
     let silhouettes = silhouettes_dashed_where_hidden(&mut harness);
     let faces = harness.built().scene.meshes.len();
     let edges_pickable = harness
@@ -8729,10 +8730,10 @@ fn shaded_with_hidden_edges_dashed_draws_each_edge_again_dashed_behind_the_faces
     assert_eq!(silhouettes, vec![true]);
     assert_eq!(silhouettes_after, vec![false]);
     assert!(!lines.is_empty());
-    assert!(
-        lines.iter().all(|line| line.pick.is_none()
-            && matches!(line.stroke, caditor_render::Stroke::Dashed { .. }))
-    );
+    assert_eq!(lines_shown, lines_before);
+    assert!(lines.iter().all(|line| line.pick.is_some()
+        && line.layer == caditor_render::Layer::Model
+        && !line.stroke.is_dashed_where_seen()));
     assert_eq!(faces, 1);
     assert!(edges_pickable > 0);
     assert_eq!(after, 0);
@@ -20633,23 +20634,22 @@ fn thread_of(harness: &Harness, feature: FeatureId) -> &caditor_document::Thread
         .unwrap()
 }
 
-fn thread_lines(harness: &mut Harness, layer: caditor_render::Layer) -> usize {
+fn thread_lines(harness: &mut Harness) -> Vec<caditor_render::Line> {
     let thread = crate::scene_palette::STANDARD.thread;
     harness
         .built()
         .scene
-        .batches
-        .iter()
-        .flat_map(|batch| batch.lines.iter())
-        .filter(|line| line.layer == layer && line.color == thread)
-        .count()
+        .lines()
+        .filter(|line| line.color == thread)
+        .cloned()
+        .collect()
 }
 
 #[test]
 fn a_thread_on_a_shaft_names_its_designation_draws_its_lines_and_takes_the_hand() {
     let mut harness = Harness::new();
     let side = extruded_shaft(&mut harness);
-    assert_eq!(thread_lines(&mut harness, caditor_render::Layer::Hidden), 0);
+    assert!(thread_lines(&mut harness).is_empty());
 
     harness.select([side]);
     harness.use_tool_with(Key::O, Modifiers::ALT | Modifiers::SHIFT);
@@ -20687,8 +20687,11 @@ fn a_thread_on_a_shaft_names_its_designation_draws_its_lines_and_takes_the_hand(
         harness.frame();
     }
     assert_eq!(harness.workspace.editing.solid(), None);
-    assert!(thread_lines(&mut harness, caditor_render::Layer::Model) > 0);
-    assert!(thread_lines(&mut harness, caditor_render::Layer::Hidden) > 0);
+    let lines = thread_lines(&mut harness);
+    assert!(!lines.is_empty());
+    assert!(lines.iter().all(|line| line.stroke.dashes_where_hidden()));
+    assert!(lines.iter().any(|line| line.stroke.is_dashed_where_seen()));
+    assert!(lines.iter().any(|line| !line.stroke.is_dashed_where_seen()));
 }
 
 #[test]
