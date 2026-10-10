@@ -82,9 +82,12 @@ paths:
 - File › Open recent lists the recent models, each a `widgets::removable_menu_item` whose remove
   button shows on hover or focus and takes that entry alone off the list
   (`FileCommand::ForgetRecent`, also the palette's `Command::ForgetRecent` per slot, its detail the
-  file name); the file is never touched. Which entries are gone is checked on the files worker
-  (`FileCommand::CheckRecent`, not found only, so a permission error does not count) once recent
-  files are read at startup and each time the File menu opens; a missing one is drawn muted with
+  file name); the file is never touched. The list is written on the files worker and "Removed …"
+  is posted only once that write succeeded (`Event::RecentForgotten`); a failed write of any
+  recent-list edit is a failure notice (`Event::RecentNotSaved`, as `PreferencesNotSaved`) saying
+  the list stays as left until caditor closes. Which entries are gone is checked on the files
+  worker (`FileCommand::CheckRecent`, not found only, so a permission error does not count) once
+  recent files are read at startup and each time the File menu opens; a missing one is drawn muted with
   "(not found)" and can still be opened. Opening a recent model that no longer exists forgets it
   and the notice says it was removed from the recent models.
 - Files dragged over the window (`drop_target.rs`, from egui's `hovered_files`: winit reports them

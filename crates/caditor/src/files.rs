@@ -617,6 +617,12 @@ enum Event {
     RecentChecked {
         missing: Vec<PathBuf>,
     },
+    RecentForgotten {
+        path: PathBuf,
+    },
+    RecentNotSaved {
+        error: io::Error,
+    },
     ImageExported {
         path: PathBuf,
         result: Result<SurfaceSize, ImageFailure>,
@@ -1201,9 +1207,9 @@ impl Files {
             FileCommand::Drop { paths, into } => self.dropped(paths, into, model),
             FileCommand::ClearRecent => {
                 self.missing_recent.clear();
-                self.change_recent(RecentChange::Cleared);
+                self.change_recent(RecentChange::Cleared, None);
             }
-            FileCommand::ForgetRecent(path) => self.forget_on_request(&path, model),
+            FileCommand::ForgetRecent(path) => self.forget_on_request(&path),
             FileCommand::CheckRecent => self.check_recent(),
             FileCommand::RevertToSaved => revert_to_saved(model),
             FileCommand::ExportAgain => self.export_again(model),
@@ -1669,6 +1675,14 @@ impl Files {
             Event::RecentChecked { missing } => {
                 self.missing_recent = missing.into_iter().collect();
             }
+            Event::RecentForgotten { path } => model.set_notice(Notice::success(format!(
+                "Removed “{}” from the recent models. The file itself is untouched.",
+                display_name(Some(&path))
+            ))),
+            Event::RecentNotSaved { error } => model.set_notice(Notice::failure(format!(
+                "Could not save the recent models: {error}. They stay as you left them until \
+                 caditor closes and may be listed again the next time it starts."
+            ))),
             Event::ImageExported { path, result } => {
                 let notice = self.image.finished(&path, result);
                 model.set_notice(notice);
@@ -2598,23 +2612,25 @@ impl Files {
 
     fn remember(&mut self, path: PathBuf) {
         self.missing_recent.remove(&path);
-        self.change_recent(RecentChange::Opened(path));
+        self.change_recent(RecentChange::Opened(path), None);
     }
 
     fn forget(&mut self, path: &Path) {
         self.missing_recent.remove(path);
-        self.change_recent(RecentChange::Forgotten(path.to_path_buf()));
+        self.change_recent(RecentChange::Forgotten(path.to_path_buf()), None);
     }
 
-    fn forget_on_request(&mut self, path: &Path, model: &mut Model) {
+    fn forget_on_request(&mut self, path: &Path) {
         if !self.recent.paths().iter().any(|recent| recent == path) {
             return;
         }
-        self.forget(path);
-        model.set_notice(Notice::success(format!(
-            "Removed “{}” from the recent models. The file itself is untouched.",
-            display_name(Some(path))
-        )));
+        self.missing_recent.remove(path);
+        self.change_recent(
+            RecentChange::Forgotten(path.to_path_buf()),
+            Some(Event::RecentForgotten {
+                path: path.to_path_buf(),
+            }),
+        );
     }
 
     fn check_recent(&mut self) {
@@ -2702,14 +2718,30 @@ impl Files {
         finished.recv_timeout(timeout).is_ok()
     }
 
-    fn change_recent(&mut self, change: RecentChange) {
+    fn change_recent(&mut self, change: RecentChange, once_saved: Option<Event>) {
         self.recent.apply(&change);
-        let Some(state_dir) = self.config.state_dir.clone() else {
+        let state_dir = self.config.state_dir.clone();
+        if state_dir.is_none() && once_saved.is_none() {
             return;
-        };
+        }
+        let events = self.events.clone();
+        let wake = (self.make_waker)();
         self.run_job(Box::new(move || {
-            if let Err(error) = RecentFiles::save_changes(&state_dir, &[change]) {
-                log::warn!("could not remember recent files: {error}");
+            let saved = match &state_dir {
+                Some(state_dir) => RecentFiles::save_changes(state_dir, &[change]),
+                None => Ok(()),
+            };
+            let event = match saved {
+                Ok(()) => once_saved,
+                Err(error) => {
+                    log::warn!("could not remember recent files: {error}");
+                    Some(Event::RecentNotSaved { error })
+                }
+            };
+            if let Some(event) = event
+                && events.send(event).is_ok()
+            {
+                wake();
             }
         }));
     }

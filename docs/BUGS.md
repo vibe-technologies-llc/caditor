@@ -16,10 +16,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · easy] Quitting while a sketch or face drawing export, a parameter file export or a
   template save runs still drops it: only `Exporter` and `ImageExporter` are waited for
   (`Files::exports_running`), the other writers have no running flag to ask.
-- [low · easy] Forget recent and the other recent-list edits post success at once, while the write
-  runs on the files worker and a failed `RecentFiles::save_changes` is only logged, so the next
-  launch lists the models again with nothing said. Report it on the files-worker event path, as a
-  failed preferences save already is.
 - [low · easy] The read-back before a save's rename checks records only: `binary::reads_back`
   checks chunk checksums and the head and records digests, never decoding the delta written for
   the state the save replaces, nor deltas rewritten by thinning, so a compressor defect there would

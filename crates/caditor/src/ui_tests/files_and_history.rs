@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fs, path::Path};
+use std::{borrow::Cow, fs, path::Path, time::Duration};
 
 use caditor_document::{Edit, Transaction};
 use egui::{Event, Id, Key, Modifiers, PanelState, PointerButton, Pos2};
@@ -292,10 +292,10 @@ fn a_recent_model_is_removed_on_its_own_and_a_missing_one_is_marked_and_said_to_
     harness.click_button("Remove second.caditor from the recent models");
 
     assert_eq!(harness.files.recent(), [third.clone(), first.clone()]);
-    assert!(notice_starts(
-        &harness,
-        "Removed “second.caditor” from the recent models."
-    ));
+
+    harness.wait_until("the removal is announced", |harness| {
+        notice_starts(harness, "Removed “second.caditor” from the recent models.")
+    });
 
     harness.key(Key::Escape, Modifiers::NONE);
     harness.show_new_windows();
@@ -320,6 +320,37 @@ fn a_recent_model_is_removed_on_its_own_and_a_missing_one_is_marked_and_said_to_
          models."
     ));
     assert!(harness.files.recent().is_empty());
+}
+
+#[test]
+fn a_recent_model_is_not_announced_as_removed_when_the_list_could_not_be_saved() {
+    let dir = TempDir::new().unwrap();
+    let root = canonical(&dir);
+    let first = saved_model(&root, "first.caditor");
+    let mut harness = Harness::with_directories(Some(root.as_path()));
+
+    harness.command(FileCommand::OpenPath(first.clone()));
+    harness.wait_until("the file is open", |harness| {
+        harness.model.path() == Some(first.as_path())
+    });
+    assert!(harness.files.wait_for_jobs(Duration::from_secs(10)));
+
+    fs::remove_dir_all(root.join("state")).unwrap();
+    fs::write(root.join("state"), b"not a folder").unwrap();
+    harness.perform(Action::DismissNotice);
+
+    harness.command(FileCommand::ForgetRecent(first.clone()));
+
+    assert!(harness.files.recent().is_empty());
+    assert!(!notice_starts(&harness, "Removed"));
+
+    harness.wait_until("the failure is shown", |harness| {
+        notice_starts(harness, "Could not save the recent models: ")
+    });
+
+    let notice = harness.model.notice().unwrap();
+    assert!(notice.outlasts_edits);
+    assert!(notice.text.ends_with("next time it starts."));
 }
 
 fn measure_width(harness: &Harness) -> Option<f32> {
