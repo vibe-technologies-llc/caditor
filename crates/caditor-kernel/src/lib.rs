@@ -43,7 +43,8 @@ pub use crate::{
     build::{
         AngularExtent, Axis2, Heights, LinearBound, LinearExtent, MAX_TAPER_DEGREES, NextFace,
         ReachError, StopError, Stopped, SweepError, WrapError, extrude, extrude_along,
-        extrude_tapered, heights, heights_along, next_face, revolve, stop_at_body, wrap_regions,
+        extrude_tapered, heights, heights_along, next_face, revolve, stop_at_body, wrap_chain,
+        wrap_regions,
     },
     coordinates::Coordinates,
     curve::{

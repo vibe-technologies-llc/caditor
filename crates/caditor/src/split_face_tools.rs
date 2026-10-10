@@ -2,9 +2,9 @@ use std::collections::BTreeSet;
 
 use caditor_document::{
     Document, Edit, Evaluation, Feature, FeatureId, FeatureKind, PlaneReference, PrincipalPlane,
-    SplitAlong, SplitCarry, SplitFace, Transaction,
+    SplitAlong, SplitCarry, SplitFace, Transaction, on_one_unrolled_surface,
 };
-use caditor_kernel::{FaceId, FaceReference, LINEAR_RESOLUTION, Solid, Surface, parallel};
+use caditor_kernel::{FaceId, FaceReference, Solid};
 
 use crate::{
     bodies::{self, FaceKey},
@@ -30,7 +30,8 @@ const ALREADY_CARRIED: &str = "The curves are already carried along the selected
 const NOT_ALONG_SKETCH: &str = "Only a sketch's curves can be wrapped round the faces; split along \
                                 one first";
 const ALREADY_WRAPPED: &str = "The curves are already wrapped round the faces";
-const NOT_ONE_CYLINDER: &str = "Only faces of one cylinder can have curves wrapped round them";
+const NOT_ONE_SURFACE: &str =
+    "Only faces of one cylinder or cone can have curves wrapped round them";
 const DEFAULT_PLANE: PlaneReference = PlaneReference::Principal(PrincipalPlane::Yz);
 
 #[derive(Debug, Clone, PartialEq)]
@@ -237,32 +238,14 @@ pub fn direction_change(
     )
 }
 
-fn on_one_cylinder(model: &Model, feature: FeatureId, split: &SplitFace) -> bool {
+fn on_one_unrolled(model: &Model, feature: FeatureId, split: &SplitFace) -> bool {
     let Some(input) = bodies::input(model.evaluation(), feature) else {
         return true;
     };
     let solid = &input.solid;
-    let Ok(faces) = split.resolve(solid) else {
-        return true;
-    };
-    let mut axes = faces
-        .iter()
-        .filter_map(|face| solid.face(*face))
-        .map(|face| match face.surface() {
-            Surface::Cylinder(cylinder) => Some(*cylinder),
-            _ => None,
-        });
-    let Some(Some(first)) = axes.next() else {
-        return false;
-    };
-    axes.all(|other| {
-        other.is_some_and(|other| {
-            let offset = other.frame().origin() - first.frame().origin();
-            parallel(first.frame().normal(), other.frame().normal())
-                && offset.cross(first.frame().normal()).length() <= LINEAR_RESOLUTION
-                && (first.radius() - other.radius()).abs() <= LINEAR_RESOLUTION
-        })
-    })
+    split
+        .resolve(solid)
+        .map_or(true, |faces| on_one_unrolled_surface(solid, &faces))
 }
 
 pub fn wrapped_change(
@@ -276,8 +259,8 @@ pub fn wrapped_change(
     if split.is_wrapped() {
         return Err(ALREADY_WRAPPED.to_owned());
     }
-    if !on_one_cylinder(model, feature, split) {
-        return Err(NOT_ONE_CYLINDER.to_owned());
+    if !on_one_unrolled(model, feature, split) {
+        return Err(NOT_ONE_SURFACE.to_owned());
     }
     change(
         model,

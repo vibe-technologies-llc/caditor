@@ -17,9 +17,9 @@ use crate::{
 };
 
 pub const DESCRIPTION: &str = "Divides the chosen faces along a plane, a sketch's curves carried \
-                               through them or wrapped round a cylinder, or another body, without \
-                               changing the shape, so a piece can take its own colour, draft or \
-                               fillet";
+                               through them or wrapped round a cylinder or cone, or another body, \
+                               without changing the shape, so a piece can take its own colour, \
+                               draft or fillet";
 pub const CARRIED: &str = "Carried";
 pub const SQUARE: &str = "Square to the sketch";
 pub const ALONG: &str = "Along an edge or axis";

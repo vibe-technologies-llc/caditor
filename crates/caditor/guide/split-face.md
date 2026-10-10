@@ -19,14 +19,18 @@ along the YZ plane. It has no ribbon button; use the Model menu or {command:pale
   or **Along an edge or axis**, which takes the selected straight edge, axis, round face or sketch
   line (or lets you click one in the view) so the curves land slanted on the faces, as a drawing
   projected at an angle would. A direction lying in the sketch's plane fails the split, saying so.
-  **Wrapped round the faces** (also {command:model.wrap_split_curves}) lays closed outlines onto
-  faces of one cylinder the way a label is wrapped round a bottle: the sketch lies on a plane
-  along the cylinder's axis, such as one touching it, its distances along the axis stay as they
-  are and those across it become lengths round the cylinder, so a rectangle drawn 30 mm long
-  across the axis wraps into a patch 30 mm round and a slanted edge becomes a helix. Only closed
-  outlines can be wrapped, and they must fit within once round the cylinder; a plane across the
-  axis, a face that is not cylindrical, faces of several cylinders, open curves or outlines longer
-  than the way round fail the split, saying so.
+  **Wrapped round the faces** (also {command:model.wrap_split_curves}) lays the curves onto
+  faces of one cylinder or cone the way a label is wrapped round a bottle: the sketch lies on a
+  plane along the axis, such as one touching it, its distances along the axis stay as they are
+  (on a cone they run up its slope) and those across it become lengths round the surface, so a
+  rectangle drawn 30 mm long across the axis wraps into a patch 30 mm round and a slanted edge
+  becomes a helix. Closed outlines mark patches and must fit within once round. One open chain
+  cuts the faces along it, carried straight on past its ends until it leaves them, and may run
+  round as many times as it likes: a slanted line across a tube winds into a helix that divides
+  it into bands. A chain that turns back to the same edge after running right round, a curve
+  whose end runs straight round without leaving the faces, a plane across the axis, a face that
+  is neither cylindrical nor conical (a sphere cannot be unrolled flat), faces of several
+  surfaces or outlines longer than the way round fail the split, saying so.
 - Only the chosen faces are divided: a plane crossing the whole body leaves the other faces whole.
 
 The pieces are named from the split and the side they lie on (in front of the plane or behind it,

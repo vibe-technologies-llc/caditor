@@ -309,7 +309,10 @@ fn prepare(frame: &Frame, piece: &Piece) -> Result<Prepared, SweepError> {
     }
 }
 
-fn ellipse_spline(ellipse: &Ellipse2, range: Interval) -> Result<BSplineCurve2, GeometryError> {
+pub(super) fn ellipse_spline(
+    ellipse: &Ellipse2,
+    range: Interval,
+) -> Result<BSplineCurve2, GeometryError> {
     let unit = Circle2::new(Point2::ZERO, 1.0)?;
     let center = ellipse.center();
     let (along_x, along_y) = (
@@ -319,7 +322,10 @@ fn ellipse_spline(ellipse: &Ellipse2, range: Interval) -> Result<BSplineCurve2, 
     arc_spline(&unit, range)?.map_points(|point| center + along_x * point.x + along_y * point.y)
 }
 
-fn arc_spline(circle: &Circle2, range: Interval) -> Result<BSplineCurve2, GeometryError> {
+pub(super) fn arc_spline(
+    circle: &Circle2,
+    range: Interval,
+) -> Result<BSplineCurve2, GeometryError> {
     let curve = Curve2::from(*circle);
     let pieces = (range.length() / FRAC_PI_2).ceil().max(1.0) as usize;
     let step = range.length() / pieces as f64;

@@ -60,20 +60,44 @@ paths:
   `TaperTooSteep`, and a piece used up, an arc shrunk to nothing, corners that no longer meet, a
   loop turned over or loops crossing at a cap `TaperCloses` (naming the pieces' entities when
   known).
-- `wrap_regions(plane, regions, cylinder, feature)` (`wrap.rs`) wraps a plane's regions onto a
-  cylinder by arc length, for a split face's tool: the plane must run along the axis
-  (`AcrossAxis` otherwise); a point keeps its distance along the axis and its distance across it,
-  from the foot of the axis on the plane, becomes a length round the cylinder, the side of the
-  axis the plane lies on (its normal's for a plane through the axis) staying in front, so the
-  map is locally the identity and a decal is never mirrored. The result is an extrusion's
-  topology between coaxial cylinders at a quarter of the radius inside and outside it (their
-  frames turned so the seam lies opposite the outlines): each piece's side is a ruled spline
-  surface, cubic along the curve at stations no farther apart than `STEP_ANGLE` round the axis
-  and straight radially, overhanging both cylinders by `WALL_OVERHANG` so the rims lie inside its
-  domain; rims are `IntersectionCurve`s of side and cylinder, the joints exact radial lines, every
-  pcurve fitted, and a closed piece (a circle) is halved first, since a periodic side cannot be
-  intersected reliably. Outlines reaching round within `OVERLAP_GAP` of the circumference are
-  `BeyondFullTurn`; a piece needing more than `MAX_STATIONS` stations `TooIntricate`.
+- `wrap_regions(plane, regions, surface, feature)` (`wrap.rs`) wraps a plane's regions onto a
+  cylinder or cone by its unrolled form, for a split face's tool: any other surface is
+  `NotUnrollable` (a sphere has no flat unrolling), and the plane must run along the axis
+  (`AcrossAxis` otherwise). A point's distance along the axis becomes a distance along the
+  surface's slope, measured from the middle of the curves' reach along the axis (which keeps its
+  height, so on a cylinder the distance is unchanged), and its distance across the axis, from the
+  foot of the axis on the plane, becomes the arc length round the surface at that slope distance
+  (so a rectangle keeps its area on a cone); the side of the axis the plane lies on (its normal's
+  for a plane through the axis) stays in front, so the map is locally the identity and a decal is
+  never mirrored. Curves reaching the cone's apex are `PastApex`. The result is an extrusion's
+  topology between coaxial copies of the surface offset a quarter of the least radius (times the
+  cone's cosine) inside and outside it along its normal (their frames turned so the seam lies
+  opposite the outlines): each piece's side is a ruled spline surface, cubic along the curve at
+  stations no farther apart than `STEP_ANGLE` round the axis and straight along the normal,
+  overhanging both copies by `WALL_OVERHANG` so the rims lie inside its domain; rims are
+  `IntersectionCurve`s of side and copy, the joints exact lines, every pcurve fitted, and a closed
+  piece (a circle) is halved first, since a periodic side cannot be intersected reliably.
+  Outlines reaching round within `OVERLAP_GAP` of a full turn are `BeyondFullTurn` (in turns); a
+  piece needing more than `MAX_STATIONS` stations `TooIntricate`.
+- `wrap_chain(plane, curves, surface, solid, faces, feature)` (`wrap_cut.rs`) builds the tool
+  that cuts the chosen faces along one open chain wrapped the same way (`NotOneChain`
+  otherwise). Each end inside the faces' reach is carried straight on until it leaves it
+  (`EndRunsRound` when it runs straight round a whole face). The cut is drawn in a window of the
+  unrolled surface one turn wide: starting on the seam all chosen faces share (a full face's
+  edge used twice, faces without one needing it in the angular gap their edges leave), else, when
+  no face runs right round, in the gap common to all, the window then narrower than a turn
+  (`NoSeamPlace` when neither exists). Every turn of the chain is folded into it (shifted back by
+  whole turns: a translation on a cylinder, a shear on a cone, arcs and ellipses then made
+  rational splines), with the window's edges and lines past the faces' ends closing it, at most
+  `MAX_TURNS` turns. The regions inside are coloured two ways across the chain (`CrossesItself`
+  when that is inconsistent) and the side left of the chain walked from its first end (as a
+  split's) is wrapped (`wrapped`, with no full-turn check). A full window's edges both lie on the
+  seam, so a choice whose regions meet across it at the same height is refused and the other
+  side tried; when both are refused, a window starting at an angle the chain never reaches is
+  tried, keeping the side touching neither edge; else `ClosesRound` (a chain running right round
+  and back to the same edge). A selection of no region or all of them is `Misses`. The tool's
+  faces along the window's edges coincide with the seam, so the cut adds no edge there: a helix
+  run three times round a tube parts it into bands at the seam.
 - `heights(plane, regions, target)` gives the least and most signed height of a target plane over
   the profile, which the document uses to tell a plane ahead from one behind or across.
 - `next_face(solid, plane, regions, reversed)` casts rays from the regions' triangle centroids
@@ -179,9 +203,9 @@ paths:
   `Plan` disambiguating repeats, so a later feature holds a piece by name.
 - The document builds the tool: a plane's half-space block, an open sketch chain's swept half
   space, closed sketch outlines swept through the body (`split::Sweep`, square to the sketch or
-  along a direction through `extrude_along`) or wrapped round a cylinder (`wrap_regions`), or
-  another body as it stands; a sketch mixing a chain with outlines calls `split_faces` twice
-  (`document.md`).
+  along a direction through `extrude_along`) or wrapped round a cylinder or cone (`wrap_regions`,
+  an open chain `wrap_chain`), or another body as it stands; a sketch mixing a chain with outlines
+  calls `split_faces` twice (`document.md`).
 
 ## Interference (`boolean/interference.rs`)
 
