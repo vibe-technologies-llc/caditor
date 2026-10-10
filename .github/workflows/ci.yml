@@ -212,7 +212,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            appstream build-essential ca-certificates curl desktop-file-utils git zstd
+            appstream build-essential ca-certificates cpio curl desktop-file-utils git rpm squashfs-tools xz-utils zstd
 
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -246,6 +246,12 @@ jobs:
 
       - name: Install and uninstall the snapshot
         run: packaging/check-install.sh target/dist/caditor-*-snapshot-linux-x86_64.tar.zst
+
+      - name: Build the snapshot .deb, .rpm and AppImage
+        run: packaging/build-packages.sh target/dist/caditor-*-snapshot-linux-x86_64.tar.zst
+
+      - name: Check the snapshot packages and install the .deb
+        run: packaging/check-packages.sh --install target/dist/caditor-*-snapshot-linux-x86_64.tar.zst
 
   windows:
     runs-on: windows-2025

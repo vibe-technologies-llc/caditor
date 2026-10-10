@@ -18,6 +18,21 @@ This copies the program to `~/.local/bin/caditor` and adds its menu entry, icon 
 sudo ./install.sh --prefix /usr/local
 ```
 
+## Install a package
+
+Each release also has the same program as a package, built from this archive:
+
+```sh
+sudo apt install ./caditor-*-linux-x86_64.deb
+sudo dnf install ./caditor-*-linux-x86_64.rpm
+chmod +x caditor-*-linux-x86_64.AppImage && ./caditor-*-linux-x86_64.AppImage
+```
+
+The `.deb` and `.rpm` put caditor in `/usr` and are removed with `apt remove caditor` or
+`dnf remove caditor`; neither updates itself, so download a newer one to upgrade. The AppImage
+is one file that runs from where it is; it needs FUSE on the system, or run it with
+`--appimage-extract-and-run`.
+
 ## Run without installing
 
 ```sh

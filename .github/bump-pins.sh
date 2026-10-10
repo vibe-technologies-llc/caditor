@@ -6,7 +6,7 @@ usage() {
 Usage: .github/bump-pins.sh
 
 Raises every pin CI and the release build use to its latest published version:
-the toolchains, rustup, cargo-deny, cargo-fuzz and WiX 5 with
+the toolchains, rustup, cargo-deny, cargo-fuzz, WiX 5 and the AppImage runtime with
 their SHA-256 sums and rust-formatter's revision in .github/versions.env, and each
 action in .github/workflows and .github/actions to the commit of its latest
 release. Review the diff and let CI run before committing it.
@@ -114,6 +114,12 @@ wix=$(fetch https://api.nuget.org/v3-flatcontainer/wix/index.json |
 [ -n "$wix" ] || fail "could not read the latest WiX 5"
 set_pin WIX_VERSION "$wix"
 set_pin WIX_SHA256 "$(sha256_of "https://api.nuget.org/v3-flatcontainer/wix/$wix/wix.$wix.nupkg")"
+
+runtime=$(fetch https://api.github.com/repos/AppImage/type2-runtime/releases |
+    sed -n 's/^ *"tag_name": *"\([0-9]\{8\}\)".*/\1/p' | sort -u | tail -n 1)
+[ -n "$runtime" ] || fail "could not read the latest AppImage runtime"
+set_pin APPIMAGE_RUNTIME_VERSION "$runtime"
+set_pin APPIMAGE_RUNTIME_SHA256 "$(sha256_of "https://github.com/AppImage/type2-runtime/releases/download/$runtime/runtime-x86_64")"
 
 files=$(find "$root/.github/workflows" "$root/.github/actions" -name '*.yml')
 actions=$(cat $files | sed -n 's/^ *uses: \([A-Za-z0-9_.-]*\/[A-Za-z0-9_.-]*\)@[0-9a-f]\{40\}$/\1/p' | sort -u)

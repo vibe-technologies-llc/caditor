@@ -35,7 +35,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            appstream build-essential ca-certificates curl desktop-file-utils git zstd
+            appstream build-essential ca-certificates cpio curl desktop-file-utils git rpm squashfs-tools xz-utils zstd
 
       - name: Check out (actions/checkout v7.0.1)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -59,12 +59,22 @@ jobs:
       - name: Install and uninstall the archive
         run: packaging/check-install.sh target/dist/caditor-*-linux-x86_64.tar.zst
 
-      - name: Attest the archive's provenance (actions/attest-build-provenance v4.2.2)
+      - name: Build the .deb, .rpm and AppImage from the archive
+        run: packaging/build-packages.sh target/dist/caditor-*-linux-x86_64.tar.zst
+
+      - name: Check the packages and install the .deb
+        run: packaging/check-packages.sh --install target/dist/caditor-*-linux-x86_64.tar.zst
+
+      - name: Attest the packages' provenance (actions/attest-build-provenance v4.2.2)
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
-          subject-path: target/dist/*.tar.zst
+          subject-path: |
+            target/dist/*.tar.zst
+            target/dist/*.deb
+            target/dist/*.rpm
+            target/dist/*.AppImage
 
-      - name: Keep the archive (actions/upload-artifact v7.0.1)
+      - name: Keep the packages (actions/upload-artifact v7.0.1)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release
@@ -72,6 +82,12 @@ jobs:
           path: |
             target/dist/*.tar.zst
             target/dist/*.tar.zst.sha256
+            target/dist/*.deb
+            target/dist/*.deb.sha256
+            target/dist/*.rpm
+            target/dist/*.rpm.sha256
+            target/dist/*.AppImage
+            target/dist/*.AppImage.sha256
 
   build-windows:
     needs: checks
@@ -153,4 +169,6 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "caditor ${GITHUB_REF_NAME#v}" \
             --generate-notes \
-            dist/*.tar.zst dist/*.tar.zst.sha256 dist/*.msi dist/*.msi.sha256
+            dist/*.tar.zst dist/*.tar.zst.sha256 dist/*.deb dist/*.deb.sha256 \
+            dist/*.rpm dist/*.rpm.sha256 dist/*.AppImage dist/*.AppImage.sha256 \
+            dist/*.msi dist/*.msi.sha256

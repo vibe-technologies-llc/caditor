@@ -3,7 +3,8 @@
 ## How caditor is distributed
 
 caditor ships as plain release binaries, published as a GitHub release of the version's tag: an
-archive for 64-bit Linux, `caditor-<version>-linux-x86_64.tar.zst`, and an installer for 64-bit
+archive for 64-bit Linux, `caditor-<version>-linux-x86_64.tar.zst`, a `.deb`, an `.rpm` and an
+`.AppImage` of the same name made from that archive, and an installer for 64-bit
 Windows, `caditor-<version>-windows-x86_64.msi`, each with a `.sha256` next to it. The archive holds the program, an installer (`install.sh`, into
 `~/.local` or any prefix), the menu entry, the icon (the scalable SVG and PNG renders from 16
 to 512 px, made by `packaging/render-icons.sh` and committed), the AppStream metainfo, the
@@ -48,6 +49,48 @@ at run time. It needs the glibc it was built against or newer, so published arch
 on Ubuntu 22.04 (glibc 2.35) by the release workflow, never on a developer's machine: an
 archive built on a rolling distribution runs only on systems as new as it.
 
+`packaging/build-packages.sh ARCHIVE` makes the `.deb`, `.rpm` and `.AppImage` from the archive
+itself, not from a second build, so each holds the archive's program, menu entry, icons, metainfo,
+MIME type and licences, and all four are one build. It needs `ar` and `objdump` (binutils), `xz`,
+`rpmbuild` (the `rpm` package) and `mksquashfs` (`squashfs-tools`) and runs without root. The
+packages are reproducible: the same archive gives the same bytes (`SOURCE_DATE_EPOCH` is the
+tagged commit's time). `packaging/check-packages.sh [--install] ARCHIVE` checks them: checksums,
+metadata, exactly the archive's files in each, the menu entry, and that the program of each runs
+and reports the archive's version; `--install` also installs the `.deb` with `apt-get` as root
+and removes it again, so it belongs in a disposable container. CI runs both on every push.
+
+- The `.deb` is written with `ar` and `tar` (format 2.0, `xz` members, which every dpkg since 2010
+  reads) without `dpkg-deb`. Its `Depends` are `libc6` at the highest glibc version the program
+  needs (read from the binary, so it follows the build), `libgcc-s1`, `libxkbcommon0`,
+  `libvulkan1` and `hicolor-icon-theme`; the libraries the program opens at run time for one
+  windowing system or the other (Wayland, X11, EGL) and a file dialog provider (the desktop
+  portal or zenity) are `Recommends`, since a Wayland-only or X11-only system needs only half of
+  them. The `Maintainer` field is the plain word `caditor`, since the project publishes no
+  identity, and there is no `Homepage`. Menu, MIME and icon caches are refreshed by dpkg's file
+  triggers, so the package has no maintainer scripts.
+- The `.rpm` is built with `rpmbuild` from a spec the script writes around the staged files (a
+  gzip payload, which every rpm reads), with no `%changelog`, `Packager`, `URL` or `Vendor`. The
+  glibc and `libgcc_s` requirements are the ones `rpmbuild` finds in the program, plus
+  `libxkbcommon`, `vulkan-loader` and `hicolor-icon-theme`; the run-time libraries and the
+  desktop portal are `Recommends`. Package names are Fedora's and the RHEL family's; other rpm
+  distributions (openSUSE names `libvulkan1` and `libxkbcommon0`) install it with
+  `--nodeps` or from the archive.
+- The `.AppImage` is the pinned type2 runtime (`APPIMAGE_RUNTIME_VERSION` and
+  `APPIMAGE_RUNTIME_SHA256` in `.github/versions.env`, raised by `bump-pins.sh`, downloaded once
+  into `target/appimage-runtime` and checked against its SHA-256) followed by a zstd
+  squashfs of an `AppDir`, joined with `cat` instead of `appimagetool`, which would need FUSE to
+  run and downloads its own runtime. The `AppDir` holds `usr/` as the archive's `bin/` and
+  `share/`, an `AppRun` that starts `usr/bin/caditor`, the menu entry without `TryExec`
+  (which would look for `caditor` on the `PATH`), and the 256 px icon. It bundles no libraries:
+  the graphics stack comes from the host like the archive's does, so it runs where the archive
+  does. Opening it needs FUSE 2 or 3 on the host; without it `./caditor-*.AppImage
+  --appimage-extract-and-run` works. The runtime is MIT licensed and statically links libfuse
+  and squashfuse, whose licences are listed in its own repository.
+- AppImage self-update is left out: it needs update information (`gh-releases-zsync|<owner>|
+  <repository>|...`) naming the repository the release is published in, which the project does not
+  publish, and a `.zsync` file for each release. Neither it nor a package repository exists, so
+  installs of the `.deb` and `.rpm` do not update themselves either; users download a newer one.
+
 ## Versions
 
 Versions follow semantic versioning on the workspace version in the root `Cargo.toml`. Before
@@ -58,7 +101,7 @@ not versioned by release: every file format that has shipped stays readable (see
 ## Pins
 
 Every toolchain, tool and action CI and the release use is pinned (rustup once
-per platform, and WiX), in `.github/versions.env` and
+per platform, WiX and the AppImage runtime), in `.github/versions.env` and
 by commit in the workflows. `.github/bump-pins.sh` raises them all to their latest releases with
 fresh checksums; commit its diff once CI passes on it.
 
@@ -77,6 +120,9 @@ fresh checksums; commit its diff once CI passes on it.
    nothing behind and that an upgrade failing midway leaves the earlier install as it was
    (`install.sh` copies every file to a `.caditor-new` name beside its target and renames them
    into place only once every copy succeeded). CI runs both on every push.
+   `packaging/build-packages.sh target/dist/caditor-<version>-snapshot-linux-x86_64.tar.zst` then
+   builds the `.deb`, `.rpm` and `.AppImage` beside it (it also needs `rpm`, `squashfs-tools`,
+   `xz` and `binutils`), and `packaging/check-packages.sh` on the same archive checks them.
    On Windows, `packaging/windows/build-release.ps1 -Snapshot` (it needs the
    WiX 5 .NET tool, `dotnet tool install --global wix --version 5.0.2`) builds
    `target/dist/caditor-<version>-snapshot-windows-x86_64.msi`, and
@@ -89,11 +135,13 @@ fresh checksums; commit its diff once CI passes on it.
    fuzzing, through `workflow_call`), and only when it passes builds the archive with
    `packaging/build-release.sh` in an Ubuntu 22.04 container on the toolchain pinned by
    `RUST_TOOLCHAIN` in `.github/versions.env` (which CI reads too), checks it with
-   `packaging/check-install.sh`, attests its build provenance through GitHub's Sigstore
+   `packaging/check-install.sh`, builds the `.deb`, `.rpm` and `.AppImage` from it with
+   `packaging/build-packages.sh`, checks them with `packaging/check-packages.sh --install`,
+   attests the build provenance of all four through GitHub's Sigstore
    attestations; alongside, it builds, checks and attests the MSI on Windows the same way, and
-   then publishes the GitHub release with the archive, the installer, their checksums and
-   GitHub's generated notes. GitHub attaches the tagged source, which is the corresponding source the AGPL asks
-   for.
+   then publishes the GitHub release with the archive, the three Linux packages, the installer,
+   their checksums and GitHub's generated notes. GitHub attaches the tagged source, which is the
+   corresponding source the AGPL asks for.
 
 `packaging/build-release.sh` refuses to build a release from a dirty tree or from a commit that
 is not tagged `v<version>`, lists the release in the metainfo dated by the tagged commit, and
