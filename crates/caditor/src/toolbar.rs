@@ -667,6 +667,13 @@ fn mirror_button(
     {
         actions.extend(mate_tools::create_actions(model, mate));
     }
+
+    let mate_angle = &context.offers.mate_angle;
+    if commands.invoke(Command::MateAngle, mate_angle)
+        && let Ok(mate) = mate_angle
+    {
+        actions.extend(mate_tools::create_actions(model, mate));
+    }
 }
 
 fn scale_button(

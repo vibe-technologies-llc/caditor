@@ -199,7 +199,7 @@ pub fn command(command: Command) -> &'static str {
         Command::CopyBody => COPY_BODY,
         Command::Mirror => MIRROR,
         Command::Split => SPLIT,
-        Command::Mate => MATE,
+        Command::Mate | Command::MateAngle => MATE,
         Command::Scale => SCALE,
         Command::RenameBody => EDIT,
         Command::RemoveBody => REMOVE_BODY,

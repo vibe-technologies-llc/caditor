@@ -282,9 +282,10 @@ paths:
   `reversing::reverse_change`, in `feature_tree::feature_commands`' changes) acts on the open
   feature, else the tree's current one, doing what its panel's reverse control does: an
   extrusion's one-sided end, a revolve's one-sided or up-to turn, a hole, a primitive (not one
-  centred on its place), a pattern's first direction, a mate's facing and a split's kept side, as
+  centred on its place), a pattern's first direction, a mate's facing or side and a split's kept side, as
   one "Reverse <feature>" change. An extrusion or revolve running both ways and a full turn are
-  refused saying which Extent to choose; any other kind is refused with `NOTHING_TO_REVERSE`.
+  refused saying which Extent to choose, an angle or point mate saying it has no side
+  (`MATE_HAS_NO_SIDE`); any other kind is refused with `NOTHING_TO_REVERSE`.
 - A revolve can also take two angles, refusing a pair that turns more than a full turn, or turn
   Up to face (`solid_panel::TURN_UP_TO`): the selected flat face or plane, taken like an
   extrusion's end, else choosing one in the view (`Slot::RevolveTarget`), shown as Up to with
@@ -565,16 +566,25 @@ paths:
   along selected take a plane or flat face, a sketch curve, or a face or edge of another earlier
   body (`along_change`). Keep the other side and rows naming the body and the split-off body
   follow. While open both bodies show as previews.
-- Mate body (Model menu, palette; no ribbon button or default key) takes two picks in pick order
-  (`mate_tools::source`): a flat face of the body to move then a flat face of another body or a
-  plane (`datum_tools::plane_reference`), or an axis of the body (a straight edge or round face)
-  then any axis (`axis_reference`), resolved at the bar; the moving body must be shown. It creates
-  "Mate N" flush (distance 0 in the length unit) and opens it. The panel (`mate_panel.rs`) names
-  the face or axis to mate and what it mates onto, each with Use selected and Choose in the view
-  (slots `MateMoving`, taking only the moving body's faces or axes, and `MateTarget`, taking only
-  references off it), a Distance expression (key `("mate-field", "distance", id)`) for faces, a
-  Face the same way or Point the other way checkbox, and the body. A mate keeps the kind it was
-  made with; another kind is another mate.
+- Mate body (Model menu, palette; no ribbon button or default key) takes picks in pick order
+  (`mate_tools::source`), resolved at the bar, the first on the body to move: two picks make a
+  faces mate (a flat face of the body, then a flat face of another body or a plane,
+  `datum_tools::plane_reference`), an axes mate (an axis of the body, a straight edge or round
+  face, then any axis, `axis_reference`), a tangent mate (a cylindrical or spherical face of the
+  body, `moving_round`, then a plane) or a point mate (a corner, round edge or sphere of the body,
+  then a point, `point_reference`, or else a plane), tried in that order; four picks, two on the
+  body (a flat face and an axis) and two off it (a plane and an axis), in any order within each
+  pair, make a flush and concentric mate. Mate body at an angle (Model menu, palette) takes the
+  same two flat faces or axes and makes an angle mate at 90 deg (`angle_source`). The moving body
+  must be shown. Either creates "Mate N" (faces flush at distance 0 in the length unit) and opens
+  it. The panel (`mate_panel.rs`) names each reference with Use selected and Choose in the view
+  (slots `MateMoving(MatePart)`, taking only the moving body's references, and
+  `MateTarget(MatePart)`, taking only references off it; `MatePart::Axis` is the axis pair of a
+  flush and concentric mate), a Distance expression (key `("mate-field", "distance", id)`) for
+  faces, an Angle (key `("mate-field", "angle", id)`, 0 to 180 deg) for an angle mate, a Face the
+  same way, Point the other way or Rest on the other side checkbox where the kind has a side, and
+  the body. Reverse the direction refuses angle and point mates in words. A mate keeps the kind it
+  was made with; another kind is another mate.
 - Scale body (Alt+Shift+S) takes the body the same way and creates a `Scale` by 1 (the body unchanged until
   a factor is typed) about the origin. The panel has the factor (a plain number above zero), a
   Centre in combo (World, or a coordinate system above it, through the shared

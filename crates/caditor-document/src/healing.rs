@@ -11,7 +11,7 @@ use crate::{
     document::{Document, Feature, FeatureId, FeatureKind, list_names},
     edit::{Edit, Transaction},
     hole::HoleDepth,
-    mate::MatePair,
+    mate::{AngleSides, AxisMate, Mate, MatePair, PointTarget},
     movement::TurnCentre,
     pattern::PatternKind,
     recompute::Inputs,
@@ -140,16 +140,7 @@ pub(crate) fn visit(kind: &mut FeatureKind, visitor: &mut impl ReferenceVisitor)
                 visit_axis(&mut turn.axis, "axis to turn about", visitor);
             }
         }
-        FeatureKind::Mate(mate) => match &mut mate.pair {
-            MatePair::Faces(faces) => {
-                visitor.face(mate.body, &mut faces.face, "the face it mates");
-                visit_plane(&mut faces.target, "the face it mates onto", visitor);
-            }
-            MatePair::Axes(axes) => {
-                visit_axis(&mut axes.axis, "axis to mate", visitor);
-                visit_axis(&mut axes.target, "axis to mate onto", visitor);
-            }
-        },
+        FeatureKind::Mate(mate) => visit_mate(mate, visitor),
         FeatureKind::Hole(hole) => {
             if let HoleDepth::UpToFace { target, .. } = &mut hole.depth {
                 visit_plane(target, "the face it is drilled up to", visitor);
@@ -359,6 +350,56 @@ fn visit_station(station: &mut CurveStation, visitor: &mut impl ReferenceVisitor
         std::slice::from_mut(station.edge.as_mut()),
         &|_| "the edge it follows".to_owned(),
     );
+}
+
+fn visit_mate_faces(
+    body: FeatureId,
+    face: &mut FaceReference,
+    target: &mut PlaneReference,
+    visitor: &mut impl ReferenceVisitor,
+) {
+    visitor.face(body, face, "the face it mates");
+    visit_plane(target, "the face it mates onto", visitor);
+}
+
+fn visit_mate_axes(axes: &mut AxisMate, visitor: &mut impl ReferenceVisitor) {
+    visit_axis(&mut axes.axis, "axis to mate", visitor);
+    visit_axis(&mut axes.target, "axis to mate onto", visitor);
+}
+
+fn visit_mate(mate: &mut Mate, visitor: &mut impl ReferenceVisitor) {
+    let body = mate.body;
+    match &mut mate.pair {
+        MatePair::Faces(faces) => {
+            visit_mate_faces(body, &mut faces.face, &mut faces.target, visitor)
+        }
+        MatePair::Axes(axes) => visit_mate_axes(axes, visitor),
+        MatePair::FaceAxis(both) => {
+            visit_mate_faces(body, &mut both.faces.face, &mut both.faces.target, visitor);
+            visit_mate_axes(&mut both.axes, visitor);
+        }
+        MatePair::Angle(angle) => match &mut angle.sides {
+            AngleSides::Faces(faces) => {
+                visit_mate_faces(body, &mut faces.face, &mut faces.target, visitor);
+            }
+            AngleSides::Axes(axes) => visit_mate_axes(axes, visitor),
+        },
+        MatePair::Tangent(tangent) => {
+            visitor.face(
+                body,
+                &mut tangent.face,
+                "the round face it rests on the plane",
+            );
+            visit_plane(&mut tangent.target, "the face it rests on", visitor);
+        }
+        MatePair::Point(point) => {
+            visit_point(&mut point.point, "point to mate", visitor);
+            match &mut point.target {
+                PointTarget::Point(target) => visit_point(target, "point to mate onto", visitor),
+                PointTarget::Plane(plane) => visit_plane(plane, "the face it mates onto", visitor),
+            }
+        }
+    }
 }
 
 fn visit_plane(plane: &mut PlaneReference, what: &str, visitor: &mut impl ReferenceVisitor) {

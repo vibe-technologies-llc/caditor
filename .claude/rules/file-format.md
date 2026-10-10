@@ -308,7 +308,12 @@ paths:
   plane reference, and the `distance` text; or `axes` with `axis` and `target`, axis references)
   and `flipped` only when set. An unreadable moving face loads as a reference to no face, so the
   mate fails until it is chosen again; an unreadable target plane as the XY plane, an axis as the
-  Z axis and a distance as 0 mm, each reported.
+  Z axis and a distance as 0 mm, each reported. The later kinds are records of their own, so an
+  older reader reports them as from a newer version: `face_axis_mate` (`body`, `faces` and `axes`
+  as in `mate`, `flipped`), `angle_mate` (`body`, `sides`: `faces` with `face` and `target`, or
+  `axes`, and the `angle` text, unreadable 90 deg), `tangent_mate` (`body`, `sides` with the round
+  `face` and the `target` plane, `flipped`) and `point_mate` (`body`, `point`, a point reference,
+  and `target`: `point` or `plane`; an unreadable point loads as the origin, reported).
 - A `mirror` feature record holds `body`, `plane` (a plane reference; an unreadable one loads as
   the YZ plane, reported) and `keep_original`. One mirroring features rather than its whole body
   is a `feature_mirror` record: `feature`, the `mirror` record it would be mirroring the body, and

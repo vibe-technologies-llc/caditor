@@ -315,3 +315,293 @@ fn a_face_no_longer_on_the_moving_body_fails_the_mate_alone_in_words() {
     let (low, _) = bounds(&evaluation, model.peg);
     assert!(near(low, Point3::new(20.0, 0.0, 0.0)));
 }
+
+fn peg_edge_on(model: &Model, x: f64, y: f64) -> AxisReference {
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+    let peg = evaluation.body(model.peg).unwrap();
+    let (edge, _) = peg
+        .edges()
+        .find(|(id, _)| {
+            crate::datum::edge_ray(peg, *id).is_some_and(|ray| {
+                ray.direction().cross(Vector3::Z).length() < 1e-9
+                    && (ray.origin().x - x).abs() < 1e-9
+                    && (ray.origin().y - y).abs() < 1e-9
+            })
+        })
+        .unwrap();
+    AxisReference::capture_edge(model.peg, peg, edge).unwrap()
+}
+
+fn peg_face(model: &Model, normal: Vector3, at: Point3) -> FaceReference {
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+    face(evaluation.body(model.peg).unwrap(), normal, at)
+}
+
+fn flush_and_concentric(model: &Model, target: AxisReference) -> MatePair {
+    MatePair::FaceAxis(Box::new(FaceAxisMate {
+        faces: FaceMate {
+            face: peg_face(model, -Vector3::Z, Point3::ZERO),
+            target: plate_top(model),
+            distance: Expression::parse_stored("0 mm").unwrap(),
+        },
+        axes: AxisMate {
+            axis: peg_edge_on(model, 20.0, 0.0),
+            target,
+        },
+    }))
+}
+
+fn first_failure(evaluation: &Evaluation) -> String {
+    evaluation.failures().next().unwrap().1.reason.clone()
+}
+
+fn replace_pair(model: &mut Model, mate: FeatureId, pair: MatePair) {
+    let mut changed = model
+        .document
+        .feature(mate)
+        .unwrap()
+        .kind
+        .mate()
+        .unwrap()
+        .clone();
+    changed.pair = pair;
+    model
+        .document
+        .apply(Transaction::single(
+            "Change",
+            Edit::SetFeatureKind {
+                id: mate,
+                kind: FeatureKind::Mate(changed),
+            },
+        ))
+        .unwrap();
+}
+
+#[test]
+fn a_face_and_axis_mate_makes_the_body_flush_and_concentric_in_one_feature() {
+    let mut model = model();
+    let pair = flush_and_concentric(&model, AxisReference::Principal(PrincipalAxis::Z));
+    add_mate(&mut model, pair, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let (low, high) = bounds(&evaluation, model.peg);
+    assert!(near(low, Point3::new(0.0, 0.0, 4.0)), "{low:?}");
+    assert!(near(high, Point3::new(10.0, 5.0, 10.0)), "{high:?}");
+}
+
+#[test]
+fn a_face_and_axis_mate_whose_axis_runs_along_the_plane_fails_in_words() {
+    let mut model = model();
+    let pair = flush_and_concentric(&model, AxisReference::Principal(PrincipalAxis::X));
+    add_mate(&mut model, pair, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    let reason = first_failure(&evaluation);
+    assert!(
+        reason.contains("runs along the plane it mates onto"),
+        "{reason}"
+    );
+}
+
+fn side_at_angle(model: &Model, angle: &str) -> MatePair {
+    MatePair::Angle(Box::new(AngleMate {
+        sides: AngleSides::Faces(FacePair {
+            face: peg_face(model, Vector3::X, Point3::new(30.0, 0.0, 0.0)),
+            target: plate_top(model),
+        }),
+        angle: Expression::parse_stored(angle).unwrap(),
+    }))
+}
+
+#[test]
+fn an_angle_mate_turns_the_body_about_the_line_where_the_planes_meet() {
+    let mut model = model();
+    let square = side_at_angle(&model, "90 deg");
+    let mate = add_mate(&mut model, square, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    let (low, high) = bounds(&evaluation, model.peg);
+    assert!(near(low, Point3::new(20.0, 0.0, 0.0)), "{low:?}");
+    assert!(near(high, Point3::new(30.0, 5.0, 6.0)), "{high:?}");
+
+    let facing = side_at_angle(&model, "0 deg");
+    replace_pair(&mut model, mate, facing);
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let (low, high) = bounds(&evaluation, model.peg);
+    assert!(near(low, Point3::new(26.0, 0.0, 4.0)), "{low:?}");
+    assert!(near(high, Point3::new(32.0, 5.0, 14.0)), "{high:?}");
+}
+
+#[test]
+fn an_angle_past_a_half_turn_fails_the_mate_in_words() {
+    let mut model = model();
+    let pair = side_at_angle(&model, "200 deg");
+    add_mate(&mut model, pair, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    let reason = first_failure(&evaluation);
+    assert!(reason.contains("outside 0 to 180 deg"), "{reason}");
+}
+
+fn round_body(model: &mut Model, shape: PrimitiveShape, x: f64) -> (FeatureId, FaceReference) {
+    let mut transaction = model.document.transaction("Round");
+    let body = transaction.add_feature(
+        "Round",
+        FeatureKind::Primitive(Primitive {
+            shape,
+            plane: PlaneReference::Principal(PrincipalPlane::Xy),
+            at: [
+                Expression::parse_stored(&format!("{x} mm")).unwrap(),
+                Expression::parse_stored("0 mm").unwrap(),
+            ],
+            anchor: PrimitiveAnchor::Centre,
+            reversed: false,
+            operation: BodyOperation::NewBody,
+        }),
+    );
+    model.document.apply(transaction.finish()).unwrap();
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+    let solid = evaluation.body(body).unwrap();
+    let (id, _) = solid
+        .faces()
+        .find(|(_, face)| matches!(face.surface(), Surface::Sphere(_) | Surface::Cylinder(_)))
+        .unwrap();
+    (body, FaceReference::capture(solid, id).unwrap())
+}
+
+fn rest_on_plate(model: &mut Model, body: FeatureId, face: FaceReference, flipped: bool) {
+    let target = plate_top(model);
+    let mut transaction = model.document.transaction("Mate");
+    transaction.add_feature(
+        "Mate 1",
+        FeatureKind::Mate(Mate {
+            body,
+            pair: MatePair::Tangent(Box::new(FacePair { face, target })),
+            flipped,
+        }),
+    );
+    model.document.apply(transaction.finish()).unwrap();
+}
+
+fn ball() -> PrimitiveShape {
+    PrimitiveShape::Sphere {
+        diameter: Expression::parse_stored("10 mm").unwrap(),
+    }
+}
+
+#[test]
+fn a_tangent_mate_rests_a_sphere_on_a_plane_on_either_side() {
+    let mut model = model();
+    let (body, face) = round_body(&mut model, ball(), 50.0);
+    rest_on_plate(&mut model, body, face, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let (low, high) = bounds(&evaluation, body);
+    assert!((low.z - 4.0).abs() < 1e-6, "{low:?}");
+    assert!((high.z - 14.0).abs() < 1e-6, "{high:?}");
+    assert!((low.x - 45.0).abs() < 1e-6, "{low:?}");
+
+    let mut below = self::model();
+    let (body, face) = round_body(&mut below, ball(), 50.0);
+    rest_on_plate(&mut below, body, face, true);
+
+    let evaluation = evaluate(&below.document, &mut Recompute::default());
+
+    let (_, high) = bounds(&evaluation, body);
+    assert!((high.z - 4.0).abs() < 1e-6, "{high:?}");
+}
+
+#[test]
+fn a_tangent_mate_lays_a_cylinder_down_along_the_plane() {
+    let mut model = model();
+    let rod = PrimitiveShape::Cylinder {
+        diameter: Expression::parse_stored("4 mm").unwrap(),
+        height: Expression::parse_stored("10 mm").unwrap(),
+    };
+    let (body, face) = round_body(&mut model, rod, 50.0);
+    rest_on_plate(&mut model, body, face, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let (low, high) = bounds(&evaluation, body);
+    assert!((low.z - 4.0).abs() < 1e-6, "{low:?}");
+    assert!((high.z - 8.0).abs() < 1e-6, "{high:?}");
+}
+
+#[test]
+fn a_tangent_mate_on_a_flat_face_fails_naming_it() {
+    let mut model = model();
+    let face = peg_face(&model, -Vector3::Z, Point3::ZERO);
+    let peg = model.peg;
+    rest_on_plate(&mut model, peg, face, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    let reason = first_failure(&evaluation);
+    assert!(
+        reason.contains("no longer a whole cylinder or sphere"),
+        "{reason}"
+    );
+}
+
+fn peg_corner(model: &Model, point: Point3) -> PointReference {
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+    let peg = evaluation.body(model.peg).unwrap();
+    let names = caditor_kernel::vertex_names(peg);
+    let (id, _) = peg
+        .vertices()
+        .find(|(_, vertex)| vertex.point().distance(point) < 1e-9)
+        .unwrap();
+    let vertex = names
+        .iter()
+        .find(|(vertex, _)| **vertex == id)
+        .map(|(_, name)| *name)
+        .unwrap();
+    PointReference::Vertex {
+        body: model.peg,
+        vertex,
+    }
+}
+
+#[test]
+fn a_point_mate_puts_a_corner_on_a_point_or_onto_a_plane() {
+    let mut model = model();
+    let corner = peg_corner(&model, Point3::new(20.0, 0.0, 0.0));
+    let pair = MatePair::Point(Box::new(PointMate {
+        point: corner.clone(),
+        target: PointTarget::Point(PointReference::Origin),
+    }));
+    let mate = add_mate(&mut model, pair, false);
+
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    assert_eq!(evaluation.failed_count(), 0);
+    let (low, high) = bounds(&evaluation, model.peg);
+    assert!(near(low, Point3::ZERO), "{low:?}");
+    assert!(near(high, Point3::new(10.0, 5.0, 6.0)), "{high:?}");
+
+    let onto_plane = MatePair::Point(Box::new(PointMate {
+        point: corner,
+        target: PointTarget::Plane(plate_top(&model)),
+    }));
+    replace_pair(&mut model, mate, onto_plane);
+    let evaluation = evaluate(&model.document, &mut Recompute::default());
+
+    let (low, _) = bounds(&evaluation, model.peg);
+    assert!(near(low, Point3::new(20.0, 0.0, 4.0)), "{low:?}");
+    assert_eq!(
+        model.document.feature(mate).unwrap().kind.features(),
+        BTreeSet::from([model.peg, model.plate])
+    );
+}

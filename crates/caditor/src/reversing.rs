@@ -7,6 +7,8 @@ use crate::field;
 
 pub const NOTHING_TO_REVERSE: &str = "Only an extrusion, revolve, hole, primitive, pattern, mate \
                                       or split has a direction to reverse";
+const MATE_HAS_NO_SIDE: &str = "sets an angle or puts a point in place, so it has no side to \
+                                flip; edit its angle or what it mates onto instead";
 const POINTS_HAVE_NO_DIRECTION: &str =
     "places its copies at the points of a sketch, so it has no direction to reverse";
 
@@ -80,6 +82,7 @@ pub fn reversed(feature: &Feature) -> Result<FeatureKind, String> {
             }
             Ok(FeatureKind::Pattern(pattern))
         }
+        FeatureKind::Mate(mate) if !mate.flips() => Err(refusal(feature, MATE_HAS_NO_SIDE)),
         FeatureKind::Mate(mate) => {
             let mut mate = mate.clone();
             mate.flipped = !mate.flipped;

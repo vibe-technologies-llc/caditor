@@ -191,9 +191,8 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   become features of their own, named from the faces they move, so they stay parametric and
   undoable.
 - [low · medium] A body splits along a plane, a sketch curve or another body whole, but not along
-  one curved face of another body extended past its edges, and a mate places it by one pair of
-  faces or axes: a face and an axis together (flush and concentric) take two mates in a row, and
-  there are no tangent, angle or point mates.
+  one curved face of another body extended past its edges. A tangent mate rests a round face of
+  the moving body on a plane, but not a flat face of it on a round face of another body.
 - [low · medium] Mirror reflects a whole body or chosen features (extrusions, revolves, holes), but
   not chosen faces: reflecting a set of faces (a pocket's walls and floor of an imported body
   with no features) across a plane, kept linked to the faces it copies, is missing.
