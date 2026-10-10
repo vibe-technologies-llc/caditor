@@ -11,6 +11,7 @@ use std::{
 
 use caditor_windows::{FileId, HIDDEN_ATTRIBUTE};
 
+use super::cloning;
 use crate::paths;
 
 const REPLACEMENT_CHARACTER: u16 = 0xfffd;
@@ -64,13 +65,43 @@ pub(crate) fn write_all_at(file: &File, buffer: &[u8], offset: u64) -> io::Resul
 }
 
 pub(crate) fn clone_range(
-    _source: &File,
-    _target: &File,
-    _from: u64,
-    _at: u64,
-    _length: usize,
+    source: &File,
+    target: &File,
+    from: u64,
+    at: u64,
+    length: usize,
 ) -> usize {
-    0
+    let wanted = u64::try_from(length).unwrap_or(0);
+    let mut copied = 0;
+    match clone_whole_clusters(source, target, from, at, wanted, &mut copied) {
+        Ok(()) => {}
+        Err(error) => log::debug!("could not share earlier versions by block cloning: {error}"),
+    }
+    usize::try_from(copied).unwrap_or(0).min(length)
+}
+
+fn clone_whole_clusters(
+    source: &File,
+    target: &File,
+    from: u64,
+    at: u64,
+    wanted: u64,
+    copied: &mut u64,
+) -> io::Result<()> {
+    let cluster = caditor_windows::cluster_size(target)?;
+    let total = cloning::cloneable(from, at, wanted, cluster);
+    while *copied < total {
+        let request = cloning::request_length(total - *copied, cluster);
+        let start = at + *copied;
+        let end = cloning::sized_for(start + request, cluster)
+            .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+        if target.metadata()?.len() < end {
+            target.set_len(end)?;
+        }
+        caditor_windows::duplicate_extents(source, target, from + *copied, start, request)?;
+        *copied += request;
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -285,5 +316,40 @@ mod tests {
             back.encode_wide().collect::<Vec<_>>(),
             [0x61, REPLACEMENT_CHARACTER, REPLACEMENT_CHARACTER]
         );
+    }
+
+    #[test]
+    fn a_cloned_range_holds_the_source_bytes_and_a_refused_clone_copies_nothing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let bytes: Vec<u8> = (0..16 * 4096).map(|index| (index % 251) as u8).collect();
+        let source = dir.path().join("source");
+        fs::write(&source, &bytes).unwrap();
+        let from = File::open(&source).unwrap();
+        let into = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(dir.path().join("target"))
+            .unwrap();
+
+        let copied = clone_range(&from, &into, 4096, 8192, 8 * 4096 + 77);
+
+        assert!(copied <= 8 * 4096);
+        assert_eq!(copied % 4096, 0);
+        let mut cloned = vec![0u8; copied];
+        read_exact_at(&into, &mut cloned, 8192).unwrap();
+        assert_eq!(cloned, bytes[4096..4096 + copied]);
+    }
+
+    #[test]
+    fn a_clone_between_misaligned_offsets_copies_nothing() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let source = dir.path().join("source");
+        fs::write(&source, vec![7u8; 8 * 4096]).unwrap();
+        let from = File::open(&source).unwrap();
+        let into = tempfile::tempfile().unwrap();
+
+        assert_eq!(clone_range(&from, &into, 100, 8192, 4096), 0);
+        assert_eq!(clone_range(&from, &into, 4096, 100, 4096), 0);
     }
 }

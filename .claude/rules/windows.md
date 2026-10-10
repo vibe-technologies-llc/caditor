@@ -32,6 +32,9 @@ so call sites stay platform-free.
   - `final_path`: `GetFinalPathNameByHandleW` on a handle opened without access, with the `\\?\`
     (and `\\?\UNC\`) prefix removed so the name is the one a user knows; it fails for a path that
     does not exist.
+  - `cluster_size` and `duplicate_extents`: `FSCTL_GET_INTEGRITY_INFORMATION` (answers only on ReFS,
+    so it is the probe for block cloning, and gives the cluster size) and
+    `FSCTL_DUPLICATE_EXTENTS_TO_FILE` on the target's handle, one request per call.
   - `process_running`: `OpenProcess` plus a zero wait; access denied counts as running.
   - `machine_guid` and `boot_id` read `MachineGuid` and the `PrefetchParameters\BootId` counter
     from the registry for temporary-file tags; either may be missing.
@@ -50,8 +53,17 @@ so call sites stay platform-free.
   `%APPDATA%\caditor`; XDG only on Unix.
 - Saving renames over an existing target with `ReplaceFileW`; if that fails and the temporary is
   still there it falls back to `std::fs::rename` (POSIX semantics, so an open target is replaced).
-  There is no directory fsync, no group or xattr copy, and no `copy_file_range`: history versions
-  are written from memory. Writable means the read-only attribute is clear.
+  There is no directory fsync and no group or xattr copy. Writable means the read-only attribute
+  is clear.
+- `os::clone_range` is ReFS block cloning: it asks the target's volume for its cluster size, and
+  clones only the whole clusters of a range whose source and target offsets are both cluster
+  aligned (`os/cloning.rs`, which has the arithmetic and is tested everywhere), in requests of at
+  most 1 GiB, growing the target with `set_len` to whole clusters first since the ioctl does not
+  extend it (the save truncates it to its length at the end). Any error, which is what NTFS, FAT,
+  network shares, another volume or a sparse or integrity mismatch give, stops it with what was
+  cloned so far and the rest is written from memory, as on a filesystem without
+  `copy_file_range` on Linux, so a save never fails because of it. Misaligned ranges (64 KiB
+  clusters against the 4 KiB blocks of the format) are not cloned.
 - Orphaned temporaries use the same tags; the owner process is checked with `process_running`.
 - Journal temporaries are created hidden, so the journal is too (a leading dot hides nothing on
   Windows). A journal does not take the model's read-only attribute, since Windows refuses to

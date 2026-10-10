@@ -506,9 +506,6 @@ Linux is the primary platform and Windows the only other one; macOS is not a goa
 - [low · medium] On Windows, hovering caditor's own maximize button does not offer Snap Layouts:
   that needs the button to answer `WM_NCHITTEST` with `HTMAXBUTTON`, which winit does not expose,
   so it would be another `caditor-windows` subclass hook.
-- [low · medium] On Windows, saving writes every kept version from memory: ReFS block cloning
-  (`FSCTL_DUPLICATE_EXTENTS_TO_FILE`) would give `os::clone_range` what `copy_file_range` gives on
-  Linux.
 - [low · medium · blocked by: the project's decision to publish no maintainer identity] The MSI
   and `caditor.exe` are not code-signed, so SmartScreen warns on first run; signing needs a
   certificate tied to an identity.
