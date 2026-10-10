@@ -926,59 +926,78 @@ pub enum GlyphAnchor {
     Curve { at: Vector2, outward: Vector2 },
 }
 
-pub fn glyph_anchor(
-    sketch: &Sketch,
-    entity: EntityId,
-    screen: &impl Screen,
-) -> Option<GlyphAnchor> {
-    let on_curve = |center: Point2, at: Point2| {
-        let center = screen.to_screen(center)?;
-        let at = screen.to_screen(at)?;
-        Some(GlyphAnchor::Curve {
-            at,
-            outward: (at - center).try_normalize()?,
-        })
-    };
-    if entity == EntityId::ORIGIN {
-        return screen.to_screen(Point2::ZERO).map(GlyphAnchor::Point);
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GlyphSite {
+    Segment(Point2, Point2),
+    Point(Point2),
+    Curve { center: Point2, at: Point2 },
+    Along { before: Point2, at: Point2 },
+}
+
+impl GlyphSite {
+    pub fn of(sketch: &Sketch, entity: EntityId) -> Option<Self> {
+        if entity == EntityId::ORIGIN {
+            return Some(Self::Point(Point2::ZERO));
+        }
+        match sketch.entity(entity)? {
+            Entity::Point(position) => Some(Self::Point(*position)),
+            Entity::Line { .. } => {
+                let (start, end) = sketch.line_endpoints(entity)?;
+                Some(Self::Segment(start, end))
+            }
+            Entity::Circle { .. } => {
+                let (center, radius) = sketch.circle(entity)?;
+                Some(Self::Curve {
+                    center,
+                    at: center + CIRCLE_GLYPH_DIRECTION * radius,
+                })
+            }
+            Entity::Arc { .. } => {
+                let arc = sketch.arc(entity)?;
+                Some(Self::Curve {
+                    center: arc.center,
+                    at: arc.point_at(arc.start_angle + arc.sweep * ARC_GLYPH_FRACTION),
+                })
+            }
+            Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
+                let shape = sketch.ellipse(entity)?;
+                Some(Self::Curve {
+                    center: shape.center,
+                    at: shape.point_at(shape.start + shape.sweep * ARC_GLYPH_FRACTION),
+                })
+            }
+            Entity::Spline { .. } => {
+                let points = sketch.polyline(entity, SPLINE_GLYPH_ANGLE)?;
+                let middle = points.len() / 2;
+                Some(Self::Along {
+                    before: *points.get(middle.checked_sub(1)?)?,
+                    at: *points.get(middle)?,
+                })
+            }
+        }
     }
-    match sketch.entity(entity)? {
-        Entity::Point(position) => screen.to_screen(*position).map(GlyphAnchor::Point),
-        Entity::Line { .. } => {
-            let (start, end) = sketch.line_endpoints(entity)?;
-            Some(GlyphAnchor::Segment(
+
+    pub fn on_screen(self, screen: &impl Screen) -> Option<GlyphAnchor> {
+        match self {
+            Self::Segment(start, end) => Some(GlyphAnchor::Segment(
                 screen.to_screen(start)?,
                 screen.to_screen(end)?,
-            ))
-        }
-        Entity::Circle { .. } => {
-            let (center, radius) = sketch.circle(entity)?;
-            on_curve(center, center + CIRCLE_GLYPH_DIRECTION * radius)
-        }
-        Entity::Arc { .. } => {
-            let arc = sketch.arc(entity)?;
-            on_curve(
-                arc.center,
-                arc.point_at(arc.start_angle + arc.sweep * ARC_GLYPH_FRACTION),
-            )
-        }
-        Entity::Ellipse { .. } | Entity::EllipticalArc { .. } => {
-            let shape = sketch.ellipse(entity)?;
-            on_curve(
-                shape.center,
-                shape.point_at(shape.start + shape.sweep * ARC_GLYPH_FRACTION),
-            )
-        }
-        Entity::Spline { .. } => {
-            let points = sketch.polyline(entity, SPLINE_GLYPH_ANGLE)?;
-            let middle = points.len() / 2;
-            let (before, at) = (*points.get(middle.checked_sub(1)?)?, *points.get(middle)?);
-            let at = screen.to_screen(at)?;
-            let before = screen.to_screen(before)?;
-            Some(GlyphAnchor::Curve {
-                at,
-                outward: (at - before).try_normalize()?.perp(),
-            })
+            )),
+            Self::Point(at) => screen.to_screen(at).map(GlyphAnchor::Point),
+            Self::Curve { center, at } => {
+                let at = screen.to_screen(at)?;
+                Some(GlyphAnchor::Curve {
+                    at,
+                    outward: (at - screen.to_screen(center)?).try_normalize()?,
+                })
+            }
+            Self::Along { before, at } => {
+                let at = screen.to_screen(at)?;
+                Some(GlyphAnchor::Curve {
+                    at,
+                    outward: (at - screen.to_screen(before)?).try_normalize()?.perp(),
+                })
+            }
         }
     }
 }
@@ -1026,30 +1045,67 @@ pub fn place_glyphs(
                 * MOST_GLYPH_COVER
         }
     };
-    let overlap = |positions: &[Vector2]| {
-        positions
-            .iter()
-            .map(|center| {
-                blocked.overlap(&Footprint {
-                    center: *center,
-                    half,
-                })
-            })
-            .sum::<f64>()
-    };
+    let mut positions = Vec::with_capacity(count);
     let mut best: Option<(f64, Vec<Vector2>)> = None;
     for placement in placements(anchor, count) {
-        let positions = stacked(anchor, count, centre, placement);
-        let overlapping = overlap(&positions);
+        stack_into(&mut positions, anchor, count, centre, placement);
+        if thinning == Thinning::WhenCrowded
+            && bounds_of(&positions, half)
+                .is_some_and(|region| blocked.cells_covered_over(&region, FULL_CELL_SHARE))
+        {
+            continue;
+        }
+        let least = best.as_ref().map(|(least, _)| *least);
+        let Some(overlapping) = overlap_within(blocked, &positions, half, least, most_covered)
+        else {
+            continue;
+        };
         if overlapping <= 0.0 {
             return Some(positions);
         }
-        if best.as_ref().is_none_or(|(least, _)| overlapping < *least) {
-            best = Some((overlapping, positions));
+        best = Some((overlapping, positions.clone()));
+    }
+    best.map(|(_, positions)| positions)
+}
+
+fn overlap_within(
+    blocked: &Obstacles,
+    positions: &[Vector2],
+    half: Vector2,
+    least: Option<f64>,
+    most_covered: f64,
+) -> Option<f64> {
+    let mut total = 0.0;
+    for center in positions {
+        total += blocked.overlap(&Footprint {
+            center: *center,
+            half,
+        });
+        if total > most_covered || least.is_some_and(|least| total >= least) {
+            return None;
         }
     }
-    best.filter(|(least, _)| *least <= most_covered)
-        .map(|(_, positions)| positions)
+    Some(total)
+}
+
+fn spanning(first: Footprint, second: Footprint) -> Footprint {
+    let low = (first.center - first.half).min(second.center - second.half);
+    let high = (first.center + first.half).max(second.center + second.half);
+    Footprint {
+        center: (low + high) / 2.0,
+        half: (high - low) / 2.0,
+    }
+}
+
+fn bounds_of(positions: &[Vector2], half: Vector2) -> Option<Footprint> {
+    let first = *positions.first()?;
+    let (low, high) = positions.iter().fold((first, first), |(low, high), at| {
+        (low.min(*at), high.max(*at))
+    });
+    Some(Footprint {
+        center: (low + high) / 2.0,
+        half: (high - low) / 2.0 + half,
+    })
 }
 
 fn neighbourhood(
@@ -1058,31 +1114,25 @@ fn neighbourhood(
     centre: Option<Vector2>,
     half: Vector2,
 ) -> Option<Footprint> {
-    let unshifted: Vec<Placement> = match anchor {
-        GlyphAnchor::Point(_) => (0..POINT_GLYPH_QUADRANTS.len())
-            .map(|quadrant| Placement {
-                quadrant,
-                ..Placement::default()
-            })
-            .collect(),
-        GlyphAnchor::Segment(..) | GlyphAnchor::Curve { .. } => [false, true]
-            .map(|flipped| Placement {
-                flipped,
-                ..Placement::default()
-            })
-            .to_vec(),
+    let sides = match anchor {
+        GlyphAnchor::Point(_) => POINT_GLYPH_QUADRANTS.len(),
+        GlyphAnchor::Segment(..) | GlyphAnchor::Curve { .. } => 2,
     };
-    let mut positions = unshifted
-        .into_iter()
-        .flat_map(|placement| stacked(anchor, count, centre, placement));
-    let first = positions.next()?;
-    let (low, high) = positions.fold((first, first), |(low, high), at| {
-        (low.min(at), high.max(at))
-    });
-    Some(Footprint {
-        center: (low + high) / 2.0,
-        half: (high - low) / 2.0 + half,
-    })
+    let mut positions = Vec::with_capacity(count);
+    let mut reach: Option<Footprint> = None;
+    for side in 0..sides {
+        let placement = Placement {
+            flipped: side == 1,
+            quadrant: side,
+            ..Placement::default()
+        };
+        stack_into(&mut positions, anchor, count, centre, placement);
+        let Some(bounds) = bounds_of(&positions, half) else {
+            continue;
+        };
+        reach = Some(reach.map_or(bounds, |reach| spanning(reach, bounds)));
+    }
+    reach
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1184,44 +1234,46 @@ pub fn within_view(anchor: GlyphAnchor, size: Vector2) -> Option<GlyphAnchor> {
     }
 }
 
-fn stacked(
+fn stack_into(
+    positions: &mut Vec<Vector2>,
     anchor: GlyphAnchor,
     count: usize,
     centre: Option<Vector2>,
     placement: Placement,
-) -> Vec<Vector2> {
+) {
+    positions.clear();
     let side = if placement.flipped { -1.0 } else { 1.0 };
-    let centred = |base: Vector2, step: Vector2| {
-        let middle = count.saturating_sub(1) as f64 / 2.0;
-        let along = step.try_normalize().unwrap_or(Vector2::ZERO);
-        (0..count)
-            .map(|index| base + along * placement.shift + step * (index as f64 - middle))
-            .collect()
-    };
-    match anchor {
+    let middle = count.saturating_sub(1) as f64 / 2.0;
+    let (base, step, along) = match anchor {
         GlyphAnchor::Segment(start, end) => {
             let middle = (start + end) / 2.0;
             let along = (end - start).try_normalize().unwrap_or(Vector2::X);
             let normal = toward(along.perp(), middle, centre) * side;
-            centred(middle + normal * GLYPH_OFFSET, along * GLYPH_SPACING)
+            (middle + normal * GLYPH_OFFSET, along * GLYPH_SPACING, along)
         }
-        GlyphAnchor::Curve { at, outward } => centred(
-            at + outward * side * GLYPH_OFFSET,
-            outward.perp() * GLYPH_SPACING,
-        ),
+        GlyphAnchor::Curve { at, outward } => {
+            let step = outward.perp() * GLYPH_SPACING;
+            (
+                at + outward * side * GLYPH_OFFSET,
+                step,
+                step.try_normalize().unwrap_or(Vector2::ZERO),
+            )
+        }
         GlyphAnchor::Point(at) => {
             let quadrant = POINT_GLYPH_QUADRANTS
                 .get(placement.quadrant)
                 .copied()
                 .unwrap_or(Vector2::ONE);
             let offset = POINT_GLYPH_OFFSET * quadrant;
-            (0..count)
-                .map(|index| {
-                    at + offset + Vector2::X * quadrant.x * POINT_GLYPH_SPACING * index as f64
-                })
-                .collect()
+            positions.extend((0..count).map(|index| {
+                at + offset + Vector2::X * quadrant.x * POINT_GLYPH_SPACING * index as f64
+            }));
+            return;
         }
-    }
+    };
+    positions.extend(
+        (0..count).map(|index| base + along * placement.shift + step * (index as f64 - middle)),
+    );
 }
 
 #[cfg(test)]

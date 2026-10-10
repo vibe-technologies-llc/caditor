@@ -21,9 +21,10 @@ tree they are written out:
 
 - **Redundant constraints** repeat what others already say. They do no harm but are best removed:
   click the count to select them, then delete them.
-- **Open ends** are curve ends joined to nothing, ringed in yellow in the view. An outline with
-  open ends makes no region to extrude. Click the count to select them and bring them into view,
-  then join them.
+- **Open ends** are curve ends joined to nothing, ringed in yellow in the view. Where many lie
+  close together, zoomed out, they share one double ring; point at it to see how many ends it
+  stands for, and zoom in to tell them apart. An outline with open ends makes no region to
+  extrude. Click the count to select them and bring them into view, then join them.
 - **Points beyond their curves** are points held on a line or arc that lie past its drawn ends:
   a point on a line is held to the whole line. Extend the curve, or move the point, if that is not
   meant.

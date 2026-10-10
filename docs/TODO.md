@@ -450,14 +450,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Interface performance
 
-- [low · medium] A camera move zoomed out over `large_sketch` (5,000 dimensions, 3,000 glyph
-  constraints, 20,000 unjoined lines) still takes 7 to 9 ms a frame in a release build, now
-  little of it dimensions (about 1 ms: tiny ones collapse and crowded ones are left out before
-  layout): placing the glyphs of the circles and the lines long enough to keep theirs takes about
-  5 ms, walking each group's placements against the obstacles, and the open-end rings take much
-  of the rest, every ring in view projected, merged through a `BTreeSet` and painted (tens of
-  thousands, also most of the 0.9 ms of a still frame). Rings could merge on a coarser grid when
-  dense, and glyph groups could test a cheaper neighbourhood before walking placements.
 - [medium · hard] The cached scene is one batch: any change to its content (each drag solution, an
   edit, an evaluation, a new faceting level) facets every drawn sketch again, and a hover or
   selection change restyles and uploads all of it, over a millisecond to rebuild and about half of

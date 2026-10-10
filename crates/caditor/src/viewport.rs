@@ -7,8 +7,9 @@ use caditor_file::PastedGeometry;
 use caditor_geometry::{Aabb, Plane, Point2, Point3, Ray, Rotation3, Vector2, Vector3};
 use caditor_kernel::EdgeName;
 use caditor_render::{
-    Camera, MAX_SECTION_PLANES, PickResult, ProjectionMode, Reflection, Scene, SectionPlane,
-    SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing, is_cut_away, section_slack,
+    Camera, MAX_SECTION_PLANES, PickResult, PlaneProjection, ProjectionMode, Reflection, Scene,
+    SectionPlane, SurfaceSize, View, Viewpoint, ViewportRect, grid_minor_spacing, is_cut_away,
+    section_slack,
 };
 use caditor_sketch::{ConstraintId, Entity, EntityId, MAX_LENGTH, Sketch, SketchClip};
 use egui::{
@@ -183,6 +184,24 @@ impl Screen for SketchScreen {
         let ray = self.view.ray_through(point * self.pixels_per_point)?;
         let distance = ray.intersect_plane(&self.plane)?;
         within_reach(self.plane.to_local(ray.at(distance)))
+    }
+}
+
+impl SketchScreen {
+    pub fn projector(&self) -> SketchProjector {
+        SketchProjector(
+            self.view
+                .plane_projection(&self.plane, self.pixels_per_point),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SketchProjector(PlaneProjection);
+
+impl Screen for SketchProjector {
+    fn to_screen(&self, point: Point2) -> Option<Vector2> {
+        self.0.project(point)
     }
 }
 
@@ -5506,6 +5525,62 @@ mod tests {
                 .any(|(anchor, _)| *anchor == left_out)
         );
         assert!(state.annotations.laid_out().contains(&unlabelled));
+    }
+
+    #[test]
+    fn dense_open_ends_merge_into_rings_counting_them_that_hover_without_taking_the_pick() {
+        let mut sketch = Sketch::new(Plane::XY);
+        for index in 0..100 {
+            let at = Point2::new(f64::from(index % 10) * 2.0, f64::from(index / 10) * 2.0);
+            sketch.add_line(at, at + Vector2::new(1.0, 0.0));
+        }
+        sketch.add_line(Point2::new(200.0, 0.0), Point2::new(210.0, 0.0));
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Sketch", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let mut model = model_of(document);
+        settle(&mut model);
+        let context = egui::Context::default();
+        let mut state = state_with_cursor();
+        state.camera = Camera::new(Viewpoint::facing(
+            &Plane::XY,
+            Point3::new(100.0, 0.0, 0.0),
+            600.0,
+        ));
+
+        annotated(&mut state, &context, &model, feature);
+        let (rings, clusters) = state.annotations.open_end_rings();
+        let clustered: usize = clusters.iter().map(|(_, ends)| ends).sum();
+
+        assert!(!clusters.is_empty());
+        assert!(clustered >= 150, "{clustered}");
+        assert_eq!(rings.iter().filter(|ring| ring.x > 250.0).count(), 2);
+
+        let (centre, _) = clusters[0];
+        let marker = state.rect.unwrap().min + vec2(centre.x as f32, centre.y as f32);
+        for _ in 0..3 {
+            annotated_with(
+                &mut state,
+                &context,
+                &model,
+                feature,
+                vec![egui::Event::PointerMoved(marker)],
+            );
+        }
+
+        assert_eq!(state.annotations.hovered(), None);
+
+        state.camera = Camera::new(Viewpoint::facing(
+            &Plane::XY,
+            Point3::new(10.0, 10.0, 0.0),
+            40.0,
+        ));
+        annotated(&mut state, &context, &model, feature);
+        let (rings, clusters) = state.annotations.open_end_rings();
+
+        assert!(clusters.is_empty());
+        assert!(rings.len() > 20, "{}", rings.len());
     }
 
     #[test]

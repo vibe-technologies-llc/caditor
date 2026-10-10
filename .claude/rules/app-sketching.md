@@ -688,7 +688,14 @@ paths:
   `RING_MERGE` square of the screen, so ends closer than that share a ring), counted beside the
   sketch's status (Status pills, its hover saying to join them) and in the 3D view's
   description, so an outline that will not close is seen while drawing rather than when the
-  extrusion fails.
+  extrusion fails. Where more than `MOST_RINGS_PER_CELL` rings would fall in one
+  `RING_CLUSTER_CELL` square (a zoomed-out sketch of thousands of unjoined curves), they become
+  one double ring (`CLUSTER_RADIUS` round the ordinary one, so it is told by shape, not colour)
+  at their ends' centroid (`annotations::open_end_marks`, over flat screen grids rather than a
+  set, `ScreenGrid`, `ScreenCells`). Its hover (`Hover::OpenEnds`) says how many ends it stands
+  for and to zoom in to tell them apart; it senses hover only, so clicks and the scene's hover
+  reach the geometry beneath, and the open ends stay reachable through the keyboard highlight and
+  Select the open ends.
 - Points held past the drawn ends of their line or arc (`SketchResult::beyond`) are marked the same
   way in `canvas::MUTED`: a dashed extension from the curve's nearer end to the point and a ring,
   counted as information ("1 point beyond its curve", its hover `sketch_status::BEYOND_HELP`)
@@ -745,7 +752,12 @@ paths:
   at most `MOST_GLYPH_COVER` of its area, and a group whose unshifted places (both sides, or a
   point's four quadrants) lie in cells already `FULL_CELL_SHARE` covered is left out without
   trying any (`Thinning::WhenCrowded`), so a zoomed-out dense sketch shows as many glyphs as fit
-  and never walks crowded places. A thinned group anchored on a line under `COLLAPSED_BELOW`
+  and never walks crowded places. A thinned group also skips each place lying wholly in such
+  cells before measuring its overlap, and stops measuring a place once it is covered more than
+  the best so far or than `MOST_GLYPH_COVER` allows (`overlap_within`), so a partly crowded
+  neighbourhood costs a cell lookup per place. Where each group's glyphs sit in the sketch
+  (`annotation_layout::GlyphSite`: a line's ends, a curve's point and centre, a spline's middle
+  leg) is found once with the measures and only projected per layout. A thinned group anchored on a line under `COLLAPSED_BELOW`
   points long on screen (`annotation_layout::collapses`) is left out unless one of its constraints
   conflicts or is redundant. A group anchored on a selected entity of the sketch, or holding
   a selected or keyboard-highlighted constraint, is placed first and always (`Thinning::Never`,
@@ -772,7 +784,10 @@ paths:
   is kept until any of those, the `SketchScreen` (camera, view size, pixel density), the view
   rectangle, units, the dragged label's offset, the dimension being edited, the forced
   dimensions or Show glyphs change (`ViewKey`), so a still frame only paints and interacts with
-  what is already laid out. Only a dimension whose reach (its measured geometry and label frame
+  what is already laid out. A layout projects through `SketchScreen::projector`
+  (`caditor_render::PlaneProjection`, the view's projection of the sketch plane worked out once
+  per layout, a few multiplications a point), since it projects every dimension's reach, glyph
+  site and open end in view. Only a dimension whose reach (its measured geometry and label frame
   origin, and with a placed label the label and the square it swings an arc through) projects
   within `DIMENSION_OFFSET`, its lanes, `ANGLE_RADIUS` and `LABEL_REACH` of the view is laid out
   (`Reach::on_screen`, `ScreenReach::near_view`; a corner that does not project counts as near),
@@ -790,7 +805,8 @@ paths:
   laid out (`annotation_layout::crowded`), as glyphs are; and a label they cover by more than
   `MOST_LABEL_COVER` of its area once laid out is left out with its dimension
   (`annotation_layout::mostly_covered`), so a pile of labels zoomed out thins to the readable ones
-  without laying most of them out. Drawing export (`caditor-file`'s `export/annotation.rs`)
+  without laying most of them out. Collapsed marks are spaced through a flat grid of taken cells
+  over the view (`ScreenCells`). Drawing export (`caditor-file`'s `export/annotation.rs`)
   places every dimension and shares none of this thinning or collapsing. The ignored
   `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times annotations idle and
   with the camera moving, zoomed out over `large_sketch` (5,000 dimensions, 3,000 glyph

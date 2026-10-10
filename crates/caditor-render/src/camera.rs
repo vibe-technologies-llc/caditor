@@ -374,6 +374,26 @@ impl View {
         ))
     }
 
+    pub fn plane_projection(&self, plane: &Plane, pixels_per_unit: f64) -> PlaneProjection {
+        let inverse = self.viewpoint.orientation.inverse();
+        let scale = self.size * 0.5 / pixels_per_unit;
+        let half_height = tan_half_fov_y();
+        PlaneProjection {
+            origin: inverse * (plane.origin() - self.eye()),
+            x_axis: inverse * plane.x_axis(),
+            y_axis: inverse * plane.y_axis(),
+            near: self.near_plane(),
+            spread: match self.projection {
+                Projection::Perspective => Spread::Perspective(half_height),
+                Projection::Orthographic => {
+                    Spread::Orthographic(self.viewpoint.distance * half_height)
+                }
+            },
+            aspect: self.aspect(),
+            scale,
+        }
+    }
+
     pub fn focal_point_under(&self, pixel: DVec2) -> Option<Point3> {
         self.unproject(pixel, self.viewpoint.distance)
     }
@@ -458,6 +478,41 @@ fn roll(viewpoint: &Viewpoint) -> f64 {
 fn level_right(forward: Vector3) -> Option<Vector3> {
     let right = forward.cross(Vector3::Z);
     (right.length() > VERTICAL_TOLERANCE).then(|| right.normalize())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Spread {
+    Perspective(f64),
+    Orthographic(f64),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlaneProjection {
+    origin: DVec3,
+    x_axis: DVec3,
+    y_axis: DVec3,
+    near: f64,
+    spread: Spread,
+    aspect: f64,
+    scale: DVec2,
+}
+
+impl PlaneProjection {
+    pub fn project(&self, point: DVec2) -> Option<DVec2> {
+        let local = self.origin + self.x_axis * point.x + self.y_axis * point.y;
+        let depth = -local.z;
+        if depth <= self.near {
+            return None;
+        }
+        let half_height = match self.spread {
+            Spread::Perspective(per_depth) => depth * per_depth,
+            Spread::Orthographic(fixed) => fixed,
+        };
+        Some(DVec2::new(
+            (local.x / (half_height * self.aspect) + 1.0) * self.scale.x,
+            (1.0 - local.y / half_height) * self.scale.y,
+        ))
+    }
 }
 
 fn tan_half_fov_y() -> f64 {
@@ -617,6 +672,33 @@ mod tests {
             a.distance(b) < tolerance,
             "{a} is not within {tolerance} of {b}"
         );
+    }
+
+    #[test]
+    fn a_plane_projection_puts_plane_points_where_the_view_projects_them() {
+        let plane = Plane::new(
+            Point3::new(3.0, -2.0, 4.0),
+            Vector3::new(0.2, 0.3, 1.0).normalize(),
+        )
+        .unwrap();
+        let points = [DVec2::ZERO, DVec2::new(14.0, -3.0), DVec2::new(-40.0, 25.0)];
+        for projection in Projection::ALL {
+            let view = View::new(isometric(), WIDTH, HEIGHT).with_projection(projection);
+            let projected = view.plane_projection(&plane, 2.0);
+
+            for point in points {
+                let expected = view.project(plane.to_world(point)).unwrap() / 2.0;
+                let actual = projected.project(point).unwrap();
+                assert!(
+                    actual.distance(expected) < 1e-9,
+                    "{actual} is not {expected}"
+                );
+            }
+        }
+
+        let behind = View::new(isometric(), WIDTH, HEIGHT).plane_projection(&Plane::XY, 1.0);
+
+        assert_eq!(behind.project(DVec2::new(1e6, -1e6)), None);
     }
 
     #[test]
