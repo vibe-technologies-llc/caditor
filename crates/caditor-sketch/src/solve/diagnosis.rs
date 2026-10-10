@@ -11,10 +11,12 @@ use crate::{
         equation::value,
         numeric::{Cancelled, Component, Descent, FROZEN, Failure, Solver, components},
         system::System,
+        witness::Factored,
     },
 };
 
 pub(super) const DIAGNOSIS_WORK: usize = 500_000;
+const SOLVES_PER_STEP: usize = 32;
 const MID_RANGE: f64 = 0.5;
 const DIAGNOSED_PARTS: usize = 8;
 
@@ -317,19 +319,111 @@ impl<'a> Diagnosis<'a> {
     ) -> Result<(Vec<ConstraintId>, Vec<Vec<f64>>), Stop> {
         let oldest_first: Vec<ConstraintId> = conflict.iter().rev().copied().collect();
         let mut witnesses = Vec::new();
+        let mut factored = self.factored(&conflict)?;
         for constraint in oldest_first {
             let rest: Vec<ConstraintId> = conflict
                 .iter()
                 .copied()
                 .filter(|kept| *kept != constraint)
                 .collect();
-            if self.solves_with(&rest)? {
+            let stepped = match &factored {
+                Some(factored) => self.stepped_without(factored, constraint, &rest)?,
+                None => None,
+            };
+            if let Some(witness) = stepped {
+                witnesses.push(witness);
+            } else if self.solves_with(&rest)? {
                 witnesses.push(self.solution_of(&rest));
             } else {
                 conflict = rest;
+                factored = self.factored(&conflict)?;
             }
         }
         Ok((conflict, witnesses))
+    }
+
+    fn factored(&self, conflict: &[ConstraintId]) -> Result<Option<Factored>, Stop> {
+        let failing = self.parts_with(conflict).into_iter().find_map(|part| {
+            let probe = self.probes.get(&part.equations)?;
+            (!probe.holds).then_some((part, probe))
+        });
+        let Some((part, probe)) = failing else {
+            return Ok(None);
+        };
+        self.charge(part.equations.len())?;
+        let mut values = self.solver.system.values.clone();
+        overlay(&mut values, &probe.variables, &probe.end);
+        Ok(Some(Factored::at(self.solver, &part, &values)))
+    }
+
+    fn stepped_without(
+        &mut self,
+        factored: &Factored,
+        constraint: ConstraintId,
+        rest: &[ConstraintId],
+    ) -> Result<Option<Vec<f64>>, Stop> {
+        if !factored.reaches(constraint) {
+            return Ok(None);
+        }
+        let solve_cost = factored.component.equations.len().div_ceil(SOLVES_PER_STEP);
+        let Some(values) =
+            factored.without(self.solver, constraint, &mut || self.charge(solve_cost))?
+        else {
+            return Ok(None);
+        };
+        let parts = self.parts_with(rest);
+        let (stepped, elsewhere): (Vec<Component>, Vec<Component>) =
+            parts.into_iter().partition(|part| factored.contains(part));
+        let confirmed = stepped
+            .iter()
+            .all(|part| self.solver.holds(part, &values) && self.within_range(part, &values));
+        let mut witness = self.solver.system.values.clone();
+        for part in &elsewhere {
+            match self.probes.get(&part.equations) {
+                Some(probe) if probe.holds => overlay(&mut witness, &probe.variables, &probe.end),
+                _ => return Ok(None),
+            }
+        }
+        if !confirmed {
+            return Ok(None);
+        }
+        for part in stepped {
+            let end = gather(&values, &part.variables);
+            overlay(&mut self.solved, &part.variables, &end);
+            overlay(&mut witness, &part.variables, &end);
+            self.probes.insert(
+                part.equations,
+                Probe {
+                    holds: true,
+                    variables: part.variables,
+                    end,
+                    cost: 0.0,
+                    conclusive: false,
+                    from_drawn: false,
+                },
+            );
+        }
+        Ok(Some(gather(&witness, &self.variables)))
+    }
+
+    fn within_range(&self, part: &Component, values: &[f64]) -> bool {
+        part.variables
+            .iter()
+            .filter(|variable| self.solver.system.parameter_variables.contains(variable))
+            .all(|variable| (0.0..=1.0).contains(&value(values, *variable)))
+    }
+
+    fn charge(&self, units: usize) -> Result<(), Stop> {
+        if (self.solver.cancelled)() {
+            return Err(Stop::Cancelled);
+        }
+        let left = self
+            .work_left
+            .get()
+            .checked_sub(units)
+            .ok_or(Stop::Exhausted)?;
+        self.work_left.set(left);
+        Ok(())
     }
 
     fn verdict(

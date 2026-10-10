@@ -18,6 +18,7 @@ mod system;
 mod tally;
 #[cfg(test)]
 mod tests;
+mod witness;
 
 use std::{
     borrow::Cow,

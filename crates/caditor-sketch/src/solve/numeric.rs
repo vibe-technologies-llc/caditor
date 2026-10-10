@@ -28,7 +28,7 @@ const STEP_RANK_TOLERANCE: f64 = 1e-10;
 const SVD_ITERATIONS: usize = 100_000;
 const PERTURBATIONS: [f64; 2] = [1e-3, 3e-2];
 const GOLDEN_RATIO_FRACTION: f64 = 0.618_033_988_749_894_9;
-const RANK_TOLERANCE: f64 = 1e-8;
+pub(crate) const RANK_TOLERANCE: f64 = 1e-8;
 const NULL_SPACE_TOLERANCE: f64 = 1e-10;
 const DUPLICATE_TOLERANCE: f64 = 1e-6;
 pub(super) const DENSE_LIMIT: usize = 48;
@@ -375,6 +375,27 @@ impl Solver<'_> {
 
     pub fn cost(&self, component: &Component, values: &[f64]) -> f64 {
         self.squared_residuals(&self.part(component), values)
+    }
+
+    pub fn holds(&self, component: &Component, values: &[f64]) -> bool {
+        self.converged(&self.part(component), values)
+    }
+
+    pub fn tolerance(&self, component: &Component) -> f64 {
+        CONVERGENCE_TOLERANCE * self.part(component).context.scale
+    }
+
+    pub fn residuals_of(&self, component: &Component, values: &[f64]) -> Vec<f64> {
+        let part = self.part(component);
+        self.residuals(&part, values).collect()
+    }
+
+    pub fn linearized(
+        &self,
+        component: &Component,
+        values: &[f64],
+    ) -> (Vec<sparse::Row>, Vec<f64>) {
+        self.sparse_linearize(&self.part(component), values)
     }
 
     pub fn irreducible(&self, component: &Component, values: &[f64]) -> Vec<usize> {
