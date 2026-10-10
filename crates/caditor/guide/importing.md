@@ -18,7 +18,7 @@ Text in an SVG drawing comes in as the outlines of its letters, closed so they c
 with the holes of letters such as o, e and a left open. Its size, weight, spacing, alignment and
 the place of each letter follow the drawing, but every font is drawn in Inter, the font caditor
 uses, so letters from another font differ in shape and width; the report names the fonts
-replaced. Italic text comes in upright, and text set along a path or in characters Inter lacks
+replaced. Italic text is set in Inter's italic, and text set along a path or in characters Inter lacks
 is left out, each said in the report. Text in a DXF drawing is left out.
 
 {command:sketch.toggle_first_dimension_scales} then sizes an outline traced from a picture with one

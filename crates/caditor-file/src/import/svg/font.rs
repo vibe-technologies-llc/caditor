@@ -18,6 +18,11 @@ const DEFAULT_SCRIPT: Tag = Tag::from_bytes(b"DFLT");
 const MISSING: GlyphId = GlyphId(0);
 
 pub(super) struct Typeface<'f> {
+    upright: Cut<'f>,
+    italic: Option<Cut<'f>>,
+}
+
+struct Cut<'f> {
     face: Face<'f>,
     units_per_em: f64,
     weights: Option<(f64, f64)>,
@@ -27,10 +32,78 @@ pub(super) struct Typeface<'f> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) struct Weight(u16);
+pub(super) struct Instance {
+    weight: u16,
+    italic: bool,
+}
 
 impl<'f> Typeface<'f> {
-    pub fn parse(data: &'f [u8]) -> Option<Self> {
+    pub fn parse(upright: &'f [u8], italic: Option<&'f [u8]>) -> Option<Self> {
+        Some(Self {
+            upright: Cut::parse(upright)?,
+            italic: italic.and_then(Cut::parse),
+        })
+    }
+
+    pub fn has_italic(&self) -> bool {
+        self.italic.is_some()
+    }
+
+    pub fn units_per_em(&self) -> f64 {
+        self.upright.units_per_em
+    }
+
+    pub fn instance(&self, wanted_weight: f64, wanted_italic: bool) -> Instance {
+        let italic = wanted_italic && self.italic.is_some();
+        Instance {
+            weight: self.cut(italic).weight(wanted_weight),
+            italic,
+        }
+    }
+
+    pub fn glyph(&self, character: char, instance: Instance) -> Option<GlyphId> {
+        self.cut(instance.italic).glyph(character)
+    }
+
+    pub fn advance(&mut self, instance: Instance, glyph: Option<GlyphId>) -> f64 {
+        let glyph = glyph.unwrap_or(MISSING);
+        self.cut_mut(instance.italic)
+            .weighted(instance.weight)
+            .glyph_hor_advance(glyph)
+            .map_or(0.0, f64::from)
+    }
+
+    pub fn kerning(&self, instance: Instance, first: GlyphId, second: GlyphId) -> f64 {
+        self.cut(instance.italic).kerning(first, second)
+    }
+
+    pub fn outline(&mut self, instance: Instance, glyph: GlyphId) -> Rc<Outline> {
+        self.cut_mut(instance.italic)
+            .outline(instance.weight, glyph)
+    }
+
+    pub fn curve_count(&mut self, instance: Instance, glyph: GlyphId) -> usize {
+        self.cut_mut(instance.italic)
+            .curve_count(instance.weight, glyph)
+    }
+
+    fn cut(&self, italic: bool) -> &Cut<'f> {
+        match (&self.italic, italic) {
+            (Some(cut), true) => cut,
+            _ => &self.upright,
+        }
+    }
+
+    fn cut_mut(&mut self, italic: bool) -> &mut Cut<'f> {
+        match (&mut self.italic, italic) {
+            (Some(cut), true) => cut,
+            _ => &mut self.upright,
+        }
+    }
+}
+
+impl<'f> Cut<'f> {
+    fn parse(data: &'f [u8]) -> Option<Self> {
         let face = Face::parse(data, 0).ok()?;
         let units_per_em = f64::from(face.units_per_em());
         let weights = face
@@ -49,33 +122,22 @@ impl<'f> Typeface<'f> {
         })
     }
 
-    pub fn units_per_em(&self) -> f64 {
-        self.units_per_em
-    }
-
-    pub fn weight(&self, wanted: f64) -> Weight {
+    fn weight(&self, wanted: f64) -> u16 {
         match self.weights {
             Some((lightest, heaviest)) => {
-                Weight(wanted.clamp(lightest, heaviest).round().clamp(0.0, 1000.0) as u16)
+                wanted.clamp(lightest, heaviest).round().clamp(0.0, 1000.0) as u16
             }
-            None => Weight(0),
+            None => 0,
         }
     }
 
-    pub fn glyph(&self, character: char) -> Option<GlyphId> {
+    fn glyph(&self, character: char) -> Option<GlyphId> {
         self.face
             .glyph_index(character)
             .filter(|glyph| *glyph != MISSING)
     }
 
-    pub fn advance(&mut self, weight: Weight, glyph: Option<GlyphId>) -> f64 {
-        let glyph = glyph.unwrap_or(MISSING);
-        self.weighted(weight)
-            .glyph_hor_advance(glyph)
-            .map_or(0.0, f64::from)
-    }
-
-    pub fn kerning(&self, first: GlyphId, second: GlyphId) -> f64 {
+    fn kerning(&self, first: GlyphId, second: GlyphId) -> f64 {
         let Some(positioning) = self.face.tables().gpos else {
             return 0.0;
         };
@@ -96,35 +158,35 @@ impl<'f> Typeface<'f> {
         total
     }
 
-    pub fn outline(&mut self, weight: Weight, glyph: GlyphId) -> Rc<Outline> {
-        if let Some(outline) = self.outlines.get(&(weight.0, glyph)) {
+    fn outline(&mut self, weight: u16, glyph: GlyphId) -> Rc<Outline> {
+        if let Some(outline) = self.outlines.get(&(weight, glyph)) {
             return Rc::clone(outline);
         }
         let segments = self.segments(weight, glyph);
         let outline = Rc::new(merged(&segments).unwrap_or_else(|| traced(&segments)));
-        self.outlines.insert((weight.0, glyph), Rc::clone(&outline));
+        self.outlines.insert((weight, glyph), Rc::clone(&outline));
         outline
     }
 
-    pub fn curve_count(&mut self, weight: Weight, glyph: GlyphId) -> usize {
-        match self.outlines.get(&(weight.0, glyph)) {
+    fn curve_count(&mut self, weight: u16, glyph: GlyphId) -> usize {
+        match self.outlines.get(&(weight, glyph)) {
             Some(outline) => outline.shapes.len(),
             None => self.segments(weight, glyph).len(),
         }
     }
 
-    fn segments(&mut self, weight: Weight, glyph: GlyphId) -> Vec<Segment> {
+    fn segments(&mut self, weight: u16, glyph: GlyphId) -> Vec<Segment> {
         let mut pen = Pen::default();
         self.weighted(weight).outline_glyph(glyph, &mut pen);
         pen.segments
     }
 
-    fn weighted(&mut self, weight: Weight) -> &Face<'f> {
+    fn weighted(&mut self, weight: u16) -> &Face<'f> {
         let base = &self.face;
-        self.weighted.entry(weight.0).or_insert_with(|| {
+        self.weighted.entry(weight).or_insert_with(|| {
             let mut face = base.clone();
-            if weight.0 > 0 {
-                face.set_variation(WEIGHT_AXIS, f32::from(weight.0));
+            if weight > 0 {
+                face.set_variation(WEIGHT_AXIS, f32::from(weight));
             }
             face
         })

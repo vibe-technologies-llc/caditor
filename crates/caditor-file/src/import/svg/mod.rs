@@ -88,7 +88,10 @@ const NOT_DRAWN: [&str; 30] = [
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextOutlines<'f> {
-    InFont(&'f [u8]),
+    InFont {
+        upright: &'f [u8],
+        italic: Option<&'f [u8]>,
+    },
     LeftOut,
 }
 
@@ -136,7 +139,7 @@ fn read_tree(
     let style_text = style_text(tree, namespace);
     let sheet = StyleSheet::parse(&style_text);
     let typeface = match text_outlines {
-        TextOutlines::InFont(data) => Typeface::parse(data),
+        TextOutlines::InFont { upright, italic } => Typeface::parse(upright, italic),
         TextOutlines::LeftOut => None,
     };
     let mut walker = Walker::new(tree, namespace, &sheet, typeface);

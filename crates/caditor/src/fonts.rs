@@ -5,6 +5,7 @@ use egui::{FontData, FontDefinitions, FontFamily, FontTweak, epaint::text::Varia
 use crate::{font_fallbacks::FallbackFont, icon_font};
 
 pub const INTER: &[u8] = include_bytes!("../assets/fonts/InterVariable.ttf");
+pub const INTER_ITALIC: &[u8] = include_bytes!("../assets/fonts/InterVariable-Italic.ttf");
 const ICONS: &str = "phosphor";
 const WEIGHT_AXIS: &[u8; 4] = b"wght";
 

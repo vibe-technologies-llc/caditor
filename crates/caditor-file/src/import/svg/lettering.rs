@@ -5,7 +5,7 @@ use crate::import::{
     ImportError, MAX_READ_CURVES,
     svg::{
         Context, MAX_NAMED_ELEMENTS, MAX_NESTING, Walker,
-        font::{Typeface, Weight},
+        font::{Instance, Typeface},
         shapes::Axis,
         style::Inherited,
         syntax::{Length, Matrix, numbers},
@@ -130,7 +130,7 @@ struct Placed {
     at: Point2,
     advance: f64,
     glyph: Option<GlyphId>,
-    weight: Weight,
+    instance: Instance,
     scale: f64,
     rotate: f64,
 }
@@ -155,8 +155,9 @@ impl<'a, 't> Walker<'a, 't> {
         let Some(typeface) = self.typeface.as_mut() else {
             return Ok(());
         };
+        let italic_carried = typeface.has_italic();
         let placed = lay_out(typeface, &letters, &positions);
-        self.note_style(&letters);
+        self.note_style(&letters, italic_carried);
         let mut unpainted = false;
         let mut hidden = false;
         for (letter, placed) in letters.iter().zip(&placed) {
@@ -181,12 +182,12 @@ impl<'a, 't> Walker<'a, 't> {
                 return Ok(());
             };
             if self.shapes.len() >= MAX_READ_CURVES {
-                let count = typeface.curve_count(placed.weight, glyph);
+                let count = typeface.curve_count(placed.instance, glyph);
                 self.charge(count)?;
                 self.beyond_the_limit = self.beyond_the_limit.saturating_add(count);
                 continue;
             }
-            let outline = typeface.outline(placed.weight, glyph);
+            let outline = typeface.outline(placed.instance, glyph);
             let matrix = Matrix::scale(placed.scale, -placed.scale)
                 .then(&Matrix::rotation(placed.rotate))
                 .then(&Matrix::translation(placed.at.x, placed.at.y))
@@ -260,7 +261,7 @@ impl<'a, 't> Walker<'a, 't> {
         }
     }
 
-    fn note_style(&mut self, letters: &[Letter<'a>]) {
+    fn note_style(&mut self, letters: &[Letter<'a>], italic_carried: bool) {
         let mut italic = false;
         for letter in letters {
             italic = italic || letter.style.text.italic;
@@ -276,7 +277,7 @@ impl<'a, 't> Walker<'a, 't> {
                 self.tally.substituted_families.insert(family);
             }
         }
-        if italic {
+        if italic && !italic_carried {
             self.tally.italic += 1;
         }
     }
@@ -291,21 +292,21 @@ fn lay_out(
     let mut placed: Vec<Placed> = Vec::with_capacity(letters.len());
     let mut chunks = Vec::new();
     let mut pen = Point2::ZERO;
-    let mut previous: Option<(GlyphId, Weight, f64)> = None;
+    let mut previous: Option<(GlyphId, Instance, f64)> = None;
     for (index, letter) in letters.iter().enumerate() {
         let at = |list: &[Option<f64>]| list.get(index).copied().flatten();
         let (x, y) = (at(&positions.x), at(&positions.y));
         if index == 0 || x.is_some() || y.is_some() {
             chunks.push(index);
         }
-        let glyph = typeface.glyph(letter.character);
-        let weight = typeface.weight(letter.style.text.weight);
+        let instance = typeface.instance(letter.style.text.weight, letter.style.text.italic);
+        let glyph = typeface.glyph(letter.character, instance);
         let scale = letter.style.text.size / units_per_em;
-        if let (Some((before, before_weight, before_scale)), Some(glyph), None) =
+        if let (Some((before, before_instance, before_scale)), Some(glyph), None) =
             (previous, glyph, x)
-            && before_weight == weight
+            && before_instance == instance
         {
-            pen.x += typeface.kerning(before, glyph) * before_scale;
+            pen.x += typeface.kerning(instance, before, glyph) * before_scale;
         }
         if let Some(x) = x {
             pen.x = x;
@@ -317,12 +318,12 @@ fn lay_out(
             at(&positions.dx).unwrap_or(0.0),
             at(&positions.dy).unwrap_or(0.0),
         );
-        let advance = typeface.advance(weight, glyph) * scale;
+        let advance = typeface.advance(instance, glyph) * scale;
         placed.push(Placed {
             at: pen,
             advance,
             glyph,
-            weight,
+            instance,
             scale,
             rotate: at(&positions.rotate).unwrap_or(0.0),
         });
@@ -332,7 +333,7 @@ fn lay_out(
             0.0
         };
         pen.x += advance + letter.style.text.letter_spacing + word_spacing;
-        previous = glyph.map(|glyph| (glyph, weight, scale));
+        previous = glyph.map(|glyph| (glyph, instance, scale));
     }
     let ends = chunks.iter().skip(1).copied().chain([letters.len()]);
     for (start, end) in chunks.iter().copied().zip(ends) {

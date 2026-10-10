@@ -15,6 +15,8 @@ use crate::{
 const WRITE_SEEDS: &str = "CADITOR_WRITE_FUZZ_SEEDS";
 const SEED_SLICE: usize = 512;
 const INTER: &[u8] = include_bytes!("../../../caditor/assets/fonts/InterVariable.ttf");
+const INTER_ITALIC: &[u8] =
+    include_bytes!("../../../caditor/assets/fonts/InterVariable-Italic.ttf");
 
 fn seeds_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/seeds")
@@ -190,8 +192,14 @@ fn step_dxf_and_svg_seeds_import() {
         assert!(!drawing.curves.is_empty(), "{}", path.display());
     }
     for (path, bytes) in seeds_in("svg") {
-        let drawing = parse_svg(&bytes, TextOutlines::InFont(INTER))
-            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        let drawing = parse_svg(
+            &bytes,
+            TextOutlines::InFont {
+                upright: INTER,
+                italic: Some(INTER_ITALIC),
+            },
+        )
+        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
         assert!(!drawing.curves.is_empty(), "{}", path.display());
     }
 }
