@@ -288,6 +288,56 @@ pub trait Pack {
     fn mat4(&mut self, value: Mat4) -> &mut Self {
         self.floats(&value.to_cols_array())
     }
+
+    fn unorm8x4(&mut self, values: [f32; 4]) -> &mut Self {
+        self.put(&values.map(unorm8))
+    }
+
+    fn octahedral(&mut self, normal: Vec3) -> &mut Self {
+        self.put(&octahedral(normal))
+    }
+}
+
+pub const OCTAHEDRAL_BYTES: usize = 4;
+const SNORM16_SCALE: f32 = i16::MAX as f32;
+const UNORM8_SCALE: f32 = u8::MAX as f32;
+const ABSENT_NORMAL: [f32; 2] = [-1.0, -1.0];
+const NEAR_ABSENT_SUM: f32 = -1.9996;
+const FAR_CORNER: [f32; 2] = [1.0, 1.0];
+
+fn unorm8(value: f32) -> u8 {
+    (value.clamp(0.0, 1.0) * UNORM8_SCALE).round() as u8
+}
+
+fn snorm16(value: f32) -> [u8; 2] {
+    ((value.clamp(-1.0, 1.0) * SNORM16_SCALE).round() as i16).to_le_bytes()
+}
+
+fn octahedral(normal: Vec3) -> [u8; OCTAHEDRAL_BYTES] {
+    let [[x0, x1], [y0, y1]] = folded(normal).map(snorm16);
+    [x0, x1, y0, y1]
+}
+
+fn folded(normal: Vec3) -> [f32; 2] {
+    let length = normal.abs().element_sum();
+    if !(length > 0.0 && length.is_finite()) {
+        return ABSENT_NORMAL;
+    }
+    let on = normal / length;
+    let side = |value: f32| if value >= 0.0 { 1.0 } else { -1.0 };
+    let [x, y] = if on.z >= 0.0 {
+        [on.x, on.y]
+    } else {
+        [
+            (1.0 - on.y.abs()) * side(on.x),
+            (1.0 - on.x.abs()) * side(on.y),
+        ]
+    };
+    if x + y < NEAR_ABSENT_SUM {
+        FAR_CORNER
+    } else {
+        [x, y]
+    }
 }
 
 #[derive(Debug, Default)]
@@ -514,6 +564,76 @@ mod tests {
 
         assert_eq!(packed[..4], 7u32.to_le_bytes());
         assert_eq!(packed[4..], 2.0f32.to_le_bytes());
+    }
+
+    fn unfolded(packed: [u8; OCTAHEDRAL_BYTES]) -> Vec3 {
+        let [x0, x1, y0, y1] = packed;
+        let normal = [[x0, x1], [y0, y1]]
+            .map(|bytes| (f32::from(i16::from_le_bytes(bytes)) / SNORM16_SCALE).max(-1.0));
+        let [x, y] = normal;
+        if x + y < -1.9998 {
+            return Vec3::ZERO;
+        }
+        let z = 1.0 - x.abs() - y.abs();
+        let side = |value: f32| if value >= 0.0 { 1.0 } else { -1.0 };
+        let (x, y) = if z < 0.0 {
+            ((1.0 - y.abs()) * side(x), (1.0 - x.abs()) * side(y))
+        } else {
+            (x, y)
+        };
+        Vec3::new(x, y, z).normalize()
+    }
+
+    fn error(normal: Vec3) -> f64 {
+        unfolded(octahedral(normal))
+            .as_dvec3()
+            .angle_between(normal.as_dvec3().normalize())
+    }
+
+    #[test]
+    fn octahedral_normals_come_back_within_a_hundredth_of_a_degree() {
+        let steps = 64;
+        let mut worst = 0.0f64;
+        for latitude in 0..=steps {
+            for longitude in 0..steps * 2 {
+                let polar = std::f32::consts::PI * latitude as f32 / steps as f32;
+                let azimuth = std::f32::consts::PI * longitude as f32 / steps as f32;
+                let normal = Vec3::new(
+                    polar.sin() * azimuth.cos(),
+                    polar.sin() * azimuth.sin(),
+                    polar.cos(),
+                );
+                worst = worst.max(error(normal));
+            }
+        }
+
+        assert!(worst.to_degrees() < 0.01, "{}", worst.to_degrees());
+    }
+
+    #[test]
+    fn a_missing_normal_stays_missing_and_nothing_else_reads_as_missing() {
+        let near_down = Vec3::new(-1e-4, -1e-4, -1.0).normalize();
+        let barely_down = Vec3::new(-3e-4, -1e-4, -1.0).normalize();
+
+        assert_eq!(unfolded(octahedral(Vec3::ZERO)), Vec3::ZERO);
+        assert_eq!(unfolded(octahedral(Vec3::NAN)), Vec3::ZERO);
+        assert!(error(near_down) < 4e-4);
+        assert!(error(barely_down) < 4e-4);
+        assert_eq!(unfolded(octahedral(-Vec3::Z)), -Vec3::Z);
+        assert_eq!(unfolded(octahedral(Vec3::new(-0.0, -0.0, -1.0))), -Vec3::Z);
+    }
+
+    #[test]
+    fn eight_bit_colours_pack_exactly_and_others_round() {
+        let packed = record::<4>(|record| {
+            record.unorm8x4([0.0, 128.0 / 255.0, 1.0, 0.35]);
+        });
+        let clamped = record::<4>(|record| {
+            record.unorm8x4([-1.0, 2.0, f32::NAN, 0.5]);
+        });
+
+        assert_eq!(packed, [0, 128, 255, 89]);
+        assert_eq!(clamped, [0, 255, 0, 128]);
     }
 
     #[test]

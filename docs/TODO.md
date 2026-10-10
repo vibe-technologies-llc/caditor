@@ -375,11 +375,10 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Interface performance
 
-- [low · medium] GPU records are wider than needed. Mesh vertices are 28 B, where a normal packed
-  into 16-bit values would give 20 to 24 B. Silhouette records are 60 B, and two 16-bit values per
-  normal would give 48 B. Line, marker and fill records carry an `f32x4` colour that `Unorm8x4`
-  would fit. Pickable fills are uploaded twice (`fills` and `pick_fills`), the hidden-edges style
-  pushes a second copy of every edge, and batches are never culled, the pick pass included.
+- [low · medium] The hidden-edges style pushes a second copy of every shown edge (the app's
+  `scene.rs` adds each again on `Layer::Hidden`), where the `hidden_lines` pass could draw the
+  model's own line records dashed; and batches are never culled by their bounds, the pick pass
+  included.
 - [low · medium] Annotations are laid out only near the view and kept until the view or sketch
   changes (`annotations::Marks`), but a camera move zoomed out over a dense sketch still places
   every glyph in view against crowded `Obstacles`: about 350 ms a frame for the `large_sketch`

@@ -103,7 +103,7 @@ paths:
 - New meshes upload across frames under one byte budget a frame (`MESH_UPLOAD_BYTES_PER_FRAME`,
   shared by the five mesh caches and the silhouette cache): each frame packs the next whole
   vertices and indices into buffers made at the start, so the frame that first shows a large body
-  never stalls (under 2 ms at worst instead of 11 ms for 39 MB of meshes and 58 MB of silhouettes
+  never stalls (under 2 ms at worst instead of 11 ms for 31 MB of meshes and 47 MB of silhouettes
   in a release build). A mesh is drawn only once it
   is complete, never half; while any mesh of a cache is still uploading, the meshes the cache drew
   before that are no longer in the scene stay drawn (the old result of a recomputed body), at their
@@ -127,7 +127,7 @@ paths:
   (`culling::ClipWindow`, the eight placed corners against the clip planes in f64), tested against
   the window in the main pass, the pick window in the pick pass and each tile in image export.
 - A `ShadedMesh` either owns its vertices (`ShadedMesh::new` from `MeshFace`s: 28 bytes a vertex
-  and 12 a triangle) or reads them from a `MeshSource` it shares (`ShadedMesh::shared`): the
+  on the CPU and 12 a triangle) or reads them from a `MeshSource` it shares (`ShadedMesh::shared`): the
   source's triangles are its indices, and each vertex is converted (position relative to the
   centre, normal, face) when uploaded or read, its face found among the per-face vertex ends, so a
   body's display mesh is held once on the CPU, by the kernel (`app.md`). `shared` takes each face's
@@ -183,6 +183,18 @@ paths:
   of a batch or mesh outlives its upload; the `Bytes` staging left for uniforms and face styles
   drops any capacity past 64 KiB when cleared. Replacing the frame-cost benchmark's batch every
   frame costs about 2.8 ms instead of 7.9.
+- Records are as narrow as the shaders allow: a mesh vertex is 20 bytes (`MESH_VERTEX_STRIDE`:
+  position, normal, face), a silhouette 48, a line 48, a marker 32 and a fill vertex 28. Normals are
+  octahedral `Snorm16x2` (`Pack::octahedral`, `unfolded` in the shader), back within 0.01°; a zero
+  or non-finite normal, which tessellation gives at a degenerate point and `facing_normal` replaces
+  by the eye direction, is kept as the corner code (-1, -1) the shader reads as zero, and normals
+  within about 0.02° of -Z that would land beside that code take the opposite corner instead.
+  Colours are `Unorm8x4` (`Pack::unorm8x4`, rounded): palettes are 8-bit sRGB and every pass draws
+  them unconverted on an 8-bit view, so an 8-bit colour reaches the target exactly as before.
+- A batch uploads its fills once, ordered pickable reference fills, then the other pickable fills,
+  then the rest, each group in batch order (`FillGroups`): the pick pass draws the first two
+  groups as one range each of the colour pass's buffer, and the colour pass's spans keep batch
+  order, so fills of equal depth still draw in the order given.
 - Draw order: every batch's lines, then markers, then fills. Translucent fills sort back to front
   by centroid depth across all batches, front-layer fills last (`FillOrder`).
 - Model geometry draws over reference geometry (datum planes, axes) through a per-`Layer` depth
@@ -226,14 +238,14 @@ paths:
   already pick; in wireframe, where no face picks, it picking its face would make curved faces
   selectable there and flat ones not. On upload (under the same per-frame byte budget as meshes, in chunks that fit a
   buffer) every triangle whose corner normals differ (`ShadedMesh::curved_triangles`, so flat
-  faces cost nothing) becomes a `SILHOUETTE_STRIDE` instance of three positions and three
-  `Snorm16x4` normals; `vs_silhouette` finds where the facing of the interpolated normals toward
+  faces cost nothing) becomes a `SILHOUETTE_STRIDE` (48-byte) instance of three positions and
+  three octahedral normals; `vs_silhouette` finds where the facing of the interpolated normals toward
   the eye changes sign across the triangle and strokes that segment like a line, so the outline
   follows every orbit without re-meshing and with no CPU work per frame. A dashed silhouette
   dashes along its dominant screen axis, since contour segments carry no distance along a curve.
   `ShadedMesh` counts its curved triangles when built, so starting an upload costs nothing. The
   frame-cost benchmark gives its four meshes waving normals and silhouettes, so every triangle is
-  a candidate (about 14.6 MB each against 9.8 MB of mesh): steady frames stay within noise (about
+  a candidate (about 11.8 MB each against 7.8 MB of mesh): steady frames stay within noise (about
   55 µs idle or orbiting, release build), an upload frame under the budget stays under 2 ms
   at worst but new meshes take about 2.5 times as many frames.
 - `Scene::overlay_meshes` draw right after the translucent ones, blended, with no depth test or
