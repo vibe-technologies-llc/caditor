@@ -6,7 +6,8 @@ make a reading a parameter or keep it, below.
 ## One or two items
 
 Select a vertex, edge, face, sketch point or curve, datum or axis to read it: a point's position, an
-edge's length, a face's area, a circle's radius and centre, a plane's normal. Select two items for a
+edge's length, a face's area and perimeter (around its outer edge), a circle's radius and centre,
+an arc's sweep, a plane's normal. Select two items for a
 **Between them** card with the distance, the offsets along each axis and the angle where it applies;
 the closest points are joined by a line in the view.
 
@@ -38,23 +39,34 @@ and puts the cursor in its name to rename it. It is one change Undo takes back.
 
 ## Keeping a measurement
 
-For a distance or an angle between two items, or the length, radius or area of one, the row's menu
-also has **Keep this measurement**. It adds a Measurement to the feature tree that takes the
-reading again every time the model is recomputed, and a parameter named after it (`distance1`)
-that holds what it reads; the cursor goes to the parameter's name to rename it, say to
-`clearance`. The reading is drawn in the view with its value (the closest points joined by a
-line), so a clearance can be watched while upstream features change. Hide it from its row like a
-datum.
+For a distance, an angle or an offset along X, Y or Z between two items, or the length, radius,
+sweep, area or perimeter of one, the row's menu also has **Keep this measurement**. It adds a
+Measurement to the feature tree that takes the reading again every time the model is recomputed,
+and a parameter named after it (`distance1`) that holds what it reads; the cursor goes to the
+parameter's name to rename it, say to `clearance`. The reading is drawn in the view with its value
+(the closest points joined by a line), so a clearance can be watched while upstream features
+change. Hide it from its row like a datum. An offset kept while **Relative to** names a
+coordinate system is measured along that system's axis.
 
 Features below the measurement in the tree can use its name in their values: an extrusion of
-`clearance - 1 mm` follows the gap it measures. A measurement is taken where it stands in the tree,
-so a feature above it cannot use it, and neither can another parameter, which is worked out before
-the model; either is refused saying why. Its parameter shows the reading and cannot be edited.
+`clearance - 1 mm` follows the gap it measures. Other parameters can use it too (`gap = clearance
+/ 2`), and features below the measurement can use those. A measurement is taken where it stands in
+the tree, so a feature above it cannot use it, directly or through another parameter; that is
+refused naming the chain. Its parameter shows the reading and cannot be edited.
+
+Open a measurement from its row to change it. **Reads** switches what it reads among what its items
+allow: Distance, Angle or Offset along an axis for two items (a point has no angle), Length,
+Radius, Sweep, Area or Perimeter for one (a round edge has a radius and a sweep, a face an area and
+a perimeter). **From**, **To** or **Of** name the items; **Use selected** takes the one selected
+item instead, or **Choose in the view** waits for a click. An offset's **Along** row picks the X, Y
+or Z axis, or takes any axis, straight edge, round face or sketch line the same way. Each change is
+one change Undo takes back.
 
 What it measures is followed like any reference: faces, edges and corners keep their names across
 upstream edits. When one is gone the measurement fails with the reason, and features using its
-value fail with it, pointing back to it; everything else carries on. Deleting the measurement
-leaves its parameter, if something uses it, as an ordinary parameter holding the value read when
-it was kept.
+value fail with it, pointing back to it; everything else carries on. The parameter's stored value
+follows each reading, so a model opened in an older caditor holds the latest reading, and
+deleting the measurement leaves its parameter, if something uses it, as an ordinary parameter
+holding the last reading, so the features using it keep their shape.
 
 To find bodies that overlap, see [Check interference](interference).

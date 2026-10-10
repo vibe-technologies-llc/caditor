@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use caditor_expression::{ParameterId, Quantity};
+use caditor_expression::{Dimension, Expression, ParameterId, Quantity, Unit};
 use caditor_geometry::{Point3, Vector3};
 use caditor_kernel::{
     Accuracy, Axis, Curve, EdgeForm, EdgeId, EdgeReference, Element, FaceForm, FaceId,
@@ -19,10 +19,11 @@ use crate::{
     },
     describe::describe_origin,
     document::{Document, Feature, FeatureId, FeatureKind},
-    origins,
-    recompute::{CancelToken, Failure, FeatureResult, Inputs},
+    edit::{Edit, Transaction},
+    origins, paste,
+    recompute::{CancelToken, Evaluation, Failure, FeatureResult, FeatureState, Inputs},
     solid::profile_curve,
-    values::ParameterValues,
+    values::{ParameterError, ParameterValues, evaluation_order},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,6 +85,19 @@ impl MeasuredItem {
         }
     }
 
+    pub fn features(&self) -> BTreeSet<FeatureId> {
+        let datum = match self {
+            Self::Point(point) => point.datum(),
+            Self::Axis(axis) => axis.datum(),
+            Self::Plane(plane) => plane.datum(),
+            Self::Edge { .. } | Self::Face { .. } | Self::Sketch { .. } => None,
+        };
+        [self.body(), self.sketch(), self.frame(), datum]
+            .into_iter()
+            .flatten()
+            .collect()
+    }
+
     pub fn origin_features(&self) -> BTreeSet<FeatureId> {
         match self {
             Self::Point(point) => point.origin_features(),
@@ -122,11 +136,44 @@ pub enum Between {
     Angle,
 }
 
+impl Between {
+    pub const ALL: [Self; 2] = [Self::Distance, Self::Angle];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Distance => "Distance",
+            Self::Angle => "Angle",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Of {
     Length,
     Radius,
     Area,
+    Sweep,
+    Perimeter,
+}
+
+impl Of {
+    pub const ALL: [Self; 5] = [
+        Self::Length,
+        Self::Radius,
+        Self::Sweep,
+        Self::Area,
+        Self::Perimeter,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Length => "Length",
+            Self::Radius => "Radius",
+            Self::Area => "Area",
+            Self::Sweep => "Sweep",
+            Self::Perimeter => "Perimeter",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -136,16 +183,28 @@ pub enum Reading {
         first: MeasuredItem,
         second: MeasuredItem,
     },
+    Along {
+        first: MeasuredItem,
+        second: MeasuredItem,
+        axis: MeasuredItem,
+    },
     Of {
         quantity: Of,
         item: MeasuredItem,
     },
 }
 
+pub const ALONG: &str = "Along";
+
 impl Reading {
     pub fn items(&self) -> Vec<&MeasuredItem> {
         match self {
             Self::Between { first, second, .. } => vec![first, second],
+            Self::Along {
+                first,
+                second,
+                axis,
+            } => vec![first, second, axis],
             Self::Of { item, .. } => vec![item],
         }
     }
@@ -153,31 +212,20 @@ impl Reading {
     pub fn items_mut(&mut self) -> Vec<&mut MeasuredItem> {
         match self {
             Self::Between { first, second, .. } => vec![first, second],
+            Self::Along {
+                first,
+                second,
+                axis,
+            } => vec![first, second, axis],
             Self::Of { item, .. } => vec![item],
         }
     }
 
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Between {
-                quantity: Between::Distance,
-                ..
-            } => "Distance",
-            Self::Between {
-                quantity: Between::Angle,
-                ..
-            } => "Angle",
-            Self::Of {
-                quantity: Of::Length,
-                ..
-            } => "Length",
-            Self::Of {
-                quantity: Of::Radius,
-                ..
-            } => "Radius",
-            Self::Of {
-                quantity: Of::Area, ..
-            } => "Area",
+            Self::Between { quantity, .. } => quantity.label(),
+            Self::Along { .. } => ALONG,
+            Self::Of { quantity, .. } => quantity.label(),
         }
     }
 
@@ -187,24 +235,24 @@ impl Reading {
                 quantity,
                 first,
                 second,
-            } => {
-                let what = match quantity {
-                    Between::Distance => "Distance",
-                    Between::Angle => "Angle",
-                };
-                format!(
-                    "{what} between {} and {}",
-                    first.describe(document),
-                    second.describe(document)
-                )
-            }
+            } => format!(
+                "{} between {} and {}",
+                quantity.label(),
+                first.describe(document),
+                second.describe(document)
+            ),
+            Self::Along {
+                first,
+                second,
+                axis,
+            } => format!(
+                "Offset along {} between {} and {}",
+                axis.describe(document),
+                first.describe(document),
+                second.describe(document)
+            ),
             Self::Of { quantity, item } => {
-                let what = match quantity {
-                    Of::Length => "Length",
-                    Of::Radius => "Radius",
-                    Of::Area => "Area",
-                };
-                format!("{what} of {}", item.describe(document))
+                format!("{} of {}", quantity.label(), item.describe(document))
             }
         }
     }
@@ -579,6 +627,40 @@ pub(crate) fn evaluate(
                 }
             }
         }
+        Reading::Along {
+            first,
+            second,
+            axis,
+        } => {
+            let from = measuring.locate(first)?;
+            let to = measuring.locate(second)?;
+            let direction = match measuring.locate(axis)? {
+                Located::Axis(line) => line.direction.try_normalize(),
+                _ => None,
+            }
+            .ok_or_else(|| {
+                measuring.unmeasurable(format!(
+                    "{} gives no direction, so nothing is measured along it.",
+                    capitalised(&axis.describe(document))
+                ))
+            })?;
+            if cancel.is_cancelled() {
+                return Err(Failure::Cancelled);
+            }
+            let separation = distance(from.element(), to.element()).map_err(|_| {
+                measuring.unmeasurable(format!(
+                    "The offset between {} and {} could not be worked out.",
+                    first.describe(document),
+                    second.describe(document)
+                ))
+            })?;
+            MeasurementResult {
+                value: Quantity::length(separation.offset().dot(direction).abs()),
+                line: Some((separation.from, separation.to)),
+                anchor: separation.from.midpoint(separation.to),
+                accuracy: separation.accuracy,
+            }
+        }
         Reading::Of { quantity, item } => {
             let located = measuring.locate(item)?;
             let described = item.describe(document);
@@ -641,6 +723,42 @@ pub(crate) fn evaluate(
                     })?;
                     (Quantity::new(area, AREA), Accuracy::Exact)
                 }
+                (Of::Sweep, Located::Edge { solid, edge }) => {
+                    match edge_measure(solid, *edge).map(|measured| measured.form) {
+                        Ok(EdgeForm::Circle { sweep, .. }) => {
+                            (Quantity::angle(sweep.to_degrees()), Accuracy::Exact)
+                        }
+                        _ => return Err(measuring.unmeasurable(no_sweep(&described))),
+                    }
+                }
+                (Of::Sweep, Located::Curve { curve, interval }) => {
+                    match curve_measure(curve, *interval).form {
+                        EdgeForm::Circle { sweep, .. } => {
+                            (Quantity::angle(sweep.to_degrees()), Accuracy::Exact)
+                        }
+                        _ => return Err(measuring.unmeasurable(no_sweep(&described))),
+                    }
+                }
+                (Of::Perimeter, Located::Face { solid, face }) => {
+                    let (length, accuracy) = face_perimeter(solid, *face).ok_or_else(|| {
+                        measuring.unmeasurable(format!(
+                            "The perimeter of {described} could not be worked out."
+                        ))
+                    })?;
+                    (Quantity::length(length), accuracy)
+                }
+                (Of::Sweep, _) => {
+                    return Err(measuring.unmeasurable(format!(
+                        "{} is not an arc, so it has no sweep.",
+                        capitalised(&described)
+                    )));
+                }
+                (Of::Perimeter, _) => {
+                    return Err(measuring.unmeasurable(format!(
+                        "{} is not a face, so it has no perimeter.",
+                        capitalised(&described)
+                    )));
+                }
                 (Of::Length, _) => {
                     return Err(measuring.unmeasurable(format!(
                         "{} is not an edge or a curve, so it has no length.",
@@ -671,7 +789,56 @@ pub(crate) fn evaluate(
     Ok(FeatureResult::Measurement(result))
 }
 
-const AREA: caditor_expression::Dimension = caditor_expression::Dimension::new(2, 0);
+const AREA: Dimension = Dimension::new(2, 0);
+
+fn no_sweep(described: &str) -> String {
+    format!(
+        "{} is no longer an arc, so it has no sweep.",
+        capitalised(described)
+    )
+}
+
+pub fn face_perimeter(solid: &Solid, face: FaceId) -> Option<(f64, Accuracy)> {
+    let outer = solid
+        .face(face)?
+        .loops()
+        .first()
+        .and_then(|id| solid.face_loop(*id))?;
+    let mut length = 0.0;
+    let mut accuracy = Accuracy::Exact;
+    for coedge in outer.coedges() {
+        let edge = solid.coedge(*coedge)?.edge();
+        if is_seam_of(solid, edge, face) {
+            continue;
+        }
+        let measured = edge_measure(solid, edge).ok()?;
+        length += measured.length;
+        if measured.length_accuracy == Accuracy::Approximate {
+            accuracy = Accuracy::Approximate;
+        }
+    }
+    Some((length, accuracy))
+}
+
+fn is_seam_of(solid: &Solid, edge: EdgeId, face: FaceId) -> bool {
+    solid.edge(edge).is_some_and(|definition| {
+        definition
+            .coedges()
+            .iter()
+            .all(|coedge| solid.coedge_face(*coedge) == Some(face))
+    })
+}
+
+pub fn reading_literal(value: Quantity) -> Option<Expression> {
+    match value.dimension {
+        AREA => Some(Expression::WithUnit(
+            Box::new(Expression::number(value.value)),
+            Unit::Millimetre,
+            2,
+        )),
+        _ => paste::literal(value),
+    }
+}
 
 fn capitalised(text: &str) -> String {
     let mut characters = text.chars();
@@ -680,21 +847,52 @@ fn capitalised(text: &str) -> String {
     })
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Measured {
     by_parameter: BTreeMap<ParameterId, FeatureId>,
+    reads: BTreeMap<ParameterId, BTreeSet<FeatureId>>,
+    derived: Vec<(ParameterId, Expression)>,
 }
 
 impl Measured {
     pub(crate) fn of(document: &Document) -> Self {
+        let by_parameter: BTreeMap<ParameterId, FeatureId> = document
+            .features()
+            .filter_map(|feature| {
+                let parameter = feature.kind.measurement()?.parameter?;
+                Some((parameter, feature.id()))
+            })
+            .collect();
+        if by_parameter.is_empty() {
+            return Self::default();
+        }
+        let mut reads: BTreeMap<ParameterId, BTreeSet<FeatureId>> = BTreeMap::new();
+        let mut derived = Vec::new();
+        for id in evaluation_order(document) {
+            if let Some(measurement) = by_parameter.get(&id) {
+                reads.insert(id, BTreeSet::from([*measurement]));
+                continue;
+            }
+            let Some(parameter) = document.parameter(id) else {
+                continue;
+            };
+            let read: BTreeSet<FeatureId> = parameter
+                .expression
+                .parameters()
+                .iter()
+                .filter_map(|used| reads.get(used))
+                .flatten()
+                .copied()
+                .collect();
+            if !read.is_empty() {
+                reads.insert(id, read);
+                derived.push((id, parameter.expression.clone()));
+            }
+        }
         Self {
-            by_parameter: document
-                .features()
-                .filter_map(|feature| {
-                    let parameter = feature.kind.measurement()?.parameter?;
-                    Some((parameter, feature.id()))
-                })
-                .collect(),
+            by_parameter,
+            reads,
+            derived,
         }
     }
 
@@ -708,13 +906,23 @@ impl Measured {
             .map(|(parameter, feature)| (*parameter, *feature))
     }
 
+    pub(crate) fn measurements_read(&self, parameter: ParameterId) -> BTreeSet<FeatureId> {
+        self.reads.get(&parameter).cloned().unwrap_or_default()
+    }
+
+    pub(crate) fn reads_measurement(&self, parameter: ParameterId) -> bool {
+        self.reads.contains_key(&parameter)
+    }
+
     pub(crate) fn read_by(&self, kind: &FeatureKind) -> BTreeSet<FeatureId> {
-        if self.by_parameter.is_empty() {
+        if self.reads.is_empty() {
             return BTreeSet::new();
         }
         kind.parameters()
             .into_iter()
-            .filter_map(|parameter| self.measurement(parameter))
+            .filter_map(|parameter| self.reads.get(&parameter))
+            .flatten()
+            .copied()
             .collect()
     }
 
@@ -730,30 +938,66 @@ impl Measured {
         used
     }
 
+    pub(crate) fn derive(&self, parameters: &mut ParameterValues) {
+        for (id, expression) in &self.derived {
+            let value = parameters
+                .evaluate_expression(expression)
+                .map_err(ParameterError::Evaluation);
+            parameters.set_measured(*id, value);
+        }
+    }
+
     pub(crate) fn overlay(
         &self,
         parameters: &ParameterValues,
         feature: &Feature,
         results: &BTreeMap<FeatureId, Arc<FeatureResult>>,
     ) -> Option<ParameterValues> {
-        let readings: Vec<(ParameterId, Quantity)> = feature
+        let reads = feature
             .parameters()
             .into_iter()
-            .filter_map(|parameter| {
-                let measurement = self.measurement(parameter)?;
-                let reading = results.get(&measurement)?.measurement()?;
-                Some((parameter, reading.value))
-            })
-            .collect();
-        if readings.is_empty() {
+            .any(|parameter| self.reads_measurement(parameter));
+        if !reads {
             return None;
         }
         let mut overlaid = parameters.clone();
-        for (parameter, value) in readings {
-            overlaid.set_measured(parameter, Ok(value));
+        for (parameter, measurement) in self.pairs() {
+            if let Some(reading) = results
+                .get(&measurement)
+                .and_then(|result| result.measurement())
+            {
+                overlaid.set_measured(parameter, Ok(reading.value));
+            }
         }
+        self.derive(&mut overlaid);
         Some(overlaid)
     }
+}
+
+pub(crate) fn reading_users(document: &Document, parameter: ParameterId) -> Vec<&Feature> {
+    let mut reading = BTreeSet::from([parameter]);
+    for id in evaluation_order(document) {
+        let uses = document.parameter(id).is_some_and(|definition| {
+            definition
+                .expression
+                .parameters()
+                .iter()
+                .any(|used| reading.contains(used))
+        });
+        if uses {
+            reading.insert(id);
+        }
+    }
+    document
+        .features()
+        .filter(|feature| {
+            feature
+                .kind
+                .parameters()
+                .iter()
+                .any(|used| reading.contains(used))
+        })
+        .collect()
 }
 
 impl Document {
@@ -769,4 +1013,89 @@ impl Document {
     pub fn dependencies_of(&self, kind: &FeatureKind) -> BTreeSet<FeatureId> {
         Measured::of(self).dependencies_of(kind)
     }
+
+    pub(crate) fn parameter_path(&self, from: ParameterId, to: ParameterId) -> Option<Vec<String>> {
+        let mut seen = BTreeSet::new();
+        self.path_between(from, to, &mut seen).map(|path| {
+            path.into_iter()
+                .map(|id| self.parameter_name(id).unwrap_or("?").to_owned())
+                .collect()
+        })
+    }
+
+    fn path_between(
+        &self,
+        from: ParameterId,
+        to: ParameterId,
+        seen: &mut BTreeSet<ParameterId>,
+    ) -> Option<Vec<ParameterId>> {
+        if from == to {
+            return Some(vec![to]);
+        }
+        if !seen.insert(from) {
+            return None;
+        }
+        let used = self.parameter(from)?.expression.parameters();
+        used.into_iter().find_map(|next| {
+            let mut path = self.path_between(next, to, seen)?;
+            path.insert(0, from);
+            Some(path)
+        })
+    }
+
+    pub fn following_readings(&self, evaluation: &Evaluation) -> Transaction {
+        let edits = Measured::of(self)
+            .pairs()
+            .filter_map(|(parameter, measurement)| {
+                let status = evaluation.feature(measurement)?;
+                if status.state != FeatureState::UpToDate {
+                    return None;
+                }
+                let reading = status.result.as_deref()?.measurement()?.value;
+                let expression = reading_literal(reading)?;
+                let stored = self.parameter(parameter)?;
+                (stored.expression != expression).then_some(Edit::SetParameterExpression {
+                    id: parameter,
+                    expression,
+                })
+            })
+            .collect();
+        Transaction::new(FOLLOWING_READINGS, edits)
+    }
+
+    pub(crate) fn keeping_readings(
+        &self,
+        transaction: Transaction,
+        doomed: &BTreeSet<FeatureId>,
+    ) -> Transaction {
+        let readings: Vec<(ParameterId, Expression)> = self
+            .features()
+            .filter(|feature| doomed.contains(&feature.id()))
+            .filter_map(|feature| feature.kind.measurement()?.parameter)
+            .filter_map(|parameter| {
+                let stored = self.parameter(parameter)?;
+                Some((parameter, stored.expression.clone()))
+            })
+            .collect();
+        if readings.is_empty() {
+            return transaction;
+        }
+        let (label, mut edits) = transaction.into_parts();
+        let removed: BTreeSet<ParameterId> = edits
+            .iter()
+            .filter_map(|edit| match edit {
+                Edit::RemoveParameter { id } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        edits.extend(
+            readings
+                .into_iter()
+                .filter(|(parameter, _)| !removed.contains(parameter))
+                .map(|(id, expression)| Edit::SetParameterExpression { id, expression }),
+        );
+        Transaction::new(label, edits)
+    }
 }
+
+const FOLLOWING_READINGS: &str = "Follow the measured readings";

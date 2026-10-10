@@ -7,6 +7,7 @@ use crate::{
     editing::EditingCommand,
     hole_panel, hole_tools,
     mate_tools::{self, MatePart},
+    measurement_tools::{self, MeasuredPart},
     mirror_tools,
     model::{Action, Model, Notice},
     move_tools,
@@ -54,6 +55,7 @@ pub enum Slot {
     FramePlane,
     ScaleCentre,
     ThreadFace,
+    MeasuredItem(MeasuredPart),
 }
 
 pub const MAX_HELD: usize = 2;
@@ -183,6 +185,7 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
                 .to_owned()
         }
         Slot::ThreadFace => "Click the round face of a bore, shaft or boss to thread".to_owned(),
+        Slot::MeasuredItem(part) => part.prompt().to_owned(),
         Slot::FramePlane => "Click a plane or flat face for its XY plane".to_owned(),
         Slot::PrimitivePlace => {
             let noun = kind(model, picking.feature)
@@ -339,6 +342,9 @@ pub fn change(
         }
         (Slot::ThreadFace, FeatureKind::Thread(thread)) => {
             thread_tools::face_change(model, selection, feature, thread)
+        }
+        (Slot::MeasuredItem(part), FeatureKind::Measurement(measurement)) => {
+            measurement_tools::item_change(model, selection, feature, measurement, part)
         }
         _ => Err(format!("{} no longer takes this reference", owner.name)),
     }

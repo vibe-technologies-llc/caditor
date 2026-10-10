@@ -26,7 +26,7 @@ use crate::{
         list_names,
     },
     grouping::{MAX_GROUP_NAME_CHARS, group_name},
-    measurement::Measured,
+    measurement::{Measured, reading_users},
     model_parameters::{MAX_VALUE_LABEL_CHARS, ParameterOwner},
     projection::ProjectionSource,
     properties::{ModelProperties, ModelProperty},
@@ -444,20 +444,13 @@ pub enum EditError {
     #[error("This would make {name} depend on itself ({path})")]
     Cycle { name: String, path: String },
     #[error(
-        "{name} cannot use {parameter}, the reading of {measurement}: parameters are worked out before the model is measured ({name} → {parameter} → {measurement} → {name}); use {parameter} in a feature below {measurement} instead"
-    )]
-    ParameterReadsMeasurement {
-        name: String,
-        parameter: String,
-        measurement: String,
-    },
-    #[error(
-        "{feature} cannot use {parameter}, the reading of {measurement}, which is taken further down the tree ({feature} → {parameter} → {measurement} → {feature}); move {measurement} above {feature}"
+        "{feature} cannot use {parameter}, which reads {measurement}, taken further down the tree ({path}); move {measurement} above {feature}"
     )]
     MeasurementBelowUser {
         feature: String,
         parameter: String,
         measurement: String,
+        path: String,
     },
     #[error("{parameter} already holds the reading of {measurement}")]
     ParameterMeasuredTwice {
@@ -1106,7 +1099,7 @@ impl Document {
         self.check_parameter_name(&parameter.name, None)?;
         check_note(&parameter.note)?;
         self.check_references(&parameter.expression)?;
-        self.check_reads_no_measurement(&parameter.name, &parameter.expression)?;
+        self.check_reading_order(parameter.id(), &parameter.expression)?;
         let id = parameter.id();
         self.next_parameter_id = self.next_parameter_id.max(id.raw().saturating_add(1));
         graph.inserted(id, &parameter.expression);
@@ -1192,7 +1185,7 @@ impl Document {
     ) -> Result<Edit, EditError> {
         self.parameter_position(id)?;
         self.check_references(&expression)?;
-        self.check_reads_no_measurement(self.parameter_name(id).unwrap_or_default(), &expression)?;
+        self.check_reading_order(id, &expression)?;
         let dependencies = graph.of(self);
         if let Some(cycle) = dependencies.cycle(id, &expression) {
             let names: Vec<&str> = cycle
@@ -1645,9 +1638,30 @@ impl Document {
             .unwrap_or_default()
     }
 
-    fn check_reads_no_measurement(
+    fn below_user(&self, user: &str, through: Vec<String>, measurement: FeatureId) -> EditError {
+        let measurement = self.feature_name(measurement);
+        let parameter = through.first().cloned().unwrap_or_default();
+        let mut path = vec![user.to_owned()];
+        path.extend(through);
+        path.extend([measurement.clone(), user.to_owned()]);
+        EditError::MeasurementBelowUser {
+            feature: user.to_owned(),
+            parameter,
+            measurement,
+            path: path.join(" → "),
+        }
+    }
+
+    fn reading_path(&self, from: ParameterId, measurement: FeatureId) -> Vec<String> {
+        self.feature(measurement)
+            .and_then(|feature| feature.kind.measurement()?.parameter)
+            .and_then(|measured| self.parameter_path(from, measured))
+            .unwrap_or_default()
+    }
+
+    fn check_reading_order(
         &self,
-        name: &str,
+        parameter: ParameterId,
         expression: &Expression,
     ) -> Result<(), EditError> {
         let used = expression.parameters();
@@ -1655,20 +1669,36 @@ impl Document {
             return Ok(());
         }
         let measured = Measured::of(self);
-        let Some((parameter, measurement)) = used
+        let read: Vec<(ParameterId, FeatureId)> = used
             .into_iter()
-            .find_map(|parameter| Some((parameter, measured.measurement(parameter)?)))
-        else {
+            .flat_map(|used| {
+                measured
+                    .measurements_read(used)
+                    .into_iter()
+                    .map(move |measurement| (used, measurement))
+            })
+            .collect();
+        if read.is_empty() {
             return Ok(());
-        };
-        Err(EditError::ParameterReadsMeasurement {
-            name: name.to_owned(),
-            parameter: self
-                .parameter_name(parameter)
-                .unwrap_or_default()
-                .to_owned(),
-            measurement: self.feature_name(measurement),
-        })
+        }
+        for user in reading_users(self, parameter) {
+            let at = self.feature_index(user.id()).unwrap_or(usize::MAX);
+            let below = read.iter().find(|(_, measurement)| {
+                self.feature_index(*measurement)
+                    .is_none_or(|position| position >= at)
+            });
+            if let Some((used, measurement)) = below {
+                let mut through: Vec<String> = user
+                    .kind
+                    .parameters()
+                    .into_iter()
+                    .find_map(|candidate| self.parameter_path(candidate, parameter))
+                    .unwrap_or_default();
+                through.extend(self.reading_path(*used, *measurement));
+                return Err(self.below_user(&user.name, through, *measurement));
+            }
+        }
+        Ok(())
     }
 
     fn check_measurement_order(&self, feature: &Feature, index: usize) -> Result<(), EditError> {
@@ -1679,22 +1709,17 @@ impl Document {
         let measured = Measured::of(self);
         let id = feature.id();
         for parameter in used {
-            let Some(measurement) = measured.measurement(parameter).filter(|other| *other != id)
-            else {
-                continue;
-            };
-            if self
-                .feature_index(measurement)
-                .is_some_and(|position| position >= index)
-            {
-                return Err(EditError::MeasurementBelowUser {
-                    feature: feature.name.clone(),
-                    parameter: self
-                        .parameter_name(parameter)
-                        .unwrap_or_default()
-                        .to_owned(),
-                    measurement: self.feature_name(measurement),
+            let below = measured
+                .measurements_read(parameter)
+                .into_iter()
+                .filter(|other| *other != id)
+                .find(|measurement| {
+                    self.feature_index(*measurement)
+                        .is_some_and(|position| position >= index)
                 });
+            if let Some(measurement) = below {
+                let through = self.reading_path(parameter, measurement);
+                return Err(self.below_user(&feature.name, through, measurement));
             }
         }
         let Some(parameter) = feature
@@ -1704,42 +1729,41 @@ impl Document {
         else {
             return Ok(());
         };
-        let parameter_name = self
-            .parameter_name(parameter)
-            .unwrap_or_default()
-            .to_owned();
         if let Some(other) = measured.measurement(parameter).filter(|other| *other != id) {
             return Err(EditError::ParameterMeasuredTwice {
-                parameter: parameter_name,
+                parameter: self
+                    .parameter_name(parameter)
+                    .unwrap_or_default()
+                    .to_owned(),
                 measurement: self.feature_name(other),
             });
         }
-        if let Some(reader) = self
-            .parameters()
-            .iter()
-            .find(|other| other.expression.uses(parameter))
-        {
-            return Err(EditError::ParameterReadsMeasurement {
-                name: reader.name.clone(),
-                parameter: parameter_name,
-                measurement: feature.name.clone(),
-            });
-        }
-        let at_or_above = self
+        let above: BTreeSet<FeatureId> = self
             .features()
-            .enumerate()
-            .filter(|(position, other)| *position < index && other.id() != id)
-            .map(|(_, other)| other);
-        if let Some(user) = at_or_above
+            .take(index)
+            .map(Feature::id)
+            .filter(|other| *other != id)
+            .collect();
+        let Some(user) = reading_users(self, parameter)
             .into_iter()
-            .find(|other| other.kind.uses_parameter(parameter))
-        {
-            return Err(EditError::MeasurementBelowUser {
-                feature: user.name.clone(),
-                parameter: parameter_name,
-                measurement: feature.name.clone(),
-            });
-        }
-        Ok(())
+            .find(|user| above.contains(&user.id()))
+        else {
+            return Ok(());
+        };
+        let through = user
+            .kind
+            .parameters()
+            .into_iter()
+            .find_map(|candidate| self.parameter_path(candidate, parameter))
+            .unwrap_or_default();
+        let mut path = vec![user.name.clone()];
+        path.extend(through.iter().cloned());
+        path.extend([feature.name.clone(), user.name.clone()]);
+        Err(EditError::MeasurementBelowUser {
+            feature: user.name.clone(),
+            parameter: through.first().cloned().unwrap_or_default(),
+            measurement: feature.name.clone(),
+            path: path.join(" → "),
+        })
     }
 }

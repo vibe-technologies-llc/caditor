@@ -15,14 +15,16 @@ paths:
 ## Evaluation
 
 - `ParameterValues` (`values.rs`) evaluates parameters in dependency order and reports cycles.
-  A measured parameter (`document.md`, Measurement) is `Unmeasured` there; the walk reads it into
-  the parameters of each feature using it from the measurement's result in that feature's view
-  (`Measured::overlay`, `compute`), and `into_evaluation` writes every up-to-date reading into the
-  evaluation's parameters, which `take_readings` carries into the app's own values and drafts.
-  A feature's used features (`Measured::features_read_by`: its `features()` and the measurements
-  of the measured parameters it uses) make its key's upstream, its view and its lookahead
-  dependencies, so a reading that changes recomputes its users, and a failed or suppressed
-  measurement fails them through `missing_upstream`.
+  A measured parameter (`document.md`, Measurement), and every parameter reading one, is
+  `Unmeasured` there; the walk reads the measurements' results in a feature's view into the
+  parameters of each feature using one and works the derived parameters out again in evaluation
+  order (`Measured::overlay`, `derive`, `compute`), and `into_evaluation` does the same with every
+  up-to-date reading for the evaluation's parameters, which `take_readings` carries (measured and
+  derived alike) into the app's own values and drafts. A feature's used features
+  (`Measured::features_read_by`: its `features()` and the measurements its parameters read,
+  directly or through others) make its key's upstream, its view and its lookahead dependencies, so
+  a reading that changes recomputes its users, and a failed or suppressed measurement fails them
+  through `missing_upstream`.
 - `Recompute` walks the features in tree order and reuses a cached result when the feature's
   content (by `same_content`, so a sketch's ID counter and a name do not count), the values of the
   parameters it uses and its upstream results are unchanged. Upstream results count as unchanged

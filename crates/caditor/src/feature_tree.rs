@@ -27,7 +27,7 @@ use crate::{
     files::FileCommand,
     fonts,
     guide::Page,
-    guide_panel, hole_panel, icons, import_panel, mate_panel, measurement_tools, mirror_panel,
+    guide_panel, hole_panel, icons, import_panel, mate_panel, measurement_panel, mirror_panel,
     mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
@@ -1135,7 +1135,7 @@ fn body(
         }
         FeatureKind::Remove(remove) => removal::show(ui, model, actions, feature, remove),
         FeatureKind::Measurement(measurement) => {
-            measurement_tools::show(ui, model, feature, measurement);
+            measurement_panel::show(ui, model, row.selection, actions, feature, measurement);
         }
     }
 }

@@ -431,3 +431,160 @@ fn a_measured_distance_is_kept_in_the_model_and_follows_upstream_edits() {
         Some(&caditor_document::FeatureState::UpToDate)
     );
 }
+
+#[test]
+fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_when_deleted() {
+    use caditor_document::{DatumPoint, FeatureKind, PointReference, reading_literal};
+    use caditor_expression::Quantity;
+
+    use crate::{
+        measurement_panel,
+        measurement_tools::{ALONG_AN_AXIS, MeasuredPart, Quantity as Reads},
+        reference_picking::{self, Picking, Slot},
+    };
+
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let far_point = Point3::new(40.0, 40.0, 10.0);
+    let corner = vertex_at(&harness, body, Point3::ZERO);
+    let far = vertex_at(&harness, body, far_point);
+    let beside = vertex_at(&harness, body, Point3::new(0.0, 40.0, 0.0));
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+    harness.select([corner, far]);
+    let distance = Point3::ZERO.distance(far_point);
+    let expected = LengthUnit::Millimetre.measured_length(distance);
+    harness.wait_until("the distance is measured", |harness| {
+        harness.shows(&expected)
+    });
+    harness.click_button("More for Distance");
+    harness.show_new_windows();
+    harness.click(measurement_tools::KEEP);
+    harness.settle();
+    harness.frame();
+    harness.key(Key::I, Modifiers::NONE);
+    harness.select([]);
+    harness.frame();
+    let parameter = harness.parameter("distance1");
+    let measurement = harness
+        .document()
+        .measurement_of(parameter)
+        .map(caditor_document::Feature::id)
+        .expect("the measurement feeds distance1");
+    let stored = |harness: &Harness| {
+        harness
+            .document()
+            .parameter(parameter)
+            .map(|parameter| parameter.expression.clone())
+    };
+
+    assert_eq!(
+        stored(&harness),
+        reading_literal(Quantity::length(distance)),
+        "the stored value follows the reading"
+    );
+    let undo_steps = harness.model.undo_steps().count();
+
+    harness.perform(Action::Editing(EditingCommand::OpenSolid(measurement)));
+    harness.frame();
+    assert!(harness.shows(measurement_panel::QUANTITY));
+    let kept = harness
+        .document()
+        .feature(measurement)
+        .and_then(|feature| feature.kind.measurement())
+        .cloned()
+        .expect("a measurement");
+    let along =
+        measurement_tools::quantity_change(&harness.model, measurement, &kept, Reads::Along)
+            .expect("two points have an offset along an axis");
+    harness.perform(Action::Apply(along));
+    harness.settle();
+    harness.frame();
+    assert!(harness.shows(ALONG_AN_AXIS));
+    assert_eq!(
+        harness.model.parameters().get(parameter),
+        Some(&Ok(Quantity::length(40.0)))
+    );
+
+    let picking = Picking::new(measurement, Slot::MeasuredItem(MeasuredPart::Second));
+    for action in reference_picking::click(&harness.model, picking, beside) {
+        harness.perform(action);
+    }
+    harness.settle();
+    harness.frame();
+    assert_eq!(
+        harness.model.parameters().get(parameter),
+        Some(&Ok(Quantity::length(0.0))),
+        "the corner beside it lies straight along Y"
+    );
+    let with_y = harness
+        .document()
+        .feature(measurement)
+        .and_then(|feature| feature.kind.measurement())
+        .cloned()
+        .expect("a measurement");
+    let along_y = measurement_tools::reading_with(
+        &harness.model,
+        measurement,
+        &with_y,
+        MeasuredPart::Axis,
+        caditor_document::MeasuredItem::Axis(caditor_document::AxisReference::Principal(
+            caditor_document::PrincipalAxis::Y,
+        )),
+    )
+    .expect("the Y axis can be measured along");
+    harness.perform(Action::Apply(along_y));
+    harness.settle();
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.settle();
+    assert_eq!(
+        harness.model.parameters().get(parameter),
+        Some(&Ok(Quantity::length(40.0)))
+    );
+    assert_eq!(harness.model.undo_steps().count(), undo_steps + 3);
+    let half = add_parameters(&mut harness, &[("half", "distance1 / 2")]);
+    assert_eq!(
+        harness.model.parameters().get(half[0]),
+        Some(&Ok(Quantity::length(20.0))),
+        "a parameter reads the measured one"
+    );
+
+    let mut transaction = harness.document().transaction("Read it");
+    let reader = transaction.add_feature(
+        "Reader",
+        FeatureKind::Datum(caditor_document::Datum::Point(DatumPoint {
+            base: PointReference::Origin,
+            offset: [
+                Expression::Parameter(parameter),
+                Expression::Measure(0.0, caditor_expression::Unit::Millimetre),
+                Expression::Measure(0.0, caditor_expression::Unit::Millimetre),
+            ],
+        })),
+    );
+    harness.perform(Action::Apply(transaction.finish()));
+    harness.settle();
+    let deletion = harness
+        .document()
+        .deletion(&[measurement], "Delete Measurement 1");
+    harness.perform(Action::Apply(deletion));
+    harness.settle();
+
+    assert!(harness.document().measurement_of(parameter).is_none());
+    assert_eq!(stored(&harness), reading_literal(Quantity::length(40.0)));
+    assert_eq!(
+        harness.model.parameters().get(parameter),
+        Some(&Ok(Quantity::length(40.0)))
+    );
+    assert_eq!(
+        harness
+            .model
+            .evaluation()
+            .feature(reader)
+            .map(|status| &status.state),
+        Some(&caditor_document::FeatureState::UpToDate)
+    );
+    assert_eq!(
+        harness.model.parameters().get(half[0]),
+        Some(&Ok(Quantity::length(20.0)))
+    );
+}

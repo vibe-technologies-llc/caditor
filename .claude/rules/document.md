@@ -95,7 +95,7 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   identified by its parameter's own stable `ParameterId`, never by the field's place in the
   feature, and renaming, dependency order, cycle checks, inlining and deletion are those of
   parameters. A measured value reaches expressions only through a measurement's parameter
-  (Measurement below), read by features below it, never by another parameter.
+  (Measurement below), read by features below it, directly or through other parameters.
 - `Parameter::owner` (`ParameterOwner`) says which value it names: `Feature { feature, value }`,
   `value` the field's caption, kept on one trimmed line, past `MAX_VALUE_LABEL_CHARS` refused as
   `ValueLabelTooLong`; or `Dimension { sketch, constraint }`. It is content like a note: compared
@@ -960,30 +960,49 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 ### Measurement (`measurement.rs`)
 
 - `Measurement { reading, parameter }` keeps a reading of the model in the tree: `Reading::Between`
-  (`Between::Distance` or `Angle`) of two `MeasuredItem`s, or `Reading::Of` (`Of::Length`,
-  `Radius`, `Area`) of one. An item is a `PointReference`, `AxisReference`, `PlaneReference`, an
-  edge or face of a body (`EdgeReference`, `FaceReference`) or a sketch entity (a point or a
-  curve on the sketch's solved plane), resolved at the measurement's place like a datum's
-  references (`Resolver`), so its bodies, datums, frames and sketches count as used and healing
-  visits its edges and faces. It changes no body (`Feature::body` is none) and can be hidden.
+  (`Between::Distance` or `Angle`) of two `MeasuredItem`s, `Reading::Along` (the offset between two
+  items along a third, an axis item: the size of the closest points' offset projected on its
+  direction, as Measure's Along X reads it) or `Reading::Of` (`Of::Length`, `Radius`,
+  `Sweep`, `Area`, `Perimeter`) of one. An item is a `PointReference`, `AxisReference`,
+  `PlaneReference`, an edge or face of a body (`EdgeReference`, `FaceReference`) or a sketch entity
+  (a point or a curve on the sketch's solved plane), resolved at the measurement's place like a
+  datum's references (`Resolver`), so its bodies, datums, frames and sketches count as used
+  (`MeasuredItem::features`) and healing visits its edges and faces (an offset's axis as its
+  measuring axis). It changes no body (`Feature::body` is none) and can be hidden.
 - Its result is `FeatureResult::Measurement` (`MeasurementResult`: the value as a `Quantity` in
-  millimetres, degrees or square millimetres, the closest points of a distance or angle as `line`,
-  an `anchor` to label it at and the kernel's `Accuracy`); dependents compare only the value. The
-  kernel measures it (`distance`, `angle`, `edge_measure`, `curve_measure`, `face_form`,
-  `face_area`); a reference lost or tied, two items with no angle, an edge with no length or an
-  item with no radius or area fails it alone in words.
-- `parameter` (optional) is the parameter its reading feeds, the measured parameter. Its own
-  expression is only the value read when it was kept, which older versions and an ordinary
-  parameter left by deleting the measurement use; this version never evaluates it
-  (`ParameterError::Unmeasured` until recompute reads it, `values.rs`). `Measured` maps measured
-  parameters to their measurements: a feature using one depends on the measurement
-  (`dependencies_of`, which `dependents_of`, `MoveFeature` and the app's Uses and Used by take), so
-  a move past it is refused like any dependency. Edits refuse a parameter reading a measured one
-  (`ParameterReadsMeasurement`), a feature at or above the measurement reading it
-  (`MeasurementBelowUser`), both naming the cycle as a path, a second measurement feeding the same
-  parameter (`ParameterMeasuredTwice`), and inlining a measured parameter
-  (`MeasuredParameterInlined`), whose stand-in would silently replace the reading. A pasted
-  measurement feeds nothing; its references follow a datum's paste rules.
+  millimetres, degrees or square millimetres, the closest points of a distance, angle or offset as
+  `line`, an `anchor` to label it at and the kernel's `Accuracy`); dependents compare only the
+  value. The kernel measures it (`distance`, `angle`, `edge_measure`, `curve_measure`, `face_form`,
+  `face_area`); a sweep is a circular edge's or curve's turn in degrees, a perimeter the length of a
+  face's outer loop, seams left out (`face_perimeter`, which Measure's face cards also read). A
+  reference lost or tied, two items with no angle, an axis giving no direction, an edge with no
+  length or an item with no radius, sweep, area or perimeter fails it alone in words.
+- `parameter` (optional) is the parameter its reading feeds, the measured parameter. This version
+  never evaluates its own expression (`ParameterError::Unmeasured` until recompute reads it,
+  `values.rs`), which is kept as the latest reading for older versions and for the ordinary
+  parameter deleting the measurement leaves: `Document::following_readings` turns each up-to-date
+  reading that differs from it into a `SetParameterExpression` of `reading_literal` (millimetres,
+  degrees, or `mm` squared), which `Editor::follow_readings` applies to its document outside the
+  undo history and without a new revision, since it changes nothing computed (the app runs it on
+  every evaluation of the current revision, `app.md`); a prepared commit or undo that drops it is
+  followed again on the next evaluation. `Document::deletion` (`keeping_readings`) also writes the
+  stored reading into each surviving measured parameter in the deletion's own transaction, so a
+  journal replayed onto a base that never followed still leaves the last reading. A failed or
+  suppressed measurement's users still fail; the stored value is not a fallback inside this
+  version.
+- `Measured` maps measured parameters to their measurements and every parameter reading one,
+  directly or through others, to the measurements it reads (`measurements_read`, from the
+  evaluation order), keeping those derived parameters' expressions. A feature using a measured or
+  derived parameter depends on its measurements (`dependencies_of`, which `dependents_of`,
+  `MoveFeature` and the app's Uses and Used by take), so a move past one is refused like any
+  dependency. Edits refuse a feature at or above a measurement it reads, an expression change
+  making a parameter read a measurement some feature using it (`reading_users`) does not stand
+  below, and a measurement placed below a feature reading its parameter, each as
+  `MeasurementBelowUser` naming the chain as a path ("Base → half → clearance → Measurement 1 →
+  Base", `Document::parameter_path`); a second measurement feeding the same parameter
+  (`ParameterMeasuredTwice`); and inlining a measured parameter (`MeasuredParameterInlined`),
+  whose stand-in would silently replace the reading. A pasted measurement feeds nothing; its
+  references follow a datum's paste rules.
 
 ### Import (`import.rs`)
 

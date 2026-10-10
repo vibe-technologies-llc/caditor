@@ -8837,3 +8837,68 @@ fn an_unreadable_measured_item_measures_from_the_origin_and_is_reported() {
     assert_eq!(*first, MeasuredItem::Point(PointReference::Origin));
     assert_eq!(*second, MeasuredItem::Point(PointReference::Origin));
 }
+
+#[test]
+fn offsets_along_an_axis_sweeps_and_perimeters_are_saved_and_loaded() {
+    use caditor_document::{
+        AxisReference, MeasuredItem, Measurement, Of, PointReference, PrincipalAxis, Reading,
+    };
+    let (mut document, measurement, _) = measured_model();
+    let corner = MeasuredItem::Point(PointReference::Origin);
+    let mut transaction = document.transaction("Keep");
+    let along = transaction.add_feature(
+        "Along",
+        FeatureKind::from(Measurement {
+            reading: Reading::Along {
+                first: corner.clone(),
+                second: corner.clone(),
+                axis: MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::Y)),
+            },
+            parameter: None,
+        }),
+    );
+    for (name, quantity) in [("Sweep", Of::Sweep), ("Perimeter", Of::Perimeter)] {
+        transaction.add_feature(
+            name,
+            FeatureKind::from(Measurement {
+                reading: Reading::Of {
+                    quantity,
+                    item: corner.clone(),
+                },
+                parameter: None,
+            }),
+        );
+    }
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let unreadable_axis =
+        decode_text(&text.replacen("{\"axis\":{\"principal\":\"y\"}}", "{\"axis\":7}", 1));
+
+    assert!(text.contains("\"quantity\":\"along\""), "{text}");
+    assert!(text.contains("\"quantity\":\"sweep\""));
+    assert!(text.contains("\"quantity\":\"perimeter\""));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(document.feature(measurement).is_some());
+    assert_eq!(
+        unreadable_axis.issues,
+        [
+            "What “Along” measures could not be read in full, so it measures from the origin or \
+             along the X axis instead; measure again and keep the measurement."
+        ]
+    );
+    let Some(Reading::Along { axis, .. }) = unreadable_axis
+        .document
+        .feature(along)
+        .and_then(|feature| feature.kind.measurement())
+        .map(|measurement| &measurement.reading)
+    else {
+        panic!("an offset along an axis stays one");
+    };
+    assert_eq!(
+        *axis,
+        MeasuredItem::Axis(AxisReference::Principal(PrincipalAxis::X))
+    );
+}
