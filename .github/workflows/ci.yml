@@ -89,10 +89,7 @@ jobs:
           CADITOR_REQUIRE_GPU: "1"
           WGPU_BACKEND: gl
           LIBGL_ALWAYS_SOFTWARE: "1"
-        run: |
-          as-builder cargo test --locked -p caditor-render --lib offscreen_tests -- \
-            --skip a_viewport_away_from_the_corner_draws_and_picks_inside_its_rect_only \
-            --skip an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again
+        run: as-builder cargo test --locked -p caditor-render --lib offscreen_tests
 
       - name: Check that the tests left the checkout clean
         run: |

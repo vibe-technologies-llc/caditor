@@ -115,7 +115,6 @@ impl Multisampled {
 
 struct ColorAttachment<'a> {
     view: &'a wgpu::TextureView,
-    resolve_target: Option<&'a wgpu::TextureView>,
     store: wgpu::StoreOp,
     linear_resolve: Option<(&'a wgpu::TextureView, &'a wgpu::TextureView)>,
 }
@@ -127,23 +126,19 @@ impl<'a> ColorAttachment<'a> {
         linear_target: Option<&'a wgpu::TextureView>,
     ) -> Self {
         match multisampled {
-            Some(multisampled) => match multisampled.linear.as_ref().zip(linear_target) {
-                Some(linear_resolve) => Self {
-                    view: &multisampled.view,
-                    resolve_target: None,
-                    store: wgpu::StoreOp::Store,
-                    linear_resolve: Some(linear_resolve),
-                },
-                None => Self {
-                    view: &multisampled.view,
-                    resolve_target: Some(target),
-                    store: wgpu::StoreOp::Discard,
-                    linear_resolve: None,
-                },
+            Some(multisampled) => Self {
+                view: &multisampled.view,
+                store: wgpu::StoreOp::Store,
+                linear_resolve: Some(
+                    multisampled
+                        .linear
+                        .as_ref()
+                        .zip(linear_target)
+                        .unwrap_or((&multisampled.view, target)),
+                ),
             },
             None => Self {
                 view: target,
-                resolve_target: None,
                 store: wgpu::StoreOp::Store,
                 linear_resolve: None,
             },
@@ -357,7 +352,7 @@ impl ImageTargets {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: attachment.view,
                 depth_slice: None,
-                resolve_target: attachment.resolve_target,
+                resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(clear),
                     store: attachment.store,
@@ -1200,7 +1195,7 @@ impl ViewportRenderer {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: attachment.view,
                 depth_slice: None,
-                resolve_target: attachment.resolve_target,
+                resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(self.background),
                     store: attachment.store,

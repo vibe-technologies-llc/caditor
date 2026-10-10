@@ -109,6 +109,36 @@ opt-level = 3
 [profile.dev.package.robust]
 opt-level = 3
 
+[profile.dev.package.epaint]
+opt-level = 3
+
+[profile.dev.package.harfrust]
+opt-level = 3
+
+[profile.dev.package.skrifa]
+opt-level = 3
+
+[profile.dev.package.read-fonts]
+opt-level = 3
+
+[profile.dev.package.font-types]
+opt-level = 3
+
+[profile.dev.package.vello_cpu]
+opt-level = 3
+
+[profile.dev.package.vello_common]
+opt-level = 3
+
+[profile.dev.package.fearless_simd]
+opt-level = 3
+
+[profile.dev.package.unicode-segmentation]
+opt-level = 3
+
+[profile.dev.package.unicode-general-category]
+opt-level = 3
+
 [profile.release]
 opt-level = 3
 codegen-units = 1

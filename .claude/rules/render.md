@@ -179,9 +179,12 @@ paths:
   lands in the kept view, never the surface, so the surface needs no sRGB view format and a
   conservatively configured one resolves linearly too. Image tiles on the viewport background do
   the same; a transparent image resolves in gamma, since its bands straighten premultiplied
-  colour there. GL and other devices without view formats resolve in gamma as before. The extra
-  pass costs a few microseconds a frame in the frame-cost benchmark (release, 1600 by 1000 at
-  4x).
+  colour there. GL and other devices without view formats resolve in gamma, through the same empty
+  pass over the plain views and never as the scene pass's own resolve target: wgpu's GL backend
+  runs that resolve as a blit under the pass's scissor, which would resolve only the viewport's
+  rect and leave the kept view transparent black outside it (offscreen tests, run on GL in CI).
+  The extra pass costs a few microseconds a frame in the frame-cost benchmark (release, 1600 by
+  1000 at 4x).
 
 ## Depth, buffers and layers
 

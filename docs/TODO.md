@@ -411,17 +411,16 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 
 ## Checks and CI
 
-- [low · medium] Two offscreen render tests are skipped on the OpenGL backend in CI
-  (`a_viewport_away_from_the_corner_draws_and_picks_inside_its_rect_only` and
-  `an_unchanged_frame_copies_the_kept_view_and_every_change_draws_it_again`): on GL (llvmpipe) the
-  surface outside the viewport's rect reads transparent black instead of `BACKGROUND`, so the kept
-  view seems resolved only within the scissor set for the rect. It cannot show in the app, where
-  panels cover that area, but it is unexplained; find the cause, fix the pass or the tests, and
-  drop the `--skip`s. The start check (`packaging/check-run.sh`) runs the packaged program on
-  Vulkan only, never with `WGPU_BACKEND=gl`, and recovers an untitled document, not an opened
-  model's adjacent journal, and stops at the recovery offer without pressing Restore.
-- [low · medium] Slow tests to keep an eye on: about a third of the UI tests (75 of 219) take over a
-  second each in a debug build, and the UI suite takes about 3.5 minutes on one thread.
+- [low · medium] The start check (`packaging/check-run.sh`) runs the packaged program on Vulkan
+  only, never with `WGPU_BACKEND=gl`, and recovers an untitled document, not an opened model's
+  adjacent journal, and stops at the recovery offer without pressing Restore.
+- [low · medium] Slow tests to keep an eye on: with egui's font stack built optimised in the dev
+  profile (`dependencies.md`) the 647 UI tests take about 200 s on one thread (0.3 s each on
+  average), and 10 take over a second: `icon_buttons_are_named_and_captions_label_their_fields_for_screen_readers`
+  (2.8 s, AccessKit on every one of its many frames), the shortcut reset tests, the hole and
+  section panel tests and the PNG export test (1.0 to 1.7 s). Their cost is now in the app's own
+  unoptimised frames and in recompute and meshing of the bodies they build, so they would need
+  smaller models or fewer frames rather than a build setting.
 
 ## Scope decisions
 
