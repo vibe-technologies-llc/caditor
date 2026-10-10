@@ -32,7 +32,8 @@ transparent one. Hover, selection and labels are left out.
 
 {command:file.export_sketch} and {command:file.export_face} write sketches and flat faces as DXF or
 SVG for laser cutting or drawing programs. Lay them out side by side, or nested on a sheet of a
-width you give, with or without dimensions and names. {command:file.keep_drawing_construction}
+width you give, with or without dimensions and names. Every dimension is written: those along one
+line stack outward as on the canvas, and a label that would overlap another is moved clear of it. {command:file.keep_drawing_construction}
 also writes construction geometry, on a dashed layer of its own.
 
 ## Parameters

@@ -715,10 +715,12 @@ paths:
 
 ## Annotations
 
-- Drawn with the egui painter (`annotations.rs`, placement in `annotation_layout.rs`) from the
+- Drawn with the egui painter (`annotations.rs`, placement in `annotation_layout.rs` over the
+  unit-free part shared with drawing export, `caditor_sketch::annotation`: what each dimension
+  measures, lanes, label obstacles) from the
   displayed geometry through the current view, with offsets and sizes in screen points. Unplaced
   dimensions sit away from the sketch's centre, and linear ones measured along one line on one
-  side whose spans overlap stack into lanes (`annotation_layout::lanes`, shortest nearest,
+  side whose spans overlap stack into lanes (`annotation::lanes`, shortest nearest,
   `LANE_SPACING` apart), so an overall dimension clears the chain beneath it; other constraints
   are glyphs stacked beside each constrained entity on the opposite side.
 - Dragging a dimension's label places it: the offset is stored with the dimension (`sketch.md`)
@@ -769,7 +771,8 @@ paths:
   keyboard-highlighted one, the one dragged, the one edited inline and the one waiting for its
   field are laid out first and wherever they are, so Move to and Focus::Dimension still reach an
   off-screen label; any other label that labels laid out before it already cover by more than
-  `MOST_LABEL_COVER` of its area is left out with its dimension (`Obstacles::mostly_cover`), so a
+  `MOST_LABEL_COVER` of its area is left out with its dimension
+  (`annotation_layout::mostly_covered`), so a
   pile of labels zoomed out thins to the readable ones. The ignored
   `frame_costs_on_a_large_sketch_and_a_large_model` (`viewport.rs`) times annotations idle and
   with the camera moving, zoomed out over `large_sketch` (5,000 dimensions, 3,000 glyph

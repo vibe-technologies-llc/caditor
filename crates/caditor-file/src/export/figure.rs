@@ -125,7 +125,7 @@ impl Text {
         }
     }
 
-    fn corners(&self) -> Vec<Point2> {
+    pub(super) fn corners(&self) -> Vec<Point2> {
         let along = Vector2::from_angle(self.angle);
         let up = along.perp();
         let width = self.width();

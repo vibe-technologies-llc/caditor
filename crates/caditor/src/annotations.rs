@@ -6,16 +6,16 @@ use std::{
 use caditor_document::{FeatureId, FeatureState, Transaction};
 use caditor_expression::{Dimension, Expression, Quantity};
 use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{Constraint, ConstraintId, Entity, EntityId, Sketch, SketchSolution};
+use caditor_sketch::{
+    Constraint, ConstraintId, Entity, EntityId, Sketch, SketchSolution,
+    annotation::{self, Footprint, Measured, Obstacles},
+};
 use egui::{
     Align2, Color32, Galley, Id, Key, Order, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, Ui, vec2,
 };
 
 use crate::{
-    annotation_layout::{
-        self, DimensionLayout, Footprint, GlyphKind, LabelFrame, Measured, Obstacles, Reach,
-        Thinning,
-    },
+    annotation_layout::{self, DimensionLayout, GlyphKind, LabelFrame, Reach, Thinning},
     appearance, canvas,
     field::{self, DimensionTarget},
     model::{Action, Model},
@@ -307,7 +307,7 @@ impl Measures {
         let mut measured = Vec::new();
         for (id, constraint) in definition.constraints() {
             if constraint.dimension().is_some() {
-                measured.push((id, annotation_layout::measured(shown, constraint)));
+                measured.push((id, annotation::measured(shown, constraint)));
                 continue;
             }
             for (entity, kind) in annotation_layout::glyphs_of(shown, constraint) {
@@ -324,7 +324,7 @@ impl Measures {
             .iter()
             .map(|(id, measured)| measured.filter(|_| !placed(*id)))
             .collect();
-        let lanes = annotation_layout::lanes(&unplaced, centre, extent_of(shown));
+        let lanes = annotation::lanes(&unplaced, centre, extent_of(shown));
         let dimensions = measured
             .into_iter()
             .zip(lanes)
@@ -437,7 +437,7 @@ impl Marks {
                     .into_iter()
                     .map(|dimension| (dimension, Thinning::WhenCrowded)),
             );
-        let mut labels = Obstacles::default();
+        let mut labels = annotation_layout::obstacles();
         let mut dimensions = Vec::new();
         for (dimension, thinning) in ordered {
             let id = dimension.constraint;
@@ -478,7 +478,9 @@ impl Marks {
             });
             if let Some(rect) = label {
                 let taken = footprint(key.rect, rect);
-                if thinning == Thinning::WhenCrowded && labels.mostly_cover(&taken) {
+                if thinning == Thinning::WhenCrowded
+                    && annotation_layout::mostly_covered(&labels, &taken)
+                {
                     continue;
                 }
                 labels.add(taken);
@@ -494,7 +496,7 @@ impl Marks {
         }
         dimensions.sort_by_key(|mark| mark.constraint);
         let glyphs = if key.glyphs {
-            let mut blocked = Obstacles::default();
+            let mut blocked = annotation_layout::obstacles();
             for rect in dimensions.iter().filter_map(|mark| mark.label) {
                 blocked.add(footprint(key.rect, rect.expand(GLYPH_CLEARANCE)));
             }

@@ -325,11 +325,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   shaping beyond pair kerning (ligatures, marks, right-to-left scripts) are not applied, and
   letters of different glyphs that overlap are not merged into one outline. Inter's italic
   (`InterVariable-Italic.ttf`) would have to be bundled beside the upright face.
-- [low · medium] Drawing export places dimensions by a fixed offset from the sketch's middle
-  without the canvas's lanes or obstacle avoidance, so crowded sketches overlap their labels. The
-  canvas's layout lives in `caditor`'s `annotation_layout.rs`, which `caditor-file` cannot call
-  without a dependency cycle; it would have to move to a crate both use (or the app hand the
-  exporter its placed labels).
 
 ## Mesh import and export
 
