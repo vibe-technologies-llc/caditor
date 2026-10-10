@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
     ffi::OsString,
     fs, io,
@@ -2866,12 +2867,12 @@ pub fn menu(
                     _ => None,
                 };
                 let availability = match (command, unavailable) {
-                    (Command::ExportAgain, _) => again.clone().map(|_| ()).map_err(str::to_owned),
+                    (Command::ExportAgain, _) => again.clone().map(|_| ()).map_err(Cow::Borrowed),
                     (_, Some(reason)) => offers
                         .iter()
                         .find(|offer| offer.command == command)
                         .map_or_else(
-                            || Err(reason.to_owned()),
+                            || Err(Cow::Borrowed(reason)),
                             |offer| offer.availability.clone(),
                         ),
                     (_, None) => Ok(()),
@@ -2886,7 +2887,7 @@ pub fn menu(
                     })
                     .inner;
                 let response = match (hint, &availability) {
-                    (_, Err(reason)) => response.on_disabled_hover_text(reason),
+                    (_, Err(reason)) => response.on_disabled_hover_text(reason.as_ref()),
                     (Some(hint), Ok(())) => response.on_hover_text(hint),
                     (None, Ok(())) => response,
                 };

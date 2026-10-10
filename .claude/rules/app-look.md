@@ -50,7 +50,8 @@ paths:
   on Linux under the XDG data directories and `~/.fonts`; Segoe UI, Microsoft YaHei, Malgun Gothic,
   Nirmala UI and the like in the Windows and per-user font folders), a `-Regular` name also
   matching its variable font (`Name[wght].ttf`). Each file is read whole, at most `MAX_FONT_BYTES`,
-  and kept only when its header is one egui parses (`is_loadable` repeats the checks that would
+  leaked as `'static` data (the search runs once per process) so egui borrows it instead of copying it
+  at every `set_fonts`, and kept only when its header is one egui parses (`is_loadable` repeats the checks that would
   otherwise panic inside egui). The fonts found are appended after Inter and egui's own fallbacks
   in every text family (`fonts::definitions_with`) and installed when they arrive; line heights
   stay Inter's, since egui takes metrics from the first font. Finding none, or failing to look,

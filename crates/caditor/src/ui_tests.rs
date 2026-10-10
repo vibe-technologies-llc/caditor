@@ -1893,7 +1893,7 @@ fn a_chosen_sketch_exports_to_a_dxf_of_its_curves_and_replacing_asks_first() {
     assert_eq!(
         availability(&harness),
         Some(Err(
-            "Choose a sketch in the feature tree, or edit one, to export it".to_owned()
+            "Choose a sketch in the feature tree, or edit one, to export it".into()
         ))
     );
 
@@ -2056,7 +2056,7 @@ fn a_selected_flat_face_exports_to_a_dxf_of_its_outline() {
     assert_eq!(
         availability(&harness),
         Some(Err(
-            "Select one or more flat faces of bodies to export their outlines".to_owned()
+            "Select one or more flat faces of bodies to export their outlines".into()
         ))
     );
 
@@ -11700,7 +11700,7 @@ fn a_linear_pattern_repeats_the_body_and_takes_its_count_and_directions_from_the
 
     assert_eq!(
         offer(&harness, Command::PatternSecondUseSelected).availability,
-        Err("Select an axis, straight edge or round face made before this pattern".to_owned())
+        Err("Select an axis, straight edge or round face made before this pattern".into())
     );
     harness.select([Pickable::Axis(Axis::Y)]);
     run_from_palette(&mut harness, "pattern also along selected");
@@ -13465,11 +13465,11 @@ fn a_sketch_is_placed_on_the_selected_face_and_detached_from_the_palette() {
     harness.click("Loose");
     assert_eq!(
         offer(&harness, Command::PlaceSketch).availability,
-        Err("Select a datum plane or a flat face to place the sketch on".to_owned())
+        Err("Select a datum plane or a flat face to place the sketch on".into())
     );
     assert_eq!(
         offer(&harness, Command::DetachSketch).availability,
-        Err("Loose does not lie on a face or datum plane".to_owned())
+        Err("Loose does not lie on a face or datum plane".into())
     );
 
     harness.select([top]);
@@ -13542,7 +13542,7 @@ fn a_revolve_and_a_datum_plane_take_the_selection_from_the_palette() {
     assert!(datum_plane(&harness, plane).normal().z.abs() > 0.999);
     assert_eq!(
         offer(&harness, Command::DatumUseSelected).availability,
-        Err("Select a plane or flat face made before this plane".to_owned())
+        Err("Select a plane or flat face made before this plane".into())
     );
     harness.select([Pickable::Plane(PrincipalPlane::Xz)]);
     run_from_palette(&mut harness, "base datum on selection");
@@ -13602,7 +13602,7 @@ fn a_parameter_is_deleted_and_a_failed_feature_found_from_the_keyboard() {
         offer(&harness, Command::DeleteParameter).availability,
         Err(
             "Click or tab into a parameter's name or expression in the Parameters section first"
-                .to_owned()
+                .into()
         )
     );
     let width = harness.parameter("width");
@@ -13756,13 +13756,10 @@ fn parameters_are_reordered_and_noted_from_the_keyboard() {
 
     assert_eq!(
         at_bottom,
-        Err("height is already the last parameter".to_owned())
+        Err("height is already the last parameter".into())
     );
     assert_eq!(moved, ["height", "width"]);
-    assert_eq!(
-        at_top,
-        Err("height is already the first parameter".to_owned())
-    );
+    assert_eq!(at_top, Err("height is already the first parameter".into()));
     assert!(focused);
     assert_eq!(
         harness.document().parameter(height).unwrap().note,
@@ -17264,7 +17261,7 @@ fn the_pull_direction_follows_the_selected_face_and_reverses_from_the_palette() 
 
     assert_eq!(
         offered(&harness).map(|offer| offer.availability),
-        Some(Err(Refusal::NothingGivesADirection.to_string()))
+        Some(Err(Refusal::NothingGivesADirection.to_string().into()))
     );
 
     harness.select([top]);

@@ -585,6 +585,9 @@ impl Analyses {
         analysis: Option<FaceAnalysis>,
         meshes: &[Arc<ShadedMesh>],
     ) -> Option<FaceAnalysis> {
+        if analysis.is_none() {
+            self.entries.lock().clear();
+        }
         let mut occluders = self.occluders.lock();
         let Some(FaceAnalysis::Reach { reach, .. }) = analysis else {
             *occluders = None;
@@ -1365,6 +1368,24 @@ mod tests {
             Outcome::Working
         ));
         assert_eq!(analyses.prepare(None, &meshes), None);
+    }
+
+    #[test]
+    fn closing_the_analysis_drops_the_split_meshes() {
+        let analyses = Analyses::default();
+        let meshes = plate();
+        let analysis = FaceAnalysis::Radius { limit: 5.0 };
+        let mesh = meshes.first().unwrap();
+
+        let Outcome::Ready(analysed) = analyses.of(mesh, analysis) else {
+            panic!("a small mesh is analysed inline");
+        };
+        let held = Arc::downgrade(&analysed);
+        drop(analysed);
+
+        assert!(held.upgrade().is_some());
+        assert_eq!(analyses.prepare(None, &meshes), None);
+        assert!(held.upgrade().is_none());
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{BTreeSet, VecDeque},
     path::{Path, PathBuf},
     sync::Arc,
@@ -655,6 +656,10 @@ impl Model {
 
     pub fn display_name(&self) -> String {
         display_name(self.path())
+    }
+
+    pub fn display_label(&self) -> Cow<'_, str> {
+        display_label(self.path())
     }
 
     pub fn is_dirty(&self) -> bool {
@@ -1491,9 +1496,13 @@ impl Model {
 }
 
 pub fn display_name(path: Option<&Path>) -> String {
+    display_label(path).into_owned()
+}
+
+pub fn display_label(path: Option<&Path>) -> Cow<'_, str> {
     path.and_then(Path::file_name)
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| UNTITLED.to_owned())
+        .map(|name| name.to_string_lossy())
+        .unwrap_or(Cow::Borrowed(UNTITLED))
 }
 
 fn saved_notice(backup: Option<&Path>, dropped_for_size: usize) -> Option<Notice> {

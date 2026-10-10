@@ -1,10 +1,14 @@
+use std::borrow::Cow;
+
 use caditor_document::{DatumResult, displayed_frame, face_plane};
 use caditor_expression::{Dimension, Expression, Unit};
 use caditor_geometry::{Plane, Point3, Rotation3};
 use caditor_render::{CutFace, MAX_SECTION_PLANES, SectionPlane};
 
 use crate::{
-    bodies, datum_tools,
+    bodies,
+    commands::Reason,
+    datum_tools,
     model::Model,
     scene,
     selection::{Pickable, PrincipalPlane, Selection},
@@ -67,20 +71,38 @@ pub enum Problem {
     ValueUnreadable,
 }
 
+const NOTHING_GIVES_A_PLANE: &str =
+    "Select a plane, a datum plane, a flat face or a sketch to put the section on.";
+const CLOSED: &str = "Open the section view to change its planes";
+const NO_PLANE: &str = "There is no section plane. Add one first.";
+
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum Refusal {
-    #[error("Select a plane, a datum plane, a flat face or a sketch to put the section on.")]
+    #[error("{NOTHING_GIVES_A_PLANE}")]
     NothingGivesAPlane,
     #[error("{0} of the selected items give a plane. Select one to put the section on.")]
     SeveralGiveAPlane(usize),
     #[error("{0} items are selected. Select one plane or flat face to put the section on.")]
     TooManySelected(usize),
-    #[error("Open the section view to change its planes")]
+    #[error("{CLOSED}")]
     Closed,
-    #[error("There is no section plane. Add one first.")]
+    #[error("{NO_PLANE}")]
     NoPlane,
     #[error("A section shows at most {MAX_SECTION_PLANES} planes at once")]
     TooManyPlanes,
+}
+
+impl Reason for Refusal {
+    fn reason(&self) -> Cow<'static, str> {
+        match self {
+            Self::NothingGivesAPlane => Cow::Borrowed(NOTHING_GIVES_A_PLANE),
+            Self::Closed => Cow::Borrowed(CLOSED),
+            Self::NoPlane => Cow::Borrowed(NO_PLANE),
+            Self::SeveralGiveAPlane(_) | Self::TooManySelected(_) | Self::TooManyPlanes => {
+                Cow::Owned(self.to_string())
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

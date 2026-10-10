@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{SavedViews, SelectionSets};
 use egui::{
     Align, CornerRadius, Id, Label, Layout, Popup, Rect, Response, RichText, Sense, Shape, Stroke,
@@ -402,11 +404,11 @@ impl<'a> MenuEntries<'a> {
         self
     }
 
-    pub fn availability(&self, command: Command) -> Result<(), String> {
+    pub fn availability(&self, command: Command) -> Result<(), Cow<'static, str>> {
         match self.offers.iter().find(|offer| offer.command == command) {
             Some(offer) => offer.availability.clone(),
-            None if command.scope() == Scope::Sketch => Err(SKETCH_ONLY.to_owned()),
-            None => Err(NOT_HERE.to_owned()),
+            None if command.scope() == Scope::Sketch => Err(Cow::Borrowed(SKETCH_ONLY)),
+            None => Err(Cow::Borrowed(NOT_HERE)),
         }
     }
 
@@ -466,14 +468,19 @@ impl<'a> MenuEntries<'a> {
             .map(|shortcut| commands::display(&shortcut))
     }
 
-    fn respond(&mut self, command: Command, response: Response, availability: &Result<(), String>) {
+    fn respond(
+        &mut self,
+        command: Command,
+        response: Response,
+        availability: &Result<(), Cow<'static, str>>,
+    ) {
         if self.focus_first && availability.is_ok() {
             response.request_focus();
             self.focus_first = false;
         }
         let response = match availability {
             Ok(()) => response,
-            Err(reason) => response.on_disabled_hover_text(reason),
+            Err(reason) => response.on_disabled_hover_text(reason.as_ref()),
         };
         if response.clicked() {
             self.chosen.push(command);
@@ -492,7 +499,7 @@ struct Menus<'a> {
 }
 
 impl Menus<'_> {
-    fn availability(&self, command: Command) -> Result<(), String> {
+    fn availability(&self, command: Command) -> Result<(), Cow<'static, str>> {
         self.entries.availability(command)
     }
 

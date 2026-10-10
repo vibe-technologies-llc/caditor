@@ -349,7 +349,7 @@ fn load(path: &Path) -> Option<FallbackFont> {
     log::info!("{} is used for text in other scripts", path.display());
     Some(FallbackFont {
         key: format!("{KEY_PREFIX}{name}"),
-        data: Arc::new(FontData::from_owned(bytes)),
+        data: Arc::new(FontData::from_static(Box::leak(bytes.into_boxed_slice()))),
     })
 }
 

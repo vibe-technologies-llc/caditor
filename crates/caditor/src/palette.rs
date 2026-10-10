@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use caditor_document::{ConfigurationId, Document};
 use egui::{
     Align, Align2, CornerRadius, Id, Key, Label, Layout, Margin, Modal, Modifiers, Rect, Response,
@@ -6,7 +8,7 @@ use egui::{
 
 use crate::{
     appearance::{self, CONTROL_HEIGHT, DIALOG_MARGIN, SPACE_M, SPACE_S, WIDGET_RADIUS},
-    commands::{self, Command, Keymap, Offer, Scope},
+    commands::{Command, Keymap, Offer, Scope},
     feature_tree, icons,
     panels::Focus,
     toggles::{Shown, ToggleStates},
@@ -70,7 +72,7 @@ pub enum Choice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum State {
     Ready,
-    Unavailable(String),
+    Unavailable(Cow<'static, str>),
     OutOfContext(&'static str),
 }
 
@@ -346,7 +348,7 @@ impl Palette {
                     keys: None,
                     shown: None,
                     state: if active {
-                        State::Unavailable("it is already the active configuration".to_owned())
+                        State::Unavailable(Cow::Borrowed("it is already the active configuration"))
                     } else {
                         State::Ready
                     },
@@ -521,9 +523,7 @@ fn command_entry(
         title,
         glyph: icons::command(command),
         note: Some(command.category().label().to_owned()),
-        keys: keymap
-            .first(command)
-            .map(|shortcut| commands::display(&shortcut)),
+        keys: keymap.hint(command).map(str::to_owned),
         shown: toggles.shown(command),
         state,
     }
@@ -683,7 +683,7 @@ mod tests {
             availability: if ready {
                 Ok(())
             } else {
-                Err("Select edges".to_owned())
+                Err(Cow::Borrowed("Select edges"))
             },
             detail: None,
         }
@@ -836,6 +836,6 @@ mod tests {
             "Draw line is not available here: it works only while a sketch is edited."
         );
         assert!(entries.iter().all(|entry| entry.choice
-            != Choice::Command(Command::OpenRecent(commands::RecentSlot::ALL[0]))));
+            != Choice::Command(Command::OpenRecent(crate::commands::RecentSlot::ALL[0]))));
     }
 }

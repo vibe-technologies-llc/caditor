@@ -183,7 +183,7 @@ pub struct Highlight<'a> {
 
 impl Highlight<'_> {
     pub fn is_hovered(&self, pickable: Pickable) -> bool {
-        self.hovered.contains(&pickable) || self.is_of_chosen_row(pickable)
+        self.hovered.binary_search(&pickable).is_ok() || self.is_of_chosen_row(pickable)
     }
 
     fn is_of_chosen_row(&self, pickable: Pickable) -> bool {
