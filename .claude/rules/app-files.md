@@ -259,8 +259,11 @@ paths:
   feature (or like it before a " 2" suffix), else nothing with the reason; a drawing is refused.
 - Reload import from its file (`Command::ReloadImport`, the import's details, its right-click menu,
   the palette) does the same with the path the import kept (`import::kept_source`, made absolute
-  by `import::read_model`) without a dialog; a body imported before paths were kept, or whose file
-  has gone, says so and points to Replace from file.
+  by `import::read_model`) without a dialog; a body imported before paths were kept says so and
+  points to Replace from file. The UI thread touches no file for either: whether the kept file is
+  still there and whether the file is a model (`ReplacementSource::check`) are decided inside the
+  import job, whose refusal (`SourceRefusal`, `Event::ReplacementRefused`) becomes the notice, so
+  a share that has gone cannot freeze the window.
 - Every import step (reading a drawing, a model, replanning after `Placement::Stale`, Replace and
   Reload) is one job on a thread of its own (`Files::start_import`, named `import`), spawned
   through `run_where_possible`: when the thread cannot be started the job runs on the UI thread,

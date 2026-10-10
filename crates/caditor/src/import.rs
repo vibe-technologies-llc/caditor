@@ -169,7 +169,12 @@ pub fn read_model(
     Ok(imported)
 }
 
-pub fn kept_source(document: &Document, feature: FeatureId) -> Result<PathBuf, String> {
+pub struct KeptSource {
+    pub path: PathBuf,
+    pub name: String,
+}
+
+pub fn kept_source(document: &Document, feature: FeatureId) -> Result<KeptSource, String> {
     let owner = document
         .feature(feature)
         .ok_or_else(|| "The imported body no longer exists.".to_owned())?;
@@ -183,15 +188,48 @@ pub fn kept_source(document: &Document, feature: FeatureId) -> Result<PathBuf, S
             owner.name, import.source
         )
     })?;
-    if !path.is_file() {
-        return Err(format!(
-            "{} cannot be reloaded: “{}” is no longer there. Use Replace from file to choose \
-             where it is now.",
-            owner.name,
-            path.display()
-        ));
+    Ok(KeptSource {
+        path,
+        name: owner.name.clone(),
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReplacementSource {
+    Picked,
+    Kept { name: String },
+}
+
+impl ReplacementSource {
+    pub fn check(&self, path: &Path) -> Result<(), SourceRefusal> {
+        if let Self::Kept { name } = self
+            && !path.is_file()
+        {
+            return Err(SourceRefusal::Gone {
+                name: name.clone(),
+                path: path.to_path_buf(),
+            });
+        }
+        if is_model(path) {
+            Ok(())
+        } else {
+            Err(SourceRefusal::NotAModel {
+                file: display_name(Some(path)),
+            })
+        }
     }
-    Ok(path)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SourceRefusal {
+    #[error(
+        "{name} cannot be reloaded: “{}” is no longer there. Use Replace from file to choose \
+         where it is now.",
+        path.display()
+    )]
+    Gone { name: String, path: PathBuf },
+    #[error("“{file}” is not a STEP, STL, OBJ or 3MF file, so it cannot replace an imported body.")]
+    NotAModel { file: String },
 }
 
 fn starts_like_step(path: &Path) -> bool {
@@ -464,5 +502,59 @@ mod tests {
             &importing(&document, "Big", 1001),
             1000
         ));
+    }
+
+    fn document_with_import_from(path: &Path) -> (Document, FeatureId) {
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Import");
+        let id = transaction.add_feature(
+            "Bracket",
+            FeatureKind::Import(
+                Import::new("part.step", Solid::default(), String::new())
+                    .from_file(path.to_path_buf()),
+            ),
+        );
+        document.apply(transaction.finish()).unwrap();
+        (document, id)
+    }
+
+    #[test]
+    fn the_kept_source_is_read_from_the_document_without_touching_the_file() {
+        let path = PathBuf::from("/nonexistent-share/part.step");
+        let (document, id) = document_with_import_from(&path);
+
+        let kept = kept_source(&document, id).unwrap();
+
+        assert_eq!(kept.path, path);
+        assert_eq!(kept.name, "Bracket");
+    }
+
+    #[test]
+    fn a_kept_source_that_has_gone_is_refused_in_words_by_the_check() {
+        let path = PathBuf::from("/nonexistent-share/part.step");
+        let source = ReplacementSource::Kept {
+            name: "Bracket".to_owned(),
+        };
+
+        let refusal = source.check(&path).unwrap_err();
+
+        assert_eq!(
+            refusal.to_string(),
+            "Bracket cannot be reloaded: “/nonexistent-share/part.step” is no longer there. Use \
+             Replace from file to choose where it is now."
+        );
+    }
+
+    #[test]
+    fn a_picked_file_that_is_no_model_is_refused_in_words_by_the_check() {
+        let refusal = ReplacementSource::Picked
+            .check(Path::new("/nonexistent-share/plan.dxf"))
+            .unwrap_err();
+
+        assert_eq!(
+            refusal.to_string(),
+            "“plan.dxf” is not a STEP, STL, OBJ or 3MF file, so it cannot replace an imported \
+             body."
+        );
     }
 }

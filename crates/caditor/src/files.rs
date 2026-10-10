@@ -50,7 +50,7 @@ use crate::{
     image_export::{
         self, IMAGE_HINT, ImageCommand, ImageExporter, ImageFailure, ReadPixels, RenderJob,
     },
-    import::{self, DrawingPlan, IMPORT_HINT, Placement},
+    import::{self, DrawingPlan, IMPORT_HINT, Placement, ReplacementSource, SourceRefusal},
     import_options::{self, Arrangement, Arranging, ImportOptionsCommand},
     model::{Action, FileEvent, Model, Notice, RecomputeStatus, WakerFactory, display_name},
     onboarding,
@@ -682,6 +682,11 @@ enum Event {
         replacing: Option<FeatureId>,
         result: Result<ModelImport, ImportError>,
     },
+    ReplacementRefused {
+        refusal: SourceRefusal,
+        session: u64,
+        attempt: u64,
+    },
 }
 
 enum Intent {
@@ -1200,7 +1205,12 @@ impl Files {
                     return;
                 }
                 match import::kept_source(model.document(), feature) {
-                    Ok(path) => self.replace_import(path, feature, model),
+                    Ok(kept) => self.replace_import(
+                        kept.path,
+                        feature,
+                        ReplacementSource::Kept { name: kept.name },
+                        model,
+                    ),
                     Err(reason) => model.set_notice(Notice::warning(reason)),
                 }
             }
@@ -1768,6 +1778,19 @@ impl Files {
                     self.arranging = Some(Arranging::new(path, into, *drawing));
                 }
             }
+            Event::ReplacementRefused {
+                refusal,
+                session,
+                attempt,
+            } => {
+                if attempt != self.import_attempt {
+                    return;
+                }
+                self.importing = None;
+                if session == model.session() {
+                    model.set_notice(Notice::warning(refusal.to_string()));
+                }
+            }
             Event::ImportedModel {
                 path,
                 session,
@@ -1845,27 +1868,31 @@ impl Files {
         );
     }
 
-    fn replace_import(&mut self, path: PathBuf, feature: FeatureId, model: &mut Model) {
-        if !import::is_model(&path) {
-            self.importing = None;
-            model.set_notice(Notice::warning(format!(
-                "“{}” is not a STEP, STL, OBJ or 3MF file, so it cannot replace an imported \
-                 body.",
-                display_name(Some(&path))
-            )));
-            return;
-        }
+    fn replace_import(
+        &mut self,
+        path: PathBuf,
+        feature: FeatureId,
+        source: ReplacementSource,
+        model: &Model,
+    ) {
         let session = model.session();
         let reader = Arc::clone(&self.model_reader);
         let failed = path.clone();
         self.start_import(
             Importing::reading(path.clone(), None, Some(feature)),
-            move |attempt, cancel, progress| Event::ImportedModel {
-                result: reader(&path, &cancel, &progress),
-                path,
-                session,
-                attempt,
-                replacing: Some(feature),
+            move |attempt, cancel, progress| match source.check(&path) {
+                Ok(()) => Event::ImportedModel {
+                    result: reader(&path, &cancel, &progress),
+                    path,
+                    session,
+                    attempt,
+                    replacing: Some(feature),
+                },
+                Err(refusal) => Event::ReplacementRefused {
+                    refusal,
+                    session,
+                    attempt,
+                },
             },
             move |attempt| Event::ImportedModel {
                 path: failed,
@@ -2381,7 +2408,9 @@ impl Files {
                     .as_ref()
                     .and_then(|importing| importing.replacing)
                 {
-                    Some(feature) => self.replace_import(path, feature, model),
+                    Some(feature) => {
+                        self.replace_import(path, feature, ReplacementSource::Picked, model);
+                    }
                     None => self.import(path, into, model),
                 }
             }

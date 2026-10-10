@@ -2942,8 +2942,44 @@ fn an_imported_body_reloads_from_the_file_it_came_from_without_asking() {
 
     std::fs::remove_file(&path).unwrap();
     harness.command(FileCommand::ReloadImport(body));
-    harness.frame();
-    assert!(harness.shows_containing("is no longer there"));
+    harness.wait_until("the missing file is reported", |harness| {
+        harness.shows_containing("is no longer there")
+    });
+}
+
+#[test]
+fn reloading_an_import_whose_file_is_gone_says_so_in_the_same_words() {
+    let dir = TempDir::new().unwrap();
+    let mut harness = Harness::with_directories(Some(dir.path()));
+    let path = dir.path().join("cube.stl");
+    std::fs::write(&path, cube_stl(10.0)).unwrap();
+    let before = harness.document().features().len();
+    harness.answer_dialog(Some(path.clone()));
+    harness.command(FileCommand::Import { into: None });
+    harness.wait_until("the cube is imported", |harness| {
+        harness.document().features().len() == before + 1
+    });
+    harness.settle();
+    let body = harness.document().features().last().unwrap().id();
+    let name = harness.document().feature(body).unwrap().name.clone();
+    std::fs::remove_file(&path).unwrap();
+
+    harness.command(FileCommand::ReloadImport(body));
+    harness.wait_until("the missing file is reported", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.contains("is no longer there"))
+    });
+
+    assert_eq!(
+        harness.model.notice().unwrap().text,
+        format!(
+            "{name} cannot be reloaded: “{}” is no longer there. Use Replace from file to \
+             choose where it is now.",
+            path.display()
+        )
+    );
 }
 
 #[test]
@@ -3082,8 +3118,12 @@ fn an_imported_body_is_replaced_from_a_file_in_place_and_undone_as_one_step() {
     );
     harness.answer_dialog(Some(drawing));
     harness.command(FileCommand::ReplaceImport(body));
-    harness.frame();
-    harness.frame();
+    harness.wait_until("the drawing is refused", |harness| {
+        harness
+            .model
+            .notice()
+            .is_some_and(|notice| notice.text.contains("cannot replace an imported body"))
+    });
 
     assert_eq!(
         harness.model.notice().unwrap().text,

@@ -131,11 +131,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 
 ## Application
 
-- [medium · easy] Reload import from its file and Replace from file touch the file on the UI
-  thread: `kept_source` calls `is_file` and `replace_import` calls `import::is_model` (which opens
-  and reads a file whose extension is unknown) before the import thread starts, so an import whose
-  share has gone (NFS, SMB) freezes the window, against `ux.md`; the ordinary import runs the same
-  check on its thread. Move both checks into the `start_import` job.
 - [medium · easy] A new model keeps two ids from the last one: `Workspace::sync` resets every
   panel holding ids but `MeasureTool::relative_to` and the analysis's `Pull::Picked`, which then
   resolve against the new document's features of the same id (a coordinate system the user never
