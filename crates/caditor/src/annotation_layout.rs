@@ -41,6 +41,9 @@ const GLYPH_VIEW_MARGIN: f64 = GLYPH_OFFSET + GLYPH_SPACING;
 const OBSTACLE_CELL: f64 = 32.0;
 const MAX_OBSTACLE_CELLS: i64 = 64;
 const LABEL_REACH: f64 = 200.0;
+const FULL_CELL_SHARE: f64 = 0.5;
+const MOST_GLYPH_COVER: f64 = 0.25;
+const MOST_LABEL_COVER: f64 = 0.5;
 const POINT_GLYPH_QUADRANTS: [Vector2; 4] = [
     Vector2::ONE,
     Vector2::new(-1.0, 1.0),
@@ -1341,6 +1344,10 @@ pub struct Footprint {
 }
 
 impl Footprint {
+    fn area(&self) -> f64 {
+        self.half.x * self.half.y * 4.0
+    }
+
     pub fn overlap(&self, other: &Self) -> f64 {
         let reach = self.half + other.half;
         let apart = (self.center - other.center).abs();
@@ -1351,31 +1358,66 @@ impl Footprint {
 }
 
 #[derive(Debug, Clone, Default)]
+struct Cell {
+    footprints: Vec<usize>,
+    covered: f64,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct Obstacles {
-    footprints: Vec<Footprint>,
-    cells: BTreeMap<(i64, i64), Vec<usize>>,
+    footprints: Vec<(Footprint, (i64, i64))>,
+    cells: BTreeMap<(i64, i64), Cell>,
 }
 
 impl Obstacles {
     pub fn add(&mut self, footprint: Footprint) {
         let index = self.footprints.len();
-        self.footprints.push(footprint);
+        self.footprints.push((footprint, first_cell(&footprint)));
         for cell in cells_under(&footprint) {
-            self.cells.entry(cell).or_default().push(index);
+            let entry = self.cells.entry(cell).or_default();
+            entry.footprints.push(index);
+            entry.covered += footprint.overlap(&cell_footprint(cell));
         }
     }
 
-    fn overlap(&self, footprint: &Footprint) -> f64 {
+    pub fn overlap(&self, footprint: &Footprint) -> f64 {
+        let first = first_cell(footprint);
         let mut total = 0.0;
         for cell in cells_under(footprint) {
-            let near = self.cells.get(&cell).into_iter().flatten();
-            for other in near.filter_map(|index| self.footprints.get(*index)) {
-                if first_shared_cell(footprint, other) == cell {
+            let near = self
+                .cells
+                .get(&cell)
+                .into_iter()
+                .flat_map(|cell| &cell.footprints);
+            for (other, other_first) in near.filter_map(|index| self.footprints.get(*index)) {
+                let shared = (first.0.max(other_first.0), first.1.max(other_first.1));
+                if shared == cell {
                     total += footprint.overlap(other);
                 }
             }
         }
         total
+    }
+
+    pub fn mostly_cover(&self, footprint: &Footprint) -> bool {
+        self.overlap(footprint) > footprint.area() * MOST_LABEL_COVER
+    }
+
+    fn full_over(&self, region: &Footprint) -> bool {
+        let full = OBSTACLE_CELL * OBSTACLE_CELL * FULL_CELL_SHARE;
+        cells_under(region).all(|cell| {
+            self.cells
+                .get(&cell)
+                .is_some_and(|cell| cell.covered >= full)
+        })
+    }
+}
+
+fn cell_footprint((column, row): (i64, i64)) -> Footprint {
+    let half = Vector2::splat(OBSTACLE_CELL / 2.0);
+    Footprint {
+        center: Vector2::new(column as f64, row as f64) * OBSTACLE_CELL + half,
+        half,
     }
 }
 
@@ -1390,18 +1432,20 @@ fn cell_span(footprint: &Footprint) -> [RangeInclusive<i64>; 2] {
     [span(low.x, high.x), span(low.y, high.y)]
 }
 
-fn first_shared_cell(footprint: &Footprint, other: &Footprint) -> (i64, i64) {
+fn first_cell(footprint: &Footprint) -> (i64, i64) {
     let [columns, rows] = cell_span(footprint);
-    let [other_columns, other_rows] = cell_span(other);
-    (
-        *columns.start().max(other_columns.start()),
-        *rows.start().max(other_rows.start()),
-    )
+    (*columns.start(), *rows.start())
 }
 
 fn cells_under(footprint: &Footprint) -> impl Iterator<Item = (i64, i64)> {
     let [columns, rows] = cell_span(footprint);
     columns.flat_map(move |column| rows.clone().map(move |row| (column, row)))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Thinning {
+    Never,
+    WhenCrowded,
 }
 
 pub fn place_glyphs(
@@ -1410,7 +1454,25 @@ pub fn place_glyphs(
     centre: Option<Vector2>,
     half: Vector2,
     blocked: &Obstacles,
-) -> Vec<Vector2> {
+    thinning: Thinning,
+) -> Option<Vec<Vector2>> {
+    let most_covered = match thinning {
+        Thinning::Never => f64::INFINITY,
+        Thinning::WhenCrowded => {
+            if neighbourhood(anchor, count, centre, half)
+                .is_some_and(|region| blocked.full_over(&region))
+            {
+                return None;
+            }
+            count as f64
+                * Footprint {
+                    center: Vector2::ZERO,
+                    half,
+                }
+                .area()
+                * MOST_GLYPH_COVER
+        }
+    };
     let overlap = |positions: &[Vector2]| {
         positions
             .iter()
@@ -1427,13 +1489,47 @@ pub fn place_glyphs(
         let positions = stacked(anchor, count, centre, placement);
         let overlapping = overlap(&positions);
         if overlapping <= 0.0 {
-            return positions;
+            return Some(positions);
         }
         if best.as_ref().is_none_or(|(least, _)| overlapping < *least) {
             best = Some((overlapping, positions));
         }
     }
-    best.map(|(_, positions)| positions).unwrap_or_default()
+    best.filter(|(least, _)| *least <= most_covered)
+        .map(|(_, positions)| positions)
+}
+
+fn neighbourhood(
+    anchor: GlyphAnchor,
+    count: usize,
+    centre: Option<Vector2>,
+    half: Vector2,
+) -> Option<Footprint> {
+    let unshifted: Vec<Placement> = match anchor {
+        GlyphAnchor::Point(_) => (0..POINT_GLYPH_QUADRANTS.len())
+            .map(|quadrant| Placement {
+                quadrant,
+                ..Placement::default()
+            })
+            .collect(),
+        GlyphAnchor::Segment(..) | GlyphAnchor::Curve { .. } => [false, true]
+            .map(|flipped| Placement {
+                flipped,
+                ..Placement::default()
+            })
+            .to_vec(),
+    };
+    let mut positions = unshifted
+        .into_iter()
+        .flat_map(|placement| stacked(anchor, count, centre, placement));
+    let first = positions.next()?;
+    let (low, high) = positions.fold((first, first), |(low, high), at| {
+        (low.min(at), high.max(at))
+    });
+    Some(Footprint {
+        center: (low + high) / 2.0,
+        half: (high - low) / 2.0 + half,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1453,14 +1549,19 @@ impl Default for Placement {
     }
 }
 
-fn placements(anchor: GlyphAnchor, count: usize) -> impl Iterator<Item = Placement> {
+fn shifts_within(anchor: GlyphAnchor, count: usize) -> Option<usize> {
     let extent = count.saturating_sub(1) as f64 * GLYPH_SPACING;
     let reach = match anchor {
-        GlyphAnchor::Segment(start, end) => Some(((start.distance(end) - extent) / 2.0).max(0.0)),
-        GlyphAnchor::Curve { .. } => Some(MAX_CURVE_GLYPH_SHIFT),
-        GlyphAnchor::Point(_) => None,
+        GlyphAnchor::Segment(start, end) => ((start.distance(end) - extent) / 2.0).max(0.0),
+        GlyphAnchor::Curve { .. } => MAX_CURVE_GLYPH_SHIFT,
+        GlyphAnchor::Point(_) => return None,
     };
-    let quadrants = reach
+    Some(((reach / GLYPH_SHIFT_STEP).floor() as usize).min(MAX_GLYPH_SHIFTS))
+}
+
+fn placements(anchor: GlyphAnchor, count: usize) -> impl Iterator<Item = Placement> {
+    let within = shifts_within(anchor, count);
+    let quadrants = within
         .is_none()
         .then_some(0..POINT_GLYPH_QUADRANTS.len())
         .into_iter()
@@ -1469,8 +1570,7 @@ fn placements(anchor: GlyphAnchor, count: usize) -> impl Iterator<Item = Placeme
             quadrant,
             ..Placement::default()
         });
-    let shifted = reach.into_iter().flat_map(|reach| {
-        let within = ((reach / GLYPH_SHIFT_STEP).floor() as usize).min(MAX_GLYPH_SHIFTS);
+    let shifted = within.into_iter().flat_map(|within| {
         let shifts = |first: usize, last: usize| {
             (first..=last).flat_map(|step| {
                 let shift = step as f64 * GLYPH_SHIFT_STEP;
@@ -1589,7 +1689,15 @@ mod tests {
     const GLYPH_HALF: Vector2 = Vector2::splat(8.0);
 
     fn stack_glyphs(anchor: GlyphAnchor, count: usize, centre: Option<Vector2>) -> Vec<Vector2> {
-        place_glyphs(anchor, count, centre, GLYPH_HALF, &Obstacles::default())
+        place_glyphs(
+            anchor,
+            count,
+            centre,
+            GLYPH_HALF,
+            &Obstacles::default(),
+            Thinning::Never,
+        )
+        .unwrap()
     }
 
     fn label_at(center: Vector2, size: Vector2) -> Obstacles {
@@ -1953,21 +2061,80 @@ mod tests {
         let centre = Some(Vector2::new(50.0, 50.0));
         let label = label_at(Vector2::new(10.0, 50.0), Vector2::new(80.0, 18.0));
 
-        let moved = place_glyphs(anchor, 1, centre, GLYPH_HALF, &label);
+        let moved = place_glyphs(anchor, 1, centre, GLYPH_HALF, &label, Thinning::Never).unwrap();
         assert_eq!(moved, vec![Vector2::new(14.0, 68.0)]);
 
         let tall = label_at(Vector2::new(14.0, 50.0), Vector2::new(20.0, 120.0));
-        let flipped = place_glyphs(anchor, 1, centre, GLYPH_HALF, &tall);
+        let flipped = place_glyphs(anchor, 1, centre, GLYPH_HALF, &tall, Thinning::Never).unwrap();
         assert_eq!(flipped, vec![Vector2::new(-14.0, 50.0)]);
 
         let everywhere = label_at(Vector2::new(0.0, 50.0), Vector2::new(200.0, 200.0));
-        let least = place_glyphs(anchor, 1, centre, GLYPH_HALF, &everywhere);
+        let least =
+            place_glyphs(anchor, 1, centre, GLYPH_HALF, &everywhere, Thinning::Never).unwrap();
         assert_eq!(least, vec![Vector2::new(14.0, 50.0)]);
 
         let point = GlyphAnchor::Point(Vector2::new(5.0, 5.0));
         let upper_right = label_at(Vector2::new(15.0, -5.0), Vector2::new(10.0, 10.0));
-        let left = place_glyphs(point, 1, None, GLYPH_HALF, &upper_right);
+        let left = place_glyphs(point, 1, None, GLYPH_HALF, &upper_right, Thinning::Never).unwrap();
         assert_eq!(left, vec![Vector2::new(-5.0, -5.0)]);
+    }
+
+    #[test]
+    fn a_glyph_with_no_place_nearly_free_is_left_out_unless_kept() {
+        let anchor = GlyphAnchor::Segment(Vector2::ZERO, Vector2::new(0.0, 100.0));
+        let centre = Some(Vector2::new(50.0, 50.0));
+        let mut both_sides = Obstacles::default();
+        for x in [-30.0, 30.0] {
+            both_sides.add(Footprint {
+                center: Vector2::new(x, 50.0),
+                half: Vector2::new(11.0, 200.0),
+            });
+        }
+        let everywhere = label_at(Vector2::new(0.0, 50.0), Vector2::new(200.0, 200.0));
+
+        let grazed = place_glyphs(
+            anchor,
+            1,
+            centre,
+            GLYPH_HALF,
+            &both_sides,
+            Thinning::WhenCrowded,
+        );
+        let crowded = place_glyphs(
+            anchor,
+            1,
+            centre,
+            GLYPH_HALF,
+            &everywhere,
+            Thinning::WhenCrowded,
+        );
+        let kept = place_glyphs(anchor, 1, centre, GLYPH_HALF, &everywhere, Thinning::Never);
+
+        assert_eq!(grazed, Some(vec![Vector2::new(14.0, 50.0)]));
+        assert_eq!(crowded, None);
+        assert_eq!(kept, Some(vec![Vector2::new(14.0, 50.0)]));
+    }
+
+    #[test]
+    fn a_label_is_mostly_covered_once_others_cover_over_half_of_it() {
+        let label = Footprint {
+            center: Vector2::ZERO,
+            half: Vector2::new(20.0, 10.0),
+        };
+        let mut others = Obstacles::default();
+        others.add(Footprint {
+            center: Vector2::new(30.0, 0.0),
+            half: Vector2::new(20.0, 10.0),
+        });
+
+        assert!(!others.mostly_cover(&label));
+
+        others.add(Footprint {
+            center: Vector2::new(-15.0, 0.0),
+            half: Vector2::new(10.0, 10.0),
+        });
+
+        assert!(others.mostly_cover(&label));
     }
 
     #[test]

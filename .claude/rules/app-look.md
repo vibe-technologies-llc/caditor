@@ -406,11 +406,15 @@ paths:
   reserves the height last measured for one (`PanelState::plain_row_height`), so a tree of
   hundreds of features lays out only what is near view. The row next to each edge is laid out, so
   Tab and the keyboard still reach the next one. A sketch card's constraint and dimension rows
-  do the same (`is_plain_constraint`: not redundant, not wanted for focus, and for a dimension
-  its field neither focused nor holding a draft, looked up once per card with `field::busy`; the last heights measured
-  are `PanelState::plain_constraint_height` and `plain_dimension_height`), a run of skipped
-  rows reserving its space in one allocation (`feature_tree::Reserved`), so only rows near view
-  format a description or a value.
+  do the same (`feature_tree::card_row`: a `CardRow::Plain` row is not redundant, not wanted for
+  focus, and for a dimension its field neither focused nor holding a draft, looked up once per card
+  with `field::busy`; the last heights measured are `PanelState::plain_constraint_height` and
+  `plain_dimension_height`). A redundant row (`CardRow::Varied`), whose callout makes its height
+  its own, reserves the height it last measured for that constraint (`PanelState::varied_row_heights`,
+  forgotten when the revision, evaluation or card width changes), so only the first frame after
+  such a change lays every one out; a row wanted for focus or with a busy field (`CardRow::Live`)
+  is always laid out. A run of skipped rows reserves its space in one allocation
+  (`feature_tree::Reserved`), so only rows near view format a description or a value.
 - Kind icons are tinted by category (sketches accent, bodies and modifiers text, datums muted;
   inactive or hidden rows muted). A failure shows once, as the status icon and its callout, never
   by recolouring the icon or name; an outdated row the same with a Recompute button. A row a

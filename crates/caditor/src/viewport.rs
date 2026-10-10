@@ -5376,6 +5376,107 @@ mod tests {
         assert_eq!(state.annotations.laid_out(), vec![hidden]);
         assert_eq!(state.annotations.layouts(), first + 1);
     }
+
+    #[test]
+    fn crowded_marks_thin_out_but_selected_and_highlighted_ones_stay() {
+        let mut sketch = Sketch::new(Plane::XY);
+        let mut lines = Vec::new();
+        for index in 0..400 {
+            let at = Point2::new(f64::from(index % 20), f64::from(index / 20));
+            lines.push(sketch.add_line(at, at + Vector2::new(0.6, 0.2)));
+        }
+        for [first, second] in lines.as_chunks::<2>().0 {
+            sketch
+                .add_constraint(caditor_sketch::Constraint::Parallel(*first, *second))
+                .unwrap();
+        }
+        let dimensions: Vec<_> = lines
+            .iter()
+            .take(100)
+            .map(|line| {
+                let Some(&Entity::Line { start, end }) = sketch.entity(*line) else {
+                    panic!("expected a line");
+                };
+                sketch
+                    .add_constraint(caditor_sketch::Constraint::HorizontalDistance {
+                        from: start,
+                        to: end,
+                        value: caditor_expression::Expression::Measure(
+                            0.6,
+                            caditor_expression::Unit::Millimetre,
+                        ),
+                    })
+                    .unwrap()
+            })
+            .collect();
+        let mut document = Document::default();
+        let mut transaction = document.transaction("Add sketch");
+        let feature = transaction.add_feature("Sketch", FeatureKind::from(sketch));
+        document.apply(transaction.finish()).unwrap();
+        let mut model = model_of(document);
+        settle(&mut model);
+        let context = egui::Context::default();
+        let mut state = state_with_cursor();
+        state.camera = Camera::new(Viewpoint::facing(
+            &Plane::XY,
+            Point3::new(10.0, 10.0, 0.0),
+            400.0,
+        ));
+
+        annotated(&mut state, &context, &model, feature);
+        let glyphs = state.annotations.glyph_centres();
+        let labels = state.annotations.laid_out();
+        let left_out = *lines
+            .iter()
+            .find(|line| glyphs.iter().all(|(anchor, _)| anchor != *line))
+            .unwrap();
+        let unlabelled = *dimensions
+            .iter()
+            .find(|dimension| !labels.contains(dimension))
+            .unwrap();
+        let crowding = glyphs
+            .iter()
+            .enumerate()
+            .flat_map(|(index, (_, first))| {
+                glyphs
+                    .iter()
+                    .skip(index + 1)
+                    .map(move |(_, second)| (*first - *second).abs())
+            })
+            .filter(|apart| apart.x < 9.0 && apart.y < 9.0)
+            .count();
+
+        assert!(
+            !glyphs.is_empty() && glyphs.len() < lines.len() / 4,
+            "{}",
+            glyphs.len()
+        );
+        assert!(
+            !labels.is_empty() && labels.len() < dimensions.len() / 2,
+            "{}",
+            labels.len()
+        );
+        assert_eq!(crowding, 0);
+
+        state.selection.replace_with(Pickable::SketchEntity {
+            feature,
+            entity: left_out,
+        });
+        state.keyboard_highlight = Some(Pickable::SketchConstraint {
+            feature,
+            constraint: unlabelled,
+        });
+        annotated(&mut state, &context, &model, feature);
+
+        assert!(
+            state
+                .annotations
+                .glyph_centres()
+                .iter()
+                .any(|(anchor, _)| *anchor == left_out)
+        );
+        assert!(state.annotations.laid_out().contains(&unlabelled));
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use caditor_document::{FeatureId, FeatureState, Transaction};
 use caditor_expression::{Dimension, Expression, Quantity};
@@ -11,6 +14,7 @@ use egui::{
 use crate::{
     annotation_layout::{
         self, DimensionLayout, Footprint, GlyphKind, LabelFrame, Measured, Obstacles, Reach,
+        Thinning,
     },
     appearance, canvas,
     field::{self, DimensionTarget},
@@ -32,6 +36,7 @@ const GLYPH_HIT_SIZE: f32 = 16.0;
 const DOT_RADIUS: f32 = 3.5;
 const RING_WIDTH: f32 = 1.5;
 const OPEN_END_RADIUS: f32 = 6.0;
+const RING_MERGE: f32 = OPEN_END_RADIUS / 2.0;
 const BEYOND_RADIUS: f32 = 7.0;
 const BEYOND_DASH: f32 = 4.0;
 const SYMBOL_HALF: f32 = 4.0;
@@ -62,6 +67,7 @@ const FRAME_GAP: f32 = 1.5;
 pub const FRAME_WIDTH: f32 = 2.0;
 const FRAME_DASH: f32 = 4.0;
 const FRAME_DASH_GAP: f32 = 3.0;
+const POINTER_REACH: f32 = 64.0;
 const EDIT_HINT: &str = "Double-click to change it, or drag its label to move it.";
 pub const MOVE_LABEL_TRANSACTION: &str = "Move dimension label";
 const NO_LABEL_TO_MOVE: &str = "Select one dimension alone to move its label";
@@ -370,7 +376,32 @@ struct ViewKey {
     dragged: Option<Vector2>,
     editing: Option<ConstraintId>,
     forced: Vec<ConstraintId>,
+    kept: Vec<EntityId>,
     glyphs: bool,
+}
+
+impl ViewKey {
+    fn thinning(&self, constraint: ConstraintId) -> Thinning {
+        if self.forced.binary_search(&constraint).is_ok() || self.sketch.dragged == Some(constraint)
+        {
+            Thinning::Never
+        } else {
+            Thinning::WhenCrowded
+        }
+    }
+
+    fn group_thinning(&self, group: &GlyphGroup) -> Thinning {
+        let kept = self.kept.binary_search(&group.anchor).is_ok()
+            || group
+                .items
+                .iter()
+                .any(|item| self.thinning(item.constraint) == Thinning::Never);
+        if kept {
+            Thinning::Never
+        } else {
+            Thinning::WhenCrowded
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -394,8 +425,21 @@ impl Marks {
         let [definition, shown] = sketches;
         let screen = &key.screen;
         let view = Vector2::new(f64::from(key.rect.width()), f64::from(key.rect.height()));
+        let (kept, thinned): (Vec<_>, Vec<_>) = measures
+            .dimensions
+            .iter()
+            .partition(|dimension| key.thinning(dimension.constraint) == Thinning::Never);
+        let ordered = kept
+            .into_iter()
+            .map(|dimension| (dimension, Thinning::Never))
+            .chain(
+                thinned
+                    .into_iter()
+                    .map(|dimension| (dimension, Thinning::WhenCrowded)),
+            );
+        let mut labels = Obstacles::default();
         let mut dimensions = Vec::new();
-        for dimension in &measures.dimensions {
+        for (dimension, thinning) in ordered {
             let id = dimension.constraint;
             let offset = match key.dragged {
                 Some(offset) if measures.key.dragged == Some(id) => Some(offset),
@@ -405,7 +449,7 @@ impl Marks {
                 .frame
                 .zip(offset)
                 .map(|(frame, offset)| (frame, frame.place(offset)));
-            let wanted = key.forced.binary_search(&id).is_ok()
+            let wanted = thinning == Thinning::Never
                 || dimension
                     .reach
                     .is_none_or(|reach| reach.near_view(placed, dimension.lane, screen, view));
@@ -432,6 +476,13 @@ impl Marks {
                     painter.layout_no_wrap(text.clone(), canvas::body(), Color32::PLACEHOLDER);
                 label_rect(key.rect, &layout, galley.size())
             });
+            if let Some(rect) = label {
+                let taken = footprint(key.rect, rect);
+                if thinning == Thinning::WhenCrowded && labels.mostly_cover(&taken) {
+                    continue;
+                }
+                labels.add(taken);
+            }
             dimensions.push(DimensionMark {
                 constraint: id,
                 layout,
@@ -441,30 +492,25 @@ impl Marks {
                 label,
             });
         }
+        dimensions.sort_by_key(|mark| mark.constraint);
         let glyphs = if key.glyphs {
             let mut blocked = Obstacles::default();
             for rect in dimensions.iter().filter_map(|mark| mark.label) {
                 blocked.add(footprint(key.rect, rect.expand(GLYPH_CLEARANCE)));
             }
             let screen_centre = measures.centre.and_then(|centre| screen.to_screen(centre));
-            place_glyphs(
-                &measures.groups,
-                shown,
-                screen,
-                view,
-                screen_centre,
-                blocked,
-            )
+            place_glyphs(&measures.groups, shown, &key, screen_centre, blocked)
         } else {
             Vec::new()
         };
         let in_view = |at: &Vector2| at.x >= 0.0 && at.y >= 0.0 && at.x <= view.x && at.y <= view.y;
-        let open_ends = measures
-            .open_ends
-            .iter()
-            .filter_map(|end| screen.to_screen(*end))
-            .filter(in_view)
-            .collect();
+        let open_ends = merged(
+            measures
+                .open_ends
+                .iter()
+                .filter_map(|end| screen.to_screen(*end))
+                .filter(in_view),
+        );
         let beyond = measures
             .beyond
             .iter()
@@ -489,18 +535,39 @@ impl Marks {
     }
 }
 
+fn merged(rings: impl Iterator<Item = Vector2>) -> Vec<Vector2> {
+    let mut taken = BTreeSet::new();
+    rings
+        .filter(|at| {
+            let cell = (at / f64::from(RING_MERGE)).floor();
+            taken.insert((cell.x as i64, cell.y as i64))
+        })
+        .collect()
+}
+
 fn place_glyphs(
     groups: &[GlyphGroup],
     shown: &Sketch,
-    screen: &impl Screen,
-    view: Vector2,
+    key: &ViewKey,
     screen_centre: Option<Vector2>,
     mut blocked: Obstacles,
 ) -> Vec<GlyphMark> {
     let half = Vector2::splat(f64::from(GLYPH_SIZE / 2.0 + GLYPH_CLEARANCE));
+    let view = Vector2::new(f64::from(key.rect.width()), f64::from(key.rect.height()));
+    let (kept, thinned): (Vec<_>, Vec<_>) = groups
+        .iter()
+        .partition(|group| key.group_thinning(group) == Thinning::Never);
+    let ordered = kept
+        .into_iter()
+        .map(|group| (group, Thinning::Never))
+        .chain(
+            thinned
+                .into_iter()
+                .map(|group| (group, Thinning::WhenCrowded)),
+        );
     let mut glyphs = Vec::new();
-    for group in groups {
-        let Some(place) = annotation_layout::glyph_anchor(shown, group.anchor, screen)
+    for (group, thinning) in ordered {
+        let Some(place) = annotation_layout::glyph_anchor(shown, group.anchor, &key.screen)
             .and_then(|anchor| annotation_layout::within_view(anchor, view))
         else {
             continue;
@@ -511,8 +578,11 @@ fn place_glyphs(
             (group.items.as_slice(), &[][..])
         };
         let slots = stacked.len() + usize::from(!hidden.is_empty());
-        let mut positions =
-            annotation_layout::place_glyphs(place, slots, screen_centre, half, &blocked);
+        let Some(mut positions) =
+            annotation_layout::place_glyphs(place, slots, screen_centre, half, &blocked, thinning)
+        else {
+            continue;
+        };
         for center in &positions {
             blocked.add(Footprint {
                 center: *center,
@@ -710,9 +780,50 @@ pub struct Annotations {
 struct Placed {
     pickable: Pickable,
     hit: Rect,
-    key: (ConstraintId, Option<EntityId>),
+    key: MarkKey,
     hover: Hover,
     label: Option<(Vector2, LabelFrame)>,
+}
+
+type MarkKey = (ConstraintId, Option<EntityId>);
+
+fn annotation_id(feature: FeatureId, key: MarkKey) -> Id {
+    Id::new(("sketch-annotation", feature, key))
+}
+
+struct PointerReach {
+    pointers: Vec<Pos2>,
+    dragged: Option<ConstraintId>,
+    focused: Option<Id>,
+}
+
+impl PointerReach {
+    fn of(ui: &Ui, dragging: Option<LabelDrag>) -> Self {
+        let pointers = ui.input(|input| {
+            [
+                input.pointer.hover_pos(),
+                input.pointer.interact_pos(),
+                input.pointer.press_origin(),
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
+        });
+        Self {
+            pointers,
+            dragged: dragging.map(|drag| drag.constraint),
+            focused: ui.memory(|memory| memory.focused()),
+        }
+    }
+
+    fn reaches(&self, feature: FeatureId, target: &Placed) -> bool {
+        let near = target.hit.expand(POINTER_REACH);
+        self.pointers.iter().any(|pointer| near.contains(*pointer))
+            || (target.label.is_some() && self.dragged == Some(target.key.0))
+            || self
+                .focused
+                .is_some_and(|focused| focused == annotation_id(feature, target.key))
+    }
 }
 
 impl Annotations {
@@ -746,6 +857,15 @@ impl Annotations {
             .collect()
     }
 
+    #[cfg(test)]
+    pub fn glyph_centres(&self) -> Vec<(EntityId, Vector2)> {
+        self.marks
+            .iter()
+            .flat_map(|marks| &marks.glyphs)
+            .map(|mark| (mark.anchor, mark.center))
+            .collect()
+    }
+
     pub fn request_field(&mut self, feature: FeatureId, constraint: ConstraintId) {
         self.request = Some(FieldRequest {
             feature,
@@ -764,9 +884,11 @@ impl Annotations {
         self.marks = None;
     }
 
-    fn forced(&self, selection: &Selection, feature: FeatureId) -> Vec<ConstraintId> {
+    fn forced(&self, selection: &Selection, surface: &Surface<'_>) -> Vec<ConstraintId> {
+        let feature = surface.feature;
         let mut forced: Vec<ConstraintId> = selection
             .iter()
+            .chain(surface.highlight)
             .filter_map(|pickable| match pickable {
                 Pickable::SketchConstraint {
                     feature: owner,
@@ -780,6 +902,22 @@ impl Annotations {
         forced.sort_unstable();
         forced.dedup();
         forced
+    }
+
+    fn kept(selection: &Selection, feature: FeatureId) -> Vec<EntityId> {
+        let mut kept: Vec<EntityId> = selection
+            .iter()
+            .filter_map(|pickable| match pickable {
+                Pickable::SketchEntity {
+                    feature: owner,
+                    entity,
+                } if owner == feature => Some(entity),
+                _ => None,
+            })
+            .collect();
+        kept.sort_unstable();
+        kept.dedup();
+        kept
     }
 
     fn refresh_marks(
@@ -808,7 +946,8 @@ impl Annotations {
             units: model.units(),
             dragged: dragged.map(|(_, offset)| offset),
             editing: self.field.map(|open| open.constraint),
-            forced: self.forced(selection, surface.feature),
+            forced: self.forced(selection, surface),
+            kept: Self::kept(selection, surface.feature),
             glyphs: surface.glyphs,
         };
         let marks = match self.marks.take() {
@@ -907,7 +1046,8 @@ impl Annotations {
                 .feature(surface.feature)
                 .and_then(|owner| owner.kind.sketch())
         {
-            for target in placed {
+            let reach = PointerReach::of(ui, self.dragging);
+            for target in placed.filter(|target| reach.reaches(surface.feature, target)) {
                 self.interact(ui, surface, target, selection, definition);
             }
         }
@@ -1040,11 +1180,7 @@ impl Annotations {
         } else {
             Sense::CLICK
         };
-        let response = ui.interact(
-            hit,
-            Id::new(("sketch-annotation", surface.feature, target.key)),
-            sense,
-        );
+        let response = ui.interact(hit, annotation_id(surface.feature, target.key), sense);
         if response.hovered() {
             self.hovered = Some(target.pickable);
         }
@@ -1491,5 +1627,27 @@ mod tests {
             let renders = context.fonts_mut(|fonts| fonts.has_glyphs(&canvas::body(), text.trim()));
             assert!(renders, "'{text}' cannot be drawn with the app fonts");
         }
+    }
+
+    #[test]
+    fn open_end_rings_closer_than_half_their_radius_merge_into_one() {
+        let rings = merged(
+            [
+                Vector2::new(10.0, 10.0),
+                Vector2::new(11.0, 10.5),
+                Vector2::new(30.0, 10.0),
+                Vector2::new(10.0, 30.0),
+            ]
+            .into_iter(),
+        );
+
+        assert_eq!(
+            rings,
+            vec![
+                Vector2::new(10.0, 10.0),
+                Vector2::new(30.0, 10.0),
+                Vector2::new(10.0, 30.0),
+            ]
+        );
     }
 }
