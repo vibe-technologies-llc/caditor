@@ -155,13 +155,16 @@ fn kept_by_filter(
         })
 }
 
-struct UnusedDeletion {
+pub(crate) struct UnusedDeletion {
     transaction: Transaction,
     names: Vec<String>,
 }
 
 impl UnusedDeletion {
-    fn of(document: &Document, used: &BTreeSet<ParameterId>) -> Result<Self, &'static str> {
+    pub(crate) fn of(
+        document: &Document,
+        used: &BTreeSet<ParameterId>,
+    ) -> Result<Self, &'static str> {
         if document.parameters().is_empty() {
             return Err(NO_PARAMETERS);
         }
@@ -187,7 +190,13 @@ impl UnusedDeletion {
         })
     }
 
-    fn perform(self, actions: &mut Vec<Action>) {
+    pub(crate) fn perform(self, document: &Document, actions: &mut Vec<Action>) {
+        if let Err(error) = document.check(&self.transaction) {
+            actions.push(Action::Inform(Notice::warning(format!(
+                "The unused parameters could not be deleted: {error}."
+            ))));
+            return;
+        }
         let count = self.names.len();
         let named: Vec<&str> = self
             .names
@@ -235,7 +244,7 @@ fn delete_unused_button(
     let label = delete_unused_label(deletion.names.len());
     let button = widgets::small_button(ui, icons::command(Command::DeleteUnusedParameters), &label);
     if ui.add(button).on_hover_text(DELETE_UNUSED_HOVER).clicked() {
-        deletion.perform(actions);
+        deletion.perform(document, actions);
     }
 }
 
@@ -941,7 +950,7 @@ pub fn commands(
     if commands.invoke_detailed(Command::DeleteUnusedParameters, detail, &unused)
         && let Ok(deletion) = unused
     {
-        deletion.perform(actions);
+        deletion.perform(document, actions);
     }
 }
 

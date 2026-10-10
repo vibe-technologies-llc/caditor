@@ -131,12 +131,14 @@ fn a_density_parameter_counts_as_used_and_cannot_be_deleted() {
     pair.document.apply(set(&pair, appearance)).unwrap();
 
     let users = pair.document.parameter_users(density);
+    let used = pair.document.used_parameters();
     let removal = pair.document.apply(Transaction::single(
         "Delete",
         Edit::RemoveParameter { id: density },
     ));
 
     assert_eq!(users, vec!["Plate".to_owned()]);
+    assert!(used.contains(&density));
     assert!(
         matches!(removal, Err(EditError::ParameterInUse { .. })),
         "{removal:?}"

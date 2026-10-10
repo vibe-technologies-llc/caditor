@@ -1520,7 +1520,7 @@ impl Document {
         let by_features = self
             .features
             .iter()
-            .flat_map(|feature| feature.kind.parameters());
+            .flat_map(|feature| feature.parameters());
         by_parameters.chain(by_features).collect()
     }
 

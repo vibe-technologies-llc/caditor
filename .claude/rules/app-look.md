@@ -401,7 +401,9 @@ paths:
   removes in one transaction every parameter `ParameterUses` finds nothing referring to, owned
   ones included, as the row's own delete would remove each, with a notice naming them; it is
   unavailable with the reason when there are none. A parameter used only by one of them stays,
-  as it is still in use when the change is built.
+  as it is still in use when the change is built. `Document::used_parameters` counts a feature's
+  appearance too (a body's density). The transaction is checked first (`perform` takes the
+  document), and a refusal is the warning notice instead of the deletion's success one.
 - Tree rows (`tree_row.rs`, shared with `principal_tree.rs`) have fixed trailing slots that stay
   empty when a row has nothing for them, so icons line up in columns (the open feature's row alone
   adds one, its Cancel cross left of the checkmark, `app-modelling.md`); callouts and cards under a

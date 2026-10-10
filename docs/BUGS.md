@@ -86,12 +86,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · easy] A parameter used only as a body's density reads as unused: `used_parameters`
-  collects `feature.kind.parameters()` rather than `Feature::parameters`, so the Parameters panel
-  draws it unused and Delete unused parameters includes it; the removal is refused (removal reads
-  the density), the atomic apply keeps every other unused parameter too, and the success notice
-  posted after it replaces the refusal. Collect `Feature::parameters` and inform only once the
-  apply is accepted.
 - [medium · easy] A Split, or a Move that copies, cannot be edited once something uses its body:
   `SetFeatureKind` keeps a body only for imports and new-body solids and primitives, so any other
   kind whose id another feature's `bodies_used` holds is refused as `BodyInUse`, though

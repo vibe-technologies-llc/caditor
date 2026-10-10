@@ -1,12 +1,20 @@
-use caditor_document::{Edit, ExtrudeEnd, ExtrudeExtent, FeatureId, SolidFeature, Transaction};
+use caditor_document::{
+    BodyAppearance, Edit, ExtrudeEnd, ExtrudeExtent, FeatureId, SolidFeature, Transaction,
+};
 use caditor_expression::{Expression, ParameterId};
 use caditor_geometry::Point3;
 use egui::{Id, Key, Modifiers};
 
 use super::{Harness, extruded_plate, offer, run_from_palette, top_edge_along_x, vertex_at};
 use crate::{
-    commands::Command, editing::EditingCommand, measure_panel, measurement_tools, model::Action,
-    panels::Focus, parameter_table, selection::Pickable, units::LengthUnit,
+    commands::Command,
+    editing::EditingCommand,
+    measure_panel, measurement_tools,
+    model::{Action, NoticeKind},
+    panels::Focus,
+    parameter_table::{self, UnusedDeletion},
+    selection::Pickable,
+    units::LengthUnit,
 };
 
 fn distance_text(harness: &Harness, extrude: FeatureId) -> String {
@@ -33,6 +41,10 @@ fn notice(harness: &Harness) -> String {
         .notice()
         .map(|notice| notice.text.clone())
         .unwrap_or_default()
+}
+
+fn notice_kind(harness: &Harness) -> Option<NoticeKind> {
+    harness.model.notice().map(|notice| notice.kind)
 }
 
 fn add_parameters(harness: &mut Harness, rows: &[(&str, &str)]) -> Vec<ParameterId> {
@@ -266,6 +278,64 @@ fn unused_parameters_are_deleted_in_one_undoable_change() {
     harness.frame();
     let base_only = offer(&harness, Command::DeleteUnusedParameters).availability;
     assert!(base_only.is_ok(), "base is unused once double is gone");
+}
+
+fn density_parameter_on_plate(harness: &mut Harness) -> (ParameterId, ParameterId) {
+    let (plate, _) = extruded_plate(harness);
+    let ids = add_parameters(harness, &[("rho", "2.7"), ("spare", "1 mm")]);
+    let density = harness.document().parse("rho").unwrap();
+    harness.perform(Action::Apply(Transaction::single(
+        "Density",
+        Edit::SetBodyAppearance {
+            id: plate,
+            appearance: BodyAppearance {
+                density: Some(density),
+                ..BodyAppearance::default()
+            },
+        },
+    )));
+    harness.settle();
+    (ids.first().copied().unwrap(), ids.get(1).copied().unwrap())
+}
+
+#[test]
+fn deleting_unused_parameters_keeps_one_used_only_as_a_density() {
+    let mut harness = Harness::new();
+    let (rho, spare) = density_parameter_on_plate(&mut harness);
+    harness.focus(Focus::ParameterName(rho));
+
+    harness.click(&parameter_table::delete_unused_label(1));
+    harness.settle();
+
+    assert!(harness.document().used_parameters().contains(&rho));
+    assert!(harness.document().parameter(spare).is_none());
+    assert!(harness.document().parameter(rho).is_some());
+    assert_eq!(notice_kind(&harness), Some(NoticeKind::Info));
+    assert!(notice(&harness).contains("spare"), "{}", notice(&harness));
+}
+
+#[test]
+fn a_refused_deletion_of_unused_parameters_leaves_the_refusal_showing() {
+    let mut harness = Harness::new();
+    let (rho, spare) = density_parameter_on_plate(&mut harness);
+    let document = harness.document().clone();
+    let deletion = UnusedDeletion::of(&document, &Default::default()).unwrap();
+    let mut actions = Vec::new();
+
+    deletion.perform(&document, &mut actions);
+    for action in actions {
+        harness.perform(action);
+    }
+    harness.settle();
+
+    assert!(harness.document().parameter(rho).is_some());
+    assert!(harness.document().parameter(spare).is_some());
+    assert_eq!(notice_kind(&harness), Some(NoticeKind::Warning));
+    assert!(
+        !notice(&harness).starts_with("Deleted"),
+        "{}",
+        notice(&harness)
+    );
 }
 
 #[test]
