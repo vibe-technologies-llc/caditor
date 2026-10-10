@@ -14,6 +14,7 @@ use crate::{
         ABOUT_AXIS, ARROW_POINTS, Arrow, GAP_POINTS, HIGHLIGHTED, HIT_POINTS, Handle,
         segment_distance,
     },
+    reach_handles::start_offset,
     scene,
     units::Units,
 };
@@ -170,8 +171,9 @@ fn swing(model: &Model, feature: FeatureId, revolve: &Revolve) -> Option<Swing> 
     let foot = origin + along * (middle - origin).dot(along);
     let offset = middle - foot;
     let radius = offset.length();
+    let started = plane.normal() * start_offset(model, feature, &plane, revolve.start.as_ref())?;
     (radius > SMALLEST_RADIUS).then_some(Swing {
-        foot,
+        foot: foot + started,
         radial: offset / radius,
         normal: plane.normal(),
         radius,
@@ -213,9 +215,6 @@ impl TurnHandles {
         pixels_per_point: f64,
     ) -> Option<Self> {
         let revolve = shown_revolve(model, feature)?;
-        if revolve.start.is_some() {
-            return None;
-        }
         let swing = swing(model, feature, revolve)?;
         let grips = grips(model, feature, &revolve.extent);
         let depth = view.view_depth(swing.foot + swing.radial * swing.radius);
@@ -303,6 +302,14 @@ impl TurnHandles {
                 + self.swing.normal * (x * sin + y * cos)
                 + axis * z,
         )
+    }
+
+    #[cfg(test)]
+    pub fn foot(&self, handle: Handle) -> Option<Point3> {
+        let Handle::Revolve(end) = handle else {
+            return None;
+        };
+        Some(self.swing.at(self.grip(end)?.degrees))
     }
 
     pub fn add_to(&self, batch: &mut Batch, highlighted: Option<Handle>) {

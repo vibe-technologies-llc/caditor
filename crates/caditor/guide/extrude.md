@@ -31,8 +31,9 @@ In the open panel, click regions in the view to add or leave them out, and
 - {command:model.reverse_direction} sends a one-sided extrusion the other way, like the panel's
   **Reverse direction**.
 
-**Start** begins at the sketch plane, an offset from it, or another face or plane. **Taper** angles
-the sides inward or outward.
+**Start** begins at the sketch plane, an offset from it, or another face or plane, and the
+distance arrows stand at the ends measured from there. **Taper** angles the sides inward or
+outward.
 
 **Direction** runs the extrusion square to the sketch, or **Along an edge or axis**: a straight
 edge, sketch line or axis you select, measuring the distance along it.

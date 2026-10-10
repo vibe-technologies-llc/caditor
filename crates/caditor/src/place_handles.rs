@@ -135,7 +135,7 @@ impl PlaceHandles {
             (Subject::Hole, plane, at)
         } else {
             let primitive = shown_primitive(model, feature)?;
-            let plane = displayed_plane(model.evaluation(), &primitive.plane)?;
+            let plane = displayed_plane(model.evaluation(), feature, &primitive.plane)?;
             let at = primitive_at(model, feature, primitive)?;
             (Subject::Primitive, plane, at)
         };

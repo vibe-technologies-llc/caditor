@@ -163,6 +163,15 @@ impl Manipulator {
         }
     }
 
+    #[cfg(test)]
+    pub fn foot(&self, handle: Handle) -> Option<caditor_geometry::Point3> {
+        match self {
+            Self::Reach(handles) => handles.foot(handle),
+            Self::Revolve(handles) => handles.foot(handle),
+            Self::Move(_) | Self::Place(..) | Self::Length(_) => None,
+        }
+    }
+
     pub fn driven(&self, model: &Model, handle: Handle) -> Option<String> {
         match self {
             Self::Move(handles) => handles.driven(model, handle),

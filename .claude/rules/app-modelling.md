@@ -244,14 +244,17 @@ paths:
   thin wall, and such a sketch, unused, is one Extrude guesses (`solid_tools::is_open_profile`).
 - While an extrusion is open (and nothing is being chosen in the view), each end set by a distance
   has an arrow (`reach_handles.rs`, `Handle::Reach`) standing at that end over the middle of its
-  sketch's bounds and pointing the way that side runs, in `canvas::SNAP` at the move arrows' size,
+  sketch's bounds, measured from where the extrusion starts (`reach_handles::start_offset`: the
+  start offset, or for a start face or plane `displayed_start_offset`, its distance along the
+  sketch normal with the face resolved on the body as the feature sees it), and pointing the way
+  that side runs, in `canvas::SNAP` at the move arrows' size,
   left out when it points at the eye; a symmetric extrusion has one, on its forward side, whose
   drag grows the whole distance twice as fast. It drags as a move arrow does (`manipulator.rs`
   holds both kinds behind `Manipulator` and `Manipulating`): in steps (Ctrl drags freely),
   previewed with the distance beside the pointer, committed on release as one edit setting that
   distance to a measured value of at least one step. The arrows follow a typed distance's preview
-  (`Model::draft_kind`, `Model::shown_parameters`); an extrusion starting at a face or plane, or
-  running along a direction, has none.
+  (`Model::draft_kind`, `Model::shown_parameters`); an extrusion running along a direction has
+  none.
 - While a revolve turning by angles is open (and nothing is being chosen in the view), each end
   set by an angle has an arrow (`turn_handles.rs`, `Handle::Revolve`, `TurnEnd`) at the middle of
   its sketch's bounds turned about the axis to that end, along the turn: positive angles sweep
@@ -260,7 +263,8 @@ paths:
   follows the pointer's angle about the axis in the plane square to it, unwrapped so it passes
   half a turn, in steps of `STEP_DEGREES` (Ctrl drags freely) between one step and what the full
   turn leaves beside the other angle, and commits like a reach arrow. A revolve starting off its
-  sketch plane has none.
+  sketch plane turns its profile and axis shifted along the sketch normal by the start, so its
+  arrows stand and turn about there (`start_offset`, as an extrusion's).
 - A drag never drops a name a field holds (`manipulator::Held`, read from the field's caption as
   its `ParameterOwner`, the captions shared with the panels: `solid_panel::DISTANCE` and the
   others, `move_panel::distance_caption`, `turn_caption`, `ANGLE`). A plain number is replaced by

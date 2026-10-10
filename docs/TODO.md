@@ -242,8 +242,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
 - [medium · hard] Shell: no spline, extrusion or revolution faces, only flat faces open, one
   thickness for the whole body and always inward: no thickness per face, and no wall growing
   outward or to both sides of the faces.
-- [medium · medium] An extrusion starting at a face or plane shows no reach arrows, and a revolve
-  starting off its sketch plane shows no angle arrows.
 - [medium · hard] Sweep along a path and loft between profiles: the kernel has only extrusion and
   revolution, so both need new kernel operations first. A sweep takes a profile and a path (a
   chain of edges or sketch curves), kept square to the path or parallel to the profile, with an

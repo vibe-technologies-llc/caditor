@@ -15116,6 +15116,133 @@ fn dragging_a_revolve_s_angle_arrows_turns_it_further() {
     assert_eq!(kept, backward);
 }
 
+#[test]
+fn an_extrusion_starting_at_a_face_shows_and_drags_its_arrow_where_it_ends() {
+    let mut harness = Harness::new();
+    let (plate, top) = extruded_plate(&mut harness);
+    let tower = extrusion_above_plate(&mut harness, 30.0);
+    open_combo(&mut harness, "Start");
+    harness.click_lowest("Face or plane");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    harness.click_pickable(Plane::XY, Point2::new(20.0, 20.0), top);
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let reach = Handle::Reach(crate::move_manipulator::Reach::Only);
+    let highest = |harness: &Harness| {
+        harness
+            .model
+            .evaluation()
+            .body(plate)
+            .and_then(|solid| solid.bounding_box())
+            .map(|bounds| bounds.max().z)
+            .unwrap()
+    };
+
+    let started = start_of_solid(&harness, tower);
+    let foot = harness
+        .workspace
+        .viewport
+        .handle_foot(reach)
+        .expect("the distance arrow is shown");
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(reach, 0.0)
+        .unwrap();
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(reach, 3.0)
+        .unwrap();
+    let step = harness.workspace.viewport.manipulator_step().unwrap();
+
+    assert!(matches!(
+        started,
+        Some(caditor_document::SolidStart::Plane(_))
+    ));
+    assert!(
+        (foot - caditor_geometry::Point3::new(15.0, 15.0, 20.0)).length() < 1e-9,
+        "{foot:?}"
+    );
+
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Extrude 2"));
+    assert!(
+        (highest(&harness) - 23.0).abs() <= step,
+        "{} with steps of {step}",
+        highest(&harness)
+    );
+    assert_eq!(start_of_solid(&harness, tower), started);
+}
+
+#[test]
+fn a_revolve_starting_off_its_sketch_plane_shows_and_drags_its_angle_arrows_there() {
+    let mut harness = Harness::new();
+    let mut section = Sketch::new(Plane::XZ);
+    rectangle(
+        &mut section,
+        Point2::new(10.0, 0.0),
+        Point2::new(20.0, 10.0),
+    );
+    harness.add_sketch(section);
+    harness.select([]);
+    harness.click("Revolve");
+    harness.settle();
+    let revolve = open_solid(&harness);
+    choose(&mut harness, "Full turn", "Two angles");
+    harness.type_into_field(Id::new(("solid-field", "start", revolve)), "5 mm");
+    harness.settle();
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let forward_angle = |harness: &Harness| match harness.solid(revolve) {
+        SolidFeature::Revolve(revolve) => match &revolve.extent {
+            caditor_document::RevolveExtent::TwoSides { forward, .. } => {
+                length_or_angle(harness, forward)
+            }
+            other => panic!("expected two angles, not {other:?}"),
+        },
+        SolidFeature::Extrude(_) => panic!("expected a revolve"),
+    };
+    let handle = Handle::Revolve(crate::turn_handles::TurnEnd::Forward);
+
+    let forward = forward_angle(&harness);
+    let foot = harness
+        .workspace
+        .viewport
+        .handle_foot(handle)
+        .expect("the forward arrow is shown");
+    let from = harness
+        .workspace
+        .viewport
+        .handle_position(handle, 0.0)
+        .unwrap();
+    let to = harness
+        .workspace
+        .viewport
+        .handle_position(handle, 30.0)
+        .unwrap();
+
+    assert!((foot.z - 5.0).abs() < 1e-9, "{foot:?}");
+    assert!((foot.x.hypot(foot.y + 5.0) - 15.0).abs() < 1e-9, "{foot:?}");
+
+    drag_screen(&mut harness, from, to);
+    harness.frame();
+    harness.settle();
+    let turned = forward_angle(&harness);
+
+    assert_eq!(harness.model.undo_label(), Some("Edit Revolve 1"));
+    assert!(
+        (turned - forward - 30.0).abs() <= 5.0,
+        "{forward} to {turned}"
+    );
+}
+
 fn length_or_angle(harness: &Harness, expression: &Expression) -> f64 {
     harness
         .model

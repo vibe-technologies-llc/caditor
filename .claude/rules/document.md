@@ -341,9 +341,11 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   `start` of an `Extrude` or a `Revolve` is an optional `SolidStart`: a signed length, or a
   `PlaneReference` (resolved like an end's, in its body's state at the feature's place) of a flat
   face or plane parallel to the sketch, whose distance along the normal becomes the length
-  (`start_plane`; a plane that is not parallel fails the feature, naming it). The profile starts
-  there, and every end, symmetric extent, up-to search and a revolve's turn (its axis keeps the
-  sketch's frame) works from there. `None` and zero length are the same and stored as absent. A
+  (`start_plane`; a plane that is not parallel fails the feature, naming it);
+  `displayed_start_offset` gives that length from an evaluation for drawing, a face resolved on
+  its body as the feature sees it (`displayed_plane` takes the user, as `displayed_axis` does).
+  The profile starts there, and every end, symmetric extent, up-to search and a revolve's turn
+  (its axis keeps the sketch's frame) works from there. `None` and zero length are the same and stored as absent. A
   start plane's body and datum count as used like an end's, and its face is healed like one.
 - An `ExtrudeEnd` may be `UpToFace(PlaneReference)`, resolved in its body's state at the
   extrusion's place in the tree. Face bodies and datum planes of the ends count as used
