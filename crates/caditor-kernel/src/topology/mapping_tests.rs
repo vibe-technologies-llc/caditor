@@ -171,3 +171,32 @@ fn a_scale_beyond_the_largest_size_or_below_the_resolution_is_refused() {
         Err(TransformError::Geometry(GeometryError::BelowResolution(_)))
     ));
 }
+
+fn pcurve_buffers(solid: &Solid) -> Vec<*const PcurveSample> {
+    solid
+        .coedges()
+        .map(|(_, coedge)| coedge.pcurve().samples().as_ptr())
+        .collect()
+}
+
+#[test]
+fn moving_or_turning_a_solid_shares_its_pcurves_and_mirroring_it_does_not() {
+    let solid = holed_block(10.0, 4.0, 2.5);
+    let turn = RigidTransform::rotation_about(Point3::new(1.0, 2.0, 0.0), Vector3::Z, 0.7).unwrap();
+
+    let moved = solid.transformed(&turn).unwrap();
+    let turned = solid.mapped(&Similarity::from(turn)).unwrap();
+    let mirrored = solid
+        .mapped(&Similarity::reflection(&Plane::YZ).unwrap())
+        .unwrap();
+    let original = pcurve_buffers(&solid);
+
+    assert_eq!(pcurve_buffers(&moved), original);
+    assert_eq!(pcurve_buffers(&turned), original);
+    assert!(
+        pcurve_buffers(&mirrored)
+            .iter()
+            .all(|buffer| !original.contains(buffer))
+    );
+    assert_eq!(turned.validate(), Ok(()));
+}

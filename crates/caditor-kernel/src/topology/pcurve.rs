@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use caditor_geometry::{Point2, Vector2};
 use thiserror::Error;
 
@@ -38,15 +40,22 @@ pub struct PcurveSample {
     pub uv: Point2,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Pcurve {
-    samples: Vec<PcurveSample>,
+    samples: Arc<[PcurveSample]>,
     tolerance: f64,
+}
+
+impl PartialEq for Pcurve {
+    fn eq(&self, other: &Self) -> bool {
+        self.tolerance == other.tolerance
+            && (Arc::ptr_eq(&self.samples, &other.samples) || self.samples == other.samples)
+    }
 }
 
 impl Pcurve {
     pub fn heap_size(&self) -> usize {
-        size_of_val(self.samples.as_slice())
+        size_of_val(&*self.samples)
     }
 
     pub fn new(samples: Vec<PcurveSample>, tolerance: f64) -> Result<Self, PcurveError> {
@@ -70,7 +79,10 @@ impl Pcurve {
         if !increasing && !decreasing {
             return Err(PcurveError::NotMonotone);
         }
-        Ok(Self { samples, tolerance })
+        Ok(Self {
+            samples: samples.into(),
+            tolerance,
+        })
     }
 
     pub fn samples(&self) -> &[PcurveSample] {
@@ -124,7 +136,10 @@ impl Pcurve {
 
     #[must_use]
     pub(crate) fn with_ends(&self, start: Point2, end: Point2) -> Self {
-        let mut samples = self.samples.clone();
+        if self.start() == start && self.end() == end {
+            return self.clone();
+        }
+        let mut samples = self.samples.to_vec();
         if let Some(first) = samples.first_mut() {
             first.uv = start;
         }
@@ -132,7 +147,7 @@ impl Pcurve {
             last.uv = end;
         }
         Self {
-            samples,
+            samples: samples.into(),
             tolerance: self.tolerance,
         }
     }
@@ -146,10 +161,7 @@ impl Pcurve {
     }
 
     pub(crate) fn refined(&self, surface: &Surface, curve: &Curve) -> Result<Self, PcurveError> {
-        Self::new(
-            refine(surface, curve, &self.samples, self.tolerance)?,
-            self.tolerance,
-        )
+        self.refined_within(surface, curve, self.tolerance)
     }
 
     pub(crate) fn refined_within(
@@ -158,11 +170,22 @@ impl Pcurve {
         curve: &Curve,
         tolerance: f64,
     ) -> Result<Self, PcurveError> {
-        Self::new(refine(surface, curve, &self.samples, tolerance)?, tolerance)
+        let refined = refine(surface, curve, &self.samples, tolerance)?;
+        let usable = tolerance.is_finite() && tolerance >= 0.0;
+        if usable && refined.len() == self.samples.len() {
+            return Ok(Self {
+                samples: Arc::clone(&self.samples),
+                tolerance,
+            });
+        }
+        Self::new(refined, tolerance)
     }
 
     #[must_use]
     pub fn shifted(&self, offset: Vector2) -> Self {
+        if offset == Vector2::ZERO {
+            return self.clone();
+        }
         Self {
             samples: self
                 .samples

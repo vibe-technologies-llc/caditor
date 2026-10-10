@@ -113,6 +113,15 @@ paths:
   `PCURVE_TOLERANCE`, or half of how far the edge bows from the chord between its ends when that is
   less (never below `LINEAR_RESOLUTION`), so a short arc that is nearly straight keeps an interior
   sample and never collapses onto a straight edge between the same vertices.
+- Geometry data is shared, never copied: a pcurve's samples and a spline curve's knots, control
+  points and weights are `Arc` slices (as a spline surface's net and an intersection curve's
+  nodes are), so cloning a coedge, edge or face is a pointer copy and successive solids share what
+  an operation did not change. Anything producing a changed copy builds new data; one that would
+  change nothing hands back the same data (`Pcurve::with_ends` and `shifted` at the same ends or
+  no shift, `refined_within` that inserts no sample, `BSpline::map_points` and `with_points`
+  keeping the knots and weights, `Solid::mapped` keeping every pcurve whose edge and uv maps are
+  identities, as a turn's or a shift's are). `Solid::approximate_size` counts shared data in full
+  in each solid holding it.
 - A face's first loop is its outer one; loops run counter-clockwise about the face normal. A face
   wrapping a periodic surface has a seam edge used twice in its loop, opposite senses, one period
   apart in uv.

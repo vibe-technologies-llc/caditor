@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     coordinates::Coordinates, error::GeometryError, interval::Interval,
     tolerance::LINEAR_RESOLUTION,
@@ -9,20 +11,20 @@ const MIN_PRUNED_SPANS: usize = 8;
 #[derive(Debug, Clone, PartialEq)]
 pub struct BSpline<P> {
     degree: usize,
-    knots: Vec<f64>,
-    control_points: Vec<P>,
-    weights: Option<Vec<f64>>,
+    knots: Arc<[f64]>,
+    control_points: Arc<[P]>,
+    weights: Option<Arc<[f64]>>,
     domain: Interval,
 }
 
 impl<P: Coordinates> BSpline<P> {
     pub(crate) fn heap_size(&self) -> usize {
-        size_of_val(self.knots.as_slice())
-            + size_of_val(self.control_points.as_slice())
+        size_of_val(&*self.knots)
+            + size_of_val(&*self.control_points)
             + self
                 .weights
                 .as_ref()
-                .map_or(0, |weights| size_of_val(weights.as_slice()))
+                .map_or(0, |weights| size_of_val(&**weights))
     }
 
     pub fn new(
@@ -89,9 +91,11 @@ impl<P: Coordinates> BSpline<P> {
         let domain = clamped_domain(&knots, degree).ok_or(GeometryError::Knots)?;
         Ok(Self {
             degree,
-            knots,
-            control_points,
-            weights: weights.filter(|weights| weights.iter().any(|weight| *weight != 1.0)),
+            knots: knots.into(),
+            control_points: control_points.into(),
+            weights: weights
+                .filter(|weights| weights.iter().any(|weight| *weight != 1.0))
+                .map(Arc::from),
             domain,
         })
     }
@@ -203,8 +207,8 @@ impl<P: Coordinates> BSpline<P> {
         }
         Ok(BSpline {
             degree: self.degree,
-            knots: self.knots.clone(),
-            control_points,
+            knots: Arc::clone(&self.knots),
+            control_points: control_points.into(),
             weights: self.weights.clone(),
             domain: self.domain,
         })
@@ -220,7 +224,7 @@ impl<P: Coordinates> BSpline<P> {
             return Some(self.clone());
         }
         let degree = self.degree;
-        let mut knots = self.knots.clone();
+        let mut knots = self.knots.to_vec();
         let mut points: Vec<Homogeneous<P>> = self
             .control_points
             .iter()
@@ -341,7 +345,7 @@ impl<P: Coordinates> BSpline<P> {
 
     pub(crate) fn with_knots(&self, parameters: &[f64]) -> Option<Self> {
         let degree = self.degree;
-        let mut knots = self.knots.clone();
+        let mut knots = self.knots.to_vec();
         let mut points = self.homogeneous_points();
         for parameter in parameters {
             let inside = self.domain.start() < *parameter && *parameter < self.domain.end();
@@ -354,15 +358,23 @@ impl<P: Coordinates> BSpline<P> {
     }
 
     pub(crate) fn with_points(&self, control_points: Vec<P>) -> Result<Self, GeometryError> {
-        match &self.weights {
-            Some(weights) => Self::rational(
-                self.degree,
-                self.knots.clone(),
-                control_points,
-                weights.clone(),
-            ),
-            None => Self::new(self.degree, self.knots.clone(), control_points),
+        if control_points.len() != self.control_points.len() {
+            return Err(GeometryError::KnotCount {
+                degree: self.degree,
+                points: control_points.len(),
+                knots: self.knots.len(),
+            });
         }
+        if !control_points.iter().all(|point| point.all_finite()) {
+            return Err(GeometryError::NonFinite);
+        }
+        Ok(Self {
+            degree: self.degree,
+            knots: Arc::clone(&self.knots),
+            control_points: control_points.into(),
+            weights: self.weights.clone(),
+            domain: self.domain,
+        })
     }
 
     pub(crate) fn rational_basis(&self, parameter: f64) -> (usize, Vec<f64>) {
@@ -761,6 +773,38 @@ mod tests {
     use caditor_geometry::{Point2, Point3};
 
     use super::*;
+
+    #[test]
+    fn clones_moves_and_reshapes_share_what_they_keep() {
+        let quarter = quarter_circle();
+
+        let copy = quarter.clone();
+        let moved = quarter.map_points(|point| point + Point2::ONE).unwrap();
+        let doubled: Vec<Point2> = quarter
+            .control_points()
+            .iter()
+            .map(|point| *point * 2.0)
+            .collect();
+        let reshaped = quarter.with_points(doubled).unwrap();
+
+        assert_eq!(
+            copy.control_points().as_ptr(),
+            quarter.control_points().as_ptr()
+        );
+        assert_eq!(moved.knots().as_ptr(), quarter.knots().as_ptr());
+        assert_eq!(reshaped.knots().as_ptr(), quarter.knots().as_ptr());
+        assert_eq!(
+            reshaped.weights().map(<[f64]>::as_ptr),
+            quarter.weights().map(<[f64]>::as_ptr)
+        );
+        assert!((reshaped.point(0.5) - quarter.point(0.5) * 2.0).length() < 1e-12);
+        assert_eq!(moved.point(0.5), quarter.point(0.5) + Point2::ONE);
+        assert!(quarter.with_points(vec![Point2::X, Point2::Y]).is_err());
+        assert_eq!(
+            quarter.with_points(vec![Point2::X, Point2::NAN, Point2::Y]),
+            Err(GeometryError::NonFinite)
+        );
+    }
 
     fn quarter_circle() -> BSpline<Point2> {
         let half = std::f64::consts::FRAC_1_SQRT_2;

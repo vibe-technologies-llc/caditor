@@ -91,12 +91,14 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   with 113 holes), and strips are cut at point quantiles rather than where the face is narrow
   (through a row of holes), so past about six strips they keep little. Spade's exact in-circle
   predicates on the cocircular samples of round holes are a quarter of all tessellation time.
-- [medium · medium] Every intermediate solid is a deep copy: a `Pcurve` is a `Vec` of samples and
-  B-spline curves own their data, so carried coedges clone their pcurves (`build/plan.rs`
-  `PlanPcurve::Settled`, `boolean/faces.rs`), and the result history holds each feature's body in
-  full. Pcurve samples and curve data shared through `Arc`, as spline surfaces already are, would
-  let successive bodies share what did not change. `SolidResult::cuts`/`joins` also keep every
-  tool solid forever, though only patterns, mirrors and an open feature read them.
+- [medium · medium] Successive solids share pcurve samples and curve data through `Arc`, but the
+  result history still measures each entry's solid in full (`Solid::approximate_size`), so with
+  a hole drilled 144 times the entries measure 277 MB where their pcurve samples hold 3.6 MB of
+  the 263 MB counted, and `EARLIER_RESULTS_BUDGET` drops earlier entries long before memory
+  needs it; a measure counting each shared buffer once across the history would fix it.
+  `SolidResult::cuts`/`joins` also keep every tool solid with every entry, though only patterns,
+  mirrors and an open feature read them; a removal's tool shares little with the result, since a
+  difference reverses the tool's kept faces and their pcurves.
 - [low · hard] The face grid is graded per direction but still a tensor product, so a bump divides
   the whole rows and columns through it, and curvature is sampled only on the lattice, so a feature
   narrower than a lattice span is refined only if a checked cell lands on it. Cells split where

@@ -8,6 +8,7 @@ use crate::{
     naming::{EdgeName, FaceName, FaceOrigin},
     profile::{Profile, ProfileCurve, Selection},
     test_support::{circle, rectangle},
+    topology::PcurveSample,
 };
 
 const PITCH: f64 = 10.0;
@@ -270,6 +271,31 @@ fn separated_solids_that_the_pipeline_would_rename_go_through_it() {
     assert!(apart::combine_apart(&first, &steps, BooleanOperation::Union).is_none());
     assert_same_in_every_operation("copy", &first, &copy);
     assert_same_in_every_operation("split side", &first, &steps);
+}
+
+fn pcurve_buffers(solid: &Solid) -> Vec<*const PcurveSample> {
+    solid
+        .coedges()
+        .map(|(_, coedge)| coedge.pcurve().samples().as_ptr())
+        .collect()
+}
+
+#[test]
+fn carried_coedges_share_their_pcurves_with_the_operand() {
+    let body = plate(2, 2);
+
+    let once = boolean(&body, &drill(0, 2), BooleanOperation::Difference).unwrap();
+    let twice = boolean(&once, &drill(3, 2), BooleanOperation::Difference).unwrap();
+    let (plate, drilled, redrilled) = (
+        pcurve_buffers(&body),
+        pcurve_buffers(&once),
+        pcurve_buffers(&twice),
+    );
+
+    assert_eq!(twice.validate(), Ok(()));
+    assert!(plate.iter().all(|buffer| drilled.contains(buffer)));
+    assert!(drilled.iter().all(|buffer| redrilled.contains(buffer)));
+    assert_eq!(redrilled.len(), drilled.len() + 6);
 }
 
 fn milliseconds(duration: Duration) -> f64 {
