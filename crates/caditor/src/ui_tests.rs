@@ -95,6 +95,7 @@ mod sketch_blend_curves;
 mod sketch_breaks;
 mod sketch_chamfers;
 mod sketch_conics;
+mod sketch_driven_patterns;
 mod sketch_ellipses;
 mod sketch_first_dimension;
 mod sketch_free;
@@ -11792,7 +11793,9 @@ fn a_pattern_takes_its_directions_from_lists_in_its_panel() {
             first.axis.clone(),
             second.as_ref().map(|second| second.axis.clone()),
         ),
-        caditor_document::PatternKind::Circular(_) => panic!("the pattern stays linear"),
+        caditor_document::PatternKind::Circular(_)
+        | caditor_document::PatternKind::Curve(_)
+        | caditor_document::PatternKind::Points(_) => panic!("the pattern stays linear"),
     };
 
     open_combo(&mut harness, "Direction");

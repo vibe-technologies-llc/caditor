@@ -144,6 +144,8 @@ pub enum Command {
     RemoveBody,
     LinearPattern,
     CircularPattern,
+    CurvePattern,
+    PointPattern,
     DatumPlane,
     DatumAxis,
     DatumPoint,
@@ -653,6 +655,8 @@ plain_commands! {
     RemoveBody,
     LinearPattern,
     CircularPattern,
+    CurvePattern,
+    PointPattern,
     DatumPlane,
     DatumAxis,
     DatumPoint,
@@ -900,6 +904,8 @@ impl Command {
             Self::RemoveBody => "model.remove_body",
             Self::LinearPattern => "model.linear_pattern",
             Self::CircularPattern => "model.circular_pattern",
+            Self::CurvePattern => "model.curve_pattern",
+            Self::PointPattern => "model.point_pattern",
             Self::DatumPlane => "model.plane",
             Self::DatumAxis => "model.axis",
             Self::DatumPoint => "model.point",
@@ -1138,6 +1144,8 @@ impl Command {
             Self::RemoveBody => "Remove body",
             Self::LinearPattern => "Linear pattern",
             Self::CircularPattern => "Circular pattern",
+            Self::CurvePattern => "Curve pattern",
+            Self::PointPattern => "Point pattern",
             Self::DatumPlane => "Datum plane",
             Self::DatumAxis => "Datum axis",
             Self::DatumPoint => "Datum point",
@@ -1297,6 +1305,8 @@ impl Command {
             Self::Chamfer => &["bevel"],
             Self::Shell => &["hollow"],
             Self::Hole => &["drill", "bore", "counterbore", "countersink"],
+            Self::CurvePattern => &["path pattern", "pattern along a path", "repeat along"],
+            Self::PointPattern => &["sketch pattern", "pattern at points", "repeat at"],
             Self::NewSketch => &["draw", "profile", "2d"],
             Self::Preferences => &["settings", "options", "units"],
             Self::KeyboardShortcuts => &["keymap", "keys", "bindings", "hotkeys"],
@@ -1453,6 +1463,8 @@ impl Command {
             | Self::RemoveBody
             | Self::LinearPattern
             | Self::CircularPattern
+            | Self::CurvePattern
+            | Self::PointPattern
             | Self::DatumPlane
             | Self::DatumAxis
             | Self::DatumPoint
@@ -1802,7 +1814,9 @@ impl Command {
             | Self::ToggleBodies
             | Self::NewCone
             | Self::NewWedge
-            | Self::NewPrism => Vec::new(),
+            | Self::NewPrism
+            | Self::CurvePattern
+            | Self::PointPattern => Vec::new(),
         }
     }
 

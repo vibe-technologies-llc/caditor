@@ -11,7 +11,7 @@ use crate::{
     pattern_tools::{self, Reference},
     primitive_tools, scale_tools,
     selection::{Pickable, Selection},
-    solid_panel, split_tools, thread_tools,
+    sketch_pattern_tools, solid_panel, split_tools, thread_tools,
 };
 
 pub const STOP_HINT: &str = "Esc: stop choosing";
@@ -38,6 +38,8 @@ pub enum Slot {
     SplitPlane,
     PatternDirection,
     PatternSecond,
+    PatternPath,
+    PatternBase,
     DatumBase,
     DatumRotation,
     MoveAxis,
@@ -178,6 +180,19 @@ pub fn prompt(model: &Model, picking: Picking) -> String {
         Slot::PatternDirection if circular => format!("Click {AXIS} to turn about"),
         Slot::PatternDirection => format!("Click {AXIS} to repeat along"),
         Slot::PatternSecond => format!("Click {AXIS} to also repeat along"),
+        Slot::PatternPath => match kind(model, picking.feature) {
+            Some(FeatureKind::Pattern(pattern))
+                if matches!(pattern.kind, PatternKind::Points(_)) =>
+            {
+                "Click a point of the sketch whose points the copies go to".to_owned()
+            }
+            _ => "Click a curve of the sketch for the copies to follow".to_owned(),
+        },
+        Slot::PatternBase => {
+            "Click a corner, round edge, sphere or torus, sketch point or datum point to move the \
+             copies from"
+                .to_owned()
+        }
         Slot::DatumBase if picking.held_count() > 0 => held_prompt(model, picking),
         Slot::DatumBase => match datum(model, picking.feature) {
             Some(Datum::Axis(_)) => format!(
@@ -263,6 +278,12 @@ pub fn change(
         }
         (Slot::PatternSecond, FeatureKind::Pattern(pattern)) => {
             pattern_tools::selected_change(model, selection, feature, pattern, Reference::Second)
+        }
+        (Slot::PatternPath, FeatureKind::Pattern(pattern)) => {
+            sketch_pattern_tools::sketch_change(model, selection, feature, pattern)
+        }
+        (Slot::PatternBase, FeatureKind::Pattern(pattern)) => {
+            sketch_pattern_tools::base_change(model, selection, feature, pattern)
         }
         (Slot::DatumBase, FeatureKind::Datum(datum)) => {
             datum_panel::base_change(model, selection, feature, datum)

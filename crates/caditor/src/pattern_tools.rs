@@ -1,19 +1,21 @@
 use caditor_document::{
     AxisReference, CircularPattern, Document, Edit, FeatureId, FeatureKind, Instance,
     LinearDirection, LinearSpacing, Pattern, PatternKind, PrincipalAxis, Transaction,
-    displayed_axis, instance_name, repeatable_on,
+    displayed_axis, repeatable_on,
 };
 use caditor_expression::Expression;
 use caditor_geometry::Aabb;
 
 use crate::{
-    bodies, datum_tools,
+    bodies,
+    commands::Command,
+    datum_tools,
     editing::{self, EditingCommand},
     field,
     model::{Action, Model, Notice},
     move_tools,
     selection::{Pickable, Selection},
-    solid_tools,
+    sketch_pattern_tools, solid_tools,
     units::LengthUnit,
 };
 
@@ -21,6 +23,10 @@ pub const LINEAR_TITLE: &str = "Linear pattern";
 pub const CIRCULAR_TITLE: &str = "Circular pattern";
 pub const LINEAR_DESCRIPTION: &str = "Repeat the body in a row along a direction";
 pub const CIRCULAR_DESCRIPTION: &str = "Repeat the body around an axis";
+pub const CURVE_TITLE: &str = "Curve pattern";
+pub const POINTS_TITLE: &str = "Point pattern";
+pub const CURVE_DESCRIPTION: &str = "Repeat the body along a curve of a sketch";
+pub const POINTS_DESCRIPTION: &str = "Repeat the body at the points of a sketch";
 pub const DEFAULT_LINEAR_COUNT: f64 = 3.0;
 pub const DEFAULT_SECOND_COUNT: f64 = 2.0;
 pub const DEFAULT_CIRCULAR_COUNT: f64 = 6.0;
@@ -35,6 +41,7 @@ const SEVERAL_AXES: &str =
     "Several axes, straight edges or round faces are selected; select only the one to follow";
 const NO_AXIS: &str = "Select an axis, straight edge or round face made before this pattern";
 const NOT_LINEAR: &str = "Only a linear pattern has a second direction";
+const NO_AXIS_TO_FOLLOW: &str = "Only a linear or circular pattern follows an axis";
 const GONE: &str = "The feature no longer exists";
 const ORIGINAL_STAYS: &str = "The original is never left out of its pattern";
 
@@ -42,15 +49,20 @@ const ORIGINAL_STAYS: &str = "The original is never left out of its pattern";
 pub enum Shape {
     Linear,
     Circular,
+    Curve,
+    Points,
 }
 
 impl Shape {
-    pub const ALL: [Self; 2] = [Self::Linear, Self::Circular];
+    pub const ALL: [Self; 4] = [Self::Linear, Self::Circular, Self::Curve, Self::Points];
+    pub const ON_RIBBON: [Self; 2] = [Self::Linear, Self::Circular];
 
     pub fn title(self) -> &'static str {
         match self {
             Self::Linear => LINEAR_TITLE,
             Self::Circular => CIRCULAR_TITLE,
+            Self::Curve => CURVE_TITLE,
+            Self::Points => POINTS_TITLE,
         }
     }
 
@@ -58,6 +70,8 @@ impl Shape {
         match self {
             Self::Linear => LINEAR_DESCRIPTION,
             Self::Circular => CIRCULAR_DESCRIPTION,
+            Self::Curve => CURVE_DESCRIPTION,
+            Self::Points => POINTS_DESCRIPTION,
         }
     }
 
@@ -65,12 +79,27 @@ impl Shape {
         match kind {
             PatternKind::Linear { .. } => Self::Linear,
             PatternKind::Circular(_) => Self::Circular,
+            PatternKind::Curve(_) => Self::Curve,
+            PatternKind::Points(_) => Self::Points,
         }
+    }
+
+    pub fn command(self) -> Command {
+        match self {
+            Self::Linear => Command::LinearPattern,
+            Self::Circular => Command::CircularPattern,
+            Self::Curve => Command::CurvePattern,
+            Self::Points => Command::PointPattern,
+        }
+    }
+
+    pub fn follows_sketch(self) -> bool {
+        matches!(self, Self::Curve | Self::Points)
     }
 
     fn default_axis(self) -> AxisReference {
         match self {
-            Self::Linear => AxisReference::Principal(PrincipalAxis::X),
+            Self::Linear | Self::Curve | Self::Points => AxisReference::Principal(PrincipalAxis::X),
             Self::Circular => AxisReference::Principal(PrincipalAxis::Z),
         }
     }
@@ -81,6 +110,7 @@ pub struct PatternSource {
     pub body: FeatureId,
     pub axis: Option<AxisReference>,
     pub repeated: Vec<FeatureId>,
+    pub sketch: Option<FeatureId>,
 }
 
 impl PatternSource {
@@ -160,6 +190,7 @@ pub fn source(
         body,
         axis,
         repeated,
+        sketch: None,
     })
 }
 
@@ -266,7 +297,7 @@ fn kind_for(
             ),
             second: None,
         },
-        Shape::Circular => PatternKind::Circular(CircularPattern {
+        Shape::Circular | Shape::Curve | Shape::Points => PatternKind::Circular(CircularPattern {
             axis,
             count: Expression::Number(DEFAULT_CIRCULAR_COUNT),
             angle: solid_tools::degrees(FULL_TURN),
@@ -281,18 +312,19 @@ pub fn create(
     source: &PatternSource,
 ) -> Result<(Transaction, FeatureId), String> {
     let document = model.document();
-    let axis = source.axis.clone().unwrap_or_else(|| shape.default_axis());
+    let kind = match (shape.follows_sketch(), source.sketch) {
+        (true, Some(sketch)) => sketch_pattern_tools::kind(shape, sketch, model.length_unit()),
+        (true, None) => return Err(sketch_pattern_tools::NO_PATH.to_owned()),
+        (false, _) => {
+            let axis = source.axis.clone().unwrap_or_else(|| shape.default_axis());
+            kind_for(model, shape, (source.body, &source.repeated), axis)
+        }
+    };
     let name = editing::next_feature_name(document, shape.title());
     let mut transaction = document.transaction(format!("Create {name}"));
     let feature = transaction.add_feature(
         name,
-        FeatureKind::from(
-            Pattern::new(
-                source.body,
-                kind_for(model, shape, (source.body, &source.repeated), axis),
-            )
-            .repeating(source.repeated.clone()),
-        ),
+        FeatureKind::from(Pattern::new(source.body, kind).repeating(source.repeated.clone())),
     );
     field::checked(document, transaction.finish()).map(|transaction| (transaction, feature))
 }
@@ -349,9 +381,15 @@ pub fn leave_out_words(document: &Document, open: FeatureId, copy: &ClickedCopy)
     let name = document
         .feature(open)
         .map_or("the pattern", |feature| feature.name.as_str());
+    let brought_back = match copy.pattern.kind {
+        PatternKind::Points(_) => "Bring the copies back",
+        PatternKind::Linear { .. } | PatternKind::Circular(_) | PatternKind::Curve(_) => {
+            "the Instances grid"
+        }
+    };
     format!(
-        "Click to leave {} out of {name}; the Instances grid brings it back",
-        instance_name(copy.instance)
+        "Click to leave {} out of {name}; {brought_back} brings it back",
+        copy.pattern.instance_words(copy.instance)
     )
 }
 
@@ -366,10 +404,41 @@ pub fn change(model: &Model, feature: FeatureId, pattern: Pattern) -> Result<Tra
     field::checked(document, transaction)
 }
 
-pub fn reshaped(model: &Model, pattern: &Pattern, shape: Shape) -> Pattern {
+pub fn reshaped(
+    model: &Model,
+    feature: FeatureId,
+    pattern: &Pattern,
+    shape: Shape,
+) -> Result<Pattern, &'static str> {
     let kind = match (&pattern.kind, shape) {
         (PatternKind::Linear { .. }, Shape::Linear)
-        | (PatternKind::Circular(_), Shape::Circular) => return pattern.clone(),
+        | (PatternKind::Circular(_), Shape::Circular)
+        | (PatternKind::Curve(_), Shape::Curve)
+        | (PatternKind::Points(_), Shape::Points) => return Ok(pattern.clone()),
+        (_, Shape::Curve | Shape::Points) => {
+            let before = model.document().feature_index(feature).ok_or(GONE)?;
+            sketch_pattern_tools::reshaped_kind(model, pattern, shape, before)?
+        }
+        (PatternKind::Curve(curve), Shape::Linear | Shape::Circular) => {
+            let mut kind = kind_for(
+                model,
+                shape,
+                (pattern.body, &pattern.repeated),
+                shape.default_axis(),
+            );
+            match &mut kind {
+                PatternKind::Linear { first, .. } => first.count = curve.count.clone(),
+                PatternKind::Circular(circular) => circular.count = curve.count.clone(),
+                PatternKind::Curve(_) | PatternKind::Points(_) => {}
+            }
+            kind
+        }
+        (PatternKind::Points(_), Shape::Linear | Shape::Circular) => kind_for(
+            model,
+            shape,
+            (pattern.body, &pattern.repeated),
+            shape.default_axis(),
+        ),
         (PatternKind::Linear { first, .. }, Shape::Circular) => {
             PatternKind::Circular(CircularPattern {
                 axis: first.axis.clone(),
@@ -394,7 +463,7 @@ pub fn reshaped(model: &Model, pattern: &Pattern, shape: Shape) -> Pattern {
             }
         }
     };
-    Pattern::new(pattern.body, kind).repeating(pattern.repeated.clone())
+    Ok(Pattern::new(pattern.body, kind).repeating(pattern.repeated.clone()))
 }
 
 fn with_selected(
@@ -459,6 +528,7 @@ pub fn with_axis(
             })
         }
         (PatternKind::Circular(_), Reference::Second) => return Err(NOT_LINEAR),
+        (PatternKind::Curve(_) | PatternKind::Points(_), _) => return Err(NO_AXIS_TO_FOLLOW),
     };
     Ok(Pattern {
         kind,

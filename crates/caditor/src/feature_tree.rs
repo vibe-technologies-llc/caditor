@@ -325,6 +325,8 @@ pub fn kind_words(kind: &FeatureKind) -> &'static [&'static str] {
         FeatureKind::Pattern(pattern) => match pattern.kind {
             PatternKind::Linear { .. } => &["linear pattern", "pattern"],
             PatternKind::Circular(_) => &["circular pattern", "pattern"],
+            PatternKind::Curve(_) => &["curve pattern", "path pattern", "pattern"],
+            PatternKind::Points(_) => &["point pattern", "sketch pattern", "pattern"],
         },
         FeatureKind::Datum(Datum::Plane(_) | Datum::PlaneThrough(_)) => &["datum plane", "plane"],
         FeatureKind::Datum(Datum::Axis(_)) => &["datum axis", "axis"],

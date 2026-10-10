@@ -3907,6 +3907,70 @@ fn patterns_are_saved_and_loaded() {
 }
 
 #[test]
+fn curve_and_point_patterns_are_kinds_older_readers_report_and_read_back() {
+    use caditor_document::{
+        CopyOrientation, CurvePattern, CurveSpacing, Pattern, PatternKind, PointReference,
+        PointsPattern, point_instance,
+    };
+    let (mut document, base, _) = solid_model();
+    let outline = document
+        .features()
+        .find(|feature| feature.name == "Outline")
+        .unwrap()
+        .id();
+    let mut transaction = document.transaction("Patterns");
+    let mut along = Pattern::new(
+        base,
+        PatternKind::Curve(CurvePattern {
+            sketch: outline,
+            count: transaction.parse("depth + 1").unwrap(),
+            spacing: transaction.parse("12 mm").unwrap(),
+            measured: CurveSpacing::Distance,
+            orientation: CopyOrientation::Following,
+            reversed: true,
+        }),
+    );
+    along.skipped.insert([2, 0]);
+    let along = transaction.add_feature("Curve pattern 1", FeatureKind::from(along));
+    let mut at_points = Pattern::new(
+        base,
+        PatternKind::Points(PointsPattern {
+            sketch: outline,
+            base: PointReference::Sketch {
+                sketch: outline,
+                entity: EntityId::from_raw(0),
+            },
+        }),
+    );
+    at_points
+        .skipped
+        .insert(point_instance(EntityId::from_raw(1 << 40)).unwrap());
+    let at_points = transaction.add_feature("Point pattern 1", FeatureKind::from(at_points));
+    document.apply(transaction.finish()).unwrap();
+
+    let text = encode(&document).unwrap();
+    let loaded = decode_text(&text);
+    let older = decode_text(&text.replace("\"curve_pattern\"", "\"later_pattern\""));
+
+    assert!(text.contains("\"curve_pattern\":{\"body\":1,"));
+    assert!(text.contains("\"distance\":true,\"follow\":true,\"reversed\":true"));
+    assert!(text.contains("\"point_pattern\":{\"base\":{\"sketch\":"));
+    assert!(text.contains("\"skipped\":[[1,256]]"));
+    assert_eq!(loaded.issues, Vec::<String>::new());
+    assert_eq!(loaded.document, document);
+    assert!(older.document.feature(along).is_none());
+    assert!(!older.issues.is_empty());
+
+    for pattern in [along, at_points] {
+        let kind = document.feature(pattern).unwrap().kind.clone();
+        let transaction = Transaction::single("Edit", Edit::SetFeatureKind { id: pattern, kind });
+        let text = serde_json::to_string(&format::transaction_record(&transaction)).unwrap();
+        let record = through_binary(&text);
+        assert_eq!(format::restore_transaction(record), Some(transaction));
+    }
+}
+
+#[test]
 fn a_pattern_whose_axis_cannot_be_read_falls_back_and_is_reported() {
     use caditor_document::{AxisReference, PatternKind, PrincipalAxis};
     let (document, linear, circular) = patterned_model();

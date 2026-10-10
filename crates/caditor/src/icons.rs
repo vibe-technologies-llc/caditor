@@ -120,7 +120,7 @@ const EDGE: &str = phosphor::LINE_SEGMENT;
 const VERTEX: &str = phosphor::DOT_OUTLINE;
 const REGION: &str = phosphor::SELECTION;
 const CENTRE_OF_MASS: &str = phosphor::TARGET;
-const ORIGIN: &str = phosphor::CROSSHAIR;
+pub const ORIGIN: &str = phosphor::CROSSHAIR;
 
 pub fn command(command: Command) -> &'static str {
     match command {
@@ -209,6 +209,8 @@ pub fn command(command: Command) -> &'static str {
         Command::Hole => HOLE,
         Command::LinearPattern => LINEAR_PATTERN,
         Command::CircularPattern => CIRCULAR_PATTERN,
+        Command::CurvePattern => CURVE_PATTERN,
+        Command::PointPattern => POINT_PATTERN,
         Command::DatumPlane => PLANE,
         Command::DatumAxis => AXIS,
         Command::DatumPoint => POINT,
@@ -353,6 +355,8 @@ const SCALE: &str = phosphor::RESIZE;
 const HOLE: &str = phosphor::CIRCLE_DASHED;
 const LINEAR_PATTERN: &str = icon_font::LINEAR_PATTERN;
 const CIRCULAR_PATTERN: &str = icon_font::CIRCULAR_PATTERN;
+const CURVE_PATTERN: &str = phosphor::FLOW_ARROW;
+const POINT_PATTERN: &str = phosphor::CHART_SCATTER;
 const PLANE: &str = phosphor::PARALLELOGRAM;
 const AXIS: &str = phosphor::ARROW_LINE_UP_RIGHT;
 const POINT: &str = phosphor::CROSSHAIR_SIMPLE;
@@ -510,6 +514,8 @@ pub fn feature(kind: &FeatureKind) -> &'static str {
         FeatureKind::Pattern(pattern) => match pattern.kind {
             PatternKind::Linear { .. } => LINEAR_PATTERN,
             PatternKind::Circular(_) => CIRCULAR_PATTERN,
+            PatternKind::Curve(_) => CURVE_PATTERN,
+            PatternKind::Points(_) => POINT_PATTERN,
         },
         FeatureKind::Datum(Datum::Plane(_) | Datum::PlaneThrough(_)) => PLANE,
         FeatureKind::Datum(Datum::Axis(_)) => AXIS,

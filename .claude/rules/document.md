@@ -724,6 +724,31 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   indices and names, so references to them survive leaving others out.
 - It changes its body but is not `modifies_body`: nothing is chosen on the state before it, so the
   app shows the patterned body while it is open.
+- `PatternKind::Curve` (`CurvePattern`) follows an earlier sketch whose non-construction curves
+  form one chain joined end to end (`pattern_path.rs`, `curve_path`), open or closed (a circle, a
+  closed spline or a loop of curves); a branch, a second chain or a curve of no length fails the
+  pattern with the fix on the sketch. An open chain is walked from its end on the curve of lowest
+  entity id (that curve's start if both are), a closed one from the start of its lowest curve, the
+  other way when `reversed` (an open one from its far end). Copy `[i, 0]` stands at arc length `i`
+  steps along it: `CurveSpacing::Spread` shares the whole length (over `count - 1` steps, or
+  `count` round a closed chain), `Distance` is the `spacing` expression, and copies reaching past
+  the end (or round onto the original) fail it saying how long the curve is. Each copy is the
+  original moved as the walk's start point would move to that station (`along_curve`), turned
+  about the sketch normal through the start by the change of tangent when
+  `CopyOrientation::Following`. Arc length is exact on lines and arcs and found by bisection on
+  splines and ellipses.
+- `PatternKind::Points` (`PointsPattern`) places a copy at every lone point of an earlier sketch
+  (`Sketch::free_points`, solved), moved from `base`, a `PointReference` resolved like a datum
+  point's (its datum, frame, body, sketch and origins count as used, its edge or face healed).
+  A point on the base point is the original and makes no copy; a sketch with no lone points fails
+  the pattern with the fix on the sketch. A copy's index is its point's id plus one split into two
+  words (`point_instance`, `instance_point`; the original stays `[0, 0]`), so adding or deleting
+  points never renames the others, and copies are worded "the copy at point N"
+  (`Pattern::instance_words`, `describe_origin`). `instances` is none, as they are no grid.
+- Both sketches are in `features()` and `reference_sketches` (an edit naming a feature that is no
+  sketch is `NotASketch`), so an edit to the sketch recomputes the pattern and it stays below it;
+  a sketch that failed fails the pattern naming it. Features are repeated through them as through
+  the other kinds, and `SetFeatureKind` may switch a pattern between all four kinds.
 
 ### Sketch and datum (`attachment.rs`, `datum.rs`)
 
