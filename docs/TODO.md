@@ -140,11 +140,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   to a point, line or curve; project into other sketches as splines; and a point snapped to the end
   of a slanted ellipse's minor axis is kept on the ellipse but not at the end, the sketch having
   no constraint for a point on the line through the centre square to the axis.
-- [low · easy] A rectangular pattern of an arc or elliptical arc reports one of its copies' ties
-  redundant: every point of a copy is tied by two one-row constraints, but the copy's end lying on
-  its circle (an elliptical arc's second end on its ellipse) already follows from the others, so
-  one tie per copy adds no rank. Tying only the coordinate of that end the curve leaves free would
-  avoid it.
 - [medium · hard] A spline is only the control points it was drawn with: a point has no tangent or
   curvature handle to set the direction and pull of the curve there, which would be stored as
   constraints on the point rather than as positions so the solver and dimensions keep reading

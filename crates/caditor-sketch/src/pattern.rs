@@ -430,9 +430,10 @@ impl Sketch {
             copies.extend(lone);
             maps.push(map);
         }
+        let implied = self.implied_gradients(&plan.curves);
         match centre {
-            None => self.tie_shifts(plan, &maps)?,
-            Some(centre) => self.tie_turns(plan, &maps, centre)?,
+            None => self.tie_shifts(plan, &maps, &implied)?,
+            Some(centre) => self.tie_turns(plan, &maps, &implied, centre)?,
         }
         for (original, copy) in equal {
             self.add_constraint(Constraint::Equal(original, copy))?;
@@ -440,10 +441,56 @@ impl Sketch {
         Ok(copies)
     }
 
+    fn implied_gradients(&self, curves: &[EntityId]) -> BTreeMap<EntityId, Vec<Vector2>> {
+        let mut implied: BTreeMap<EntityId, Vec<Vector2>> = BTreeMap::new();
+        for curve in curves {
+            match self.entity(*curve) {
+                Some(&Entity::Arc { center, end, .. }) => {
+                    if let (Some(center), Some(at)) = (self.point(center), self.point(end)) {
+                        implied.entry(end).or_default().push(at - center);
+                    }
+                }
+                Some(&Entity::EllipticalArc { start, end, .. }) => {
+                    let Some(ellipse) = self.ellipse(*curve) else {
+                        continue;
+                    };
+                    let ends = [start, end];
+                    let across = |point: EntityId| {
+                        self.point(point).map_or(0.0, |at| {
+                            (at - ellipse.center).dot(ellipse.axis().perp()).abs()
+                        })
+                    };
+                    let minor_setter = ends
+                        .into_iter()
+                        .filter(|point| !self.lies_on_major_axis(*curve, *point))
+                        .max_by(|a, b| across(*a).total_cmp(&across(*b)));
+                    let axis = ellipse.axis();
+                    let major = ellipse.major_radius();
+                    let minor = ellipse.minor_radius;
+                    for point in ends
+                        .into_iter()
+                        .filter(|point| Some(*point) != minor_setter)
+                    {
+                        let Some(at) = self.point(point) else {
+                            continue;
+                        };
+                        let offset = at - ellipse.center;
+                        let gradient = axis * (offset.dot(axis) / (major * major))
+                            + axis.perp() * (offset.dot(axis.perp()) / (minor * minor));
+                        implied.entry(point).or_default().push(gradient);
+                    }
+                }
+                _ => {}
+            }
+        }
+        implied
+    }
+
     fn tie_shifts(
         &mut self,
         plan: &Plan,
         maps: &[BTreeMap<EntityId, EntityId>],
+        implied: &BTreeMap<EntityId, Vec<Vector2>>,
     ) -> Result<(), SketchError> {
         for (instance, map) in plan.instances.iter().zip(maps) {
             let Step::Shift { row, vector } = &instance.step else {
@@ -457,8 +504,12 @@ impl Sketch {
                 ) else {
                     continue;
                 };
-                for constraint in shift_constraints(row, *vector, earlier, later) {
-                    self.add_constraint(constraint)?;
+                let ties = shift_constraints(row, *vector, earlier, later);
+                let kept = kept_rows(implied.get(point), [Vector2::X, Vector2::Y]);
+                for (index, constraint) in ties.into_iter().enumerate() {
+                    if kept.contains(&index) {
+                        self.add_constraint(constraint)?;
+                    }
                 }
             }
         }
@@ -469,6 +520,7 @@ impl Sketch {
         &mut self,
         plan: &Plan,
         maps: &[BTreeMap<EntityId, EntityId>],
+        implied: &BTreeMap<EntityId, Vec<Vector2>>,
         centre: EntityId,
     ) -> Result<(), SketchError> {
         let hub = self.hub_for(centre)?;
@@ -506,15 +558,27 @@ impl Sketch {
                 ) else {
                     continue;
                 };
+                let outward = match (self.point(*point), self.point(hub)) {
+                    (Some(at), Some(from)) => (at - from).normalize_or_zero(),
+                    _ => Vector2::X,
+                };
+                let kept = kept_rows(implied.get(point), [outward, outward.perp()]);
+                if kept.is_empty() {
+                    continue;
+                }
                 let from = ray_to(self, earlier)?;
                 let to = ray_to(self, later)?;
-                self.add_constraint(Constraint::Equal(from, to))?;
-                self.add_constraint(Constraint::Angle {
-                    from,
-                    to,
-                    reversed: false,
-                    value: angle.clone(),
-                })?;
+                if kept.contains(&0) {
+                    self.add_constraint(Constraint::Equal(from, to))?;
+                }
+                if kept.contains(&1) {
+                    self.add_constraint(Constraint::Angle {
+                        from,
+                        to,
+                        reversed: false,
+                        value: angle.clone(),
+                    })?;
+                }
             }
         }
         Ok(())
@@ -527,6 +591,22 @@ impl Sketch {
         let hub = self.add_point(Point2::ZERO);
         self.add_constraint(Constraint::Coincident(hub, centre))?;
         Ok(hub)
+    }
+}
+
+fn kept_rows(implied: Option<&Vec<Vector2>>, directions: [Vector2; 2]) -> Vec<usize> {
+    match implied.map(Vec::as_slice) {
+        None | Some([]) => vec![0, 1],
+        Some([gradient]) => {
+            let independence = |direction: Vector2| gradient.perp_dot(direction).abs();
+            let best = if independence(directions[0]) >= independence(directions[1]) {
+                0
+            } else {
+                1
+            };
+            vec![best]
+        }
+        Some(_) => Vec::new(),
     }
 }
 
