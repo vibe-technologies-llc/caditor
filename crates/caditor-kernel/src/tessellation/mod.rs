@@ -1,9 +1,11 @@
+mod constrained;
 mod density;
 mod face;
 mod insertion;
 mod mass;
 mod parallel;
 mod patch;
+mod pieces;
 mod reuse;
 #[cfg(test)]
 mod tests;
@@ -22,7 +24,7 @@ pub use self::{
     reuse::DisplayMesh,
 };
 use self::{
-    patch::{FacePatch, PatchPosition},
+    patch::{FacePatch, PatchPosition, PatchShape},
     reuse::{FaceKey, KeptFace},
 };
 use crate::{
@@ -401,7 +403,7 @@ struct Tessellator<'a> {
     samplings: Vec<EdgeSampling>,
     sampled_with: Vec<SampledWith>,
     triangles: BTreeMap<FaceId, Vec<[u32; 3]>>,
-    kept: BTreeMap<FaceId, (FaceKey, usize)>,
+    kept: BTreeMap<FaceId, (FaceKey, PatchShape)>,
     reused: BTreeSet<FaceId>,
     orphans: bool,
 }
@@ -492,10 +494,15 @@ impl<'a> Tessellator<'a> {
     }
 
     fn find_poles(&mut self, faces: &[FaceId]) -> Result<(), TessellationError> {
-        let found = parallel::each_in_order(faces.len(), self.threads, |index| {
-            let face = faces.get(index).ok_or(TessellationError::MissingEntity)?;
-            face::pole_sampling(self.solid, *face, &self.tolerances.face(*face))
-        });
+        let found = parallel::each_in_order(
+            faces.len(),
+            self.threads,
+            parallel::FACES_PER_THREAD,
+            |index| {
+                let face = faces.get(index).ok_or(TessellationError::MissingEntity)?;
+                face::pole_sampling(self.solid, *face, &self.tolerances.face(*face))
+            },
+        );
         for (face, found) in faces.iter().zip(found) {
             match found? {
                 Some(found) => self.poles.insert(*face, found),
@@ -658,12 +665,17 @@ impl<'a> Tessellator<'a> {
             self.kept.remove(face);
             self.reused.remove(face);
         }
-        let made = parallel::each_in_order(faces.len(), self.threads, |index| {
-            faces
-                .get(index)
-                .ok_or(TessellationError::MissingEntity)
-                .and_then(|id| self.make_face(*id))
-        });
+        let made = parallel::each_in_order(
+            faces.len(),
+            self.threads,
+            parallel::FACES_PER_THREAD,
+            |index| {
+                faces
+                    .get(index)
+                    .ok_or(TessellationError::MissingEntity)
+                    .and_then(|id| self.make_face(*id))
+            },
+        );
         let mut crossed = Crossed::default();
         for (id, made) in faces.iter().zip(made) {
             match made {
@@ -694,6 +706,7 @@ impl<'a> Tessellator<'a> {
             placed: self.mesh.positions.len(),
             tolerance: self.tolerances.face(id),
             density: self.poles.get(&id).map(|poles| poles.density.clone()),
+            threads: self.threads,
         };
         let Keys::Kept { earlier } = self.keys else {
             return Ok(MadeFace {
@@ -709,7 +722,12 @@ impl<'a> Tessellator<'a> {
             density: budget.density.clone(),
             loops: loops.clone(),
         };
-        if let Some(patch) = earlier.and_then(|earlier| earlier.patch(face.name(), &key)) {
+        let earlier = earlier
+            .and_then(|earlier| earlier.patch(face.name(), &key))
+            .filter(|patch| {
+                patch.shape.in_pieces == pieces::allowed(patch.shape.points, budget.placed)
+            });
+        if let Some(patch) = earlier {
             return Ok(MadeFace {
                 patch,
                 key: Some(key),
@@ -730,13 +748,13 @@ impl<'a> Tessellator<'a> {
                     interior,
                     vertices,
                     triangles,
-                    grid,
+                    shape,
                 },
             key,
             reused,
         } = made;
         let placed = self.mesh.positions.len();
-        if placed.saturating_add(grid) > self.limit {
+        if placed.saturating_add(shape.grid) > self.limit {
             return Err(TessellationError::TooLarge);
         }
         let first_position = u32::try_from(placed).map_err(|_| TessellationError::TooLarge)?;
@@ -767,7 +785,7 @@ impl<'a> Tessellator<'a> {
             .ok_or(TessellationError::TooLarge)?;
         self.triangles.insert(id, triangles);
         if let Some(key) = key {
-            self.kept.insert(id, (key, grid));
+            self.kept.insert(id, (key, shape));
         }
         if reused {
             self.reused.insert(id);
@@ -787,12 +805,12 @@ impl<'a> Tessellator<'a> {
                 face: id,
                 triangles: start..mesh.triangles.len(),
             });
-            if let Some((key, grid)) = self.kept.remove(&id) {
+            if let Some((key, shape)) = self.kept.remove(&id) {
                 kept.push(KeptFace {
                     name: face.name(),
                     key,
                     slot,
-                    grid,
+                    shape,
                 });
             }
         }

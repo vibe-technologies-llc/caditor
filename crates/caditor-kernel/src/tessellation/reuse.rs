@@ -8,7 +8,7 @@ use crate::{
         Mesh,
         density::Density,
         face::BoundaryPoint,
-        patch::{FacePatch, PatchPosition, PatchVertex},
+        patch::{FacePatch, PatchPosition, PatchShape, PatchVertex},
     },
     tolerance::SamplingTolerance,
 };
@@ -75,7 +75,7 @@ impl FaceKey {
 struct MeshedFace {
     key: FaceKey,
     slot: usize,
-    grid: usize,
+    shape: PatchShape,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,7 +83,7 @@ pub(crate) struct KeptFace {
     pub name: FaceName,
     pub key: FaceKey,
     pub slot: usize,
-    pub grid: usize,
+    pub shape: PatchShape,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -105,7 +105,7 @@ impl DisplayMesh {
             name,
             key,
             slot,
-            grid,
+            shape,
         } in kept
         {
             let key = match renumbered {
@@ -115,7 +115,7 @@ impl DisplayMesh {
             faces
                 .entry(name)
                 .or_default()
-                .push(MeshedFace { key, slot, grid });
+                .push(MeshedFace { key, slot, shape });
         }
         Self {
             mesh,
@@ -158,7 +158,7 @@ impl DisplayMesh {
         let range = self.mesh.faces.get(meshed.slot)?.triangles.clone();
         let triangles = self.mesh.triangles.get(range)?;
         let mut patch = FacePatch {
-            grid: meshed.grid,
+            shape: meshed.shape,
             ..FacePatch::default()
         };
         let Some(first_vertex) = triangles.iter().flatten().min().copied() else {

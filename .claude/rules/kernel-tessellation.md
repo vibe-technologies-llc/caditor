@@ -58,11 +58,28 @@ paths:
   (`parallel.rs`: up to the available parallelism, at least `FACES_PER_THREAD` faces each, so a
   small body stays on the caller). Helpers run under the caller's interrupt and a panic in one is
   resumed on the caller.
+- A face of at least `SPLIT_POINTS` points holding at least a `DOMINANT_SHARE`th of the body's
+  positions placed before it (`pieces::allowed`) is triangulated in pieces (`pieces.rs`), so the
+  largest face no longer bounds the body's time alone. The mapped plane is cut into vertical strips
+  of equal point counts (one per `POINTS_PER_PIECE`, at most `MAX_PIECES`), each triangulated on a
+  thread of its own (`parallel.rs`) from the points within its reach (its core widened by a
+  `REACH_SHARE`th of a strip's points each side) and every loop segment overlapping it. A strip
+  keeps the triangles inside the face (parity spread among its triangles within the reach, seeded
+  by a vertical ray cast against those segments) whose corners all lie in its core and whose
+  circumcircle stays within its reach: triangles of the whole face's constrained Delaunay
+  triangulation, never overlapping another strip's. One more triangulation covers the rest: the
+  points no kept triangle uses or that lie on its border, constrained by the border and the loop
+  segments no kept triangle covers. No point is added, so the face's boundary stays the one its
+  neighbours share; the decision ignores the thread count, so one thread makes the same mesh; and
+  any trouble (a remainder constraint that would split) triangulates the face whole instead. On
+  the 6,784-point top of a plate with 113 holes six strips leave a fifth of the triangles to the
+  remainder (`a_large_face_triangulated_in_pieces_is_covered_once_without_gaps`).
 - A face makes a `FacePatch` (`patch.rs`): its interior points, its vertices, each on a boundary
   position or one of its own interior points, and its triangles in its own indices. Patches are
   placed in face order, numbering positions, vertices and triangles exactly as one thread would
   (`faces_meshed_on_many_threads_make_the_mesh_of_one_thread`); the point budget is checked as each
-  is placed, against the positions placed before it.
+  is placed, against the positions placed before it. Its `PatchShape` records the grid size, the
+  points triangulated and whether pieces were allowed.
 - A vertex is made only for a triangle that is kept, in the order triangles are emitted, so each
   face's vertices and interior positions are contiguous in the mesh and in order of first use. The
   app's `ShadedMesh` relies on it to read a body's mesh in place (`render.md`).
@@ -71,12 +88,14 @@ paths:
   density, and its boundary loops in uv with their position labels. A face whose name has a key
   in the earlier mesh equal in all of that (uv to the bit, labels equal in the same pattern) reads
   its patch back from the earlier mesh, labels mapped, instead of being triangulated, and the mesh
-  is the one meshing afresh gives. The display tolerance follows the solid's extent rounded to the
+  is the one meshing afresh gives (a patch whose pieces decision would differ in the new body is
+  made again). The display tolerance follows the solid's extent rounded to the
   nearest power of two (`MeshQuality::display_tolerance`, within a factor √2 of the quality's
   chord), so an edit that changes the body's box a little (a longer extrusion) keeps the tolerance
   and every face it left alone (`a_lengthened_extrusion_reuses_the_mesh_of_the_faces_it_left_alone`);
   one crossing a step meshes every face again. `display_mesh_costs` (ignored, release) times both:
-  on 16 threads a 119-face plate takes 18 ms against 69 ms on one, and 6 ms when one face is added.
+  on 16 threads a 119-face plate takes 14.5 ms (19 ms with its top triangulated whole) against
+  76 ms on one, and 5.5 ms when one face is added.
 
 ## Quality
 

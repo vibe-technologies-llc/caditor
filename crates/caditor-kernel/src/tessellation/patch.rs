@@ -14,12 +14,19 @@ pub(crate) struct PatchVertex {
     pub normal: Vector3,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct PatchShape {
+    pub grid: usize,
+    pub points: usize,
+    pub in_pieces: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct FacePatch {
     pub interior: Vec<Point3>,
     pub vertices: Vec<PatchVertex>,
     pub triangles: Vec<[u32; 3]>,
-    pub grid: usize,
+    pub shape: PatchShape,
 }
 
 impl FacePatch {

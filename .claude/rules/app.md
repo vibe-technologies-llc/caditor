@@ -173,7 +173,10 @@ paths:
   a `DisplayedMesh` holding the result's `Arc` is its `MeshSource` (`render.md`), which the
   document keeps anyway for the next recompute's face reuse, Measure, box selection and the mass
   fallback; only a mesh not laid out face by face would be copied
-  (`a_body_mesh_reads_the_kernel_mesh_rather_than_holding_a_copy_of_it`). A panic leaves that
+  (`a_body_mesh_reads_the_kernel_mesh_rather_than_holding_a_copy_of_it`). Edges are not copied
+  either: a `BodyEdge` is its name and the index of the kernel mesh's polyline, whose positions
+  `BodyMesh::points` reads through the result's `Arc` (`EdgePoints`, `segments` for drawing and box
+  selection; `body_edges_read_their_points_from_the_kernel_mesh`). A panic leaves that
   body meshless; without a worker it runs on the UI thread. Arrivals are held and shown together: the first at once, then all that arrived
   whenever `SHOWN_TOGETHER_FOR` has passed since the last showing or nothing is left to convert,
   so a large import is drawn in a few batches and the base scene is rebuilt a few times rather
