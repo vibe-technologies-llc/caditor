@@ -280,7 +280,8 @@ impl Context<'_> {
 
     fn enclosure_failure(&self, error: &EnclosureError) -> Failure {
         const REMEDY: &str = "Choose every face around the pocket or boss, such as a pocket's \
-                              walls and floor or a boss's sides and top, so its opening is flat.";
+                              walls and floor or a boss's sides and top, so each opening lies in \
+                              one plane or on one face beside it.";
         let body = &self.body_name;
         let reason = match error {
             EnclosureError::Cancelled(_) => return Failure::Cancelled,
@@ -291,8 +292,19 @@ impl Context<'_> {
                 );
             }
             EnclosureError::NotFlat { .. } => format!(
-                "The chosen faces of the body of {body} leave an opening that does not lie in \
-                 one plane, so they do not bound a region that can be closed and mirrored."
+                "The chosen faces of the body of {body} leave an opening that lies neither in \
+                 one plane nor on one face beside it, so they do not bound a region that can be \
+                 closed and mirrored."
+            ),
+            EnclosureError::NotElementary { .. } => format!(
+                "The chosen faces of the body of {body} leave an opening on a freeform face, \
+                 which cannot be carried across it, so they do not bound a region that can be \
+                 closed and mirrored."
+            ),
+            EnclosureError::AroundSurface { .. } => format!(
+                "The chosen faces of the body of {body} leave an opening that runs all the way \
+                 around the round face it lies on, so they do not bound a region that can be \
+                 closed and mirrored."
             ),
             EnclosureError::OpenBoundary { .. } => format!(
                 "The chosen faces of the body of {body} meet the rest of the body along edges \
@@ -300,14 +312,14 @@ impl Context<'_> {
                  closed and mirrored."
             ),
             EnclosureError::Openings { .. } => format!(
-                "The openings of the chosen faces of the body of {body} lie in one plane but \
-                 wind so that no flat face closes them, so they do not bound a region that can \
+                "The openings of the chosen faces of the body of {body} lie on one surface but \
+                 wind so that no face of it closes them, so they do not bound a region that can \
                  be mirrored."
             ),
             EnclosureError::Build(build) => {
                 log::warn!("{} could not be built: {build}", self.resolver.feature.name);
                 format!(
-                    "The chosen faces of the body of {body}, closed flat across their openings, \
+                    "The chosen faces of the body of {body}, closed across their openings, \
                      enclose no region that can be mirrored."
                 )
             }

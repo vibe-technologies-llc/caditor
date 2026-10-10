@@ -16,13 +16,15 @@ on the same body instead, such as a hole on one side copied to the other.
 
 A body with no features to choose, such as an imported one, can still have a pocket or boss
 copied. Select every face around it, such as a pocket's walls and floor or a boss's sides and top,
-and use {command:model.mirror_faces}. The faces are closed flat across their opening, and the
+and use {command:model.mirror_faces}. The faces are closed across their opening, flat or, for
+a pocket cut into a round face or a boss standing on one, along that face's curve, and the
 region they bound is cut from the body on the other side of the plane where they bound a cavity,
 or joined to it where they bound material. A plane or datum plane selected with the faces is the
 plane to mirror across; otherwise it is the YZ plane.
 
 The mirror follows the faces: when an earlier change moves or resizes them, the copy changes too.
-The faces must leave openings that each lie in one plane; otherwise the mirror fails and says to
+The faces must leave openings that each lie in one plane or on one cylinder, cone, sphere or torus
+face beside them, without running all the way around it; otherwise the mirror fails and says to
 choose every face around the pocket or boss.
 
 In the panel, **Stop mirroring this face** leaves a face out, and **Mirror the selected faces**
