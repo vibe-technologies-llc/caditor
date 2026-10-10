@@ -10,7 +10,9 @@ body, or cuts them into one.
   enclose.
 - With flat faces of one body selected that lie in one plane, it extrudes them outward together,
   through a hidden sketch that follows their edges.
-- With nothing selected, it takes the last sketch not yet swept.
+- With nothing selected, it takes the last sketch not yet swept. When features already sweep
+  some of its regions, only the remaining ones are taken, so each part of a sketch can be
+  extruded on its own with its own taper and distance.
 
 In the open panel, click regions in the view to add or leave them out, and
 {command:model.clear_chosen_regions} starts from none.

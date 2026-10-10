@@ -293,3 +293,26 @@ fn selected_sketch_regions_read_their_area_and_section_in_measure_and_the_status
     assert!(!harness.shows(crate::measure::TOO_MANY));
     assert!(!harness.shows(crate::measure::UNMEASURABLE));
 }
+
+#[test]
+fn extruding_again_after_one_part_of_a_sketch_sweeps_only_the_parts_left_so_each_tapers_alone() {
+    let mut harness = Harness::new();
+    let mut sketch = Sketch::new(Plane::XY);
+    rectangle(&mut sketch, Point2::new(0.0, 0.0), Point2::new(10.0, 10.0));
+    rectangle(&mut sketch, Point2::new(20.0, 0.0), Point2::new(30.0, 10.0));
+    let sketch = edit_free_sketch(&mut harness, sketch);
+    let first_part = Point2::new(5.0, 5.0);
+    let second_part = Point2::new(25.0, 5.0);
+    let first = sketch_region(&harness, sketch, first_part);
+
+    harness.click_pickable(Plane::XY, first_part, first);
+    let first_extrusion = extrude_selection(&mut harness);
+    harness.select([]);
+    let second_extrusion = extrude_selection(&mut harness);
+
+    assert_ne!(second_extrusion, first_extrusion);
+    assert_eq!(
+        chosen_keys(&harness, second_extrusion),
+        [region_holding(&harness, sketch, second_part)]
+    );
+}

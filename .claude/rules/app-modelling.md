@@ -218,7 +218,9 @@ paths:
   offers) do they guess the open extrusion's sketch, else the last shown sketch, and only while it
   has an even-depth region no feature sweeps (`solid_tools::has_unswept_regions`; a Hole guesses
   a sketch no hole drills, `Guess::Drill`), so pressing Extrude again never sweeps the same
-  profile twice. A selection holding no sketch is refused in words (`NOTHING_TO_EXTRUDE`,
+  profile twice: a guessed sketch some of whose regions a feature already sweeps chooses only the
+  even-depth regions left (`solid_tools::regions_left`), the button's hover saying it takes the
+  remaining regions, so the parts of one sketch extrude and taper as separate features. A selection holding no sketch is refused in words (`NOTHING_TO_EXTRUDE`,
   `NOTHING_TO_REVOLVE`), never swapped for a sketch it does not name. The revolve axis is the
   line of the sketch, sketch axis, principal axis, datum axis, straight edge or round face picked
   last; the panel's axis picker refuses several.

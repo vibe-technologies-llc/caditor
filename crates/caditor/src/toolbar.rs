@@ -1,4 +1,4 @@
-use caditor_document::{BlendKind, Datum, Document, PrimitiveKind, describe_axis};
+use caditor_document::{BlendKind, Datum, Document, PrimitiveKind, RegionChoice, describe_axis};
 use egui::{Frame, Id, Response, Ui, Vec2};
 
 use crate::{
@@ -326,11 +326,12 @@ fn solid_buttons(
                 let sketch = document
                     .feature(source.sketch)
                     .map_or("the sketch", |feature| feature.name.as_str());
-                let which = match solid_tools::selected_regions(context.selection, source.sketch)
-                    .is_empty()
-                {
-                    true => "closed",
-                    false => "selected",
+                let picked =
+                    !solid_tools::selected_regions(context.selection, source.sketch).is_empty();
+                let which = match (picked, &source.regions) {
+                    (true, _) => "selected",
+                    (false, RegionChoice::Chosen(_)) => "remaining",
+                    (false, RegionChoice::All) => "closed",
                 };
                 let hover = match (sweep, &source.axis) {
                     (Sweep::Extrude, _) => format!("Extrude the {which} regions of {sketch}"),

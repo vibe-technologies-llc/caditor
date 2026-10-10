@@ -104,12 +104,12 @@ pub fn sweep_source(
             selected.push(feature);
         }
     }
-    let sketch = match (editing.feature(), selected.as_slice()) {
-        (Some(edited), _) => edited,
-        (None, [sketch]) => *sketch,
+    let (sketch, regions) = match (editing.feature(), selected.as_slice()) {
+        (Some(edited), _) => (edited, RegionChoice::All),
+        (None, [sketch]) => (*sketch, RegionChoice::All),
         (None, [_, _, ..]) => return Err(SEVERAL_SKETCHES),
         (None, []) => match guessed_sketch(document, evaluation, editing, guess) {
-            Some(guessed) => guessed,
+            Some(guessed) => (guessed, regions_left(document, evaluation, guessed)),
             None => return Ok(None),
         },
     };
@@ -135,7 +135,7 @@ pub fn sweep_source(
     Ok(Some(SweepSource {
         sketch,
         axis,
-        regions: RegionChoice::All,
+        regions,
         body,
     }))
 }
@@ -199,19 +199,48 @@ pub fn has_unswept_regions(
         }
         Some(Ok(regions)) => regions,
     };
-    let mut swept: BTreeSet<RegionKey> = BTreeSet::new();
-    for user in &users {
-        match &user.kind {
-            FeatureKind::Solid(solid) => {
+    swept_regions(document, sketch, regions).is_some_and(|swept| {
+        regions
+            .iter()
+            .filter(|region| region.even_depth)
+            .any(|region| !swept.contains(&region.region.key()))
+    })
+}
+
+fn swept_regions(
+    document: &Document,
+    sketch: FeatureId,
+    regions: &[SketchRegion],
+) -> Option<BTreeSet<RegionKey>> {
+    let mut swept = BTreeSet::new();
+    for feature in document.active_features() {
+        match &feature.kind {
+            FeatureKind::Solid(solid) if solid.sketch() == sketch => {
                 swept.extend(scene::chosen_regions(solid.regions(), regions));
             }
-            _ => return false,
+            FeatureKind::Hole(hole) if hole.sketch == sketch => return None,
+            _ => {}
         }
     }
-    regions
-        .iter()
-        .filter(|region| region.even_depth)
-        .any(|region| !swept.contains(&region.region.key()))
+    Some(swept)
+}
+
+fn regions_left(document: &Document, evaluation: &Evaluation, sketch: FeatureId) -> RegionChoice {
+    let Some(regions) = selection::sketch_regions(evaluation, sketch) else {
+        return RegionChoice::All;
+    };
+    match swept_regions(document, sketch, regions) {
+        Some(swept) if !swept.is_empty() => {
+            let left: BTreeSet<RegionKey> = regions
+                .iter()
+                .filter(|region| region.even_depth)
+                .map(|region| region.region.key())
+                .filter(|key| !swept.contains(key))
+                .collect();
+            RegionChoice::Chosen(scene::region_references(&left, regions))
+        }
+        Some(_) | None => RegionChoice::All,
+    }
 }
 
 pub fn may_guess_sketch(sweep: Sweep, selection: &Selection, lone_axis: bool) -> bool {
