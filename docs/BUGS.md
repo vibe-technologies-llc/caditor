@@ -86,11 +86,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
   edge along the same curve between the same cap and the faces of its `Collinear` pieces, or the
   feature marked as having lost part of its choice with a fix
   (`blend_tests::a_notch_trimmed_into_a_filleted_edge_keeps_both_pieces_rounded`, ignored).
-- [medium · easy] Plane and Point make a datum on XY or at the origin when the selection holds
-  nothing they can use: `datum_tools::why_unusable` returns nothing for a sketch region, a sketch
-  constraint, a centre of mass or a body item picked while sketching, and with nothing gathered a
-  plane starts on XY and a point at the origin, opened as if built on the selection. Axis already
-  refuses that selection; refuse in its words when the selection is not empty.
 - [medium · easy] A parameter used only as a body's density reads as unused: `used_parameters`
   collects `feature.kind.parameters()` rather than `Feature::parameters`, so the Parameters panel
   draws it unused and Delete unused parameters includes it; the removal is refused (removal reads

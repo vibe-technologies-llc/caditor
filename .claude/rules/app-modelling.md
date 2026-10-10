@@ -851,7 +851,10 @@ paths:
   through them, two planes one midway between them, an axis and a point one through both. Axis
   runs along the selected axis, straight edge, round face or sketch line, where two selected planes
   or flat faces meet, through two points, or square to a plane through a point. Point (Alt+Shift+P)
-  sits at the one selected point, else the origin, with zero offsets. A selected face, edge or
+  sits at the one selected point, else the origin, with zero offsets; the XY plane and the origin
+  are the start only for an empty selection, a non-empty one holding no plane, axis or point they
+  can use (a sketch region or constraint, a centre of mass, a body item) is refused with
+  `PLANE_CHOICES` or `POINT_CHOICES`, as Axis is. A selected face, edge or
   corner giving nothing (curved, made later, not recomputed) refuses them with that reason.
 - Selections that give the constructed forms (`document.md`): Plane with two axes or straight
   edges selected passes through both, and with one edge that is not straight (round or curved) and

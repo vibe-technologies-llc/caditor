@@ -530,6 +530,9 @@ fn plane_by_references(
     if axes.len() > 1 {
         return Err("Select only one axis, straight edge or round face to turn about");
     }
+    if planes.is_empty() && axes.is_empty() && !selection.is_empty() {
+        return Err(PLANE_CHOICES);
+    }
     let base = planes
         .into_iter()
         .next()
@@ -647,9 +650,8 @@ pub fn point_from_selection(
             second.clone(),
             third.clone(),
         ]))),
-        ([], [], [] | [_]) => Ok(placed(
-            points.into_iter().next().unwrap_or(PointReference::Origin),
-        )),
+        ([], [], []) if selection.is_empty() => Ok(placed(PointReference::Origin)),
+        ([], [], [point]) => Ok(placed(point.clone())),
         _ => Err(POINT_CHOICES),
     }
 }

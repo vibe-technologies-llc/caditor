@@ -11,6 +11,7 @@ use super::{
 };
 use crate::{
     bodies,
+    datum_tools::{PLANE_CHOICES, POINT_CHOICES},
     feature_fields::{
         self, ABOVE_ZERO, ABOVE_ZERO_OR_REVERSE, CHOOSE_IN_VIEW, MISSING_BODY, REVERSE_DIRECTION,
         TURN,
@@ -262,6 +263,94 @@ fn datums_are_placed_through_selected_corners() {
         DatumResult::Point(Point3::new(0.0, 0.0, -5.0))
     );
     assert_eq!(harness.model.evaluation().failed_count(), 0);
+}
+
+#[test]
+fn plane_and_point_refuse_a_selection_holding_nothing_they_can_use() {
+    let mut harness = Harness::new();
+    let (plate, _) = extruded_plate(&mut harness);
+    let mut square = Sketch::new(Plane::XY);
+    rectangle(&mut square, Point2::new(60.0, 0.0), Point2::new(70.0, 10.0));
+    let sketch = harness.add_sketch(square);
+    let region = crate::selection::sketch_regions(harness.model.evaluation(), sketch)
+        .and_then(|regions| regions.first())
+        .map(|region| region.region.key())
+        .expect("the sketch has a region");
+    let features = harness.document().features().count();
+
+    for (selected, tool, choices) in [
+        (
+            Pickable::SketchRegion {
+                feature: sketch,
+                region,
+            },
+            "datum plane",
+            PLANE_CHOICES,
+        ),
+        (Pickable::CentreOfMass(plate), "datum plane", PLANE_CHOICES),
+        (
+            Pickable::SketchRegion {
+                feature: sketch,
+                region,
+            },
+            "datum point",
+            POINT_CHOICES,
+        ),
+        (Pickable::CentreOfMass(plate), "datum point", POINT_CHOICES),
+    ] {
+        harness.select([selected]);
+        run_from_palette(&mut harness, tool);
+        harness.settle();
+
+        assert_eq!(harness.document().features().count(), features);
+        assert!(harness.workspace.editing.solid().is_none());
+        assert!(
+            harness
+                .model
+                .notice()
+                .is_some_and(|notice| notice.text.contains(choices)),
+            "{tool} with {selected:?}"
+        );
+    }
+}
+
+#[test]
+fn plane_and_point_with_nothing_selected_start_on_xy_and_at_the_origin() {
+    let mut harness = Harness::new();
+    extruded_plate(&mut harness);
+
+    harness.select([]);
+    harness.click("Plane");
+    harness.settle();
+    let plane = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the plane is open");
+    harness.key(Key::Escape, Modifiers::NONE);
+    harness.frame();
+    harness.select([]);
+    harness.click("Point");
+    harness.settle();
+    let point = harness
+        .workspace
+        .editing
+        .solid()
+        .expect("the point is open");
+
+    assert!(
+        result_of(&harness, plane)
+            .plane()
+            .unwrap()
+            .normal()
+            .cross(Vector3::Z)
+            .length()
+            < 1e-9
+    );
+    assert_eq!(
+        result_of(&harness, point),
+        DatumResult::Point(Point3::new(0.0, 0.0, 0.0))
+    );
 }
 
 #[test]

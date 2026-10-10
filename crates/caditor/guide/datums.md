@@ -11,6 +11,10 @@ measure from. They have no volume and are not exported.
 - {command:model.point} sits at the selected point, corner, centre of a round edge or face, or
   where an axis meets a plane, with offsets.
 
+With nothing selected, a plane starts on the XY plane and a point at the origin. A selection
+holding nothing they can use, such as a sketch region, a constraint or a centre of mass, is
+refused with the choices that would work.
+
 A datum follows what it was made from. Its panel shows what it is defined by and its offsets and
 angles, previewed in the view as you type them; an open offset plane also has an arrow to drag
 its offset, and a turned plane an arrow along its turn that drags its angle. {command:model.datum_use_selected} defines it again from the selection. Double-click a
