@@ -1,8 +1,9 @@
 use std::io::{Error, ErrorKind};
 
 use crate::{
+    binary::NotReadBack,
     read::{MAX_FILE_SIZE, NotAFile, TooLarge},
-    save::{NotReadBack, ReadOnly},
+    save::ReadOnly,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -56,6 +57,11 @@ pub enum WriteFailure {
     NameTaken,
     #[error("the saved copy did not read back intact, so the file was left as it was")]
     NotReadBack,
+    #[error(
+        "an earlier version written into the saved copy did not read back intact, so the file \
+         was left as it was"
+    )]
+    VersionNotReadBack,
     #[error("the file is read-only")]
     ReadOnly,
     #[error("its folder no longer exists")]
@@ -82,8 +88,11 @@ impl WriteFailure {
             if inner.is::<NotAFile>() {
                 return Self::NameTaken;
             }
-            if inner.is::<NotReadBack>() {
-                return Self::NotReadBack;
+            if let Some(not_read_back) = inner.downcast_ref::<NotReadBack>() {
+                return match not_read_back {
+                    NotReadBack::Model => Self::NotReadBack,
+                    NotReadBack::Version { .. } => Self::VersionNotReadBack,
+                };
             }
             if inner.is::<ReadOnly>() {
                 return Self::ReadOnly;

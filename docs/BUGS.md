@@ -16,11 +16,6 @@ Entries are tagged and ordered as `ROADMAP.md` describes.
 - [low · easy] Quitting while a sketch or face drawing export, a parameter file export or a
   template save runs still drops it: only `Exporter` and `ImageExporter` are waited for
   (`Files::exports_running`), the other writers have no running flag to ask.
-- [low · easy] The read-back before a save's rename checks records only: `binary::reads_back`
-  checks chunk checksums and the head and records digests, never decoding the delta written for
-  the state the save replaces, nor deltas rewritten by thinning, so a compressor defect there would
-  leave the most restored version unrebuildable, found only when a restore is refused. Rebuild
-  version 0 (and any rewritten delta) against its digest in `check_reads_back`.
 
 ## Kernel
 

@@ -4,7 +4,10 @@ use caditor_document::{Document, Edit, Transaction};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    model::{decode, encode_over, history, load_version, reads_back, save_bytes},
+    model::{
+        FreshVersion, NotReadBack, decode, encode_over, history, load_version, reads_back,
+        save_bytes,
+    },
     testing::{
         corrupt_chunk, decompressing_at_most, files_of_at_most, model_chunk_count, push_foreign,
         records_as_json, sharing_from, with_slices_of,
@@ -837,12 +840,97 @@ fn a_save_reads_back_only_when_every_record_matches_its_head() {
     let damaged_record = corrupt_chunk(&encoded.bytes, &MODEL_MAGIC, 1);
     let cut_short = &encoded.bytes[..encoded.bytes.len() / 2];
 
-    assert!(reads_back(&encoded.bytes, &encoded.digest));
-    assert!(reads_back(&resaved.bytes, &resaved.digest));
-    assert!(!reads_back(&encoded.bytes, &resaved.digest));
-    assert!(!reads_back(&damaged_record, &encoded.digest));
-    assert!(!reads_back(cut_short, &encoded.digest));
-    assert!(!reads_back(b"not a model", &encoded.digest));
+    let fresh = resaved.fresh_versions.as_slice();
+
+    assert!(encoded.fresh_versions.is_empty());
+    assert_eq!(
+        fresh
+            .iter()
+            .map(|version| version.index)
+            .collect::<Vec<_>>(),
+        [0]
+    );
+    assert_eq!(reads_back(&encoded.bytes, &encoded.digest, &[]), Ok(()));
+    assert_eq!(reads_back(&resaved.bytes, &resaved.digest, fresh), Ok(()));
+    assert_eq!(
+        reads_back(&encoded.bytes, &resaved.digest, &[]),
+        Err(NotReadBack::Model)
+    );
+    assert_eq!(
+        reads_back(&damaged_record, &encoded.digest, &[]),
+        Err(NotReadBack::Model)
+    );
+    assert_eq!(
+        reads_back(cut_short, &encoded.digest, &[]),
+        Err(NotReadBack::Model)
+    );
+    assert_eq!(
+        reads_back(b"not a model", &encoded.digest, &[]),
+        Err(NotReadBack::Model)
+    );
+    assert_eq!(
+        reads_back(&encoded.bytes, &encoded.digest, fresh),
+        Err(NotReadBack::Version { index: 0 })
+    );
+}
+
+fn with_version_data_replaced(bytes: &[u8], index: usize, content: &[u8]) -> Vec<u8> {
+    let container = parse(bytes, &MODEL_MAGIC).unwrap();
+    let mut replaced = start_file(&MODEL_MAGIC, container.version);
+    let mut versions = 0;
+    for chunk in container.chunks() {
+        if chunk.kind != Some(ChunkKind::VersionData) {
+            replaced.extend_from_slice(chunk.whole);
+            continue;
+        }
+        if versions == index {
+            push_packed(&mut replaced, ChunkKind::VersionData, content).unwrap();
+        } else {
+            replaced.extend_from_slice(chunk.whole);
+        }
+        versions += 1;
+    }
+    replaced
+}
+
+fn first_save_rewriting_a_delta() -> (Encoded, FreshVersion) {
+    const TEN_MINUTES: u64 = 600;
+    let (documents, mut bytes) = saved_series_every(2, TEN_MINUTES);
+    let mut document = documents.last().unwrap().clone();
+    for step in 2..60 {
+        document = edited(&document, 10 + step);
+        let time = at(1_000 + u64::from(step) * TEN_MINUTES);
+        let encoded = encode_over(&document, Some(&bytes), time, None).unwrap();
+        let rewritten = encoded
+            .fresh_versions
+            .iter()
+            .find(|version| version.index > 0)
+            .cloned();
+        if let Some(rewritten) = rewritten {
+            return (encoded, rewritten);
+        }
+        bytes = encoded.bytes;
+    }
+    panic!("thinning rewrote no delta in an hour of saves");
+}
+
+#[test]
+fn a_delta_rewritten_by_thinning_reads_back_only_when_it_rebuilds_to_what_was_compressed() {
+    let (encoded, rewritten) = first_save_rewriting_a_delta();
+
+    let replaced = with_version_data_replaced(&encoded.bytes, rewritten.index, b"another state");
+
+    assert_eq!(
+        reads_back(&encoded.bytes, &encoded.digest, &encoded.fresh_versions),
+        Ok(())
+    );
+    assert_eq!(reads_back(&replaced, &encoded.digest, &[]), Ok(()));
+    assert_eq!(
+        reads_back(&replaced, &encoded.digest, &encoded.fresh_versions),
+        Err(NotReadBack::Version {
+            index: rewritten.index
+        })
+    );
 }
 
 #[test]
@@ -868,7 +956,10 @@ fn records_beside_a_damaged_one_are_still_written_back_as_stored() {
             .windows(depth.whole.len())
             .any(|window| window == depth.whole)
     );
-    assert!(reads_back(&resaved.bytes, &resaved.digest));
+    assert_eq!(
+        reads_back(&resaved.bytes, &resaved.digest, &resaved.fresh_versions),
+        Ok(())
+    );
     assert_eq!(decode(&resaved.bytes).unwrap().document, loaded);
     assert!(history(&resaved.bytes).versions.is_empty());
 }
@@ -951,7 +1042,7 @@ fn marking_a_version_kept_changes_only_that_version_and_round_trips() {
 
     let marked = with_version_kept(&bytes, index, true).unwrap();
 
-    assert!(reads_back(&marked.bytes, &marked.digest));
+    assert_eq!(reads_back(&marked.bytes, &marked.digest, &[]), Ok(()));
     assert_eq!(Some(marked.digest.clone()), head_digest(&bytes));
     let after = history(&marked.bytes);
     assert_eq!(after.current, before.current);

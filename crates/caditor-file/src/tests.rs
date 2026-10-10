@@ -17,7 +17,7 @@ use tempfile::TempDir;
 use super::{
     binary::testing::{
         corrupt_chunk, current_model_from_json, model_from_json, records_as_json, rewrite_journal,
-        sharing_from, with_unknown_codec,
+        sharing_from, with_damaged_deltas, with_unknown_codec,
     },
     save, *,
 };
@@ -813,6 +813,31 @@ fn replace_from_outside(path: &Path, contents: &[u8]) {
     let synced = path.with_extension("synced");
     fs::write(&synced, contents).unwrap();
     fs::rename(&synced, path).unwrap();
+}
+
+#[test]
+fn a_save_whose_replaced_state_does_not_rebuild_from_its_delta_leaves_the_file_as_it_was() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("model.caditor");
+    save(&Document::default(), &path, false).unwrap();
+    let original = fs::read(&path).unwrap();
+
+    let refused = with_damaged_deltas(|| save(&sample(), &path, false));
+
+    assert_eq!(
+        refused,
+        Err(SaveError::Writing(WriteFailure::VersionNotReadBack))
+    );
+    assert_eq!(fs::read(&path).unwrap(), original);
+    assert_eq!(files_in(dir.path()), ["model.caditor"]);
+
+    save(&sample(), &path, false).unwrap();
+
+    assert_eq!(load(&path).unwrap().document, sample());
+    assert_eq!(
+        load_version(&path, 0).unwrap().document,
+        Document::default()
+    );
 }
 
 #[test]

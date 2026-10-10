@@ -216,7 +216,12 @@ paths:
 - Before the rename, a model save reads the synced temporary back and checks that it parses
   undamaged, its head digest is the one encoded and every record hashes to it
   (`binary::reads_back`); otherwise the temporary is removed and the file left as it was. This
-  guards against the compressor and the shared-range copies.
+  guards against the compressor and the shared-range copies. Every version data chunk the save
+  compressed itself (the state it replaces, and deltas or keyframes rewritten by thinning,
+  `Encoded::fresh_versions`) is rebuilt from the written file, through its chain back to a keyframe
+  or the head, and checked against the digest of what was compressed; versions copied as stored are
+  decoded only as links of such a chain. A failure is `NotReadBack::Version`, reported as
+  `WriteFailure::VersionNotReadBack`.
 - Overwriting a file that loaded with problems first keeps the original as
   `<name>.damaged.caditor` (`keep_copy`, also used for unreadable preferences and recent files): a
   hard link, else a copy moved into place whole. The same copy is kept when the file being replaced

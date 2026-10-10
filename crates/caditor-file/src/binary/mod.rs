@@ -6,14 +6,16 @@ pub(crate) mod testing;
 mod tests;
 pub(crate) mod value;
 
+use std::borrow::Cow;
+
 use caditor_zstd::{Level, ZstdError};
 use xxhash_rust::xxh3::Xxh3;
 
 #[cfg(test)]
 pub(crate) use self::model::save_bytes;
 pub(crate) use self::model::{
-    EncodeError, Encoded, KeepError, Shared, decode, decode_cancellable, encode, encode_over,
-    head_digest, history, load_version, reads_back, with_version_kept,
+    EncodeError, Encoded, FreshVersion, KeepError, NotReadBack, Shared, decode, decode_cancellable,
+    encode, encode_over, head_digest, history, load_version, reads_back, with_version_kept,
 };
 pub use self::model::{
     FileDigest, History, MAX_DECOMPRESSED as MAX_MODEL_RECORDS, SavedState, Version,
@@ -432,7 +434,8 @@ pub(crate) fn push_packed_after(
     content: &[u8],
     newer: &[u8],
 ) -> Result<(), PackError> {
-    push_slices(bytes, content, |slice, flags, bytes| {
+    let content = delta_content(content);
+    push_slices(bytes, &content, |slice, flags, bytes| {
         let compressed = caditor_zstd::compress_after(slice, newer, SAVED_LEVEL)?;
         push_chunk(
             bytes,
@@ -480,6 +483,18 @@ fn push_slices(
         follows = CONTINUATION;
     }
     Ok(())
+}
+
+fn delta_content(content: &[u8]) -> Cow<'_, [u8]> {
+    #[cfg(test)]
+    if testing::deltas_damaged() {
+        let mut damaged = content.to_vec();
+        if let Some(last) = damaged.last_mut() {
+            *last ^= 0x55;
+        }
+        return Cow::Owned(damaged);
+    }
+    Cow::Borrowed(content)
 }
 
 fn slice_length() -> usize {

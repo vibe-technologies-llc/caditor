@@ -13,7 +13,9 @@ use std::{
 use caditor_document::Document;
 
 use crate::{
-    binary::{self, EncodeError, Encoded, FileDigest, KeepError, Shared, value::ValueError},
+    binary::{
+        self, EncodeError, Encoded, FileDigest, FreshVersion, KeepError, Shared, value::ValueError,
+    },
     os::{self, ChangeStamp, FileKey},
     paths::{MAX_NAME_BYTES, fitting},
     read::{ensure_regular, open_file, read_open},
@@ -161,7 +163,7 @@ pub(crate) fn keep_version_interleaved(
         &target,
         |file| file.write_all(&rewritten.bytes),
         |file| {
-            check_reads_back(file, &rewritten.digest)?;
+            check_reads_back(file, &rewritten.digest, &[])?;
             previous.ensure_still_at(&target)
         },
     )
@@ -278,7 +280,7 @@ pub(crate) fn save_interleaved(
         None
     };
     let reads_back = |file: &File| {
-        check_reads_back(file, &encoded.digest)?;
+        check_reads_back(file, &encoded.digest, &encoded.fresh_versions)?;
         ensure_unchanged(previous.as_ref())
     };
     let written = match &previous {
@@ -310,20 +312,14 @@ fn reads_target(options: &SaveOptions<'_>, target: &Path) -> bool {
         .is_some_and(|from| from == target)
 }
 
-#[derive(Debug, thiserror::Error)]
-#[error("the saved copy did not read back intact, so the file was left as it was")]
-pub(crate) struct NotReadBack;
-
-fn check_reads_back(file: &File, digest: &FileDigest) -> io::Result<()> {
+fn check_reads_back(file: &File, digest: &FileDigest, fresh: &[FreshVersion]) -> io::Result<()> {
     let length = usize::try_from(file.metadata()?.len()).map_err(io::Error::other)?;
     let mut written = vec![0; length];
     os::read_exact_at(file, &mut written, 0)?;
-    if binary::reads_back(&written, digest) {
-        Ok(())
-    } else {
-        log::error!("a saved model did not decode back to what was written");
-        Err(io::Error::new(io::ErrorKind::InvalidData, NotReadBack))
-    }
+    binary::reads_back(&written, digest, fresh).map_err(|error| {
+        log::error!("a saved model did not decode back to what was written: {error}");
+        io::Error::new(io::ErrorKind::InvalidData, error)
+    })
 }
 
 struct Previous {
@@ -826,6 +822,7 @@ mod tests {
             digest: FileDigest(String::new()),
             previous_damaged: false,
             dropped_for_size: 0,
+            fresh_versions: Vec::new(),
         }
     }
 

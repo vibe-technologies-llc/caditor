@@ -187,3 +187,18 @@ pub(crate) fn files_of_at_most<T>(largest: usize, work: impl FnOnce() -> T) -> T
     LARGEST_FILE.set(before);
     result
 }
+
+thread_local! {
+    static DELTAS_DAMAGED: Cell<bool> = const { Cell::new(false) };
+}
+
+pub(crate) fn deltas_damaged() -> bool {
+    DELTAS_DAMAGED.get()
+}
+
+pub(crate) fn with_damaged_deltas<T>(work: impl FnOnce() -> T) -> T {
+    let before = DELTAS_DAMAGED.replace(true);
+    let result = work();
+    DELTAS_DAMAGED.set(before);
+    result
+}

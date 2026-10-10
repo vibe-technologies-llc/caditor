@@ -396,6 +396,55 @@ impl<'a> Parsed<'a> {
             .unwrap_or(0)
     }
 
+    fn needed_to_rebuild(&self, fresh: &[FreshVersion]) -> Result<Vec<bool>, NotReadBack> {
+        let mut needed = vec![false; self.versions.len()];
+        for version in fresh {
+            let start = self.keyframe_at_or_before(version.index);
+            let chain = needed
+                .get_mut(start..=version.index)
+                .ok_or(NotReadBack::Version {
+                    index: version.index,
+                })?;
+            chain.fill(true);
+        }
+        Ok(needed)
+    }
+
+    fn rebuilds_from_head(&self, needed: &[bool]) -> bool {
+        needed.first() == Some(&true)
+            && self
+                .versions
+                .first()
+                .is_some_and(|first| !first.is_keyframe())
+    }
+
+    fn rebuilds_fresh(
+        &self,
+        fresh: &[FreshVersion],
+        needed: &[bool],
+        head_snapshot: Option<Vec<u8>>,
+    ) -> Result<(), NotReadBack> {
+        let mut newer = head_snapshot;
+        for ((index, version), needed) in self.versions.iter().enumerate().zip(needed) {
+            if !needed {
+                newer = None;
+                continue;
+            }
+            let held = newer.as_ref().map_or(0, Vec::len);
+            let content = unpack_beside(&version.data, newer.as_deref(), held).ok();
+            let expected = fresh.iter().find(|fresh| fresh.index == index);
+            if let Some(expected) = expected
+                && content
+                    .as_deref()
+                    .is_none_or(|content| digest(content) != expected.digest)
+            {
+                return Err(NotReadBack::Version { index });
+            }
+            newer = content;
+        }
+        Ok(())
+    }
+
     fn leading_deltas(&self) -> usize {
         self.versions
             .iter()
@@ -591,6 +640,21 @@ pub(crate) struct Encoded {
     pub digest: FileDigest,
     pub previous_damaged: bool,
     pub dropped_for_size: usize,
+    pub fresh_versions: Vec<FreshVersion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FreshVersion {
+    pub index: usize,
+    pub digest: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum NotReadBack {
+    #[error("the saved model did not read back intact")]
+    Model,
+    #[error("version {index} written by the save did not rebuild to what was compressed")]
+    Version { index: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -854,6 +918,7 @@ pub(crate) fn encode_over(
         digest: FileDigest(head.digest),
         previous_damaged,
         dropped_for_size: written.cut_listed,
+        fresh_versions: written.fresh,
     })
 }
 
@@ -873,22 +938,39 @@ fn oldest_holding(kept: &[usize], excess: usize) -> usize {
 struct Written {
     kept: Vec<usize>,
     cut_listed: usize,
+    fresh: Vec<FreshVersion>,
 }
 
 pub(crate) fn head_digest(bytes: &[u8]) -> Option<FileDigest> {
     Parsed::of(bytes)?.head.map(|head| FileDigest(head.digest))
 }
 
-pub(crate) fn reads_back(bytes: &[u8], digest: &FileDigest) -> bool {
-    let Some(parsed) = Parsed::of(bytes) else {
-        return false;
+pub(crate) fn reads_back(
+    bytes: &[u8],
+    digest: &FileDigest,
+    fresh: &[FreshVersion],
+) -> Result<(), NotReadBack> {
+    let parsed = Parsed::of(bytes).ok_or(NotReadBack::Model)?;
+    let head = parsed
+        .head
+        .as_ref()
+        .filter(|head| parsed.damaged == 0 && head.digest == digest.0)
+        .ok_or(NotReadBack::Model)?;
+
+    let needed = parsed.needed_to_rebuild(fresh)?;
+    let head_snapshot = if parsed.rebuilds_from_head(&needed) {
+        Some(
+            parsed
+                .head_snapshot(&mut Budget::default())
+                .ok_or(NotReadBack::Model)?,
+        )
+    } else if parsed.records_digest().matches(Some(head)) {
+        None
+    } else {
+        return Err(NotReadBack::Model);
     };
-    parsed.damaged == 0
-        && parsed
-            .head
-            .as_ref()
-            .is_some_and(|head| head.digest == digest.0)
-        && parsed.records_digest().matches(parsed.head.as_ref())
+
+    parsed.rebuilds_fresh(fresh, &needed, head_snapshot)
 }
 
 enum Candidate<'p, 'a> {
@@ -1147,6 +1229,7 @@ fn write_versions<'a>(
     let mut written = Written {
         kept: Vec::new(),
         cut_listed,
+        fresh: Vec::new(),
     };
     keep_what_cannot_be_rewritten(stored, &mut candidates, prior_head, snapshot);
     let mut rebuild = Rebuild::new(stored, &candidates, prior_head, snapshot);
@@ -1161,6 +1244,7 @@ fn write_versions<'a>(
             continue;
         }
         let before = section.len();
+        let index = written.kept.len();
         match candidate {
             Candidate::Replaced {
                 info,
@@ -1174,6 +1258,10 @@ fn write_versions<'a>(
                 } else {
                     push_packed_after(bytes, ChunkKind::VersionData, old, snapshot)?;
                 }
+                written.fresh.push(FreshVersion {
+                    index,
+                    digest: info.digest.clone(),
+                });
             }
             Candidate::Stored { version, .. } => {
                 if let Some(info) = &version.info {
@@ -1188,9 +1276,17 @@ fn write_versions<'a>(
                             content.bytes(),
                             base.bytes(),
                         )?;
+                        written.fresh.push(FreshVersion {
+                            index,
+                            digest: digest(content.bytes()),
+                        });
                     }
                     (true, Some(content), _) => {
                         push_packed(section.fresh(), ChunkKind::VersionData, content.bytes())?;
+                        written.fresh.push(FreshVersion {
+                            index,
+                            digest: digest(content.bytes()),
+                        });
                     }
                     (true, None, _) if rebuild.starved => {
                         return Err(EncodeError::HistoryTooLarge);
