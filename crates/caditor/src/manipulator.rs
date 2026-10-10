@@ -8,7 +8,7 @@ use crate::{
     field::{self, Expected},
     handle_snap::Snap,
     model::Model,
-    move_manipulator::{self, Handle, MoveDrag, MoveHandles},
+    move_manipulator::{self, Handle, HandleSegment, MoveDrag, MoveHandles},
     place_handles::{self, PlaceDrag, PlaceHandles},
     reach_handles::{self, ReachDrag, ReachHandles},
     scene_palette::ScenePalette,
@@ -131,16 +131,19 @@ impl Manipulator {
             return Some(Self::Move(handles));
         }
         let values = ValueHandles::of(model, feature, view, pixels_per_point);
+        let clear_of = |taken: &[HandleSegment]| {
+            values.and_then(|values| values.clear_of(view, pixels_per_point, taken))
+        };
         if let Some(handles) = ReachHandles::of(model, feature, view, pixels_per_point) {
-            return Some(Self::Reach(handles, values));
+            return Some(Self::Reach(handles, clear_of(&handles.segments())));
         }
         if let Some(handles) = TurnHandles::of(model, feature, view, pixels_per_point) {
-            return Some(Self::Revolve(handles, values));
+            return Some(Self::Revolve(handles, clear_of(&handles.segments())));
         }
         if let Some(handles) = PlaceHandles::of(model, feature, view, pixels_per_point) {
-            return Some(Self::Place(handles, values));
+            return Some(Self::Place(handles, clear_of(&handles.segments())));
         }
-        values.map(Self::Value)
+        clear_of(&[]).map(Self::Value)
     }
 
     fn parts(&self) -> (Option<Primary<'_>>, Option<&ValueHandles>) {

@@ -10,7 +10,9 @@ use caditor_sketch::Reference;
 use crate::{
     manipulator::{self, Held},
     model::Model,
-    move_manipulator::{ARROW_POINTS, Arrow, GAP_POINTS, HIT_POINTS, Handle, segment_distance},
+    move_manipulator::{
+        ARROW_POINTS, Arrow, GAP_POINTS, HIT_POINTS, Handle, HandleSegment, segment_distance,
+    },
     reach_handles::start_offset,
     scene,
     scene_palette::ScenePalette,
@@ -295,6 +297,17 @@ impl TurnHandles {
         let mut extent = revolve.extent.clone();
         let slot = end.slot(&mut extent)?;
         Held::of(model.document(), self.feature, end.caption(), slot).driven()
+    }
+
+    pub fn segments(&self) -> Vec<HandleSegment> {
+        self.grips
+            .iter()
+            .flatten()
+            .map(|grip| {
+                let (from, tip, _) = self.segment(*grip);
+                (from, tip)
+            })
+            .collect()
     }
 
     pub fn hit(&self, view: &View, cursor: Vector2, pixels_per_point: f64) -> Option<Handle> {

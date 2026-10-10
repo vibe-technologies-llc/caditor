@@ -519,6 +519,26 @@ pub fn within(polygon: &[Vector2], point: Vector2) -> bool {
     turns.iter().all(|turn| *turn >= 0.0) || turns.iter().all(|turn| *turn <= 0.0)
 }
 
+pub type HandleSegment = (Point3, Point3);
+
+pub fn segments_apart(a: (Vector2, Vector2), b: (Vector2, Vector2)) -> f64 {
+    let side = |from: Vector2, to: Vector2, point: Vector2| (to - from).perp_dot(point - from);
+    let straddles = |from: Vector2, to: Vector2, ends: (Vector2, Vector2)| {
+        side(from, to, ends.0) * side(from, to, ends.1) < 0.0
+    };
+    if straddles(a.0, a.1, b) && straddles(b.0, b.1, a) {
+        return 0.0;
+    }
+    [
+        segment_distance(a.0, a.1, b.0),
+        segment_distance(a.0, a.1, b.1),
+        segment_distance(b.0, b.1, a.0),
+        segment_distance(b.0, b.1, a.1),
+    ]
+    .into_iter()
+    .fold(f64::INFINITY, f64::min)
+}
+
 pub fn segment_distance(from: Vector2, to: Vector2, point: Vector2) -> f64 {
     let along = to - from;
     let length_squared = along.length_squared();

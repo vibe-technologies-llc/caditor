@@ -11,8 +11,8 @@ use crate::{
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
-        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, Reach, segment_distance,
-        step_for,
+        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, HandleSegment, Reach,
+        segment_distance, step_for,
     },
     scene_palette::ScenePalette,
     units::Units,
@@ -232,6 +232,10 @@ impl ReachHandles {
 
     fn arrow(&self, reach: Reach) -> Option<&ReachArrow> {
         self.arrows().find(|arrow| arrow.reach == reach)
+    }
+
+    pub fn segments(&self) -> Vec<HandleSegment> {
+        self.arrows().map(ReachArrow::segment).collect()
     }
 
     pub fn step(&self) -> f64 {

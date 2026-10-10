@@ -526,9 +526,10 @@ impl Builder<'_> {
         }
         let value = self.length(&hole.diameter)?;
         let (plane, top, _) = self.hole_top(hole)?;
+        let between_place_arrows = (plane.x_axis() + plane.y_axis()).normalize();
         Some(Gauge::line(
             Measured::HoleDiameter,
-            (top, plane.x_axis()),
+            (top, between_place_arrows),
             0.5,
             value,
         ))

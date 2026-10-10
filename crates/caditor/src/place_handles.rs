@@ -13,8 +13,8 @@ use crate::{
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
-        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, PlaceGrip, segment_distance,
-        step_for, within,
+        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, HandleSegment, PlaceGrip,
+        segment_distance, step_for, within,
     },
     scene,
     scene_palette::ScenePalette,
@@ -203,6 +203,22 @@ impl PlaceHandles {
             centre + x + y,
             centre - x + y,
         ])
+    }
+
+    pub fn segments(&self) -> Vec<HandleSegment> {
+        let arrows = ARROWS
+            .into_iter()
+            .filter_map(|grip| self.arrow(grip))
+            .map(|(from, tip, _)| (from, tip));
+        let edges = self.square().into_iter().flat_map(|corners| {
+            (0..corners.len()).filter_map(move |index| {
+                Some((
+                    *corners.get(index)?,
+                    *corners.get((index + 1) % corners.len())?,
+                ))
+            })
+        });
+        arrows.chain(edges).collect()
     }
 
     pub fn step(&self) -> f64 {

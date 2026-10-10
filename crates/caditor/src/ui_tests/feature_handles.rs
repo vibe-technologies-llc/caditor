@@ -14,10 +14,12 @@ use super::{
 use crate::{
     field,
     model::Action,
-    move_manipulator::{Handle, Reach},
+    move_manipulator::{Handle, PlaceGrip, Reach},
     selection::{Axis, Pickable, PrincipalPlane},
     value_gauges::Measured,
 };
+
+const ZOOMS_OUT: usize = 30;
 
 fn open_feature(harness: &Harness) -> FeatureId {
     harness
@@ -239,6 +241,39 @@ fn dragging_a_hole_s_diameter_arrow_makes_it_a_custom_size() {
         (after - before - 4.0).abs() <= step,
         "{before} to {after} with steps of {step}"
     );
+}
+
+#[test]
+fn a_hole_zoomed_out_leaves_out_the_value_arrows_its_place_arrows_would_cover() {
+    let mut harness = Harness::new();
+    let (_, top) = extruded_plate(&mut harness);
+    harness.select([top]);
+    harness.click("Hole");
+    harness.settle();
+    harness.select([]);
+    harness.workspace.viewport.advance(CAMERA_SETTLE);
+    harness.frame();
+    let diameter = Handle::Value(Measured::HoleDiameter);
+    let along_x = Handle::Place(PlaceGrip::AlongX);
+    let shown = |harness: &Harness, handle: Handle| {
+        harness
+            .workspace
+            .viewport
+            .handle_position(handle, 0.0)
+            .is_some()
+    };
+
+    assert!(shown(&harness, diameter));
+    assert!(shown(&harness, along_x));
+
+    for _ in 0..ZOOMS_OUT {
+        harness.key(Key::PageDown, Modifiers::NONE);
+        harness.workspace.viewport.advance(CAMERA_SETTLE);
+        harness.frame();
+    }
+
+    assert!(!shown(&harness, diameter));
+    assert!(shown(&harness, along_x));
 }
 
 #[test]

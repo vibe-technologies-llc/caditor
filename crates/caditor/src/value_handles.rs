@@ -8,7 +8,8 @@ use crate::{
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
-        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HIT_POINTS, Handle, segment_distance,
+        ARROW_POINTS, Arrow, END_ON, GAP_POINTS, HEAD_HALF_POINTS, HIT_POINTS, Handle,
+        HandleSegment, segment_distance, segments_apart,
     },
     scene_palette::ScenePalette,
     turn_handles::Swing,
@@ -18,6 +19,7 @@ use crate::{
 
 const ARROW_SHARE: f64 = 0.7;
 const MOST_GAUGES: usize = 4;
+const CLEARANCE_POINTS: f64 = 2.0 * HEAD_HALF_POINTS;
 #[cfg(test)]
 const GRIP_FRACTION: f64 = 0.6;
 
@@ -108,6 +110,37 @@ impl ValueHandles {
             shown,
             forward,
         })
+    }
+
+    pub fn clear_of(
+        self,
+        view: &View,
+        pixels_per_point: f64,
+        taken: &[HandleSegment],
+    ) -> Option<Self> {
+        let clearance = CLEARANCE_POINTS * pixels_per_point;
+        let on_screen = |(from, to): HandleSegment| Some((view.project(from)?, view.project(to)?));
+        let mut drawn: Vec<(Vector2, Vector2)> =
+            taken.iter().copied().filter_map(on_screen).collect();
+        let mut shown = [None; MOST_GAUGES];
+        let mut slots = shown.iter_mut();
+        for found in self.all() {
+            let Some(seen) = on_screen(found.segment()) else {
+                continue;
+            };
+            if drawn
+                .iter()
+                .all(|other| segments_apart(seen, *other) >= clearance)
+                && let Some(slot) = slots.next()
+            {
+                drawn.push(seen);
+                *slot = Some(*found);
+            }
+        }
+        shown
+            .iter()
+            .any(Option::is_some)
+            .then_some(Self { shown, ..self })
     }
 
     fn all(&self) -> impl Iterator<Item = &Shown> {

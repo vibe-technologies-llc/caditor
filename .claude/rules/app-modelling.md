@@ -534,7 +534,8 @@ paths:
   by the height times its tangent). `value_gauges::Builder` makes them from the shown kind (the
   draft's while one is previewed) and the body as the feature sees it (`handle_snap::before`):
   a blind hole's Depth at the bottom of its first hole down the bore and its Diameter at the top
-  along the sketch's x (not when sized by circles; dragging it makes the size Custom); an offset
+  along the diagonal of the sketch's x and y, between the place arrows (not when sized by
+  circles; dragging it makes the size Custom); an offset
   face's Distance at the middle of its first face when flat in the body before it (zero
   skipped); a datum plane's Offset at its origin along its normal and, turned about an axis, its
   Angle as an arrow along the turn at an arm of `ARROW_POINTS` from the axis; a fillet's or
@@ -553,7 +554,11 @@ paths:
   round to the original for a full turn) as turn arrows, from the patterned body's or repeated
   tools' centre. `Manipulator` holds them beside the primary handles as `Reach`, `Revolve` and
   `Place`'s second part, or alone as `Manipulator::Value`, hit before the primary handles. Counts
-  always step by one.
+  always step by one. Since value arrows stand at model positions while the primary handles keep
+  their size on screen, zooming out brings them together: a value arrow coming within
+  `CLEARANCE_POINTS` on screen of a primary handle's arrows or square, or of an earlier value
+  arrow, is left out (`ValueHandles::clear_of`, `move_manipulator::segments_apart`) until zooming
+  in parts them again; its field stays in the panel and typing reaches it.
 - While a handle is dragged (or its value typed, below) the open feature's panel is drawn from the
   draft's kind (`manipulator::publish_dragged`, `dragged`, read in `feature_tree::body`), so its
   fields follow the drag.
