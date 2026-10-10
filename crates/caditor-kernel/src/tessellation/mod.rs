@@ -41,7 +41,7 @@ pub(crate) const MAX_POINTS: usize = 1 << 22;
 pub(crate) const DISPLAY_POINTS: usize = 1 << 20;
 const POLL_EVERY: usize = 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum TessellationError {
     #[error("the solid refers to an entity it does not contain")]
     MissingEntity,

@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, f64::consts::FRAC_PI_2};
+use std::{borrow::Cow, collections::BTreeMap, f64::consts::FRAC_PI_2};
 
 use caditor_geometry::{Point2, Point3, Vector3};
 
@@ -11,8 +11,8 @@ use crate::{
     interrupt,
     interval::Interval,
     surface::{Surface, SurfaceDerivatives},
-    tessellation::{MassProperties, Mesh, Moments},
-    tolerance::LINEAR_RESOLUTION,
+    tessellation::{MassProperties, Mesh, Moments, TessellationError},
+    tolerance::{LINEAR_RESOLUTION, SamplingTolerance},
     topology::{Coedge, FaceId, Solid},
 };
 
@@ -33,23 +33,55 @@ pub struct SolidMass {
 }
 
 pub fn mass_properties(solid: &Solid, mesh: &Mesh) -> Result<SolidMass, MeasureError> {
+    mass_properties_meshing(solid, || Ok(Cow::Borrowed(mesh)))
+}
+
+pub fn mass_properties_tessellating(
+    solid: &Solid,
+    tolerance: &SamplingTolerance,
+) -> Result<SolidMass, MeasureError> {
+    mass_properties_meshing(solid, || {
+        solid
+            .tessellate(tolerance)
+            .map(Cow::Owned)
+            .map_err(|error| match error {
+                TessellationError::Cancelled(interrupted) => MeasureError::Cancelled(interrupted),
+                other => MeasureError::Meshing(other),
+            })
+    })
+}
+
+fn mass_properties_meshing<'a>(
+    solid: &Solid,
+    mesh: impl FnOnce() -> Result<Cow<'a, Mesh>, MeasureError>,
+) -> Result<SolidMass, MeasureError> {
     let frame = Frame::of(solid);
+    let mut integrated = Vec::new();
+    for (face, _) in solid.faces() {
+        interrupt::check()?;
+        integrated.push((face, face_moments(solid, face, &frame)?));
+    }
+    let mesh = if integrated.iter().any(|(_, moments)| moments.is_none()) {
+        Some(mesh()?)
+    } else {
+        None
+    };
     let mut moments = Moments::default();
     let mut face_areas = BTreeMap::new();
     let mut meshed_faces = Vec::new();
-    for (face, _) in solid.faces() {
-        interrupt::check()?;
-        match face_moments(solid, face, &frame)? {
-            Some(integrated) => {
-                moments.add(&integrated);
-                face_areas.insert(face, integrated.area);
+    for (face, found) in integrated {
+        match (found, &mesh) {
+            (Some(found), _) => {
+                moments.add(&found);
+                face_areas.insert(face, found.area);
             }
-            None => {
+            (None, Some(mesh)) => {
                 let triangles: Vec<[Point3; 3]> =
                     mesh.face_triangles(|candidate| candidate == face).collect();
                 moments.add(&Moments::of_triangles(&triangles, frame.reference));
                 meshed_faces.push(face);
             }
+            (None, None) => meshed_faces.push(face),
         }
     }
     Ok(SolidMass {

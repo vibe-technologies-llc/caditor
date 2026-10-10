@@ -9,13 +9,14 @@ use std::{
 use caditor_expression::{Dimension, EvalError, Expression, ParameterId, Quantity};
 use caditor_geometry::{Aabb, Aabb2, Plane, Point2, Ray, Vector2, Vector3};
 use caditor_kernel::{
-    AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName, FaceId,
-    FaceName, FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION, LinearBound, LinearExtent,
-    MAX_SIZE, MAX_TAPER_DEGREES, Mesh, MeshQuality, OpenEnd, Profile, ProfileCurve, ProfileError,
-    ReachError, ReferenceError, Region, RegionMesh, RegionReference, SamplingTolerance, Selection,
-    Solid, StopError, SweepError, TessellationError, VertexId, VertexName, WallError, WallSide,
-    boolean, extrude_along, extrude_tapered, heights, heights_along, next_face, resolve_regions,
-    revolve, stop_at_body, vertex_names, wall_regions,
+    Accuracy, AngularExtent, Axis2, BooleanError, BooleanOperation, DisplayMesh, EdgeId, EdgeName,
+    FaceId, FaceName, FaceOrigin, GeometryError, Heights, LINEAR_RESOLUTION, LinearBound,
+    LinearExtent, MAX_SIZE, MAX_TAPER_DEGREES, MassProperties, MeasureError, Mesh, MeshQuality,
+    OpenEnd, Profile, ProfileCurve, ProfileError, ReachError, ReferenceError, Region, RegionMesh,
+    RegionReference, SamplingTolerance, Selection, Solid, StopError, SweepError, TessellationError,
+    VertexId, VertexName, WallError, WallSide, boolean, extrude_along, extrude_tapered, heights,
+    heights_along, mass_properties_tessellating, next_face, resolve_regions, revolve, stop_at_body,
+    vertex_names, wall_regions,
 };
 use caditor_sketch::{Entity, EntityId, Reference, Sketch};
 
@@ -668,6 +669,13 @@ pub struct SolidResult {
     mesh: OnceLock<Option<DisplayMesh>>,
     bounds: OnceLock<Option<Aabb>>,
     names: OnceLock<NameIndex>,
+    mass: OnceLock<Box<Result<ExactMass, MeasureError>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExactMass {
+    pub properties: MassProperties,
+    pub accuracy: Accuracy,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -729,6 +737,7 @@ impl SolidResult {
             mesh: OnceLock::new(),
             bounds: OnceLock::new(),
             names: OnceLock::new(),
+            mass: OnceLock::new(),
         }
     }
 
@@ -788,6 +797,29 @@ impl SolidResult {
 
     pub fn mesh(&self) -> Option<&Mesh> {
         self.display_mesh().map(DisplayMesh::mesh)
+    }
+
+    pub fn exact_mass(&self) -> Result<ExactMass, MeasureError> {
+        if let Some(found) = self.mass.get() {
+            return **found;
+        }
+        let tolerance = self.solid.tolerance_for(&MeshQuality::SMOOTH);
+        let found = mass_properties_tessellating(&self.solid, &tolerance).map(|mass| ExactMass {
+            properties: mass.properties,
+            accuracy: if mass.meshed_faces.is_empty() {
+                Accuracy::Exact
+            } else {
+                Accuracy::Approximate
+            },
+        });
+        if !matches!(found, Err(MeasureError::Cancelled(_))) {
+            let _ = self.mass.set(Box::new(found));
+        }
+        found
+    }
+
+    pub fn is_mass_known(&self) -> bool {
+        self.mass.get().is_some()
     }
 
     pub(crate) fn display_mesh(&self) -> Option<&DisplayMesh> {

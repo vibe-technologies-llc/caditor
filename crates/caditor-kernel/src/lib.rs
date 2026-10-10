@@ -73,7 +73,7 @@ pub use crate::{
     measure::{
         Accuracy, Angle, AngleKind, Axis, EdgeForm, EdgeMeasure, Element, FaceForm, MeasureError,
         Separation, SolidMass, angle, axis_of, axis_separation, curve_measure, distance,
-        edge_measure, extent, face_area, face_form, mass_properties,
+        edge_measure, extent, face_area, face_form, mass_properties, mass_properties_tessellating,
     },
     naming::{
         EdgeName, EdgeNaming, EdgeReference, FaceCopy, FaceName, FaceOrigin, FaceReference, Made,

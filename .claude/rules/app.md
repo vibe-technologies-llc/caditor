@@ -281,13 +281,15 @@ paths:
   on its "⋯" button (named "More for <label>", so Tab and Enter reach it) and on a right-click of
   its value (`measure_panel::row_menu`): Copy value puts the text as shown, unit and any ≈
   included, on the clipboard (`egui::Context::copy_text`, as Copy all does) with a notice; New
-  parameter from this value, offered for a reading's `Value::Length`, `Angle` and `Area` only (a
-  position, direction or second moment is no one value the expression language holds), adds a
-  parameter through `parameter_table::add_with` in one transaction: named after the reading's
-  label (`parameter_stem`, "Along X" giving `along_x1`, the first free number), holding the value
-  in the model's unit as `LengthUnit::measured`, `AngleUnit::measured` or
-  `measured_area_expression` (`mm²` and the like, rounded to the model's precision), with its
-  name field focused for renaming and a notice saying so.
+  parameter from this value, offered for a reading's `Value::Length`, `Angle` and `Area` and a
+  mass card's `Value::Volume`, `Area` and `Mass` only (a position, direction or second moment is
+  no one value the expression language holds), adds a parameter through
+  `parameter_table::add_with` in one transaction: named after the reading's label
+  (`parameter_stem`, "Along X" giving `along_x1`, the first free number), holding the value in the
+  model's unit as `LengthUnit::measured`, `AngleUnit::measured`, `measured_area_expression` or
+  `measured_volume_expression` (`mm²`, `mm³` and the like, rounded to the model's precision), a
+  mass as a plain number of grams to the milligram, with its name field focused for renaming and
+  a notice saying so.
 - Relative to (shown once the model holds a coordinate system, `MeasureTool::relative_to`, World
   by default, kept for the session) reads every position and direction and the Along X, Y and Z
   offsets in the chosen coordinate system (`measure::Relative`, its frame's inverse); distances,
@@ -300,7 +302,14 @@ paths:
   coordinate system's axis while Relative to names one, `Keepable::Along`), and of one item's
   Length, Radius, Sweep, Area and Perimeter (a face card's Perimeter is its outer loop,
   `face_perimeter`; `Keepable::of_row`), while every selected item has a stable reference (`measurement_tools::item_of`, carried with
-  the readout as `Readout::kept`; regions and centres of mass have none). One transaction adds a
+  the readout as `Readout::kept`; regions have none, a centre of mass is its body,
+  `MeasuredItem::Body`). A Position row offers three, Keep this measurement along X, Y and Z
+  (`Keepable::Position`, `menu_label`), each keeping that coordinate of the shown position (in
+  the coordinate system while Relative to names one) as a `Reading::Position` along that axis,
+  the parameter named after the row and axis (`position_z1`). A body's mass card offers it too
+  (`Keepable::of_mass_row`, the card's `RowOffer`s from its `BodyMass`): Volume, Surface area,
+  Mass (only while the density gives one) and Centroid along X, Y and Z, each reading
+  `MeasuredItem::Body`. One transaction adds a
   parameter named after the row (`distance1`) holding the value as New parameter does, a
   `Measurement` feeding it at the bar ("Measurement N") and the parameter's owner
   (`ParameterOwner::Feature` with `measurement_tools::READING`), checked first, a refusal (a
@@ -312,16 +321,20 @@ paths:
   and refuses edits in words; other parameters may read it like any parameter.
 - Its card (`measurement_panel.rs`, the open feature's panel) has Reads, a combo of the quantities
   of its arity (`measurement_tools::Quantity::offered`: Distance, Angle, Offset along an axis; or
-  Length, Radius, Sweep, Area, Perimeter), each refused with the reason where its items do not
-  allow it (`read_as`, from each item's form at the measurement's place: a point has no angle, a
-  straight edge no radius or sweep, an edge no area); then a row per item (From, To, or Of) in
-  words with Use selected or Choose in the view (`Slot::MeasuredItem(MeasuredPart)`,
+  Length, Radius, Sweep, Area, Perimeter, Volume, Mass, Position along an axis), each refused with
+  the reason where its items do not allow it (`read_as`, from each item's form at the
+  measurement's place: a point has no angle, a straight edge no radius or sweep, an edge no area,
+  only a body a volume or mass, only a point or a body a position); then a row per item (From,
+  To, or Of) in words with Use selected or Choose in the view (`Slot::MeasuredItem(MeasuredPart)`,
   `measurement_tools::item_change`), which takes the one selected item found where the
   measurement sits (`item_at`: made above it, its edge, face or corner resolving in the body's state
-  there), keeping the quantity while the new item allows it, else the first it allows, an angle
-  falling back to a distance; an offset's Along row is a combo of the X, Y and Z axes over the
-  same picker, which takes an axis as `datum_tools::axis_reference` does; then its Reading and the
-  parameter it is Named by. Each change is one "Edit <name>" `SetFeatureKind`, checked first.
+  there; while the item is a body, `body_at` takes the body of the face, edge, corner or centre of
+  mass chosen), keeping the quantity while the new item allows it, else the first it allows, an
+  angle falling back to a distance and a point read Of switching to its position; an offset's or a
+  position's Along row is a combo of the X, Y and Z axes over the same picker, which takes an axis
+  as `datum_tools::axis_reference` does; then its Reading (`reading_text`: a volume in the model's
+  unit cubed, a mass in grams or kilograms) and the parameter it is Named by. Each change is one
+  "Edit <name>" `SetFeatureKind`, checked first.
 - Every evaluation of the current revision that arrives (`Model::poll_recompute`) runs
   `Editor::follow_readings`, so measured parameters' stored values follow the readings outside the
   undo history (`document.md`); the model's revision and unsaved state do not change for it.

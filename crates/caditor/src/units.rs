@@ -192,10 +192,18 @@ impl LengthUnit {
     }
 
     pub fn measured_area_expression(self, square_millimetres: f64) -> Expression {
-        let square = self.millimetres().powi(2);
-        let step = MODEL_LENGTH_STEP_IN_MILLIMETRES.powi(2) / square;
-        let value = rounded_to_decimals(square_millimetres / square, decimals_for(step));
-        Expression::WithUnit(Box::new(Expression::number(value)), self.unit(), 2)
+        self.measured_power_expression(square_millimetres, 2)
+    }
+
+    pub fn measured_volume_expression(self, cubic_millimetres: f64) -> Expression {
+        self.measured_power_expression(cubic_millimetres, 3)
+    }
+
+    fn measured_power_expression(self, millimetres_to_the_power: f64, power: i8) -> Expression {
+        let scale = self.millimetres().powi(i32::from(power));
+        let step = MODEL_LENGTH_STEP_IN_MILLIMETRES.powi(i32::from(power)) / scale;
+        let value = rounded_to_decimals(millimetres_to_the_power / scale, decimals_for(step));
+        Expression::WithUnit(Box::new(Expression::number(value)), self.unit(), power)
     }
 
     pub fn default_length(self, millimetres: f64) -> Expression {

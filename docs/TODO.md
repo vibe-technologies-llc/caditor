@@ -243,9 +243,7 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   (a stripe between two helices) is refused too. Spheres stay refused in words: a sphere has no
   flat unrolling, so wrapping onto one first needs a chosen projection (stereographic, equal area
   or along its axis) and the distortion it brings, a design decision before any kernel work.
-- [low · medium] A kept measurement reads no position (a point's coordinate along an axis) and no
-  mass property (a body's volume, mass or centre of mass, which come from `BodyMass` on the app's
-  meshing pool, not from recompute). Open decision: a failed or suppressed measurement fails the
+- [low · medium] Open decision on kept measurements: a failed or suppressed measurement fails the
   features using its value, as a failing feature's dependents do; whether they should instead keep
   its last reading (the measured parameter's stored value already holds it) is undecided.
 - [low · hard] Scale is uniform: a body cannot be stretched by different factors along the three

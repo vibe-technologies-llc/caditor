@@ -261,7 +261,9 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
   opacities the app offers, and `nearest_opacity_step` snaps a percent to the nearest of them
   or solid (none), which STEP import uses. `DEFAULT_BODY_COLOUR` is the colour a body without one
   is drawn in; the app's `DEFAULT_COLOUR` is it, and import colours a face see-through but
-  coloured by neither itself nor its body with it.
+  coloured by neither itself nor its body with it. The one exception to recompute ignoring it is
+  a measurement of a whole body (Measurement below), whose cache key holds that body's appearance
+  and its density's parameters, so a mass follows its density.
   A feature that later stops making a body keeps it, unused.
 - The density is a plain number in g/cm³ that may use parameters, so `Feature::parameters` and
   `Feature::uses_parameter` (which parameter deletion, `parameter_users` and loading's stand-ins
@@ -975,21 +977,36 @@ that changes or recomputes it. Recompute is in `document-recompute.md`.
 - `Measurement { reading, parameter }` keeps a reading of the model in the tree: `Reading::Between`
   (`Between::Distance` or `Angle`) of two `MeasuredItem`s, `Reading::Along` (the offset between two
   items along a third, an axis item: the size of the closest points' offset projected on its
-  direction, as Measure's Along X reads it) or `Reading::Of` (`Of::Length`, `Radius`,
-  `Sweep`, `Area`, `Perimeter`) of one. An item is a `PointReference`, `AxisReference`,
-  `PlaneReference`, an edge or face of a body (`EdgeReference`, `FaceReference`) or a sketch entity
-  (a point or a curve on the sketch's solved plane), resolved at the measurement's place like a
-  datum's references (`Resolver`), so its bodies, datums, frames and sketches count as used
-  (`MeasuredItem::features`) and healing visits its edges and faces (an offset's axis as its
-  measuring axis). It changes no body (`Feature::body` is none) and can be hidden.
+  direction, as Measure's Along X reads it), `Reading::Of` (`Of::Length`, `Radius`,
+  `Sweep`, `Area`, `Perimeter`, `Volume`, `Mass`) of one, or `Reading::Position` (a point's
+  coordinate along an axis item: its offset from the point the axis passes through, signed, along
+  its direction, so along a principal axis it is the world coordinate and along a coordinate
+  system's axis the coordinate in that system). An item is a `PointReference`, `AxisReference`,
+  `PlaneReference`, an edge or face of a body (`EdgeReference`, `FaceReference`), a sketch entity
+  (a point or a curve on the sketch's solved plane) or a whole body (`MeasuredItem::Body`, the
+  body as it stands at the measurement), resolved at the measurement's place like a datum's
+  references (`Resolver`), so its bodies, datums, frames and sketches count as used
+  (`MeasuredItem::features`) and healing visits its edges and faces (an offset's or a position's
+  axis as its measuring axis). It changes no body (`Feature::body` is none) and can be hidden.
 - Its result is `FeatureResult::Measurement` (`MeasurementResult`: the value as a `Quantity` in
   millimetres, degrees or square millimetres, the closest points of a distance, angle or offset as
   `line`, an `anchor` to label it at and the kernel's `Accuracy`); dependents compare only the
   value. The kernel measures it (`distance`, `angle`, `edge_measure`, `curve_measure`, `face_form`,
   `face_area`); a sweep is a circular edge's or curve's turn in degrees, a perimeter the length of a
   face's outer loop, seams left out (`face_perimeter`, which Measure's face cards also read). A
+  body item stands for its centre of mass wherever a point would (a distance, an offset, a
+  position) and reads its volume (cubic millimetres), surface area and mass, a plain number of
+  grams (`MASS`, `Dimension::NONE`) from its density (`BodyAppearance::mass_grams`), as the density
+  is a plain number in g/cm³. These come from `SolidResult::exact_mass` (`ExactMass`, kernel
+  `mass_properties_tessellating`: exact by quadrature, a face that does not converge taken from a
+  tessellation at `MeshQuality::SMOOTH` and the reading then approximate), worked out during
+  recompute only when a measurement locates a body and kept inside the body result (a `OnceLock`),
+  so a body whose result `Arc` is unchanged is never integrated again; it runs under the kernel
+  interrupt the evaluation installs, and a cancelled one is not kept. A body with no density
+  fails a mass reading with the fix on the body, as does a density that does not evaluate. A
   reference lost or tied, two items with no angle, an axis giving no direction, an edge with no
-  length or an item with no radius, sweep, area or perimeter fails it alone in words.
+  length or an item with no radius, sweep, area, perimeter, volume, mass or position fails it
+  alone in words.
 - `parameter` (optional) is the parameter its reading feeds, the measured parameter. This version
   never evaluates its own expression (`ParameterError::Unmeasured` until recompute reads it,
   `values.rs`), which is kept as the latest reading for older versions and for the ordinary

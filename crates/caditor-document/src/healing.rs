@@ -12,7 +12,7 @@ use crate::{
     edit::{Edit, Transaction},
     hole::HoleDepth,
     mate::{AngleSides, AxisMate, Mate, MatePair, PointTarget},
-    measurement::{MeasuredItem, Measurement},
+    measurement::{MeasuredItem, Measurement, Reading},
     movement::TurnCentre,
     pattern::PatternKind,
     recompute::Inputs,
@@ -355,11 +355,12 @@ fn visit_point(point: &mut PointReference, role: &str, visitor: &mut impl Refere
 
 fn visit_measurement(measurement: &mut Measurement, visitor: &mut impl ReferenceVisitor) {
     let count = measurement.reading.items().len();
+    let positioned = matches!(measurement.reading, Reading::Position { .. });
     for (index, item) in measurement.reading.items_mut().into_iter().enumerate() {
-        let role = match (count, index) {
-            (1, _) => "measured item",
-            (_, 0) => "first measured item",
-            (_, 1) => "second measured item",
+        let role = match (count, index, positioned) {
+            (1, _, _) | (_, 0, true) => "measured item",
+            (_, 0, false) => "first measured item",
+            (_, 1, false) => "second measured item",
             _ => "measuring axis",
         };
         match item {
@@ -377,7 +378,7 @@ fn visit_measurement(measurement: &mut Measurement, visitor: &mut impl Reference
             MeasuredItem::Face { body, face } => {
                 visitor.face(*body, face, &format!("the face giving its {role}"));
             }
-            MeasuredItem::Sketch { .. } => {}
+            MeasuredItem::Sketch { .. } | MeasuredItem::Body(_) => {}
         }
     }
 }

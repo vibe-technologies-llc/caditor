@@ -20,13 +20,14 @@ pub use self::{
         Angle, AngleKind, Axis, EdgeForm, EdgeMeasure, FaceForm, angle, axis_of, axis_separation,
         curve_measure, edge_measure, face_form,
     },
-    mass::{SolidMass, face_area, mass_properties},
+    mass::{SolidMass, face_area, mass_properties, mass_properties_tessellating},
 };
 use crate::{
     curve::{Curve, Line},
     interrupt::Interrupted,
     interval::Interval,
     surface::{PlaneSurface, Surface},
+    tessellation::TessellationError,
     topology::{EdgeId, FaceContainment, FaceId, Solid, SolidClassifier},
 };
 
@@ -99,6 +100,8 @@ pub enum MeasureError {
     NoClosestPoints,
     #[error("an axis or plane has no direction")]
     NoDirection,
+    #[error("the faces it could not integrate could not be meshed: {0}")]
+    Meshing(TessellationError),
     #[error(transparent)]
     Cancelled(#[from] Interrupted),
 }

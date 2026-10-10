@@ -48,6 +48,7 @@ const GRAMS_PER_CUBIC_MILLIMETRE: f64 = 1e-3;
 const ALL_BODIES: &str = "Every body shown; select a face, edge or vertex for one body alone.";
 const INERTIA_DIGITS: i32 = 4;
 const NOT_EVERY_DENSITY: &str = "Not every body has a density";
+const MILLIGRAMS_PER_GRAM: f64 = 1000.0;
 pub const COPY_VALUE: &str = "Copy value";
 pub const NEW_PARAMETER: &str = "New parameter from this value";
 const MORE_FOR_VALUE: &str = "Copy this value, make it a parameter or keep it in the model";
@@ -159,6 +160,8 @@ fn value_text(value: Value, accuracy: Accuracy, unit: Units) -> String {
         Value::Position(point) => unit.measured_position([point.x, point.y, point.z]),
         Value::Direction(direction) => direction_text(direction),
         Value::SecondMoment(moment) => unit.measured_second_moment(moment),
+        Value::Volume(volume) => unit.measured_volume(volume),
+        Value::Mass(grams) => mass_text(grams),
     };
     approximately(text, accuracy == Accuracy::Approximate)
 }
@@ -533,6 +536,37 @@ pub struct Masses {
     pub total: Option<Card>,
     pub everything: bool,
     pub bodies: usize,
+    offers: Vec<Vec<RowOffer>>,
+}
+
+fn mass_offers(
+    card: &Card,
+    body: FeatureId,
+    mass: Option<&BodyMass>,
+    mass_grams: Option<f64>,
+) -> Vec<RowOffer> {
+    let Some(mass) = mass else {
+        return Vec::new();
+    };
+    let properties = mass.properties;
+    card.rows
+        .iter()
+        .map(|row| {
+            let value = match row.label.as_str() {
+                "Volume" => Some(Value::Volume(properties.volume)),
+                "Mass" => mass_grams.map(Value::Mass),
+                "Surface area" => Some(Value::Area(properties.area)),
+                "Centroid" => Some(Value::Position(properties.centroid)),
+                _ => None,
+            };
+            let keepable = Keepable::of_mass_row(&row.label);
+            RowOffer {
+                value,
+                kept: (value.is_some() && !keepable.is_empty())
+                    .then(|| (vec![MeasuredItem::Body(body)], keepable)),
+            }
+        })
+        .collect()
 }
 
 pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
@@ -550,7 +584,7 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
                 density: feature.appearance.density_value(parameters),
             })
     };
-    let cards = bodies
+    let (cards, offers) = bodies
         .iter()
         .take(MAX_MASS_CARDS)
         .map(|body| {
@@ -558,14 +592,20 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
                 || "A deleted body".to_owned(),
                 |feature| feature.name.clone(),
             );
-            mass_card(
-                name,
-                context.bodies.get(*body).and_then(BodyMesh::mass),
-                unit,
-                &substance_of(*body),
-            )
+            let mass = context.bodies.get(*body).and_then(BodyMesh::mass);
+            let substance = substance_of(*body);
+            let card = mass_card(name, mass, unit, &substance);
+            let grams = mass
+                .zip(substance.density.as_ref())
+                .and_then(|(mass, density)| {
+                    density.as_ref().ok().map(|density| {
+                        mass.properties.volume * density * GRAMS_PER_CUBIC_MILLIMETRE
+                    })
+                });
+            let offers = mass_offers(&card, *body, mass, grams);
+            (card, offers)
         })
-        .collect();
+        .unzip();
     let parts: Option<Vec<(&BodyMass, Substance<'_>)>> = bodies
         .iter()
         .map(|body| {
@@ -581,6 +621,7 @@ pub fn mass_cards(context: &MeasureContext<'_>) -> Masses {
         total: parts.and_then(|parts| total_card(&parts, unit)),
         everything,
         bodies: count,
+        offers,
     }
 }
 
@@ -601,10 +642,10 @@ enum RowChoice {
     },
 }
 
-#[derive(Clone, Copy)]
-struct RowOffer<'a> {
+#[derive(Debug, Clone, Default)]
+struct RowOffer {
     value: Option<Value>,
-    kept: Option<(&'a [MeasuredItem], Keepable)>,
+    kept: Option<(Vec<MeasuredItem>, Vec<Keepable>)>,
 }
 
 pub fn show(
@@ -755,6 +796,12 @@ fn parameter_expression(value: Value, units: Units) -> Option<caditor_expression
         Value::Length(millimetres) => Some(units.measured(millimetres)),
         Value::Angle(radians) => Some(units.angle.measured(radians.to_degrees())),
         Value::Area(square_millimetres) => Some(units.measured_area_expression(square_millimetres)),
+        Value::Volume(cubic_millimetres) => {
+            Some(units.measured_volume_expression(cubic_millimetres))
+        }
+        Value::Mass(grams) => Some(caditor_expression::Expression::number(
+            (grams * MILLIGRAMS_PER_GRAM).round() / MILLIGRAMS_PER_GRAM,
+        )),
         Value::Position(_) | Value::Direction(_) | Value::SecondMoment(_) => None,
     }
 }
@@ -792,12 +839,17 @@ fn readings(
             _ => Some(&readout.kept),
         };
         let between = items > 0 && index >= items;
-        let offers: Vec<RowOffer<'_>> = group
+        let offers: Vec<RowOffer> = group
             .readings
             .iter()
-            .map(|reading| RowOffer {
-                value: Some(reading.value),
-                kept: kept.zip(Keepable::of_row(reading.label, between, frame)),
+            .map(|reading| {
+                let keepable = Keepable::of_row(reading.label, between, frame);
+                RowOffer {
+                    value: Some(reading.value),
+                    kept: kept
+                        .filter(|_| !keepable.is_empty())
+                        .map(|items| (items.to_vec(), keepable)),
+                }
             })
             .collect();
         chosen = card_with_menus(ui, ("measured", index), card, &offers).or(chosen.take());
@@ -826,7 +878,8 @@ fn mass_section(ui: &mut Ui, masses: &Masses) -> Option<RowChoice> {
                 ui.add_space(SPACE_S);
             }
             for (index, card) in masses.cards.iter().enumerate() {
-                chosen = card_with_menus(ui, ("mass", index), card, &[]).or(chosen.take());
+                let offers = masses.offers.get(index).map_or(&[][..], Vec::as_slice);
+                chosen = card_with_menus(ui, ("mass", index), card, offers).or(chosen.take());
                 ui.add_space(SPACE_S);
             }
             let unlisted = masses.bodies.saturating_sub(masses.cards.len());
@@ -852,14 +905,11 @@ fn card_with_menus(
     ui: &mut Ui,
     id: (&str, usize),
     card: &Card,
-    offers: &[RowOffer<'_>],
+    offers: &[RowOffer],
 ) -> Option<RowChoice> {
+    let none = RowOffer::default();
     card_rows(ui, id, card, |ui, row, index| {
-        let offer = offers.get(index).copied().unwrap_or(RowOffer {
-            value: None,
-            kept: None,
-        });
-        value_with_menu(ui, row, offer)
+        value_with_menu(ui, row, offers.get(index).unwrap_or(&none))
     })
 }
 
@@ -892,7 +942,7 @@ fn card_rows(
     chosen
 }
 
-fn value_with_menu(ui: &mut Ui, row: &Row, offer: RowOffer<'_>) -> Option<RowChoice> {
+fn value_with_menu(ui: &mut Ui, row: &Row, offer: &RowOffer) -> Option<RowChoice> {
     ui.horizontal(|ui| {
         let shown = widgets::label_before_icon_buttons(ui, &row.text, 1);
         let more = widgets::named(
@@ -911,7 +961,24 @@ fn value_with_menu(ui: &mut Ui, row: &Row, offer: RowOffer<'_>) -> Option<RowCho
     .inner
 }
 
-fn row_menu(ui: &mut Ui, row: &Row, offer: RowOffer<'_>) -> Option<RowChoice> {
+fn parameterisable(value: Value) -> bool {
+    matches!(
+        value,
+        Value::Length(_) | Value::Angle(_) | Value::Area(_) | Value::Volume(_) | Value::Mass(_)
+    )
+}
+
+fn kept_value(value: Value, keepable: Keepable) -> Option<Value> {
+    match (keepable, value) {
+        (Keepable::Position { axis, .. }, Value::Position(point)) => {
+            Some(Value::Length(point.dot(axis.direction())))
+        }
+        (Keepable::Position { .. }, _) => None,
+        (_, value) => parameterisable(value).then_some(value),
+    }
+}
+
+fn row_menu(ui: &mut Ui, row: &Row, offer: &RowOffer) -> Option<RowChoice> {
     let value = offer.value;
     let mut chosen = None;
     if widgets::menu_item(ui, icons::COPY, COPY_VALUE, None).clicked() {
@@ -921,9 +988,7 @@ fn row_menu(ui: &mut Ui, row: &Row, offer: RowOffer<'_>) -> Option<RowChoice> {
         });
         ui.close();
     }
-    let parameterisable =
-        value.filter(|value| matches!(value, Value::Length(_) | Value::Angle(_) | Value::Area(_)));
-    if let Some(value) = parameterisable
+    if let Some(value) = value.filter(|value| parameterisable(*value))
         && widgets::menu_item(ui, icons::PARAMETERS, NEW_PARAMETER, None).clicked()
     {
         chosen = Some(RowChoice::Parameter {
@@ -932,22 +997,29 @@ fn row_menu(ui: &mut Ui, row: &Row, offer: RowOffer<'_>) -> Option<RowChoice> {
         });
         ui.close();
     }
-    let keepable = parameterisable.zip(
-        offer
-            .kept
-            .and_then(|(items, keepable)| keepable.reading(items)),
-    );
-    if let Some((value, reading)) = keepable
-        && widgets::menu_item(ui, icons::MEASURE, measurement_tools::KEEP, None)
+    let Some((value, (items, keepables))) = value.zip(offer.kept.as_ref()) else {
+        return chosen;
+    };
+    for keepable in keepables {
+        let Some((standing, reading)) = kept_value(value, *keepable).zip(keepable.reading(items))
+        else {
+            continue;
+        };
+        if widgets::menu_item(ui, icons::MEASURE, &keepable.menu_label(), None)
             .on_hover_text(KEEP_HOVER)
             .clicked()
-    {
-        chosen = Some(RowChoice::Keep {
-            label: row.label.clone(),
-            value,
-            reading: Box::new(reading),
-        });
-        ui.close();
+        {
+            let label = match keepable.axis_name() {
+                Some(name) => format!("{} {name}", row.label),
+                None => row.label.clone(),
+            };
+            chosen = Some(RowChoice::Keep {
+                label,
+                value: standing,
+                reading: Box::new(reading),
+            });
+            ui.close();
+        }
     }
     chosen
 }

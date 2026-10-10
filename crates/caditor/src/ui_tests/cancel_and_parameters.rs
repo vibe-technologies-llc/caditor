@@ -588,3 +588,55 @@ fn a_kept_measurement_is_chosen_again_in_its_panel_and_leaves_its_last_reading_w
         Some(&Ok(Quantity::length(20.0)))
     );
 }
+
+#[test]
+fn a_position_and_a_body_volume_are_kept_from_measure_rows() {
+    use caditor_document::{MeasuredItem, Of, Reading};
+    use caditor_expression::{Dimension, Quantity};
+
+    let mut harness = Harness::new();
+    let (body, _) = extruded_plate(&mut harness);
+    let far = vertex_at(&harness, body, Point3::new(40.0, 40.0, 10.0));
+    harness.key(Key::I, Modifiers::NONE);
+    harness.frame();
+    harness.select([far]);
+    let volume = LengthUnit::Millimetre.measured_volume(16000.0);
+    harness.wait_until("the position and the volume are read", |harness| {
+        harness.shows(&volume)
+    });
+
+    harness.click_button("More for Position");
+    harness.show_new_windows();
+    harness.click(&format!("{} along Z", measurement_tools::KEEP));
+    harness.settle();
+    harness.frame();
+    harness.click_button("More for Volume");
+    harness.show_new_windows();
+    harness.click(measurement_tools::KEEP);
+    harness.settle();
+    harness.frame();
+
+    let height = harness.parameter("position_z1");
+    let kept_volume = harness.parameter("volume1");
+    assert_eq!(
+        harness.model.parameters().get(height),
+        Some(&Ok(Quantity::length(10.0)))
+    );
+    let Some(Ok(read)) = harness.model.parameters().get(kept_volume) else {
+        panic!("volume1 has a value");
+    };
+    assert_eq!(read.dimension, Dimension::VOLUME);
+    assert!((read.value - 16000.0).abs() < 1e-6, "{read:?}");
+    let reading = harness
+        .document()
+        .measurement_of(kept_volume)
+        .and_then(|feature| feature.kind.measurement())
+        .map(|measurement| measurement.reading.clone());
+    assert_eq!(
+        reading,
+        Some(Reading::Of {
+            quantity: Of::Volume,
+            item: MeasuredItem::Body(body),
+        })
+    );
+}
