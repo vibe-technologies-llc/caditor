@@ -1,3 +1,4 @@
+pub mod annotation;
 mod banded;
 mod beyond;
 mod blend;

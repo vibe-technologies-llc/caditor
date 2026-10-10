@@ -332,11 +332,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   already in the lock file through egui) plus text layout: `tspan`, per-glyph x and y lists,
   `text-anchor`, font size and family through the cascade. Decide whether the app hands the font
   to the import or `caditor-file` bundles its own.
-- [low · medium] Drawing export places dimensions by a fixed offset from the sketch's middle
-  without the canvas's lanes or obstacle avoidance, so crowded sketches overlap their labels. The
-  canvas's layout lives in `caditor`'s `annotation_layout.rs`, which `caditor-file` cannot call
-  without a dependency cycle; it would have to move to a crate both use (or the app hand the
-  exporter its placed labels).
 
 ## Mesh import and export
 

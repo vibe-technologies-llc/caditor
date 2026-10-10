@@ -37,7 +37,7 @@ inside the workspace.
 | --- | --- | --- |
 | `caditor-geometry` | f64 math vocabulary: `glam` aliases, `Plane`, `Ray`, `Aabb`, rigid transforms. | none |
 | `caditor-expression` | `Quantity` (mm and degrees with a `Dimension`) and expressions over parameters. | none |
-| `caditor-sketch` | 2D sketches on a `Plane`: entities, constraints and its own solver. | expression, geometry |
+| `caditor-sketch` | 2D sketches on a `Plane`: entities, constraints and its own solver; the unit-free dimension layout the canvas and drawing export share. | expression, geometry |
 | `caditor-kernel` | Own B-rep kernel (no truck, no OpenCascade): curves, surfaces, topology, tessellation, naming, profiles, booleans, blends, shells, patterns. | geometry |
 | `caditor-step` | STEP (ISO 10303-21, AP214) writing and reading of kernel solids. | kernel, geometry |
 | `caditor-zstd` | Safe wrapper over the pure-Rust zstd port; one of the three crates with `unsafe`. | none |

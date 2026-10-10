@@ -324,12 +324,8 @@ pub fn export_drawing(
         if sheet.annotations == Annotations::Included
             && let Some(bounds) = figure.bounds()
         {
-            let dimensions = annotation::dimensions(
-                named.sketch,
-                sheet.construction,
-                text_height,
-                bounds.center(),
-            );
+            let dimensions =
+                annotation::dimensions(named.sketch, sheet.construction, text_height, bounds);
             exported.sketches.dimensions += dimensions.len();
             for dimension in dimensions {
                 figure.push(Layer::Dimensions, Shape::Dimension(Box::new(dimension)));

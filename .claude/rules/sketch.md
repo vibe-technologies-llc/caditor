@@ -25,6 +25,13 @@ paths:
   millimetres along and across a frame the app derives from the measured geometry
   (`annotation_layout::label_frame`), so the label follows the geometry. Only dimensions take one
   (`NotADimension`), finite only; removing the constraint forgets it.
+- `annotation.rs` (public as `caditor_sketch::annotation`) is the unit-free part of laying out
+  dimensions, shared by the canvas (`app-sketching.md`, in screen points) and drawing export
+  (`file-import-export.md`, in drawing units), so neither depends on the other: `measured` (what a
+  dimension measures, `Measured` over `LineSpan`s), `lanes` (linear dimensions along one line on
+  one side whose spans overlap, shortest nearest, sides from `away_from` the sketch's middle) and
+  `Obstacles` (label `Footprint`s in a grid of cells of a size the caller picks, each overlap
+  counted once, plus their `bounds`). Thresholds for thinning stay with the canvas.
 - Projected geometry (`Sketch::set_projected`, a set beside the entities, part of
   `same_geometry`) is a curve and its points, or a lone point, whose position the document
   supplies. The solver holds it fixed like the origin: its points are `PointHandle::Fixed` and a

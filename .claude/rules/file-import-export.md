@@ -301,9 +301,17 @@ paths:
   horizontal and vertical distances along X or Y, radius and diameter as a leader through the
   centre (`R`, `⌀`), an ellipse's major and minor radii as an `R` leader from its centre along
   that axis, angles as an arc at the lines' vertex, arc sweep and length as an arc beyond
-  the arc (`°`, `⌒`); values in millimetres to three decimals and degrees to two. Placement does
-  not use the canvas's lanes or obstacle avoidance (`caditor`'s `annotation_layout.rs`, which this
-  crate cannot reach), so crowded labels may overlap. Every source
+  the arc (`°`, `⌒`); values in millimetres to three decimals and degrees to two. Placement
+  shares the canvas's `caditor_sketch::annotation` (`sketch.md`), in drawing units scaled by the
+  text height: distances measured along one line on one side whose spans overlap take lanes
+  (`annotation::lanes`, the same tracks and side as the canvas, `LANE_SPACING` text heights
+  apart), and each label is kept clear of those placed before it, in constraint order, through
+  an `Obstacles` of `LABEL_CELL` text heights (footprints the rotated text's box grown by
+  `LABEL_CLEARANCE`). A label that overlaps tries, for `NEARBY_LANES` lanes outward, sliding
+  along its dimension line within the span (`SLIDES`) and turning a circle's or arc's leader
+  (`LEADER_TURN` steps, an arc's within its sweep), then only lanes further out, up to the lane
+  that clears every label placed (`Style::lanes_to_clear`), where it goes. No dimension is ever
+  left out: thinning is a screen aid of the canvas, not of a drawing. Every source
   gets its name as a label below it on layer `Labels` (nesting reserves the band). Text is
   `sheet::text_height` high: a fiftieth of the largest source, at least 2.5 mm.
 - DXF is ASCII, version AC1015, millimetres (`$INSUNITS` 4), header and entities (layers are

@@ -7,7 +7,7 @@ use caditor_sketch::{Constraint, Entity, EntityId, Sketch};
 use tempfile::TempDir;
 
 use super::{
-    figure::{Figure, Layer, Motion, Shape},
+    figure::{self, Figure, Layer, Motion, Shape},
     nest::{Item, nest},
     *,
 };
@@ -601,4 +601,116 @@ fn an_ellipse_writes_its_radii_as_leaders_along_its_axes() {
     assert_eq!(text.matches("\nAcDbRadialDimension\n").count(), 2);
     assert!(text.contains("  1\nR8\n"));
     assert!(text.contains("  1\nR3\n"));
+}
+
+fn crowded() -> (Sketch, usize) {
+    let mut sketch = Sketch::new(Plane::XY);
+    let mut constraints = Vec::new();
+    let millimetres = |value: f64| Expression::Measure(value, Unit::Millimetre);
+    let row: Vec<EntityId> = (0..10)
+        .map(|index| sketch.add_point(Point2::new(index as f64 * 1.5, 0.0)))
+        .collect();
+    for pair in row.windows(2) {
+        constraints.push(Constraint::HorizontalDistance {
+            from: pair[0],
+            to: pair[1],
+            value: millimetres(1.5),
+        });
+    }
+    for (index, point) in row.iter().enumerate().skip(2) {
+        constraints.push(Constraint::HorizontalDistance {
+            from: row[0],
+            to: *point,
+            value: millimetres(index as f64 * 1.5),
+        });
+    }
+    for step in 0..6 {
+        let radius = 3.0 + step as f64 * 0.5;
+        let circle = sketch.add_circle(Point2::new(6.0, 12.0), radius);
+        constraints.push(Constraint::Radius {
+            entity: circle,
+            value: millimetres(radius),
+        });
+        constraints.push(Constraint::Diameter {
+            entity: circle,
+            value: millimetres(radius * 2.0),
+        });
+    }
+    let vertex = Point2::new(20.0, 5.0);
+    let fan: Vec<EntityId> = (0..5)
+        .map(|index| {
+            let direction = Vector2::from_angle((index as f64 * 10.0).to_radians());
+            sketch.add_line(vertex, vertex + direction * 8.0)
+        })
+        .collect();
+    for pair in fan.windows(2) {
+        constraints.push(Constraint::Angle {
+            from: pair[0],
+            to: pair[1],
+            reversed: false,
+            value: Expression::Measure(10.0, Unit::Degree),
+        });
+    }
+    let count = constraints.len();
+    for constraint in constraints {
+        sketch.add_constraint(constraint).unwrap();
+    }
+    (sketch, count)
+}
+
+fn text_box(text: &figure::Text) -> (Point2, Point2) {
+    let corners = text.corners();
+    let low = corners.iter().copied().reduce(Point2::min).unwrap();
+    let high = corners.iter().copied().reduce(Point2::max).unwrap();
+    (low, high)
+}
+
+#[test]
+fn a_crowded_sketch_places_every_dimension_label_clear_of_the_others() {
+    let (sketch, count) = crowded();
+    let points = sketch.entities().filter_map(|(_, entity)| match entity {
+        Entity::Point(at) => Some(*at),
+        _ => None,
+    });
+    let bounds = caditor_geometry::Aabb2::from_points(points).unwrap();
+
+    let dimensions = annotation::dimensions(&sketch, Construction::LeftOut, 2.5, bounds);
+    let boxes: Vec<_> = dimensions
+        .iter()
+        .map(|dimension| text_box(&dimension.text))
+        .collect();
+
+    assert_eq!(dimensions.len(), count);
+    for (index, first) in boxes.iter().enumerate() {
+        for second in boxes.iter().skip(index + 1) {
+            let shared = first.1.min(second.1) - first.0.max(second.0);
+            assert!(
+                shared.x <= 0.0 || shared.y <= 0.0,
+                "labels {first:?} and {second:?} overlap"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_crowded_sketch_exports_every_dimension() {
+    let (sketch, count) = crowded();
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("crowded.svg");
+
+    let exported = export_sketches(
+        &path,
+        &[NamedSketch {
+            name: "Crowded",
+            sketch: &sketch,
+        }],
+        SketchFormat::Svg,
+        &annotated(),
+        &CancelToken::never(),
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+
+    assert_eq!(exported.dimensions, count);
+    assert_eq!(text.matches("<text ").count(), count + 1);
 }

@@ -1,7 +1,10 @@
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
-use caditor_geometry::{Point2, Vector2};
-use caditor_sketch::{ArcGeometry, Constraint, EntityId, Reference, Sketch};
+use caditor_geometry::{Aabb2, Point2, Vector2};
+use caditor_sketch::{
+    ArcGeometry, Constraint, EntityId, Reference, Sketch,
+    annotation::{self, Footprint, Measured, Obstacles, away_from},
+};
 
 use super::{
     Construction,
@@ -9,6 +12,7 @@ use super::{
 };
 
 const DIMENSION_OFFSET: f64 = 2.5;
+const LANE_SPACING: f64 = 2.0;
 const EXTENSION_GAP: f64 = 0.5;
 const EXTENSION_OVERSHOOT: f64 = 0.5;
 const ARROW_LENGTH: f64 = 1.0;
@@ -18,6 +22,13 @@ const ANGLE_RADIUS: f64 = 4.0;
 const LEADER_OVERSHOOT: f64 = 1.5;
 const LEADER_TEXT_GAP: f64 = 0.5;
 const CIRCLE_LEADER_ANGLE: f64 = FRAC_PI_4;
+const LABEL_CLEARANCE: f64 = 0.5;
+const LABEL_CELL: f64 = 4.0;
+const SLIDES: [f64; 5] = [0.0, 0.5, -0.5, 1.0, -1.0];
+const LEADER_TURN: f64 = PI / 12.0;
+const LEADER_TURNS: usize = 12;
+const NEARBY_LANES: usize = 4;
+const MAX_ESCAPE_LANES: usize = 1 << 16;
 const DEGENERATE: f64 = 1e-9;
 const LENGTH_DECIMALS: usize = 3;
 const ANGLE_DECIMALS: usize = 2;
@@ -30,14 +41,42 @@ pub(super) fn dimensions(
     sketch: &Sketch,
     construction: Construction,
     height: f64,
-    centre: Point2,
+    bounds: Aabb2,
 ) -> Vec<Dimension> {
-    let style = Style { height, centre };
-    sketch
+    let style = Style {
+        height,
+        centre: bounds.center(),
+    };
+    let shown: Vec<&Constraint> = sketch
         .constraints()
-        .filter(|(_, constraint)| shown(sketch, constraint, construction))
-        .filter_map(|(_, constraint)| style.dimension(sketch, constraint))
+        .map(|(_, constraint)| constraint)
+        .filter(|constraint| shown(sketch, constraint, construction))
+        .collect();
+    let measured: Vec<Option<Measured>> = shown
+        .iter()
+        .map(|constraint| lane_taking(sketch, constraint))
+        .collect();
+    let extent = bounds.min().abs().max(bounds.max().abs()).max_element();
+    let lanes = annotation::lanes(&measured, Some(style.centre), extent);
+    let mut labels = Obstacles::new(LABEL_CELL * height);
+    shown
+        .into_iter()
+        .zip(lanes)
+        .filter_map(|(constraint, lane)| {
+            let dimension = style.placed(sketch, constraint, lane, &labels)?;
+            labels.add(style.footprint(&dimension.text));
+            Some(dimension)
+        })
         .collect()
+}
+
+fn lane_taking(sketch: &Sketch, constraint: &Constraint) -> Option<Measured> {
+    match constraint {
+        Constraint::Distance { .. }
+        | Constraint::HorizontalDistance { .. }
+        | Constraint::VerticalDistance { .. } => annotation::measured(sketch, constraint),
+        _ => None,
+    }
 }
 
 pub(super) fn number(value: f64, decimals: usize) -> String {
@@ -69,60 +108,160 @@ fn shown(sketch: &Sketch, constraint: &Constraint, construction: Construction) -
             .any(|entity| sketch.is_construction(entity))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Shift {
+    lane: usize,
+    slide: f64,
+    turn: f64,
+}
+
+impl Shift {
+    fn out(lane: usize) -> Self {
+        Self {
+            lane,
+            slide: 0.0,
+            turn: 0.0,
+        }
+    }
+
+    fn around(lane: usize) -> impl Iterator<Item = Self> {
+        let slides = SLIDES.into_iter().map(move |slide| Self {
+            lane,
+            slide,
+            turn: 0.0,
+        });
+        let turns = (1..=LEADER_TURNS).flat_map(move |step| {
+            let turn = step as f64 * LEADER_TURN;
+            [turn, -turn].map(|turn| Self {
+                lane,
+                slide: 0.0,
+                turn,
+            })
+        });
+        slides.chain(turns)
+    }
+
+    fn reach(&self) -> f64 {
+        LANE_SPACING * self.lane as f64
+    }
+}
+
 struct Style {
     height: f64,
     centre: Point2,
 }
 
 impl Style {
-    fn dimension(&self, sketch: &Sketch, constraint: &Constraint) -> Option<Dimension> {
+    fn placed(
+        &self,
+        sketch: &Sketch,
+        constraint: &Constraint,
+        lane: usize,
+        labels: &Obstacles,
+    ) -> Option<Dimension> {
+        let first = self.dimension(sketch, constraint, Shift::out(lane))?;
+        let free = |dimension: &Dimension| labels.overlap(&self.footprint(&dimension.text)) <= 0.0;
+        if free(&first) {
+            return Some(first);
+        }
+        let escape = self.lanes_to_clear(&first.text, labels);
+        for extra in 0..escape {
+            let found = if extra < NEARBY_LANES {
+                Shift::around(lane + extra)
+                    .filter_map(|shift| self.dimension(sketch, constraint, shift))
+                    .find(free)
+            } else {
+                self.dimension(sketch, constraint, Shift::out(lane + extra))
+                    .filter(free)
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        self.dimension(sketch, constraint, Shift::out(lane + escape))
+    }
+
+    fn lanes_to_clear(&self, text: &Text, labels: &Obstacles) -> usize {
+        let Some(taken) = labels.bounds() else {
+            return 0;
+        };
+        let label = self.footprint(text);
+        let apart = (label.center - taken.center).length();
+        let reach = apart + taken.half.length() + label.half.length();
+        let lanes = (reach / (LANE_SPACING * self.height)).ceil() + 1.0;
+        if lanes.is_finite() {
+            (lanes.max(0.0) as usize).min(MAX_ESCAPE_LANES)
+        } else {
+            0
+        }
+    }
+
+    fn footprint(&self, text: &Text) -> Footprint {
+        let corners = text.corners();
+        let first = corners.first().copied().unwrap_or(text.at);
+        let (low, high) = corners.iter().fold((first, first), |(low, high), corner| {
+            (low.min(*corner), high.max(*corner))
+        });
+        Footprint {
+            center: (low + high) / 2.0,
+            half: (high - low) / 2.0 + Vector2::splat(LABEL_CLEARANCE * self.height / 2.0),
+        }
+    }
+
+    fn dimension(
+        &self,
+        sketch: &Sketch,
+        constraint: &Constraint,
+        shift: Shift,
+    ) -> Option<Dimension> {
         let value = sketch.measured(constraint)?;
         match *constraint {
             Constraint::Distance { from, to, .. } => {
                 let (first, second) = witnesses(sketch, from, to, self.centre)?;
                 let along = (second - first).try_normalize()?;
-                self.linear(first, second, along, length(value))
+                self.linear((first, second), along, length(value), shift)
             }
             Constraint::HorizontalDistance { from, to, .. } => self.linear(
-                sketch.point(from)?,
-                sketch.point(to)?,
+                (sketch.point(from)?, sketch.point(to)?),
                 Vector2::X,
                 length(value),
+                shift,
             ),
             Constraint::VerticalDistance { from, to, .. } => self.linear(
-                sketch.point(from)?,
-                sketch.point(to)?,
+                (sketch.point(from)?, sketch.point(to)?),
                 Vector2::Y,
                 length(value),
+                shift,
             ),
             Constraint::Angle {
                 from, to, reversed, ..
-            } => self.angle(sketch, (from, to), reversed, value),
+            } => self.angle(sketch, (from, to), reversed, value, shift),
             Constraint::Radius { entity, .. } => {
-                let (center, radius, toward) = leader(sketch, entity)?;
+                let (center, radius, toward) = leader(sketch, entity, shift)?;
                 Some(self.radial(
-                    center,
-                    radius,
-                    toward,
-                    Measured::Radius,
+                    (center, radius, toward),
+                    Leader::Radius,
                     format!("{RADIUS_PREFIX}{}", length(value)),
+                    shift,
                 ))
             }
             Constraint::Diameter { entity, .. } => {
-                let (center, radius, toward) = leader(sketch, entity)?;
+                let (center, radius, toward) = leader(sketch, entity, shift)?;
                 Some(self.radial(
-                    center,
-                    radius,
-                    toward,
-                    Measured::Diameter,
+                    (center, radius, toward),
+                    Leader::Diameter,
                     format!("{DIAMETER_SIGN}{}", length(value)),
+                    shift,
                 ))
             }
             Constraint::ArcLength { arc, .. } => self.along_arc(
                 sketch.arc(arc)?,
                 format!("{ARC_LENGTH_SIGN}{}", length(value)),
+                shift,
             ),
-            Constraint::Sweep { arc, .. } => self.along_arc(sketch.arc(arc)?, degrees(value)),
+            Constraint::Sweep { arc, .. } => {
+                self.along_arc(sketch.arc(arc)?, degrees(value), shift)
+            }
             Constraint::MajorRadius { ellipse, .. } | Constraint::MinorRadius { ellipse, .. } => {
                 let shape = sketch.ellipse(ellipse)?;
                 let toward = match constraint {
@@ -130,11 +269,10 @@ impl Style {
                     _ => shape.axis().perp(),
                 };
                 Some(self.radial(
-                    shape.center,
-                    value,
-                    toward,
-                    Measured::Radius,
+                    (shape.center, value, toward),
+                    Leader::Radius,
                     format!("{RADIUS_PREFIX}{}", length(value)),
+                    shift,
                 ))
             }
             _ => None,
@@ -159,20 +297,16 @@ impl Style {
 
     fn linear(
         &self,
-        first: Point2,
-        second: Point2,
+        (first, second): (Point2, Point2),
         along: Vector2,
         content: String,
+        shift: Shift,
     ) -> Option<Dimension> {
         let height = self.height;
-        let normal = along.perp();
         let middle = (first + second) / 2.0;
-        let normal = if (middle - self.centre).dot(normal) < 0.0 {
-            -normal
-        } else {
-            normal
-        };
-        let level = first.dot(normal).max(second.dot(normal)) + DIMENSION_OFFSET * height;
+        let normal = away_from(along.perp(), middle, Some(self.centre));
+        let level =
+            first.dot(normal).max(second.dot(normal)) + (DIMENSION_OFFSET + shift.reach()) * height;
         let foot = |point: Point2| point + normal * (level - point.dot(normal));
         let (start, end) = (foot(first), foot(second));
         let span = (end - start).try_normalize()?;
@@ -192,6 +326,13 @@ impl Style {
         marks.extend(self.arrow(start, -span));
         marks.extend(self.arrow(end, span));
         let angle = span.y.atan2(span.x);
+        let mut text = self.text(
+            (start + end) / 2.0 + normal * TEXT_LIFT * height,
+            angle,
+            content,
+        );
+        let room = ((start.distance(end) - text.width()) / 2.0 - LABEL_CLEARANCE * height).max(0.0);
+        text.at += span * room * shift.slide;
         Some(Dimension {
             measure: Measure::Linear {
                 first,
@@ -200,34 +341,29 @@ impl Style {
                 angle,
             },
             marks,
-            text: self.text(
-                (start + end) / 2.0 + normal * TEXT_LIFT * height,
-                angle,
-                content,
-            ),
+            text,
         })
     }
 
     fn radial(
         &self,
-        center: Point2,
-        radius: f64,
-        toward: Vector2,
-        measured: Measured,
+        (center, radius, toward): (Point2, f64, Vector2),
+        leader: Leader,
         content: String,
+        shift: Shift,
     ) -> Dimension {
         let height = self.height;
         let on_curve = center + toward * radius;
-        let reach = on_curve + toward * LEADER_OVERSHOOT * height;
+        let reach = on_curve + toward * (LEADER_OVERSHOOT + shift.reach()) * height;
         let mut text = self.text(reach, 0.0, content);
         text.at = reach + toward * (LEADER_TEXT_GAP * height + text.width() / 2.0);
         let far = center - toward * radius;
-        let (measure, mut marks) = match measured {
-            Measured::Radius => (
+        let (measure, mut marks) = match leader {
+            Leader::Radius => (
                 Measure::Radius { center, on_curve },
                 vec![Shape::Line(center, reach)],
             ),
-            Measured::Diameter => {
+            Leader::Diameter => {
                 let mut marks = vec![Shape::Line(far, reach)];
                 marks.extend(self.arrow(far, -toward));
                 (
@@ -253,6 +389,7 @@ impl Style {
         (from, to): (EntityId, EntityId),
         reversed: bool,
         value: f64,
+        shift: Shift,
     ) -> Option<Dimension> {
         let first = sketch.angle_direction(from, to)?.try_normalize()?;
         let first = if reversed { -first } else { first };
@@ -269,7 +406,7 @@ impl Style {
         (sweep > DEGENERATE).then(|| {
             self.arc_dimension(
                 vertex,
-                ANGLE_RADIUS * self.height,
+                (ANGLE_RADIUS + shift.reach()) * self.height,
                 (start, sweep),
                 Vec::new(),
                 degrees(value),
@@ -277,12 +414,12 @@ impl Style {
         })
     }
 
-    fn along_arc(&self, arc: ArcGeometry, content: String) -> Option<Dimension> {
+    fn along_arc(&self, arc: ArcGeometry, content: String, shift: Shift) -> Option<Dimension> {
         let height = self.height;
         if arc.sweep <= DEGENERATE {
             return None;
         }
-        let radius = arc.radius + DIMENSION_OFFSET * height;
+        let radius = arc.radius + (DIMENSION_OFFSET + shift.reach()) * height;
         let extensions = [arc.start_angle, arc.start_angle + arc.sweep]
             .into_iter()
             .map(|angle| {
@@ -339,16 +476,21 @@ impl Style {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Measured {
+enum Leader {
     Radius,
     Diameter,
 }
 
-fn leader(sketch: &Sketch, entity: EntityId) -> Option<(Point2, f64, Vector2)> {
+fn leader(sketch: &Sketch, entity: EntityId, shift: Shift) -> Option<(Point2, f64, Vector2)> {
     let (center, radius) = sketch.circle(entity)?;
-    let angle = sketch
-        .arc(entity)
-        .map_or(CIRCLE_LEADER_ANGLE, |arc| arc.start_angle + arc.sweep / 2.0);
+    let angle = match sketch.arc(entity) {
+        Some(arc) => {
+            let middle = arc.start_angle + arc.sweep / 2.0;
+            let half = arc.sweep.abs() / 2.0;
+            middle + shift.turn.clamp(-half, half)
+        }
+        None => CIRCLE_LEADER_ANGLE + shift.turn,
+    };
     Some((center, radius, Vector2::from_angle(angle)))
 }
 
