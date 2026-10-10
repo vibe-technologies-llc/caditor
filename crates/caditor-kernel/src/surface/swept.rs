@@ -12,6 +12,7 @@ use crate::{
     interval::Interval,
     numeric::{Taylor, minimize_near},
     parametric::{closest_parameter_among, seed_runs},
+    shared::SharedBuffer,
     surface::{
         SurfaceDerivatives,
         profile_spans::ProfileSpans,
@@ -61,8 +62,11 @@ impl Extrusion {
         &self.profile
     }
 
-    pub(crate) fn heap_size(&self) -> usize {
-        self.profile.heap_size() + self.spans.as_ref().map_or(0, |spans| spans.heap_size())
+    pub(crate) fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
+        self.profile.shared_buffers(found);
+        if let Some(spans) = &self.spans {
+            found(SharedBuffer::of(spans, spans.heap_size()));
+        }
     }
 
     pub fn direction(&self) -> Vector3 {
@@ -173,8 +177,11 @@ impl Revolution {
         &self.profile
     }
 
-    pub(crate) fn heap_size(&self) -> usize {
-        self.profile.heap_size() + self.spans.as_ref().map_or(0, |spans| spans.heap_size())
+    pub(crate) fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
+        self.profile.shared_buffers(found);
+        if let Some(spans) = &self.spans {
+            found(SharedBuffer::of(spans, spans.heap_size()));
+        }
     }
 
     pub fn axis_origin(&self) -> Point3 {

@@ -39,6 +39,7 @@ use crate::{
     interval::Interval,
     naming::{EdgeName, FaceName, FaceOrigin, VertexName, occurrence_order},
     sense::Sense,
+    shared::SharedBuffer,
     surface::{Surface, Torus},
     tessellation::{self, DisplayMesh, Mesh, TessellationError},
     tolerance::{MeshQuality, SamplingTolerance},
@@ -238,15 +239,16 @@ fn enumerate<'a, Id, Item>(
 
 impl Solid {
     pub fn approximate_size(&self) -> usize {
+        let mut shared = 0;
+        self.shared_buffers(&mut |buffer| shared += buffer.bytes());
+        self.owned_size() + shared
+    }
+
+    pub fn owned_size(&self) -> usize {
         let edges: usize = self
             .edges
             .iter()
-            .map(|edge| edge.curve.heap_size() + size_of_val(edge.coedges.as_slice()))
-            .sum();
-        let coedges: usize = self
-            .coedges
-            .iter()
-            .map(|coedge| coedge.pcurve.heap_size())
+            .map(|edge| size_of_val(edge.coedges.as_slice()))
             .sum();
         let loops: usize = self
             .loops
@@ -256,7 +258,7 @@ impl Solid {
         let faces: usize = self
             .faces
             .iter()
-            .map(|face| face.surface.heap_size() + size_of_val(face.loops.as_slice()))
+            .map(|face| size_of_val(face.loops.as_slice()))
             .sum();
         let shells: usize = self
             .shells
@@ -271,10 +273,21 @@ impl Solid {
             + size_of_val(self.faces.as_slice())
             + size_of_val(self.shells.as_slice())
             + edges
-            + coedges
             + loops
             + faces
             + shells
+    }
+
+    pub fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
+        for edge in &self.edges {
+            edge.curve.shared_buffers(found);
+        }
+        for coedge in &self.coedges {
+            coedge.pcurve.shared_buffers(found);
+        }
+        for face in &self.faces {
+            face.surface.shared_buffers(found);
+        }
     }
 
     pub fn vertex(&self, id: VertexId) -> Option<&Vertex> {

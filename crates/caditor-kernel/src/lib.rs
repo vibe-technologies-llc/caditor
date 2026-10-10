@@ -24,6 +24,7 @@ mod parametric;
 mod pattern;
 mod profile;
 mod sense;
+mod shared;
 mod shell;
 mod surface;
 mod tessellation;
@@ -85,6 +86,7 @@ pub use crate::{
         Side, WallError, WallSide, resolve_regions, section_of, wall_regions,
     },
     sense::Sense,
+    shared::SharedBuffer,
     shell::{OffsetError, ShellError, offset_faces, shell},
     surface::{
         BSplineSurface, BendError, BendTarget, BentSide, Cone, Cylinder, Extrusion,

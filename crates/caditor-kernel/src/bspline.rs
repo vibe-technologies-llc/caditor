@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    coordinates::Coordinates, error::GeometryError, interval::Interval,
+    coordinates::Coordinates, error::GeometryError, interval::Interval, shared::SharedBuffer,
     tolerance::LINEAR_RESOLUTION,
 };
 
@@ -18,13 +18,12 @@ pub struct BSpline<P> {
 }
 
 impl<P: Coordinates> BSpline<P> {
-    pub(crate) fn heap_size(&self) -> usize {
-        size_of_val(&*self.knots)
-            + size_of_val(&*self.control_points)
-            + self
-                .weights
-                .as_ref()
-                .map_or(0, |weights| size_of_val(&**weights))
+    pub(crate) fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
+        found(SharedBuffer::slice(&self.knots));
+        found(SharedBuffer::slice(&self.control_points));
+        if let Some(weights) = &self.weights {
+            found(SharedBuffer::slice(weights));
+        }
     }
 
     pub fn new(

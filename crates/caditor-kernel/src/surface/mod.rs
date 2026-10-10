@@ -27,6 +27,7 @@ use crate::{
     interval::{Domain, Interval},
     mapping::{Affine, UvMap},
     sense::Sense,
+    shared::SharedBuffer,
     tolerance::LINEAR_RESOLUTION,
 };
 
@@ -71,16 +72,16 @@ pub enum Surface {
 }
 
 impl Surface {
-    pub fn heap_size(&self) -> usize {
+    pub fn shared_buffers(&self, found: &mut dyn FnMut(SharedBuffer)) {
         match self {
             Self::Plane(_)
             | Self::Cylinder(_)
             | Self::Cone(_)
             | Self::Sphere(_)
-            | Self::Torus(_) => 0,
-            Self::Extrusion(extrusion) => extrusion.heap_size(),
-            Self::Revolution(revolution) => revolution.heap_size(),
-            Self::BSpline(spline) => spline.heap_size(),
+            | Self::Torus(_) => {}
+            Self::Extrusion(extrusion) => extrusion.shared_buffers(found),
+            Self::Revolution(revolution) => revolution.shared_buffers(found),
+            Self::BSpline(spline) => spline.shared_buffers(found),
         }
     }
 

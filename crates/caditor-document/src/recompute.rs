@@ -741,6 +741,11 @@ impl Recompute {
     }
 
     #[cfg(test)]
+    pub(crate) fn earlier_results_in_full(&self) -> usize {
+        self.cache.earlier_bytes_in_full()
+    }
+
+    #[cfg(test)]
     pub(crate) fn report_features_done_after(&mut self, delay: Duration) {
         self.features_done_after = delay;
     }

@@ -49,12 +49,18 @@ paths:
   value back finds the earlier entry and its result `Arc`, and everything below reuses its own
   earlier entries in turn. Earlier entries (all but the latest of each feature) are held within
   `EARLIER_RESULTS_BUDGET`. An entry is measured as it stops being its feature's latest, by then
-  meshed if it ever will be: `Solid::approximate_size` plus its mesh's `Mesh::approximate_size`
-  (an intermediate state, never meshed, counts its solid alone). Kernel geometry shared between
-  solids (`kernel.md`) counts in full in each, so the measure overstates what successive states
-  of a body hold together. The history keeps a running
-  total, so an insert looks at the earlier entries only when over budget; the least recently used
-  go first, and the latest entry of a feature is never dropped for size.
+  meshed if it ever will be, as the buffers it holds: each result `Arc` (its own, and the others,
+  cuts and joins inside it) with its solid's `Solid::owned_size` and its mesh's
+  `DisplayMesh::approximate_size` (an intermediate state, never meshed, counts its solid alone),
+  and every kernel buffer its solids share (`Solid::shared_buffers`, `kernel.md`). The history
+  counts each buffer address once across the earlier entries (`Holdings`, a holder count per
+  address; the entry keeps the addresses it took), so successive states of a body sharing their
+  untouched geometry weigh what they hold together: a plate drilled 144 times, its whole chain
+  demoted by an edit, holds 21 MB where measuring each state in full gave 154 MB. A buffer leaves
+  the total when its last earlier holder goes, which keeps it alive until then, so an address
+  never stands for two buffers. The history keeps a running total, so an insert looks at the
+  earlier entries only when over budget; the least recently used go first, and the latest entry
+  of a feature is never dropped for size.
 - A failed result is also recomputed when a name its message could hold changed (its own, those of
   the parameters and features it uses, those of every feature before it, which name the faces it
   works on); which used features are suppressed is part of its key too.
