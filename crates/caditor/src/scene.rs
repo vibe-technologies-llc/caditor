@@ -153,6 +153,15 @@ impl PickTable {
             .map(|(_, pickable, hit)| (pickable, hit))
     }
 
+    pub fn within_reach(&self, hits: &[PickHit]) -> Vec<(Pickable, PickHit)> {
+        hits.iter()
+            .filter_map(|hit| {
+                let (pickable, priority) = self.resolve(hit.id)?;
+                (hit.offset_points <= priority.tolerance_points()).then_some((pickable, *hit))
+            })
+            .collect()
+    }
+
     pub fn listed(&self, hits: &[PickHit], filter: SelectionFilter) -> Vec<Pickable> {
         let mut listed: Vec<Pickable> = Vec::new();
         for hit in hits {

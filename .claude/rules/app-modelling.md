@@ -271,7 +271,8 @@ paths:
   that side runs, in `canvas::SNAP` at the move arrows' size,
   left out when it points at the eye; a symmetric extrusion has one, on its forward side, whose
   drag grows the whole distance twice as fast. It drags as a move arrow does (`manipulator.rs`
-  holds both kinds behind `Manipulator` and `Manipulating`): in steps (Ctrl drags freely),
+  holds both kinds behind `Manipulator` and `Manipulating`): in steps, snapping to geometry under
+  the pointer (Ctrl drags freely; Value handles below),
   previewed with the distance beside the pointer, committed on release as one edit setting that
   distance to a measured value of at least one step. The arrows follow a typed distance's preview
   (`Model::draft_kind`, `Model::shown_parameters`); an extrusion running along a direction has
@@ -480,14 +481,60 @@ paths:
   pointer's ray meets the sketch plane, in steps (Ctrl drags freely), previewed with Position X
   and Y beside the pointer and committed on release as one "Move <hole>" change; the handles
   follow the preview (`Model::draft_transaction`).
-- A distance arrow (`length_handles.rs`, `Handle::Length`, `Measured`) drags one length of an open
-  feature along a line, as an extrusion's reach arrow does (steps, Ctrl free, the readout, one
-  "Edit <feature>" change keeping a named value and refusing a driven one through
-  `manipulator::Held`): a blind hole's Depth, standing at the bottom of its first hole and pointing
-  down the bore (hit before the placement handles, which it joins as `Manipulator::Place`'s
-  second part), an offset face's Distance, at the middle of its first face when that face is flat
-  in the body before it, along its outward normal (zero skipped), and a datum plane's Offset at
-  the plane's origin along its normal.
+
+## Value handles
+
+- A value arrow (`value_handles.rs`, `Handle::Value`, `value_gauges::Measured`) drags one value of
+  an open feature, as an extrusion's reach arrow does (steps, Ctrl free, the readout, one "Edit
+  <feature>" change keeping a named value and refusing a driven one through `manipulator::Held`,
+  each `Measured` naming its field's caption, the panels' own constants). A `Gauge` holds where
+  it stands: a `Track` (a line from a base along a direction, or a `turn_handles::Swing` about an
+  axis) and a `Mapping` from the value to the distance or angle along it (`Linear` with a scale
+  and offset, so a diameter's rim moves half as fast; `Tangent` for a taper, the top edge moving
+  by the height times its tangent). `value_gauges::Builder` makes them from the shown kind (the
+  draft's while one is previewed) and the body as the feature sees it (`handle_snap::before`):
+  a blind hole's Depth at the bottom of its first hole down the bore and its Diameter at the top
+  along the sketch's x (not when sized by circles; dragging it makes the size Custom); an offset
+  face's Distance at the middle of its first face when flat in the body before it (zero
+  skipped); a datum plane's Offset at its origin along its normal and, turned about an axis, its
+  Angle as an arrow along the turn at an arm of `ARROW_POINTS` from the axis; a fillet's or
+  chamfer's size at the middle of its first edge along the bisector of its faces into the
+  material, its foot on the rounded or cut face (`1/cos(a/2) - 1` or `sin(a/2)` of the size for
+  faces turned by `a`); a shell's Thickness at the middle of the first edge of its first opened
+  face, pointing into the face; a thin wall's Thickness at the middle of the sketch's first line
+  (or the rim of its first circle) toward the side it grows; an extrusion's Taper at the +x edge
+  of its sketch's bounds at the end of its first distance side, pointing in (shown with no taper
+  too, zero clearing it); an end Up to face's Past the face on that face along the side; a
+  primitive's sizes at the middle of the faces they move (`primitive_arrows`: a box's three, a
+  cylinder's and torus's diameter and height, a sphere's diameter, a cone's two rims and height, a
+  wedge's three, a prism's diameter and height), the mapping worked out from the footprint and
+  the anchor; a linear pattern's Spacing (or Total length) at its last copy and Count where the
+  next copy would go, per direction, and a circular pattern's Total angle and Count (halfway
+  round to the original for a full turn) as turn arrows, from the patterned body's or repeated
+  tools' centre. `Manipulator` holds them beside the primary handles as `Reach`, `Revolve` and
+  `Place`'s second part, or alone as `Manipulator::Value`, hit before the primary handles. Counts
+  always step by one.
+- While a handle is dragged (or its value typed, below) the open feature's panel is drawn from the
+  draft's kind (`manipulator::publish_dragged`, `dragged`, read in `feature_tree::body`), so its
+  fields follow the drag.
+- A drag on a line or plane snaps to the shown geometry under the pointer, ahead of the steps
+  (Ctrl still drags freely; `handle_snap.rs`): `Probe::snap` takes the CPU hits under the pointer
+  (`Scene::hits_through`, `PickTable::within_reach`), keeps those no deeper than the nearest face,
+  and resolves them on the body as the feature sees it (its own body's state before it, a move's
+  own body never), a corner first, then a round edge's centre or an edge's middle within
+  `MIDDLE_REACH_POINTS`, then a flat face by its plane. A line handle lands level with the point
+  along its line, or where it meets the face's plane, a face only when that lies within
+  `MAGNET_STEPS` steps of where the drag would be (`Snap::holds`), so faces under the pointer
+  pull without taking over; a plane handle (a hole's or primitive's square, a move's square)
+  lands on the point's projection, an arrow along one axis on that coordinate. The value set is a
+  measured one, never a reference, and the readout ends with what it snapped to ("to a corner").
+  Turning drags never snap (`Manipulating::snaps`).
+- Typing a digit while a handle is hovered or held (outside a sketch) opens the typed-point field
+  (`app-input.md`) labelled with that handle's field (`Manipulator::typing`, `manipulator::Typing`;
+  a square and a move's square take "x, y"), dropping a drag in progress; the text previews as
+  typed (only when it changes) and Enter commits the expression as typed, parameters included,
+  into the same slot a drag writes (`Typing::transaction`, through `field::checked`); a refusal
+  stays in the field, Escape drops the preview. A driven value opens no field.
 
 ## Thread
 

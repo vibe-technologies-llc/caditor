@@ -83,7 +83,7 @@ fn form_row(
     ));
 }
 
-fn size_caption(blend: &Blend) -> &'static str {
+pub fn size_caption(blend: &Blend) -> &'static str {
     match (blend.kind, blend.chamfer_form()) {
         (BlendKind::Fillet, _) => "Radius",
         (BlendKind::Chamfer, ChamferForm::TwoDistances { .. }) => "First distance",

@@ -6,7 +6,8 @@ choose. Select the faces to open, then choose Shell.
 While it is open, click faces in the view to open or close them; the opened faces show in the
 selected colour. **Choose in the view** in the panel first opens the faces of the body selected
 then. The panel lists them, each with a button to close it again (hovering one lights it in the
-view), and sets the **Thickness**. Typing it previews the result before you press Enter.
+view), and sets the **Thickness**. Typing it previews the result before you press Enter. An arrow
+on the rim of the first opened face drags the thickness.
 
 A new shell starts from the thickness last used on one, kept between sessions (a thickness naming
 a parameter the model lacks falls back to 1 mm).

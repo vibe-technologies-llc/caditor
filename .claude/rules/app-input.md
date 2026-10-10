@@ -420,7 +420,9 @@ paths:
   top-level `<` (from the sketch's x axis; degrees unless a unit is named), `@` for an offset from
   the last placed point, and a lone length from the last point toward the pointer. The point must
   be within `MAX_LENGTH` of the origin. Offset's distance and Sketch fillet's radius reuse it as
-  one length expression (`modifying::Value`, `app-sketching.md`), as does Move.
+  one length expression (`modifying::Value`, `app-sketching.md`), as does Move. Outside a sketch
+  it opens the same way over a hovered or held handle of the open feature, taking that handle's
+  field (`ViewportState::type_handle`, `app-modelling.md`, Value handles).
 - An angle alone (`< 30`, `@< 30`; `typed_point::heading`) locks the direction from the last
   placed point (`Drawing::lock_heading`): `Drawing::place` projects the pointer onto that ray,
   ahead of snapping, Ctrl and the toggles, the preview draws the ray as a dashed guide, the prompt

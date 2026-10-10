@@ -27,8 +27,8 @@ use crate::{
     files::FileCommand,
     fonts,
     guide::Page,
-    guide_panel, hole_panel, icons, import_panel, mate_panel, measurement_panel, mirror_panel,
-    mirror_tools,
+    guide_panel, hole_panel, icons, import_panel, manipulator, mate_panel, measurement_panel,
+    mirror_panel, mirror_tools,
     model::{Action, Model, Notice},
     move_panel, move_tools, offset_face_panel,
     panels::{Focus, PanelState, Renaming},
@@ -961,7 +961,15 @@ fn body(
     actions: &mut Vec<Action>,
     row: &Row<'_>,
 ) {
-    let feature = row.feature;
+    let drafted = manipulator::dragged(ui.ctx())
+        .filter(|dragged| *dragged == row.feature.id())
+        .and_then(|dragged| model.draft_kind(dragged))
+        .map(|kind| {
+            let mut shown = row.feature.clone();
+            shown.kind = kind.clone();
+            shown
+        });
+    let feature = drafted.as_ref().unwrap_or(row.feature);
     match &feature.kind {
         FeatureKind::Sketch(sketch) => {
             placement(ui, model, row.selection, actions, feature, sketch);

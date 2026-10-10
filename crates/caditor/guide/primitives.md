@@ -11,8 +11,10 @@ that face's body. With nothing selected it starts at the origin and asks you to 
 face to put it on; Escape leaves it where it is.
 
 While it is open, a square and two arrows stand where it is placed: drag the square to move it
-anywhere on its plane, or an arrow to move it along one direction. Hold Ctrl to drag without
-steps.
+anywhere on its plane, or an arrow to move it along one direction. Arrows on its faces drag its
+sizes: a box's length, width and height, a cylinder's diameter and height, a sphere's diameter,
+and likewise for the other shapes. Hold Ctrl to drag without steps; a drag stops on a corner or
+edge under the pointer. With the pointer on a handle, type a value and press Enter to set it.
 
 ## The panel
 

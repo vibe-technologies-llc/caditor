@@ -9,7 +9,9 @@ While it is open, the edges of the body before it can be clicked in the view to 
 out; the panel lists the chosen ones in words, each with a button to leave it out, and hovering
 one lights it in the view. Edges that continue smoothly are taken together as a chain.
 
-- Fillet takes a **Radius**, Chamfer a **Distance**.
+- Fillet takes a **Radius**, Chamfer a **Distance**. An arrow at the middle of the first edge,
+  standing on the rounded or cut face, drags it; type a value with the pointer on the arrow to set
+  it exactly.
 - A chamfer's **Distances** row chooses **Equal** (one distance on both faces), **Two** (a second
   distance on the other face) or **Angle** (a distance and the angle from the first face).
   **Measure from the other face** swaps which face takes the first distance. The same choices are

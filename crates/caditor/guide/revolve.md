@@ -18,7 +18,8 @@ through a hidden sketch that follows their edges.
 
 - **Full turn**, **One side** by an angle, **Symmetric** both ways, or **Two sides** each with its
   own angle. Two angles together may not pass a full turn. While the revolve is open, an arrow at
-  each end of the turn drags its angle in steps of 5° (hold Ctrl to drag freely).
+  each end of the turn drags its angle in steps of 5° (hold Ctrl to drag freely), and a thin
+  wall's arrow its thickness. Type a value with the pointer on an arrow to set it exactly.
 - **Up to face** turns until the profile reaches a face or plane that contains the axis, forward or
   reversed.
 - {command:model.reverse_direction} turns a one-sided or Up to face revolve the other way.

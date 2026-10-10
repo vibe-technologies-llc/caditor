@@ -37,6 +37,9 @@ otherwise a principal axis is used.
   closed one) or **By distance** with its **Spacing**, and **Copies** **Kept as they are** or
   **Turned with the curve**.
 - For points: **Points**, the sketch whose lone points take the copies, and the **Base point**.
+- In the view, an arrow at the last copy of each direction drags the spacing and one where the
+  next copy would go adds or removes copies; a circular pattern has the same two arrows along its
+  turn, for its total angle and its count. Type a value with the pointer on an arrow to set it.
 - **Instances**: a grid with one box per copy. Uncheck a box, or click a copy in the view, to
   leave it out; a point pattern leaves out a copy you click and **Bring the copies back** returns
   them.

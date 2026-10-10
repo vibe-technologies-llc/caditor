@@ -53,16 +53,16 @@ pub const MEASURED_OVERALL: &str = "Overall";
 const INSTANCES_HINT: &str = "Click a copy to leave it out of the pattern, and again to bring it \
                               back.";
 
-struct DirectionCaptions {
+pub struct DirectionCaptions {
     salt: &'static str,
-    count: &'static str,
+    pub count: &'static str,
     measure: &'static str,
-    spacing: &'static str,
-    total: &'static str,
+    pub spacing: &'static str,
+    pub total: &'static str,
     reverse: &'static str,
 }
 
-const FIRST: DirectionCaptions = DirectionCaptions {
+pub const FIRST: DirectionCaptions = DirectionCaptions {
     salt: "",
     count: "Count",
     measure: "Measured",
@@ -71,7 +71,7 @@ const FIRST: DirectionCaptions = DirectionCaptions {
     reverse: REVERSE_DIRECTION,
 };
 
-const SECOND: DirectionCaptions = DirectionCaptions {
+pub const SECOND: DirectionCaptions = DirectionCaptions {
     salt: "second-",
     count: "Second count",
     measure: "Second measured",
@@ -79,6 +79,15 @@ const SECOND: DirectionCaptions = DirectionCaptions {
     total: "Second total length",
     reverse: "Reverse second direction",
 };
+
+pub const TOTAL_ANGLE: &str = "Total angle";
+
+pub fn direction_captions(index: usize) -> &'static DirectionCaptions {
+    match index {
+        0 => &FIRST,
+        _ => &SECOND,
+    }
+}
 
 fn measured_label(measured: LinearSpacing) -> &'static str {
     match measured {
@@ -754,7 +763,7 @@ impl Panel<'_> {
         });
         self.expression(
             ui,
-            "Total angle",
+            TOTAL_ANGLE,
             "angle",
             &circular.angle,
             (Dimension::ANGLE, Rule::Turn),

@@ -7,6 +7,7 @@ use caditor_geometry::{Plane, Point3, Ray, Vector2, Vector3};
 use caditor_render::{Batch, View};
 
 use crate::{
+    handle_snap::Snap,
     manipulator::{self, Held},
     model::Model,
     move_manipulator::{
@@ -272,6 +273,7 @@ pub struct ReachDrag {
     step: f64,
     from: f64,
     distance: f64,
+    snapped: Option<Snap>,
 }
 
 impl ReachDrag {
@@ -289,27 +291,44 @@ impl ReachDrag {
             step: handles.step(),
             from,
             distance: from,
+            snapped: None,
         })
     }
 
-    pub fn follow(&mut self, ray: Ray, free: bool) -> bool {
-        let Some(at) = ray.closest_along_line(self.end, self.direction) else {
-            return false;
-        };
-        let pulled = at - self.grabbed;
-        let grown = match self.reach {
+    fn grown(&self, pulled: f64) -> f64 {
+        match self.reach {
             Reach::Symmetric => 2.0 * pulled,
             Reach::Only | Reach::Forward | Reach::Backward => pulled,
+        }
+    }
+
+    pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
+        let pulled = ray
+            .closest_along_line(self.end, self.direction)
+            .map(|at| self.from + self.grown(at - self.grabbed));
+        let snapped = snap.filter(|_| !free).and_then(|snap| {
+            let distance = self.from + self.grown(snap.along(self.end, self.direction)?);
+            snap.holds(distance, pulled, self.step)
+                .then_some((distance, snap))
+        });
+        let (distance, snap) = match snapped {
+            Some((distance, snap)) => (distance, Some(snap)),
+            None => {
+                let Some(wanted) = pulled else {
+                    return false;
+                };
+                let rounded = if free {
+                    wanted
+                } else {
+                    (wanted / self.step).round() * self.step
+                };
+                (rounded, None)
+            }
         };
-        let wanted = self.from + grown;
-        let rounded = if free {
-            wanted
-        } else {
-            (wanted / self.step).round() * self.step
-        };
-        let distance = rounded.max(self.step);
-        let changed = distance != self.distance;
+        let distance = distance.max(self.step);
+        let changed = distance != self.distance || snap != self.snapped;
         self.distance = distance;
+        self.snapped = snap;
         changed
     }
 
@@ -332,12 +351,31 @@ impl ReachDrag {
     }
 
     pub fn readout(&self, units: Units) -> String {
-        format!(
+        let shown = format!(
             "{} {}",
             self.reach.caption(),
             units.readout_text(self.distance)
-        )
+        );
+        match self.snapped {
+            Some(snap) => format!("{shown} {}", snap.kind.words()),
+            None => shown,
+        }
     }
+}
+
+pub fn typed(
+    model: &Model,
+    feature: FeatureId,
+    reach: Reach,
+    value: Expression,
+) -> Option<Transaction> {
+    let start = committed_extrude(model, feature)?;
+    let held = held(model, feature, start, reach)?;
+    let mut extrude = start.clone();
+    let mut named = Vec::new();
+    held.set(slot_mut(&mut extrude.extent, reach)?, value, &mut named);
+    let kind = FeatureKind::Solid(SolidFeature::Extrude(extrude));
+    manipulator::keeping_names(model.document(), feature, kind, named)
 }
 
 #[cfg(test)]

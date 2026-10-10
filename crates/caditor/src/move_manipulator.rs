@@ -8,6 +8,7 @@ use caditor_geometry::{
 use caditor_render::{Batch, Color, Fill, Layer, Line, Stroke, View};
 
 use crate::{
+    handle_snap::Snap,
     manipulator::{self, Held},
     model::Model,
     move_panel,
@@ -16,6 +17,7 @@ use crate::{
     solid_panel,
     turn_handles::TurnEnd,
     units::Units,
+    value_gauges::Measured,
 };
 
 pub const ARROW_POINTS: f64 = 96.0;
@@ -43,7 +45,7 @@ pub enum Handle {
     TurnAbout,
     Reach(Reach),
     Place(PlaceGrip),
-    Length,
+    Value(Measured),
     Revolve(TurnEnd),
 }
 
@@ -110,7 +112,7 @@ impl Handle {
             | Self::TurnAbout
             | Self::Reach(_)
             | Self::Place(_)
-            | Self::Length
+            | Self::Value(_)
             | Self::Revolve(_) => Vec::new(),
         }
     }
@@ -132,7 +134,7 @@ impl Handle {
                 format!("Drag to move the body in the {} plane", names.concat())
             }
             Self::Place(grip) => grip.words("it"),
-            Self::Length => "Drag to change the distance".to_owned(),
+            Self::Value(_) => "Drag to change the value".to_owned(),
             Self::Revolve(end) => end.words(),
         }
     }
@@ -342,7 +344,7 @@ impl MoveHandles {
                     .find_map(|axis| held(&move_panel::turn_caption(axis), axis.of(&movement.turn)))
             }
             Handle::TurnAbout => held(move_panel::ANGLE, &movement.about.axis_turn()?.angle),
-            Handle::Reach(_) | Handle::Place(_) | Handle::Length | Handle::Revolve(_) => None,
+            Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => None,
         }
     }
 
@@ -358,7 +360,7 @@ impl MoveHandles {
             | Handle::TurnAbout
             | Handle::Reach(_)
             | Handle::Place(_)
-            | Handle::Length
+            | Handle::Value(_)
             | Handle::Revolve(_) => false,
         });
         let reach = HIT_POINTS * pixels_per_point;
@@ -406,7 +408,7 @@ impl MoveHandles {
                 let index = (along.max(0.0) as usize).min(ring.len() - 1);
                 ring.get(index).copied()
             }
-            Handle::Reach(_) | Handle::Place(_) | Handle::Length | Handle::Revolve(_) => None,
+            Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => None,
         }
     }
 
@@ -555,6 +557,7 @@ pub struct MoveDrag {
     from_angle: f64,
     angle: f64,
     frame: Plane,
+    snapped: Option<Snap>,
 }
 
 impl MoveDrag {
@@ -594,7 +597,38 @@ impl MoveDrag {
             from_angle,
             angle: from_angle,
             frame: manipulator.frame,
+            snapped: None,
         })
+    }
+
+    pub fn snaps(&self) -> bool {
+        matches!(self.handle, Handle::Along(_) | Handle::Across(_))
+    }
+
+    fn snapped_offset(&self, snap: Snap, ray: Ray) -> Option<[f64; 3]> {
+        let mut offset = self.from;
+        match self.handle {
+            Handle::Along(axis) => {
+                let towards = direction(&self.frame, axis);
+                let along = snap.along(self.origin, towards)?;
+                let pulled = point_on(self.handle, &self.frame, self.origin, self.about, ray)
+                    .map(|at| (at - self.grabbed).dot(towards));
+                if !snap.holds(along, pulled, self.step) {
+                    return None;
+                }
+                *offset.get_mut(axis.index())? += along;
+            }
+            Handle::Across(normal) => {
+                let plane = Plane::new(self.origin, direction(&self.frame, normal))?;
+                let landed = plane.to_world(snap.on_plane(&plane)?);
+                for axis in self.handle.moves() {
+                    *offset.get_mut(axis.index())? +=
+                        (landed - self.origin).dot(direction(&self.frame, axis));
+                }
+            }
+            _ => return None,
+        }
+        Some(offset)
     }
 
     fn swept(&self, direction: Vector3, at: Point3, free: bool) -> f64 {
@@ -611,9 +645,19 @@ impl MoveDrag {
         }
     }
 
-    pub fn follow(&mut self, ray: Ray, free: bool) -> bool {
+    pub fn follow(&mut self, ray: Ray, free: bool, snap: Option<Snap>) -> bool {
+        if let Some((offset, snap)) = snap
+            .filter(|_| !free)
+            .and_then(|snap| Some((self.snapped_offset(snap, ray)?, snap)))
+        {
+            let changed = offset != self.offset || self.snapped != Some(snap);
+            self.offset = offset;
+            self.snapped = Some(snap);
+            return changed;
+        }
+        let unsnapped = self.snapped.take().is_some();
         let Some(at) = point_on(self.handle, &self.frame, self.origin, self.about, ray) else {
-            return false;
+            return unsnapped;
         };
         if self.handle == Handle::TurnAbout {
             let angle = self.from_angle + self.swept(self.about, at, free);
@@ -641,7 +685,7 @@ impl MoveDrag {
                 *value += rounded;
             }
         }
-        let changed = offset != self.offset;
+        let changed = offset != self.offset || unsnapped;
         self.offset = offset;
         changed
     }
@@ -725,7 +769,8 @@ impl MoveDrag {
                 units.angle.readout_text(turned)
             );
         }
-        self.handle
+        let moved = self
+            .handle
             .moves()
             .into_iter()
             .filter_map(|axis| {
@@ -739,8 +784,77 @@ impl MoveDrag {
                 ))
             })
             .collect::<Vec<_>>()
-            .join("   ")
+            .join("   ");
+        match self.snapped {
+            Some(snap) => format!("{moved} {}", snap.kind.words()),
+            None => moved,
+        }
     }
+}
+
+pub fn typing(handle: Handle) -> Option<(String, Dimension, usize)> {
+    match handle {
+        Handle::Along(axis) => Some((move_panel::distance_caption(axis), Dimension::LENGTH, 1)),
+        Handle::Across(_) => {
+            let names: Vec<&str> = handle.moves().iter().map(|axis| axis.name()).collect();
+            Some((
+                format!("Move along {}", names.join(" and ")),
+                Dimension::LENGTH,
+                2,
+            ))
+        }
+        Handle::Turn(axis) => Some((move_panel::turn_caption(axis), Dimension::ANGLE, 1)),
+        Handle::TurnAbout => Some((move_panel::ANGLE.to_owned(), Dimension::ANGLE, 1)),
+        Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => None,
+    }
+}
+
+pub fn typed(
+    model: &Model,
+    feature: FeatureId,
+    handle: Handle,
+    values: &[Expression],
+) -> Option<Transaction> {
+    let document = model.document();
+    let FeatureKind::Move(start) = &document.feature(feature)?.kind else {
+        return None;
+    };
+    let held =
+        |caption: &str, expression: &Expression| Held::of(document, feature, caption, expression);
+    let mut movement = start.clone();
+    let mut named = Vec::new();
+    match handle {
+        Handle::Along(_) | Handle::Across(_) => {
+            for (axis, value) in handle.moves().into_iter().zip(values) {
+                let slot = axis.of_mut(&mut movement.offset);
+                held(&move_panel::distance_caption(axis), slot).set(
+                    slot,
+                    value.clone(),
+                    &mut named,
+                );
+            }
+        }
+        Handle::Turn(axis) => {
+            let slot = axis.of_mut(&mut movement.turn);
+            held(&move_panel::turn_caption(axis), slot).set(
+                slot,
+                values.first()?.clone(),
+                &mut named,
+            );
+        }
+        Handle::TurnAbout => {
+            let TurnCentre::Axis(turn) = &mut movement.about else {
+                return None;
+            };
+            held(move_panel::ANGLE, &turn.angle).set(
+                &mut turn.angle,
+                values.first()?.clone(),
+                &mut named,
+            );
+        }
+        Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => return None,
+    }
+    manipulator::keeping_names(document, feature, FeatureKind::Move(movement), named)
 }
 
 fn evaluated(model: &Model, values: &[Expression; 3], dimension: Dimension) -> Option<[f64; 3]> {
@@ -796,7 +910,7 @@ fn point_on(
             let plane = Plane::new(origin, direction(frame, axis))?;
             Some(ray.at(ray.intersect_plane(&plane)?))
         }
-        Handle::Reach(_) | Handle::Place(_) | Handle::Length | Handle::Revolve(_) => None,
+        Handle::Reach(_) | Handle::Place(_) | Handle::Value(_) | Handle::Revolve(_) => None,
     }
 }
 

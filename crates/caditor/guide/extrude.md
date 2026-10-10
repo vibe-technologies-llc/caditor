@@ -27,7 +27,13 @@ In the open panel, click regions in the view to add or leave them out, and
   different heights, and Up to face takes a curved face.
 - While it is open, drag the arrow at the end in the view to change its distance. A named
   distance keeps its name; one that follows other parameters does not drag (see
-  [parameters](parameters)).
+  [parameters](parameters)). An arrow at the edge of the end drags the **Taper**, one standing on
+  an Up to face end drags how far it goes past the face, and a thin wall has an arrow for its
+  **Thickness**.
+- A dragged arrow stops on a corner, an edge's middle or a round edge's centre under the pointer,
+  and pulls to a flat face it passes, the readout saying what it stopped at; hold Ctrl to drag
+  freely. With the pointer on an arrow, type a value and press Enter to set that field exactly;
+  it is previewed as you type, and Escape leaves it as it was.
 - {command:model.reverse_direction} sends a one-sided extrusion the other way, like the panel's
   **Reverse direction**.
 
