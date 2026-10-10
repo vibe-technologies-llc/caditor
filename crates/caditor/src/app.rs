@@ -931,6 +931,9 @@ pub fn show(
     let menu_toggles = ToggleStates::of(viewport, section.open);
     let entries = MenuEntries::new(&offers, menu_toggles, &preferences.keymap);
     deferred_commands.extend(viewport.show_menu(ui.ctx(), model, editing, entries, blocked));
+    if let Some(feature) = viewport.take_row_to_choose() {
+        panels.choose_only(feature);
+    }
     for (command, reason) in refused {
         actions.push(Action::Inform(Notice::warning(format!(
             "{}: {reason}",

@@ -546,14 +546,6 @@ a note saying why; it loses the tag when its change lands, like any implemented 
   `field::dimension_transaction` or the feature's `SetFeatureKind`, as SolidWorks shows a
   feature's dimensions on double-click. Which dimensions show for a hidden sketch or a sketch
   several features use needs a rule.
-- [medium · easy] The view's context menu on a face, edge or body (`view_menu::model_item`) offers
-  editing, hiding, looking, fitting, measuring and selecting, but none of the tools that would take
-  the selection: Fillet and Chamfer on edges; New sketch, Extrude, Hole, Offset face, Shell and
-  Split face on a flat face; Move, Copy, Mirror, Pattern and Split on a body; Suppress, Rename and
-  Delete for the feature that made it. Its entries are already `Command`s drawn from the frame's
-  offers, so the fitting ones could be listed by what the selection holds (left out rather than
-  disabled where they never apply, as Look at face is), a right-click route to the next step like
-  Fusion's marking menu.
 - [medium · medium] Expression fields complete nothing: a parameter's name is typed exactly from
   memory or looked up in the Parameters panel. Typing in a `field::commit_field` could list the
   parameters whose names start with what is typed, with their values, Tab taking one; and while a

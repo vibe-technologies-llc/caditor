@@ -1,17 +1,23 @@
+use std::collections::BTreeSet;
+
+use caditor_document::FeatureId;
 use caditor_geometry::Vector2;
 use egui::{
     Align, Context, Id, LayerId, Layout, Order, Popup, PopupAnchor, PopupCloseBehavior, PopupKind,
-    Pos2, Ui, containers::menu::menu_style,
+    Pos2, RectAlign, Ui, Vec2, containers::menu::menu_style, vec2,
 };
 
 use crate::{
+    body_selection::{self, Kind},
     commands::{Command, StandardView},
     editing::Tool,
     icons,
     menu_bar::{self, MenuEntries},
-    selection::SelectionFilter,
+    model::Model,
+    selection::{Pickable, Selection, SelectionFilter},
+    sketch_placement::{self, SketchTarget},
     sketch_tools::ConstraintTool,
-    widgets,
+    viewport, widgets,
 };
 
 const MENU_ID: &str = "view-menu";
@@ -30,6 +36,43 @@ pub const FIT_ALL: &str = "Fit all";
 pub const DELETE: &str = "Delete";
 pub const CONSTRUCTION: &str = "Construction geometry";
 pub const CANCEL_FEATURE: &str = "Cancel the changes";
+pub const BODY_TOOLS: &str = "Body";
+pub const MODIFY: &str = "Modify";
+pub const FEATURE_COMMANDS: [Command; 3] = [
+    Command::SuppressFeature,
+    Command::RenameFeature,
+    Command::DeleteFeature,
+];
+const EDGE_TOOLS: [Command; 2] = [Command::Fillet, Command::Chamfer];
+const FACE_TOOLS: [Command; 7] = [
+    Command::Extrude,
+    Command::Hole,
+    Command::OffsetFace,
+    Command::Shell,
+    Command::SplitFace,
+    Command::Thread,
+    Command::MirrorFaces,
+];
+const SKETCH_TOOLS: [Command; 2] = [Command::Extrude, Command::Revolve];
+const BODY_COMMANDS: [Command; 8] = [
+    Command::Move,
+    Command::CopyBody,
+    Command::Mirror,
+    Command::LinearPattern,
+    Command::CircularPattern,
+    Command::Split,
+    Command::Scale,
+    Command::Combine,
+];
+const SKETCH_MODIFYING: [Tool; 7] = [
+    Tool::Offset,
+    Tool::Mirror,
+    Tool::RectangularPattern,
+    Tool::CircularPattern,
+    Tool::Fillet,
+    Tool::Chamfer,
+    Tool::TangentCircle,
+];
 pub const CLOSE_FEATURE: &str = "Finish editing";
 const GROWING: [(Command, &str); 7] = [
     (Command::SelectBody, "The whole body"),
@@ -75,6 +118,116 @@ impl Place {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MadeBy {
+    feature: FeatureId,
+    name: String,
+    asks: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Held {
+    faces: bool,
+    edges: bool,
+    bodies: bool,
+    whole_bodies: bool,
+    sketch: bool,
+    plane: bool,
+    made_by: Option<MadeBy>,
+}
+
+impl Held {
+    pub fn of(model: &Model, selection: &Selection) -> Self {
+        let items: Vec<Pickable> = selection.iter().collect();
+        let bodies: BTreeSet<FeatureId> = items
+            .iter()
+            .filter_map(|pickable| match pickable {
+                Pickable::Face { body, .. }
+                | Pickable::Edge { body, .. }
+                | Pickable::Vertex { body, .. } => Some(*body),
+                _ => None,
+            })
+            .collect();
+        let whole_bodies = !bodies.is_empty()
+            && items
+                .iter()
+                .all(|pickable| matches!(pickable, Pickable::Face { .. }))
+            && bodies.iter().all(|body| {
+                body_selection::whole_bodies(model, &[*body], Kind::Faces)
+                    .into_iter()
+                    .all(|face| selection.contains(face))
+            });
+        let feature = match (whole_bodies, bodies.first()) {
+            (true, Some(body)) if bodies.len() == 1 => Some(*body),
+            (true, _) => None,
+            (false, _) => sole_feature(model, &items),
+        };
+        let document = model.document();
+        let made_by = feature.and_then(|id| {
+            let feature = document.feature(id)?;
+            Some(MadeBy {
+                feature: id,
+                name: feature.name.clone(),
+                asks: !document.dependents_of(&[id]).is_empty(),
+            })
+        });
+        let holds = |kind: fn(&Pickable) -> bool| items.iter().any(kind);
+        Self {
+            faces: !whole_bodies && holds(|pickable| matches!(pickable, Pickable::Face { .. })),
+            edges: holds(|pickable| matches!(pickable, Pickable::Edge { .. })),
+            bodies: !bodies.is_empty(),
+            whole_bodies,
+            sketch: holds(|pickable| {
+                matches!(
+                    pickable,
+                    Pickable::SketchEntity { .. } | Pickable::SketchRegion { .. }
+                )
+            }),
+            plane: matches!(
+                sketch_placement::sketch_target(model, selection),
+                Ok(SketchTarget::Face(_) | SketchTarget::Datum(_) | SketchTarget::Principal(_))
+            ),
+            made_by,
+        }
+    }
+
+    pub fn feature(&self) -> Option<FeatureId> {
+        self.made_by.as_ref().map(|made_by| made_by.feature)
+    }
+
+    fn tools(&self) -> Vec<Command> {
+        let mut tools = Vec::new();
+        if self.plane {
+            tools.push(Command::NewSketch);
+        }
+        let kinds = [
+            (self.edges, EDGE_TOOLS.as_slice()),
+            (self.faces, FACE_TOOLS.as_slice()),
+            (self.sketch, SKETCH_TOOLS.as_slice()),
+        ];
+        for command in kinds
+            .into_iter()
+            .filter(|(held, _)| *held)
+            .flat_map(|(_, commands)| commands)
+        {
+            if !tools.contains(command) {
+                tools.push(*command);
+            }
+        }
+        tools
+    }
+}
+
+fn sole_feature(model: &Model, items: &[Pickable]) -> Option<FeatureId> {
+    let mut features = items
+        .iter()
+        .map(|pickable| viewport::feature_of(*pickable, model));
+    let first = features.next()??;
+    features
+        .all(|feature| feature == Some(first))
+        .then_some(first)
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Outcome {
     Open,
@@ -94,20 +247,30 @@ pub struct ViewMenu {
     anchor: Pos2,
     cursor: Vector2,
     place: Place,
+    held: Held,
     revision: u64,
     serial: u64,
     showing: Showing,
+    size: Option<Vec2>,
 }
 
 impl ViewMenu {
-    pub fn new(anchor: Pos2, cursor: Vector2, place: Place, revision: u64, serial: u64) -> Self {
+    pub fn new(
+        anchor: Pos2,
+        cursor: Vector2,
+        (place, held): (Place, Held),
+        revision: u64,
+        serial: u64,
+    ) -> Self {
         Self {
             anchor,
             cursor,
             place,
+            held,
             revision,
             serial,
             showing: Showing::Waiting,
+            size: None,
         }
     }
 
@@ -122,6 +285,10 @@ impl ViewMenu {
 
     pub fn cursor(&self) -> Vector2 {
         self.cursor
+    }
+
+    pub fn held(&self) -> &Held {
+        &self.held
     }
 
     pub fn opened(&self) -> u64 {
@@ -141,17 +308,25 @@ impl ViewMenu {
         self.showing = Showing::Shown;
         let id = Id::new(MENU_ID).with(self.serial);
         let place = self.place;
+        let held = &self.held;
+        let opening = widgets::menu_opening_down(ctx, self.anchor, self.size);
         let shown = Popup::new(
             id,
             ctx.clone(),
-            PopupAnchor::Position(self.anchor),
+            PopupAnchor::Position(opening),
             LayerId::new(Order::Foreground, id),
         )
         .kind(PopupKind::Menu)
+        .align(RectAlign::BOTTOM_START)
+        .align_alternatives(&[])
         .layout(Layout::top_down_justified(Align::Min))
         .style(menu_style)
         .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
-        .show(|ui| widgets::fitted_menu(ui, |ui| contents(ui, place, &mut entries)));
+        .show(|ui| widgets::measured_menu(ui, |ui| contents(ui, place, held, &mut entries)));
+        if let Some(shown) = &shown {
+            let (_, height) = shown.inner;
+            self.size = Some(vec2(shown.response.rect.width(), height));
+        }
         let chosen = entries.take_chosen();
         if !chosen.is_empty() {
             return Outcome::Chosen(chosen);
@@ -163,7 +338,7 @@ impl ViewMenu {
     }
 }
 
-fn contents(ui: &mut Ui, place: Place, entries: &mut MenuEntries<'_>) {
+fn contents(ui: &mut Ui, place: Place, held: &Held, entries: &mut MenuEntries<'_>) {
     match place {
         Place::Model {
             on_item,
@@ -175,7 +350,7 @@ fn contents(ui: &mut Ui, place: Place, entries: &mut MenuEntries<'_>) {
             }
             repeat(ui, entries);
             if on_item {
-                model_item(ui, entries);
+                model_item(ui, entries, held);
             } else {
                 model_space(ui, entries, selected);
             }
@@ -211,7 +386,7 @@ fn open_feature(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
     ui.separator();
 }
 
-fn model_item(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
+fn model_item(ui: &mut Ui, entries: &mut MenuEntries<'_>, held: &Held) {
     let edit = match entries.detail(Command::EditFeature) {
         Some(name) => format!("Edit {name}"),
         None => Command::EditFeature.title(),
@@ -219,6 +394,13 @@ fn model_item(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
     entries.titled_item(ui, Command::EditFeature, &edit);
     entries.offered(ui, Command::EditSketch, &Command::EditSketch.title());
     ui.separator();
+    if fitting_tools(ui, entries, held) {
+        ui.separator();
+    }
+    if let Some(made_by) = &held.made_by {
+        made_by_entries(ui, entries, made_by);
+        ui.separator();
+    }
     entries.titled_item(ui, Command::HideSelection, HIDE);
     entries.titled_item(ui, Command::HideOthers, HIDE_OTHERS);
     entries.titled_item(ui, Command::ShowAll, SHOW_ALL);
@@ -241,6 +423,42 @@ fn model_item(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
         for command in more {
             entries.offered(ui, command, &command.title());
         }
+    }
+}
+
+fn fitting_tools(ui: &mut Ui, entries: &mut MenuEntries<'_>, held: &Held) -> bool {
+    let tools: Vec<Command> = held
+        .tools()
+        .into_iter()
+        .filter(|command| entries.is_available(*command))
+        .collect();
+    let body: Vec<Command> = BODY_COMMANDS
+        .into_iter()
+        .filter(|command| held.bodies && entries.is_available(*command))
+        .collect();
+    entries.items(ui, tools.iter().copied());
+    match body.first() {
+        Some(_) if tools.is_empty() || held.whole_bodies => {
+            entries.items(ui, body.iter().copied());
+        }
+        Some(first) => menu_bar::submenu(ui, icons::command(*first), BODY_TOOLS, |ui| {
+            entries.items(ui, body.iter().copied());
+        }),
+        None => {}
+    }
+    !tools.is_empty() || !body.is_empty()
+}
+
+fn made_by_entries(ui: &mut Ui, entries: &mut MenuEntries<'_>, made_by: &MadeBy) {
+    let name = &made_by.name;
+    let asking = if made_by.asks { "…" } else { "" };
+    let titles = [
+        format!("Suppress {name}"),
+        format!("Rename {name}"),
+        format!("Delete {name}{asking}"),
+    ];
+    for (command, title) in FEATURE_COMMANDS.into_iter().zip(titles) {
+        entries.titled_item_with(ui, command, &title, Ok(()));
     }
 }
 
@@ -282,6 +500,7 @@ fn sketch(ui: &mut Ui, entries: &mut MenuEntries<'_>, on_item: bool) {
             "Break the curves where they cross",
         );
         entries.titled_item(ui, Command::DeleteSelection, DELETE);
+        sketch_modifying(ui, entries);
         ui.separator();
         titled_submenu(ui, entries, Command::MoveGeometry, TRANSFORM, &TRANSFORMING);
         for (command, title) in CLIPBOARD {
@@ -297,6 +516,19 @@ fn sketch(ui: &mut Ui, entries: &mut MenuEntries<'_>, on_item: bool) {
     entries.item(ui, Command::SketchTool(Tool::Dimension));
     ui.separator();
     entries.item(ui, Command::FinishSketch);
+}
+
+fn sketch_modifying(ui: &mut Ui, entries: &mut MenuEntries<'_>) {
+    let offered: Vec<Command> = SKETCH_MODIFYING
+        .into_iter()
+        .map(Command::SketchTool)
+        .filter(|command| entries.is_available(*command))
+        .collect();
+    if let Some(first) = offered.first() {
+        menu_bar::submenu(ui, icons::command(*first), MODIFY, |ui| {
+            entries.items(ui, offered.iter().copied());
+        });
+    }
 }
 
 fn constraints(ui: &mut Ui, entries: &mut MenuEntries<'_>) {

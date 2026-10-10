@@ -9,13 +9,18 @@ what a click would take, with its name.
 
 Right-click in the view for what you can do with what lies under the pointer. A right-click on
 something not selected selects it alone first; on something selected, or on empty space, the
-selection stays as it is. Over the model it offers editing the feature, hiding, looking at a
-face, fitting, measuring, growing the selection and listing everything under the pointer; over
-empty space the views, Show everything, pasting features and the selection filter; while a
-feature is open, reversing its direction, cancelling its changes or finishing it. A right-drag
-still turns the view and never opens the menu. {command:view.context_menu} opens it from the
-keyboard at the highlighted item or the selection. Entries that cannot run now are dimmed and say
-why when you point at them.
+selection stays as it is. Over the model it offers editing the feature, then the tools that take
+what is selected: New sketch on a flat face or plane, Fillet and Chamfer on edges, Extrude, Hole,
+Offset face, Shell, Split face and Thread on faces, and Move, Copy, Mirror, Pattern, Split and
+Scale for the body, under **Body** unless the whole body is selected. Then come Suppress, Rename
+and Delete for the feature that made the selection, hiding, looking at a face, fitting,
+measuring, growing the selection and listing everything under the pointer. Over empty space it
+offers the views, Show everything, pasting features and the selection filter; while a feature is
+open, reversing its direction, cancelling its changes or finishing it. A right-drag still turns
+the view and never opens the menu. {command:view.context_menu} opens it from the keyboard at the
+highlighted item or the selection, and each entry shows its keys. Tools that do not fit the
+selection are left out; other entries that cannot run now are dimmed and say why when you point
+at them.
 
 ## Boxes, lassos and painting
 

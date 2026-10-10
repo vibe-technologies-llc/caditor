@@ -1475,12 +1475,29 @@ pub fn menu_room(ui: &Ui) -> f32 {
 }
 
 pub fn fitted_menu<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    measured_menu(ui, add).0
+}
+
+pub fn measured_menu<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> (R, f32) {
     let room = menu_room(ui);
     ui.set_max_height(room);
-    egui::ScrollArea::vertical()
-        .max_height(room)
-        .show(ui, add)
-        .inner
+    let margins = ui.spacing().menu_margin.sum().y;
+    let shown = ScrollArea::vertical().max_height(room).show(ui, add);
+    (shown.inner, shown.content_size.y + margins)
+}
+
+pub fn menu_opening_down(
+    ctx: &egui::Context,
+    anchor: egui::Pos2,
+    size: Option<Vec2>,
+) -> egui::Pos2 {
+    let screen = ctx.content_rect();
+    let Some(size) = size else {
+        return anchor;
+    };
+    let farthest = screen.right_bottom() - size - vec2(DIALOG_EDGE, DIALOG_EDGE);
+    let nearest = screen.left_top() + vec2(DIALOG_EDGE, DIALOG_EDGE);
+    anchor.min(farthest).max(nearest)
 }
 
 pub fn menu_item(ui: &mut Ui, glyph: &str, title: &str, keys: Option<String>) -> Response {

@@ -75,7 +75,7 @@ use crate::{
     view_aids::ViewAids,
     view_cube::{self, CubeAction, CubeTexts},
     view_history::{Gesture, ViewHistory},
-    view_menu::{self, Place, ViewMenu},
+    view_menu::{self, Held, Place, ViewMenu},
     visibility,
 };
 
@@ -335,6 +335,7 @@ pub struct ViewportState {
     menu_waits_for_pick: bool,
     menus_opened: u64,
     list_at: Option<Vector2>,
+    row_to_choose: Option<FeatureId>,
     typed_point: TypedPoint,
     typed_owner: Option<(FeatureId, Tool)>,
     moving: Option<Moving>,
@@ -534,6 +535,7 @@ impl ViewportState {
             menu_waits_for_pick: false,
             menus_opened: 0,
             list_at: None,
+            row_to_choose: None,
             typed_point: TypedPoint::default(),
             typed_owner: None,
             moving: None,
@@ -798,6 +800,10 @@ impl ViewportState {
 
     pub fn hover_row(&mut self, row: Option<FeatureId>) {
         self.hovered_row = row;
+    }
+
+    pub fn take_row_to_choose(&mut self) -> Option<FeatureId> {
+        self.row_to_choose.take()
     }
 
     pub fn take_tree_dismissal(&mut self) -> bool {
@@ -3859,12 +3865,16 @@ impl ViewportState {
         let at = cursor / f64::from(self.pixels_per_point);
         let anchor = rect.min + vec2(at.x as f32, at.y as f32);
         let place = self.menu_place(editing, on_item);
+        let held = match place {
+            Place::Model { on_item: true, .. } => Held::of(model, &self.selection),
+            Place::Model { .. } | Place::Sketch { .. } | Place::Shape => Held::default(),
+        };
         self.pick_list = None;
         self.menus_opened += 1;
         self.context_menu = Some(ViewMenu::new(
             anchor,
             cursor,
-            place,
+            (place, held),
             model.revision(),
             self.menus_opened,
         ));
@@ -3939,6 +3949,12 @@ impl ViewportState {
             view_menu::Outcome::Chosen(chosen) => {
                 if chosen.contains(&Command::ListUnderPointer) {
                     self.list_at = Some(menu.cursor());
+                }
+                if chosen
+                    .iter()
+                    .any(|command| view_menu::FEATURE_COMMANDS.contains(command))
+                {
+                    self.row_to_choose = menu.held().feature();
                 }
                 self.context_menu = None;
                 chosen
