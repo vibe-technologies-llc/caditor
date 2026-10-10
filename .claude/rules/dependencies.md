@@ -21,7 +21,8 @@ paths:
 - `wayland-client` takes `system` (libwayland-client's backend) and `dlopen`: `caditor-wayland`
   works on winit's own Wayland connection, and only the system backend can adopt a foreign
   `wl_display` (the pure-Rust backend owns its socket). winit already loads that library at run
-  time through the same backend, so nothing new is linked or loaded.
+  time through the same backend, so nothing new is linked or loaded. `wayland-protocols` takes
+  `client` and `unstable` only, for `xdg-foreign` (the window's export for portal dialogs).
 - A dependency only one platform uses goes in the member's `[target.'cfg(unix)'.dependencies]` or
   `[target.'cfg(windows)'.dependencies]` (`rustix`, `xattr`, `signal-hook`, `zbus`,
   `caditor-wayland` on Unix; `caditor-windows`, `rfd` on Windows). A build dependency stays

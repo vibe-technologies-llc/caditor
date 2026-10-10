@@ -7,7 +7,8 @@ paths:
 # Wayland
 
 winit 0.30 reports no `HoveredFile` or `DroppedFile` on Wayland and egui-winit pins it, so the
-Wayland protocol work winit leaves out is done on winit's own connection by `caditor-wayland`.
+Wayland protocol work winit leaves out (dropped files, the export of the window for portal
+dialogs) is done on winit's own connection by `caditor-wayland`.
 
 ## `caditor-wayland`, the Wayland boundary
 
@@ -20,14 +21,28 @@ Wayland protocol work winit leaves out is done on winit's own connection by `cad
   winit's `wl_display` in a guest `wayland-client` `Connection` (`Backend::from_foreign_display`,
   the system backend, `dependencies.md`) and the window's `wl_surface` as a proxy on it, and holds
   the window `Arc` for as long as they live, which is what makes the two calls sound. Anything
-  else that needs winit's connection (the `xdg-foreign` export the portal dialogs want, `TODO.md`)
-  starts from it with its own event queue and globals.
+  else that needs winit's connection (`DropTarget`, `ToplevelExport`) starts from it with its own
+  event queue and globals.
 - A guest connection's objects and queue are destroyed when it is dropped, which needs winit's
   display still connected: the owner is dropped with the `Session` in `exiting`, before winit's
   event loop.
 - Its queue is never read on a thread of its own: winit's loop reads the socket, which sorts the
   events into every queue, and calls `about_to_wait` after each wake, where the app dispatches the
-  pending events (`DropTarget::events`) and flushes what they asked.
+  pending events (`DropTarget::events`, `ToplevelExport::handle`) and flushes what they asked.
+
+## The window as the portal dialogs' parent
+
+- `ToplevelExport` (`export.rs`) binds `zxdg_exporter_v2` (`wayland-protocols`' `unstable` feature,
+  `dependencies.md`) and exports the window's toplevel once it exists. The compositor answers with
+  a handle event, which `handle()` returns as `wayland:<handle>`, the form the portal's
+  `parent_window` takes, as soon as it has arrived (`None` before). A compositor without the
+  protocol is `AttachError::NoExporter`.
+- The export is kept for the window's life, since destroying `zxdg_exported_v2` invalidates the
+  handle; it is destroyed with the `Session`.
+- `window_export.rs` polls it from `about_to_wait` until the handle arrives and then hands it to
+  `portal::own_dialogs(ParentWindow::Wayland(..))`; until then, and when the export is missing or
+  fails (logged), dialogs get the empty parent as before. On X11 and Windows `WindowExport` has
+  nothing to do.
 
 ## Files dragged onto the window
 
@@ -55,4 +70,5 @@ Wayland protocol work winit leaves out is done on winit's own connection by `cad
   X11 and Windows `FileDrops` has nothing to do.
 - Checking by hand: run caditor on a Wayland session and drag files from a file manager; the
   outline and card appear once the list is read, leaving the window clears them, and a drop opens
-  or imports as on X11. `WAYLAND_DEBUG=client` shows the `wl_data_device` traffic.
+  or imports as on X11. `WAYLAND_DEBUG=client` shows the `wl_data_device` traffic, and for the
+  export a `zxdg_exporter_v2#N.export_toplevel` followed by `zxdg_exported_v2#M.handle("...")`.

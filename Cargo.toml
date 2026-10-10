@@ -78,6 +78,11 @@ spade = "2.15.1"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 wayland-client = "0.31.15"
+wayland-protocols = {
+    version = "0.32.13",
+    default-features = false,
+    features = ["client", "unstable"]
+}
 wgpu = {
     version = "30.0.1",
     default-features = false,
